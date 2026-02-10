@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Denied - JP Jewellery Estimations</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-red-900 to-gray-900 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 text-center">
+        <!-- Error Icon -->
+        <div class="text-8xl mb-6">🚫</div>
+        
+        <h1 class="text-3xl font-bold text-red-600 mb-4">Access Denied</h1>
+        
+        <div id="messageContainer" class="mb-6">
+            <p id="mainMessage" class="text-gray-700 text-lg mb-2">
+                You do not have permission to access this system.
+            </p>
+            <p id="subMessage" class="text-gray-500 text-sm">
+                Please contact the administrator for access.
+            </p>
+        </div>
+        
+        <!-- User Email Display (if available) -->
+        <div id="emailDisplay" class="hidden bg-gray-100 rounded-lg p-4 mb-6">
+            <p class="text-sm text-gray-600">Attempted login with:</p>
+            <p id="userEmail" class="font-mono text-gray-800 font-bold"></p>
+        </div>
+        
+        <!-- Reason Card -->
+        <div id="reasonCard" class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 text-left">
+            <h3 class="font-bold text-red-800 mb-1">Why am I seeing this?</h3>
+            <p id="reasonText" class="text-red-700 text-sm">
+                Your email is not registered in the system.
+            </p>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="space-y-3">
+            <a href="/" 
+               class="block w-full px-6 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-bold transition transform hover:scale-105">
+                ← Back to Login
+            </a>
+            <button onclick="requestAccess()" 
+                class="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold transition">
+                📧 Request Access
+            </button>
+        </div>
+        
+        <!-- Contact Info -->
+        <div class="mt-8 pt-6 border-t border-gray-200">
+            <p class="text-sm text-gray-500">Need help? Contact the administrator:</p>
+            <p class="text-amber-600 font-bold">jaigaurav56789@gmail.com</p>
+        </div>
+        
+        <div class="mt-4 text-xs text-gray-400">
+            © 2025 Gaurav Softwares. All rights reserved.
+        </div>
+    </div>
+
+    <script>
+        // Parse URL parameters for error reason
+        const urlParams = new URLSearchParams(window.location.search);
+        const reason = urlParams.get('reason');
+        const email = urlParams.get('email');
+        
+        const messages = {
+            'ACCESS_DENIED': {
+                main: 'Your email is not registered.',
+                sub: 'Only authorized users can access this system.',
+                reason: 'Your email address has not been added to the system by an administrator. Please contact the admin to request access.'
+            },
+            'suspended': {
+                main: 'Your account has been suspended.',
+                sub: 'Contact the administrator for assistance.',
+                reason: 'Your account access has been revoked by an administrator. This may be due to policy violations or administrative decisions.'
+            },
+            'pending': {
+                main: 'Your account is pending approval.',
+                sub: 'Please wait for the administrator to approve your access.',
+                reason: 'Your account registration is awaiting admin approval. You will be notified once approved.'
+            },
+            'rejected': {
+                main: 'Your access request was rejected.',
+                sub: 'Contact the administrator if you believe this is an error.',
+                reason: 'Your access request has been reviewed and rejected. Please contact the administrator for more information.'
+            },
+            'admin_required': {
+                main: 'Admin Access Required',
+                sub: 'This page is restricted to administrators only.',
+                reason: 'You are trying to access an admin-only feature. Only users with admin role can access this area.'
+            },
+            'insufficient_permissions': {
+                main: 'Insufficient Permissions',
+                sub: 'You do not have permission to access this resource.',
+                reason: 'Your current role does not include access to this feature. Contact admin if you need access.'
+            },
+            'not_active': {
+                main: 'Account Not Active',
+                sub: 'Your account is not currently active.',
+                reason: 'Your account needs to be activated by an administrator before you can access the system.'
+            }
+        };
+        
+        // Set message based on reason
+        if (reason && messages[reason]) {
+            document.getElementById('mainMessage').textContent = messages[reason].main;
+            document.getElementById('subMessage').textContent = messages[reason].sub;
+            document.getElementById('reasonText').textContent = messages[reason].reason;
+        }
+        
+        // Show email if provided
+        if (email) {
+            document.getElementById('emailDisplay').classList.remove('hidden');
+            document.getElementById('userEmail').textContent = email;
+        }
+        
+        // Request access function
+        function requestAccess() {
+            const userEmail = email || prompt('Enter your email address:');
+            if (!userEmail) return;
+            
+            const subject = encodeURIComponent('Access Request - JP Jewellery Estimations');
+            const body = encodeURIComponent(`Hello,
+
+I would like to request access to the JP Jewellery Estimations system.
+
+Email: ${userEmail}
+Reason for access: [Please describe your role/purpose]
+
+Thank you.`);
+            
+            window.location.href = `mailto:jaigaurav56789@gmail.com?subject=${subject}&body=${body}`;
+        }
+        
+        // Prevent back button from going to protected pages
+        history.pushState(null, null, location.href);
+        window.onpopstate = function () {
+            history.go(1);
+        };
+    </script>
+</body>
+</html>

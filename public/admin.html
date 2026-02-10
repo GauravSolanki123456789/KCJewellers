@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - JP Jewellery Estimations</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen p-8">
+    <div class="max-w-7xl mx-auto">
+        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden mb-6">
+            <div class="bg-gradient-to-r from-amber-600 to-orange-600 text-white p-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-3xl font-bold mb-2">🔧 Admin Control Panel</h1>
+                        <p class="text-amber-100">System Administration & User Management</p>
+                    </div>
+                    <a href="/" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white">
+                        ← Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="bg-white rounded-xl shadow-lg mb-6 p-4">
+            <div class="flex gap-2 flex-wrap">
+                <button onclick="showAdminTab('users')" id="tabUsers" 
+                    class="px-4 py-2 bg-amber-600 text-white rounded-lg font-medium">👤 User Management</button>
+                <button onclick="showAdminTab('database')" id="tabDatabase"
+                    class="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium">🗄️ Database</button>
+                <button onclick="showAdminTab('system')" id="tabSystem"
+                    class="px-4 py-2 bg-green-600 text-white rounded-lg font-medium">📊 System Info</button>
+                <button onclick="showAdminTab('settings')" id="tabSettings"
+                    class="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium">⚙️ Settings</button>
+            </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div id="adminTabUsers" class="admin-tab">
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold">User Management</h2>
+                    <button onclick="loadUsers()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                        🔄 Refresh
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 border-b">
+                                <th class="p-3 font-bold">Name</th>
+                                <th class="p-3 font-bold">Email</th>
+                                <th class="p-3 font-bold">Phone</th>
+                                <th class="p-3 font-bold">Role</th>
+                                <th class="p-3 font-bold">Status</th>
+                                <th class="p-3 font-bold">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersList">
+                            <tr><td colspan="6" class="p-4 text-center text-gray-500">Loading users...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Database Tab -->
+        <div id="adminTabDatabase" class="admin-tab hidden">
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">Database Tables</h2>
+                <div id="tablesList" class="grid grid-cols-4 gap-2">
+                    <button onclick="loadTable('products')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">products</button>
+                    <button onclick="loadTable('customers')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">customers</button>
+                    <button onclick="loadTable('bills')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">bills</button>
+                    <button onclick="loadTable('quotations')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">quotations</button>
+                    <button onclick="loadTable('users')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">users</button>
+                    <button onclick="loadTable('rates')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">rates</button>
+                    <button onclick="loadTable('ledger_transactions')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">ledger_transactions</button>
+                    <button onclick="loadTable('sales_returns')" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-sm">sales_returns</button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">SQL Query Interface</h2>
+                <p class="text-sm text-gray-600 mb-2">Note: Only SELECT queries are allowed for security</p>
+                <textarea id="sqlQuery" rows="5" 
+                    class="w-full px-4 py-2 border rounded-lg font-mono text-sm"
+                    placeholder="SELECT * FROM products LIMIT 10;"></textarea>
+                <button onclick="executeQuery()" class="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                    ▶️ Execute Query
+                </button>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-xl font-bold mb-4">Query Results</h2>
+                <div id="queryResults" class="overflow-x-auto">
+                    <p class="text-gray-500">No query executed yet</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Tab -->
+        <div id="adminTabSystem" class="admin-tab hidden">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold mb-2">📦 Products</h3>
+                    <p class="text-3xl font-bold text-blue-600" id="statProducts">-</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold mb-2">👥 Customers</h3>
+                    <p class="text-3xl font-bold text-green-600" id="statCustomers">-</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold mb-2">📄 Bills</h3>
+                    <p class="text-3xl font-bold text-purple-600" id="statBills">-</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold mb-4">Current Rates</h3>
+                    <div id="currentRates" class="space-y-2">Loading...</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-bold mb-4">System Status</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span>Server Status:</span>
+                            <span class="text-green-600 font-bold">✅ Online</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Database:</span>
+                            <span class="text-green-600 font-bold" id="dbStatus">Checking...</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Environment:</span>
+                            <span class="font-bold" id="envMode">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="adminTabSettings" class="admin-tab hidden">
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">App Update</h2>
+                <p class="text-gray-600 mb-4">Check for and install the latest app updates.</p>
+                <button onclick="updateSoftware()" 
+                    class="px-6 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-bold">
+                    🔄 Update App
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">Change Admin Password</h2>
+                <div class="space-y-4 max-w-md">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Current Password</label>
+                        <input type="password" id="currentPassword" class="w-full px-4 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">New Password</label>
+                        <input type="password" id="newPassword" class="w-full px-4 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Confirm New Password</label>
+                        <input type="password" id="confirmPassword" class="w-full px-4 py-2 border rounded-lg">
+                    </div>
+                    <button onclick="changePassword()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        Change Password
+                    </button>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-xl font-bold mb-4">Backup Database</h2>
+                <p class="text-gray-600 mb-4">Create a backup of the current database.</p>
+                <button onclick="backupDatabase()" 
+                    class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold">
+                    💾 Download Backup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab Management
+        function showAdminTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.admin-tab').forEach(tab => {
+                tab.classList.add('hidden');
+            });
+            
+            // Reset all tab buttons
+            document.querySelectorAll('[id^="tab"]').forEach(btn => {
+                btn.classList.remove('bg-amber-600');
+                btn.classList.add('bg-gray-400');
+            });
+            
+            // Show selected tab
+            const tabId = `adminTab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`;
+            const tabElement = document.getElementById(tabId);
+            if (tabElement) {
+                tabElement.classList.remove('hidden');
+            }
+            
+            // Highlight selected tab button
+            const btnId = `tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`;
+            const btnElement = document.getElementById(btnId);
+            if (btnElement) {
+                btnElement.classList.remove('bg-gray-400');
+                btnElement.classList.add('bg-amber-600');
+            }
+            
+            // Load tab data
+            if (tabName === 'users') loadUsers();
+            if (tabName === 'system') loadSystemStats();
+        }
+
+        // Load Users
+        async function loadUsers() {
+            const list = document.getElementById('usersList');
+            list.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-500">Loading users...</td></tr>';
+            
+            try {
+                const response = await fetch('/api/admin/users');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const users = await response.json();
+                
+                if (users.length === 0) {
+                    list.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-500">No users found.</td></tr>';
+                    return;
+                }
+                
+                list.innerHTML = users.map(user => `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="p-3">
+                            <div class="font-bold">${user.name || 'N/A'}</div>
+                            <div class="text-xs text-gray-500">ID: ${user.id}</div>
+                        </td>
+                        <td class="p-3">${user.email}</td>
+                        <td class="p-3">${user.phone_number || '-'}</td>
+                        <td class="p-3">
+                            <select onchange="updateUserRole(${user.id}, this.value)" 
+                                class="text-xs border rounded p-1 ${user.role === 'admin' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50'}">
+                                <option value="employee" ${user.role === 'employee' ? 'selected' : ''}>Employee</option>
+                                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+                            </select>
+                        </td>
+                        <td class="p-3">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold 
+                                ${user.account_status === 'active' ? 'bg-green-100 text-green-800' : 
+                                  user.account_status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                                  'bg-red-100 text-red-800'}">
+                                ${user.account_status.toUpperCase()}
+                            </span>
+                        </td>
+                        <td class="p-3">
+                            <div class="flex gap-2">
+                                ${user.account_status !== 'active' ? `
+                                    <button onclick="updateUserStatus(${user.id}, 'active')" 
+                                        class="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">
+                                        Approve
+                                    </button>
+                                ` : ''}
+                                ${user.account_status !== 'rejected' ? `
+                                    <button onclick="updateUserStatus(${user.id}, 'rejected')" 
+                                        class="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">
+                                        Reject
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading users:', error);
+                list.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-600">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        async function updateUserStatus(userId, status) {
+            if (!confirm(`Update user status to ${status}?`)) return;
+            
+            try {
+                const response = await fetch(`/api/admin/users/${userId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status })
+                });
+                
+                if (response.ok) {
+                    loadUsers();
+                } else {
+                    alert('Failed to update user');
+                }
+            } catch (error) {
+                alert('Error updating user: ' + error.message);
+            }
+        }
+
+        async function updateUserRole(userId, role) {
+            try {
+                const response = await fetch(`/api/admin/users/${userId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role })
+                });
+                
+                if (!response.ok) {
+                    alert('Failed to update role');
+                    loadUsers();
+                }
+            } catch (error) {
+                alert('Error updating role: ' + error.message);
+            }
+        }
+
+        // Database Functions
+        function loadTable(tableName) {
+            const query = `SELECT * FROM ${tableName} ORDER BY id DESC LIMIT 100`;
+            document.getElementById('sqlQuery').value = query;
+            executeQuery();
+        }
+
+        async function executeQuery() {
+            const query = document.getElementById('sqlQuery').value.trim();
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+
+            // Security check - only allow SELECT
+            if (!query.toUpperCase().startsWith('SELECT')) {
+                document.getElementById('queryResults').innerHTML = 
+                    '<p class="text-red-600">Error: Only SELECT queries are allowed</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('queryResults').innerHTML = 
+                        `<p class="text-red-600">Error: ${data.error}</p>`;
+                    return;
+                }
+
+                if (!data.rows || data.rows.length === 0) {
+                    document.getElementById('queryResults').innerHTML = 
+                        '<p class="text-gray-500">No results found</p>';
+                    return;
+                }
+
+                const keys = Object.keys(data.rows[0]);
+                let html = `<div class="overflow-x-auto">
+                    <table class="min-w-full border-collapse border border-gray-300">
+                        <thead class="bg-gray-200">
+                            <tr>${keys.map(k => `<th class="border px-4 py-2 text-left text-xs">${k}</th>`).join('')}</tr>
+                        </thead>
+                        <tbody>`;
+                
+                data.rows.forEach(row => {
+                    html += `<tr class="hover:bg-gray-50">${keys.map(k => 
+                        `<td class="border px-4 py-2 text-xs">${row[k] !== null ? String(row[k]).substring(0, 100) : '-'}</td>`
+                    ).join('')}</tr>`;
+                });
+                
+                html += `</tbody></table>
+                    <p class="mt-4 text-sm text-gray-600">Showing ${data.rows.length} row(s)</p>
+                </div>`;
+                
+                document.getElementById('queryResults').innerHTML = html;
+            } catch (error) {
+                document.getElementById('queryResults').innerHTML = 
+                    `<p class="text-red-600">Error: ${error.message}</p>`;
+            }
+        }
+
+        // System Stats
+        async function loadSystemStats() {
+            try {
+                // Load counts
+                const [productsRes, customersRes, billsRes, ratesRes] = await Promise.all([
+                    fetch('/api/products').then(r => r.json()).catch(() => []),
+                    fetch('/api/customers').then(r => r.json()).catch(() => []),
+                    fetch('/api/bills').then(r => r.json()).catch(() => []),
+                    fetch('/api/rates').then(r => r.json()).catch(() => ({}))
+                ]);
+                
+                document.getElementById('statProducts').textContent = Array.isArray(productsRes) ? productsRes.length : '0';
+                document.getElementById('statCustomers').textContent = Array.isArray(customersRes) ? customersRes.length : '0';
+                document.getElementById('statBills').textContent = Array.isArray(billsRes) ? billsRes.length : '0';
+                
+                // Display rates
+                document.getElementById('currentRates').innerHTML = `
+                    <div class="flex justify-between"><span>Gold:</span> <span class="font-bold">₹${ratesRes.gold || 0}/gm</span></div>
+                    <div class="flex justify-between"><span>Silver:</span> <span class="font-bold">₹${ratesRes.silver || 0}/gm</span></div>
+                    <div class="flex justify-between"><span>Platinum:</span> <span class="font-bold">₹${ratesRes.platinum || 0}/gm</span></div>
+                `;
+                
+                document.getElementById('dbStatus').textContent = '✅ Connected';
+                document.getElementById('envMode').textContent = window.location.hostname === 'localhost' ? 'Development' : 'Production';
+                
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Settings Functions
+        async function updateSoftware() {
+            if (!confirm('Are you sure you want to update the software? The server will restart.')) return;
+            
+            try {
+                const response = await fetch('/api/update-software', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('✅ Software updated! Page will reload in 10 seconds...');
+                    setTimeout(() => location.reload(), 10000);
+                } else {
+                    alert('❌ Update failed: ' + (result.message || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('⚠️ Connection lost. Server is likely restarting. Reload in 10 seconds...');
+                setTimeout(() => location.reload(), 10000);
+            }
+        }
+
+        async function changePassword() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                alert('Please fill all fields');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                alert('New passwords do not match');
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                alert('Password must be at least 6 characters');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ currentPassword, newPassword })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('✅ Password changed successfully!');
+                    document.getElementById('currentPassword').value = '';
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('confirmPassword').value = '';
+                } else {
+                    alert('❌ ' + (result.error || 'Failed to change password'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function backupDatabase() {
+            alert('Database backup feature coming soon. For now, use: npm run backup-db');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            showAdminTab('users');
+        });
+    </script>
+</body>
+</html>

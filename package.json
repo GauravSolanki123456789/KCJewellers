@@ -1,0 +1,42 @@
+{
+  "name": "jewelry-estimation",
+  "version": "2.5.0",
+  "description": "Single-Tenant Jewelry Estimation Software with Self-Update",
+  "author": "Gaurav Softwares",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "production": "NODE_ENV=production node server.js",
+    "setup-db": "node scripts/setup-database.js",
+    "migrate": "node scripts/run-migration.js",
+    "fix-gaurav-password": "node scripts/fix-gaurav-password.js",
+    "change-master-password": "node scripts/change-master-password.js",
+    "migrate-sales-returns": "node migrate-sales-returns.js",
+    "setup-env": "node setup-env.js",
+    "backup-db": "node scripts/backup-database.js",
+    "backup-cloud": "node scripts/cloud-backup.js",
+    "restore-db": "node scripts/restore-database.js",
+    "sync-db": "node scripts/sync-database.js",
+    "update": "bash update.sh"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "express-session": "^1.18.2",
+    "fast-xml-parser": "^4.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "pg": "^8.11.3",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
