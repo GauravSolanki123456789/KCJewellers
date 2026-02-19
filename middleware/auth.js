@@ -230,5 +230,25 @@ module.exports = {
     securityHeaders,
     requireActiveAccount,
     getUserPermissions,
-    verifyTenantAccess
+    verifyTenantAccess,
+    /**
+     * Strict admin guard: only allow the whitelisted super admin email
+     */
+    isAdminStrict: (req, res, next) => {
+        try {
+            if (!req.isAuthenticated || !req.isAuthenticated()) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+            const email = String(req.user?.email || '').toLowerCase().trim();
+            if (email !== 'jaigaurav56789@gmail.com') {
+                return res.status(403).json({ error: 'Admin access restricted to whitelisted email' });
+            }
+            if (req.user?.account_status && req.user.account_status !== 'active') {
+                return res.status(403).json({ error: 'Account not active' });
+            }
+            next();
+        } catch (e) {
+            return res.status(500).json({ error: 'Access check failed' });
+        }
+    }
 };

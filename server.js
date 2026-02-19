@@ -14,12 +14,17 @@ const {
     query,
     getPool
 } = require('./config/database');
-const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions } = require('./middleware/auth');
+const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict } = require('./middleware/auth');
+const { sanitizeMiddleware, validateNumbers } = require('./middleware/sanitize');
+const { globalLimiter, authLimiter, adminLimiter, requireJson } = require('./middleware/rateLimit');
 const { hasPermission, getPermissionContext } = require('./middleware/checkPermission');
 const TallyIntegration = require('./config/tally-integration');
 const TallySyncService = require('./config/tally-sync-service');
+const { calculateBillTotals, calculatePurchaseCost } = require('./services/pricingService');
+const liveRateService = require('./services/liveRateService');
 
 const app = express();
+app.disable('x-powered-by');
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -31,8 +36,18 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+function strictAdminOrigin(req, res, next) {
+    const list = String(process.env.ADMIN_ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (list.length === 0) return next();
+    const origin = String(req.headers.origin || '');
+    const referer = String(req.headers.referer || '');
+    const ok = list.some(a => (origin && origin.startsWith(a)) || (referer && referer.startsWith(a)));
+    if (!ok) return res.status(403).json({ error: 'Forbidden origin' });
+    next();
+}
+app.use('/api/admin', adminLimiter, requireJson, strictAdminOrigin, isAdminStrict);
 
 // Session and Passport Middleware
 app.use(session({
@@ -52,6 +67,10 @@ app.use(passport.session());
 
 // SECURITY: Apply security headers to all requests
 app.use(securityHeaders);
+
+// SECURITY: Global input sanitation and baseline rate limit
+app.use(sanitizeMiddleware());
+app.use(globalLimiter);
 
 // SECURITY: Middleware to sanitize password fields from logging
 app.use((req, res, next) => {
@@ -125,7 +144,7 @@ setInterval(() => {
 // GOOGLE OAUTH ROUTES (WHITELIST-BASED)
 // ==========================================
 
-app.get('/auth/google', async (req, res, next) => {
+app.get('/auth/google', authLimiter, async (req, res, next) => {
     // 🛠️ LOCAL DEV BYPASS
     if (process.env.NODE_ENV === 'development') {
         console.log("🛠️ Local Dev Detected: Attempting Bypass...");
@@ -177,7 +196,7 @@ app.get('/auth/google', async (req, res, next) => {
 
 
 // Google OAuth Callback - Handle whitelist denial
-app.get('/auth/google/callback', 
+app.get('/auth/google/callback', authLimiter, 
     passport.authenticate('google', { 
         failureRedirect: '/unauth.html?reason=ACCESS_DENIED',
         failureMessage: true
@@ -855,7 +874,7 @@ app.get('/api/update/check', async (req, res) => {
 
 app.get('/api/products', checkAuth, hasPermission('products'), async (req, res) => {
     try {
-        const { barcode, styleCode, search, includeDeleted, limit, offset, recent } = req.query;
+        const { barcode, styleCode, search, includeDeleted, limit, offset, recent, metal_type, category_id } = req.query;
         
         let queryText = 'SELECT * FROM products WHERE 1=1';
         const params = [];
@@ -874,6 +893,14 @@ app.get('/api/products', checkAuth, hasPermission('products'), async (req, res) 
         if (styleCode) {
             queryText += ` AND style_code = $${paramCount++}`;
             params.push(styleCode);
+        }
+        if (metal_type) {
+            queryText += ` AND LOWER(metal_type) = $${paramCount++}`;
+            params.push(String(metal_type).toLowerCase());
+        }
+        if (category_id) {
+            queryText += ` AND category_id = $${paramCount++}`;
+            params.push(parseInt(category_id));
         }
         if (search) {
             queryText += ` AND (short_name ILIKE $${paramCount} OR item_name ILIKE $${paramCount} OR barcode ILIKE $${paramCount} OR sku ILIKE $${paramCount} OR style_code ILIKE $${paramCount++})`;
@@ -918,9 +945,17 @@ app.get('/api/products', checkAuth, hasPermission('products'), async (req, res) 
                 countQuery += ` AND style_code = $${countParamCount++}`;
                 countParams.push(styleCode);
             }
+            if (metal_type) {
+                countQuery += ` AND LOWER(metal_type) = $${countParamCount++}`;
+                countParams.push(String(metal_type).toLowerCase());
+            }
             if (search) {
                 countQuery += ` AND (short_name ILIKE $${countParamCount} OR item_name ILIKE $${countParamCount} OR barcode ILIKE $${countParamCount} OR sku ILIKE $${countParamCount} OR style_code ILIKE $${countParamCount++})`;
                 countParams.push(`%${search}%`);
+            }
+            if (category_id) {
+                countQuery += ` AND category_id = $${countParamCount++}`;
+                countParams.push(parseInt(category_id));
             }
             
             const countResult = await query(countQuery, countParams);
@@ -940,6 +975,101 @@ app.get('/api/products', checkAuth, hasPermission('products'), async (req, res) 
     }
 });
 
+// ==========================================
+// CATEGORIES API (Nested Catalog)
+// ==========================================
+
+// Admin: Create category
+app.post('/api/categories', isAdminStrict, async (req, res) => {
+    try {
+        const { name, slug, parent_id } = req.body || {};
+        if (!name || !slug) return res.status(400).json({ error: 'name and slug required' });
+        const row = await query(
+            `INSERT INTO categories (name, slug, parent_id) VALUES ($1, LOWER($2), $3) RETURNING *`,
+            [name, slug, parent_id ? parseInt(parent_id) : null]
+        );
+        res.json(row[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: Update category
+app.put('/api/categories/:id', isAdminStrict, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, slug, parent_id } = req.body || {};
+        const updates = [];
+        const params = [];
+        let i = 1;
+        if (name !== undefined) { updates.push(`name = $${i++}`); params.push(name); }
+        if (slug !== undefined) { updates.push(`slug = LOWER($${i++})`); params.push(slug); }
+        if (parent_id !== undefined) { updates.push(`parent_id = $${i++}`); params.push(parent_id ? parseInt(parent_id) : null); }
+        if (updates.length === 0) return res.status(400).json({ error: 'no fields to update' });
+        const row = await query(`UPDATE categories SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${i} RETURNING *`, [...params, parseInt(id)]);
+        if (row.length === 0) return res.status(404).json({ error: 'not found' });
+        res.json(row[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: Delete category (cascades to children)
+app.delete('/api/categories/:id', isAdminStrict, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await query('DELETE FROM categories WHERE id = $1', [parseInt(id)]);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get full category tree
+app.get('/api/categories/tree', checkAuth, async (req, res) => {
+    try {
+        const rows = await query('SELECT * FROM categories ORDER BY name ASC');
+        const byId = new Map(rows.map(r => [r.id, { ...r, children: [] }]));
+        const roots = [];
+        for (const r of byId.values()) {
+            if (r.parent_id) {
+                const p = byId.get(r.parent_id);
+                if (p) p.children.push(r);
+                else roots.push(r);
+            } else {
+                roots.push(r);
+            }
+        }
+        res.json(roots);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get direct children of a category (or roots if no id)
+app.get('/api/categories/:id/children', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rows = await query('SELECT * FROM categories WHERE parent_id = $1 ORDER BY name ASC', [parseInt(id)]);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Products for a category if it is a leaf (no children)
+app.get('/api/categories/:id/products', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const kids = await query('SELECT 1 FROM categories WHERE parent_id = $1 LIMIT 1', [parseInt(id)]);
+        if (kids.length > 0) return res.json({ products: [], leaf: false });
+        const rows = await query('SELECT * FROM products WHERE category_id = $1 AND (is_deleted IS NULL OR is_deleted = false) AND (status IS NULL OR status != \'deleted\') ORDER BY created_at DESC LIMIT 100', [parseInt(id)]);
+        res.json({ products: rows, leaf: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/products', checkAuth, hasPermission('products'), async (req, res) => {
     const product = req.body;
     
@@ -953,8 +1083,10 @@ app.post('/api/products', checkAuth, hasPermission('products'), async (req, res)
         
         const queryText = `INSERT INTO products (
             barcode, sku, style_code, short_name, item_name, metal_type, size, weight,
-            purity, rate, mc_rate, mc_type, pcs, box_charges, stone_charges, floor, avg_wt, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            purity, rate, mc_rate, mc_type, pcs, box_charges, stone_charges, floor, avg_wt, status,
+            category_id, net_weight, gross_weight, making_charges, making_charges_type, gst_percentage
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+                  $20, $21, $22, $23, $24)
         RETURNING *`;
         
         const params = [
@@ -962,7 +1094,13 @@ app.post('/api/products', checkAuth, hasPermission('products'), async (req, res)
             product.metalType, product.size, product.weight, product.purity, product.rate,
             product.mcRate, product.mcType, product.pcs || 1, product.boxCharges || 0,
             product.stoneCharges || 0, product.floor, product.avgWt || product.weight,
-            product.status || 'available'
+            product.status || 'available',
+            product.category_id || null,
+            product.net_weight || null,
+            product.gross_weight || null,
+            product.making_charges || null,
+            product.making_charges_type || null,
+            product.gst_percentage || null
         ];
         
         const result = await query(queryText, params);
@@ -985,15 +1123,29 @@ app.put('/api/products/:id', checkAuth, hasPermission('products'), async (req, r
             barcode = $1, sku = $2, style_code = $3, short_name = $4, item_name = $5,
             metal_type = $6, size = $7, weight = $8, purity = $9, rate = $10,
             mc_rate = $11, mc_type = $12, pcs = $13, box_charges = $14, stone_charges = $15,
-            floor = $16, avg_wt = $17, status = COALESCE($18, status), updated_at = CURRENT_TIMESTAMP
-        WHERE id = $19 RETURNING *`;
+            floor = $16, avg_wt = $17, status = COALESCE($18, status),
+            category_id = COALESCE($19, category_id),
+            net_weight = COALESCE($20, net_weight),
+            gross_weight = COALESCE($21, gross_weight),
+            making_charges = COALESCE($22, making_charges),
+            making_charges_type = COALESCE($23, making_charges_type),
+            gst_percentage = COALESCE($24, gst_percentage),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $25 RETURNING *`;
         
         const params = [
             product.barcode, product.sku, product.styleCode, product.shortName, product.itemName,
             product.metalType, product.size, product.weight, product.purity, product.rate,
             product.mcRate, product.mcType, product.pcs || 1, product.boxCharges || 0,
             product.stoneCharges || 0, product.floor, product.avgWt || product.weight,
-            product.status || 'available', id
+            product.status || 'available',
+            product.category_id || null,
+            product.net_weight || null,
+            product.gross_weight || null,
+            product.making_charges || null,
+            product.making_charges_type || null,
+            product.gst_percentage || null,
+            id
         ];
         
         const result = await query(queryText, params);
@@ -1639,6 +1791,9 @@ app.get('/api/bills/by-number/:billNo', checkAuth, hasPermission('billing'), asy
 app.post('/api/bills', checkAuth, hasPermission('billing'), async (req, res) => {
     try {
         const bill = req.body;
+        const ratesResult = await query('SELECT * FROM rates ORDER BY updated_at DESC LIMIT 1');
+        const liveRates = ratesResult[0] || { gold: 0, silver: 0, platinum: 0 };
+        const totals = calculateBillTotals(bill.items || [], liveRates, bill.gstRate || 0);
         
         const queryText = `INSERT INTO bills (
             bill_no, quotation_id, customer_id, customer_name, customer_mobile, items,
@@ -1647,8 +1802,8 @@ app.post('/api/bills', checkAuth, hasPermission('billing'), async (req, res) => 
         
         const params = [
             bill.billNo, bill.quotationId || null, bill.customerId, bill.customerName,
-            bill.customerMobile, JSON.stringify(bill.items), bill.total,
-            bill.gst || 0, bill.cgst || 0, bill.sgst || 0, bill.netTotal, bill.paymentMethod || 'cash'
+            bill.customerMobile, JSON.stringify(bill.items), totals.taxable,
+            totals.total_gst, totals.cgst, totals.sgst, totals.net_total, bill.paymentMethod || 'cash'
         ];
         
         const result = await query(queryText, params);
@@ -1683,6 +1838,9 @@ app.put('/api/bills/:id', checkAuth, hasPermission('billing'), async (req, res) 
     try {
         const { id } = req.params;
         const bill = req.body;
+        const ratesResult = await query('SELECT * FROM rates ORDER BY updated_at DESC LIMIT 1');
+        const liveRates = ratesResult[0] || { gold: 0, silver: 0, platinum: 0 };
+        const totals = calculateBillTotals(bill.items || [], liveRates, bill.gstRate || 0);
         
         const queryText = `UPDATE bills SET
             customer_id = $1, customer_name = $2, customer_mobile = $3, items = $4,
@@ -1691,8 +1849,8 @@ app.put('/api/bills/:id', checkAuth, hasPermission('billing'), async (req, res) 
         
         const params = [
             bill.customerId, bill.customerName, bill.customerMobile, JSON.stringify(bill.items),
-            bill.total, bill.gst || 0, bill.cgst || 0, bill.sgst || 0,
-            bill.netTotal, bill.paymentMethod || 'cash', id
+            totals.taxable, totals.total_gst, totals.cgst, totals.sgst,
+            totals.net_total, bill.paymentMethod || 'cash', id
         ];
         
         const result = await query(queryText, params);
@@ -1719,7 +1877,7 @@ app.delete('/api/bills/:id', checkAuth, hasPermission('billing'), async (req, re
 // ==========================================
 
 // Get all users (for admin panel)
-app.get('/api/admin/users', checkRole('admin'), async (req, res) => {
+app.get('/api/admin/users', isAdminStrict, async (req, res) => {
     try {
         // Try query with is_deleted filter first, fallback to query without it if column doesn't exist
         let result;
@@ -1766,7 +1924,7 @@ app.get('/api/admin/users', checkRole('admin'), async (req, res) => {
 });
 
 // Update user status/role (for admin panel)
-app.post('/api/admin/users/:id/status', checkRole('admin'), async (req, res) => {
+app.post('/api/admin/users/:id/status', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         const { status, role } = req.body;
@@ -1805,7 +1963,7 @@ app.post('/api/admin/users/:id/status', checkRole('admin'), async (req, res) => 
 });
 
 // Admin SQL query endpoint (SELECT only)
-app.post('/api/admin/query', checkRole('admin'), async (req, res) => {
+app.post('/api/admin/query', isAdminStrict, async (req, res) => {
     try {
         const { query: sqlQuery } = req.body;
         
@@ -1835,7 +1993,7 @@ app.post('/api/admin/query', checkRole('admin'), async (req, res) => {
 });
 
 // Change admin password
-app.post('/api/admin/change-password', checkRole('admin'), async (req, res) => {
+app.post('/api/admin/change-password', isAdminStrict, async (req, res) => {
     try {
         const { currentPassword, newPassword } = req.body;
         const bcrypt = require('bcrypt');
@@ -1888,7 +2046,7 @@ const PERMISSION_MODULES = [
 ];
 
 // Get available permission modules (for frontend)
-app.get('/api/admin/permission-modules', checkRole('admin'), (req, res) => {
+app.get('/api/admin/permission-modules', isAdminStrict, (req, res) => {
     res.json({
         modules: PERMISSION_MODULES,
         moduleGroups: {
@@ -1901,7 +2059,7 @@ app.get('/api/admin/permission-modules', checkRole('admin'), (req, res) => {
 });
 
 // Add user to whitelist (pre-approve email) with permissions
-app.post('/api/admin/add-user', checkRole('admin'), async (req, res) => {
+app.post('/api/admin/add-user', isAdminStrict, async (req, res) => {
     try {
         const { email, name, role, allowed_tabs, permissions: requestPermissions } = req.body;
         
@@ -1967,7 +2125,7 @@ app.post('/api/admin/add-user', checkRole('admin'), async (req, res) => {
 });
 
 // Update existing user (full edit)
-app.put('/api/admin/users/:id', checkRole('admin'), async (req, res) => {
+app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         const { name, role, account_status, allowed_tabs, permissions } = req.body;
@@ -2073,7 +2231,7 @@ app.put('/api/admin/users/:id', checkRole('admin'), async (req, res) => {
 });
 
 // Remove user from whitelist (revoke access)
-app.delete('/api/admin/users/:id', checkRole('admin'), async (req, res) => {
+app.delete('/api/admin/users/:id', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         
@@ -2114,7 +2272,7 @@ app.delete('/api/admin/users/:id', checkRole('admin'), async (req, res) => {
 });
 
 // Update user allowed tabs (legacy endpoint, kept for compatibility)
-app.put('/api/admin/users/:id/tabs', checkRole('admin'), async (req, res) => {
+app.put('/api/admin/users/:id/tabs', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         const { allowedTabs } = req.body;
@@ -2487,7 +2645,7 @@ app.post('/api/sales-returns', checkAuth, async (req, res) => {
 // ==========================================
 
 // Get all whitelisted users
-app.get('/api/users', checkRole('admin'), async (req, res) => {
+app.get('/api/users', isAdminStrict, async (req, res) => {
     try {
         const result = await query(`
             SELECT id, email, name, role, allowed_tabs, account_status, created_at, updated_at 
@@ -2501,7 +2659,7 @@ app.get('/api/users', checkRole('admin'), async (req, res) => {
 });
 
 // Add user to whitelist (Google OAuth - no password)
-app.post('/api/users', checkRole('admin'), async (req, res) => {
+app.post('/api/users', isAdminStrict, async (req, res) => {
     try {
         const { email, name, role, allowedTabs } = req.body;
         
@@ -2543,7 +2701,7 @@ app.post('/api/users', checkRole('admin'), async (req, res) => {
 });
 
 // Update user (role, name, tabs, status)
-app.put('/api/users/:id', checkRole('admin'), async (req, res) => {
+app.put('/api/users/:id', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         const { email, name, role, allowedTabs, accountStatus } = req.body;
@@ -2581,7 +2739,7 @@ app.put('/api/users/:id', checkRole('admin'), async (req, res) => {
 });
 
 // Remove user from whitelist
-app.delete('/api/users/:id', checkRole('admin'), async (req, res) => {
+app.delete('/api/users/:id', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         
@@ -2646,6 +2804,817 @@ app.get('/api/tally/sync-logs', checkAuth, async (req, res) => {
     }
 });
 
+// ADMIN ALIASES
+app.get('/api/admin/ledger', isAdminStrict, async (req, res) => {
+    try {
+        const { limit = 100 } = req.query;
+        const result = await query('SELECT * FROM ledger_transactions ORDER BY date DESC LIMIT $1', [parseInt(limit)]);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/admin/stock', isAdminStrict, async (req, res) => {
+    try {
+        const { limit = 1000 } = req.query;
+        const result = await query(`
+            SELECT * FROM products 
+            WHERE COALESCE(is_deleted, false) = false AND COALESCE(is_sold, false) = false
+            ORDER BY updated_at DESC
+            LIMIT $1
+        `, [parseInt(limit)]);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/admin/tally', isAdminStrict, async (req, res) => {
+    try {
+        const tallyService = new TallySyncService();
+        const config = await tallyService.getConfig();
+        res.json(config);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/live-rates', async (req, res) => {
+    try {
+        const rows = await query('SELECT metal_type, buy_rate, sell_rate, admin_margin, updated_at FROM live_rates ORDER BY metal_type');
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/live-rates', adminLimiter, requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const list = Array.isArray(req.body) ? req.body : [req.body];
+        const results = [];
+        for (const r of list) {
+            const metal = (r.metal_type || r.metalType || '').toLowerCase();
+            if (!metal) continue;
+            const buy = Number(r.buy_rate || r.buyRate || 0);
+            const sell = Number(r.sell_rate || r.sellRate || 0);
+            const margin = Number(r.admin_margin || r.adminMargin || 0);
+            const up = await query(`
+                INSERT INTO live_rates (metal_type, buy_rate, sell_rate, admin_margin, updated_at)
+                VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                ON CONFLICT (metal_type) DO UPDATE SET 
+                    buy_rate = EXCLUDED.buy_rate,
+                    sell_rate = EXCLUDED.sell_rate,
+                    admin_margin = EXCLUDED.admin_margin,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING *
+            `, [metal, buy, sell, margin]);
+            results.push(up[0]);
+        }
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/rates/set-margin', isAdminStrict, async (req, res) => {
+    try {
+        const list = Array.isArray(req.body) ? req.body : [req.body];
+        const results = [];
+        for (const r of list) {
+            const metal = r.metal_type || r.metalType;
+            const margin = r.admin_margin ?? r.margin ?? r.adminMargin;
+            if (!metal) continue;
+            const row = await liveRateService.setMargin(metal, Number(margin || 0), io);
+            results.push(row);
+        }
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/rates/display', async (req, res) => {
+    try {
+        const payload = await liveRateService.getCurrentPayload();
+        res.json(payload);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/rate-lock', async (req, res) => {
+    try {
+        const { metals } = req.body || {};
+        const payload = await liveRateService.getCurrentPayload();
+        const list = Array.isArray(metals) && metals.length > 0 ? metals : ['gold', 'silver', 'gold_22k'];
+        const now = Date.now();
+        const ttl = 5 * 60 * 1000;
+        req.session.rateLocks = req.session.rateLocks || {};
+        for (const m of list) {
+            const r = (payload?.rates || []).find(x => (x.metal_type || '').toLowerCase() === String(m).toLowerCase());
+            if (!r) continue;
+            const display = Number(r.display_rate || r.sell_rate || r.buy_rate || 0);
+            req.session.rateLocks[String(m).toLowerCase()] = { rate: display, expiresAt: now + ttl };
+        }
+        await new Promise(resolve => req.session.save(resolve));
+        res.json({ ok: true, locks: req.session.rateLocks });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/rate-lock', async (req, res) => {
+    try {
+        const locks = req.session.rateLocks || {};
+        const now = Date.now();
+        const pruned = {};
+        for (const [k, v] of Object.entries(locks)) {
+            if (v && v.expiresAt > now) pruned[k] = v;
+        }
+        req.session.rateLocks = pruned;
+        res.json(pruned);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// QUOTATIONS - ISSUE SERVER NUMBER
+// ==========================================
+app.post('/api/quotations/issue', requireJson, async (req, res) => {
+    try {
+        const { customer_name, customer_mobile, items, totals } = req.body || {};
+        const year = new Date().getFullYear();
+        const seqRes = await query(`SELECT nextval('quotation_seq') AS seq`);
+        const seq = seqRes[0].seq;
+        const quotation_no = `Q${year}${String(seq).padStart(5, '0')}`;
+        const rows = await query(`
+            INSERT INTO quotations (quotation_no, customer_name, customer_mobile, items, total, gst, net_total, final_amount, payment_status, created_at)
+            VALUES ($1, $2, $3, $4, COALESCE($5,0), COALESCE($6,0), COALESCE($7,0), COALESCE($8,0), 'PENDING', CURRENT_TIMESTAMP)
+            RETURNING *
+        `, [quotation_no, customer_name || null, customer_mobile || null, JSON.stringify(items || []), totals?.total, totals?.gst, totals?.net_total, totals?.final_amount]);
+        res.json({ quotation_no: rows[0].quotation_no, quotation: rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// BOOKING LOCK (Cut Rate)
+// ==========================================
+app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), async (req, res) => {
+    try {
+        const { metal_type, quantity_kg } = req.body || {};
+        if (!metal_type || !quantity_kg) return res.status(400).json({ error: 'metal_type and quantity_kg required' });
+        const payload = await liveRateService.getCurrentPayload();
+        const rateEntry = (payload?.rates || []).find(r => (r.metal_type || '').toLowerCase() === String(metal_type).toLowerCase());
+        if (!rateEntry) return res.status(404).json({ error: 'Rate not found' });
+        const displayRate = Number(rateEntry.display_rate || rateEntry.sell_rate || 0);
+        const totalAmount = Math.round(displayRate * Number(quantity_kg) * 100) / 100;
+        const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        const insert = await query(`
+            INSERT INTO booking_locks (user_id, metal_type, quantity_kg, lock_rate, total_amount, status, expires_at, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'LOCKED', $6, CURRENT_TIMESTAMP) RETURNING *
+        `, [null, metal_type, Number(quantity_kg), displayRate, totalAmount, expires_at]);
+        const lock = insert[0];
+        let orderId = `order_${lock.id}`;
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        try {
+            if (keyId && keySecret) {
+                const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+                const resp = await fetch('https://api.razorpay.com/v1/orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Basic ${auth}`
+                    },
+                    body: JSON.stringify({
+                        amount: Math.round(totalAmount * 100),
+                        currency: 'INR',
+                        receipt: `lock_${lock.id}`,
+                        payment_capture: 1,
+                        notes: { metal_type, quantity_kg: String(quantity_kg), lock_id: String(lock.id) }
+                    })
+                });
+                const data = await resp.json();
+                if (resp.ok && data && data.id) {
+                    orderId = data.id;
+                } else {
+                    console.warn('Razorpay order creation failed:', data);
+                }
+            }
+        } catch (e) {
+            console.warn('Razorpay order error:', e.message);
+        }
+        await query(`UPDATE booking_locks SET razorpay_order_id = $1 WHERE id = $2`, [orderId, lock.id]);
+        res.json({ lock_id: lock.id, razorpay_order_id: orderId, amount: totalAmount, currency: 'INR', expires_at });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Razorpay Webhook (Verification)
+// ==========================================
+const crypto = require('crypto');
+app.post('/api/payment/razorpay/webhook', require('express').raw({ type: '*/*' }), async (req, res) => {
+    try {
+        const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body || {});
+        const headerSig = (req.headers['x-razorpay-signature'] || req.headers['X-Razorpay-Signature'] || '').toString();
+        const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+        if (webhookSecret) {
+            const expected = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('hex');
+            if (!headerSig || expected !== headerSig) {
+                return res.status(401).json({ error: 'invalid_signature' });
+            }
+        }
+        const body = rawBody ? JSON.parse(rawBody) : {};
+        const event = body.event || body.payload?.payment?.entity?.status || 'payment.captured';
+        const orderId = body.payload?.payment?.entity?.order_id || body.payload?.order?.entity?.id || body.order_id || body.razorpay_order_id;
+        if (!orderId) return res.status(400).json({ error: 'order_id required' });
+        const rows = await query(`SELECT * FROM booking_locks WHERE razorpay_order_id = $1`, [orderId]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Booking not found' });
+        const lock = rows[0];
+        const payTs = new Date(body.payload?.payment?.entity?.created_at ? body.payload.payment.entity.created_at * 1000 : Date.now());
+        const withinWindow = payTs.getTime() <= new Date(lock.expires_at).getTime();
+        if (event === 'payment.captured' && withinWindow) {
+            await query(`UPDATE booking_locks SET status = 'CONFIRMED' WHERE id = $1`, [lock.id]);
+            await query(`
+                INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, created_at)
+                VALUES ($1, $2, 'PAID', 'RAZORPAY', $3, 'PENDING', $4, CURRENT_TIMESTAMP)
+            `, [null, Number(lock.total_amount || 0), orderId, JSON.stringify([{ type: 'bullion', metal_type: lock.metal_type, qty_kg: lock.quantity_kg, rate: lock.lock_rate }])]);
+            // Decrement bullion inventory
+            await query(`INSERT INTO bullion_inventory (metal_type, available_kg, updated_at) VALUES ($1, 0, CURRENT_TIMESTAMP) ON CONFLICT (metal_type) DO NOTHING`, [String(lock.metal_type).toLowerCase()]);
+            await query(`UPDATE bullion_inventory SET available_kg = GREATEST(0, available_kg - $2), updated_at = CURRENT_TIMESTAMP WHERE metal_type = $1`, [String(lock.metal_type).toLowerCase(), Number(lock.quantity_kg || 0)]);
+            return res.json({ status: 'CONFIRMED' });
+        } else {
+            await query(`UPDATE booking_locks SET status = 'RATE_MISMATCH' WHERE id = $1`, [lock.id]);
+            return res.json({ status: 'RATE_MISMATCH' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// SIP Subscribe
+// ==========================================
+app.post('/api/sip/subscribe', checkAuth, async (req, res) => {
+    try {
+        const { user_id, amount, frequency } = req.body || {};
+        if (!user_id || !amount || !frequency) return res.status(400).json({ error: 'user_id, amount, frequency required' });
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        let planId = null;
+        let subscriptionId = null;
+        try {
+            if (keyId && keySecret) {
+                const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+                const interval = frequency === 'DAILY' ? 1 : 1;
+                const period = frequency === 'DAILY' ? 'daily' : 'monthly';
+                const planResp = await fetch('https://api.razorpay.com/v1/plans', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
+                    body: JSON.stringify({
+                        period, interval,
+                        item: { name: `Gold SIP ${period}`, amount: Math.round(Number(amount) * 100), currency: 'INR' }
+                    })
+                });
+                const planData = await planResp.json();
+                if (planResp.ok && planData.id) planId = planData.id;
+                const subResp = await fetch('https://api.razorpay.com/v1/subscriptions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
+                    body: JSON.stringify({ plan_id: planId, total_count: 0, customer_notify: 1, notes: { user_id: String(user_id) } })
+                });
+                const subData = await subResp.json();
+                if (subResp.ok && subData.id) subscriptionId = subData.id;
+            }
+        } catch (e) {
+            console.warn('Razorpay subscription error:', e.message);
+        }
+        const rows = await query(`
+            INSERT INTO sip_subscriptions (user_id, amount, frequency, razorpay_subscription_id, status, created_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *
+        `, [user_id, Number(amount), frequency, subscriptionId, subscriptionId ? 'ACTIVE' : 'PENDING']);
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// SIP Wallet and Withdraw
+// ==========================================
+app.get('/api/sip/wallet', checkAuth, async (req, res) => {
+    try {
+        const { user_id } = req.query;
+        if (!user_id) return res.status(400).json({ error: 'user_id required' });
+        const users = await query('SELECT wallet_gold_balance FROM users WHERE id = $1', [user_id]);
+        const wallet = await query('SELECT balance_grams FROM user_gold_wallet WHERE user_id = $1', [user_id]).catch(() => []);
+        const txs = await query('SELECT * FROM sip_transactions WHERE user_id = $1 ORDER BY transaction_date DESC LIMIT 50', [user_id]).catch(() => []);
+        res.json({ wallet_gold_balance: users[0]?.wallet_gold_balance || 0, balance_grams: wallet[0]?.balance_grams || 0, transactions: txs });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/sip/withdraw', checkAuth, async (req, res) => {
+    try {
+        const { user_id, grams: reqGrams } = req.body || {};
+        if (!user_id) return res.status(400).json({ error: 'user_id required' });
+        const u = await query('SELECT wallet_gold_balance FROM users WHERE id = $1', [user_id]);
+        const currentGrams = Number(u[0]?.wallet_gold_balance || 0);
+        const grams = reqGrams ? Math.min(Number(reqGrams), currentGrams) : currentGrams;
+        const payload = await liveRateService.getCurrentPayload();
+        const gold = (payload?.rates || []).find(r => (r.metal_type || '').toLowerCase() === 'gold');
+        const sell = Number(gold?.display_rate || gold?.sell_rate || 0);
+        const amount = Math.round(grams * sell * 100) / 100;
+        const row = await query(`
+            INSERT INTO sip_payout_requests (user_id, grams, amount, status, created_at)
+            VALUES ($1, $2, $3, 'PENDING_ADMIN_APPROVAL', CURRENT_TIMESTAMP) RETURNING *
+        `, [user_id, grams, amount]);
+        res.json(row[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/admin/sip/withdraw/approve', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { request_id } = req.body || {};
+        if (!request_id) return res.status(400).json({ error: 'request_id required' });
+        const rows = await query('SELECT * FROM sip_payout_requests WHERE id = $1', [request_id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        const r = rows[0];
+        const u = await query('SELECT wallet_gold_balance FROM users WHERE id = $1', [r.user_id]);
+        const bal = Number(u[0]?.wallet_gold_balance || 0);
+        if (bal < Number(r.grams)) return res.status(409).json({ error: 'insufficient_balance' });
+        await query('UPDATE users SET wallet_gold_balance = wallet_gold_balance - $2 WHERE id = $1', [r.user_id, Number(r.grams)]);
+        await query('UPDATE sip_payout_requests SET status = $2 WHERE id = $1', [request_id, 'APPROVED']);
+        await query('INSERT INTO gold_lot_movements (user_id, direction, grams, reference, created_at) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)', [r.user_id, 'DEBIT', Number(r.grams), 'WITHDRAW']);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get('/api/admin/sip/payout_requests', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query('SELECT * FROM sip_payout_requests ORDER BY created_at DESC');
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get('/api/admin/gold_lot_movements', isAdminStrict, async (req, res) => {
+    try {
+        const { limit, start, end, user_id, direction, format } = req.query;
+        const l = Math.min(parseInt(limit || '100'), 2000);
+        let q = 'SELECT * FROM gold_lot_movements WHERE 1=1';
+        const params = [];
+        let pc = 1;
+        if (user_id) {
+            q += ` AND user_id = $${pc++}`;
+            params.push(parseInt(user_id));
+        }
+        if (direction) {
+            q += ` AND direction = $${pc++}`;
+            params.push(direction);
+        }
+        if (start) {
+            q += ` AND created_at >= $${pc++}`;
+            params.push(new Date(start));
+        }
+        if (end) {
+            q += ` AND created_at <= $${pc++}`;
+            params.push(new Date(end));
+        }
+        q += ' ORDER BY created_at DESC';
+        q += ` LIMIT $${pc++}`;
+        params.push(l);
+        const rows = await query(q, params);
+        if (String(format).toLowerCase() === 'csv') {
+            const header = ['id','user_id','direction','grams','reference','created_at'].join(',');
+            const lines = rows.map(r => [
+                r.id,
+                r.user_id,
+                r.direction,
+                Number(r.grams),
+                (r.reference || '').replace(/,/g, ' '),
+                r.created_at?.toISOString?.() || r.created_at
+            ].join(','));
+            const csv = [header, ...lines].join('\n');
+            res.set('Content-Type', 'text/csv');
+            return res.send(csv);
+        }
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Extend webhook: subscription invoice paid -> credit gold
+// ==========================================
+async function creditGoldFromPayment(userId, amountInr) {
+    const payload = await liveRateService.getCurrentPayload();
+    const gold = (payload?.rates || []).find(r => (r.metal_type || '').toLowerCase() === 'gold');
+    const rate = Number(gold?.display_rate || gold?.sell_rate || 0);
+    if (!rate || rate <= 0) return;
+    const grams = Number(amountInr) / rate;
+    await query('UPDATE users SET wallet_gold_balance = COALESCE(wallet_gold_balance,0) + $2 WHERE id = $1', [userId, grams]);
+    try {
+        await query(`
+            INSERT INTO sip_transactions (user_id, plan_id, transaction_date, amount, grams, status, created_at)
+            VALUES ($1, NULL, CURRENT_TIMESTAMP, $2, $3, 'SUCCESS', CURRENT_TIMESTAMP)
+        `, [userId, Number(amountInr), grams]);
+        await query(`INSERT INTO gold_lot_movements (user_id, direction, grams, reference, created_at) VALUES ($1, 'CREDIT', $2, 'SIP', CURRENT_TIMESTAMP)`, [userId, grams]);
+    } catch {}
+}
+
+app.post('/api/payment/razorpay/webhook/subscription', require('express').raw({ type: '*/*' }), async (req, res) => {
+    try {
+        const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body || {});
+        const headerSig = (req.headers['x-razorpay-signature'] || '').toString();
+        const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+        if (webhookSecret) {
+            const expected = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('hex');
+            if (!headerSig || expected !== headerSig) {
+                return res.status(401).json({ error: 'invalid_signature' });
+            }
+        }
+        const body = rawBody ? JSON.parse(rawBody) : {};
+        const event = body.event;
+        if (event === 'invoice.paid') {
+            const subscription_id = body.payload?.invoice?.entity?.subscription_id;
+            const amount = Number(body.payload?.invoice?.entity?.amount || 0) / 100;
+            if (!subscription_id || !amount) return res.json({ ok: true });
+            const subs = await query('SELECT * FROM sip_subscriptions WHERE razorpay_subscription_id = $1', [subscription_id]);
+            if (subs.length) {
+                await creditGoldFromPayment(subs[0].user_id, amount);
+            }
+        }
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Cron: reconcile daily subscription payments
+// ==========================================
+try {
+    const cron = require('node-cron');
+    cron.schedule('0 0 * * *', async () => {
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        if (!keyId || !keySecret) return;
+        const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const since = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
+        try {
+            const resp = await fetch(`https://api.razorpay.com/v1/payments?from=${since}&count=100`, {
+                headers: { 'Authorization': `Basic ${auth}` }
+            });
+            const data = await resp.json();
+            if (resp.ok && Array.isArray(data.items)) {
+                for (const p of data.items) {
+                    if (p.status === 'captured' && p.method === 'upi' && p.subscription_id) {
+                        const subs = await query('SELECT * FROM sip_subscriptions WHERE razorpay_subscription_id = $1', [p.subscription_id]).catch(() => []);
+                        if (subs.length) {
+                            await creditGoldFromPayment(subs[0].user_id, Number(p.amount) / 100);
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Cron reconcile error:', e.message);
+        }
+    });
+} catch {}
+app.get('/api/orders', checkAuth, async (req, res) => {
+    try {
+        const { user_id } = req.query;
+        let q = 'SELECT * FROM orders';
+        const params = [];
+        if (user_id) {
+            q += ' WHERE user_id = $1';
+            params.push(user_id);
+        }
+        q += ' ORDER BY created_at DESC';
+        const rows = await query(q, params);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/orders/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rows = await query('SELECT * FROM orders WHERE id = $1', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/orders', checkAuth, async (req, res) => {
+    try {
+        const body = req.body;
+        let total = Number(body.total_amount || 0);
+        if (!total && body.items_snapshot_json && Array.isArray(body.items_snapshot_json)) {
+            const lr = await query('SELECT metal_type, sell_rate, admin_margin FROM live_rates');
+            const map = {};
+            for (const r of lr) map[(r.metal_type || '').toLowerCase()] = { sell_rate: r.sell_rate, admin_margin: r.admin_margin };
+            const totals = calculateBillTotals(body.items_snapshot_json, map, body.gstRate || 0);
+            total = totals.net_total;
+        }
+        const rows = await query(`
+            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP) RETURNING *
+        `, [body.user_id || null, total || 0, body.payment_status || 'PENDING', body.payment_method || null, body.razorpay_order_id || null, body.delivery_status || 'PENDING', JSON.stringify(body.items_snapshot_json || [])]);
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/addresses', checkAuth, async (req, res) => {
+    try {
+        const { user_id } = req.query;
+        if (!user_id) return res.json([]);
+        const rows = await query('SELECT * FROM addresses WHERE user_id = $1 ORDER BY created_at DESC', [user_id]);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/addresses', checkAuth, async (req, res) => {
+    try {
+        const a = req.body;
+        const rows = await query(`
+            INSERT INTO addresses (user_id, line1, city, pincode, type, created_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *
+        `, [a.user_id, a.line1, a.city || null, a.pincode || null, a.type || 'HOME']);
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/sip/plans', async (req, res) => {
+    try {
+        const rows = await query('SELECT * FROM sip_plans WHERE is_active = true ORDER BY created_at DESC');
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/sip/plans', isAdminStrict, async (req, res) => {
+    try {
+        const p = req.body;
+        const rows = await query(`
+            INSERT INTO sip_plans (name, type, min_amount, duration_months, is_active, created_at)
+            VALUES ($1, $2, $3, $4, COALESCE($5, true), CURRENT_TIMESTAMP) RETURNING *
+        `, [p.name, p.type, Number(p.min_amount || 0), parseInt(p.duration_months), p.is_active]);
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/sip/transactions', checkAuth, async (req, res) => {
+    try {
+        const { user_id } = req.query;
+        let q = 'SELECT * FROM sip_transactions';
+        const params = [];
+        if (user_id) {
+            q += ' WHERE user_id = $1';
+            params.push(user_id);
+        }
+        q += ' ORDER BY transaction_date DESC';
+        const rows = await query(q, params);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/sip/transactions', checkAuth, async (req, res) => {
+    try {
+        const t = req.body;
+        const lr = await query('SELECT metal_type, sell_rate, admin_margin FROM live_rates WHERE LOWER(metal_type) = $1', ['gold']);
+        const rate = lr.length > 0 ? Number(lr[0].sell_rate || 0) + Number(lr[0].admin_margin || 0) : 0;
+        const credited = rate > 0 ? Number(t.amount || 0) / rate : 0;
+        const rows = await query(`
+            INSERT INTO sip_transactions (user_id, plan_id, amount, gold_rate_at_time, gold_credited, status, transaction_date)
+            VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'SUCCESS'), CURRENT_TIMESTAMP) RETURNING *
+        `, [t.user_id || null, t.plan_id || null, Number(t.amount || 0), rate, credited, t.status]);
+        // Update wallet balances
+        if (t.user_id && credited > 0) {
+            await query(`
+                INSERT INTO user_gold_wallet (user_id, balance_grams, updated_at)
+                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) DO UPDATE SET balance_grams = user_gold_wallet.balance_grams + EXCLUDED.balance_grams, updated_at = CURRENT_TIMESTAMP
+            `, [t.user_id, credited]);
+            await query(`UPDATE users SET wallet_gold_balance = COALESCE(wallet_gold_balance, 0) + $2 WHERE id = $1`, [t.user_id, credited]).catch(() => {});
+        }
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/sip/redeemables', async (req, res) => {
+    try {
+        const rows = await query(`
+            SELECT id, item_name, short_name, COALESCE(net_weight, weight) AS grams, purity
+            FROM products
+            WHERE LOWER(COALESCE(metal_type,'gold')) = 'gold'
+              AND (
+                LOWER(COALESCE(item_name,'')) LIKE '%coin%' OR
+                LOWER(COALESCE(short_name,'')) LIKE '%coin%' OR
+                LOWER(COALESCE(item_name,'')) LIKE '%biscuit%' OR
+                LOWER(COALESCE(short_name,'')) LIKE '%biscuit%'
+              )
+              AND COALESCE(is_sold, false) = false
+              AND (status IS NULL OR status = 'available')
+            ORDER BY grams NULLS LAST, item_name
+        `);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/sip/redeem', checkAuth, async (req, res) => {
+    try {
+        const { user_id, product_id } = req.body || {};
+        if (!user_id || !product_id) return res.status(400).json({ error: 'user_id and product_id required' });
+        const users = await query('SELECT wallet_gold_balance FROM users WHERE id = $1', [user_id]);
+        if (users.length === 0) return res.status(404).json({ error: 'user_not_found' });
+        const bal = Number(users[0]?.wallet_gold_balance || 0);
+        const prows = await query('SELECT id, item_name, short_name, COALESCE(net_weight, weight) AS grams FROM products WHERE id = $1', [product_id]);
+        if (prows.length === 0) return res.status(404).json({ error: 'product_not_found' });
+        const p = prows[0];
+        const grams = Number(p.grams || 0);
+        if (!grams || grams <= 0) return res.status(400).json({ error: 'invalid_product_weight' });
+        if (bal + 1e-6 < grams) return res.status(409).json({ error: 'insufficient_grams' });
+        await query('UPDATE users SET wallet_gold_balance = wallet_gold_balance - $2 WHERE id = $1', [user_id, grams]);
+        await query(`
+            INSERT INTO user_gold_wallet (user_id, balance_grams, updated_at)
+            VALUES ($1, 0, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id) DO UPDATE SET balance_grams = GREATEST(0, user_gold_wallet.balance_grams - $2), updated_at = CURRENT_TIMESTAMP
+        `, [user_id, grams]);
+        await query(`INSERT INTO gold_lot_movements (user_id, direction, grams, reference, created_at) VALUES ($1, 'DEBIT', $2, 'REDEEM', CURRENT_TIMESTAMP)`, [user_id, grams]);
+        const rows = await query(`
+            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, created_at)
+            VALUES ($1, 0, 'PAID', 'SIP', NULL, 'PENDING', $2, CURRENT_TIMESTAMP) RETURNING *
+        `, [user_id, JSON.stringify([{ type: 'sip_redeem', product_id: p.id, name: p.item_name || p.short_name, grams_used: grams }])]);
+        res.json({ order: rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// ADMIN: SIP MANAGEMENT (Strict Admin Email Guard)
+// ==========================================
+
+// List all SIP plans (including inactive)
+app.get('/api/admin/sip/plans', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query('SELECT * FROM sip_plans ORDER BY created_at DESC');
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create SIP plan
+app.post('/api/admin/sip/plans', requireJson, isAdminStrict, validateNumbers(['min_amount','duration_months']), async (req, res) => {
+    try {
+        const p = req.body || {};
+        if (!p.name || !p.type || !p.duration_months) {
+            return res.status(400).json({ error: 'name, type, duration_months required' });
+        }
+        const rows = await query(`
+            INSERT INTO sip_plans (name, type, min_amount, duration_months, is_active, created_at)
+            VALUES ($1, $2, COALESCE($3,0), $4, COALESCE($5, true), CURRENT_TIMESTAMP) RETURNING *
+        `, [p.name, p.type, Number(p.min_amount || 0), parseInt(p.duration_months), p.is_active]);
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update SIP plan (partial)
+app.put('/api/admin/sip/plans/:id', requireJson, isAdminStrict, validateNumbers(['min_amount','duration_months']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const p = req.body || {};
+        const updates = [];
+        const params = [];
+        let i = 1;
+        if (p.name !== undefined) { updates.push(`name = $${i++}`); params.push(p.name); }
+        if (p.type !== undefined) { updates.push(`type = $${i++}`); params.push(p.type); }
+        if (p.min_amount !== undefined) { updates.push(`min_amount = $${i++}`); params.push(Number(p.min_amount)); }
+        if (p.duration_months !== undefined) { updates.push(`duration_months = $${i++}`); params.push(parseInt(p.duration_months)); }
+        if (p.is_active !== undefined) { updates.push(`is_active = $${i++}`); params.push(Boolean(p.is_active)); }
+        if (updates.length === 0) return res.status(400).json({ error: 'no fields to update' });
+        const rows = await query(`UPDATE sip_plans SET ${updates.join(', ')}, created_at = created_at WHERE id = $${i} RETURNING *`, [...params, parseInt(id)]);
+        if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Soft delete (deactivate) SIP plan
+app.delete('/api/admin/sip/plans/:id', isAdminStrict, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rows = await query(`UPDATE sip_plans SET is_active = false WHERE id = $1 RETURNING *`, [parseInt(id)]);
+        if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// List products with redeemable flags
+app.get('/api/admin/redeemables', isAdminStrict, async (req, res) => {
+    try {
+        const { search } = req.query || {};
+        let q = `
+            SELECT id, item_name, short_name, COALESCE(net_weight, weight) AS grams,
+                   purity, is_redeemable, redeem_grams, status
+            FROM products
+            WHERE (is_deleted IS NULL OR is_deleted = false)
+              AND (status IS NULL OR status != 'deleted')
+              AND LOWER(COALESCE(metal_type,'gold')) = 'gold'
+        `;
+        const params = [];
+        if (search) {
+            q += ` AND (item_name ILIKE $1 OR short_name ILIKE $1)`;
+            params.push(`%${search}%`);
+        }
+        q += ` ORDER BY is_redeemable DESC, redeem_grams NULLS LAST, item_name`;
+        const rows = await query(q, params);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update redeemable flags for a product
+app.put('/api/admin/products/:id/redeem', requireJson, isAdminStrict, validateNumbers(['redeem_grams']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { is_redeemable, redeem_grams } = req.body || {};
+        const updates = ['updated_at = CURRENT_TIMESTAMP'];
+        const params = [];
+        let i = 1;
+        if (is_redeemable !== undefined) {
+            updates.push(`is_redeemable = $${i++}`);
+            params.push(Boolean(is_redeemable));
+        }
+        if (redeem_grams !== undefined) {
+            const g = redeem_grams === null || redeem_grams === '' ? null : Number(redeem_grams);
+            updates.push(`redeem_grams = $${i++}`);
+            params.push(g);
+        }
+        if (updates.length === 1) return res.status(400).json({ error: 'no fields to update' });
+        const rows = await query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${i} RETURNING *`, [...params, parseInt(id)]);
+        if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+        res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Viewer: SIP subscriptions and wallet balances
+app.get('/api/admin/sip/subscriptions', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query(`
+            SELECT s.id, s.user_id, s.amount, s.frequency, s.status, s.created_at,
+                   u.email, u.name,
+                   COALESCE(w.balance_grams, 0) AS wallet_balance
+            FROM sip_subscriptions s
+            LEFT JOIN users u ON u.id = s.user_id
+            LEFT JOIN user_gold_wallet w ON w.user_id = s.user_id
+            ORDER BY s.created_at DESC
+        `);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // ==========================================
 // STYLES MASTER API (Enterprise Feature)
 // ==========================================
@@ -2690,7 +3659,7 @@ app.get('/api/styles/:code', checkAuth, async (req, res) => {
     }
 });
 
-app.post('/api/styles', checkRole('admin'), async (req, res) => {
+app.post('/api/styles', isAdminStrict, async (req, res) => {
     try {
         const { style_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, hsn_code, description } = req.body;
         
@@ -2723,7 +3692,7 @@ app.post('/api/styles', checkRole('admin'), async (req, res) => {
     }
 });
 
-app.put('/api/styles/:id', checkRole('admin'), async (req, res) => {
+app.put('/api/styles/:id', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         const { item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, hsn_code, description, is_active } = req.body;
@@ -2753,7 +3722,7 @@ app.put('/api/styles/:id', checkRole('admin'), async (req, res) => {
     }
 });
 
-app.delete('/api/styles/:id', checkRole('admin'), async (req, res) => {
+app.delete('/api/styles/:id', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         await query('UPDATE styles SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
@@ -2800,7 +3769,7 @@ app.get('/api/vendors', checkAuth, async (req, res) => {
     }
 });
 
-app.post('/api/vendors', checkRole('admin'), async (req, res) => {
+app.post('/api/vendors', isAdminStrict, async (req, res) => {
     try {
         const { vendor_code, name, contact_person, mobile, email, address, city, state, pincode, gstin } = req.body;
         
@@ -2923,10 +3892,10 @@ app.post('/api/purchase-vouchers/validate', checkAuth, async (req, res) => {
             
             // Cost mismatch check
             if (cost > 0 && grossWt > 0) {
-                const metalRate = metalType === 'gold' ? rates.gold : rates.silver;
-                const metalValue = netWt * metalRate * (purity / 100);
-                const mcAmount = row.mc_type === 'FIXED' ? mcValue : (netWt * mcValue);
-                const expectedCost = metalValue + mcAmount;
+                const expectedCost = calculatePurchaseCost(
+                    { metal_type: metalType, net_wt: netWt, purity, mc_type: row.mc_type, mc_value: mcValue },
+                    rates
+                );
                 
                 if (cost < expectedCost * 0.8 || cost > expectedCost * 1.3) {
                     errors.push(`Cost mismatch (Expected ~₹${Math.round(expectedCost)})`);
@@ -3590,6 +4559,8 @@ function broadcast(event, data) {
 
 global.broadcast = broadcast;
 
+liveRateService.start(io);
+
 // ==========================================
 // ERROR HANDLING
 // ==========================================
@@ -3611,7 +4582,7 @@ app.get('*', (req, res) => {
     if (req.path.startsWith('/api/')) {
         return res.status(404).json({ error: 'API endpoint not found', success: false });
     }
-    res.sendFile(path.join(__dirname, 'public/index.html'));
+    res.status(404).json({ error: 'Not found' });
 });
 
 // ==========================================

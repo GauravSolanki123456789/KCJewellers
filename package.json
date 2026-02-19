@@ -31,7 +31,8 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.11.3",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "puppeteer": "^23.4.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

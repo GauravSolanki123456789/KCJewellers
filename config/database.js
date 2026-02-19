@@ -311,6 +311,76 @@ async function initSchema() {
         `CREATE INDEX IF NOT EXISTS idx_quotations_is_billed ON quotations(is_billed)`,
         `CREATE INDEX IF NOT EXISTS idx_styles_style_code ON styles(style_code)`,
         `CREATE INDEX IF NOT EXISTS idx_styles_sku_code ON styles(sku_code)`,
+        
+        `CREATE TABLE IF NOT EXISTS booking_locks (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            metal_type VARCHAR(50) NOT NULL,
+            quantity_kg NUMERIC(10,3) DEFAULT 0,
+            lock_rate NUMERIC(12,2) NOT NULL,
+            total_amount NUMERIC(12,2) NOT NULL,
+            status VARCHAR(20) DEFAULT 'LOCKED',
+            razorpay_order_id VARCHAR(100),
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_booking_razorpay ON booking_locks(razorpay_order_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_booking_status ON booking_locks(status)`,
+        
+        `DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_class WHERE relkind = 'S' AND relname = 'quotation_seq'
+            ) THEN
+                CREATE SEQUENCE quotation_seq START 1000;
+            END IF;
+        END $$;`,
+        
+        `CREATE TABLE IF NOT EXISTS bullion_inventory (
+            id SERIAL PRIMARY KEY,
+            metal_type VARCHAR(50) UNIQUE NOT NULL,
+            available_kg NUMERIC(12,3) DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        
+        `CREATE TABLE IF NOT EXISTS sip_subscriptions (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            amount NUMERIC(12,2) NOT NULL,
+            frequency VARCHAR(20) NOT NULL, -- DAILY or MONTHLY
+            razorpay_subscription_id VARCHAR(100),
+            status VARCHAR(20) DEFAULT 'PENDING',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_sip_subs_razorpay ON sip_subscriptions(razorpay_subscription_id)`,
+        
+        `DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'wallet_gold_balance'
+            ) THEN
+                ALTER TABLE users ADD COLUMN wallet_gold_balance NUMERIC(12,6) DEFAULT 0;
+            END IF;
+        END $$;`,
+        
+        `CREATE TABLE IF NOT EXISTS sip_payout_requests (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            grams NUMERIC(12,6) NOT NULL,
+            amount NUMERIC(12,2) NOT NULL,
+            status VARCHAR(30) DEFAULT 'PENDING_ADMIN_APPROVAL',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        
+        `CREATE TABLE IF NOT EXISTS gold_lot_movements (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            direction VARCHAR(10) NOT NULL,
+            grams NUMERIC(12,6) NOT NULL,
+            reference VARCHAR(100),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_gold_lot_movements_user ON gold_lot_movements(user_id)`
     ];
     
     for (const query of queries) {
@@ -359,6 +429,94 @@ async function initSchema() {
         `);
     } catch (error) {
         console.warn('Migration warning (may be expected):', error.message);
+    }
+    
+    // Nested Categories and Jewelry Attributes (idempotent)
+    try {
+        // Create categories table if missing
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS categories (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                slug VARCHAR(160) UNIQUE NOT NULL,
+                parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id);`);
+        await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_slug_lower ON categories(LOWER(slug));`);
+        
+        // Add category_id and jewelry columns to products safely
+        await pool.query(`
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='category_id') THEN
+                    ALTER TABLE products ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='gross_weight') THEN
+                    ALTER TABLE products ADD COLUMN gross_weight NUMERIC(12,3);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='net_weight') THEN
+                    ALTER TABLE products ADD COLUMN net_weight NUMERIC(12,3);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='making_charges') THEN
+                    ALTER TABLE products ADD COLUMN making_charges NUMERIC(12,2);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='making_charges_type') THEN
+                    ALTER TABLE products ADD COLUMN making_charges_type VARCHAR(20);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='gst_percentage') THEN
+                    ALTER TABLE products ADD COLUMN gst_percentage NUMERIC(5,2);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='is_redeemable') THEN
+                    ALTER TABLE products ADD COLUMN is_redeemable BOOLEAN DEFAULT false;
+                    UPDATE products SET is_redeemable = false WHERE is_redeemable IS NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='redeem_grams') THEN
+                    ALTER TABLE products ADD COLUMN redeem_grams NUMERIC(12,3);
+                END IF;
+            END $$;
+        `);
+        
+        // Create wallet and SIP tables if not present
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS user_gold_wallet (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                balance_grams NUMERIC(14,6) NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS sip_plans (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                type VARCHAR(20) NOT NULL,
+                min_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+                duration_months INTEGER NOT NULL,
+                is_active BOOLEAN DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sip_plans_name ON sip_plans(name);`);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS sip_transactions (
+                id BIGSERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                plan_id INTEGER REFERENCES sip_plans(id) ON DELETE SET NULL,
+                amount NUMERIC(12,2) NOT NULL,
+                gold_rate_at_time NUMERIC(12,2),
+                gold_credited NUMERIC(12,4),
+                status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_sip_tx_user ON sip_transactions(user_id);`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_sip_tx_plan ON sip_transactions(plan_id);`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_sip_tx_status ON sip_transactions(status);`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_sip_tx_date ON sip_transactions(transaction_date);`);
+    } catch (error) {
+        console.warn('Migration warning (categories/sip):', error.message);
     }
     
     // Insert default rates if not exists
