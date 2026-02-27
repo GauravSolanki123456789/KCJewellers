@@ -531,6 +531,25 @@ async function initSchema() {
         await pool.query(`INSERT INTO tally_config (tally_url, company_name, enabled, sync_mode, auto_sync_enabled) 
             VALUES ('http://localhost:9000', 'Default Company', false, 'manual', false)`);
     }
+
+    // App settings (booking advance amount, etc.)
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS app_settings (
+                id SERIAL PRIMARY KEY,
+                key VARCHAR(100) UNIQUE NOT NULL,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ('booking_advance_amount', '5000', CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO NOTHING
+        `);
+    } catch (e) {
+        console.warn('App settings init:', e.message);
+    }
 }
 
 // Query helper function

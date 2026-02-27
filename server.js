@@ -15,6 +15,7 @@ const {
     getPool
 } = require('./config/database');
 const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict } = require('./middleware/auth');
+const { resolveUserRole } = require('./services/authService');
 const { sanitizeMiddleware, validateNumbers } = require('./middleware/sanitize');
 const { globalLimiter, authLimiter, adminLimiter, requireJson } = require('./middleware/rateLimit');
 const { hasPermission, getPermissionContext } = require('./middleware/checkPermission');
@@ -29,15 +30,37 @@ app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: ["http://localhost:3001", "http://localhost:3000"],
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors({ origin: true, credentials: true }));
+// Middleware - CORS must allow credentials for cookie sharing (Next.js client on 3001)
+app.use(cors({ 
+    origin: 'http://localhost:3001', 
+    credentials: true 
+}));
 app.use(express.json());
+
+// Session and Passport MUST run before /api/admin so req.user is populated
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'jewelry_estimation_secret_change_me',
+    resave: false,
+    saveUninitialized: true,
+    name: 'jp.sid',
+    cookie: { 
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000,
+        ...(process.env.NODE_ENV !== 'production' && { domain: 'localhost' })
+    }
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
 function strictAdminOrigin(req, res, next) {
     const list = String(process.env.ADMIN_ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
     if (list.length === 0) return next();
@@ -48,22 +71,6 @@ function strictAdminOrigin(req, res, next) {
     next();
 }
 app.use('/api/admin', adminLimiter, requireJson, strictAdminOrigin, isAdminStrict);
-
-// Session and Passport Middleware
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'jewelry_estimation_secret_change_me',
-    resave: false,
-    saveUninitialized: true,
-    name: 'jp.sid', // Custom session name (not default 'connect.sid')
-    cookie: { 
-        secure: false,
-        httpOnly: true, // Prevent XSS access to cookie
-        sameSite: 'lax', // CSRF protection
-        maxAge: 24 * 60 * 60 * 1000 // 24 hours
-    }
-}));
-app.use(passport.initialize());
-app.use(passport.session());
 
 // SECURITY: Apply security headers to all requests
 app.use(securityHeaders);
@@ -141,8 +148,38 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 // ==========================================
-// GOOGLE OAUTH ROUTES (WHITELIST-BASED)
+// GOOGLE OAUTH ROUTES
 // ==========================================
+
+// Bypass Login (localhost development only) - explicit route for "Bypass Login" button
+app.get('/auth/bypass', authLimiter, async (req, res, next) => {
+    const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1' || process.env.NODE_ENV === 'development';
+    if (!isLocalhost) {
+        return res.status(403).json({ error: 'Bypass login only available on localhost' });
+    }
+    const email = 'jaigaurav56789@gmail.com';
+    try {
+        let result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        let user = result.rows[0];
+        if (!user) {
+            const newUser = await pool.query(`
+                INSERT INTO users (email, name, role, account_status, allowed_tabs, permissions)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING *
+            `, [email, 'Local Admin', 'admin', 'active', ['all'], JSON.stringify({ all: true, modules: ['*'] })]);
+            user = newUser.rows[0];
+        }
+        const resolvedUser = resolveUserRole(user);
+        req.login(resolvedUser, (err) => {
+            if (err) return next(err);
+            const redirect = req.query.redirect && typeof req.query.redirect === 'string' ? req.query.redirect : '/';
+            res.redirect(redirect);
+        });
+    } catch (error) {
+        console.error('Bypass Error:', error);
+        res.status(500).send('Local login failed: ' + error.message);
+    }
+});
 
 app.get('/auth/google', authLimiter, async (req, res, next) => {
     // 🛠️ LOCAL DEV BYPASS
@@ -175,8 +212,9 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
                 user = newUser.rows[0];
             }
 
-            // 3. Log in with the REAL database user object (has correct UUID)
-            req.login(user, (err) => {
+            // 3. Force role via authService, then log in
+            const resolvedUser = resolveUserRole(user);
+            req.login(resolvedUser, (err) => {
                 if (err) { 
                     console.error("Login Error:", err);
                     return next(err); 
@@ -198,19 +236,20 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
 // Google OAuth Callback - Handle whitelist denial
 app.get('/auth/google/callback', authLimiter, 
     passport.authenticate('google', { 
-        failureRedirect: '/unauth.html?reason=ACCESS_DENIED',
+        failureRedirect: (process.env.CLIENT_URL || 'http://localhost:3001') + '/?auth=failed&reason=ACCESS_DENIED',
         failureMessage: true
     }),
     (req, res) => {
-        // User passed whitelist check
+        // User passed whitelist check - session/cookie is set by passport before this handler
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
         if (!req.user) {
-            return res.redirect('/unauth.html?reason=ACCESS_DENIED');
+            return res.redirect(clientUrl + '/?auth=failed&reason=ACCESS_DENIED');
         }
         
         if (req.user.account_status === 'pending') {
-            res.redirect('/complete-profile.html');
+            res.redirect(clientUrl + '/complete-profile');
         } else if (req.user.account_status === 'active') {
-            res.redirect('/');
+            res.redirect(clientUrl);
         } else if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
             // Destroy session for suspended users
             req.logout((err) => {
@@ -218,11 +257,11 @@ app.get('/auth/google/callback', authLimiter,
                 req.session.destroy((err) => {
                     if (err) { console.error('Session destroy error:', err); }
                     res.clearCookie('jp.sid');
-                    res.redirect('/unauth.html?reason=suspended&email=' + encodeURIComponent(req.user?.email || ''));
+                    res.redirect(clientUrl + '/?auth=suspended&email=' + encodeURIComponent(req.user?.email || ''));
                 });
             });
         } else {
-            res.redirect('/');
+            res.redirect(clientUrl);
         }
     }
 );  
@@ -869,10 +908,12 @@ app.get('/api/update/check', async (req, res) => {
 
 // ==========================================
 // PRODUCTS API (Single Tenant - No :tenant prefix)
-// Protected by: hasPermission('products')
+// GET: Public access (no auth required)
+// POST/PUT/DELETE: Protected by: hasPermission('products')
 // ==========================================
 
-app.get('/api/products', checkAuth, hasPermission('products'), async (req, res) => {
+// STEP 3: Public GET access for products (read-only)
+app.get('/api/products', async (req, res) => {
     try {
         const { barcode, styleCode, search, includeDeleted, limit, offset, recent, metal_type, category_id } = req.query;
         
@@ -962,9 +1003,10 @@ app.get('/api/products', checkAuth, hasPermission('products'), async (req, res) 
             totalCount = parseInt(countResult[0].total);
         }
         
-        // Return results with metadata
+        // Return results with metadata (include both 'items' and 'products' for compatibility)
         res.json({
             products: result,
+            items: result, // Frontend compatibility
             total: totalCount,
             limit: limitValue,
             offset: offset ? parseInt(offset) : 0,
@@ -2903,6 +2945,20 @@ app.get('/api/rates/display', async (req, res) => {
     }
 });
 
+app.get('/api/rates/live', async (req, res) => {
+    try {
+        const result = await liveRateService.fetchLiveRates();
+        res.json({
+            success: result.success,
+            rates: result.rates,
+            source: result.source,
+            timestamp: result.timestamp
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post('/api/rate-lock', async (req, res) => {
     try {
         const { metals } = req.body || {};
@@ -2934,6 +2990,97 @@ app.get('/api/rate-lock', async (req, res) => {
         }
         req.session.rateLocks = pruned;
         res.json(pruned);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// BOOKING ADVANCE - Settings & Advance Payment
+// ==========================================
+app.get('/api/settings/booking-advance', async (req, res) => {
+    try {
+        const rows = await query('SELECT value FROM app_settings WHERE key = $1', ['booking_advance_amount']);
+        const amount = rows.length ? Math.max(0, parseInt(rows[0].value || '5000', 10)) : 5000;
+        res.json({ advanceAmount: amount });
+    } catch (error) {
+        res.json({ advanceAmount: 5000 });
+    }
+});
+
+app.put('/api/admin/settings/booking-advance', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { advanceAmount } = req.body || {};
+        const amount = Math.max(0, parseInt(advanceAmount, 10));
+        await query(`
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ('booking_advance_amount', $1, CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP
+        `, [String(amount)]);
+        res.json({ success: true, advanceAmount: amount });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: Get all margin/settings (for Rates & Margins page)
+app.get('/api/admin/settings/margins', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query('SELECT key, value FROM app_settings WHERE key IN ($1, $2, $3, $4, $5)', [
+            'gold_import_duty_percent', 'silver_premium_percent', 'default_mc_22k_per_gram', 'default_mc_18k_per_gram', 'booking_advance_amount'
+        ]);
+        const map = {};
+        rows.forEach(r => { map[r.key] = r.value; });
+        res.json({
+            goldImportDutyPercent: parseFloat(map.gold_import_duty_percent || '15') || 15,
+            silverPremiumPercent: parseFloat(map.silver_premium_percent || '12') || 12,
+            defaultMc22kPerGram: parseFloat(map.default_mc_22k_per_gram || '500') || 500,
+            defaultMc18kPerGram: parseFloat(map.default_mc_18k_per_gram || '450') || 450,
+            advanceAmount: parseInt(map.booking_advance_amount || '5000', 10) || 5000
+        });
+    } catch (error) {
+        res.json({ goldImportDutyPercent: 15, silverPremiumPercent: 12, defaultMc22kPerGram: 500, defaultMc18kPerGram: 450, advanceAmount: 5000 });
+    }
+});
+
+// Admin: Save all margin/settings
+app.put('/api/admin/settings/margins', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { goldImportDutyPercent, silverPremiumPercent, defaultMc22kPerGram, defaultMc18kPerGram, advanceAmount } = req.body || {};
+        const upsert = async (key, val) => {
+            await query(`
+                INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+            `, [key, String(val)]);
+        };
+        await upsert('gold_import_duty_percent', Math.max(0, parseFloat(goldImportDutyPercent) || 0));
+        await upsert('silver_premium_percent', Math.max(0, parseFloat(silverPremiumPercent) || 0));
+        await upsert('default_mc_22k_per_gram', Math.max(0, parseFloat(defaultMc22kPerGram) || 0));
+        await upsert('default_mc_18k_per_gram', Math.max(0, parseFloat(defaultMc18kPerGram) || 0));
+        await upsert('booking_advance_amount', Math.max(0, parseInt(advanceAmount, 10) || 0));
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/bookings/advance', requireJson, async (req, res) => {
+    try {
+        const { metalType, lockedRate, mobileNumber, advancePaid } = req.body || {};
+        if (!mobileNumber || String(mobileNumber).trim().length < 10) {
+            return res.status(400).json({ error: 'Valid mobile number required' });
+        }
+        const mobile = String(mobileNumber).replace(/\D/g, '').slice(0, 10);
+        if (mobile.length !== 10) return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
+        const metal = String(metalType || 'gold').toLowerCase();
+        const rate = Math.max(0, Number(lockedRate) || 0);
+        const amount = Math.max(0, Number(advancePaid) || 0);
+        const rows = await query(`
+            INSERT INTO bookings (user_id, status, locked_gold_rate, advance_amount, metal_type, mobile_number, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id, status, metal_type, mobile_number, advance_amount, locked_gold_rate, created_at
+        `, [null, 'pending_payment', rate, amount, metal, mobile]);
+        res.json({ success: true, message: 'Booking created. Payment integration coming soon.', booking: rows[0] });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -3210,6 +3357,205 @@ app.get('/api/admin/gold_lot_movements', isAdminStrict, async (req, res) => {
             return res.send(csv);
         }
         res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Alias: hyphenated URL for frontend compatibility
+app.get('/api/admin/gold-lot-movements', isAdminStrict, async (req, res) => {
+    try {
+        const { limit, start, end, user_id, direction, format } = req.query;
+        const l = Math.min(parseInt(limit || '100'), 2000);
+        let q = 'SELECT * FROM gold_lot_movements WHERE 1=1';
+        const params = [];
+        let pc = 1;
+        if (user_id) { q += ` AND user_id = $${pc++}`; params.push(parseInt(user_id)); }
+        if (direction) { q += ` AND direction = $${pc++}`; params.push(direction); }
+        if (start) { q += ` AND created_at >= $${pc++}`; params.push(new Date(start)); }
+        if (end) { q += ` AND created_at <= $${pc++}`; params.push(new Date(end)); }
+        q += ' ORDER BY created_at DESC';
+        q += ` LIMIT $${pc++}`;
+        params.push(l);
+        const rows = await query(q, params);
+        if (String(format).toLowerCase() === 'csv') {
+            const header = ['id','user_id','direction','grams','reference','created_at'].join(',');
+            const lines = rows.map(r => [r.id, r.user_id, r.direction, Number(r.grams), (r.reference || '').replace(/,/g, ' '), r.created_at?.toISOString?.() || r.created_at].join(','));
+            res.set('Content-Type', 'text/csv');
+            return res.send([header, ...lines].join('\n'));
+        }
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Placeholder endpoints (return 200 OK with empty data)
+app.get('/api/admin/rates', isAdminStrict, (req, res) => res.json({ success: true, data: [] }));
+app.get('/api/admin/sip-payouts', isAdminStrict, (req, res) => res.json({ success: true, data: [] }));
+
+// Admin Orders - who ordered what, when, rate, delivery
+app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query(`
+            SELECT o.id, o.user_id, o.total_amount, o.payment_status, o.payment_method,
+                   o.delivery_status, o.items_snapshot_json, o.razorpay_order_id, o.created_at,
+                   u.name as customer_name, u.email as customer_email, u.mobile_number as customer_mobile
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            ORDER BY o.created_at DESC
+            LIMIT 500
+        `);
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin ERP Sync - sync products from main products table to web catalogue
+app.post('/api/admin/sync/products', isAdminStrict, async (req, res) => {
+    try {
+        const products = await query(`
+            SELECT barcode, sku, style_code, short_name, item_name, metal_type, net_weight, gross_weight, weight, purity, mc_rate, mc_type
+            FROM products
+            WHERE (is_deleted IS NULL OR is_deleted = false) AND (status IS NULL OR status != 'deleted')
+        `);
+        let categoriesCreated = 0, subcategoriesCreated = 0, productsSynced = 0;
+        const styleSlugs = new Set();
+        const skuSlugs = new Set();
+        for (const p of products) {
+            const styleCode = p.style_code || 'Uncategorized';
+            const styleSlug = String(styleCode).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'uncategorized';
+            if (!styleSlugs.has(styleSlug)) {
+                await query(`
+                    INSERT INTO web_categories (name, slug, updated_at)
+                    VALUES ($1, $2, CURRENT_TIMESTAMP)
+                    ON CONFLICT (slug) DO UPDATE SET name = $1, updated_at = CURRENT_TIMESTAMP
+                `, [styleCode, styleSlug]);
+                styleSlugs.add(styleSlug);
+                categoriesCreated++;
+            }
+            const cat = await query('SELECT id FROM web_categories WHERE slug = $1', [styleSlug]);
+            const catId = cat[0]?.id;
+            if (!catId) continue;
+            const skuCode = p.sku || p.barcode || 'N/A';
+            const skuSlug = `${styleSlug}-${String(skuCode).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'na'}`;
+            const skuKey = `${styleSlug}::${skuSlug}`;
+            if (!skuSlugs.has(skuKey)) {
+                await query(`
+                    INSERT INTO web_subcategories (category_id, name, slug, updated_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                    ON CONFLICT (slug) DO UPDATE SET name = $2, category_id = $1, updated_at = CURRENT_TIMESTAMP
+                `, [catId, skuCode, skuSlug]);
+                skuSlugs.add(skuKey);
+                subcategoriesCreated++;
+            }
+            const sub = await query('SELECT id FROM web_subcategories WHERE slug = $1', [skuSlug]);
+            const subId = sub[0]?.id;
+            if (!subId) continue;
+            const prodSku = p.barcode || p.sku || `p-${p.id || Date.now()}-${productsSynced}`;
+            await query(`
+                INSERT INTO web_products (subcategory_id, sku, name, gross_weight, net_weight, purity, last_synced_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (sku) DO UPDATE SET
+                    name = EXCLUDED.name, gross_weight = EXCLUDED.gross_weight, net_weight = EXCLUDED.net_weight, purity = EXCLUDED.purity, last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            `, [subId, prodSku, p.item_name || p.short_name, p.gross_weight, p.net_weight || p.weight, p.purity]);
+            productsSynced++;
+        }
+        res.json({ success: true, categoriesCreated, subcategoriesCreated, productsSynced });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Public catalog - published categories only (Style → SKU → Products)
+app.get('/api/catalog', async (req, res) => {
+    try {
+        const cats = await query(`
+            SELECT id, name, slug, image_url FROM web_categories
+            WHERE is_published = true
+            ORDER BY name
+        `);
+        const categories = [];
+        for (const c of cats) {
+            const subs = await query(`
+                SELECT id, name, slug FROM web_subcategories
+                WHERE category_id = $1 ORDER BY name
+            `, [c.id]);
+            const subcategories = [];
+            for (const s of subs) {
+                const wpRows = await query(`
+                    SELECT wp.sku, wp.name, wp.net_weight, wp.gross_weight, wp.purity
+                    FROM web_products wp
+                    WHERE wp.subcategory_id = $1 AND (wp.is_active IS NULL OR wp.is_active = true)
+                `, [s.id]);
+                const barcodes = wpRows.map(r => r.sku).filter(Boolean);
+                let products = [];
+                if (barcodes.length > 0) {
+                    const placeholders = barcodes.map((_, i) => `$${i + 1}`).join(',');
+                    const prodRows = await query(`
+                        SELECT * FROM products
+                        WHERE barcode IN (${placeholders})
+                        AND (is_deleted IS NULL OR is_deleted = false)
+                        AND (status IS NULL OR status != 'deleted')
+                    `, barcodes);
+                    products = prodRows;
+                }
+                subcategories.push({ id: s.id, name: s.name, slug: s.slug, products });
+            }
+            categories.push({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url, subcategories });
+        }
+        res.json({ categories });
+    } catch (error) {
+        console.error('Catalog error:', error);
+        res.json({ categories: [] });
+    }
+});
+
+// Admin: list all catalog categories with publish status
+app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query(`
+            SELECT id, name, slug, image_url, COALESCE(is_published, false) as is_published
+            FROM web_categories ORDER BY name
+        `);
+        res.json({ categories: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: toggle publish for categories
+app.put('/api/admin/catalog/publish', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { categoryIds, publish } = req.body || {};
+        const ids = Array.isArray(categoryIds) ? categoryIds.map(id => parseInt(id)).filter(n => !isNaN(n)) : [];
+        if (ids.length === 0) {
+            return res.status(400).json({ error: 'categoryIds array required' });
+        }
+        const val = publish === true || publish === 'true' ? true : false;
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+        await query(`
+            UPDATE web_categories SET is_published = $${ids.length + 1}, updated_at = CURRENT_TIMESTAMP
+            WHERE id IN (${placeholders})
+        `, [...ids, val]);
+        res.json({ success: true, updated: ids.length });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin Bookings - real data from bookings table
+app.get('/api/admin/bookings', isAdminStrict, async (req, res) => {
+    try {
+        const { metal } = req.query;
+        let q = `SELECT id, user_id, status, locked_gold_rate, advance_amount, metal_type, mobile_number, weight_booked, created_at FROM bookings WHERE 1=1`;
+        const params = [];
+        if (metal && String(metal).trim()) {
+            q += ` AND LOWER(COALESCE(metal_type, '')) = $1`;
+            params.push(String(metal).toLowerCase());
+        }
+        q += ` ORDER BY created_at DESC LIMIT 500`;
+        const rows = await query(q, params);
+        res.json({ success: true, data: rows });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -4560,6 +4906,11 @@ function broadcast(event, data) {
 global.broadcast = broadcast;
 
 liveRateService.start(io);
+
+// 5-minute poller: keep live rates cache fresh
+setInterval(() => {
+    liveRateService.fetchLiveRates().catch(err => console.error('Rate poller error:', err.message));
+}, 5 * 60 * 1000);
 
 // ==========================================
 // ERROR HANDLING

@@ -8,6 +8,22 @@
 -- ============================================
 -- PHASE 1A: STYLES TABLE (Style Master)
 -- ============================================
+-- Ensure styles has enterprise columns (may pre-exist with different schema from config/database.js)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'styles') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'styles' AND column_name = 'default_purity') THEN
+            ALTER TABLE styles ADD COLUMN default_purity DECIMAL(5,2) DEFAULT 91.6;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'styles' AND column_name = 'default_mc_type') THEN
+            ALTER TABLE styles ADD COLUMN default_mc_type VARCHAR(20) DEFAULT 'PER_GRAM';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'styles' AND column_name = 'default_mc_value') THEN
+            ALTER TABLE styles ADD COLUMN default_mc_value DECIMAL(10,2) DEFAULT 0;
+        END IF;
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS styles (
     id SERIAL PRIMARY KEY,
     style_code VARCHAR(50) UNIQUE NOT NULL,
@@ -28,6 +44,8 @@ CREATE TABLE IF NOT EXISTS styles (
 
 CREATE INDEX IF NOT EXISTS idx_styles_code ON styles(style_code);
 CREATE INDEX IF NOT EXISTS idx_styles_category ON styles(category);
+-- Ensure is_active exists before creating index (styles may pre-exist without it)
+ALTER TABLE styles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 CREATE INDEX IF NOT EXISTS idx_styles_active ON styles(is_active);
 
 -- ============================================
@@ -179,26 +197,26 @@ CREATE INDEX IF NOT EXISTS idx_vendors_code ON vendors(vendor_code);
 CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name);
 
 -- ============================================
--- SEED DATA: Sample Styles
+-- SEED DATA: Sample Styles (sku_code required if column exists)
 -- ============================================
-INSERT INTO styles (style_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
-SELECT 'RING-001', 'Gold Ring Plain', 'Rings', 'gold', 91.6, 'PER_GRAM', 350, 'Plain gold ring design'
+INSERT INTO styles (style_code, sku_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
+SELECT 'RING-001', 'RING-001', 'Gold Ring Plain', 'Rings', 'gold', 91.6, 'PER_GRAM', 350, 'Plain gold ring design'
 WHERE NOT EXISTS (SELECT 1 FROM styles WHERE style_code = 'RING-001');
 
-INSERT INTO styles (style_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
-SELECT 'CHAIN-001', 'Gold Chain Hollow', 'Chains', 'gold', 91.6, 'PER_GRAM', 280, 'Hollow rope chain design'
+INSERT INTO styles (style_code, sku_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
+SELECT 'CHAIN-001', 'CHAIN-001', 'Gold Chain Hollow', 'Chains', 'gold', 91.6, 'PER_GRAM', 280, 'Hollow rope chain design'
 WHERE NOT EXISTS (SELECT 1 FROM styles WHERE style_code = 'CHAIN-001');
 
-INSERT INTO styles (style_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
-SELECT 'BANG-001', 'Gold Bangle Plain', 'Bangles', 'gold', 91.6, 'FIXED', 1500, 'Plain bangle set'
+INSERT INTO styles (style_code, sku_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
+SELECT 'BANG-001', 'BANG-001', 'Gold Bangle Plain', 'Bangles', 'gold', 91.6, 'FIXED', 1500, 'Plain bangle set'
 WHERE NOT EXISTS (SELECT 1 FROM styles WHERE style_code = 'BANG-001');
 
-INSERT INTO styles (style_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
-SELECT 'EAR-001', 'Gold Earrings Jhumka', 'Earrings', 'gold', 91.6, 'FIXED', 800, 'Traditional jhumka earrings'
+INSERT INTO styles (style_code, sku_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
+SELECT 'EAR-001', 'EAR-001', 'Gold Earrings Jhumka', 'Earrings', 'gold', 91.6, 'FIXED', 800, 'Traditional jhumka earrings'
 WHERE NOT EXISTS (SELECT 1 FROM styles WHERE style_code = 'EAR-001');
 
-INSERT INTO styles (style_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
-SELECT 'NECK-001', 'Gold Necklace Set', 'Necklaces', 'gold', 91.6, 'PER_GRAM', 450, 'Designer necklace with pendant'
+INSERT INTO styles (style_code, sku_code, item_name, category, metal_type, default_purity, default_mc_type, default_mc_value, description) 
+SELECT 'NECK-001', 'NECK-001', 'Gold Necklace Set', 'Necklaces', 'gold', 91.6, 'PER_GRAM', 450, 'Designer necklace with pendant'
 WHERE NOT EXISTS (SELECT 1 FROM styles WHERE style_code = 'NECK-001');
 
 -- ============================================
