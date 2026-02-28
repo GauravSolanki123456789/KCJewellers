@@ -3000,11 +3000,23 @@ app.get('/api/rate-lock', async (req, res) => {
 // ==========================================
 app.get('/api/settings/booking-advance', async (req, res) => {
     try {
-        const rows = await query('SELECT value FROM app_settings WHERE key = $1', ['booking_advance_amount']);
-        const amount = rows.length ? Math.max(0, parseInt(rows[0].value || '5000', 10)) : 5000;
-        res.json({ advanceAmount: amount });
+        const [advRow, weightsRow] = await Promise.all([
+            query('SELECT value FROM app_settings WHERE key = $1', ['booking_advance_amount']),
+            query('SELECT value FROM app_settings WHERE key = $1', ['booking_weights'])
+        ]);
+        const amount = advRow.length ? Math.max(0, parseInt(advRow[0].value || '5000', 10)) : 5000;
+        let bookingWeights = { gold: [1, 5, 10, 50], silver: [10, 100, 1000] };
+        if (weightsRow.length && weightsRow[0].value) {
+            try {
+                const parsed = JSON.parse(weightsRow[0].value);
+                if (parsed && typeof parsed === 'object') {
+                    bookingWeights = { gold: Array.isArray(parsed.gold) ? parsed.gold : bookingWeights.gold, silver: Array.isArray(parsed.silver) ? parsed.silver : bookingWeights.silver };
+                }
+            } catch (_) {}
+        }
+        res.json({ advanceAmount: amount, bookingWeights });
     } catch (error) {
-        res.json({ advanceAmount: 5000 });
+        res.json({ advanceAmount: 5000, bookingWeights: { gold: [1, 5, 10, 50], silver: [10, 100, 1000] } });
     }
 });
 
@@ -3026,27 +3038,37 @@ app.put('/api/admin/settings/booking-advance', requireJson, isAdminStrict, async
 // Admin: Get all margin/settings (for Rates & Margins page)
 app.get('/api/admin/settings/margins', isAdminStrict, async (req, res) => {
     try {
-        const rows = await query('SELECT key, value FROM app_settings WHERE key IN ($1, $2, $3, $4, $5)', [
-            'gold_import_duty_percent', 'silver_premium_percent', 'default_mc_22k_per_gram', 'default_mc_18k_per_gram', 'booking_advance_amount'
+        const rows = await query('SELECT key, value FROM app_settings WHERE key IN ($1, $2, $3, $4, $5, $6)', [
+            'gold_import_duty_percent', 'silver_premium_percent', 'default_mc_22k_per_gram', 'default_mc_18k_per_gram', 'booking_advance_amount', 'booking_weights'
         ]);
         const map = {};
         rows.forEach(r => { map[r.key] = r.value; });
+        let bookingWeights = { gold: [1, 5, 10, 50], silver: [10, 100, 1000] };
+        if (map.booking_weights) {
+            try {
+                const parsed = JSON.parse(map.booking_weights);
+                if (parsed && typeof parsed === 'object') {
+                    bookingWeights = { gold: Array.isArray(parsed.gold) ? parsed.gold : bookingWeights.gold, silver: Array.isArray(parsed.silver) ? parsed.silver : bookingWeights.silver };
+                }
+            } catch (_) {}
+        }
         res.json({
             goldImportDutyPercent: parseFloat(map.gold_import_duty_percent || '15') || 15,
             silverPremiumPercent: parseFloat(map.silver_premium_percent || '12') || 12,
             defaultMc22kPerGram: parseFloat(map.default_mc_22k_per_gram || '500') || 500,
             defaultMc18kPerGram: parseFloat(map.default_mc_18k_per_gram || '450') || 450,
-            advanceAmount: parseInt(map.booking_advance_amount || '5000', 10) || 5000
+            advanceAmount: parseInt(map.booking_advance_amount || '5000', 10) || 5000,
+            bookingWeights
         });
     } catch (error) {
-        res.json({ goldImportDutyPercent: 15, silverPremiumPercent: 12, defaultMc22kPerGram: 500, defaultMc18kPerGram: 450, advanceAmount: 5000 });
+        res.json({ goldImportDutyPercent: 15, silverPremiumPercent: 12, defaultMc22kPerGram: 500, defaultMc18kPerGram: 450, advanceAmount: 5000, bookingWeights: { gold: [1, 5, 10, 50], silver: [10, 100, 1000] } });
     }
 });
 
 // Admin: Save all margin/settings
 app.put('/api/admin/settings/margins', requireJson, isAdminStrict, async (req, res) => {
     try {
-        const { goldImportDutyPercent, silverPremiumPercent, defaultMc22kPerGram, defaultMc18kPerGram, advanceAmount } = req.body || {};
+        const { goldImportDutyPercent, silverPremiumPercent, defaultMc22kPerGram, defaultMc18kPerGram, advanceAmount, bookingWeights } = req.body || {};
         const upsert = async (key, val) => {
             await query(`
                 INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
@@ -3058,6 +3080,11 @@ app.put('/api/admin/settings/margins', requireJson, isAdminStrict, async (req, r
         await upsert('default_mc_22k_per_gram', Math.max(0, parseFloat(defaultMc22kPerGram) || 0));
         await upsert('default_mc_18k_per_gram', Math.max(0, parseFloat(defaultMc18kPerGram) || 0));
         await upsert('booking_advance_amount', Math.max(0, parseInt(advanceAmount, 10) || 0));
+        if (bookingWeights && typeof bookingWeights === 'object') {
+            const gold = Array.isArray(bookingWeights.gold) ? bookingWeights.gold.filter(n => !isNaN(Number(n)) && Number(n) > 0).map(n => Number(n)) : [1, 5, 10, 50];
+            const silver = Array.isArray(bookingWeights.silver) ? bookingWeights.silver.filter(n => !isNaN(Number(n)) && Number(n) > 0).map(n => Number(n)) : [10, 100, 1000];
+            await upsert('booking_weights', JSON.stringify({ gold, silver }));
+        }
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -3066,7 +3093,7 @@ app.put('/api/admin/settings/margins', requireJson, isAdminStrict, async (req, r
 
 app.post('/api/bookings/advance', requireJson, async (req, res) => {
     try {
-        const { metalType, lockedRate, mobileNumber, advancePaid } = req.body || {};
+        const { metalType, lockedRate, mobileNumber, advancePaid, weight } = req.body || {};
         if (!mobileNumber || String(mobileNumber).trim().length < 10) {
             return res.status(400).json({ error: 'Valid mobile number required' });
         }
@@ -3075,11 +3102,12 @@ app.post('/api/bookings/advance', requireJson, async (req, res) => {
         const metal = String(metalType || 'gold').toLowerCase();
         const rate = Math.max(0, Number(lockedRate) || 0);
         const amount = Math.max(0, Number(advancePaid) || 0);
+        const weightBooked = weight != null && !isNaN(Number(weight)) && Number(weight) > 0 ? Number(weight) : null;
         const rows = await query(`
-            INSERT INTO bookings (user_id, status, locked_gold_rate, advance_amount, metal_type, mobile_number, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            RETURNING id, status, metal_type, mobile_number, advance_amount, locked_gold_rate, created_at
-        `, [null, 'pending_payment', rate, amount, metal, mobile]);
+            INSERT INTO bookings (user_id, status, locked_gold_rate, advance_amount, metal_type, mobile_number, weight_booked, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id, status, metal_type, mobile_number, advance_amount, locked_gold_rate, weight_booked, created_at
+        `, [null, 'pending_payment', rate, amount, metal, mobile, weightBooked]);
         res.json({ success: true, message: 'Booking created. Payment integration coming soon.', booking: rows[0] });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -4911,6 +4939,183 @@ liveRateService.start(io);
 setInterval(() => {
     liveRateService.fetchLiveRates().catch(err => console.error('Rate poller error:', err.message));
 }, 5 * 60 * 1000);
+
+// ==========================================
+// DEVELOPER API - Key Management (Admin Only)
+// ==========================================
+
+// GET /api/admin/developer/key - return the current API key (masked except last 6 chars)
+app.get('/api/admin/developer/key', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query("SELECT api_key FROM app_settings WHERE key = 'developer_api_key'");
+        const apiKey = rows[0]?.api_key || null;
+        if (!apiKey) {
+            return res.json({ success: true, apiKey: null, message: 'No API key generated yet.' });
+        }
+        // Return full key to admin; mask preview for display
+        const preview = apiKey.slice(0, 6) + '••••••••••••••••••••••••' + apiKey.slice(-4);
+        res.json({ success: true, apiKey, preview });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/admin/developer/key/generate - generate a new 32-byte hex key and persist it
+app.post('/api/admin/developer/key/generate', isAdminStrict, async (req, res) => {
+    try {
+        const newKey = crypto.randomBytes(32).toString('hex'); // 64-char hex string
+        await query(`
+            INSERT INTO app_settings (key, value, api_key, updated_at)
+            VALUES ('developer_api_key', 'managed', $1, CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO UPDATE SET api_key = $1, updated_at = CURRENT_TIMESTAMP
+        `, [newKey]);
+        res.json({ success: true, apiKey: newKey, message: 'New API key generated. Store it securely — it will not be shown again in full.' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// ERP RECEIVER - POST /api/sync/receive
+// Secured by x-api-key header (not admin session)
+// ==========================================
+
+async function validateApiKey(req, res, next) {
+    const providedKey = (req.headers['x-api-key'] || '').trim();
+    if (!providedKey) {
+        return res.status(401).json({ error: 'Unauthorized: Missing x-api-key header' });
+    }
+    try {
+        const rows = await query("SELECT api_key FROM app_settings WHERE key = 'developer_api_key'");
+        const storedKey = rows[0]?.api_key;
+        if (!storedKey || providedKey !== storedKey) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+        }
+        next();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+/*
+  Expected payload:
+  {
+    "products": [
+      {
+        "styleCode": "RING01",          // maps to web_categories.name / slug
+        "sku": "RING01-001",             // maps to web_subcategories.name / slug
+        "barcode": "BAR123456",          // maps to web_products.sku (unique key for UPSERT)
+        "name": "22K Gold Ring",
+        "netWeight": 5.5,
+        "grossWeight": 6.0,
+        "purity": "22K",
+        "imageUrl": "https://...",
+        "metalType": "gold"
+      }
+    ]
+  }
+  If barcode is omitted, sku is used as the product's unique identifier.
+*/
+app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
+    try {
+        const items = Array.isArray(req.body?.products) ? req.body.products : [];
+        if (items.length === 0) {
+            return res.status(400).json({ error: 'No products provided. Expected { "products": [...] }' });
+        }
+
+        let categoriesUpserted = 0;
+        let subcategoriesUpserted = 0;
+        let productsUpserted = 0;
+        const errors = [];
+
+        // Cache lookups within this request to avoid redundant DB hits
+        const catIdCache = new Map();   // styleSlug -> id
+        const subIdCache = new Map();   // skuSlug   -> id
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            try {
+                // ---- STYLE → web_categories ----
+                const styleCode = String(item.styleCode || item.style_code || 'Uncategorized').trim();
+                const styleSlug = styleCode.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'uncategorized';
+
+                if (!catIdCache.has(styleSlug)) {
+                    await query(`
+                        INSERT INTO web_categories (name, slug, updated_at)
+                        VALUES ($1, $2, CURRENT_TIMESTAMP)
+                        ON CONFLICT (slug) DO UPDATE SET name = $1, updated_at = CURRENT_TIMESTAMP
+                    `, [styleCode, styleSlug]);
+                    const catRows = await query('SELECT id FROM web_categories WHERE slug = $1', [styleSlug]);
+                    catIdCache.set(styleSlug, catRows[0]?.id);
+                    categoriesUpserted++;
+                }
+
+                const catId = catIdCache.get(styleSlug);
+                if (!catId) { errors.push(`Row ${i}: could not resolve category for style "${styleCode}"`); continue; }
+
+                // ---- SKU → web_subcategories ----
+                const skuCode = String(item.sku || item.barcode || 'N/A').trim();
+                const skuSlug = `${styleSlug}-${skuCode.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'na'}`;
+                const skuCacheKey = `${styleSlug}::${skuSlug}`;
+
+                if (!subIdCache.has(skuCacheKey)) {
+                    await query(`
+                        INSERT INTO web_subcategories (category_id, name, slug, updated_at)
+                        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                        ON CONFLICT (slug) DO UPDATE SET name = $2, category_id = $1, updated_at = CURRENT_TIMESTAMP
+                    `, [catId, skuCode, skuSlug]);
+                    const subRows = await query('SELECT id FROM web_subcategories WHERE slug = $1', [skuSlug]);
+                    subIdCache.set(skuCacheKey, subRows[0]?.id);
+                    subcategoriesUpserted++;
+                }
+
+                const subId = subIdCache.get(skuCacheKey);
+                if (!subId) { errors.push(`Row ${i}: could not resolve subcategory for SKU "${skuCode}"`); continue; }
+
+                // ---- PRODUCT → web_products ----
+                const prodSku = String(item.barcode || item.sku || '').trim();
+                if (!prodSku) { errors.push(`Row ${i}: missing barcode/sku — skipped`); continue; }
+
+                const name        = String(item.name || item.item_name || item.short_name || prodSku).trim();
+                const netWeight   = item.netWeight   != null ? Number(item.netWeight)   : (item.net_weight   != null ? Number(item.net_weight)   : null);
+                const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : (item.gross_weight != null ? Number(item.gross_weight) : null);
+                const purity      = item.purity   ? String(item.purity)    : null;
+                const imageUrl    = item.imageUrl  ? String(item.imageUrl) : (item.image_url ? String(item.image_url) : null);
+
+                await query(`
+                    INSERT INTO web_products
+                        (subcategory_id, sku, name, gross_weight, net_weight, purity, image_url, is_active, last_synced_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (sku) DO UPDATE SET
+                        subcategory_id  = EXCLUDED.subcategory_id,
+                        name            = EXCLUDED.name,
+                        gross_weight    = EXCLUDED.gross_weight,
+                        net_weight      = EXCLUDED.net_weight,
+                        purity          = EXCLUDED.purity,
+                        image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
+                        is_active       = true,
+                        last_synced_at  = CURRENT_TIMESTAMP,
+                        updated_at      = CURRENT_TIMESTAMP
+                `, [subId, prodSku, name, grossWeight, netWeight, purity, imageUrl]);
+
+                productsUpserted++;
+            } catch (rowErr) {
+                errors.push(`Row ${i}: ${rowErr.message}`);
+            }
+        }
+
+        const status = errors.length > 0 && productsUpserted === 0 ? 207 : 200;
+        res.status(status).json({
+            success: productsUpserted > 0 || errors.length === 0,
+            categoriesUpserted,
+            subcategoriesUpserted,
+            productsUpserted,
+            ...(errors.length > 0 && { errors }),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // ==========================================
 // ERROR HANDLING
