@@ -2,9 +2,13 @@
 import '@/lib/axios'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
-import { calculateBreakdown } from '@/lib/pricing'
+import { calculateBreakdown, type Item } from '@/lib/pricing'
 
-type ProductLite = { barcode?: string, id?: string, gst_rate?: number }
+/**
+ * ProductLite extends Item to ensure all product fields are available in cart items.
+ * This prevents type errors when accessing item_name, short_name, style_code, etc.
+ */
+type ProductLite = Item
 type CartItem = { id: string, item: ProductLite, qty: number, price: number, breakdown: unknown }
 
 const CartCtx = createContext<{
@@ -46,7 +50,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const rates = p?.rates || []
       setLastRates(rates)
       setItems(prev => prev.map(ci => {
-        const b = calculateBreakdown(ci.item as any, rates, ci.item.gst_rate)
+        const b = calculateBreakdown(ci.item, rates, ci.item.gst_rate)
         const delta = Math.abs(b.total - ci.price) / (ci.price || 1)
         if (delta > 0.02) return { ...ci, price: b.total, breakdown: b }
         return ci
@@ -55,13 +59,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     return off
   }, [])
   const add = useCallback((p: ProductLite) => {
-    const b = calculateBreakdown(p as any, lastRates, p.gst_rate)
-    const ci: CartItem = { id: String(p.barcode || p.id), item: p, qty: 1, price: b.total, breakdown: b }
+    const b = calculateBreakdown(p, lastRates, p.gst_rate)
+    const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
     setItems(prev => {
       const exists = prev.find(x => x.id === ci.id)
       if (exists) {
         const updated = { ...exists, qty: exists.qty + 1 }
-        const freshB = calculateBreakdown(exists.item as any, lastRates, exists.item.gst_rate)
+        const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate)
         updated.price = freshB.total
         updated.breakdown = freshB
         return prev.map(x => x.id === ci.id ? updated : x)

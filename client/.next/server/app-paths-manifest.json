@@ -1,0 +1,21 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/admin/bookings/page": "app/admin/bookings/page.js",
+  "/admin/developer/page": "app/admin/developer/page.js",
+  "/admin/orders/page": "app/admin/orders/page.js",
+  "/admin/page": "app/admin/page.js",
+  "/admin/products/page": "app/admin/products/page.js",
+  "/admin/rates/page": "app/admin/rates/page.js",
+  "/admin/sip/movements/page": "app/admin/sip/movements/page.js",
+  "/admin/sip/payouts/page": "app/admin/sip/payouts/page.js",
+  "/bullion/gold/page": "app/bullion/gold/page.js",
+  "/bullion/silver/page": "app/bullion/silver/page.js",
+  "/catalog/page": "app/catalog/page.js",
+  "/category/[key]/page": "app/category/[key]/page.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/page": "app/page.js",
+  "/products/[id]/page": "app/products/[id]/page.js",
+  "/profile/page": "app/profile/page.js",
+  "/sip/page": "app/sip/page.js"
+}

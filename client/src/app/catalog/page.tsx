@@ -4,18 +4,10 @@ import { useEffect, useState } from 'react'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import { LayoutGrid, ChevronRight } from 'lucide-react'
+import { type Item } from '@/lib/pricing'
 
-type Product = {
-  id?: number
-  barcode?: string
-  sku?: string
-  style_code?: string
-  item_name?: string
-  short_name?: string
-  net_weight?: number
-  weight?: number
-  [key: string]: unknown
-}
+// Use unified Item type for consistency across the app
+type Product = Item
 
 type Subcategory = {
   id: number

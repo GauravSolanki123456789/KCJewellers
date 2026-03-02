@@ -16,7 +16,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const cart = useCart()
   const productRef = useRef<Item | null>(null)
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
+    const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
     const load = async () => {
       const safeId = String(id || '').slice(0, 64)
       const res = await axios.get(`${url}/api/products`, { params: { barcode: safeId, limit: 1 } })
@@ -26,7 +26,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
       const dr = await axios.get(`${url}/api/rates/display`)
       if (item) {
         setB(calculateBreakdown(item, dr.data?.rates || []))
-        trackProductView(item.barcode || item.id || '', item.item_name || item.short_name || 'Product')
+        trackProductView(item.barcode || String(item.id || ''), item.item_name || item.short_name || 'Product')
       }
     }
     load()
@@ -45,13 +45,13 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
       <div className="glass-card p-4">
         <div className="text-2xl font-semibold">{product.item_name || product.short_name}</div>
         <div className="opacity-80">{product.style_code}</div>
-        <div className="mt-2">Wt: {product.net_wt || product.weight} gm</div>
+        <div className="mt-2">Wt: {product.net_wt || product.net_weight || product.weight || 0} gm</div>
         <div className="mt-2 text-xl">₹{Math.round(b?.total || 0)}</div>
         <div className="mt-4 flex gap-2">
           <button className="px-4 py-2 gold-bg text-black rounded" onClick={() => setOpen(true)}>View Breakdown</button>
           <button className="px-4 py-2 glass-card" onClick={() => {
-            cart.add(product)
-            trackAddToCart(product.barcode || product.id || '', product.item_name || product.short_name || 'Product', b?.total || 0)
+            cart.add({ ...product, id: product.id ? String(product.id) : product.barcode })
+            trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
           }}>Add to Cart</button>
         </div>
       </div>

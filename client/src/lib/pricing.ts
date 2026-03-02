@@ -1,13 +1,41 @@
+/**
+ * Unified Product/Item type used across the entire application.
+ * This type represents a jewelry product with all its attributes.
+ * 
+ * IMPORTANT: All product-related types should extend or use this type
+ * to ensure consistency across the codebase.
+ */
 export type Item = {
+  // Identifiers
+  id?: string | number
+  barcode?: string
+  sku?: string
+  
+  // Display names (use item_name as primary, short_name as fallback)
+  item_name?: string
+  short_name?: string
+  
+  // Categorization
+  style_code?: string
+  
+  // Physical properties
   metal_type?: string
   net_wt?: number
+  net_weight?: number  // Alternative naming convention
   weight?: number
-  purity?: number
+  purity?: number | string
+  
+  // Pricing & charges
   mc_type?: string
   mc_rate?: number
   mc_value?: number
   stone_charges?: number
   gst_rate?: number
+  
+  // Additional fields (for compatibility with API responses)
+  image_url?: string
+  pcs?: number
+  [key: string]: unknown  // Allow additional fields from API
 }
 
 type RateRow = { metal_type?: string, display_rate?: number, sell_rate?: number }

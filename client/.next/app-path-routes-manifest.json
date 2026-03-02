@@ -1,0 +1,21 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/admin/bookings/page": "/admin/bookings",
+  "/admin/developer/page": "/admin/developer",
+  "/admin/orders/page": "/admin/orders",
+  "/admin/page": "/admin",
+  "/admin/products/page": "/admin/products",
+  "/admin/rates/page": "/admin/rates",
+  "/admin/sip/movements/page": "/admin/sip/movements",
+  "/admin/sip/payouts/page": "/admin/sip/payouts",
+  "/bullion/gold/page": "/bullion/gold",
+  "/bullion/silver/page": "/bullion/silver",
+  "/catalog/page": "/catalog",
+  "/category/[key]/page": "/category/[key]",
+  "/favicon.ico/route": "/favicon.ico",
+  "/page": "/",
+  "/products/[id]/page": "/products/[id]",
+  "/profile/page": "/profile",
+  "/sip/page": "/sip"
+}
