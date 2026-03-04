@@ -30,7 +30,7 @@ export default function CatalogPage() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
   const [selectedSubcategory, setSelectedSubcategory] = useState<Subcategory | null>(null)
 
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
   useEffect(() => {
     const load = async () => {

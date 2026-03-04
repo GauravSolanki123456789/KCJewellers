@@ -36,7 +36,7 @@ export default function Home() {
 
   const fetchRates = useCallback(async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+      const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
       const res = await fetch(`${url}/api/rates/live`)
       const data = await res.json()
       if (data.success && data.rates) {

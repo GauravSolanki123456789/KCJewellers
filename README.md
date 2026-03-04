@@ -4,9 +4,17 @@ Complete jewelry estimation and billing software for single-tenant VPS deploymen
 taskkill /F /IM node.exe 
 command to kill ghost
 ---
+
+command to kill one drive error 
+Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
+
+
 command to access database 
 sudo -u postgres psql -d kcjewellers
 
+ssh root@159.65.145.59
+command to access terminal
+---
 
 ## ?? Quick Start
 

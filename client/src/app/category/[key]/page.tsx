@@ -7,7 +7,7 @@ export default function CategoryPage({ params }: { params: Promise<{ key: string
   const { key } = React.use(params)
   const [products, setProducts] = useState<any[]>([])
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
+    const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
     const load = async () => {
       try {
         const k = (key || '').toLowerCase()

@@ -1,6 +1,7 @@
 import axios from 'axios'
 
-// Ensure auth cookies are sent with cross-origin requests
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+axios.defaults.baseURL = API_URL
 axios.defaults.withCredentials = true
 
 export default axios

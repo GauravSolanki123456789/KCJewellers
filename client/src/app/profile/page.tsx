@@ -96,7 +96,7 @@ export default function ProfilePage() {
             <h3 className="text-lg font-semibold text-slate-300">Sign in to view your profile</h3>
             <p className="text-slate-500 mt-2 text-sm">Access wallet, bookings, and order history</p>
             <a
-              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/auth/google`}
+              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google`}
               className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold rounded-lg transition-colors"
             >
               Sign In with Google

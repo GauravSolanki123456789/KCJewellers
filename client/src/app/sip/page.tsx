@@ -16,7 +16,7 @@ export default function GoldSavingsPage() {
     script.src = 'https://checkout.razorpay.com/v1/checkout.js'
     script.async = true
     document.body.appendChild(script)
-    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     axios.get(`${url}/api/auth/current_user`, { withCredentials: true }).then(r => {
       const u = r.data
       setUserId(u?.user?.id || u?.id || null)
@@ -41,7 +41,7 @@ export default function GoldSavingsPage() {
   }, [txs])
   const setupAutopay = async () => {
     if (!userId) return alert('Login required')
-    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     const sub = await axios.post(`${url}/api/sip/subscribe`, { user_id: userId, amount, frequency }, { withCredentials: true })
     const subscriptionId = sub.data?.razorpay_subscription_id
     const options: any = {
@@ -56,7 +56,7 @@ export default function GoldSavingsPage() {
   }
   const withdraw = async () => {
     if (!userId) return alert('Login required')
-    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     const payload: any = { user_id: userId }
     if (withdrawGrams > 0) payload.grams = withdrawGrams
     const resp = await axios.post(`${url}/api/sip/withdraw`, payload, { withCredentials: true })

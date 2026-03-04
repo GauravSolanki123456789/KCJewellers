@@ -100,7 +100,7 @@ self.__SERVER_FILES_MANIFEST={
         "transform": "lodash/{{member}}"
       }
     },
-    "outputFileTracingRoot": "C:\\Users\\HP\\OneDrive\\Desktop\\GauravSoftwares_Clients\\KCJewellers",
+    "outputFileTracingRoot": "D:\\GauravSoftwares_Clients\\KCJewellers",
     "cacheComponents": false,
     "cacheLife": {
       "default": {
@@ -294,11 +294,11 @@ self.__SERVER_FILES_MANIFEST={
     "configFileName": "next.config.ts",
     "reactCompiler": true,
     "turbopack": {
-      "root": "C:\\Users\\HP\\OneDrive\\Desktop\\GauravSoftwares_Clients\\KCJewellers"
+      "root": "D:\\GauravSoftwares_Clients\\KCJewellers"
     },
     "distDirRoot": ".next"
   },
-  "appDir": "C:\\Users\\HP\\OneDrive\\Desktop\\GauravSoftwares_Clients\\KCJewellers\\client",
+  "appDir": "D:\\GauravSoftwares_Clients\\KCJewellers\\client",
   "relativeAppDir": "client",
   "files": [
     ".next\\routes-manifest.json",

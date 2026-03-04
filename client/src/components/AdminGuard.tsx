@@ -22,7 +22,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
           <h1 className="text-xl font-semibold text-slate-200">Authentication Required</h1>
           <p className="text-slate-500 mt-2">Sign in to access the admin dashboard.</p>
           <a
-            href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/auth/google`}
+            href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google`}
             className="mt-6 inline-block px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold rounded-lg"
           >
             Sign In with Google

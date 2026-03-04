@@ -1,5 +1,5 @@
 'use client'
-import axios from 'axios'
+import axios from '@/lib/axios'
 import { useEffect, useState } from 'react'
 
 declare global {
@@ -14,17 +14,15 @@ export default function BuyGoldPage() {
     script.src = 'https://checkout.razorpay.com/v1/checkout.js'
     script.async = true
     document.body.appendChild(script)
-    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-    axios.get(`${url}/api/rates/display`).then(res => {
+    axios.get('/api/rates/display').then(res => {
       const gold = (res.data?.rates || []).find((r: any) => (r.metal_type || '').toLowerCase() === 'gold')
       setRate(Number(gold?.display_rate || gold?.sell_rate || 0))
     }).catch(() => {})
     return () => { document.body.removeChild(script) }
   }, [])
   const lockAndPay = async () => {
-    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
     const qtyKg = grams / 1000
-    const res = await axios.post(`${url}/api/booking/lock`, { metal_type: 'gold', quantity_kg: qtyKg })
+    const res = await axios.post('/api/booking/lock', { metal_type: 'gold', quantity_kg: qtyKg })
     const { razorpay_order_id, amount } = res.data
     const options = {
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',

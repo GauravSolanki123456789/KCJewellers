@@ -1,7 +1,7 @@
 'use client'
 import { useAuth } from '@/hooks/useAuth'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
 export default function Protected({ children }: { children: React.ReactNode }) {
   const auth = useAuth()

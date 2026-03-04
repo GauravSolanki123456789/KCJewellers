@@ -24,7 +24,7 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
 
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
   const load = useCallback(async () => {
     setLoading(true)

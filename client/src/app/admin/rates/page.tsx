@@ -20,7 +20,7 @@ export default function AdminRatesPage() {
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
   useEffect(() => {
     const load = async () => {

@@ -35,7 +35,7 @@ export default function BreakdownModal({ open, onClose, breakdown }: { open: boo
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" onClick={async () => {
-            const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+            const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
             try {
               const resp = await axios.post(`${url}/api/quotations/issue`, {
                 customer_name: customerName || undefined, customer_mobile: customerMobile || undefined,

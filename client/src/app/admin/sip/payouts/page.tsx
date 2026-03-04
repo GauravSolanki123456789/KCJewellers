@@ -5,7 +5,7 @@ import AdminGuard from '@/components/AdminGuard'
 
 export default function AdminPayoutsPage() {
   const [items, setItems] = useState<any[]>([])
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
   const load = async () => {
     try {
       const res = await axios.get(`${url}/api/admin/sip/payout_requests`, { withCredentials: true })

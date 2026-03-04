@@ -47,7 +47,7 @@ export default function AdminProductsPage() {
   const [filterStyle, setFilterStyle] = useState<string>('')
   const [filterSku, setFilterSku] = useState<string>('')
 
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
   const loadCatalog = async () => {
     try {

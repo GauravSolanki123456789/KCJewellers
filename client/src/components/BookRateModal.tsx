@@ -47,7 +47,7 @@ export default function BookRateModal() {
   const [customWeightInput, setCustomWeightInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
   const lockedRate = getRateForMetal(rates, selectedMetal)
 
   useEffect(() => {

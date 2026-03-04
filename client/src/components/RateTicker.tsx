@@ -10,7 +10,7 @@ export default function RateTicker() {
   // STEP 2: HTTP Fallback - Fetch rates from API if socket fails
   const fetchRatesFromAPI = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+      const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
       const response = await fetch(`${url}/api/rates/live`)
       const data = await response.json()
       console.log('API Response:', data)

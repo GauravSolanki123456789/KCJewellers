@@ -5,7 +5,7 @@ import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
 type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number }
 
