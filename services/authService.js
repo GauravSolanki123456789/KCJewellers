@@ -15,12 +15,15 @@ const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com';
 function resolveUserRole(user) {
     if (!user) return null;
     const email = String(user.email || '').toLowerCase().trim();
-    if (email === SUPER_ADMIN_EMAIL) {
+    const superAdminEmail = String(SUPER_ADMIN_EMAIL).toLowerCase().trim();
+    
+    if (email === superAdminEmail) {
         // Strict override: Force super_admin role and all tabs access
         return { 
             ...user, 
             role: 'super_admin',
-            allowed_tabs: ['all']
+            allowed_tabs: ['all'],
+            account_status: user.account_status || 'active'
         };
     }
     // Deny admin access to everyone else - force customer role

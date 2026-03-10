@@ -65,6 +65,15 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
+// CRITICAL: Ensure req.user role is always resolved correctly for authenticated users
+app.use((req, res, next) => {
+    if (req.isAuthenticated() && req.user) {
+        // Always resolve role to ensure super_admin gets correct role
+        req.user = resolveUserRole(req.user);
+    }
+    next();
+});
+
 function strictAdminOrigin(req, res, next) {
     const list = String(process.env.ADMIN_ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
     if (list.length === 0) return next();
@@ -240,53 +249,39 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
 });
 
 
-// Google OAuth Callback - Handle whitelist denial
+// Google OAuth Callback - Handle authentication
 app.get('/auth/google/callback', authLimiter, 
     passport.authenticate('google', { 
         failureRedirect: (process.env.CLIENT_URL || 'http://localhost:3001') + '/?auth=failed&reason=ACCESS_DENIED',
         failureMessage: true
     }),
     async (req, res) => {
-        // User passed whitelist check - session/cookie is set by passport before this handler
         const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
+        
         if (!req.user) {
             return res.redirect(clientUrl + '/?auth=failed&reason=ACCESS_DENIED');
         }
         
-        // Strict override: Ensure super_admin role and ['all'] tabs for jaigaurav56789@gmail.com
-        // Deny admin access to everyone else
+        // CRITICAL: Ensure role is resolved correctly (passport strategy already handles DB update)
+        // This ensures req.user has the correct role for the session
+        const { resolveUserRole } = require('./services/authService');
+        req.user = resolveUserRole(req.user);
+        
         const email = String(req.user.email || '').toLowerCase().trim();
         const isSuperAdmin = email === 'jaigaurav56789@gmail.com';
         
+        // Double-check: Ensure super admin has correct role
         if (isSuperAdmin) {
-            // Force super_admin role and ['all'] tabs before returning session
             req.user.role = 'super_admin';
             req.user.allowed_tabs = ['all'];
-            // Update in database to persist
-            try {
-                await pool.query(
-                    'UPDATE users SET role = $1, allowed_tabs = $2, updated_at = CURRENT_TIMESTAMP WHERE email = $3',
-                    ['super_admin', ['all'], email]
-                );
-            } catch (err) {
-                console.error('Error updating super admin role in callback:', err);
-            }
-        } else {
-            // Deny admin access - ensure customer role
-            req.user.role = 'customer';
-            try {
-                await pool.query(
-                    'UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
-                    ['customer', email]
-                );
-            } catch (err) {
-                console.error('Error updating user role in callback:', err);
-            }
+            req.user.account_status = 'active';
         }
         
+        // Handle account status redirects
         if (req.user.account_status === 'pending') {
             res.redirect(clientUrl + '/complete-profile');
         } else if (req.user.account_status === 'active') {
+            console.log(`✅ Redirecting ${email} (Role: ${req.user.role}) to ${clientUrl}`);
             res.redirect(clientUrl);
         } else if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
             // Destroy session for suspended users
@@ -295,7 +290,7 @@ app.get('/auth/google/callback', authLimiter,
                 req.session.destroy((err) => {
                     if (err) { console.error('Session destroy error:', err); }
                     res.clearCookie('jp.sid');
-                    res.redirect(clientUrl + '/?auth=suspended&email=' + encodeURIComponent(req.user?.email || ''));
+                    res.redirect(clientUrl + '/?auth=suspended&email=' + encodeURIComponent(email));
                 });
             });
         } else {
@@ -307,20 +302,24 @@ app.get('/auth/google/callback', authLimiter,
 // Current user endpoint - include full permissions context
 app.get('/api/auth/current_user', (req, res) => {
     if (req.isAuthenticated()) {
-        // Get both legacy and new permission formats
-        const legacyPermissions = getUserPermissions(req.user);
-        const permissionContext = getPermissionContext(req.user);
+        // CRITICAL: Always resolve role to ensure super_admin gets correct role
+        const { resolveUserRole } = require('./services/authService');
+        const resolvedUser = resolveUserRole(req.user);
+        
+        // Get both legacy and new permission formats using resolved user
+        const legacyPermissions = getUserPermissions(resolvedUser);
+        const permissionContext = getPermissionContext(resolvedUser);
         
         res.json({ 
             isAuthenticated: true, 
             user: {
-                id: req.user.id,
-                email: req.user.email,
-                name: req.user.name,
-                role: req.user.role,
-                account_status: req.user.account_status,
-                allowed_tabs: req.user.allowed_tabs || [],
-                permissions: req.user.permissions || {}
+                id: resolvedUser.id,
+                email: resolvedUser.email,
+                name: resolvedUser.name,
+                role: resolvedUser.role,
+                account_status: resolvedUser.account_status,
+                allowed_tabs: resolvedUser.allowed_tabs || [],
+                permissions: resolvedUser.permissions || {}
             },
             // Legacy format for backward compatibility
             permissions: legacyPermissions,

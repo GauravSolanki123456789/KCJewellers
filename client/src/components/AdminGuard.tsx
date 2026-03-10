@@ -12,7 +12,10 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
   const auth = useAuth()
   const user = auth.user as UserType | undefined
   const email = (user?.email || '').toLowerCase().trim()
-  const isSuperAdmin = email === SUPER_ADMIN_EMAIL
+  const role = user?.role || ''
+  
+  // Check both email and role for admin access
+  const isSuperAdmin = email === SUPER_ADMIN_EMAIL || role === 'super_admin' || role === 'admin'
 
   if (!auth.isAuthenticated) {
     return (
@@ -39,6 +42,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
           <ShieldX className="size-16 text-red-500/80 mx-auto mb-4" />
           <h1 className="text-xl font-semibold text-slate-200">Access Denied</h1>
           <p className="text-slate-500 mt-2">Admin access is restricted. Only authorized users can view this area.</p>
+          <p className="text-slate-400 text-xs mt-2">Email: {email || 'N/A'} | Role: {role || 'N/A'}</p>
           <Link
             href="/"
             className="mt-6 inline-block px-6 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold rounded-lg"

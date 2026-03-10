@@ -13,12 +13,14 @@ passport.deserializeUser(async (id, done) => {
     try {
         const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
         if (result.rows.length > 0) {
+            // Always resolve role to ensure super_admin gets correct role
             const user = resolveUserRole(result.rows[0]);
             done(null, user);
         } else {
             done(null, null);
         }
     } catch (err) {
+        console.error('Deserialize user error:', err);
         done(err, null);
     }
 });
@@ -38,81 +40,95 @@ passport.use(new GoogleStrategy({
     }
 
     try {
-        // ============================================
-        // SECURITY: Strict admin access control
-        // jaigaurav56789@gmail.com → super_admin with ['all'] tabs
-        // All others → customer (admin access denied)
-        // ============================================
+        // Normalize email for comparison
         const emailLower = String(email || '').toLowerCase().trim();
-        const isSuperAdmin = emailLower === SUPER_ADMIN_EMAIL;
+        const isSuperAdmin = emailLower === SUPER_ADMIN_EMAIL.toLowerCase().trim();
         
-        let result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        let result = await pool.query('SELECT * FROM users WHERE email = $1', [emailLower]);
 
         if (result.rows.length > 0) {
+            // Existing user
             const user = result.rows[0];
             
+            // Check account status
             if (user.account_status === 'rejected' || user.account_status === 'suspended') {
-                console.log(`🚫 Login denied for ${email}: Account ${user.account_status}`);
+                console.log(`🚫 Login denied for ${emailLower}: Account ${user.account_status}`);
                 return done(null, false, { message: 'Your account has been suspended. Contact admin.' });
             }
             
-            // Strict override: Force super_admin role and ['all'] allowed_tabs for super admin
-            // Deny admin access to everyone else
+            // CRITICAL: Force correct role based on email
             if (isSuperAdmin) {
-                // Force super_admin role and ['all'] tabs in database
+                // Super admin: force super_admin role and ['all'] tabs
                 await pool.query(
-                    'UPDATE users SET role = $1, allowed_tabs = $2, updated_at = CURRENT_TIMESTAMP WHERE email = $3',
-                    ['super_admin', ['all'], email]
+                    `UPDATE users 
+                     SET role = 'super_admin', 
+                         allowed_tabs = ARRAY['all']::text[], 
+                         account_status = 'active',
+                         updated_at = CURRENT_TIMESTAMP 
+                     WHERE email = $1`,
+                    [emailLower]
                 );
                 user.role = 'super_admin';
                 user.allowed_tabs = ['all'];
+                user.account_status = 'active';
+                console.log(`🔐 Super Admin login: ${emailLower} - Role set to super_admin`);
             } else {
-                // Deny admin access - force customer role
+                // All others: force customer role
                 await pool.query(
-                    'UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
-                    ['customer', email]
+                    `UPDATE users 
+                     SET role = 'customer', 
+                         updated_at = CURRENT_TIMESTAMP 
+                     WHERE email = $1`,
+                    [emailLower]
                 );
                 user.role = 'customer';
             }
             
+            // Update google_id if missing
             if (!user.google_id) {
-                await pool.query('UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2', [googleId, email]);
+                await pool.query(
+                    'UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
+                    [googleId, emailLower]
+                );
                 user.google_id = googleId;
             }
             
+            // Update name if changed
             if (user.name !== displayName && displayName) {
                 const safeName = String(displayName || '').slice(0, 255);
-                await pool.query('UPDATE users SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2', [safeName, email]);
+                await pool.query(
+                    'UPDATE users SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
+                    [safeName, emailLower]
+                );
                 user.name = safeName;
             }
             
-            // Resolve user role (will enforce super_admin or customer)
+            // CRITICAL: Always resolve role to ensure correct role is returned
             const resolvedUser = resolveUserRole(user);
-            console.log(`✅ Login successful: ${email} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
+            console.log(`✅ Login successful: ${emailLower} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
             return done(null, resolvedUser);
             
         } else {
             // New user: create account
-            // Super Admin → super_admin with ['all'], others → customer
             const role = isSuperAdmin ? 'super_admin' : 'customer';
             const allowedTabs = isSuperAdmin ? ['all'] : [];
             
             if (isSuperAdmin) {
-                console.log(`🔐 Super Admin login detected. Auto-creating account for ${email}`);
+                console.log(`🔐 Super Admin first login detected. Creating account for ${emailLower}`);
             } else {
-                console.log(`📝 New customer sign-up: ${email}`);
+                console.log(`📝 New customer sign-up: ${emailLower}`);
             }
             
             const safeName = String(displayName || (isSuperAdmin ? 'Super Admin' : 'Customer')).slice(0, 255);
             const newUserResult = await pool.query(
                 `INSERT INTO users (google_id, email, name, role, account_status, allowed_tabs) 
-                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-                [googleId, email, safeName, role, 'active', allowedTabs]
+                 VALUES ($1, $2, $3, $4, 'active', $5) RETURNING *`,
+                [googleId, emailLower, safeName, role, allowedTabs]
             );
             
-            // Resolve user role (will enforce super_admin or customer)
+            // CRITICAL: Always resolve role to ensure correct role is returned
             const resolvedUser = resolveUserRole(newUserResult.rows[0]);
-            console.log(`✅ New user created: ${email} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
+            console.log(`✅ New user created: ${emailLower} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
             return done(null, resolvedUser);
         }
     } catch (err) {

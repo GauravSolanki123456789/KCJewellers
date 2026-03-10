@@ -58,6 +58,12 @@ const checkAdmin = (req, res, next) => {
         return res.redirect('/');
     }
     
+    // CRITICAL: Ensure role is resolved correctly
+    const { resolveUserRole } = require('../services/authService');
+    if (req.user) {
+        req.user = resolveUserRole(req.user);
+    }
+    
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
         if (req.path.startsWith('/api/')) {
             return res.status(403).json({ 
