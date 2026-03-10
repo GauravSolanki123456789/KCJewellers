@@ -39,7 +39,11 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware - CORS must allow credentials for cookie sharing (Next.js client on 3001)
 app.use(cors({ 
-    origin: 'http://localhost:3001', 
+    origin: [
+        process.env.CLIENT_URL || 'https://kc.gauravsoftwares.tech',
+        'http://localhost:3001',
+        'http://localhost:3000'
+    ],
     credentials: true 
 }));
 app.use(express.json());
