@@ -7,16 +7,28 @@ const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com';
 
 /**
  * Resolve user role based on hardcoded Super Admin check.
- * - jaigaurav56789@gmail.com → always 'admin'
- * - All others → always 'customer'
+ * - jaigaurav56789@gmail.com → always 'super_admin' with ['all'] allowed_tabs
+ * - All others → always 'customer' (admin access denied)
  * @param {Object} user - User object from DB
  * @returns {Object} User with role forced
  */
 function resolveUserRole(user) {
     if (!user) return null;
     const email = String(user.email || '').toLowerCase().trim();
-    const forcedRole = email === SUPER_ADMIN_EMAIL ? 'admin' : 'customer';
-    return { ...user, role: forcedRole };
+    if (email === SUPER_ADMIN_EMAIL) {
+        // Strict override: Force super_admin role and all tabs access
+        return { 
+            ...user, 
+            role: 'super_admin',
+            allowed_tabs: ['all']
+        };
+    }
+    // Deny admin access to everyone else - force customer role
+    return { 
+        ...user, 
+        role: 'customer',
+        allowed_tabs: user.allowed_tabs || []
+    };
 }
 
 /**

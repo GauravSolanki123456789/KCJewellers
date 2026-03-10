@@ -216,8 +216,11 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
                 user = newUser.rows[0];
             }
 
-            // 3. Force role via authService, then log in
+            // 3. Force super_admin role and ['all'] tabs via authService, then log in
             const resolvedUser = resolveUserRole(user);
+            // Ensure super_admin role and ['all'] tabs are set
+            resolvedUser.role = 'super_admin';
+            resolvedUser.allowed_tabs = ['all'];
             req.login(resolvedUser, (err) => {
                 if (err) { 
                     console.error("Login Error:", err);
@@ -243,11 +246,42 @@ app.get('/auth/google/callback', authLimiter,
         failureRedirect: (process.env.CLIENT_URL || 'http://localhost:3001') + '/?auth=failed&reason=ACCESS_DENIED',
         failureMessage: true
     }),
-    (req, res) => {
+    async (req, res) => {
         // User passed whitelist check - session/cookie is set by passport before this handler
         const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
         if (!req.user) {
             return res.redirect(clientUrl + '/?auth=failed&reason=ACCESS_DENIED');
+        }
+        
+        // Strict override: Ensure super_admin role and ['all'] tabs for jaigaurav56789@gmail.com
+        // Deny admin access to everyone else
+        const email = String(req.user.email || '').toLowerCase().trim();
+        const isSuperAdmin = email === 'jaigaurav56789@gmail.com';
+        
+        if (isSuperAdmin) {
+            // Force super_admin role and ['all'] tabs before returning session
+            req.user.role = 'super_admin';
+            req.user.allowed_tabs = ['all'];
+            // Update in database to persist
+            try {
+                await pool.query(
+                    'UPDATE users SET role = $1, allowed_tabs = $2, updated_at = CURRENT_TIMESTAMP WHERE email = $3',
+                    ['super_admin', ['all'], email]
+                );
+            } catch (err) {
+                console.error('Error updating super admin role in callback:', err);
+            }
+        } else {
+            // Deny admin access - ensure customer role
+            req.user.role = 'customer';
+            try {
+                await pool.query(
+                    'UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
+                    ['customer', email]
+                );
+            } catch (err) {
+                console.error('Error updating user role in callback:', err);
+            }
         }
         
         if (req.user.account_status === 'pending') {
@@ -4952,15 +4986,59 @@ setInterval(() => {
 app.get('/api/admin/developer/key', isAdminStrict, async (req, res) => {
     try {
         const rows = await query("SELECT api_key FROM app_settings WHERE key = 'developer_api_key'");
-        const apiKey = rows[0]?.api_key || null;
-        if (!apiKey) {
+        
+        // Safely handle missing row - this is expected if key hasn't been generated yet
+        if (!rows || rows.length === 0) {
+            console.log('📝 Developer API key not found in app_settings - returning null (this is normal if key not generated yet)');
             return res.json({ success: true, apiKey: null, message: 'No API key generated yet.' });
         }
+        
+        const apiKey = rows[0]?.api_key || null;
+        if (!apiKey) {
+            console.log('⚠️ Developer API key row exists but api_key field is null');
+            return res.json({ success: true, apiKey: null, message: 'No API key generated yet.' });
+        }
+        
         // Return full key to admin; mask preview for display
         const preview = apiKey.slice(0, 6) + '••••••••••••••••••••••••' + apiKey.slice(-4);
         res.json({ success: true, apiKey, preview });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        // Detailed error logging for debugging
+        console.error('❌ Error in /api/admin/developer/key route:');
+        console.error('  Error message:', error.message);
+        console.error('  Error stack:', error.stack);
+        console.error('  Error code:', error.code);
+        console.error('  Error detail:', error.detail);
+        console.error('  Error hint:', error.hint);
+        console.error('  Request user:', req.user?.email || 'unknown');
+        console.error('  Request path:', req.path);
+        
+        // Check if it's a table/column missing error
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+            console.error('  🔍 Database schema issue: app_settings table or api_key column may be missing');
+            return res.status(500).json({ 
+                error: 'Database configuration error: app_settings table or api_key column missing. Please run database migrations.',
+                code: 'SCHEMA_ERROR',
+                details: error.message
+            });
+        }
+        
+        // Check if it's a connection error
+        if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+            console.error('  🔍 Database connection issue');
+            return res.status(500).json({ 
+                error: 'Database connection error. Please check database configuration.',
+                code: 'DB_CONNECTION_ERROR',
+                details: error.message
+            });
+        }
+        
+        // Generic error response
+        res.status(500).json({ 
+            error: 'Failed to retrieve API key',
+            code: 'INTERNAL_ERROR',
+            details: error.message
+        });
     }
 });
 

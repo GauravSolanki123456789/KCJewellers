@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import {
   Dialog,
@@ -13,6 +13,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { useBookRate } from '@/context/BookRateContext'
 import { subscribeLiveRates } from '@/lib/socket'
+
+declare global {
+  interface Window {
+    Razorpay: any
+  }
+}
 
 type MetalOption = { key: string; label: string; metalType: string }
 
@@ -46,9 +52,50 @@ export default function BookRateModal() {
   const [selectedWeight, setSelectedWeight] = useState<number>(1)
   const [customWeightInput, setCustomWeightInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const razorpayScriptLoaded = useRef(false)
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
   const lockedRate = getRateForMetal(rates, selectedMetal)
+
+  // Function to dynamically inject Razorpay script
+  const loadRazorpayScript = (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (razorpayScriptLoaded.current || window.Razorpay) {
+        resolve()
+        return
+      }
+
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.async = true
+      script.onload = () => {
+        razorpayScriptLoaded.current = true
+        resolve()
+      }
+      script.onerror = () => {
+        reject(new Error('Failed to load Razorpay script'))
+      }
+      document.body.appendChild(script)
+    })
+  }
+
+  // Load Razorpay script when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      loadRazorpayScript().catch((err) => {
+        console.error('Error loading Razorpay script:', err)
+      })
+    }
+  }, [isOpen])
+
+  // Show toast message
+  const showToast = (message: string) => {
+    setToastMessage(message)
+    setTimeout(() => {
+      setToastMessage(null)
+    }, 3000)
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -130,25 +177,94 @@ export default function BookRateModal() {
 
   const handleSubmit = async () => {
     if (mobile.length !== 10 || advanceAmount <= 0 || effectiveWeight <= 0) return
+    if (!lockedRate || lockedRate <= 0) {
+      showToast('Please wait for rates to load')
+      return
+    }
+
     setSubmitting(true)
     try {
+      // Ensure Razorpay script is loaded
+      await loadRazorpayScript()
+
+      if (!window.Razorpay) {
+        throw new Error('Razorpay script failed to load')
+      }
+
+      // Map metal type for API (convert gold_24k to gold, etc.)
       const metalOpt = METAL_OPTIONS.find((m) => m.key === selectedMetal)
-      const metalType = metalOpt?.metalType || selectedMetal
-      await axios.post(`${url}/api/bookings/advance`, {
-        metalType,
-        weight: effectiveWeight,
-        lockedRate: Math.round(lockedRate * 100) / 100,
-        mobileNumber: mobile,
-        advancePaid: advanceAmount,
+      let apiMetalType = metalOpt?.metalType || selectedMetal
+      
+      // Convert to format expected by API (gold_24k -> gold, gold_22k -> gold_22k, etc.)
+      if (apiMetalType.startsWith('gold')) {
+        // For gold variants, use the specific type or default to 'gold'
+        apiMetalType = apiMetalType === 'gold_22k' ? 'gold_22k' : apiMetalType === 'gold_18k' ? 'gold_18k' : 'gold'
+      }
+
+      // Calculate quantity_kg that would result in advanceAmount
+      // API calculates: totalAmount = displayRate * quantity_kg
+      // If displayRate is per gram: totalAmount = rate_per_gram * quantity_kg * 1000
+      // So: quantity_kg = advanceAmount / (rate_per_gram * 1000)
+      const quantityKg = advanceAmount / (lockedRate * 1000)
+      
+      // Call /api/booking/lock to generate Razorpay order
+      const response = await axios.post(`${url}/api/booking/lock`, {
+        metal_type: apiMetalType,
+        quantity_kg: Math.max(quantityKg, 0.001), // Ensure minimum quantity
       })
-      close()
-      setMobile('')
-      setCustomWeightInput('')
-      setWeightMode('preset')
+
+      const { razorpay_order_id, amount } = response.data
+      const razorpayKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+
+      if (!razorpayKeyId) {
+        throw new Error('Razorpay key not configured')
+      }
+
+      // Use the amount returned by API (must match Razorpay order)
+      // If API amount doesn't match advanceAmount, we'll use API amount
+      const paymentAmount = amount || advanceAmount
+
+      // Open Razorpay checkout modal
+      const options = {
+        key: razorpayKeyId,
+        amount: Math.round(paymentAmount * 100), // Convert to paise
+        currency: 'INR',
+        name: 'KC Jewellers',
+        description: `Rate Lock - ${metalOpt?.label || selectedMetal}`,
+        order_id: razorpay_order_id,
+        prefill: {
+          contact: mobile,
+        },
+        handler: function (response: any) {
+          // Success callback
+          showToast('Payment successful! Your rate has been locked.')
+          close()
+          setMobile('')
+          setCustomWeightInput('')
+          setWeightMode('preset')
+        },
+        modal: {
+          ondismiss: function () {
+            // User closed the modal without payment
+            setSubmitting(false)
+          },
+        },
+        theme: {
+          color: '#eab308', // Yellow-500 color
+        },
+      }
+
+      const rzp = new window.Razorpay(options)
+      rzp.on('payment.failed', function (response: any) {
+        showToast('Payment failed. Please try again.')
+        setSubmitting(false)
+      })
+      rzp.open()
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to create booking'
-      alert(msg)
-    } finally {
+      const msg = (err as { response?: { data?: { error?: string }; message?: string } })?.response?.data?.error || 
+                  (err as { message?: string })?.message || 
+                  'Failed to initiate payment'
+      showToast(msg)
       setSubmitting(false)
     }
   }
@@ -284,6 +400,28 @@ export default function BookRateModal() {
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-300 ease-out">
+          <div className="bg-yellow-500 text-slate-950 px-6 py-3 rounded-lg shadow-xl font-medium text-sm flex items-center gap-2 border-2 border-yellow-400 min-w-[200px] max-w-[90vw]">
+            <svg
+              className="w-5 h-5 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="whitespace-nowrap">{toastMessage}</span>
+          </div>
+        </div>
+      )}
     </Dialog>
   )
 }

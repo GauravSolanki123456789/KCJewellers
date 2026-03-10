@@ -39,10 +39,12 @@ passport.use(new GoogleStrategy({
 
     try {
         // ============================================
-        // SECURITY: Explicit admin assignment
-        // jaigaurav56789@gmail.com → always admin
+        // SECURITY: Strict admin access control
+        // jaigaurav56789@gmail.com → super_admin with ['all'] tabs
+        // All others → customer (admin access denied)
         // ============================================
-        const isAdmin = profile.emails && profile.emails[0] && profile.emails[0].value === 'jaigaurav56789@gmail.com';
+        const emailLower = String(email || '').toLowerCase().trim();
+        const isSuperAdmin = emailLower === SUPER_ADMIN_EMAIL;
         
         let result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
 
@@ -54,10 +56,23 @@ passport.use(new GoogleStrategy({
                 return done(null, false, { message: 'Your account has been suspended. Contact admin.' });
             }
             
-            // Explicit admin assignment - ensure role is persisted
-            if (isAdmin) {
-                user.role = 'admin';
-                await pool.query('UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2', ['admin', email]);
+            // Strict override: Force super_admin role and ['all'] allowed_tabs for super admin
+            // Deny admin access to everyone else
+            if (isSuperAdmin) {
+                // Force super_admin role and ['all'] tabs in database
+                await pool.query(
+                    'UPDATE users SET role = $1, allowed_tabs = $2, updated_at = CURRENT_TIMESTAMP WHERE email = $3',
+                    ['super_admin', ['all'], email]
+                );
+                user.role = 'super_admin';
+                user.allowed_tabs = ['all'];
+            } else {
+                // Deny admin access - force customer role
+                await pool.query(
+                    'UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
+                    ['customer', email]
+                );
+                user.role = 'customer';
             }
             
             if (!user.google_id) {
@@ -71,29 +86,33 @@ passport.use(new GoogleStrategy({
                 user.name = safeName;
             }
             
+            // Resolve user role (will enforce super_admin or customer)
             const resolvedUser = resolveUserRole(user);
-            console.log(`✅ Login successful: ${email} (Role: ${resolvedUser.role})`);
+            console.log(`✅ Login successful: ${email} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
             return done(null, resolvedUser);
             
         } else {
-            // New user: create account. Super Admin → admin, others → customer
-            const role = isAdmin ? 'admin' : 'customer';
-            const allowedTabs = isAdmin ? ['all'] : [];
+            // New user: create account
+            // Super Admin → super_admin with ['all'], others → customer
+            const role = isSuperAdmin ? 'super_admin' : 'customer';
+            const allowedTabs = isSuperAdmin ? ['all'] : [];
             
-            if (isAdmin) {
+            if (isSuperAdmin) {
                 console.log(`🔐 Super Admin login detected. Auto-creating account for ${email}`);
             } else {
                 console.log(`📝 New customer sign-up: ${email}`);
             }
             
-            const safeName = String(displayName || (isAdmin ? 'Super Admin' : 'Customer')).slice(0, 255);
+            const safeName = String(displayName || (isSuperAdmin ? 'Super Admin' : 'Customer')).slice(0, 255);
             const newUserResult = await pool.query(
                 `INSERT INTO users (google_id, email, name, role, account_status, allowed_tabs) 
                  VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
                 [googleId, email, safeName, role, 'active', allowedTabs]
             );
             
+            // Resolve user role (will enforce super_admin or customer)
             const resolvedUser = resolveUserRole(newUserResult.rows[0]);
+            console.log(`✅ New user created: ${email} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
             return done(null, resolvedUser);
         }
     } catch (err) {

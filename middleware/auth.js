@@ -233,27 +233,40 @@ module.exports = {
     verifyTenantAccess,
     /**
      * Strict admin guard: only allow the whitelisted super admin email
+     * Forces super_admin role and ['all'] allowed_tabs for jaigaurav56789@gmail.com
+     * Denies admin access to everyone else
      */
     isAdminStrict: (req, res, next) => {
         try {
-            // God mode: whitelisted super admin bypasses all checks (for local dev + production)
-            if (req.user && String(req.user.email || '').toLowerCase().trim() === 'jaigaurav56789@gmail.com') {
-                req.user.role = 'admin';
-                return next();
-            }
+            // Check authentication first
             if (!req.isAuthenticated || !req.isAuthenticated()) {
                 return res.status(401).json({ error: 'Not authenticated' });
             }
+            
             const email = String(req.user?.email || '').toLowerCase().trim();
-            if (email !== 'jaigaurav56789@gmail.com') {
-                return res.status(403).json({ error: 'Admin access restricted to whitelisted email' });
+            const isSuperAdmin = email === 'jaigaurav56789@gmail.com';
+            
+            // Strict override: Force super_admin role and ['all'] tabs for super admin
+            if (isSuperAdmin) {
+                req.user.role = 'super_admin';
+                req.user.allowed_tabs = ['all'];
+                
+                // Check account status
+                if (req.user?.account_status && req.user.account_status !== 'active') {
+                    return res.status(403).json({ error: 'Account not active' });
+                }
+                
+                return next();
             }
-            if (req.user?.account_status && req.user.account_status !== 'active') {
-                return res.status(403).json({ error: 'Account not active' });
-            }
-            next();
+            
+            // Deny admin access to everyone else
+            return res.status(403).json({ 
+                error: 'Admin access denied. Only whitelisted super admin email has access.',
+                code: 'ADMIN_ACCESS_DENIED'
+            });
         } catch (e) {
-            return res.status(500).json({ error: 'Access check failed' });
+            console.error('Error in isAdminStrict middleware:', e);
+            return res.status(500).json({ error: 'Access check failed', details: e.message });
         }
     }
 };
