@@ -55,11 +55,11 @@ app.use(session({
     saveUninitialized: true,
     name: 'jp.sid',
     cookie: { 
-        secure: process.env.NODE_ENV === 'production',
+        secure: true,
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: 'none',
         maxAge: 24 * 60 * 60 * 1000,
-        ...(process.env.NODE_ENV !== 'production' && { domain: 'localhost' })
+        domain: process.env.NODE_ENV === 'production' ? '.gauravsoftwares.tech' : 'localhost'
     }
 }));
 app.use(passport.initialize());
@@ -3185,6 +3185,18 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
         if (!rateEntry) return res.status(404).json({ error: 'Rate not found' });
         const displayRate = Number(rateEntry.display_rate || rateEntry.sell_rate || 0);
         const totalAmount = Math.round(displayRate * Number(quantity_kg) * 100) / 100;
+        
+        // Fetch advance amount from settings (default ₹5000)
+        let advanceAmount = 5000;
+        try {
+            const advRow = await query('SELECT value FROM app_settings WHERE key = $1', ['booking_advance_amount']);
+            if (advRow.length && advRow[0].value) {
+                advanceAmount = Math.max(0, parseInt(advRow[0].value || '5000', 10));
+            }
+        } catch (e) {
+            console.warn('Failed to fetch advance amount from settings, using default:', e.message);
+        }
+        
         const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
         const insert = await query(`
             INSERT INTO booking_locks (user_id, metal_type, quantity_kg, lock_rate, total_amount, status, expires_at, created_at)
@@ -3204,11 +3216,11 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
                         'Authorization': `Basic ${auth}`
                     },
                     body: JSON.stringify({
-                        amount: Math.round(totalAmount * 100),
+                        amount: Math.round(advanceAmount * 100), // Charge only advance amount
                         currency: 'INR',
                         receipt: `lock_${lock.id}`,
                         payment_capture: 1,
-                        notes: { metal_type, quantity_kg: String(quantity_kg), lock_id: String(lock.id) }
+                        notes: { metal_type, quantity_kg: String(quantity_kg), lock_id: String(lock.id), total_amount: String(totalAmount), advance_amount: String(advanceAmount) }
                     })
                 });
                 const data = await resp.json();
@@ -3222,7 +3234,7 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
             console.warn('Razorpay order error:', e.message);
         }
         await query(`UPDATE booking_locks SET razorpay_order_id = $1 WHERE id = $2`, [orderId, lock.id]);
-        res.json({ lock_id: lock.id, razorpay_order_id: orderId, amount: totalAmount, currency: 'INR', expires_at });
+        res.json({ lock_id: lock.id, razorpay_order_id: orderId, amount: advanceAmount, currency: 'INR', expires_at });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
