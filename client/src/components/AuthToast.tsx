@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { CheckCircle2, XCircle, X } from 'lucide-react'
 
-export default function AuthToast() {
+function AuthToastContent() {
   const searchParams = useSearchParams()
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -92,5 +92,13 @@ export default function AuthToast() {
         </button>
       </div>
     </div>
+  )
+}
+
+export default function AuthToast() {
+  return (
+    <Suspense fallback={null}>
+      <AuthToastContent />
+    </Suspense>
   )
 }
