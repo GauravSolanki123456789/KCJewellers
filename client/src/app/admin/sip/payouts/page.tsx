@@ -1,6 +1,6 @@
 'use client'
 import axios from '@/lib/axios'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import AdminGuard from '@/components/AdminGuard'
 
 export default function AdminPayoutsPage() {
@@ -20,8 +20,9 @@ export default function AdminPayoutsPage() {
     } catch {}
   }
   return (
-    <AdminGuard>
-      <div className="p-4 space-y-4">
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
+      <AdminGuard>
+        <div className="p-4 space-y-4">
         <div className="glass-card p-4">
           <div className="text-xl font-semibold">SIP Payout Requests</div>
           <div className="mt-3 space-y-2">
@@ -40,6 +41,7 @@ export default function AdminPayoutsPage() {
           </div>
         </div>
       </div>
-    </AdminGuard>
+      </AdminGuard>
+    </Suspense>
   )
 }

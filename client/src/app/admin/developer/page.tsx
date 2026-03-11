@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
@@ -82,8 +82,9 @@ export default function DeveloperApiPage() {
   const maskedKey = apiKey ? '•'.repeat(32) + apiKey.slice(-8) : null
 
   return (
-    <AdminGuard>
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
+      <AdminGuard>
+        <div className="min-h-screen bg-slate-950 text-slate-100">
         <main className="max-w-2xl mx-auto px-4 py-8 pb-24">
           {/* Back */}
           <Link
@@ -314,6 +315,7 @@ export default function DeveloperApiPage() {
           </div>
         </main>
       </div>
-    </AdminGuard>
+      </AdminGuard>
+    </Suspense>
   )
 }

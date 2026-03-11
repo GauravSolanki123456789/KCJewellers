@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
 import {
@@ -68,8 +69,9 @@ const ADMIN_SECTIONS = [
 
 export default function AdminDashboardPage() {
   return (
-    <AdminGuard>
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
+      <AdminGuard>
+        <div className="min-h-screen bg-slate-950 text-slate-100">
         <main className="max-w-4xl mx-auto px-4 py-8 pb-24">
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-yellow-500 flex items-center gap-2">
@@ -124,6 +126,7 @@ export default function AdminDashboardPage() {
           )}
         </main>
       </div>
-    </AdminGuard>
+      </AdminGuard>
+    </Suspense>
   )
 }

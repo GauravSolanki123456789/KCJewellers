@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
@@ -186,8 +186,9 @@ export default function AdminProductsPage() {
   })
 
   return (
-    <AdminGuard>
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
+      <AdminGuard>
+        <div className="min-h-screen bg-slate-950 text-slate-100">
         <main className="max-w-6xl mx-auto px-4 py-8 pb-24">
           <Link
             href="/admin"
@@ -471,6 +472,7 @@ export default function AdminProductsPage() {
           </div>
         </main>
       </div>
-    </AdminGuard>
+      </AdminGuard>
+    </Suspense>
   )
 }

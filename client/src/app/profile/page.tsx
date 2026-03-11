@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut } from 'lucide-react'
@@ -10,6 +11,14 @@ const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
 type UserType = { role?: string; email?: string; name?: string }
 
 export default function ProfilePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading profile...</div></div>}>
+      <ProfilePageContent />
+    </Suspense>
+  )
+}
+
+function ProfilePageContent() {
   const auth = useAuth()
   const user = auth.user as UserType | undefined
   const email = (user?.email || '').toLowerCase().trim()
