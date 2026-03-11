@@ -2,7 +2,8 @@
 
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
-import { Wallet, History, LayoutDashboard, User, Sparkles } from 'lucide-react'
+import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut } from 'lucide-react'
+import axios from 'axios'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
 
@@ -14,6 +15,17 @@ export default function ProfilePage() {
   const email = (user?.email || '').toLowerCase().trim()
   const isAdmin = email === SUPER_ADMIN_EMAIL
 
+  const handleLogout = async () => {
+    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+    try {
+      await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
+      window.location.href = '/'
+    } catch (err) {
+      console.error('Logout error:', err)
+      window.location.href = '/'
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <main className="max-w-4xl mx-auto px-4 py-8 pb-24 md:pb-12">
@@ -23,8 +35,16 @@ export default function ProfilePage() {
             <Sparkles className="size-6 text-yellow-500" />
             Profile
           </h1>
-          {auth.isAuthenticated && user?.name && (
-            <p className="mt-2 text-slate-400">{user.name}</p>
+          {auth.isAuthenticated && user && (
+            <div className="mt-2">
+              <p className="text-slate-300 font-medium">{user.name || user.email}</p>
+              <p className="text-slate-500 text-sm">{user.email}</p>
+              {user.role === 'super_admin' && (
+                <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">
+                  Admin
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -86,6 +106,29 @@ export default function ProfilePage() {
                 <span className="text-amber-500 group-hover:translate-x-1 transition-transform">→</span>
               </div>
             </Link>
+          </section>
+        )}
+
+        {/* Logout Button - Only when authenticated */}
+        {auth.isAuthenticated && (
+          <section className="mb-6">
+            <button
+              onClick={handleLogout}
+              className="w-full glass-card rounded-2xl overflow-hidden border border-red-500/30 bg-gradient-to-br from-red-500/10 to-red-500/5 hover:from-red-500/20 hover:to-red-500/10 transition-all group"
+            >
+              <div className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-xl bg-red-500/20 border border-red-500/30 group-hover:bg-red-500/30 transition-colors">
+                    <LogOut className="size-8 text-red-500" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-red-400">Logout</h2>
+                    <p className="text-sm text-slate-500">Sign out of your account</p>
+                  </div>
+                </div>
+                <span className="text-red-500 group-hover:translate-x-1 transition-transform">→</span>
+              </div>
+            </button>
           </section>
         )}
 

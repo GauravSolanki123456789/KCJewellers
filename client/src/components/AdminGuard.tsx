@@ -2,20 +2,53 @@
 
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
-import { ShieldX } from 'lucide-react'
+import { ShieldX, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
 
-type UserType = { role?: string; email?: string }
+type UserType = { role?: string; email?: string; name?: string }
 
 export default function AdminGuard({ children }: { children: React.ReactNode }) {
   const auth = useAuth()
+  const [isChecking, setIsChecking] = useState(true)
   const user = auth.user as UserType | undefined
   const email = (user?.email || '').toLowerCase().trim()
   const role = user?.role || ''
   
   // Check both email and role for admin access
   const isSuperAdmin = email === SUPER_ADMIN_EMAIL || role === 'super_admin' || role === 'admin'
+
+  // Give auth time to load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsChecking(false)
+    }, 500) // Wait 500ms for auth to load
+    return () => clearTimeout(timer)
+  }, [])
+
+  // Debug logging
+  useEffect(() => {
+    console.log('AdminGuard Debug:', {
+      isAuthenticated: auth.isAuthenticated,
+      email,
+      role,
+      isSuperAdmin,
+      user: user ? { email: user.email, role: user.role, name: user.name } : null
+    })
+  }, [auth.isAuthenticated, email, role, isSuperAdmin, user])
+
+  // Show loading state while checking
+  if (isChecking && !auth.isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="glass-card p-8 max-w-md text-center">
+          <Loader2 className="size-16 text-yellow-500 mx-auto mb-4 animate-spin" />
+          <h1 className="text-xl font-semibold text-slate-200">Checking authentication...</h1>
+        </div>
+      </div>
+    )
+  }
 
   if (!auth.isAuthenticated) {
     return (
@@ -54,5 +87,6 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
     )
   }
 
+  // User is authenticated and is admin - render children
   return <>{children}</>
 }

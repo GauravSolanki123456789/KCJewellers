@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
@@ -9,6 +10,7 @@ import Navbar from "@/components/Navbar";
 import BookRateModal from "@/components/BookRateModal";
 import CartDrawerWrapper from "@/components/CartDrawerWrapper";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
+import AuthToast from "@/components/AuthToast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,6 +41,9 @@ export default function RootLayout({
         <CartProvider>
           <BookRateProvider>
             <Navbar />
+            <Suspense fallback={null}>
+              <AuthToast />
+            </Suspense>
             {children}
             <BookRateModal />
             <CartDrawerWrapper />

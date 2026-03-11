@@ -281,8 +281,10 @@ app.get('/auth/google/callback', authLimiter,
         if (req.user.account_status === 'pending') {
             res.redirect(clientUrl + '/complete-profile');
         } else if (req.user.account_status === 'active') {
-            console.log(`✅ Redirecting ${email} (Role: ${req.user.role}) to ${clientUrl}`);
-            res.redirect(clientUrl);
+            console.log(`✅ Login successful: ${email} (Role: ${req.user.role})`);
+            // Redirect with success message and user info
+            const redirectUrl = `${clientUrl}/?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`;
+            res.redirect(redirectUrl);
         } else if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
             // Destroy session for suspended users
             req.logout((err) => {
@@ -294,7 +296,7 @@ app.get('/auth/google/callback', authLimiter,
                 });
             });
         } else {
-            res.redirect(clientUrl);
+            res.redirect(clientUrl + '/?auth=failed&reason=UNKNOWN_STATUS');
         }
     }
 );  
@@ -367,14 +369,25 @@ app.post('/api/users/complete-profile', async (req, res) => {
 app.get('/api/auth/logout', (req, res) => {
     const performLogout = () => {
         req.logout((err) => {
-            if (err) { console.error('Logout error:', err); }
+            if (err) { 
+                console.error('Logout error:', err);
+                if (req.xhr || req.headers.accept?.includes('application/json') || req.path.startsWith('/api/')) {
+                    return res.status(500).json({ error: 'Logout failed', details: err.message });
+                }
+            }
             
             // Destroy the session completely
             req.session.destroy((sessionErr) => {
                 if (sessionErr) { console.error('Session destroy error:', sessionErr); }
                 
                 // Clear all cookies
-                res.clearCookie('jp.sid', { path: '/' });
+                res.clearCookie('jp.sid', { 
+                    path: '/',
+                    domain: process.env.NODE_ENV === 'production' ? '.gauravsoftwares.tech' : undefined,
+                    secure: true,
+                    sameSite: 'none',
+                    httpOnly: true
+                });
                 res.clearCookie('connect.sid', { path: '/' }); // Legacy fallback
                 
                 // Set cache control to prevent back button access
@@ -383,6 +396,11 @@ app.get('/api/auth/logout', (req, res) => {
                     'Pragma': 'no-cache',
                     'Expires': '0'
                 });
+                
+                // Return JSON for API calls, redirect for browser
+                if (req.xhr || req.headers.accept?.includes('application/json') || req.path.startsWith('/api/')) {
+                    return res.json({ success: true, message: 'Logged out successfully' });
+                }
                 
                 res.redirect('/');
             });

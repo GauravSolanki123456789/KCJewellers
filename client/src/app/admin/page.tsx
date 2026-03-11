@@ -81,39 +81,47 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {ADMIN_SECTIONS.map((section) => {
-              const Icon = section.icon
-              return (
-                <Link
-                  key={section.href}
-                  href={section.href}
-                  className="group block glass-card rounded-xl border border-white/10 hover:border-white/20 transition-all p-5"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-4">
-                      <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 group-hover:bg-yellow-500/10 group-hover:border-yellow-500/20 transition-colors">
-                        <Icon className="size-5 text-yellow-500" />
+          {ADMIN_SECTIONS && ADMIN_SECTIONS.length > 0 ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {ADMIN_SECTIONS.map((section) => {
+                  const Icon = section.icon
+                  return (
+                    <Link
+                      key={section.href}
+                      href={section.href}
+                      className="group block glass-card rounded-xl border border-white/10 hover:border-white/20 transition-all p-5"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-4">
+                          <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 group-hover:bg-yellow-500/10 group-hover:border-yellow-500/20 transition-colors">
+                            <Icon className="size-5 text-yellow-500" />
+                          </div>
+                          <div>
+                            <h2 className="font-semibold text-slate-200 group-hover:text-yellow-400 transition-colors">
+                              {section.title}
+                            </h2>
+                            <p className="text-sm text-slate-500 mt-0.5">{section.description}</p>
+                          </div>
+                        </div>
+                        <ArrowRight className="size-4 text-slate-500 group-hover:text-yellow-500 group-hover:translate-x-1 transition-all shrink-0 mt-1" />
                       </div>
-                      <div>
-                        <h2 className="font-semibold text-slate-200 group-hover:text-yellow-400 transition-colors">
-                          {section.title}
-                        </h2>
-                        <p className="text-sm text-slate-500 mt-0.5">{section.description}</p>
-                      </div>
-                    </div>
-                    <ArrowRight className="size-4 text-slate-500 group-hover:text-yellow-500 group-hover:translate-x-1 transition-all shrink-0 mt-1" />
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
+                    </Link>
+                  )
+                })}
+              </div>
 
-          <div className="mt-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-            <p className="text-sm text-amber-200/90">
-              <strong>Note:</strong> Some sections may link to legacy admin panels. Full backend features (margins, MC, ERP import, catalogue management) will be built out in subsequent updates.
-            </p>
-          </div>
+              <div className="mt-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                <p className="text-sm text-amber-200/90">
+                  <strong>Note:</strong> Some sections may link to legacy admin panels. Full backend features (margins, MC, ERP import, catalogue management) will be built out in subsequent updates.
+                </p>
+              </div>
+            </>
+          ) : (
+            <div className="glass-card p-8 text-center">
+              <p className="text-slate-400">No admin sections available.</p>
+            </div>
+          )}
         </main>
       </div>
     </AdminGuard>
