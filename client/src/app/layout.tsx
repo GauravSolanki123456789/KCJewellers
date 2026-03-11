@@ -40,13 +40,17 @@ export default function RootLayout({
         <GoogleAnalytics />
         <CartProvider>
           <BookRateProvider>
-            <Navbar />
+            <Suspense fallback={null}>
+              <Navbar />
+            </Suspense>
             <Suspense fallback={null}>
               <AuthToast />
             </Suspense>
             {children}
             <BookRateModal />
-            <CartDrawerWrapper />
+            <Suspense fallback={null}>
+              <CartDrawerWrapper />
+            </Suspense>
           </BookRateProvider>
         </CartProvider>
       </body>
