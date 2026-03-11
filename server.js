@@ -37,30 +37,47 @@ const io = new Server(server, {
 });
 const PORT = process.env.PORT || 3000;
 
-// Middleware - CORS must allow credentials for cookie sharing (Next.js client on 3001)
-app.use(cors({ 
-    origin: [
-        process.env.CLIENT_URL || 'https://kc.gauravsoftwares.tech',
-        'http://localhost:3001',
-        'http://localhost:3000'
-    ],
-    credentials: true 
+// Middleware - CORS must allow credentials for cross-subdomain cookie sharing
+const PRODUCTION_FRONTEND = 'https://kc.gauravsoftwares.tech';
+const allowedOrigins = [
+    PRODUCTION_FRONTEND,
+    process.env.CLIENT_URL,
+    'http://localhost:3001',
+    'http://localhost:3000',
+].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (curl, server-to-server)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true,
 }));
 app.use(express.json());
 
 // Session and Passport MUST run before /api/admin so req.user is populated
+// COOKIE_DOMAIN must be .gauravsoftwares.tech in production so the cookie is
+// shared between api.kc.gauravsoftwares.tech and kc.gauravsoftwares.tech.
+const isProduction = process.env.NODE_ENV === 'production';
+const cookieDomain  = process.env.COOKIE_DOMAIN  || (isProduction ? '.gauravsoftwares.tech' : undefined);
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'jewelry_estimation_secret_change_me',
     resave: false,
     saveUninitialized: true,
     name: 'jp.sid',
-    cookie: { 
-        secure: true,
+    cookie: {
+        // secure + SameSite=None are REQUIRED for cross-origin (subdomain) cookie sharing.
+        // In local dev over HTTP, secure:false / sameSite:lax so the cookie still works.
+        secure:   isProduction,
         httpOnly: true,
-        sameSite: 'none',
-        maxAge: 24 * 60 * 60 * 1000,
-        domain: process.env.NODE_ENV === 'production' ? '.gauravsoftwares.tech' : 'localhost'
-    }
+        sameSite: isProduction ? 'none' : 'lax',
+        maxAge:   24 * 60 * 60 * 1000,
+        // Only attach domain in production; omitting it in dev avoids localhost quirks.
+        ...(cookieDomain ? { domain: cookieDomain } : {}),
+    },
 }));
 app.use(passport.initialize());
 app.use(passport.session());
