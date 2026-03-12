@@ -989,102 +989,101 @@ app.get('/api/update/check', async (req, res) => {
 // STEP 3: Public GET access for products (read-only)
 app.get('/api/products', async (req, res) => {
     try {
-        const { barcode, styleCode, search, includeDeleted, limit, offset, recent, metal_type, category_id } = req.query;
-        
-        let queryText = 'SELECT * FROM products WHERE 1=1';
+        const { barcode, styleCode, search, includeDeleted, limit, offset, recent, category_id } = req.query;
+
+        // Base query — reads from web_products (ERP-synced catalogue)
+        // JOINs bring in category/subcategory names for filtering and display
+        const baseSelect = `
+            SELECT
+                wp.id,
+                wp.sku,
+                wp.barcode,
+                wp.name,
+                wp.gross_weight,
+                wp.net_weight,
+                wp.purity,
+                wp.image_url,
+                wp.subcategory_id,
+                wp.is_active,
+                wp.last_synced_at,
+                wp.created_at,
+                wp.updated_at,
+                ws.name  AS sku_code,
+                ws.slug  AS subcategory_slug,
+                wc.id    AS category_id,
+                wc.name  AS style_code,
+                wc.slug  AS category_slug
+            FROM web_products wp
+            LEFT JOIN web_subcategories ws ON wp.subcategory_id = ws.id
+            LEFT JOIN web_categories    wc ON ws.category_id    = wc.id
+        `;
+
+        const baseCount = `
+            SELECT COUNT(*) AS total
+            FROM web_products wp
+            LEFT JOIN web_subcategories ws ON wp.subcategory_id = ws.id
+            LEFT JOIN web_categories    wc ON ws.category_id    = wc.id
+        `;
+
+        let whereClauses = ['1=1'];
         const params = [];
-        let paramCount = 1;
-        
-        // Filter out deleted items by default (unless includeDeleted=true)
+        let p = 1;
+
+        // Active-only filter (mirror of old includeDeleted logic)
         if (includeDeleted !== 'true') {
-            queryText += ` AND (is_deleted IS NULL OR is_deleted = false)`;
-            queryText += ` AND (status IS NULL OR status != 'deleted')`;
+            whereClauses.push(`wp.is_active = true`);
         }
-        
+
         if (barcode) {
-            queryText += ` AND barcode = $${paramCount++}`;
+            whereClauses.push(`wp.barcode = $${p++}`);
             params.push(barcode);
         }
         if (styleCode) {
-            queryText += ` AND style_code = $${paramCount++}`;
+            whereClauses.push(`wc.name ILIKE $${p++}`);
             params.push(styleCode);
         }
-        if (metal_type) {
-            queryText += ` AND LOWER(metal_type) = $${paramCount++}`;
-            params.push(String(metal_type).toLowerCase());
-        }
         if (category_id) {
-            queryText += ` AND category_id = $${paramCount++}`;
+            whereClauses.push(`wc.id = $${p++}`);
             params.push(parseInt(category_id));
         }
         if (search) {
-            queryText += ` AND (short_name ILIKE $${paramCount} OR item_name ILIKE $${paramCount} OR barcode ILIKE $${paramCount} OR sku ILIKE $${paramCount} OR style_code ILIKE $${paramCount++})`;
+            whereClauses.push(`(wp.name ILIKE $${p} OR wp.sku ILIKE $${p} OR wp.barcode ILIKE $${p} OR wc.name ILIKE $${p++})`);
             params.push(`%${search}%`);
         }
-        
-        // Order by created_at DESC (most recent first)
-        queryText += ' ORDER BY created_at DESC';
-        
-        // Apply limit (default 50 for search, 5 for recent, no limit if not specified and no search)
-        const limitValue = recent === 'true' ? 5 : (limit ? Math.min(parseInt(limit), 50) : (search ? 50 : null));
+
+        const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
+
+        // Pagination
+        const limitValue = recent === 'true' ? 5 : (limit ? Math.min(parseInt(limit), 500) : (search ? 100 : null));
+        let paginationSQL = ' ORDER BY wp.updated_at DESC';
+        const paginationParams = [...params];
+        let pp = p;
+
         if (limitValue) {
-            queryText += ` LIMIT $${paramCount++}`;
-            params.push(limitValue);
+            paginationSQL += ` LIMIT $${pp++}`;
+            paginationParams.push(limitValue);
         }
-        
-        // Apply offset for pagination
         if (offset) {
-            queryText += ` OFFSET $${paramCount++}`;
-            params.push(parseInt(offset));
+            paginationSQL += ` OFFSET $${pp++}`;
+            paginationParams.push(parseInt(offset));
         }
-        
-        const result = await query(queryText, params);
-        
-        // Get total count for pagination (only if limit is applied)
+
+        const result = await query(`${baseSelect} ${whereSQL} ${paginationSQL}`, paginationParams);
+
+        // Total count for pagination
         let totalCount = null;
         if (limitValue || search) {
-            let countQuery = 'SELECT COUNT(*) as total FROM products WHERE 1=1';
-            const countParams = [];
-            let countParamCount = 1;
-            
-            if (includeDeleted !== 'true') {
-                countQuery += ` AND (is_deleted IS NULL OR is_deleted = false)`;
-                countQuery += ` AND (status IS NULL OR status != 'deleted')`;
-            }
-            
-            if (barcode) {
-                countQuery += ` AND barcode = $${countParamCount++}`;
-                countParams.push(barcode);
-            }
-            if (styleCode) {
-                countQuery += ` AND style_code = $${countParamCount++}`;
-                countParams.push(styleCode);
-            }
-            if (metal_type) {
-                countQuery += ` AND LOWER(metal_type) = $${countParamCount++}`;
-                countParams.push(String(metal_type).toLowerCase());
-            }
-            if (search) {
-                countQuery += ` AND (short_name ILIKE $${countParamCount} OR item_name ILIKE $${countParamCount} OR barcode ILIKE $${countParamCount} OR sku ILIKE $${countParamCount} OR style_code ILIKE $${countParamCount++})`;
-                countParams.push(`%${search}%`);
-            }
-            if (category_id) {
-                countQuery += ` AND category_id = $${countParamCount++}`;
-                countParams.push(parseInt(category_id));
-            }
-            
-            const countResult = await query(countQuery, countParams);
+            const countResult = await query(`${baseCount} ${whereSQL}`, params);
             totalCount = parseInt(countResult[0].total);
         }
-        
-        // Return results with metadata (include both 'items' and 'products' for compatibility)
+
         res.json({
             products: result,
-            items: result, // Frontend compatibility
+            items: result, // frontend compatibility
             total: totalCount,
             limit: limitValue,
             offset: offset ? parseInt(offset) : 0,
-            hasMore: totalCount !== null && (limitValue + (offset ? parseInt(offset) : 0)) < totalCount
+            hasMore: totalCount !== null && (limitValue + (offset ? parseInt(offset) : 0)) < totalCount,
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
