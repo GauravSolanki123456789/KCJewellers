@@ -15,7 +15,19 @@ sudo -u postgres psql -d kcjewellers
 ssh root@159.65.145.59
 command to access terminal
 ---
+1. Force Git to overwrite everything with your perfect GitHub code:
 
+Bash
+cd /var/www/kcjewellers
+git fetch --all
+git reset --hard origin/master
+2. Clean up and build natively for Linux:
+
+Bash
+cd client
+rm -rf .next
+npm install
+npm run build
 ## ?? Quick Start
 
 ### Production Deployment (DigitalOcean VPS)

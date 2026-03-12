@@ -5230,12 +5230,16 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                     imageUrl = `https://api.kc.gauravsoftwares.tech/uploads/web_products/${prodSku}.jpg`;
                 }
 
-                await query(`
+                // Explicit barcode value (may equal prodSku when barcode was the unique key source)
+                const barcode = String(item.barcode || '').trim() || null;
+
+                const upsertSql = `
                     INSERT INTO web_products
-                        (subcategory_id, sku, name, gross_weight, net_weight, purity, image_url, is_active, last_synced_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, image_url, is_active, last_synced_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (sku) DO UPDATE SET
                         subcategory_id  = EXCLUDED.subcategory_id,
+                        barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
                         name            = EXCLUDED.name,
                         gross_weight    = EXCLUDED.gross_weight,
                         net_weight      = EXCLUDED.net_weight,
@@ -5244,7 +5248,20 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                         is_active       = true,
                         last_synced_at  = CURRENT_TIMESTAMP,
                         updated_at      = CURRENT_TIMESTAMP
-                `, [subId, prodSku, name, grossWeight, netWeight, purity, imageUrl]);
+                `;
+                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, imageUrl];
+
+                try {
+                    await query(upsertSql, upsertParams);
+                } catch (upsertErr) {
+                    if (upsertErr.message && upsertErr.message.includes('column "barcode" does not exist')) {
+                        // Self-heal: column missing on older deployments — add it and retry once
+                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS barcode VARCHAR(255)');
+                        await query(upsertSql, upsertParams);
+                    } else {
+                        throw upsertErr;
+                    }
+                }
 
                 productsUpserted++;
             } catch (rowErr) {
