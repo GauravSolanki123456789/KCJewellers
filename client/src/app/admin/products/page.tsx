@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { Package, ArrowLeft, ChevronDown, ChevronRight, Globe, Check } from 'lucide-react'
+import { Package, ArrowLeft, ChevronDown, ChevronRight, Globe, Check, CheckCircle2 } from 'lucide-react'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 
 type Product = Item & {
@@ -43,6 +43,7 @@ export default function AdminProductsPage() {
   const [catalogCategories, setCatalogCategories] = useState<WebCategory[]>([])
   const [publishedIds, setPublishedIds] = useState<Set<number>>(new Set())
   const [savingPublish, setSavingPublish] = useState(false)
+  const [publishToast, setPublishToast] = useState<'success' | 'error' | null>(null)
   const [filterStyle, setFilterStyle] = useState<string>('')
   const [filterSku, setFilterSku] = useState<string>('')
 
@@ -92,6 +93,11 @@ export default function AdminProductsPage() {
     })
   }
 
+  const showToast = useCallback((type: 'success' | 'error') => {
+    setPublishToast(type)
+    setTimeout(() => setPublishToast(null), 4000)
+  }, [])
+
   const handleSavePublish = async () => {
     setSavingPublish(true)
     try {
@@ -112,8 +118,9 @@ export default function AdminProductsPage() {
         )
       }
       await loadCatalog()
+      showToast('success')
     } catch {
-      alert('Failed to save publish settings')
+      showToast('error')
     } finally {
       setSavingPublish(false)
     }
@@ -178,6 +185,19 @@ export default function AdminProductsPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
       <AdminGuard>
+        {/* Publish toast notification */}
+        {publishToast && (
+          <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className={`flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl border text-sm font-medium ${
+              publishToast === 'success'
+                ? 'bg-green-500/90 border-green-400/60 text-white'
+                : 'bg-red-500/90 border-red-400/60 text-white'
+            }`}>
+              <CheckCircle2 className="size-5 shrink-0" />
+              {publishToast === 'success' ? 'Catalog published successfully!' : 'Failed to save publish settings'}
+            </div>
+          </div>
+        )}
         <div className="min-h-screen bg-slate-950 text-slate-100">
         <main className="max-w-6xl mx-auto px-4 py-8 pb-24">
           <Link
@@ -268,7 +288,7 @@ export default function AdminProductsPage() {
                         <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Net Weight</th>
                         <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Purity</th>
                         <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Stock Qty</th>
-                        <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Final Cost</th>
+                        <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Final Cost <span className="text-slate-600 font-normal text-xs">(incl. GST)</span></th>
                       </tr>
                     </thead>
                     <tbody>

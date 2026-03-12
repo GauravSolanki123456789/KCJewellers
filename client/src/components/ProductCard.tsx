@@ -24,8 +24,9 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
       <div className="text-sm text-slate-500 truncate">{(product as { style_code?: string }).style_code || product.sku || ''}</div>
       <div className="text-base font-semibold text-slate-200 line-clamp-2">{displayName}</div>
       {weight != null && <div className="text-sm text-slate-400">Wt: {weight} gm</div>}
-      <div className="text-yellow-500/90 font-medium">
-        {total > 0 ? `₹${Math.round(total).toLocaleString('en-IN')}` : 'Price on request'}
+      <div className="text-yellow-500/90 font-medium tabular-nums">
+        ₹{Math.round(total).toLocaleString('en-IN')}
+        <span className="ml-1 text-xs text-slate-500 font-normal">incl. GST</span>
       </div>
       <button
         className="mt-1 px-3 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-slate-950 rounded-lg text-sm font-medium transition-colors"

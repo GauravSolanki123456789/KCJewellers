@@ -456,8 +456,9 @@ app.post('/api/auth/logout', (req, res) => {
     });
 });
 
-// Static files
+// Static files — serve public/ and explicitly expose uploads under /uploads
 app.use(express.static('public'));
+app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 
 // ==========================================
 // SCHEMA CHECK FUNCTION - Ensures products table has required columns
@@ -999,10 +1000,10 @@ app.get('/api/products', async (req, res) => {
                 wp.sku,
                 wp.barcode,
                 wp.name,
-                wp.gross_weight,
-                wp.net_weight,
-                wp.purity,
-                wp.mc_rate,
+                wp.gross_weight::float    AS gross_weight,
+                wp.net_weight::float      AS net_weight,
+                wp.purity::float          AS purity,
+                wp.mc_rate::float         AS mc_rate,
                 wp.image_url,
                 wp.subcategory_id,
                 wp.is_active,
@@ -3542,7 +3543,12 @@ app.get('/api/catalog', async (req, res) => {
             const subcategories = [];
             for (const s of subs) {
                 const products = await query(`
-                    SELECT id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, image_url, subcategory_id
+                    SELECT
+                        id, sku, barcode, name, image_url, subcategory_id,
+                        gross_weight::float AS gross_weight,
+                        net_weight::float   AS net_weight,
+                        purity::float       AS purity,
+                        mc_rate::float      AS mc_rate
                     FROM web_products
                     WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
                     ORDER BY updated_at DESC
@@ -3585,7 +3591,7 @@ app.put('/api/admin/catalog/publish', requireJson, isAdminStrict, async (req, re
             UPDATE web_categories SET is_published = $${ids.length + 1}, updated_at = CURRENT_TIMESTAMP
             WHERE id IN (${placeholders})
         `, [...ids, val]);
-        res.json({ success: true, updated: ids.length });
+        res.status(200).json({ success: true, updated: ids.length });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

@@ -56,14 +56,20 @@ function pickRate(live: unknown, metal: string) {
 }
 
 function netWeight(item: Item) {
-  const n = item.net_wt ?? item.weight ?? 0
+  // net_weight is returned by the API (web_products column); net_wt / weight are legacy fields
+  const n = item.net_weight ?? item.net_wt ?? item.weight ?? 0
   return Number(n) || 0
 }
 
 function purityPct(item: Item) {
   const p = Number(item.purity || 0)
   if (!p || p <= 0) return 0
-  return p > 1 && p <= 100 ? p : p * 100
+  // Fineness format (e.g. 916 = 91.6%, 750 = 75%) → divide by 10
+  if (p >= 100) return p / 10
+  // Percentage format (e.g. 91.6) → use directly
+  if (p > 1) return p
+  // Decimal format (e.g. 0.916) → multiply by 100
+  return p * 100
 }
 
 function mcAmount(item: Item) {
