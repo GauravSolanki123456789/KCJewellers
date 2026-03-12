@@ -8,6 +8,7 @@ const session = require('express-session');
 const passport = require('./config/passport');
 const { Server } = require('socket.io');
 const { exec } = require('child_process');
+const fs = require('fs');
 const { 
     pool, 
     initDatabase, 
@@ -55,7 +56,8 @@ app.use(cors({
     },
     credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Session and Passport MUST run before /api/admin so req.user is populated
 // COOKIE_DOMAIN must be .gauravsoftwares.tech in production so the cookie is
@@ -5028,79 +5030,88 @@ setInterval(() => {
 // DEVELOPER API - Key Management (Admin Only)
 // ==========================================
 
+// Helper: ensure the api_key column exists in app_settings, auto-migrating if missing.
+async function ensureApiKeyColumn() {
+    await query('ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS api_key VARCHAR(255)');
+    console.log('✅ ensureApiKeyColumn: api_key column verified/created in app_settings');
+}
+
+// Returns true when the error indicates the api_key column is missing.
+function isColumnMissingError(err) {
+    return (
+        err.code === '42703' ||              // PostgreSQL: undefined_column
+        err.code === '42P01' ||              // PostgreSQL: undefined_table
+        (typeof err.message === 'string' && err.message.includes('does not exist'))
+    );
+}
+
 // GET /api/admin/developer/key - return the current API key (masked except last 6 chars)
 app.get('/api/admin/developer/key', isAdminStrict, async (req, res) => {
+    const fetchKey = async () =>
+        query("SELECT api_key FROM app_settings WHERE key = 'developer_api_key'");
+
+    let rows;
     try {
-        const rows = await query("SELECT api_key FROM app_settings WHERE key = 'developer_api_key'");
-        
-        // Safely handle missing row - this is expected if key hasn't been generated yet
-        if (!rows || rows.length === 0) {
-            console.log('📝 Developer API key not found in app_settings - returning null (this is normal if key not generated yet)');
-            return res.json({ success: true, apiKey: null, message: 'No API key generated yet.' });
-        }
-        
-        const apiKey = rows[0]?.api_key || null;
-        if (!apiKey) {
-            console.log('⚠️ Developer API key row exists but api_key field is null');
-            return res.json({ success: true, apiKey: null, message: 'No API key generated yet.' });
-        }
-        
-        // Return full key to admin; mask preview for display
-        const preview = apiKey.slice(0, 6) + '••••••••••••••••••••••••' + apiKey.slice(-4);
-        res.json({ success: true, apiKey, preview });
+        rows = await fetchKey();
     } catch (error) {
-        // Detailed error logging for debugging
-        console.error('❌ Error in /api/admin/developer/key route:');
-        console.error('  Error message:', error.message);
-        console.error('  Error stack:', error.stack);
-        console.error('  Error code:', error.code);
-        console.error('  Error detail:', error.detail);
-        console.error('  Error hint:', error.hint);
-        console.error('  Request user:', req.user?.email || 'unknown');
-        console.error('  Request path:', req.path);
-        
-        // Check if it's a table/column missing error
-        if (error.code === '42P01' || error.message?.includes('does not exist')) {
-            console.error('  🔍 Database schema issue: app_settings table or api_key column may be missing');
-            return res.status(500).json({ 
-                error: 'Database configuration error: app_settings table or api_key column missing. Please run database migrations.',
-                code: 'SCHEMA_ERROR',
-                details: error.message
-            });
+        if (isColumnMissingError(error)) {
+            console.warn('⚠️  api_key column missing — running auto-migration and retrying...');
+            try {
+                await ensureApiKeyColumn();
+                rows = await fetchKey();
+            } catch (retryError) {
+                console.error('❌ /api/admin/developer/key retry failed:', retryError.message);
+                return res.status(500).json({ error: 'Failed to retrieve API key after migration', details: retryError.message });
+            }
+        } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+            console.error('❌ /api/admin/developer/key DB connection error:', error.message);
+            return res.status(500).json({ error: 'Database connection error', details: error.message });
+        } else {
+            console.error('❌ /api/admin/developer/key unexpected error:', error.message);
+            return res.status(500).json({ error: 'Failed to retrieve API key', details: error.message });
         }
-        
-        // Check if it's a connection error
-        if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-            console.error('  🔍 Database connection issue');
-            return res.status(500).json({ 
-                error: 'Database connection error. Please check database configuration.',
-                code: 'DB_CONNECTION_ERROR',
-                details: error.message
-            });
-        }
-        
-        // Generic error response
-        res.status(500).json({ 
-            error: 'Failed to retrieve API key',
-            code: 'INTERNAL_ERROR',
-            details: error.message
-        });
     }
+
+    if (!rows || rows.length === 0) {
+        return res.json({ success: true, apiKey: null, message: 'No API key generated yet.' });
+    }
+    const apiKey = rows[0]?.api_key || null;
+    if (!apiKey) {
+        return res.json({ success: true, apiKey: null, message: 'No API key generated yet.' });
+    }
+    const preview = apiKey.slice(0, 6) + '••••••••••••••••••••••••' + apiKey.slice(-4);
+    res.json({ success: true, apiKey, preview });
 });
 
 // POST /api/admin/developer/key/generate - generate a new 32-byte hex key and persist it
 app.post('/api/admin/developer/key/generate', isAdminStrict, async (req, res) => {
+    const newKey = crypto.randomBytes(32).toString('hex'); // 64-char hex string
+
+    const persistKey = async () => query(`
+        INSERT INTO app_settings (key, value, api_key, updated_at)
+        VALUES ('developer_api_key', 'managed', $1, CURRENT_TIMESTAMP)
+        ON CONFLICT (key) DO UPDATE SET api_key = $1, updated_at = CURRENT_TIMESTAMP
+    `, [newKey]);
+
     try {
-        const newKey = crypto.randomBytes(32).toString('hex'); // 64-char hex string
-        await query(`
-            INSERT INTO app_settings (key, value, api_key, updated_at)
-            VALUES ('developer_api_key', 'managed', $1, CURRENT_TIMESTAMP)
-            ON CONFLICT (key) DO UPDATE SET api_key = $1, updated_at = CURRENT_TIMESTAMP
-        `, [newKey]);
-        res.json({ success: true, apiKey: newKey, message: 'New API key generated. Store it securely — it will not be shown again in full.' });
+        await persistKey();
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        if (isColumnMissingError(error)) {
+            console.warn('⚠️  api_key column missing — running auto-migration and retrying...');
+            try {
+                await ensureApiKeyColumn();
+                await persistKey();
+            } catch (retryError) {
+                console.error('❌ /api/admin/developer/key/generate retry failed:', retryError.message);
+                return res.status(500).json({ error: 'Failed to generate API key after migration', details: retryError.message });
+            }
+        } else {
+            console.error('❌ /api/admin/developer/key/generate error:', error.message);
+            return res.status(500).json({ error: 'Failed to generate API key', details: error.message });
+        }
     }
+
+    res.json({ success: true, apiKey: newKey, message: 'New API key generated. Store it securely — it will not be shown again in full.' });
 });
 
 // ==========================================
@@ -5208,7 +5219,16 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                 const netWeight   = item.netWeight   != null ? Number(item.netWeight)   : (item.net_weight   != null ? Number(item.net_weight)   : null);
                 const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : (item.gross_weight != null ? Number(item.gross_weight) : null);
                 const purity      = item.purity   ? String(item.purity)    : null;
-                const imageUrl    = item.imageUrl  ? String(item.imageUrl) : (item.image_url ? String(item.image_url) : null);
+
+                // Resolve imageUrl: prefer Base64 upload, fall back to provided URL
+                let imageUrl = item.imageUrl ? String(item.imageUrl) : (item.image_url ? String(item.image_url) : null);
+                if (item.imageBase64) {
+                    const uploadsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
+                    fs.mkdirSync(uploadsDir, { recursive: true });
+                    const imgBuffer = Buffer.from(item.imageBase64, 'base64');
+                    fs.writeFileSync(path.join(uploadsDir, `${prodSku}.jpg`), imgBuffer);
+                    imageUrl = `https://api.kc.gauravsoftwares.tech/uploads/web_products/${prodSku}.jpg`;
+                }
 
                 await query(`
                     INSERT INTO web_products

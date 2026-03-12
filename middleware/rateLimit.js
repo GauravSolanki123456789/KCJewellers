@@ -26,9 +26,9 @@
    };
  }
  
- const globalLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 120, message: 'Rate limit exceeded' });
- const authLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 30, message: 'Too many auth attempts' });
- const adminLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 100, message: 'Admin rate limit exceeded' });
+const globalLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, message: 'Rate limit exceeded' });
+const authLimiter  = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, message: 'Too many auth attempts' });
+const adminLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, message: 'Admin rate limit exceeded' });
  
  function requireJson(req, res, next) {
    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
