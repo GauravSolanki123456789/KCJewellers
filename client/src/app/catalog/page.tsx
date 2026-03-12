@@ -6,7 +6,6 @@ import ProductCard from '@/components/ProductCard'
 import { LayoutGrid, ChevronRight } from 'lucide-react'
 import { type Item } from '@/lib/pricing'
 
-// Use unified Item type for consistency across the app
 type Product = Item
 
 type Subcategory = {
@@ -26,6 +25,7 @@ type Category = {
 
 export default function CatalogPage() {
   const [categories, setCategories] = useState<Category[]>([])
+  const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
   const [selectedSubcategory, setSelectedSubcategory] = useState<Subcategory | null>(null)
@@ -35,8 +35,12 @@ export default function CatalogPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await axios.get(`${url}/api/catalog`)
-        setCategories(res.data?.categories || [])
+        const [catalogRes, ratesRes] = await Promise.all([
+          axios.get(`${url}/api/catalog`),
+          axios.get(`${url}/api/rates/display`),
+        ])
+        setCategories(catalogRes.data?.categories || [])
+        setRates(ratesRes.data?.rates ?? [])
       } catch {
         setCategories([])
       } finally {
@@ -149,9 +153,13 @@ export default function CatalogPage() {
             {selectedSubcategory.products.length === 0 ? (
               <p className="text-slate-500 py-8">No products in this collection</p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {selectedSubcategory.products.map((p) => (
-                  <ProductCard key={p.barcode || p.id || p.sku} product={p} />
+                  <ProductCard
+                    key={p.barcode || p.id || p.sku}
+                    product={{ ...p, style_code: selectedCategory?.name } as Product}
+                    rates={rates}
+                  />
                 ))}
               </div>
             )}

@@ -1002,6 +1002,7 @@ app.get('/api/products', async (req, res) => {
                 wp.gross_weight,
                 wp.net_weight,
                 wp.purity,
+                wp.mc_rate,
                 wp.image_url,
                 wp.subcategory_id,
                 wp.is_active,
@@ -3523,63 +3524,8 @@ app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
     }
 });
 
-// Admin ERP Sync - sync products from main products table to web catalogue
-app.post('/api/admin/sync/products', isAdminStrict, async (req, res) => {
-    try {
-        const products = await query(`
-            SELECT barcode, sku, style_code, short_name, item_name, metal_type, net_weight, gross_weight, weight, purity, mc_rate, mc_type
-            FROM products
-            WHERE (is_deleted IS NULL OR is_deleted = false) AND (status IS NULL OR status != 'deleted')
-        `);
-        let categoriesCreated = 0, subcategoriesCreated = 0, productsSynced = 0;
-        const styleSlugs = new Set();
-        const skuSlugs = new Set();
-        for (const p of products) {
-            const styleCode = p.style_code || 'Uncategorized';
-            const styleSlug = String(styleCode).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'uncategorized';
-            if (!styleSlugs.has(styleSlug)) {
-                await query(`
-                    INSERT INTO web_categories (name, slug, updated_at)
-                    VALUES ($1, $2, CURRENT_TIMESTAMP)
-                    ON CONFLICT (slug) DO UPDATE SET name = $1, updated_at = CURRENT_TIMESTAMP
-                `, [styleCode, styleSlug]);
-                styleSlugs.add(styleSlug);
-                categoriesCreated++;
-            }
-            const cat = await query('SELECT id FROM web_categories WHERE slug = $1', [styleSlug]);
-            const catId = cat[0]?.id;
-            if (!catId) continue;
-            const skuCode = p.sku || p.barcode || 'N/A';
-            const skuSlug = `${styleSlug}-${String(skuCode).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'na'}`;
-            const skuKey = `${styleSlug}::${skuSlug}`;
-            if (!skuSlugs.has(skuKey)) {
-                await query(`
-                    INSERT INTO web_subcategories (category_id, name, slug, updated_at)
-                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-                    ON CONFLICT (slug) DO UPDATE SET name = $2, category_id = $1, updated_at = CURRENT_TIMESTAMP
-                `, [catId, skuCode, skuSlug]);
-                skuSlugs.add(skuKey);
-                subcategoriesCreated++;
-            }
-            const sub = await query('SELECT id FROM web_subcategories WHERE slug = $1', [skuSlug]);
-            const subId = sub[0]?.id;
-            if (!subId) continue;
-            const prodSku = p.barcode || p.sku || `p-${p.id || Date.now()}-${productsSynced}`;
-            await query(`
-                INSERT INTO web_products (subcategory_id, sku, name, gross_weight, net_weight, purity, last_synced_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT (sku) DO UPDATE SET
-                    name = EXCLUDED.name, gross_weight = EXCLUDED.gross_weight, net_weight = EXCLUDED.net_weight, purity = EXCLUDED.purity, last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-            `, [subId, prodSku, p.item_name || p.short_name, p.gross_weight, p.net_weight || p.weight, p.purity]);
-            productsSynced++;
-        }
-        res.json({ success: true, categoriesCreated, subcategoriesCreated, productsSynced });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // Public catalog - published categories only (Style → SKU → Products)
+// Reads from web_products (ERP-synced data) with image_url, mc_rate, etc.
 app.get('/api/catalog', async (req, res) => {
     try {
         const cats = await query(`
@@ -3595,23 +3541,12 @@ app.get('/api/catalog', async (req, res) => {
             `, [c.id]);
             const subcategories = [];
             for (const s of subs) {
-                const wpRows = await query(`
-                    SELECT wp.sku, wp.name, wp.net_weight, wp.gross_weight, wp.purity
-                    FROM web_products wp
-                    WHERE wp.subcategory_id = $1 AND (wp.is_active IS NULL OR wp.is_active = true)
+                const products = await query(`
+                    SELECT id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, image_url, subcategory_id
+                    FROM web_products
+                    WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
+                    ORDER BY updated_at DESC
                 `, [s.id]);
-                const barcodes = wpRows.map(r => r.sku).filter(Boolean);
-                let products = [];
-                if (barcodes.length > 0) {
-                    const placeholders = barcodes.map((_, i) => `$${i + 1}`).join(',');
-                    const prodRows = await query(`
-                        SELECT * FROM products
-                        WHERE barcode IN (${placeholders})
-                        AND (is_deleted IS NULL OR is_deleted = false)
-                        AND (status IS NULL OR status != 'deleted')
-                    `, barcodes);
-                    products = prodRows;
-                }
                 subcategories.push({ id: s.id, name: s.name, slug: s.slug, products });
             }
             categories.push({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url, subcategories });
@@ -3642,7 +3577,7 @@ app.put('/api/admin/catalog/publish', requireJson, isAdminStrict, async (req, re
         const { categoryIds, publish } = req.body || {};
         const ids = Array.isArray(categoryIds) ? categoryIds.map(id => parseInt(id)).filter(n => !isNaN(n)) : [];
         if (ids.length === 0) {
-            return res.status(400).json({ error: 'categoryIds array required' });
+            return res.json({ success: true, updated: 0 });
         }
         const val = publish === true || publish === 'true' ? true : false;
         const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
@@ -5218,13 +5153,15 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                 const netWeight   = item.netWeight   != null ? Number(item.netWeight)   : (item.net_weight   != null ? Number(item.net_weight)   : null);
                 const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : (item.gross_weight != null ? Number(item.gross_weight) : null);
                 const purity      = item.purity   ? String(item.purity)    : null;
+                const mcRate      = item.mcRate   != null ? Number(item.mcRate)   : (item.mc_rate != null ? Number(item.mc_rate) : null);
 
                 // Resolve imageUrl: prefer Base64 upload, fall back to provided URL
                 let imageUrl = item.imageUrl ? String(item.imageUrl) : (item.image_url ? String(item.image_url) : null);
                 if (item.imageBase64) {
                     const uploadsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
                     fs.mkdirSync(uploadsDir, { recursive: true });
-                    const imgBuffer = Buffer.from(item.imageBase64, 'base64');
+                    const base64Data = String(item.imageBase64).replace(/^data:image\/\w+;base64,/, '');
+                    const imgBuffer = Buffer.from(base64Data, 'base64');
                     fs.writeFileSync(path.join(uploadsDir, `${prodSku}.jpg`), imgBuffer);
                     imageUrl = `https://api.kc.gauravsoftwares.tech/uploads/web_products/${prodSku}.jpg`;
                 }
@@ -5234,8 +5171,8 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
 
                 const upsertSql = `
                     INSERT INTO web_products
-                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, image_url, is_active, last_synced_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, image_url, is_active, last_synced_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (sku) DO UPDATE SET
                         subcategory_id  = EXCLUDED.subcategory_id,
                         barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -5243,19 +5180,23 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                         gross_weight    = EXCLUDED.gross_weight,
                         net_weight      = EXCLUDED.net_weight,
                         purity          = EXCLUDED.purity,
+                        mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
                         image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
                         is_active       = true,
                         last_synced_at  = CURRENT_TIMESTAMP,
                         updated_at      = CURRENT_TIMESTAMP
                 `;
-                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, imageUrl];
+                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, imageUrl];
 
                 try {
                     await query(upsertSql, upsertParams);
                 } catch (upsertErr) {
-                    if (upsertErr.message && upsertErr.message.includes('column "barcode" does not exist')) {
-                        // Self-heal: column missing on older deployments — add it and retry once
+                    const msg = upsertErr.message || '';
+                    if (msg.includes('column "barcode" does not exist')) {
                         await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS barcode VARCHAR(255)');
+                        await query(upsertSql, upsertParams);
+                    } else if (msg.includes('column "mc_rate" does not exist')) {
+                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS mc_rate NUMERIC(12,2)');
                         await query(upsertSql, upsertParams);
                     } else {
                         throw upsertErr;

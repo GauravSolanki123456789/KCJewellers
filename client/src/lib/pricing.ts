@@ -81,6 +81,21 @@ export function calculateBreakdown(item: Item, liveRates: unknown, gstRate?: num
   const rate = pickRate(liveRates, item.metal_type || "gold")
   const wt = netWeight(item)
   const purity = purityPct(item)
+  const mcRate = Number(item.mc_rate ?? 0) || 0
+
+  // Web products (ERP sync): (liveRate + mc_rate) * net_weight, then 3% GST included
+  const hasMcRate = (item as Record<string, unknown>).mc_rate != null
+  if (hasMcRate && (rate > 0 || mcRate > 0) && wt > 0) {
+    const effectiveRate = rate + mcRate
+    const base = effectiveRate * wt * (purity > 0 ? purity / 100 : 1)
+    const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
+    const total = base * (1 + gstPct / 100)
+    const taxable = base
+    const cgst = total - taxable
+    const sgst = 0
+    return { metal: base, mc: 0, stone: 0, cgst, sgst, taxable, total }
+  }
+
   const metal = wt * rate * (purity / 100)
   const mc = mcAmount(item)
   const stoneAmt = stone(item)

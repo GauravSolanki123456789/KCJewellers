@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { Package, ArrowLeft, ChevronDown, ChevronRight, RefreshCw, Globe, Check } from 'lucide-react'
+import { Package, ArrowLeft, ChevronDown, ChevronRight, Globe, Check } from 'lucide-react'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 
 type Product = Item & {
@@ -37,7 +37,6 @@ export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'nested'>('nested')
   const [expandedStyles, setExpandedStyles] = useState<Set<string>>(new Set())
   const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set())
@@ -96,16 +95,19 @@ export default function AdminProductsPage() {
   const handleSavePublish = async () => {
     setSavingPublish(true)
     try {
-      await axios.put(
-        `${url}/api/admin/catalog/publish`,
-        { categoryIds: Array.from(publishedIds), publish: true },
-        { withCredentials: true }
-      )
-      const unpublishIds = catalogCategories.filter((c) => !publishedIds.has(c.id)).map((c) => c.id)
-      if (unpublishIds.length > 0) {
+      const toPublish = Array.from(publishedIds)
+      const toUnpublish = catalogCategories.filter((c) => !publishedIds.has(c.id)).map((c) => c.id)
+      if (toPublish.length > 0) {
         await axios.put(
           `${url}/api/admin/catalog/publish`,
-          { categoryIds: unpublishIds, publish: false },
+          { categoryIds: toPublish, publish: true },
+          { withCredentials: true }
+        )
+      }
+      if (toUnpublish.length > 0) {
+        await axios.put(
+          `${url}/api/admin/catalog/publish`,
+          { categoryIds: toUnpublish, publish: false },
           { withCredentials: true }
         )
       }
@@ -122,30 +124,16 @@ export default function AdminProductsPage() {
     return b.total
   }
 
-  const handleSyncFromERP = async () => {
-    setSyncing(true)
-    try {
-      const res = await axios.post(`${url}/api/admin/sync/products`, {}, { withCredentials: true })
-      const { productsSynced, categoriesCreated, subcategoriesCreated } = res.data || {}
-      alert(`Synced: ${productsSynced ?? 0} products, ${categoriesCreated ?? 0} categories, ${subcategoriesCreated ?? 0} subcategories`)
-      await load()
-      await loadCatalog()
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Sync failed'
-      alert(msg)
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   const groupedCatalog = (): GroupedCatalog[] => {
+    // Hierarchy: Style Code (Category) -> SKU (Subcategory) -> Products
+    // Use sku_code (subcategory name) for grouping, NOT sku/barcode (unique per product)
     const byStyle: Record<string, Record<string, Product[]>> = {}
     for (const p of products) {
-      const style = p.style_code || 'Uncategorized'
-      const sku = p.sku || p.barcode || 'N/A'
+      const style = (p as { style_code?: string }).style_code || 'Uncategorized'
+      const skuCode = (p as { sku_code?: string }).sku_code || (p as { subcategory_slug?: string }).subcategory_slug || p.sku || 'N/A'
       if (!byStyle[style]) byStyle[style] = {}
-      if (!byStyle[style][sku]) byStyle[style][sku] = []
-      byStyle[style][sku].push(p)
+      if (!byStyle[style][skuCode]) byStyle[style][skuCode] = []
+      byStyle[style][skuCode].push(p)
     }
     return Object.entries(byStyle).map(([styleCode, skuMap]) => ({
       styleCode,
@@ -173,15 +161,17 @@ export default function AdminProductsPage() {
 
   const catalog = groupedCatalog()
 
-  const uniqueStyles = Array.from(new Set(products.map((p) => p.style_code || ''))).filter(Boolean).sort()
+  const uniqueStyles = Array.from(new Set(products.map((p) => (p as { style_code?: string }).style_code || ''))).filter(Boolean).sort()
+
+  const skuCodeForProduct = (p: Product) => (p as { sku_code?: string }).sku_code || (p as { subcategory_slug?: string }).subcategory_slug || p.sku || ''
 
   const skusForStyle = filterStyle
-    ? Array.from(new Set(products.filter((p) => (p.style_code || '') === filterStyle).map((p) => p.sku || p.barcode || ''))).filter(Boolean).sort()
+    ? Array.from(new Set(products.filter((p) => ((p as { style_code?: string }).style_code || '') === filterStyle).map(skuCodeForProduct))).filter(Boolean).sort()
     : []
 
   const flatFilteredProducts = products.filter((p) => {
-    if (filterStyle && (p.style_code || '') !== filterStyle) return false
-    if (filterSku && (p.sku || p.barcode || '') !== filterSku) return false
+    if (filterStyle && ((p as { style_code?: string }).style_code || '') !== filterStyle) return false
+    if (filterSku && skuCodeForProduct(p) !== filterSku) return false
     return true
   })
 
@@ -210,14 +200,6 @@ export default function AdminProductsPage() {
                 >
                   {viewMode === 'table' ? 'Nested View' : 'Flat Table'}
                 </button>
-                <button
-                  onClick={handleSyncFromERP}
-                  disabled={syncing}
-                  className="px-4 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold text-sm inline-flex items-center gap-2 disabled:opacity-60"
-                >
-                  <RefreshCw className={`size-4 ${syncing ? 'animate-spin' : ''}`} />
-                  {syncing ? 'Syncing…' : 'Sync from ERP'}
-                </button>
               </div>
             </div>
 
@@ -228,7 +210,7 @@ export default function AdminProductsPage() {
                 <Package className="size-12 text-slate-600 mx-auto mb-4" />
                 <p className="text-slate-400">No products found</p>
                 <p className="text-slate-500 text-sm mt-1">
-                  Sync from your jewellery ERP or add products manually.
+                  Sync products from your jewellery ERP via POST /api/sync/receive (x-api-key).
                 </p>
               </div>
             ) : viewMode === 'table' ? (
@@ -312,7 +294,7 @@ export default function AdminProductsPage() {
                               </div>
                             </td>
                             <td className="py-3 px-4 text-slate-300 font-mono text-sm">{p.sku || '—'}</td>
-                            <td className="py-3 px-4 text-slate-200">{p.item_name || p.short_name || '—'}</td>
+                            <td className="py-3 px-4 text-slate-200">{(p as { name?: string }).name || p.item_name || p.short_name || '—'}</td>
                             <td className="py-3 px-4 text-slate-400">{p.style_code || '—'}</td>
                             <td className="py-3 px-4 text-right text-slate-300 tabular-nums">
                               {(p.net_weight ?? p.weight) != null ? `${Number(p.net_weight ?? p.weight)} g` : '—'}
@@ -394,7 +376,7 @@ export default function AdminProductsPage() {
                                           </div>
                                           <div className="min-w-0 flex-1">
                                             <div className="font-medium text-slate-200 truncate">
-                                              {p.item_name || p.short_name || p.barcode || '—'}
+                                              {(p as { name?: string }).name || p.item_name || p.short_name || p.barcode || '—'}
                                             </div>
                                             <div className="text-xs text-slate-500">
                                               {p.barcode && `Barcode: ${p.barcode}`}
@@ -445,7 +427,7 @@ export default function AdminProductsPage() {
                 Select catalogues (Styles) to publish. Published catalogues appear in the public Catalog page. Works on desktop and mobile—tap to select, long-press on mobile for multi-select.
               </p>
               {catalogCategories.length === 0 ? (
-                <p className="text-slate-500 text-sm">Sync from ERP first to see catalogues.</p>
+                <p className="text-slate-500 text-sm">Sync products via ERP (POST /api/sync/receive) to see catalogues.</p>
               ) : (
                 <div className="flex flex-wrap gap-3">
                   {catalogCategories.map((cat) => (
