@@ -307,7 +307,7 @@ export default function AdminProductsPage() {
                             <td className="py-3 px-4">
                               <div className="w-12 h-12 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center overflow-hidden">
                                 {p.image_url ? (
-                                  <img src={p.image_url} alt="" className="w-full h-full object-cover" />
+                                  <img src={p.image_url} alt="" className="w-full h-full object-contain bg-white dark:bg-slate-900" />
                                 ) : (
                                   <Package className="size-5 text-slate-500" />
                                 )}
@@ -389,7 +389,7 @@ export default function AdminProductsPage() {
                                         >
                                           <div className="w-10 h-10 rounded bg-slate-800 flex items-center justify-center shrink-0">
                                             {p.image_url ? (
-                                              <img src={p.image_url} alt="" className="w-full h-full object-cover rounded" />
+                                              <img src={p.image_url} alt="" className="w-full h-full object-contain rounded bg-white dark:bg-slate-900" />
                                             ) : (
                                               <Package className="size-4 text-slate-500" />
                                             )}

@@ -41,7 +41,13 @@
         "search": ""
       }
     ],
-    "remotePatterns": [],
+    "remotePatterns": [
+      {
+        "protocol": "https",
+        "hostname": "^(?:^(?:api\\.kc\\.gauravsoftwares\\.tech)$)$",
+        "pathname": "^(?:\\/uploads(?:\\/(?!\\.{1,2}(?:\\/|$))(?:(?:(?!(?:^|\\/)\\.{1,2}(?:\\/|$)).)*?)|$))$"
+      }
+    ],
     "qualities": [
       75
     ],

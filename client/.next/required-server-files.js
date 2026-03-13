@@ -63,7 +63,13 @@ self.__SERVER_FILES_MANIFEST={
           "search": ""
         }
       ],
-      "remotePatterns": [],
+      "remotePatterns": [
+        {
+          "protocol": "https",
+          "hostname": "api.kc.gauravsoftwares.tech",
+          "pathname": "/uploads/**"
+        }
+      ],
       "qualities": [
         75
       ],
