@@ -30,7 +30,7 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
       className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
     >
       {/* Image — 70 % of card */}
-      <div className="relative aspect-[4/5] bg-slate-50 overflow-hidden">
+      <div className="relative aspect-[4/5] bg-[#0B1120] overflow-hidden">
         {showImage ? (
           <img
             src={product.image_url}
@@ -40,8 +40,8 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
             className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
-            <span className="text-5xl font-bold text-slate-300 select-none">
+          <div className="w-full h-full flex items-center justify-center bg-[#0B1120]">
+            <span className="text-5xl font-bold text-slate-600 select-none">
               {displayName.charAt(0)}
             </span>
           </div>

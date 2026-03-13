@@ -33,7 +33,7 @@ export default function HoverZoomImage({ children, className = '' }: HoverZoomIm
 
   return (
     <div
-      className={`relative overflow-hidden ${className}`}
+      className={`relative w-full h-full overflow-hidden ${className}`}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
