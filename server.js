@@ -9,6 +9,7 @@ const passport = require('./config/passport');
 const { Server } = require('socket.io');
 const { exec } = require('child_process');
 const fs = require('fs');
+const multer = require('multer');
 const { 
     pool, 
     initDatabase, 
@@ -24,6 +25,16 @@ const TallyIntegration = require('./config/tally-integration');
 const TallySyncService = require('./config/tally-sync-service');
 const { calculateBillTotals, calculatePurchaseCost } = require('./services/pricingService');
 const liveRateService = require('./services/liveRateService');
+
+// Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
+const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
+fs.mkdirSync(uploadsWebProductsDir, { recursive: true });
+const upload = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, uploadsWebProductsDir),
+        filename: (req, file, cb) => cb(null, file.originalname || `upload-${Date.now()}.jpg`),
+    }),
+});
 
 const app = express();
 app.disable('x-powered-by');
@@ -5115,7 +5126,8 @@ async function validateApiKey(req, res, next) {
 }
 
 /*
-  Expected payload:
+  Multipart/form-data: field "payload" = JSON.stringify({ products: [...] }), field "images" = image files (originalname = barcode, e.g. BAR123.jpg).
+  Expected payload structure:
   {
     "products": [
       {
@@ -5133,11 +5145,15 @@ async function validateApiKey(req, res, next) {
   }
   If barcode is omitted, sku is used as the product's unique identifier.
 */
-app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
+app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async (req, res) => {
     try {
-        const items = Array.isArray(req.body?.products) ? req.body.products : [];
+        if (!req.body?.payload) {
+            return res.status(400).json({ error: 'Missing payload field in form data' });
+        }
+        const products = JSON.parse(req.body.payload);
+        const items = Array.isArray(products?.products) ? products.products : (Array.isArray(products) ? products : []);
         if (items.length === 0) {
-            return res.status(400).json({ error: 'No products provided. Expected { "products": [...] }' });
+            return res.status(400).json({ error: 'No products provided. Expected payload with products array' });
         }
 
         let categoriesUpserted = 0;
@@ -5200,22 +5216,7 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                 const mcRate      = item.mcRate   != null ? Number(item.mcRate)   : (item.mc_rate != null ? Number(item.mc_rate) : null);
                 const metalType   = String(item.metalType || item.metal_type || 'silver').toLowerCase();
 
-                // Resolve imageUrl: prefer Base64 upload, fall back to provided URL
-                let imageUrl = item.imageUrl ? String(item.imageUrl) : (item.image_url ? String(item.image_url) : null);
-                if (item.imageBase64) {
-                    const uploadsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
-                    fs.mkdirSync(uploadsDir, { recursive: true });
-                    let base64Data = String(item.imageBase64).replace(/^data:image\/\w+;base64,/, '');
-                    // Fix Base64 corruption: '+' often becomes ' ' during HTTP/form-urlencoded parsing
-                    base64Data = base64Data.replace(/ /g, '+');
-                    // Support Base64url (avoids + and /): use - and _ instead for safe transmission
-                    base64Data = base64Data.replace(/-/g, '+').replace(/_/g, '/');
-                    // Strip any remaining invalid whitespace
-                    base64Data = base64Data.replace(/\s/g, '');
-                    const imgBuffer = Buffer.from(base64Data, 'base64');
-                    fs.writeFileSync(path.join(uploadsDir, `${prodSku}.jpg`), imgBuffer);
-                    imageUrl = `https://api.kc.gauravsoftwares.tech/uploads/web_products/${prodSku}.jpg`;
-                }
+                const imageUrl = 'https://api.kc.gauravsoftwares.tech/uploads/web_products/' + prodSku + '.jpg';
 
                 // Explicit barcode value (may equal prodSku when barcode was the unique key source)
                 const barcode = String(item.barcode || '').trim() || null;
