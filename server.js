@@ -5205,7 +5205,13 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                 if (item.imageBase64) {
                     const uploadsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
                     fs.mkdirSync(uploadsDir, { recursive: true });
-                    const base64Data = String(item.imageBase64).replace(/^data:image\/\w+;base64,/, '');
+                    let base64Data = String(item.imageBase64).replace(/^data:image\/\w+;base64,/, '');
+                    // Fix Base64 corruption: '+' often becomes ' ' during HTTP/form-urlencoded parsing
+                    base64Data = base64Data.replace(/ /g, '+');
+                    // Support Base64url (avoids + and /): use - and _ instead for safe transmission
+                    base64Data = base64Data.replace(/-/g, '+').replace(/_/g, '/');
+                    // Strip any remaining invalid whitespace
+                    base64Data = base64Data.replace(/\s/g, '');
                     const imgBuffer = Buffer.from(base64Data, 'base64');
                     fs.writeFileSync(path.join(uploadsDir, `${prodSku}.jpg`), imgBuffer);
                     imageUrl = `https://api.kc.gauravsoftwares.tech/uploads/web_products/${prodSku}.jpg`;

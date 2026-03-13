@@ -194,11 +194,12 @@ export default function DeveloperApiPage() {
               {/* Usage hint */}
               {apiKey && (
                 <div className="rounded-xl bg-slate-800/50 border border-white/5 p-4 text-xs font-mono text-slate-400 space-y-1 leading-relaxed">
-                  <p className="text-slate-500 font-sans font-medium mb-2 text-xs not-italic">Example ERP request:</p>
+                  <p className="text-slate-500 font-sans font-medium mb-2 text-xs not-italic">Example ERP request (strict format):</p>
                   <p><span className="text-violet-400">POST</span> {API}/api/sync/receive</p>
                   <p><span className="text-yellow-400">x-api-key:</span> <span className="text-slate-300">{revealed && apiKey ? apiKey : '••••••••••••••••••••••••••••••••'}</span></p>
                   <p><span className="text-yellow-400">Content-Type:</span> application/json</p>
                   <p className="text-slate-500 pt-1">{"{ \"products\": [ { \"styleCode\": \"RING01\", \"sku\": \"R001\", ... } ] }"}</p>
+                  <p className="text-amber-400/90 mt-2 text-[11px]">For imageBase64: send raw JSON only. Avoid form-urlencoded — it corrupts + chars. Use Base64url (-/_) if needed.</p>
                 </div>
               )}
 
@@ -293,6 +294,7 @@ export default function DeveloperApiPage() {
                     ['grossWeight', 'No',  'Gross weight in grams'],
                     ['purity',      'No',  'e.g. 22K, 18K, 925'],
                     ['imageUrl',    'No',  'Full HTTPS URL to product image'],
+                    ['imageBase64', 'No',  'Base64 image data. Use Content-Type: application/json. Prefer Base64url (+→-, /→_) to avoid corruption'],
                     ['metalType',   'No',  'gold / silver'],
                   ].map(([field, req, desc]) => (
                     <tr key={field} className="hover:bg-white/5 transition-colors">
