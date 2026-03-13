@@ -1,6 +1,8 @@
 'use client'
 import axios from "axios"
+import Image from "next/image"
 import BreakdownModal from "@/components/BreakdownModal"
+import HoverZoomImage from "@/components/HoverZoomImage"
 import { calculateBreakdown, type Item } from "@/lib/pricing"
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics"
 import { getSocket } from "@/lib/socket"
@@ -40,9 +42,31 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   }, [id])
   // Breakdown recompute occurs in socket handler and after initial load
   if (!product) return <div className="p-4">Loading...</div>
+
+  const displayName = product.item_name || product.short_name || 'Product'
+  const imageUrl = product.image_url
+
   return (
-    <div className="p-4 space-y-4">
-      <div className="glass-card p-4">
+    <div className="p-4 space-y-4 max-w-4xl mx-auto">
+      <div className="glass-card p-4 flex flex-col sm:flex-row gap-6">
+        {/* Main product image with hover-to-zoom */}
+        {imageUrl && (
+          <div className="shrink-0 w-full sm:w-80 aspect-[4/5] relative rounded-lg overflow-hidden bg-slate-900/50">
+            <HoverZoomImage className="absolute inset-0">
+              <Image
+                src={imageUrl}
+                alt={displayName}
+                fill
+                sizes="(max-width: 640px) 100vw, 320px"
+                className="object-contain"
+              />
+            </HoverZoomImage>
+            <span className="absolute bottom-2 left-2 text-[10px] text-slate-500 uppercase tracking-wider">
+              Hover to zoom
+            </span>
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
         <div className="text-2xl font-semibold">{product.item_name || product.short_name}</div>
         <div className="opacity-80">{product.style_code}</div>
         <div className="mt-2">Wt: {product.net_wt || product.net_weight || product.weight || 0} gm</div>
@@ -53,6 +77,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
             cart.add({ ...product, id: product.id ? String(product.id) : product.barcode })
             trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
           }}>Add to Cart</button>
+        </div>
         </div>
       </div>
       {b && <BreakdownModal open={open} onClose={() => setOpen(false)} breakdown={b} />}

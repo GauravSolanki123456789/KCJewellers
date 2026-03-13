@@ -5216,7 +5216,7 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
                 const mcRate      = item.mcRate   != null ? Number(item.mcRate)   : (item.mc_rate != null ? Number(item.mc_rate) : null);
                 const metalType   = String(item.metalType || item.metal_type || 'silver').toLowerCase();
 
-                const imageUrl = 'https://api.kc.gauravsoftwares.tech/uploads/web_products/' + prodSku + '.jpg';
+                const imageUrl = 'https://api.kc.gauravsoftwares.tech/uploads/web_products/' + prodSku + '.webp';
 
                 // Explicit barcode value (may equal prodSku when barcode was the unique key source)
                 const barcode = String(item.barcode || '').trim() || null;
