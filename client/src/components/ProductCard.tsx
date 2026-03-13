@@ -1,4 +1,6 @@
 'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
@@ -7,63 +9,80 @@ type ProductCardProps = { product: Item; rates?: unknown[] }
 
 export default function ProductCard({ product, rates = [] }: ProductCardProps) {
   const cart = useCart()
-  const weight = product.net_wt || product.net_weight || product.weight
-  const identifier = product.barcode || product.sku || String(product.id || '')
-  const styleCode = (product as { style_code?: string }).style_code || product.sku || ''
+  const [imgError, setImgError] = useState(false)
+
+  const displayName =
+    (product as { name?: string }).name ||
+    product.item_name ||
+    product.short_name ||
+    'Item'
+  const weight = product.net_weight ?? product.net_wt ?? product.weight
+  const barcode = product.barcode || product.sku || String(product.id || '')
+  const styleCode =
+    (product as { style_code?: string }).style_code || product.sku || ''
   const { total } = calculateBreakdown(product, rates, product.gst_rate ?? 3)
+
+  const showImage = product.image_url && !imgError
 
   return (
     <Link
-      href={`/products/${encodeURIComponent(identifier)}`}
-      className="group flex flex-col rounded-xl overflow-hidden bg-slate-900 border border-white/8 hover:border-amber-500/40 transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/5"
+      href={`/products/${encodeURIComponent(barcode)}`}
+      className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
     >
-      {/* Image area — object-contain so the full product photo is visible */}
-      <div className="relative aspect-square bg-white dark:bg-slate-950 overflow-hidden rounded-t-xl">
-        {product.image_url ? (
+      {/* Image — 70 % of card */}
+      <div className="relative aspect-[4/5] bg-slate-50 overflow-hidden">
+        {showImage ? (
           <img
             src={product.image_url}
-            alt={identifier}
+            alt={displayName}
+            loading="lazy"
+            onError={() => setImgError(true)}
             className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-slate-900">
-            <span className="text-5xl font-bold text-amber-500/20">
-              {(styleCode || identifier).charAt(0).toUpperCase()}
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
+            <span className="text-5xl font-bold text-slate-300 select-none">
+              {displayName.charAt(0)}
             </span>
           </div>
         )}
       </div>
 
-      {/* Details panel */}
-      <div className="flex flex-col gap-1 p-3 flex-1">
+      {/* Details — 30 % of card */}
+      <div className="flex flex-col gap-0.5 p-3 flex-1">
         {styleCode && (
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          <span className="text-[11px] text-slate-500 uppercase tracking-wider">
             {styleCode}
-          </p>
+          </span>
         )}
 
-        {/* Barcode as primary identifier */}
-        <p className="text-sm font-bold text-slate-100 tracking-tight truncate">
-          {identifier}
-        </p>
+        <span className="text-base font-bold text-slate-100 truncate leading-tight">
+          {barcode}
+        </span>
 
         {weight != null && (
-          <p className="text-xs text-slate-400">Wt: {weight} gm</p>
+          <span className="text-sm text-slate-400">
+            Wt: {Number(weight).toFixed(2)} gm
+          </span>
         )}
 
-        <p className="text-base font-medium text-amber-500 tabular-nums mt-auto pt-1">
+        <div className="text-lg font-medium text-amber-500 tabular-nums mt-0.5">
           ₹{Math.round(total).toLocaleString('en-IN')}
-          <span className="ml-1 text-[10px] text-slate-500 font-normal">incl. GST</span>
-        </p>
+          <span className="ml-1 text-xs text-slate-500 font-normal">
+            incl. GST
+          </span>
+        </div>
 
         <button
-          className="mt-2 w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 text-xs font-semibold transition-colors duration-200"
+          className="w-full mt-auto pt-2"
           onClick={(e) => {
             e.preventDefault()
             cart.add(product)
           }}
         >
-          Add to Cart
+          <span className="block w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold transition-colors">
+            Add to Cart
+          </span>
         </button>
       </div>
     </Link>

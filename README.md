@@ -29,7 +29,7 @@ rm -rf .next
 npm install
 npm run build
 ## ?? Quick Start
-
+pm2 restart kc-backend kc-frontend
 ### Production Deployment (DigitalOcean VPS)
 
 1. **Read**: [`DEPLOYMENT.md`](./DEPLOYMENT.md) - Complete deployment guide

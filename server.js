@@ -1005,6 +1005,7 @@ app.get('/api/products', async (req, res) => {
                 wp.purity::float          AS purity,
                 wp.mc_rate::float         AS mc_rate,
                 wp.image_url,
+                COALESCE(wp.metal_type, 'silver') AS metal_type,
                 wp.subcategory_id,
                 wp.is_active,
                 wp.last_synced_at,
@@ -3532,13 +3533,13 @@ app.get('/api/catalog', async (req, res) => {
         const cats = await query(`
             SELECT id, name, slug, image_url FROM web_categories
             WHERE is_published = true
-            ORDER BY name
+            ORDER BY sort_order, name
         `);
         const categories = [];
         for (const c of cats) {
             const subs = await query(`
                 SELECT id, name, slug FROM web_subcategories
-                WHERE category_id = $1 ORDER BY name
+                WHERE category_id = $1 ORDER BY sort_order, name
             `, [c.id]);
             const subcategories = [];
             for (const s of subs) {
@@ -3548,7 +3549,8 @@ app.get('/api/catalog', async (req, res) => {
                         gross_weight::float AS gross_weight,
                         net_weight::float   AS net_weight,
                         purity::float       AS purity,
-                        mc_rate::float      AS mc_rate
+                        mc_rate::float      AS mc_rate,
+                        COALESCE(metal_type, 'silver') AS metal_type
                     FROM web_products
                     WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
                     ORDER BY updated_at DESC
@@ -3567,11 +3569,19 @@ app.get('/api/catalog', async (req, res) => {
 // Admin: list all catalog categories with publish status
 app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
     try {
-        const rows = await query(`
+        const cats = await query(`
             SELECT id, name, slug, image_url, COALESCE(is_published, false) as is_published
-            FROM web_categories ORDER BY name
+            FROM web_categories ORDER BY sort_order, name
         `);
-        res.json({ categories: rows });
+        const categories = [];
+        for (const c of cats) {
+            const subs = await query(`
+                SELECT id, name, slug FROM web_subcategories
+                WHERE category_id = $1 ORDER BY sort_order, name
+            `, [c.id]);
+            categories.push({ ...c, subcategories: subs });
+        }
+        res.json({ categories });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -3592,6 +3602,34 @@ app.put('/api/admin/catalog/publish', requireJson, isAdminStrict, async (req, re
             WHERE id IN (${placeholders})
         `, [...ids, val]);
         res.status(200).json({ success: true, updated: ids.length });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: reorder categories (styles)
+app.put('/api/admin/catalog/reorder-categories', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { orderedIds } = req.body || {};
+        if (!Array.isArray(orderedIds) || orderedIds.length === 0) return res.json({ success: true });
+        for (let i = 0; i < orderedIds.length; i++) {
+            await query('UPDATE web_categories SET sort_order = $1 WHERE id = $2', [i + 1, parseInt(orderedIds[i])]);
+        }
+        res.json({ success: true, updated: orderedIds.length });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: reorder subcategories (SKUs) within a category
+app.put('/api/admin/catalog/reorder-subcategories', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { categoryId, orderedIds } = req.body || {};
+        if (!categoryId || !Array.isArray(orderedIds) || orderedIds.length === 0) return res.json({ success: true });
+        for (let i = 0; i < orderedIds.length; i++) {
+            await query('UPDATE web_subcategories SET sort_order = $1 WHERE id = $2 AND category_id = $3', [i + 1, parseInt(orderedIds[i]), parseInt(categoryId)]);
+        }
+        res.json({ success: true, updated: orderedIds.length });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5160,6 +5198,7 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                 const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : (item.gross_weight != null ? Number(item.gross_weight) : null);
                 const purity      = item.purity   ? String(item.purity)    : null;
                 const mcRate      = item.mcRate   != null ? Number(item.mcRate)   : (item.mc_rate != null ? Number(item.mc_rate) : null);
+                const metalType   = String(item.metalType || item.metal_type || 'silver').toLowerCase();
 
                 // Resolve imageUrl: prefer Base64 upload, fall back to provided URL
                 let imageUrl = item.imageUrl ? String(item.imageUrl) : (item.image_url ? String(item.image_url) : null);
@@ -5177,8 +5216,8 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
 
                 const upsertSql = `
                     INSERT INTO web_products
-                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, image_url, is_active, last_synced_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, metal_type, image_url, is_active, last_synced_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (sku) DO UPDATE SET
                         subcategory_id  = EXCLUDED.subcategory_id,
                         barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -5187,12 +5226,13 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                         net_weight      = EXCLUDED.net_weight,
                         purity          = EXCLUDED.purity,
                         mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
+                        metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
                         image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
                         is_active       = true,
                         last_synced_at  = CURRENT_TIMESTAMP,
                         updated_at      = CURRENT_TIMESTAMP
                 `;
-                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, imageUrl];
+                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, metalType, imageUrl];
 
                 try {
                     await query(upsertSql, upsertParams);
@@ -5203,6 +5243,9 @@ app.post('/api/sync/receive', requireJson, validateApiKey, async (req, res) => {
                         await query(upsertSql, upsertParams);
                     } else if (msg.includes('column "mc_rate" does not exist')) {
                         await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS mc_rate NUMERIC(12,2)');
+                        await query(upsertSql, upsertParams);
+                    } else if (msg.includes('column "metal_type" does not exist')) {
+                        await pool.query("ALTER TABLE web_products ADD COLUMN IF NOT EXISTS metal_type VARCHAR(50) DEFAULT 'silver'");
                         await query(upsertSql, upsertParams);
                     } else {
                         throw upsertErr;

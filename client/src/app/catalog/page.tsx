@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
-import { LayoutGrid, ChevronRight } from 'lucide-react'
+import { LayoutGrid, ChevronRight, ChevronDown } from 'lucide-react'
 import { type Item } from '@/lib/pricing'
 
 type Product = Item
@@ -27,10 +27,10 @@ export default function CatalogPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedSubcategory, setSelectedSubcategory] = useState<Subcategory | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
-  // Mobile: show sidebar overlay
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
+  const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
+  const [activeSkuId, setActiveSkuId] = useState<number | null>(null)
+  const [expandedStyles, setExpandedStyles] = useState<Set<number>>(new Set())
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
@@ -44,10 +44,13 @@ export default function CatalogPage() {
         const cats: Category[] = catalogRes.data?.categories || []
         setCategories(cats)
         setRates(ratesRes.data?.rates ?? [])
-        // Auto-select first subcategory for a good first impression
-        if (cats.length > 0 && cats[0].subcategories.length > 0) {
-          setSelectedCategory(cats[0])
-          setSelectedSubcategory(cats[0].subcategories[0])
+
+        if (cats.length > 0) {
+          setActiveStyleId(cats[0].id)
+          setExpandedStyles(new Set([cats[0].id]))
+          if (cats[0].subcategories.length > 0) {
+            setActiveSkuId(cats[0].subcategories[0].id)
+          }
         }
       } catch {
         setCategories([])
@@ -58,214 +61,209 @@ export default function CatalogPage() {
     load()
   }, [url])
 
-  const handleSubcategorySelect = (cat: Category, sub: Subcategory) => {
-    setSelectedCategory(cat)
-    setSelectedSubcategory(sub)
-    setMobileSidebarOpen(false)
+  const activeStyle = useMemo(
+    () => categories.find((c) => c.id === activeStyleId) ?? null,
+    [categories, activeStyleId],
+  )
+
+  const activeSku = useMemo(
+    () => activeStyle?.subcategories.find((s) => s.id === activeSkuId) ?? null,
+    [activeStyle, activeSkuId],
+  )
+
+  const products = activeSku?.products ?? []
+
+  const handleStyleClick = (cat: Category) => {
+    setActiveStyleId(cat.id)
+    setExpandedStyles((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat.id)) next.delete(cat.id)
+      else next.add(cat.id)
+      return next
+    })
+    if (cat.subcategories.length > 0) {
+      setActiveSkuId(cat.subcategories[0].id)
+    } else {
+      setActiveSkuId(null)
+    }
   }
+
+  const handleSkuClick = (sub: Subcategory, catId: number) => {
+    setActiveStyleId(catId)
+    setActiveSkuId(sub.id)
+  }
+
+  const breadcrumb = [activeStyle?.name, activeSku?.name]
+    .filter(Boolean)
+    .join(' \u203A ')
 
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <div className="text-slate-400 text-sm animate-pulse">Loading catalogue…</div>
+        <div className="text-slate-400 animate-pulse">Loading catalogue…</div>
       </div>
     )
   }
 
-  const hasCategories = categories.length > 0
+  if (categories.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <main className="max-w-5xl mx-auto px-4 py-16 text-center">
+          <LayoutGrid className="size-16 text-slate-700 mx-auto mb-4" />
+          <p className="text-slate-400 text-lg">No catalogues published yet</p>
+          <p className="text-slate-500 text-sm mt-1">
+            Admin can sync from ERP and publish catalogues from the dashboard.
+          </p>
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <main className="max-w-screen-xl mx-auto px-4 py-6 pb-24">
+      <main className="max-w-[1400px] mx-auto px-4 py-6 pb-28">
+        {/* Header */}
+        <div className="flex items-center gap-2 mb-5">
+          <LayoutGrid className="size-5 text-amber-500" />
+          <h1 className="text-lg font-semibold text-slate-200">
+            Product Catalogue
+          </h1>
+        </div>
 
-        {/* Page header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <LayoutGrid className="size-5 text-amber-500" />
-            <h1 className="text-lg font-semibold text-slate-200 tracking-tight">Product Catalogue</h1>
+        {/* ── Mobile: horizontal chips ── */}
+        <div className="lg:hidden space-y-3 mb-5">
+          {/* Style chips */}
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => handleStyleClick(cat)}
+                className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                  activeStyleId === cat.id
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'bg-slate-800 text-slate-300 border border-slate-700'
+                }`}
+              >
+                {cat.name}
+              </button>
+            ))}
           </div>
 
-          {/* Mobile: browse button */}
-          {hasCategories && (
-            <button
-              className="md:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-white/10 text-slate-300 text-sm"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <LayoutGrid className="size-4" />
-              Browse
-            </button>
+          {/* SKU pills */}
+          {activeStyle && activeStyle.subcategories.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {activeStyle.subcategories.map((sub) => (
+                <button
+                  key={sub.id}
+                  onClick={() => handleSkuClick(sub, activeStyle.id)}
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    activeSkuId === sub.id
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                      : 'bg-slate-800/60 text-slate-400 border border-slate-700/60'
+                  }`}
+                >
+                  {sub.name}
+                  <span className="ml-1 opacity-60">
+                    {sub.products.length}
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
-        {!hasCategories ? (
-          /* Empty state */
-          <div className="rounded-xl bg-slate-900/50 border border-white/10 p-12 text-center">
-            <LayoutGrid className="size-16 text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-400">No catalogues published yet</p>
-            <p className="text-slate-500 text-sm mt-1">
-              Admin can sync from ERP and publish catalogues from the dashboard.
-            </p>
-          </div>
-        ) : (
-          <div className="flex gap-0 md:gap-6 relative">
-
-            {/* ── Left Sidebar ── */}
-            {/* Desktop: always visible */}
-            <aside className="hidden md:block w-56 shrink-0 self-start sticky top-24">
-              <nav className="space-y-5">
-                {categories.map((cat) => (
+        <div className="flex gap-6">
+          {/* ── Desktop sidebar (25 %) ── */}
+          <aside className="hidden lg:block w-64 shrink-0">
+            <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2 scrollbar-hide">
+              {categories.map((cat) => {
+                const isExpanded = expandedStyles.has(cat.id)
+                const isActive = activeStyleId === cat.id
+                return (
                   <div key={cat.id}>
-                    <p className="px-2 mb-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-amber-500/80">
-                      {cat.name}
-                    </p>
-                    <ul className="space-y-0.5">
-                      {cat.subcategories.map((sub) => {
-                        const active = selectedSubcategory?.id === sub.id
-                        return (
-                          <li key={sub.id}>
+                    <button
+                      onClick={() => handleStyleClick(cat)}
+                      className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                        isActive
+                          ? 'bg-slate-800/80 text-amber-400'
+                          : 'text-slate-300 hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <span className="font-semibold text-sm tracking-wide uppercase">
+                        {cat.name}
+                      </span>
+                      {isExpanded ? (
+                        <ChevronDown className="size-4 shrink-0 text-slate-500" />
+                      ) : (
+                        <ChevronRight className="size-4 shrink-0 text-slate-500" />
+                      )}
+                    </button>
+
+                    {isExpanded && cat.subcategories.length > 0 && (
+                      <div className="ml-3 mt-0.5 mb-1 space-y-0.5 border-l border-slate-800 pl-3">
+                        {cat.subcategories.map((sub) => {
+                          const isSubActive = activeSkuId === sub.id
+                          return (
                             <button
-                              onClick={() => handleSubcategorySelect(cat, sub)}
-                              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group ${
-                                active
-                                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                              key={sub.id}
+                              onClick={() => handleSkuClick(sub, cat.id)}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm transition-colors ${
+                                isSubActive
+                                  ? 'bg-amber-500/10 text-amber-400 font-medium'
+                                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
                               }`}
                             >
-                              <span className="truncate">{sub.name}</span>
-                              <span className={`text-[10px] tabular-nums ml-2 shrink-0 ${active ? 'text-amber-500/60' : 'text-slate-600 group-hover:text-slate-500'}`}>
+                              {sub.name}
+                              <span className="ml-1.5 text-xs opacity-50">
                                 {sub.products.length}
                               </span>
                             </button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                ))}
-              </nav>
-            </aside>
-
-            {/* Mobile: overlay sidebar */}
-            {mobileSidebarOpen && (
-              <div className="md:hidden fixed inset-0 z-50 flex">
-                {/* Backdrop */}
-                <div
-                  className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                  onClick={() => setMobileSidebarOpen(false)}
-                />
-                {/* Drawer */}
-                <div className="relative w-72 max-w-[85vw] h-full bg-slate-950 border-r border-white/10 overflow-y-auto p-4 z-10">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-sm font-semibold text-slate-200">Browse</span>
-                    <button
-                      onClick={() => setMobileSidebarOpen(false)}
-                      className="text-slate-400 hover:text-slate-200 p-1"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <nav className="space-y-5">
-                    {categories.map((cat) => (
-                      <div key={cat.id}>
-                        <p className="px-2 mb-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-amber-500/80">
-                          {cat.name}
-                        </p>
-                        <ul className="space-y-0.5">
-                          {cat.subcategories.map((sub) => {
-                            const active = selectedSubcategory?.id === sub.id
-                            return (
-                              <li key={sub.id}>
-                                <button
-                                  onClick={() => handleSubcategorySelect(cat, sub)}
-                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                                    active
-                                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
-                                  }`}
-                                >
-                                  <span className="truncate">{sub.name}</span>
-                                  <span className="text-[10px] tabular-nums ml-2 shrink-0 text-slate-500">
-                                    {sub.products.length}
-                                  </span>
-                                </button>
-                              </li>
-                            )
-                          })}
-                        </ul>
+                          )
+                        })}
                       </div>
-                    ))}
-                  </nav>
-                </div>
-              </div>
-            )}
-
-            {/* Mobile: horizontal SKU pills (below header, above grid) */}
-            <div className="md:hidden w-full mb-4">
-              <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                {categories.map((cat) =>
-                  cat.subcategories.map((sub) => {
-                    const active = selectedSubcategory?.id === sub.id
-                    return (
-                      <button
-                        key={sub.id}
-                        onClick={() => handleSubcategorySelect(cat, sub)}
-                        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap ${
-                          active
-                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                            : 'bg-slate-800/60 text-slate-400 border-white/10 hover:border-white/20'
-                        }`}
-                      >
-                        {sub.name}
-                        <span className="ml-1 text-[10px] opacity-60">{sub.products.length}</span>
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* ── Right Product Grid ── */}
-            <div className="flex-1 min-w-0">
-              {selectedSubcategory && selectedCategory ? (
-                <>
-                  {/* Section header */}
-                  <div className="flex items-center gap-2 mb-5">
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-amber-500/70">
-                      {selectedCategory.name}
-                    </span>
-                    <ChevronRight className="size-3 text-slate-600" />
-                    <h2 className="text-base font-semibold text-slate-200">{selectedSubcategory.name}</h2>
-                    <span className="ml-auto text-xs text-slate-500 tabular-nums">
-                      {selectedSubcategory.products.length} item{selectedSubcategory.products.length !== 1 ? 's' : ''}
-                    </span>
+                    )}
                   </div>
+                )
+              })}
+            </nav>
+          </aside>
 
-                  {selectedSubcategory.products.length === 0 ? (
-                    <div className="py-16 text-center text-slate-500 text-sm">
-                      No products in this collection yet.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                      {selectedSubcategory.products.map((p) => (
-                        <ProductCard
-                          key={p.barcode || p.id || p.sku}
-                          product={{ ...p, style_code: selectedCategory.name } as Product}
-                          rates={rates}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <LayoutGrid className="size-12 text-slate-700 mb-3" />
-                  <p className="text-slate-500 text-sm">Select a collection to browse products</p>
-                </div>
+          {/* ── Right: product grid (75 %) ── */}
+          <section className="flex-1 min-w-0">
+            {/* Breadcrumb + count */}
+            <div className="flex items-center justify-between mb-4 gap-4">
+              <p className="text-sm text-slate-400 truncate">
+                {breadcrumb || 'Select a collection'}
+              </p>
+              {products.length > 0 && (
+                <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                  {products.length} item{products.length !== 1 ? 's' : ''}
+                </span>
               )}
             </div>
 
-          </div>
-        )}
+            {products.length === 0 ? (
+              <div className="rounded-xl bg-slate-900/50 border border-slate-800 p-16 text-center">
+                <p className="text-slate-500">No products in this collection</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+                {products.map((p) => (
+                  <ProductCard
+                    key={p.barcode || p.id || p.sku}
+                    product={
+                      {
+                        ...p,
+                        style_code: activeStyle?.name,
+                      } as Product
+                    }
+                    rates={rates}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </main>
     </div>
   )
