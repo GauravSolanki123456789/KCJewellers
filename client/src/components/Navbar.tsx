@@ -199,8 +199,8 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* Spacer for fixed navbars */}
-      <div className="h-16 md:h-14" />
+      {/* Spacer: desktop needs top padding for fixed nav; mobile nav is at bottom so minimal top */}
+      <div className="h-0 md:h-14" />
     </>
   )
 }

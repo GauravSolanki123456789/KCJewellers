@@ -606,7 +606,7 @@ export default function AdminProductsPage() {
                           key={styleKey}
                           className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
                         >
-                          <div className="flex items-center gap-3 p-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4">
                             <button
                               onClick={() => toggleStyle(styleKey)}
                               className="flex items-center gap-2 text-left hover:bg-white/5 rounded-lg -m-2 p-2 transition-colors flex-1 min-w-0"
@@ -616,22 +616,16 @@ export default function AdminProductsPage() {
                               ) : (
                                 <ChevronRight className="size-4 text-yellow-500 shrink-0" />
                               )}
-                              <span className="font-semibold text-slate-200">
+                              <span className="font-semibold text-slate-200 shrink-0">
                                 {styleCode}
                               </span>
-                              <span className="text-slate-500 text-sm">
-                                ({skus.length} SKU
-                                {skus.length !== 1 ? 's' : ''},{' '}
-                                {skus.reduce(
-                                  (s, x) => s + x.products.length,
-                                  0,
-                                )}{' '}
-                                products)
+                              <span className="text-slate-500 text-sm truncate">
+                                ({skus.length} SKU{skus.length !== 1 ? 's' : ''}, {skus.reduce((s, x) => s + x.products.length, 0)} products)
                               </span>
                             </button>
                             {getCategoryForStyle(styleCode) && (
                               <div
-                                className="flex items-center gap-2 shrink-0"
+                                className="flex items-center gap-2 shrink-0 sm:ml-0"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <label className="text-xs text-slate-500 whitespace-nowrap">
@@ -653,7 +647,7 @@ export default function AdminProductsPage() {
                                       handleCategoryDiscountSave(cat.id, v)
                                     }
                                   }}
-                                  className="w-16 px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-sm text-right focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+                                  className="w-14 sm:w-16 px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-sm text-right focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
                                   disabled={savingDiscount === getCategoryForStyle(styleCode)?.id}
                                 />
                               </div>

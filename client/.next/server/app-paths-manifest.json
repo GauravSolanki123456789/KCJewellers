@@ -13,6 +13,8 @@
   "/bullion/silver/page": "app/bullion/silver/page.js",
   "/catalog/page": "app/catalog/page.js",
   "/category/[key]/page": "app/category/[key]/page.js",
+  "/checkout/page": "app/checkout/page.js",
+  "/checkout/success/page": "app/checkout/success/page.js",
   "/favicon.ico/route": "app/favicon.ico/route.js",
   "/page": "app/page.js",
   "/products/[id]/page": "app/products/[id]/page.js",

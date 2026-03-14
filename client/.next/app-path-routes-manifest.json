@@ -13,6 +13,8 @@
   "/bullion/silver/page": "/bullion/silver",
   "/catalog/page": "/catalog",
   "/category/[key]/page": "/category/[key]",
+  "/checkout/page": "/checkout",
+  "/checkout/success/page": "/checkout/success",
   "/favicon.ico/route": "/favicon.ico",
   "/page": "/",
   "/products/[id]/page": "/products/[id]",

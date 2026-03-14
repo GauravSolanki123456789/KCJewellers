@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
@@ -36,6 +37,7 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
 }
 
 export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
+  const router = useRouter()
   const { items, remove, setQty } = useCart()
   const auth = useAuth()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -43,8 +45,10 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const handleCheckout = () => {
     if (!auth.isAuthenticated) {
       window.location.href = `${API_URL}/auth/google`
+      return
     }
-    // TODO: proceed with checkout flow
+    onClose()
+    router.push('/checkout')
   }
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)

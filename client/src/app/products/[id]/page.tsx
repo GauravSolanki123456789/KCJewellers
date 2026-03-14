@@ -192,7 +192,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
       </div>
-      {b && <BreakdownModal open={open} onClose={() => setOpen(false)} breakdown={b} />}
+      {b && <BreakdownModal open={open} onClose={() => setOpen(false)} breakdown={b} productName={displayName} />}
       </div>
     </div>
   )

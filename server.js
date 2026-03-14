@@ -3309,6 +3309,15 @@ app.post('/api/payment/razorpay/webhook', require('express').raw({ type: '*/*' }
         const event = body.event || body.payload?.payment?.entity?.status || 'payment.captured';
         const orderId = body.payload?.payment?.entity?.order_id || body.payload?.order?.entity?.id || body.order_id || body.razorpay_order_id;
         if (!orderId) return res.status(400).json({ error: 'order_id required' });
+
+        // Check for catalog order (orders table with PENDING + razorpay_order_id)
+        const orderRows = await query(`SELECT * FROM orders WHERE razorpay_order_id = $1 AND payment_status = 'PENDING'`, [orderId]);
+        if (orderRows.length > 0 && event === 'payment.captured') {
+            await query(`UPDATE orders SET payment_status = 'PAID', payment_method = 'RAZORPAY' WHERE razorpay_order_id = $1`, [orderId]);
+            return res.json({ status: 'CONFIRMED', type: 'catalog' });
+        }
+
+        // Bullion: booking_locks flow
         const rows = await query(`SELECT * FROM booking_locks WHERE razorpay_order_id = $1`, [orderId]);
         if (rows.length === 0) return res.status(404).json({ error: 'Booking not found' });
         const lock = rows[0];
@@ -3810,6 +3819,64 @@ app.post('/api/orders', checkAuth, async (req, res) => {
             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP) RETURNING *
         `, [body.user_id || null, total || 0, body.payment_status || 'PENDING', body.payment_method || null, body.razorpay_order_id || null, body.delivery_status || 'PENDING', JSON.stringify(body.items_snapshot_json || [])]);
         res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Checkout: Create Razorpay order for catalog cart
+// ==========================================
+app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) => {
+    try {
+        const items = req.body.items || [];
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'Cart is empty' });
+        }
+        const totalAmount = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
+        if (totalAmount <= 0) return res.status(400).json({ error: 'Invalid total' });
+
+        const itemsSnapshot = items.map((ci) => ({
+            barcode: ci.item?.barcode || ci.id,
+            item_name: ci.item?.item_name || ci.item?.short_name || 'Item',
+            qty: ci.qty || 1,
+            price: ci.price || 0,
+            breakdown: ci.breakdown || {},
+        }));
+
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        let razorpayOrderId = null;
+
+        if (keyId && keySecret) {
+            const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+            const resp = await fetch('https://api.razorpay.com/v1/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
+                body: JSON.stringify({
+                    amount: Math.round(totalAmount * 100),
+                    currency: 'INR',
+                    receipt: `cart_${Date.now()}`,
+                    payment_capture: 1,
+                    notes: { type: 'catalog', user_id: String(req.user?.id || '') },
+                }),
+            });
+            const data = await resp.json();
+            if (resp.ok && data?.id) razorpayOrderId = data.id;
+        }
+        if (!razorpayOrderId) razorpayOrderId = `order_${Date.now()}`;
+
+        const [row] = await query(`
+            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, created_at)
+            VALUES ($1, $2, 'PENDING', 'RAZORPAY', $3, 'PENDING', $4, CURRENT_TIMESTAMP) RETURNING *
+        `, [req.user?.id || null, totalAmount, razorpayOrderId, JSON.stringify(itemsSnapshot)]);
+
+        res.json({
+            order_id: row.id,
+            razorpay_order_id: razorpayOrderId,
+            amount: totalAmount,
+            key_id: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

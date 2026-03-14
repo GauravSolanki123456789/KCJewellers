@@ -73,16 +73,20 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
           </span>
         )}
 
-        <div className="text-lg font-medium tabular-nums mt-0.5">
+        <div className="flex flex-col gap-0.5 mt-0.5 min-w-0">
           {hasDiscount && (
-            <span className="line-through text-slate-500 text-base mr-1">
+            <span className="line-through text-slate-500 text-sm sm:text-base">
               ₹{Math.round(originalTotal ?? total).toLocaleString('en-IN')}
             </span>
           )}
-          <span className="text-amber-500">₹{Math.round(total).toLocaleString('en-IN')}</span>
-          <span className="ml-1 text-xs text-slate-500 font-normal">
-            incl. GST
-          </span>
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="text-amber-500 font-medium tabular-nums text-base sm:text-lg">
+              ₹{Math.round(total).toLocaleString('en-IN')}
+            </span>
+            <span className="text-xs text-slate-500 font-normal shrink-0">
+              incl. GST
+            </span>
+          </div>
         </div>
 
         <button
