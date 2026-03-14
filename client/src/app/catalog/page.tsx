@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import { LayoutGrid, ChevronRight, ChevronDown } from 'lucide-react'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 
 type Product = Item
 
@@ -35,32 +36,36 @@ export default function CatalogPage() {
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [catalogRes, ratesRes] = await Promise.all([
-          axios.get(`${url}/api/catalog`),
-          axios.get(`${url}/api/rates/display`),
-        ])
-        const cats: Category[] = catalogRes.data?.categories || []
-        setCategories(cats)
-        setRates(ratesRes.data?.rates ?? [])
+  const loadCatalog = useCallback(async () => {
+    try {
+      const [catalogRes, ratesRes] = await Promise.all([
+        axios.get(`${url}/api/catalog`),
+        axios.get(`${url}/api/rates/display`),
+      ])
+      const cats: Category[] = catalogRes.data?.categories || []
+      setCategories(cats)
+      setRates(ratesRes.data?.rates ?? [])
 
-        if (cats.length > 0) {
-          setActiveStyleId(cats[0].id)
-          setExpandedStyles(new Set([cats[0].id]))
-          if (cats[0].subcategories.length > 0) {
-            setActiveSkuId(cats[0].subcategories[0].id)
-          }
+      if (cats.length > 0) {
+        setActiveStyleId(cats[0].id)
+        setExpandedStyles(new Set([cats[0].id]))
+        if (cats[0].subcategories.length > 0) {
+          setActiveSkuId(cats[0].subcategories[0].id)
         }
-      } catch {
-        setCategories([])
-      } finally {
-        setLoading(false)
       }
+    } catch {
+      setCategories([])
+    } finally {
+      setLoading(false)
     }
-    load()
   }, [url])
+
+  const { pullY, isRefreshing, handleTouchStart, handleTouchMove, handleTouchEnd } = usePullToRefresh(loadCatalog)
+
+  useEffect(() => {
+    setLoading(true)
+    loadCatalog()
+  }, [loadCatalog])
 
   const activeStyle = useMemo(
     () => categories.find((c) => c.id === activeStyleId) ?? null,
@@ -173,8 +178,28 @@ export default function CatalogPage() {
     )
   }
 
+  const PULL_THRESHOLD = 80
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div
+      className="min-h-screen bg-slate-950 text-slate-100"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {pullY > 0 && (
+        <div
+          className="absolute top-0 left-0 right-0 w-full text-center text-slate-400 transition-all z-50 py-3 text-xs safe-area-pt bg-slate-950"
+          style={{ opacity: Math.min(pullY / PULL_THRESHOLD, 1) * 0.9 }}
+        >
+          {pullY >= PULL_THRESHOLD ? 'Release to refresh' : 'Pull to refresh'}
+        </div>
+      )}
+      {isRefreshing && (
+        <div className="absolute top-0 left-0 right-0 w-full text-center transition-all z-50 py-3 text-sm text-amber-500 bg-slate-900/90 backdrop-blur safe-area-pt">
+          Refreshing…
+        </div>
+      )}
       <main className="max-w-[1400px] mx-auto px-4 py-6 pb-28">
         {/* Header */}
         <div className="flex items-center gap-2 mb-5">

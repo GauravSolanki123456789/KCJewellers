@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
@@ -11,6 +11,13 @@ import BookRateModal from "@/components/BookRateModal";
 import CartDrawerWrapper from "@/components/CartDrawerWrapper";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import AuthToast from "@/components/AuthToast";
+import AddToCartToast from "@/components/AddToCartToast";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,9 +40,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="bg-slate-950">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100 min-h-screen`}
       >
         <GoogleAnalytics />
         <CartProvider>
@@ -46,6 +53,7 @@ export default function RootLayout({
             <Suspense fallback={null}>
               <AuthToast />
             </Suspense>
+            <AddToCartToast />
             {children}
             <BookRateModal />
             <Suspense fallback={null}>

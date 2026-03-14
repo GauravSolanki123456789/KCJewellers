@@ -14,6 +14,27 @@ type CartDrawerProps = {
   onClose: () => void
 }
 
+function CartItemImage({ src, alt }: { src: string; alt: string }) {
+  const [err, setErr] = useState(false)
+  if (err) {
+    return (
+      <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
+        <span className="text-xl font-bold text-slate-500">{alt.charAt(0)}</span>
+      </div>
+    )
+  }
+  return (
+    <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden bg-slate-800">
+      <img
+        src={src}
+        alt={alt}
+        className="w-full h-full object-contain"
+        onError={() => setErr(true)}
+      />
+    </div>
+  )
+}
+
 export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const { items, remove, setQty } = useCart()
   const auth = useAuth()
@@ -39,13 +60,13 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
         aria-hidden="true"
       />
 
-      {/* Drawer panel */}
+      {/* Drawer panel - full screen on mobile, sidebar on desktop */}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 w-full md:w-96 bg-slate-900 border-l border-slate-800 transform transition-transform duration-300 shadow-2xl flex flex-col ${
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:max-w-md md:w-96 bg-slate-900 border-l border-slate-800 transform transition-transform duration-300 shadow-2xl flex flex-col ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-800">
+        <div className="flex items-center justify-between p-4 border-b border-slate-800 safe-area-pt">
           <h2 className="text-lg font-semibold text-slate-200">Your Cart</h2>
           <button
             onClick={onClose}
@@ -68,24 +89,35 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                 const b = (ci.breakdown || {}) as Breakdown
                 const isExpanded = expandedId === ci.id
                 const lineTotal = ci.price * ci.qty
+                const displayName = ci.item.item_name || ci.item.short_name || 'Item'
+                const imageUrl = ci.item.image_url
                 return (
                   <div
                     key={ci.id}
                     className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
                   >
-                    <div className="p-4 flex flex-col gap-3">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-white truncate">
-                          {ci.item.item_name || ci.item.short_name || 'Item'}
+                    <div className="p-4 flex gap-3 sm:gap-4">
+                      {/* Product thumbnail */}
+                      {imageUrl ? (
+                        <CartItemImage src={imageUrl} alt={displayName} />
+                      ) : (
+                        <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
+                          <span className="text-xl font-bold text-slate-500">{displayName.charAt(0)}</span>
                         </div>
-                        <div className="text-sm text-amber-400 font-medium mt-0.5">
-                          ₹{Math.round(lineTotal).toLocaleString('en-IN')}
-                          <span className="text-slate-300 font-normal ml-1">
-                            (₹{Math.round(ci.price)} × {ci.qty})
-                          </span>
+                      )}
+                      <div className="flex-1 min-w-0 flex flex-col gap-3">
+                        <div>
+                          <div className="font-semibold text-white truncate">
+                            {displayName}
+                          </div>
+                          <div className="text-sm text-amber-400 font-medium mt-0.5">
+                            ₹{Math.round(lineTotal).toLocaleString('en-IN')}
+                            <span className="text-slate-300 font-normal ml-1">
+                              (₹{Math.round(ci.price)} × {ci.qty})
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                         <button
                           className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-white"
                           onClick={() => setQty(ci.id, ci.qty - 1)}
@@ -105,6 +137,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                         >
                           Remove
                         </button>
+                      </div>
                       </div>
                     </div>
                     <button
@@ -152,7 +185,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
         </div>
 
         {items.length > 0 && (
-          <div className="p-4 border-t border-slate-800 space-y-3">
+          <div className="p-4 border-t border-slate-800 space-y-3 safe-area-pb">
             <div className="flex justify-between text-lg font-semibold text-white">
               <span>Grand Total</span>
               <span className="text-amber-400 tabular-nums">₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>

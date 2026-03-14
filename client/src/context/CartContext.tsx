@@ -19,10 +19,13 @@ const CartCtx = createContext<{
   isCartOpen: boolean
   openCart: () => void
   closeCart: () => void
-}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {} })
+  lastAdded: ProductLite | null
+  clearLastAdded: () => void
+}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {} })
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [isCartOpen, setIsCartOpen] = useState(false)
+  const [lastAdded, setLastAdded] = useState<ProductLite | null>(null)
   const [items, setItems] = useState<CartItem[]>(() => {
     const raw = typeof window !== 'undefined' ? localStorage.getItem('cart.v1') : null
     if (!raw) return []
@@ -61,6 +64,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const add = useCallback((p: ProductLite) => {
     const b = calculateBreakdown(p, lastRates, p.gst_rate)
     const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
+    setLastAdded(p)
+    setIsCartOpen(true)
     setItems(prev => {
       const exists = prev.find(x => x.id === ci.id)
       if (exists) {
@@ -80,7 +85,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [])
   const openCart = useCallback(() => setIsCartOpen(true), [])
   const closeCart = useCallback(() => setIsCartOpen(false), [])
-  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart }), [items, add, remove, setQty, isCartOpen, openCart, closeCart])
+  const clearLastAdded = useCallback(() => setLastAdded(null), [])
+  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded }), [items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded])
   return <CartCtx.Provider value={value}>{children}</CartCtx.Provider>
 }
 
