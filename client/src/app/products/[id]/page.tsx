@@ -43,7 +43,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     return () => { s.off("live-rate", on) }
   }, [id])
   // Breakdown recompute occurs in socket handler and after initial load
-  if (!product) return <div className="p-4">Loading...</div>
+  if (!product) return <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center"><div className="text-slate-400 animate-pulse">Loading…</div></div>
 
   const displayName = product.item_name || product.short_name || 'Product'
   const imageUrl = product.image_url
@@ -63,7 +63,8 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   }
 
   return (
-    <div className="p-4 max-w-6xl mx-auto mt-8">
+    <div className="min-h-screen bg-slate-950">
+      <div className="p-4 max-w-6xl mx-auto mt-8">
       <Link
         href="/catalog"
         className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
@@ -192,6 +193,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
         </div>
       </div>
       {b && <BreakdownModal open={open} onClose={() => setOpen(false)} breakdown={b} />}
+      </div>
     </div>
   )
 }

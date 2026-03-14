@@ -49,6 +49,7 @@ type WebCategory = {
   name: string
   slug: string
   is_published: boolean
+  discount_percentage?: number
   subcategories?: SubcategoryInfo[]
 }
 
@@ -67,7 +68,7 @@ export default function AdminProductsPage() {
   >(null)
   const [filterStyle, setFilterStyle] = useState<string>('')
   const [filterSku, setFilterSku] = useState<string>('')
-  const [savingDiscount, setSavingDiscount] = useState<number | null>(null)
+  const [savingDiscount, setSavingDiscount] = useState<number | null>(null) // category id being saved
 
   // Reorder state
   const [orderedCategories, setOrderedCategories] = useState<WebCategory[]>([])
@@ -253,14 +254,15 @@ export default function AdminProductsPage() {
     return b.total
   }
 
-  const handleDiscountSave = async (productId: number, discountPct: number) => {
-    setSavingDiscount(productId)
+  const handleCategoryDiscountSave = async (categoryId: number, discountPct: number) => {
+    setSavingDiscount(categoryId)
     try {
       await axios.put(
-        `${url}/api/admin/web-products/${productId}/discount`,
+        `${url}/api/admin/catalog/${categoryId}/discount`,
         { discount_percentage: discountPct },
         { withCredentials: true },
       )
+      await loadCatalog()
       await load()
     } catch {
       // silent fail
@@ -268,6 +270,9 @@ export default function AdminProductsPage() {
       setSavingDiscount(null)
     }
   }
+
+  const getCategoryForStyle = (styleCode: string) =>
+    catalogCategories.find((c) => c.name === styleCode)
 
   const groupedCatalog = (): GroupedCatalog[] => {
     const byStyle: Record<string, Record<string, Product[]>> = {}
@@ -514,9 +519,6 @@ export default function AdminProductsPage() {
                           <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">
                             Stock Qty
                           </th>
-                          <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm w-24">
-                            Discount %
-                          </th>
                           <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">
                             Final Cost{' '}
                             <span className="text-slate-600 font-normal text-xs">
@@ -529,7 +531,7 @@ export default function AdminProductsPage() {
                         {flatFilteredProducts.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={9}
+                              colSpan={8}
                               className="py-12 text-center text-slate-500 text-sm"
                             >
                               No products match the selected filters.
@@ -577,27 +579,6 @@ export default function AdminProductsPage() {
                               <td className="py-3 px-4 text-right text-slate-300 tabular-nums">
                                 {p.pcs ?? 1}
                               </td>
-                              <td className="py-3 px-4">
-                                {p.id != null ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    step={0.5}
-                                    defaultValue={(p as { discount_percentage?: number }).discount_percentage ?? 0}
-                                    onBlur={(e) => {
-                                      const v = parseFloat(e.target.value)
-                                      if (!isNaN(v) && v >= 0 && v <= 100) {
-                                        handleDiscountSave(Number(p.id), v)
-                                      }
-                                    }}
-                                    className="w-16 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm text-right"
-                                    disabled={savingDiscount === p.id}
-                                  />
-                                ) : (
-                                  '—'
-                                )}
-                              </td>
                               <td className="py-3 px-4 text-right text-yellow-500/90 font-medium tabular-nums">
                                 ₹
                                 {Math.round(getProductPrice(p)).toLocaleString(
@@ -625,28 +606,59 @@ export default function AdminProductsPage() {
                           key={styleKey}
                           className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
                         >
-                          <button
-                            onClick={() => toggleStyle(styleKey)}
-                            className="w-full flex items-center gap-2 p-4 text-left hover:bg-white/5 transition-colors"
-                          >
-                            {isStyleOpen ? (
-                              <ChevronDown className="size-4 text-yellow-500 shrink-0" />
-                            ) : (
-                              <ChevronRight className="size-4 text-yellow-500 shrink-0" />
+                          <div className="flex items-center gap-3 p-4">
+                            <button
+                              onClick={() => toggleStyle(styleKey)}
+                              className="flex items-center gap-2 text-left hover:bg-white/5 rounded-lg -m-2 p-2 transition-colors flex-1 min-w-0"
+                            >
+                              {isStyleOpen ? (
+                                <ChevronDown className="size-4 text-yellow-500 shrink-0" />
+                              ) : (
+                                <ChevronRight className="size-4 text-yellow-500 shrink-0" />
+                              )}
+                              <span className="font-semibold text-slate-200">
+                                {styleCode}
+                              </span>
+                              <span className="text-slate-500 text-sm">
+                                ({skus.length} SKU
+                                {skus.length !== 1 ? 's' : ''},{' '}
+                                {skus.reduce(
+                                  (s, x) => s + x.products.length,
+                                  0,
+                                )}{' '}
+                                products)
+                              </span>
+                            </button>
+                            {getCategoryForStyle(styleCode) && (
+                              <div
+                                className="flex items-center gap-2 shrink-0"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <label className="text-xs text-slate-500 whitespace-nowrap">
+                                  Discount %
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step={0.5}
+                                  defaultValue={
+                                    getCategoryForStyle(styleCode)?.discount_percentage ?? 0
+                                  }
+                                  onBlur={(e) => {
+                                    const cat = getCategoryForStyle(styleCode)
+                                    if (!cat) return
+                                    const v = parseFloat(e.target.value)
+                                    if (!isNaN(v) && v >= 0 && v <= 100) {
+                                      handleCategoryDiscountSave(cat.id, v)
+                                    }
+                                  }}
+                                  className="w-16 px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-sm text-right focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+                                  disabled={savingDiscount === getCategoryForStyle(styleCode)?.id}
+                                />
+                              </div>
                             )}
-                            <span className="font-semibold text-slate-200">
-                              {styleCode}
-                            </span>
-                            <span className="text-slate-500 text-sm">
-                              ({skus.length} SKU
-                              {skus.length !== 1 ? 's' : ''},{' '}
-                              {skus.reduce(
-                                (s, x) => s + x.products.length,
-                                0,
-                              )}{' '}
-                              products)
-                            </span>
-                          </button>
+                          </div>
                           {isStyleOpen && (
                             <div className="border-t border-white/10">
                               {skus.map(({ sku, products: prods }) => {
@@ -714,28 +726,6 @@ export default function AdminProductsPage() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-2 shrink-0">
-                                              <div className="text-right">
-                                                <label className="text-[10px] text-slate-500 block">Discount %</label>
-                                                {p.id != null ? (
-                                                  <input
-                                                    type="number"
-                                                    min={0}
-                                                    max={100}
-                                                    step={0.5}
-                                                    defaultValue={(p as { discount_percentage?: number }).discount_percentage ?? 0}
-                                                    onBlur={(e) => {
-                                                      const v = parseFloat(e.target.value)
-                                                      if (!isNaN(v) && v >= 0 && v <= 100) {
-                                                        handleDiscountSave(Number(p.id), v)
-                                                      }
-                                                    }}
-                                                    className="w-14 px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-xs text-right"
-                                                    disabled={savingDiscount === p.id}
-                                                  />
-                                                ) : (
-                                                  <span className="text-slate-500">—</span>
-                                                )}
-                                              </div>
                                               <div className="text-right">
                                                 <div className="text-sm font-medium text-yellow-500/90 font-mono">
                                                   ₹

@@ -1017,7 +1017,7 @@ app.get('/api/products', async (req, res) => {
                 wp.mc_rate::float         AS mc_rate,
                 wp.image_url,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
-                COALESCE(wp.discount_percentage, 0)::float AS discount_percentage,
+                COALESCE(wc.discount_percentage, 0)::float AS discount_percentage,
                 wp.subcategory_id,
                 wp.is_active,
                 wp.last_synced_at,
@@ -3543,7 +3543,8 @@ app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
 app.get('/api/catalog', async (req, res) => {
     try {
         const cats = await query(`
-            SELECT id, name, slug, image_url FROM web_categories
+            SELECT id, name, slug, image_url, COALESCE(discount_percentage, 0)::float AS discount_percentage
+            FROM web_categories
             WHERE is_published = true
             ORDER BY sort_order, name
         `);
@@ -3562,13 +3563,16 @@ app.get('/api/catalog', async (req, res) => {
                         net_weight::float   AS net_weight,
                         purity::float       AS purity,
                         mc_rate::float      AS mc_rate,
-                        COALESCE(metal_type, 'silver') AS metal_type,
-                        COALESCE(discount_percentage, 0)::float AS discount_percentage
+                        COALESCE(metal_type, 'silver') AS metal_type
                     FROM web_products
                     WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
                     ORDER BY updated_at DESC
                 `, [s.id]);
-                subcategories.push({ id: s.id, name: s.name, slug: s.slug, products });
+                const productsWithDiscount = products.map(p => ({
+                    ...p,
+                    discount_percentage: c.discount_percentage ?? 0,
+                }));
+                subcategories.push({ id: s.id, name: s.name, slug: s.slug, products: productsWithDiscount });
             }
             categories.push({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url, subcategories });
         }
@@ -3583,7 +3587,8 @@ app.get('/api/catalog', async (req, res) => {
 app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
     try {
         const cats = await query(`
-            SELECT id, name, slug, image_url, COALESCE(is_published, false) as is_published
+            SELECT id, name, slug, image_url, COALESCE(is_published, false) as is_published,
+                   COALESCE(discount_percentage, 0)::float AS discount_percentage
             FROM web_categories ORDER BY sort_order, name
         `);
         const categories = [];
@@ -3634,17 +3639,17 @@ app.put('/api/admin/catalog/reorder-categories', requireJson, isAdminStrict, asy
     }
 });
 
-// Admin: update web_product discount percentage
-app.put('/api/admin/web-products/:id/discount', requireJson, isAdminStrict, async (req, res) => {
+// Admin: update web_category (Style) discount percentage
+app.put('/api/admin/catalog/:id/discount', requireJson, isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
         const { discount_percentage } = req.body || {};
         const pct = Math.max(0, Math.min(100, Number(discount_percentage) || 0));
         const result = await query(
-            'UPDATE web_products SET discount_percentage = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id',
+            'UPDATE web_categories SET discount_percentage = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id',
             [pct, parseInt(id)]
         );
-        if (result.length === 0) return res.status(404).json({ error: 'Product not found' });
+        if (result.length === 0) return res.status(404).json({ error: 'Category not found' });
         res.json({ success: true, discount_percentage: pct });
     } catch (error) {
         res.status(500).json({ error: error.message });

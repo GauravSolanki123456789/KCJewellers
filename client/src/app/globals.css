@@ -208,4 +208,31 @@ body {
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* Dual range slider thumbs - luxury dark theme */
+  .dual-range-thumb::-webkit-slider-thumb {
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    border: 2px solid rgba(245, 158, 11, 0.5);
+  }
+  .dual-range-thumb::-moz-range-thumb {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    border: 2px solid rgba(245, 158, 11, 0.5);
+  }
+  .dual-range-thumb {
+    pointer-events: none;
+  }
+  .dual-range-thumb::-webkit-slider-thumb,
+  .dual-range-thumb::-moz-range-thumb {
+    pointer-events: auto;
+  }
 }

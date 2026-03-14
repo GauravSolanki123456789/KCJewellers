@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import { LayoutGrid, ChevronRight, ChevronDown } from 'lucide-react'
+import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 
 type Product = Item
@@ -73,38 +74,58 @@ export default function CatalogPage() {
 
   const rawProducts = activeSku?.products ?? []
 
-  // Filter state: weight (gm) and price (₹)
-  const [weightMin, setWeightMin] = useState<string>('')
-  const [weightMax, setWeightMax] = useState<string>('')
-  const [priceMin, setPriceMin] = useState<string>('')
-  const [priceMax, setPriceMax] = useState<string>('')
+  // Compute min/max from current products for slider bounds
+  const { weightBounds, priceBounds } = useMemo(() => {
+    if (rawProducts.length === 0) {
+      return { weightBounds: [0, 100], priceBounds: [0, 100000] }
+    }
+    const weights = rawProducts.map((p) => p.net_weight ?? p.net_wt ?? p.weight ?? 0).filter((w) => w > 0)
+    const prices = rawProducts.map((p) => {
+      const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3)
+      return b.total
+    })
+    const wMin = weights.length ? Math.floor(Math.min(...weights)) : 0
+    const wMax = weights.length ? Math.ceil(Math.max(...weights)) : 100
+    const pMin = prices.length ? Math.floor(Math.min(...prices) / 1000) * 1000 : 0
+    const pMax = prices.length ? Math.ceil(Math.max(...prices) / 1000) * 1000 : 100000
+    return {
+      weightBounds: [Math.max(0, wMin - 1), wMax + 1] as [number, number],
+      priceBounds: [Math.max(0, pMin - 1000), pMax + 1000] as [number, number],
+    }
+  }, [rawProducts, rates])
+
+  // Filter state: dual range sliders (numeric)
+  const [weightLow, setWeightLow] = useState(weightBounds[0])
+  const [weightHigh, setWeightHigh] = useState(weightBounds[1])
+  const [priceLow, setPriceLow] = useState(priceBounds[0])
+  const [priceHigh, setPriceHigh] = useState(priceBounds[1])
+
+  // Sync slider bounds when category changes
+  useEffect(() => {
+    setWeightLow(weightBounds[0])
+    setWeightHigh(weightBounds[1])
+    setPriceLow(priceBounds[0])
+    setPriceHigh(priceBounds[1])
+  }, [weightBounds[0], weightBounds[1], priceBounds[0], priceBounds[1]])
 
   const products = useMemo(() => {
     let list = rawProducts
-    const wMin = weightMin ? parseFloat(weightMin) : null
-    const wMax = weightMax ? parseFloat(weightMax) : null
-    const pMin = priceMin ? parseFloat(priceMin) : null
-    const pMax = priceMax ? parseFloat(priceMax) : null
-    if (wMin != null && !isNaN(wMin)) {
-      list = list.filter((p) => (p.net_weight ?? p.net_wt ?? p.weight ?? 0) >= wMin)
-    }
-    if (wMax != null && !isNaN(wMax)) {
-      list = list.filter((p) => (p.net_weight ?? p.net_wt ?? p.weight ?? 0) <= wMax)
-    }
-    if (pMin != null && !isNaN(pMin)) {
-      list = list.filter((p) => {
-        const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3)
-        return b.total >= pMin
-      })
-    }
-    if (pMax != null && !isNaN(pMax)) {
-      list = list.filter((p) => {
-        const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3)
-        return b.total <= pMax
-      })
-    }
+    list = list.filter((p) => {
+      const w = p.net_weight ?? p.net_wt ?? p.weight ?? 0
+      return w >= weightLow && w <= weightHigh
+    })
+    list = list.filter((p) => {
+      const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3)
+      return b.total >= priceLow && b.total <= priceHigh
+    })
     return list
-  }, [rawProducts, weightMin, weightMax, priceMin, priceMax, rates])
+  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates])
+
+  const hasActiveFilters =
+    weightLow > weightBounds[0] ||
+    weightHigh < weightBounds[1] ||
+    priceLow > priceBounds[0] ||
+    priceHigh < priceBounds[1]
 
   const handleStyleClick = (cat: Category) => {
     setActiveStyleId(cat.id)
@@ -209,53 +230,37 @@ export default function CatalogPage() {
           {/* ── Desktop sidebar (25 %) ── */}
           <aside className="hidden lg:block w-64 shrink-0">
             {/* Filters */}
-            <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-4">
+            <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-5">
               <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Filters</h3>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Weight (gm)</label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    placeholder="Min"
-                    value={weightMin}
-                    onChange={(e) => setWeightMin(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Max"
-                    value={weightMax}
-                    onChange={(e) => setWeightMax(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Price (₹)</label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    placeholder="Min"
-                    value={priceMin}
-                    onChange={(e) => setPriceMin(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Max"
-                    value={priceMax}
-                    onChange={(e) => setPriceMax(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
-                  />
-                </div>
-              </div>
-              {(weightMin || weightMax || priceMin || priceMax) && (
+              <DualRangeSlider
+                min={weightBounds[0]}
+                max={weightBounds[1]}
+                low={weightLow}
+                high={weightHigh}
+                onLowChange={setWeightLow}
+                onHighChange={setWeightHigh}
+                step={0.5}
+                label="Weight (gm)"
+                formatValue={(v) => `${v} gm`}
+              />
+              <DualRangeSlider
+                min={priceBounds[0]}
+                max={priceBounds[1]}
+                low={priceLow}
+                high={priceHigh}
+                onLowChange={setPriceLow}
+                onHighChange={setPriceHigh}
+                step={500}
+                label="Price (₹)"
+                formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
+              />
+              {hasActiveFilters && (
                 <button
                   onClick={() => {
-                    setWeightMin('')
-                    setWeightMax('')
-                    setPriceMin('')
-                    setPriceMax('')
+                    setWeightLow(weightBounds[0])
+                    setWeightHigh(weightBounds[1])
+                    setPriceLow(priceBounds[0])
+                    setPriceHigh(priceBounds[1])
                   }}
                   className="w-full py-1.5 text-xs text-amber-500 hover:text-amber-400 transition-colors"
                 >
@@ -319,51 +324,38 @@ export default function CatalogPage() {
           {/* ── Right: product grid (75 %) ── */}
           <section className="flex-1 min-w-0">
             {/* Mobile filters */}
-            <div className="lg:hidden mb-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-500 block mb-1">Weight (gm)</label>
-                  <div className="flex gap-1">
-                    <input
-                      type="number"
-                      placeholder="Min"
-                      value={weightMin}
-                      onChange={(e) => setWeightMin(e.target.value)}
-                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Max"
-                      value={weightMax}
-                      onChange={(e) => setWeightMax(e.target.value)}
-                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-500 block mb-1">Price (₹)</label>
-                  <div className="flex gap-1">
-                    <input
-                      type="number"
-                      placeholder="Min"
-                      value={priceMin}
-                      onChange={(e) => setPriceMin(e.target.value)}
-                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Max"
-                      value={priceMax}
-                      onChange={(e) => setPriceMax(e.target.value)}
-                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-              {(weightMin || weightMax || priceMin || priceMax) && (
+            <div className="lg:hidden mb-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-4">
+              <DualRangeSlider
+                min={weightBounds[0]}
+                max={weightBounds[1]}
+                low={weightLow}
+                high={weightHigh}
+                onLowChange={setWeightLow}
+                onHighChange={setWeightHigh}
+                step={0.5}
+                label="Weight (gm)"
+                formatValue={(v) => `${v} gm`}
+              />
+              <DualRangeSlider
+                min={priceBounds[0]}
+                max={priceBounds[1]}
+                low={priceLow}
+                high={priceHigh}
+                onLowChange={setPriceLow}
+                onHighChange={setPriceHigh}
+                step={500}
+                label="Price (₹)"
+                formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
+              />
+              {hasActiveFilters && (
                 <button
-                  onClick={() => { setWeightMin(''); setWeightMax(''); setPriceMin(''); setPriceMax('') }}
-                  className="mt-2 text-xs text-amber-500"
+                  onClick={() => {
+                    setWeightLow(weightBounds[0])
+                    setWeightHigh(weightBounds[1])
+                    setPriceLow(priceBounds[0])
+                    setPriceHigh(priceBounds[1])
+                  }}
+                  className="text-xs text-amber-500 hover:text-amber-400"
                 >
                   Clear filters
                 </button>
