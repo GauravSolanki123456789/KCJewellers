@@ -44,7 +44,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
 
   const handleCheckout = () => {
     if (!auth.isAuthenticated) {
-      window.location.href = `${API_URL}/auth/google`
+      window.location.href = `${API_URL}/auth/google?returnTo=${encodeURIComponent('/checkout')}`
       return
     }
     onClose()

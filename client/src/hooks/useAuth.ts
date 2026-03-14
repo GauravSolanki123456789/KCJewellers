@@ -3,10 +3,10 @@ import axios from "axios"
 import { useEffect, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 
-export type AuthState = { isAuthenticated: boolean, user?: unknown }
+export type AuthState = { isAuthenticated: boolean, user?: unknown, hasChecked?: boolean }
 
 export function useAuth() {
-  const [auth, setAuth] = useState<AuthState>({ isAuthenticated: false })
+  const [auth, setAuth] = useState<AuthState>({ isAuthenticated: false, hasChecked: false })
   const pathname = usePathname()
   const searchParams = useSearchParams()
   
@@ -15,8 +15,7 @@ export function useAuth() {
     const load = async () => {
       try {
         const res = await axios.get(`${url}/api/auth/current_user`, { withCredentials: true })
-        console.log('Auth response:', res.data)
-        setAuth(res.data)
+        setAuth({ ...res.data, hasChecked: true })
         
         // Check for auth success/error in URL params
         const authStatus = searchParams?.get('auth')
@@ -24,7 +23,6 @@ export function useAuth() {
           const email = searchParams?.get('email')
           const role = searchParams?.get('role')
           const name = searchParams?.get('name')
-          console.log(`✅ Successfully logged in as ${name || email} (${role})`)
           
           // Clean up URL params after showing message
           if (typeof window !== 'undefined') {
@@ -41,7 +39,7 @@ export function useAuth() {
         }
       } catch (err: any) {
         console.error('Auth check error:', err.message, err.response?.data)
-        setAuth({ isAuthenticated: false })
+        setAuth({ isAuthenticated: false, hasChecked: true })
       }
     }
     load()

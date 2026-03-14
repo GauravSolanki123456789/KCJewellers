@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { ShoppingCart, ArrowLeft } from 'lucide-react'
+import { ShoppingCart, ArrowLeft, Package, Calendar, User, CreditCard, MoreVertical, ChevronRight } from 'lucide-react'
+
+const ORDER_TABS = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'] as const
 
 type Order = {
   id: number
@@ -23,24 +25,42 @@ type Order = {
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
-
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  const [activeTab, setActiveTab] = useState<typeof ORDER_TABS[number]>('New')
+  const [updatingId, setUpdatingId] = useState<number | null>(null)
+  const [openDropdownId, setOpenDropdownId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await axios.get(`${url}/api/admin/orders`, { withCredentials: true })
+      const res = await axios.get('/api/admin/orders', { params: { status: activeTab } })
       setOrders(Array.isArray(res.data?.data) ? res.data.data : [])
     } catch {
       setOrders([])
     } finally {
       setLoading(false)
     }
-  }, [url])
+  }, [activeTab])
 
   useEffect(() => {
     load()
   }, [load])
+
+  const updateStatus = async (orderId: number, newStatus: string) => {
+    setUpdatingId(orderId)
+    try {
+      await axios.patch(`/api/admin/orders/${orderId}/status`, { delivery_status: newStatus })
+      // Remove from list (moved to another tab)
+      setOrders(prev => prev.filter(o => o.id !== orderId))
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : 'Failed to update status'
+      alert(msg || 'Failed to update status')
+    } finally {
+      setUpdatingId(null)
+      setOpenDropdownId(null)
+    }
+  }
 
   const formatDate = (d: string) => {
     try {
@@ -56,113 +76,299 @@ export default function AdminOrdersPage() {
     }
   }
 
-  const getItemsSummary = (items: unknown) => {
-    if (!items) return '—'
+  const getItemsCount = (items: unknown) => {
+    if (!items) return 0
     const arr = Array.isArray(items) ? items : []
-    if (arr.length === 0) return '—'
-    return `${arr.length} item${arr.length !== 1 ? 's' : ''}`
+    return arr.reduce((sum, i) => sum + (Number(i?.qty) || 1), 0)
+  }
+
+  const getDisplayStatus = (s: string | undefined) => {
+    if (!s) return 'New'
+    const map: Record<string, string> = { PENDING: 'New', NEW: 'New', ACCEPTED: 'Accepted', READY: 'Ready', DISPATCHED: 'Dispatched', DELIVERED: 'Delivered', SHIPPED: 'Dispatched', CANCELLED: 'Cancelled' }
+    return map[s.toUpperCase()] || s
+  }
+
+  const getNextStatus = (current: string) => {
+    const idx = ORDER_TABS.indexOf(getDisplayStatus(current) as typeof ORDER_TABS[number])
+    if (idx < 0 || idx >= ORDER_TABS.length - 1) return null
+    return ORDER_TABS[idx + 1]
+  }
+
+  const statusBadgeClass = (s: string) => {
+    const status = getDisplayStatus(s)
+    switch (status) {
+      case 'New': return 'bg-slate-500/20 text-slate-300'
+      case 'Accepted': return 'bg-blue-500/20 text-blue-400'
+      case 'Ready': return 'bg-amber-500/20 text-amber-400'
+      case 'Dispatched': return 'bg-cyan-500/20 text-cyan-400'
+      case 'Delivered': return 'bg-emerald-500/20 text-emerald-400'
+      case 'Cancelled': return 'bg-red-500/20 text-red-400'
+      default: return 'bg-slate-500/20 text-slate-400'
+    }
+  }
+
+  const OrderCard = ({ o }: { o: Order }) => {
+    const nextStatus = getNextStatus(o.delivery_status || 'PENDING')
+    const isUpdating = updatingId === o.id
+    return (
+      <div className="rounded-xl border border-white/10 bg-slate-800/40 p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <span className="font-mono text-slate-200 font-semibold">#{o.id}</span>
+            <span className={`ml-2 inline-flex px-2 py-0.5 rounded-lg text-xs font-medium ${statusBadgeClass(o.delivery_status || 'PENDING')}`}>
+              {getDisplayStatus(o.delivery_status)}
+            </span>
+          </div>
+          <span className="font-semibold text-amber-400 tabular-nums shrink-0">
+            ₹{Number(o.total_amount || 0).toLocaleString('en-IN')}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-400 text-sm">
+          <Calendar className="size-4 shrink-0 opacity-60" />
+          {formatDate(o.created_at)}
+        </div>
+        <div className="flex items-center gap-2">
+          <User className="size-4 text-slate-500 shrink-0" />
+          <div>
+            <div className="text-slate-200 font-medium">{o.customer_name || 'Guest'}</div>
+            <div className="text-xs text-slate-500">{o.customer_mobile || o.customer_email || '—'}</div>
+          </div>
+        </div>
+        <div className="flex items-center justify-between pt-2 border-t border-white/5">
+          <div className="flex items-center gap-4 text-sm text-slate-400">
+            <span className="flex items-center gap-1">
+              <Package className="size-4 opacity-60" />
+              {getItemsCount(o.items_snapshot_json)} item{getItemsCount(o.items_snapshot_json) !== 1 ? 's' : ''}
+            </span>
+            <span className="flex items-center gap-1">
+              <CreditCard className="size-4 opacity-60" />
+              {o.payment_method || o.payment_status || '—'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                onClick={() => setOpenDropdownId(openDropdownId === o.id ? null : o.id)}
+                className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors"
+                aria-label="Change status"
+              >
+                <MoreVertical className="size-4" />
+              </button>
+              {openDropdownId === o.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setOpenDropdownId(null)} aria-hidden="true" />
+                  <div className="absolute right-0 top-full mt-1 z-20 py-1 min-w-[140px] rounded-lg bg-slate-800 border border-white/10 shadow-xl">
+                    {ORDER_TABS.filter(s => s !== getDisplayStatus(o.delivery_status)).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => updateStatus(o.id, s)}
+                        disabled={isUpdating}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-50 flex items-center gap-2"
+                      >
+                        <ChevronRight className="size-3" /> {s}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            {nextStatus && (
+              <button
+                onClick={() => updateStatus(o.id, nextStatus)}
+                disabled={isUpdating}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 text-xs font-medium border border-amber-500/20 disabled:opacity-50 transition-colors"
+              >
+                {isUpdating ? '…' : `→ ${nextStatus}`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
       <AdminGuard>
         <div className="min-h-screen bg-slate-950 text-slate-100">
-          <main className="max-w-6xl mx-auto px-4 py-8 pb-24">
+          <main className="max-w-7xl mx-auto px-4 py-6 sm:py-8 pb-24 sm:pb-12">
             <Link
               href="/admin"
-              className="inline-flex items-center gap-2 text-slate-400 hover:text-yellow-500 mb-6"
+              className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
             >
-            <ArrowLeft className="size-4" /> Back to Dashboard
-          </Link>
+              <ArrowLeft className="size-4" /> Back to Dashboard
+            </Link>
 
-          <div className="bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
-            <div className="p-4 sm:p-6 border-b border-white/10">
-              <div className="flex items-center gap-2">
-                <ShoppingCart className="size-6 text-yellow-500" />
-                <h1 className="text-xl font-semibold text-slate-200">Orders</h1>
+            <div className="mb-6 sm:mb-8">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <ShoppingCart className="size-6 text-amber-500" />
+                </div>
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-bold text-slate-100">Orders</h1>
+                  <p className="text-slate-500 text-sm">Manage orders with status workflow</p>
+                </div>
               </div>
-              <p className="text-slate-500 text-sm mt-1">
-                Who ordered what, when, rate, and delivery status
-              </p>
             </div>
 
-            {loading ? (
-              <div className="p-12 text-center text-slate-400">Loading…</div>
-            ) : orders.length === 0 ? (
-              <div className="p-12 text-center">
-                <ShoppingCart className="size-12 text-slate-600 mx-auto mb-4" />
-                <p className="text-slate-400">No orders found</p>
-                <p className="text-slate-500 text-sm mt-1">
-                  Orders will appear here when customers complete purchases.
-                </p>
+            {/* Horizontal tabs - scrollable on mobile */}
+            <div className="mb-6 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
+              <div className="flex gap-1 rounded-xl bg-slate-800/50 p-1 border border-white/5 min-w-max sm:min-w-0 sm:inline-flex">
+                {ORDER_TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                      activeTab === tab
+                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-white/10 bg-slate-800/30">
-                      <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Order ID</th>
-                      <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Customer</th>
-                      <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Items</th>
-                      <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Amount</th>
-                      <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Payment</th>
-                      <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Delivery</th>
-                      <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+            </div>
+
+            {/* Content */}
+            <div className="rounded-xl border border-white/10 bg-slate-900/30 overflow-hidden">
+              {loading ? (
+                <div className="p-12 sm:p-16 text-center">
+                  <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                  <p className="text-slate-500 mt-4">Loading orders…</p>
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="p-12 sm:p-16 text-center">
+                  <div className="inline-flex p-4 rounded-full bg-slate-800/50 mb-4">
+                    <Package className="size-12 text-slate-600" />
+                  </div>
+                  <p className="text-slate-400 text-lg">No orders in this status</p>
+                  <p className="text-slate-500 text-sm mt-1">
+                    Orders with status &quot;{activeTab}&quot; will appear here.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Mobile: Card layout */}
+                  <div className="sm:hidden divide-y divide-white/5 p-4 space-y-4">
                     {orders.map((o) => (
-                      <tr
-                        key={o.id}
-                        className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                      >
-                        <td className="py-3 px-4 text-slate-200 font-medium">#{o.id}</td>
-                        <td className="py-3 px-4">
-                          <div className="text-slate-300">{o.customer_name || 'Guest'}</div>
-                          <div className="text-xs text-slate-500">
-                            {o.customer_mobile || o.customer_email || '—'}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-slate-400 text-sm">
-                          {getItemsSummary(o.items_snapshot_json)}
-                        </td>
-                        <td className="py-3 px-4 text-right text-yellow-500/90 font-medium tabular-nums">
-                          ₹{Number(o.total_amount || 0).toLocaleString('en-IN')}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                              o.payment_status === 'PAID' || o.payment_status === 'captured'
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-slate-500/20 text-slate-400'
-                            }`}
-                          >
-                            {o.payment_status || 'PENDING'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                              o.delivery_status === 'DELIVERED'
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : o.delivery_status === 'SHIPPED'
-                                  ? 'bg-cyan-500/20 text-cyan-400'
-                                  : 'bg-slate-500/20 text-slate-400'
-                            }`}
-                          >
-                            {o.delivery_status || 'PENDING'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-slate-400 text-sm">{formatDate(o.created_at)}</td>
-                      </tr>
+                      <OrderCard key={o.id} o={o} />
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </main>
-      </div>
+                  </div>
+
+                  {/* Desktop: Table layout */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-white/10 bg-slate-800/40">
+                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Order ID</th>
+                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Date</th>
+                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Customer</th>
+                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Items</th>
+                          <th className="text-right py-4 px-5 text-slate-400 font-medium text-sm">Amount</th>
+                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Payment</th>
+                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orders.map((o) => {
+                          const nextStatus = getNextStatus(o.delivery_status || 'PENDING')
+                          const isUpdating = updatingId === o.id
+                          return (
+                            <tr
+                              key={o.id}
+                              className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
+                            >
+                              <td className="py-4 px-5">
+                                <span className="font-mono text-slate-200 font-medium">#{o.id}</span>
+                              </td>
+                              <td className="py-4 px-5">
+                                <div className="flex items-center gap-2 text-slate-400 text-sm">
+                                  <Calendar className="size-4 shrink-0 opacity-60" />
+                                  {formatDate(o.created_at)}
+                                </div>
+                              </td>
+                              <td className="py-4 px-5">
+                                <div className="flex items-center gap-2">
+                                  <User className="size-4 text-slate-500 shrink-0" />
+                                  <div>
+                                    <div className="text-slate-200 font-medium">{o.customer_name || 'Guest'}</div>
+                                    <div className="text-xs text-slate-500">
+                                      {o.customer_mobile || o.customer_email || '—'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-4 px-5">
+                                <div className="flex items-center gap-2 text-slate-400">
+                                  <Package className="size-4 shrink-0 opacity-60" />
+                                  {getItemsCount(o.items_snapshot_json)} item{getItemsCount(o.items_snapshot_json) !== 1 ? 's' : ''}
+                                </div>
+                              </td>
+                              <td className="py-4 px-5 text-right">
+                                <span className="font-semibold text-amber-400 tabular-nums">
+                                  ₹{Number(o.total_amount || 0).toLocaleString('en-IN')}
+                                </span>
+                              </td>
+                              <td className="py-4 px-5">
+                                <div className="flex items-center gap-2 text-slate-400 text-sm">
+                                  <CreditCard className="size-4 shrink-0 opacity-60" />
+                                  {o.payment_method || o.payment_status || '—'}
+                                </div>
+                              </td>
+                              <td className="py-4 px-5">
+                                <div className="flex items-center gap-2">
+                                  <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium ${statusBadgeClass(o.delivery_status || 'PENDING')}`}>
+                                    {getDisplayStatus(o.delivery_status)}
+                                  </span>
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setOpenDropdownId(openDropdownId === o.id ? null : o.id)}
+                                      className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors"
+                                      aria-label="Change status"
+                                    >
+                                      <MoreVertical className="size-4" />
+                                    </button>
+                                    {openDropdownId === o.id && (
+                                      <>
+                                        <div className="fixed inset-0 z-10" onClick={() => setOpenDropdownId(null)} aria-hidden="true" />
+                                        <div className="absolute right-0 top-full mt-1 z-20 py-1 min-w-[140px] rounded-lg bg-slate-800 border border-white/10 shadow-xl">
+                                          {ORDER_TABS.filter(s => s !== getDisplayStatus(o.delivery_status)).map((s) => (
+                                            <button
+                                              key={s}
+                                              onClick={() => { updateStatus(o.id, s); setOpenDropdownId(null); }}
+                                              disabled={isUpdating}
+                                              className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-50"
+                                            >
+                                              → {s}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                  {nextStatus && (
+                                    <button
+                                      onClick={() => updateStatus(o.id, nextStatus)}
+                                      disabled={isUpdating}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 text-xs font-medium border border-amber-500/20 disabled:opacity-50 transition-colors"
+                                    >
+                                      {isUpdating ? '…' : `→ ${nextStatus}`}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </main>
+        </div>
       </AdminGuard>
     </Suspense>
   )

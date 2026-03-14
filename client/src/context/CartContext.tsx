@@ -1,6 +1,6 @@
 'use client'
 import '@/lib/axios'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 
@@ -45,6 +45,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   })
   const [lastRates, setLastRates] = useState<unknown[]>([])
+  const cartCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     localStorage.setItem('cart.v1', JSON.stringify(items))
   }, [items])
@@ -66,6 +67,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
     setLastAdded(p)
     setIsCartOpen(true)
+    // Auto-close cart after 2.5s to keep user in shopping flow
+    if (cartCloseTimerRef.current) clearTimeout(cartCloseTimerRef.current)
+    cartCloseTimerRef.current = setTimeout(() => {
+      setIsCartOpen(false)
+      cartCloseTimerRef.current = null
+    }, 2500)
     setItems(prev => {
       const exists = prev.find(x => x.id === ci.id)
       if (exists) {

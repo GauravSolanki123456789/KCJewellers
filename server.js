@@ -225,6 +225,21 @@ app.get('/auth/bypass', authLimiter, async (req, res, next) => {
 });
 
 app.get('/auth/google', authLimiter, async (req, res, next) => {
+    // Store returnTo for post-login redirect (e.g. /checkout)
+    const returnTo = req.query.returnTo && typeof req.query.returnTo === 'string'
+        ? req.query.returnTo
+        : null;
+    if (returnTo && returnTo.startsWith('/')) {
+        req.session.redirect_after_login = returnTo;
+        // Ensure session is saved before redirecting to Google (prevents losing returnTo)
+        try {
+            await new Promise((resolve, reject) => {
+                req.session.save((err) => (err ? reject(err) : resolve()));
+            });
+        } catch (e) {
+            console.warn('Session save before OAuth redirect failed:', e?.message);
+        }
+    }
     // 🛠️ LOCAL DEV BYPASS
     if (process.env.NODE_ENV === 'development') {
         console.log("🛠️ Local Dev Detected: Attempting Bypass...");
@@ -265,7 +280,13 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
                     console.error("Login Error:", err);
                     return next(err); 
                 }
-                return res.redirect('/'); // Success! Go to dashboard
+                const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
+                const target = req.session?.redirect_after_login || '/';
+                delete req.session?.redirect_after_login;
+                if (target.startsWith('/')) {
+                    return res.redirect(clientUrl + target);
+                }
+                return res.redirect(clientUrl + '/');
             });
 
         } catch (error) {
@@ -312,8 +333,13 @@ app.get('/auth/google/callback', authLimiter,
             res.redirect(clientUrl + '/complete-profile');
         } else if (req.user.account_status === 'active') {
             console.log(`✅ Login successful: ${email} (Role: ${req.user.role})`);
-            // Redirect with success message and user info
-            const redirectUrl = `${clientUrl}/?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`;
+            // Redirect to returnTo (e.g. /checkout) or home with success params
+            const returnTo = req.session?.redirect_after_login;
+            delete req.session?.redirect_after_login;
+            const basePath = (returnTo && returnTo.startsWith('/')) ? returnTo : '/';
+            const redirectUrl = basePath === '/'
+                ? `${clientUrl}/?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`
+                : `${clientUrl}${basePath}?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`;
             res.redirect(redirectUrl);
         } else if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
             // Destroy session for suspended users
@@ -3529,19 +3555,51 @@ app.get('/api/admin/gold-lot-movements', isAdminStrict, async (req, res) => {
 app.get('/api/admin/rates', isAdminStrict, (req, res) => res.json({ success: true, data: [] }));
 app.get('/api/admin/sip-payouts', isAdminStrict, (req, res) => res.json({ success: true, data: [] }));
 
+// Order statuses for admin dashboard (delivery_status in DB)
+const ORDER_STATUSES = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'];
+const STATUS_TO_DB = { New: ['PENDING', 'NEW'], Accepted: 'ACCEPTED', Ready: 'READY', Dispatched: 'DISPATCHED', Delivered: 'DELIVERED', Cancelled: 'CANCELLED' };
+
 // Admin Orders - who ordered what, when, rate, delivery
 app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
     try {
-        const rows = await query(`
+        const status = req.query.status && typeof req.query.status === 'string' ? req.query.status.trim() : null;
+        let q = `
             SELECT o.id, o.user_id, o.total_amount, o.payment_status, o.payment_method,
                    o.delivery_status, o.items_snapshot_json, o.razorpay_order_id, o.created_at,
                    u.name as customer_name, u.email as customer_email, u.mobile_number as customer_mobile
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.id
-            ORDER BY o.created_at DESC
-            LIMIT 500
-        `);
+        `;
+        const params = [];
+        if (status && ORDER_STATUSES.includes(status)) {
+            const dbVal = STATUS_TO_DB[status];
+            if (Array.isArray(dbVal)) {
+                q += ` WHERE (o.delivery_status IN (${dbVal.map((_, i) => `$${i + 1}`).join(',')}) OR o.delivery_status IS NULL)`;
+                params.push(...dbVal);
+            } else {
+                q += ` WHERE o.delivery_status = $1`;
+                params.push(dbVal);
+            }
+        }
+        q += ` ORDER BY o.created_at DESC LIMIT 500`;
+        const rows = await query(q, params);
         res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: update order delivery status
+app.patch('/api/admin/orders/:id/status', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid order ID' });
+        const { delivery_status } = req.body || {};
+        const map = { New: 'PENDING', Accepted: 'ACCEPTED', Ready: 'READY', Dispatched: 'DISPATCHED', Delivered: 'DELIVERED', Cancelled: 'CANCELLED' };
+        const val = typeof delivery_status === 'string' ? map[delivery_status] || delivery_status : null;
+        if (!val || !ORDER_STATUSES.includes(delivery_status)) return res.status(400).json({ error: 'Invalid status. Use: ' + ORDER_STATUSES.join(', ') });
+        await query(`UPDATE orders SET delivery_status = $1 WHERE id = $2`, [val, id]);
+        res.json({ success: true, delivery_status: val });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

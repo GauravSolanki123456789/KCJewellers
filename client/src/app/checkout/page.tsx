@@ -25,8 +25,10 @@ function CheckoutContent() {
   const [scriptLoaded, setScriptLoaded] = useState(false)
 
   useEffect(() => {
+    // Wait for auth check to complete before redirecting (prevents loop when landing with ?auth=success)
+    if (!auth.hasChecked) return
     if (!auth.isAuthenticated) {
-      window.location.href = `${API_URL}/auth/google`
+      window.location.href = `${API_URL}/auth/google?returnTo=${encodeURIComponent('/checkout')}`
       return
     }
     const script = document.createElement('script')
@@ -37,7 +39,7 @@ function CheckoutContent() {
     return () => {
       if (script.parentNode) document.body.removeChild(script)
     }
-  }, [auth.isAuthenticated])
+  }, [auth.isAuthenticated, auth.hasChecked])
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
 
@@ -82,10 +84,12 @@ function CheckoutContent() {
     }
   }
 
-  if (!auth.isAuthenticated) {
+  if (!auth.hasChecked || !auth.isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-slate-400">Redirecting to login…</div>
+        <div className="text-slate-400">
+          {!auth.hasChecked ? 'Checking authentication…' : 'Redirecting to login…'}
+        </div>
       </div>
     )
   }

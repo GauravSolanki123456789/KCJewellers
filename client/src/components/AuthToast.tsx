@@ -20,7 +20,7 @@ function AuthToastContent() {
         message: `Successfully logged in as ${name || email}${isAdmin ? ' (Admin)' : ''}`
       })
       
-      // Auto-hide after 5 seconds
+      // Auto-hide after 3 seconds
       const timer = setTimeout(() => {
         setToast(null)
         // Clean URL
@@ -32,7 +32,7 @@ function AuthToastContent() {
           newUrl.searchParams.delete('name')
           window.history.replaceState({}, '', newUrl.toString())
         }
-      }, 5000)
+      }, 3000)
       
       return () => clearTimeout(timer)
     } else if (authStatus === 'failed') {
