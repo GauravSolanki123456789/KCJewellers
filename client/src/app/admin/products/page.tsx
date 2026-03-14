@@ -67,6 +67,7 @@ export default function AdminProductsPage() {
   >(null)
   const [filterStyle, setFilterStyle] = useState<string>('')
   const [filterSku, setFilterSku] = useState<string>('')
+  const [savingDiscount, setSavingDiscount] = useState<number | null>(null)
 
   // Reorder state
   const [orderedCategories, setOrderedCategories] = useState<WebCategory[]>([])
@@ -250,6 +251,22 @@ export default function AdminProductsPage() {
   const getProductPrice = (p: Product) => {
     const b = calculateBreakdown(p as Item, rates, p.gst_rate)
     return b.total
+  }
+
+  const handleDiscountSave = async (productId: number, discountPct: number) => {
+    setSavingDiscount(productId)
+    try {
+      await axios.put(
+        `${url}/api/admin/web-products/${productId}/discount`,
+        { discount_percentage: discountPct },
+        { withCredentials: true },
+      )
+      await load()
+    } catch {
+      // silent fail
+    } finally {
+      setSavingDiscount(null)
+    }
   }
 
   const groupedCatalog = (): GroupedCatalog[] => {
@@ -497,6 +514,9 @@ export default function AdminProductsPage() {
                           <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">
                             Stock Qty
                           </th>
+                          <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm w-24">
+                            Discount %
+                          </th>
                           <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">
                             Final Cost{' '}
                             <span className="text-slate-600 font-normal text-xs">
@@ -509,7 +529,7 @@ export default function AdminProductsPage() {
                         {flatFilteredProducts.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={8}
+                              colSpan={9}
                               className="py-12 text-center text-slate-500 text-sm"
                             >
                               No products match the selected filters.
@@ -522,7 +542,7 @@ export default function AdminProductsPage() {
                               className="border-b border-white/5 hover:bg-white/5 transition-colors"
                             >
                               <td className="py-3 px-4">
-                                <div className="w-12 h-12 rounded-lg bg-slate-50 border border-white/10 flex items-center justify-center overflow-hidden">
+                                <div className="w-12 h-12 rounded-lg bg-[#0B1120] border border-white/10 flex items-center justify-center overflow-hidden">
                                   {p.image_url ? (
                                     <img
                                       src={p.image_url}
@@ -556,6 +576,27 @@ export default function AdminProductsPage() {
                               </td>
                               <td className="py-3 px-4 text-right text-slate-300 tabular-nums">
                                 {p.pcs ?? 1}
+                              </td>
+                              <td className="py-3 px-4">
+                                {p.id != null ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    step={0.5}
+                                    defaultValue={(p as { discount_percentage?: number }).discount_percentage ?? 0}
+                                    onBlur={(e) => {
+                                      const v = parseFloat(e.target.value)
+                                      if (!isNaN(v) && v >= 0 && v <= 100) {
+                                        handleDiscountSave(Number(p.id), v)
+                                      }
+                                    }}
+                                    className="w-16 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm text-right"
+                                    disabled={savingDiscount === p.id}
+                                  />
+                                ) : (
+                                  '—'
+                                )}
                               </td>
                               <td className="py-3 px-4 text-right text-yellow-500/90 font-medium tabular-nums">
                                 ₹
@@ -639,7 +680,7 @@ export default function AdminProductsPage() {
                                             key={p.barcode || p.id}
                                             className="flex flex-wrap items-center gap-3 sm:gap-4 p-3 rounded-lg bg-slate-900/50 border border-white/5"
                                           >
-                                            <div className="w-10 h-10 rounded bg-slate-50 flex items-center justify-center shrink-0 overflow-hidden">
+                                            <div className="w-10 h-10 rounded bg-[#0B1120] flex items-center justify-center shrink-0 overflow-hidden">
                                               {p.image_url ? (
                                                 <img
                                                   src={p.image_url}
@@ -672,15 +713,39 @@ export default function AdminProductsPage() {
                                                   ` • ${p.purity}`}
                                               </div>
                                             </div>
-                                            <div className="text-right shrink-0">
-                                              <div className="text-sm font-medium text-yellow-500/90 font-mono">
-                                                ₹
-                                                {Math.round(
-                                                  getProductPrice(p),
-                                                ).toLocaleString('en-IN')}
+                                            <div className="flex items-center gap-2 shrink-0">
+                                              <div className="text-right">
+                                                <label className="text-[10px] text-slate-500 block">Discount %</label>
+                                                {p.id != null ? (
+                                                  <input
+                                                    type="number"
+                                                    min={0}
+                                                    max={100}
+                                                    step={0.5}
+                                                    defaultValue={(p as { discount_percentage?: number }).discount_percentage ?? 0}
+                                                    onBlur={(e) => {
+                                                      const v = parseFloat(e.target.value)
+                                                      if (!isNaN(v) && v >= 0 && v <= 100) {
+                                                        handleDiscountSave(Number(p.id), v)
+                                                      }
+                                                    }}
+                                                    className="w-14 px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-xs text-right"
+                                                    disabled={savingDiscount === p.id}
+                                                  />
+                                                ) : (
+                                                  <span className="text-slate-500">—</span>
+                                                )}
                                               </div>
-                                              <div className="text-xs text-slate-500">
-                                                Qty: {p.pcs ?? 1}
+                                              <div className="text-right">
+                                                <div className="text-sm font-medium text-yellow-500/90 font-mono">
+                                                  ₹
+                                                  {Math.round(
+                                                    getProductPrice(p),
+                                                  ).toLocaleString('en-IN')}
+                                                </div>
+                                                <div className="text-xs text-slate-500">
+                                                  Qty: {p.pcs ?? 1}
+                                                </div>
                                               </div>
                                             </div>
                                           </div>

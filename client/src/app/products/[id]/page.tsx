@@ -1,6 +1,8 @@
 'use client'
 import axios from "axios"
 import Image from "next/image"
+import Link from "next/link"
+import { ChevronLeft } from "lucide-react"
 import BreakdownModal from "@/components/BreakdownModal"
 import HoverZoomImage from "@/components/HoverZoomImage"
 import { calculateBreakdown, type Item } from "@/lib/pricing"
@@ -49,72 +51,125 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const sku = product.sku || product.barcode || ''
   const netWeight = product.net_wt ?? product.net_weight ?? product.weight ?? null
   const purity = product.purity ?? null
+  const metalType = product.metal_type ?? null
   const barcode = product.barcode || product.sku || String(product.id || '')
+  const hasDiscount = (b?.discountPercent ?? 0) > 0
+  const thumbnails = imageUrl ? [imageUrl] : []
+
+  const handleAddToCart = () => {
+    cart.add({ ...product, id: product.id ? String(product.id) : product.barcode })
+    cart.openCart()
+    trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
+  }
 
   return (
     <div className="p-4 max-w-6xl mx-auto mt-8">
+      <Link
+        href="/catalog"
+        className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
+      >
+        <ChevronLeft className="size-4" />
+        Back to Catalogue
+      </Link>
+
       <div className="grid md:grid-cols-2 gap-12">
-        {/* Left column — Image */}
-        <div className="relative w-full aspect-square md:aspect-[4/5] bg-[#0B1120] rounded-2xl overflow-hidden shadow-2xl border border-white/5">
-          {imageUrl ? (
-            <>
-              <HoverZoomImage>
-                <Image
-                  src={imageUrl}
-                  alt={displayName}
-                  fill
-                  sizes="(max-width: 768px) 100vw, 50vw"
-                  className="object-contain"
-                />
-              </HoverZoomImage>
-              <span className="absolute bottom-3 left-3 text-[10px] text-slate-500 uppercase tracking-wider">
-                Hover to zoom
+        {/* Left column — Image with thumbnails */}
+        <div className="space-y-3">
+          <div className="relative w-full aspect-square md:aspect-[4/5] bg-[#0B1120] rounded-2xl overflow-hidden shadow-2xl border border-white/5">
+            {hasDiscount && (
+              <span className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg bg-amber-500 text-slate-950 text-sm font-bold">
+                {Math.round(b?.discountPercent ?? 0)}% OFF
               </span>
-            </>
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-6xl font-bold text-slate-600 select-none">
-                {displayName.charAt(0)}
-              </span>
+            )}
+            {imageUrl ? (
+              <>
+                <div className="absolute inset-0">
+                  <HoverZoomImage>
+                    <Image
+                      src={imageUrl}
+                      alt={displayName}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
+                      className="object-contain"
+                    />
+                  </HoverZoomImage>
+                </div>
+                <span className="absolute bottom-3 left-3 text-[10px] text-slate-500 uppercase tracking-wider">
+                  Hover to zoom
+                </span>
+              </>
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-6xl font-bold text-slate-600 select-none">
+                  {displayName.charAt(0)}
+                </span>
+              </div>
+            )}
+          </div>
+          {thumbnails.length > 1 && (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {thumbnails.map((src, i) => (
+                <button
+                  key={i}
+                  className="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-[#0B1120] border border-slate-700 hover:border-amber-500/50 transition-colors"
+                >
+                  <Image src={src} alt="" width={64} height={64} className="w-full h-full object-contain" />
+                </button>
+              ))}
             </div>
           )}
         </div>
 
         {/* Right column — Details */}
         <div className="flex flex-col">
-          {/* Style Code, SKU, Name */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 uppercase tracking-widest">
-            {styleCode && <span>{styleCode}</span>}
-            {sku && <span className="text-slate-600">{styleCode ? '· ' : ''}{sku}</span>}
-          </div>
-          <h1 className="text-2xl md:text-3xl font-semibold text-slate-100 mt-2 tracking-tight">
+          {/* Barcode, Name */}
+          {barcode && (
+            <span className="text-xs font-mono text-slate-500 uppercase tracking-wider">{barcode}</span>
+          )}
+          <h1 className="text-2xl md:text-3xl font-semibold text-slate-100 mt-1 tracking-tight">
             {displayName}
           </h1>
+          {styleCode && (
+            <span className="text-sm text-slate-500 mt-1">{styleCode}{sku ? ` · ${sku}` : ''}</span>
+          )}
 
           {/* Price */}
-          <div className="mt-6 text-3xl md:text-4xl font-bold text-amber-500 tabular-nums">
-            ₹{Math.round(b?.total || 0).toLocaleString('en-IN')}
+          <div className="mt-6">
+            {hasDiscount && (
+              <span className="line-through text-slate-500 text-xl mr-2">
+                ₹{Math.round(b?.originalTotal ?? 0).toLocaleString('en-IN')}
+              </span>
+            )}
+            <span className="text-3xl md:text-4xl font-bold text-amber-500 tabular-nums">
+              ₹{Math.round(b?.total || 0).toLocaleString('en-IN')}
+            </span>
             <span className="ml-2 text-base font-normal text-slate-500">incl. GST</span>
           </div>
 
           {/* Specifications */}
-          <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
             {netWeight != null && (
               <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                 <span className="text-xs text-slate-500 uppercase tracking-wider block">Net Weight</span>
-                <span className="text-slate-200 font-medium">{Number(netWeight).toFixed(2)} gm</span>
+                <span className="text-slate-100 font-medium">{Number(netWeight).toFixed(2)} gm</span>
               </div>
             )}
             {purity != null && (
               <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                 <span className="text-xs text-slate-500 uppercase tracking-wider block">Purity</span>
-                <span className="text-slate-200 font-medium">{String(purity)}</span>
+                <span className="text-slate-100 font-medium">{String(purity)}</span>
+              </div>
+            )}
+            {metalType && (
+              <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
+                <span className="text-xs text-slate-500 uppercase tracking-wider block">Metal Type</span>
+                <span className="text-slate-100 font-medium capitalize">{String(metalType)}</span>
               </div>
             )}
             {barcode && (
               <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                 <span className="text-xs text-slate-500 uppercase tracking-wider block">Barcode</span>
-                <span className="text-slate-200 font-medium font-mono text-sm">{barcode}</span>
+                <span className="text-slate-100 font-medium font-mono text-sm">{barcode}</span>
               </div>
             )}
           </div>
@@ -128,11 +183,8 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
               View Breakdown
             </button>
             <button
-              className="px-6 py-3 rounded-xl border border-slate-600 hover:border-slate-500 bg-slate-800/50 hover:bg-slate-800 text-slate-200 font-semibold transition-colors"
-              onClick={() => {
-                cart.add({ ...product, id: product.id ? String(product.id) : product.barcode })
-                trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
-              }}
+              className="px-6 py-3 rounded-xl border border-slate-600 hover:border-slate-500 bg-slate-800/50 hover:bg-slate-800 text-slate-100 font-semibold transition-colors"
+              onClick={handleAddToCart}
             >
               Add to Cart
             </button>

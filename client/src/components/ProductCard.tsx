@@ -20,7 +20,9 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
   const barcode = product.barcode || product.sku || String(product.id || '')
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
-  const { total } = calculateBreakdown(product, rates, product.gst_rate ?? 3)
+  const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3)
+  const { total, originalTotal, discountPercent } = breakdown
+  const hasDiscount = (discountPercent ?? 0) > 0
 
   const showImage = product.image_url && !imgError
 
@@ -31,6 +33,11 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
     >
       {/* Image — 70 % of card */}
       <div className="relative aspect-[4/5] bg-[#0B1120] overflow-hidden">
+        {hasDiscount && (
+          <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs font-bold">
+            {Math.round(discountPercent ?? 0)}% OFF
+          </span>
+        )}
         {showImage ? (
           <img
             src={product.image_url}
@@ -66,8 +73,13 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
           </span>
         )}
 
-        <div className="text-lg font-medium text-amber-500 tabular-nums mt-0.5">
-          ₹{Math.round(total).toLocaleString('en-IN')}
+        <div className="text-lg font-medium tabular-nums mt-0.5">
+          {hasDiscount && (
+            <span className="line-through text-slate-500 text-base mr-1">
+              ₹{Math.round(originalTotal ?? total).toLocaleString('en-IN')}
+            </span>
+          )}
+          <span className="text-amber-500">₹{Math.round(total).toLocaleString('en-IN')}</span>
           <span className="ml-1 text-xs text-slate-500 font-normal">
             incl. GST
           </span>

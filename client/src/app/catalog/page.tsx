@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import { LayoutGrid, ChevronRight, ChevronDown } from 'lucide-react'
-import { type Item } from '@/lib/pricing'
+import { calculateBreakdown, type Item } from '@/lib/pricing'
 
 type Product = Item
 
@@ -71,7 +71,40 @@ export default function CatalogPage() {
     [activeStyle, activeSkuId],
   )
 
-  const products = activeSku?.products ?? []
+  const rawProducts = activeSku?.products ?? []
+
+  // Filter state: weight (gm) and price (₹)
+  const [weightMin, setWeightMin] = useState<string>('')
+  const [weightMax, setWeightMax] = useState<string>('')
+  const [priceMin, setPriceMin] = useState<string>('')
+  const [priceMax, setPriceMax] = useState<string>('')
+
+  const products = useMemo(() => {
+    let list = rawProducts
+    const wMin = weightMin ? parseFloat(weightMin) : null
+    const wMax = weightMax ? parseFloat(weightMax) : null
+    const pMin = priceMin ? parseFloat(priceMin) : null
+    const pMax = priceMax ? parseFloat(priceMax) : null
+    if (wMin != null && !isNaN(wMin)) {
+      list = list.filter((p) => (p.net_weight ?? p.net_wt ?? p.weight ?? 0) >= wMin)
+    }
+    if (wMax != null && !isNaN(wMax)) {
+      list = list.filter((p) => (p.net_weight ?? p.net_wt ?? p.weight ?? 0) <= wMax)
+    }
+    if (pMin != null && !isNaN(pMin)) {
+      list = list.filter((p) => {
+        const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3)
+        return b.total >= pMin
+      })
+    }
+    if (pMax != null && !isNaN(pMax)) {
+      list = list.filter((p) => {
+        const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3)
+        return b.total <= pMax
+      })
+    }
+    return list
+  }, [rawProducts, weightMin, weightMax, priceMin, priceMax, rates])
 
   const handleStyleClick = (cat: Category) => {
     setActiveStyleId(cat.id)
@@ -175,6 +208,61 @@ export default function CatalogPage() {
         <div className="flex gap-6">
           {/* ── Desktop sidebar (25 %) ── */}
           <aside className="hidden lg:block w-64 shrink-0">
+            {/* Filters */}
+            <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-4">
+              <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Filters</h3>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Weight (gm)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    value={weightMin}
+                    onChange={(e) => setWeightMin(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={weightMax}
+                    onChange={(e) => setWeightMax(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Price (₹)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    value={priceMin}
+                    onChange={(e) => setPriceMin(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={priceMax}
+                    onChange={(e) => setPriceMax(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+                  />
+                </div>
+              </div>
+              {(weightMin || weightMax || priceMin || priceMax) && (
+                <button
+                  onClick={() => {
+                    setWeightMin('')
+                    setWeightMax('')
+                    setPriceMin('')
+                    setPriceMax('')
+                  }}
+                  className="w-full py-1.5 text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
             <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2 scrollbar-hide">
               {categories.map((cat) => {
                 const isExpanded = expandedStyles.has(cat.id)
@@ -230,6 +318,57 @@ export default function CatalogPage() {
 
           {/* ── Right: product grid (75 %) ── */}
           <section className="flex-1 min-w-0">
+            {/* Mobile filters */}
+            <div className="lg:hidden mb-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Weight (gm)</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={weightMin}
+                      onChange={(e) => setWeightMin(e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={weightMax}
+                      onChange={(e) => setWeightMax(e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Price (₹)</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={priceMin}
+                      onChange={(e) => setPriceMin(e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={priceMax}
+                      onChange={(e) => setPriceMax(e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-slate-100 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+              {(weightMin || weightMax || priceMin || priceMax) && (
+                <button
+                  onClick={() => { setWeightMin(''); setWeightMax(''); setPriceMin(''); setPriceMax('') }}
+                  className="mt-2 text-xs text-amber-500"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
             {/* Breadcrumb + count */}
             <div className="flex items-center justify-between mb-4 gap-4">
               <p className="text-sm text-slate-400 truncate">

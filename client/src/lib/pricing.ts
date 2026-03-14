@@ -20,6 +20,7 @@ export type Item = {
   gst_rate?: number
   image_url?: string
   pcs?: number
+  discount_percentage?: number
   [key: string]: unknown
 }
 
@@ -107,9 +108,10 @@ export function calculateBreakdown(item: Item, liveRates: unknown, gstRate?: num
     const perGramCost = adjustedRate + mcRate
     const base = perGramCost * wt
     const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
-    const total = base * (1 + gstPct / 100)
-    const gstAmt = total - base
-
+    const totalBeforeDiscount = base * (1 + gstPct / 100)
+    const gstAmt = totalBeforeDiscount - base
+    const discountPct = Number((item as { discount_percentage?: number }).discount_percentage || 0) || 0
+    const total = discountPct > 0 ? totalBeforeDiscount * (1 - discountPct / 100) : totalBeforeDiscount
     return {
       metal: adjustedRate * wt,
       mc: mcRate * wt,
@@ -118,6 +120,8 @@ export function calculateBreakdown(item: Item, liveRates: unknown, gstRate?: num
       sgst: gstAmt / 2,
       taxable: base,
       total,
+      originalTotal: discountPct > 0 ? totalBeforeDiscount : undefined,
+      discountPercent: discountPct > 0 ? discountPct : undefined,
     }
   }
 
@@ -129,6 +133,18 @@ export function calculateBreakdown(item: Item, liveRates: unknown, gstRate?: num
   const gst = Number(gstRate ?? item.gst_rate ?? 0) || 0
   const cgst = gst ? taxable * (gst / 200) : 0
   const sgst = gst ? taxable * (gst / 200) : 0
-  const total = taxable + cgst + sgst
-  return { metal: metalVal, mc, stone: stoneAmt, cgst, sgst, taxable, total }
+  const totalBeforeDiscount = taxable + cgst + sgst
+  const discountPct = Number((item as { discount_percentage?: number }).discount_percentage || 0) || 0
+  const total = discountPct > 0 ? totalBeforeDiscount * (1 - discountPct / 100) : totalBeforeDiscount
+  return {
+    metal: metalVal,
+    mc,
+    stone: stoneAmt,
+    cgst,
+    sgst,
+    taxable,
+    total,
+    originalTotal: discountPct > 0 ? totalBeforeDiscount : undefined,
+    discountPercent: discountPct > 0 ? discountPct : undefined,
+  }
 }
