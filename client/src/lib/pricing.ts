@@ -95,22 +95,27 @@ export function calculateBreakdown(item: Item, liveRates: unknown, gstRate?: num
   const metal = (item.metal_type || 'silver').toLowerCase()
 
   // Diamond products: bypass live rate/weight. Use fixed_price if set, else mc_rate + stone_charges
-  // (Admin can type final fixed price into MC field in ERP)
+  // Show: Price (taxable), CGST, SGST, Line Total — no metal cost
   if (metal.startsWith('diamond')) {
     const fixedPrice = Number(item.fixed_price ?? 0) || 0
     const mcRate = Number(item.mc_rate ?? 0) || 0
     const stoneAmt = Number(item.stone_charges ?? 0) || 0
     const basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt
     const discountPct = Number((item as { discount_percentage?: number }).discount_percentage || 0) || 0
-    const total = discountPct > 0 ? basePrice * (1 - discountPct / 100) : basePrice
-    const originalTotal = discountPct > 0 ? basePrice : undefined
+    const taxable = discountPct > 0 ? basePrice * (1 - discountPct / 100) : basePrice
+    const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
+    const gstAmt = taxable * (gstPct / 100)
+    const cgst = gstAmt / 2
+    const sgst = gstAmt / 2
+    const total = taxable + gstAmt
+    const originalTotal = discountPct > 0 ? basePrice + (basePrice * (gstPct / 100)) : undefined
     return {
       metal: 0,
-      mc: fixedPrice > 0 ? 0 : mcRate,
-      stone: fixedPrice > 0 ? 0 : stoneAmt,
-      cgst: 0,
-      sgst: 0,
-      taxable: basePrice,
+      mc: 0,
+      stone: 0,
+      cgst,
+      sgst,
+      taxable,
       total,
       originalTotal,
       discountPercent: discountPct > 0 ? discountPct : undefined,

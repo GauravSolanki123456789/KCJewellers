@@ -22,9 +22,10 @@ type BreakdownModalProps = {
   onClose: () => void
   breakdown: Breakdown | null
   productName?: string
+  isDiamond?: boolean
 }
 
-export default function BreakdownModal({ open, onClose, breakdown, productName }: BreakdownModalProps) {
+export default function BreakdownModal({ open, onClose, breakdown, productName, isDiamond }: BreakdownModalProps) {
   const [customerName, setCustomerName] = useState('')
   const [customerMobile, setCustomerMobile] = useState('')
   const [quotationNo, setQuotationNo] = useState<string | null>(null)
@@ -139,21 +140,31 @@ export default function BreakdownModal({ open, onClose, breakdown, productName }
               </div>
             </div>
 
-            {/* Breakdown table */}
+            {/* Breakdown table — diamond: Price, CGST, SGST, Line Total only */}
             <div className="rounded-xl bg-slate-800/50 border border-slate-700/60 overflow-hidden">
               <div className="divide-y divide-slate-700/60">
-                <div className="flex justify-between items-center px-4 py-3">
-                  <span className="text-slate-300">Metal Cost</span>
-                  <span className="font-medium tabular-nums text-slate-100">₹{metal.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="flex justify-between items-center px-4 py-3">
-                  <span className="text-slate-300">Making Charges</span>
-                  <span className="font-medium tabular-nums text-slate-100">₹{mc.toLocaleString('en-IN')}</span>
-                </div>
-                {stone > 0 && (
+                {!isDiamond && (
+                  <>
+                    <div className="flex justify-between items-center px-4 py-3">
+                      <span className="text-slate-300">Metal Cost</span>
+                      <span className="font-medium tabular-nums text-slate-100">₹{metal.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="flex justify-between items-center px-4 py-3">
+                      <span className="text-slate-300">Making Charges</span>
+                      <span className="font-medium tabular-nums text-slate-100">₹{mc.toLocaleString('en-IN')}</span>
+                    </div>
+                    {stone > 0 && (
+                      <div className="flex justify-between items-center px-4 py-3">
+                        <span className="text-slate-300">Stone Cost</span>
+                        <span className="font-medium tabular-nums text-slate-100">₹{stone.toLocaleString('en-IN')}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {isDiamond && (
                   <div className="flex justify-between items-center px-4 py-3">
-                    <span className="text-slate-300">Stone Cost</span>
-                    <span className="font-medium tabular-nums text-slate-100">₹{stone.toLocaleString('en-IN')}</span>
+                    <span className="text-slate-300">Price</span>
+                    <span className="font-medium tabular-nums text-slate-100">₹{Math.round(breakdown.taxable ?? 0).toLocaleString('en-IN')}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center px-4 py-3">
@@ -210,18 +221,28 @@ export default function BreakdownModal({ open, onClose, breakdown, productName }
           </div>
         )}
         {productName && <div style={{ fontSize: 12, marginBottom: 6 }}>Product: {productName}</div>}
-        <div className="row">
-          <span>Metal Cost</span>
-          <span>₹{metal.toLocaleString('en-IN')}</span>
-        </div>
-        <div className="row">
-          <span>Making Charges</span>
-          <span>₹{mc.toLocaleString('en-IN')}</span>
-        </div>
-        {stone > 0 && (
+        {!isDiamond && (
+          <>
+            <div className="row">
+              <span>Metal Cost</span>
+              <span>₹{metal.toLocaleString('en-IN')}</span>
+            </div>
+            <div className="row">
+              <span>Making Charges</span>
+              <span>₹{mc.toLocaleString('en-IN')}</span>
+            </div>
+            {stone > 0 && (
+              <div className="row">
+                <span>Stone Cost</span>
+                <span>₹{stone.toLocaleString('en-IN')}</span>
+              </div>
+            )}
+          </>
+        )}
+        {isDiamond && (
           <div className="row">
-            <span>Stone Cost</span>
-            <span>₹{stone.toLocaleString('en-IN')}</span>
+            <span>Price</span>
+            <span>₹{Math.round(breakdown.taxable ?? 0).toLocaleString('en-IN')}</span>
           </div>
         )}
         <div className="row">

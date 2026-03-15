@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense, useCallback } from 'react'
+import { useState, useEffect, Suspense, useCallback, useMemo } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
@@ -16,8 +16,30 @@ import {
   ArrowDown,
   GripVertical,
   ListOrdered,
+  Sparkles,
+  LayoutGrid,
+  Gem,
+  X,
 } from 'lucide-react'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
+import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
+
+/** Metal types — values match backend metal_type (lowercase) */
+const METAL_TABS = [
+  { key: 'gold', label: 'Gold', icon: Sparkles },
+  { key: 'silver', label: 'Silver', icon: LayoutGrid },
+  { key: 'diamond', label: 'Diamond', icon: Gem },
+] as const
+
+type MetalKey = (typeof METAL_TABS)[number]['key']
+
+function productMatchesMetal(p: { metal_type?: string }, metal: MetalKey): boolean {
+  const m = (p.metal_type || '').toLowerCase()
+  if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
+  if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
+  if (metal === 'diamond') return m.startsWith('diamond')
+  return false
+}
 
 type Product = Item & {
   id?: number
@@ -57,6 +79,7 @@ export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
   const [viewMode, setViewMode] = useState<'table' | 'nested'>('nested')
   const [expandedStyles, setExpandedStyles] = useState<Set<string>>(new Set())
   const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set())
@@ -69,6 +92,7 @@ export default function AdminProductsPage() {
   const [filterStyle, setFilterStyle] = useState<string>('')
   const [filterSku, setFilterSku] = useState<string>('')
   const [savingDiscount, setSavingDiscount] = useState<number | null>(null) // category id being saved
+  const [diamondEnrichProduct, setDiamondEnrichProduct] = useState<Product | null>(null)
 
   // Reorder state
   const [orderedCategories, setOrderedCategories] = useState<WebCategory[]>([])
@@ -103,7 +127,7 @@ export default function AdminProductsPage() {
     setLoading(true)
     try {
       const [productsRes, ratesRes] = await Promise.all([
-        axios.get(`${url}/api/products`, { params: { limit: 500 } }),
+        axios.get(`${url}/api/products`, { params: { limit: 500, metal_type: selectedMetal } }),
         axios.get(`${url}/api/rates/display`),
       ])
       const items =
@@ -115,7 +139,7 @@ export default function AdminProductsPage() {
     } finally {
       setLoading(false)
     }
-  }, [url])
+  }, [url, selectedMetal])
 
   useEffect(() => {
     load()
@@ -317,6 +341,12 @@ export default function AdminProductsPage() {
 
   const catalog = groupedCatalog()
 
+  /** Categories that have at least one product of selected metal */
+  const categoriesWithProducts = useMemo(() => {
+    const styleSet = new Set(products.map((p) => (p as { style_code?: string }).style_code).filter(Boolean))
+    return orderedCategories.filter((c) => styleSet.has(c.name))
+  }, [orderedCategories, products])
+
   const uniqueStyles = Array.from(
     new Set(
       products.map(
@@ -398,6 +428,29 @@ export default function AdminProductsPage() {
             >
               <ArrowLeft className="size-4" /> Back to Dashboard
             </Link>
+
+            {/* Metal Type Tabs — same as public catalog */}
+            <div className="flex justify-center mb-6 px-1">
+              <div className="inline-flex w-full sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
+                {METAL_TABS.map(({ key, label, icon: Icon }) => {
+                  const isActive = selectedMetal === key
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedMetal(key)}
+                      className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 min-w-0 ${
+                        isActive
+                          ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400/30'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
+                      }`}
+                    >
+                      <Icon className="size-4 shrink-0" />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
 
             {/* ─── Products & Catalogue ─── */}
             <div className="bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
@@ -525,13 +578,14 @@ export default function AdminProductsPage() {
                               (incl. GST)
                             </span>
                           </th>
+                          <th className="w-24" />
                         </tr>
                       </thead>
                       <tbody>
                         {flatFilteredProducts.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={8}
+                              colSpan={9}
                               className="py-12 text-center text-slate-500 text-sm"
                             >
                               No products match the selected filters.
@@ -583,6 +637,17 @@ export default function AdminProductsPage() {
                                 ₹
                                 {Math.round(getProductPrice(p)).toLocaleString(
                                   'en-IN',
+                                )}
+                              </td>
+                              <td className="py-3 px-4">
+                                {(p.metal_type || '').toLowerCase().startsWith('diamond') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDiamondEnrichProduct(p)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 text-xs font-medium hover:bg-amber-500/30 transition-colors"
+                                  >
+                                    Enrich
+                                  </button>
                                 )}
                               </td>
                             </tr>
@@ -720,6 +785,15 @@ export default function AdminProductsPage() {
                                               </div>
                                             </div>
                                             <div className="flex items-center gap-2 shrink-0">
+                                              {(p.metal_type || '').toLowerCase().startsWith('diamond') && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setDiamondEnrichProduct(p)}
+                                                  className="shrink-0 px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 text-xs font-medium hover:bg-amber-500/30 transition-colors"
+                                                >
+                                                  Enrich Details
+                                                </button>
+                                              )}
                                               <div className="text-right">
                                                 <div className="text-sm font-medium text-yellow-500/90 font-mono">
                                                   ₹
@@ -771,13 +845,15 @@ export default function AdminProductsPage() {
                   Rearrange styles and SKUs. The order here is reflected in
                   the public Catalog page.
                 </p>
-                {orderedCategories.length === 0 ? (
+                {categoriesWithProducts.length === 0 ? (
                   <p className="text-slate-500 text-sm">
-                    No catalogues found. Sync products from ERP first.
+                    No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} catalogues. Sync products from ERP first.
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {orderedCategories.map((cat, catIdx) => (
+                    {categoriesWithProducts.map((cat, catIdx) => {
+                      const fullIdx = orderedCategories.findIndex((c) => c.id === cat.id)
+                      return (
                       <div
                         key={cat.id}
                         className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
@@ -790,17 +866,17 @@ export default function AdminProductsPage() {
                           </span>
                           <div className="flex items-center gap-1 shrink-0">
                             <button
-                              onClick={() => moveCategoryUp(catIdx)}
-                              disabled={catIdx === 0}
+                              onClick={() => moveCategoryUp(fullIdx)}
+                              disabled={fullIdx <= 0}
                               className="p-1.5 rounded-md hover:bg-white/10 disabled:opacity-20 transition-colors"
                               title="Move up"
                             >
                               <ArrowUp className="size-4 text-slate-400" />
                             </button>
                             <button
-                              onClick={() => moveCategoryDown(catIdx)}
+                              onClick={() => moveCategoryDown(fullIdx)}
                               disabled={
-                                catIdx === orderedCategories.length - 1
+                                fullIdx < 0 || fullIdx >= orderedCategories.length - 1
                               }
                               className="p-1.5 rounded-md hover:bg-white/10 disabled:opacity-20 transition-colors"
                               title="Move down"
@@ -826,7 +902,7 @@ export default function AdminProductsPage() {
                                   <div className="flex items-center gap-1 shrink-0">
                                     <button
                                       onClick={() =>
-                                        moveSubUp(catIdx, subIdx)
+                                        moveSubUp(fullIdx, subIdx)
                                       }
                                       disabled={subIdx === 0}
                                       className="p-1 rounded-md hover:bg-white/10 disabled:opacity-20 transition-colors"
@@ -836,7 +912,7 @@ export default function AdminProductsPage() {
                                     </button>
                                     <button
                                       onClick={() =>
-                                        moveSubDown(catIdx, subIdx)
+                                        moveSubDown(fullIdx, subIdx)
                                       }
                                       disabled={
                                         subIdx ===
@@ -853,7 +929,7 @@ export default function AdminProductsPage() {
                             </div>
                           )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>
@@ -885,14 +961,13 @@ export default function AdminProductsPage() {
                   desktop and mobile—tap to select, long-press on mobile for
                   multi-select.
                 </p>
-                {catalogCategories.length === 0 ? (
+                {categoriesWithProducts.length === 0 ? (
                   <p className="text-slate-500 text-sm">
-                    Sync products via ERP (POST /api/sync/receive) to see
-                    catalogues.
+                    No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} catalogues. Sync via ERP first.
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-3">
-                    {catalogCategories.map((cat) => (
+                    {categoriesWithProducts.map((cat) => (
                       <button
                         key={cat.id}
                         onClick={() => togglePublish(cat.id)}
@@ -917,6 +992,13 @@ export default function AdminProductsPage() {
               </div>
             </div>
           </main>
+
+          <DiamondEnrichmentModal
+            open={!!diamondEnrichProduct}
+            onClose={() => setDiamondEnrichProduct(null)}
+            product={diamondEnrichProduct ?? {}}
+            onSaved={() => load()}
+          />
         </div>
       </AdminGuard>
     </Suspense>

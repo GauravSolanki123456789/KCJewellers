@@ -153,18 +153,28 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                     </button>
                     {isExpanded && (
                       <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-2 text-sm">
-                        <div className="flex justify-between text-slate-200">
-                          <span>Metal Cost</span>
-                          <span className="tabular-nums">₹{Math.round((b.metal || 0) * ci.qty).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div className="flex justify-between text-slate-200">
-                          <span>Making Charges</span>
-                          <span className="tabular-nums">₹{Math.round((b.mc || 0) * ci.qty).toLocaleString('en-IN')}</span>
-                        </div>
-                        {(b.stone || 0) > 0 && (
+                        {!(ci.item.metal_type || '').toLowerCase().startsWith('diamond') && (
+                          <>
+                            <div className="flex justify-between text-slate-200">
+                              <span>Metal Cost</span>
+                              <span className="tabular-nums">₹{Math.round((b.metal || 0) * ci.qty).toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="flex justify-between text-slate-200">
+                              <span>Making Charges</span>
+                              <span className="tabular-nums">₹{Math.round((b.mc || 0) * ci.qty).toLocaleString('en-IN')}</span>
+                            </div>
+                            {(b.stone || 0) > 0 && (
+                              <div className="flex justify-between text-slate-200">
+                                <span>Stone Cost</span>
+                                <span className="tabular-nums">₹{Math.round((b.stone || 0) * ci.qty).toLocaleString('en-IN')}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {(ci.item.metal_type || '').toLowerCase().startsWith('diamond') && (
                           <div className="flex justify-between text-slate-200">
-                            <span>Stone Cost</span>
-                            <span className="tabular-nums">₹{Math.round((b.stone || 0) * ci.qty).toLocaleString('en-IN')}</span>
+                            <span>Price</span>
+                            <span className="tabular-nums">₹{Math.round((b.taxable || 0) * ci.qty).toLocaleString('en-IN')}</span>
                           </div>
                         )}
                         <div className="flex justify-between text-slate-200">

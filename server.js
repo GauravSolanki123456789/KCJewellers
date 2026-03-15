@@ -36,6 +36,21 @@ const upload = multer({
     }),
 });
 
+// Multer for diamond certificates: public/uploads/certificates/
+const uploadsCertificatesDir = path.join(__dirname, 'public', 'uploads', 'certificates');
+fs.mkdirSync(uploadsCertificatesDir, { recursive: true });
+const uploadCertificate = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, uploadsCertificatesDir),
+        filename: (req, file, cb) => {
+            const barcode = req.params.barcode || 'unknown';
+            const ext = (file.originalname || '').split('.').pop() || 'pdf';
+            cb(null, `${barcode}.${ext}`);
+        },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
+
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -113,7 +128,12 @@ function strictAdminOrigin(req, res, next) {
     if (!ok) return res.status(403).json({ error: 'Forbidden origin' });
     next();
 }
-app.use('/api/admin', adminLimiter, requireJson, strictAdminOrigin, isAdminStrict);
+// Allow multipart for diamond-details upload; require JSON for other admin routes
+const adminRequireJson = (req, res, next) => {
+    if (req.path.includes('diamond-details')) return next();
+    return requireJson(req, res, next);
+};
+app.use('/api/admin', adminLimiter, adminRequireJson, strictAdminOrigin, isAdminStrict);
 
 // SECURITY: Apply security headers to all requests
 app.use(securityHeaders);
@@ -1038,11 +1058,18 @@ app.get('/api/products', async (req, res) => {
                 wp.barcode,
                 wp.name,
                 wp.gross_weight::float    AS gross_weight,
-                wp.net_weight::float      AS net_weight,
-                wp.purity::float          AS purity,
-                wp.mc_rate::float         AS mc_rate,
+                wp.net_weight::float     AS net_weight,
+                wp.purity::float         AS purity,
+                wp.mc_rate::float        AS mc_rate,
+                COALESCE(wp.fixed_price, 0)::float AS fixed_price,
+                COALESCE(wp.stone_charges, 0)::float AS stone_charges,
                 wp.image_url,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
+                wp.diamond_carat,
+                wp.diamond_cut,
+                wp.diamond_color,
+                wp.diamond_clarity,
+                wp.certificate_url,
                 COALESCE(wc.discount_percentage, 0)::float AS discount_percentage,
                 wp.subcategory_id,
                 wp.is_active,
@@ -1090,6 +1117,16 @@ app.get('/api/products', async (req, res) => {
         if (search) {
             whereClauses.push(`(wp.name ILIKE $${p} OR wp.sku ILIKE $${p} OR wp.barcode ILIKE $${p} OR wc.name ILIKE $${p++})`);
             params.push(`%${search}%`);
+        }
+        if (req.query.metal_type) {
+            const mt = String(req.query.metal_type).toLowerCase();
+            if (mt === 'diamond') {
+                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')`);
+            } else if (mt === 'gold') {
+                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%' OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%')`);
+            } else if (mt === 'silver') {
+                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'silver%' OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%silver%')`);
+            }
         }
 
         const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
@@ -3632,7 +3669,8 @@ app.get('/api/catalog', async (req, res) => {
                         mc_rate::float      AS mc_rate,
                         COALESCE(fixed_price, 0)::float AS fixed_price,
                         COALESCE(stone_charges, 0)::float AS stone_charges,
-                        COALESCE(metal_type, 'silver') AS metal_type
+                        COALESCE(metal_type, 'silver') AS metal_type,
+                        diamond_carat, diamond_cut, diamond_color, diamond_clarity, certificate_url
                     FROM web_products
                     WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
                     ORDER BY updated_at DESC
@@ -3735,6 +3773,46 @@ app.put('/api/admin/catalog/reorder-subcategories', requireJson, isAdminStrict, 
         }
         res.json({ success: true, updated: orderedIds.length });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: Diamond enrichment — update specs + upload certificate (multipart)
+app.post('/api/admin/products/:barcode/diamond-details', uploadCertificate.single('certificate'), async (req, res) => {
+    try {
+        const barcode = String(req.params.barcode || '').trim();
+        if (!barcode) return res.status(400).json({ error: 'Barcode required' });
+        const diamondCarat = req.body?.diamond_carat != null ? String(req.body.diamond_carat).trim() : null;
+        const diamondCut = req.body?.diamond_cut != null ? String(req.body.diamond_cut).trim() : null;
+        const diamondColor = req.body?.diamond_color != null ? String(req.body.diamond_color).trim() : null;
+        const diamondClarity = req.body?.diamond_clarity != null ? String(req.body.diamond_clarity).trim() : null;
+        let certificateUrl = null;
+        if (req.file && req.file.filename) {
+            const baseUrl = process.env.API_BASE_URL || 'https://api.kc.gauravsoftwares.tech';
+            certificateUrl = `${baseUrl}/uploads/certificates/${req.file.filename}`;
+        }
+        const rows = await query(
+            `SELECT id, certificate_url FROM web_products WHERE barcode = $1 OR sku = $1 LIMIT 1`,
+            [barcode, barcode]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Product not found' });
+        const updates = [];
+        const params = [];
+        let i = 1;
+        if (diamondCarat !== null) { updates.push(`diamond_carat = $${i++}`); params.push(diamondCarat || null); }
+        if (diamondCut !== null) { updates.push(`diamond_cut = $${i++}`); params.push(diamondCut || null); }
+        if (diamondColor !== null) { updates.push(`diamond_color = $${i++}`); params.push(diamondColor || null); }
+        if (diamondClarity !== null) { updates.push(`diamond_clarity = $${i++}`); params.push(diamondClarity || null); }
+        if (certificateUrl !== null) { updates.push(`certificate_url = $${i++}`); params.push(certificateUrl); }
+        if (updates.length === 0) return res.json({ success: true, updated: 0 });
+        params.push(barcode);
+        await query(
+            `UPDATE web_products SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE barcode = $${i} OR sku = $${i}`,
+            params
+        );
+        res.json({ success: true, certificate_url: certificateUrl });
+    } catch (error) {
+        console.error('Diamond details error:', error);
         res.status(500).json({ error: error.message });
     }
 });

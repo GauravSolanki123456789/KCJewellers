@@ -147,6 +147,53 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
             <span className="ml-2 text-base font-normal text-slate-500">incl. GST</span>
           </div>
 
+          {/* Diamond Specifications — only for diamond products */}
+          {(metalType && String(metalType).toLowerCase().startsWith('diamond')) && (
+            <div className="mt-6 rounded-xl bg-slate-900/60 border border-amber-500/20 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-800/80">
+                <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider">Diamond Specifications</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-px bg-slate-800/50">
+                {(product as { diamond_carat?: string }).diamond_carat && (
+                  <div className="bg-slate-900/80 px-4 py-3">
+                    <span className="text-xs text-slate-500 block">Carat</span>
+                    <span className="text-slate-100 font-medium">{(product as { diamond_carat?: string }).diamond_carat}</span>
+                  </div>
+                )}
+                {(product as { diamond_cut?: string }).diamond_cut && (
+                  <div className="bg-slate-900/80 px-4 py-3">
+                    <span className="text-xs text-slate-500 block">Cut</span>
+                    <span className="text-slate-100 font-medium">{(product as { diamond_cut?: string }).diamond_cut}</span>
+                  </div>
+                )}
+                {(product as { diamond_color?: string }).diamond_color && (
+                  <div className="bg-slate-900/80 px-4 py-3">
+                    <span className="text-xs text-slate-500 block">Color</span>
+                    <span className="text-slate-100 font-medium">{(product as { diamond_color?: string }).diamond_color}</span>
+                  </div>
+                )}
+                {(product as { diamond_clarity?: string }).diamond_clarity && (
+                  <div className="bg-slate-900/80 px-4 py-3">
+                    <span className="text-xs text-slate-500 block">Clarity</span>
+                    <span className="text-slate-100 font-medium">{(product as { diamond_clarity?: string }).diamond_clarity}</span>
+                  </div>
+                )}
+              </div>
+              {(product as { certificate_url?: string }).certificate_url && (
+                <div className="p-4 border-t border-slate-800/80">
+                  <a
+                    href={(product as { certificate_url?: string }).certificate_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 font-semibold hover:bg-amber-500/30 transition-colors"
+                  >
+                    View Authenticity Certificate
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Specifications */}
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
             {netWeight != null && (
@@ -192,7 +239,15 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
       </div>
-      {b && <BreakdownModal open={open} onClose={() => setOpen(false)} breakdown={b} productName={displayName} />}
+      {b && (
+        <BreakdownModal
+          open={open}
+          onClose={() => setOpen(false)}
+          breakdown={b}
+          productName={displayName}
+          isDiamond={metalType != null && String(metalType).toLowerCase().startsWith('diamond')}
+        />
+      )}
       </div>
     </div>
   )
