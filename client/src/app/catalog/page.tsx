@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
-import { LayoutGrid, ChevronRight, ChevronDown } from 'lucide-react'
+import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-react'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
@@ -25,10 +25,40 @@ type Category = {
   subcategories: Subcategory[]
 }
 
+/** Metal types for catalog navigation — values match backend metal_type (lowercase) */
+const METAL_TABS = [
+  { key: 'gold', label: 'Gold', icon: Sparkles },
+  { key: 'silver', label: 'Silver', icon: LayoutGrid },
+  { key: 'diamond', label: 'Diamond', icon: Gem },
+] as const
+
+type MetalKey = (typeof METAL_TABS)[number]['key']
+
+/** Returns true if product's metal_type matches the selected metal tab */
+function productMatchesMetal(product: Product, metal: MetalKey): boolean {
+  const m = (product.metal_type || '').toLowerCase()
+  if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
+  if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
+  if (metal === 'diamond') return m.startsWith('diamond')
+  return false
+}
+
+/** First metal that has products; used for smart default */
+function firstAvailableMetal(categories: Category[]): MetalKey {
+  const allProducts = categories.flatMap((c) =>
+    c.subcategories.flatMap((s) => s.products),
+  )
+  for (const tab of METAL_TABS) {
+    if (allProducts.some((p) => productMatchesMetal(p, tab.key))) return tab.key
+  }
+  return 'gold'
+}
+
 export default function CatalogPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
   const [activeSkuId, setActiveSkuId] = useState<number | null>(null)
@@ -67,9 +97,56 @@ export default function CatalogPage() {
     loadCatalog()
   }, [loadCatalog])
 
+  /** Smart default: when catalog loads, if current metal has no products, switch to first available */
+  useEffect(() => {
+    if (categories.length === 0) return
+    const first = firstAvailableMetal(categories)
+    setSelectedMetal((prev) => {
+      const hasCurrent = categories.some((c) =>
+        c.subcategories.some((s) =>
+          s.products.some((p) => productMatchesMetal(p, prev)),
+        ),
+      )
+      return hasCurrent ? prev : first
+    })
+  }, [categories])
+
+  /** Filter categories/subcategories/products by selected metal type */
+  const filteredCategories = useMemo(() => {
+    return categories
+      .map((cat) => ({
+        ...cat,
+        subcategories: cat.subcategories
+          .map((sub) => ({
+            ...sub,
+            products: sub.products.filter((p) => productMatchesMetal(p, selectedMetal)),
+          }))
+          .filter((sub) => sub.products.length > 0),
+      }))
+      .filter((cat) => cat.subcategories.length > 0)
+  }, [categories, selectedMetal])
+
+  /** When metal changes, pick first available style/sku if current is empty */
+  useEffect(() => {
+    if (filteredCategories.length === 0) return
+    const stillValid =
+      activeStyleId != null &&
+      filteredCategories.some((c) => c.id === activeStyleId) &&
+      (activeSkuId == null ||
+        filteredCategories
+          .find((c) => c.id === activeStyleId)
+          ?.subcategories.some((s) => s.id === activeSkuId))
+    if (!stillValid) {
+      const first = filteredCategories[0]
+      setActiveStyleId(first.id)
+      setExpandedStyles(new Set([first.id]))
+      setActiveSkuId(first.subcategories[0]?.id ?? null)
+    }
+  }, [filteredCategories, activeStyleId, activeSkuId])
+
   const activeStyle = useMemo(
-    () => categories.find((c) => c.id === activeStyleId) ?? null,
-    [categories, activeStyleId],
+    () => filteredCategories.find((c) => c.id === activeStyleId) ?? null,
+    [filteredCategories, activeStyleId],
   )
 
   const activeSku = useMemo(
@@ -178,6 +255,7 @@ export default function CatalogPage() {
     )
   }
 
+
   const PULL_THRESHOLD = 80
 
   return (
@@ -201,6 +279,29 @@ export default function CatalogPage() {
         </div>
       )}
       <main className="max-w-[1400px] mx-auto px-4 py-6 pb-28">
+        {/* Metal Type Tabs — top-level navigation, responsive */}
+        <div className="flex justify-center mb-6 px-1">
+          <div className="inline-flex w-full sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
+            {METAL_TABS.map(({ key, label, icon: Icon }) => {
+              const isActive = selectedMetal === key
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelectedMetal(key)}
+                  className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 min-w-0 ${
+                    isActive
+                      ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400/30'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
+                  }`}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  <span className="truncate">{label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Header */}
         <div className="flex items-center gap-2 mb-5">
           <LayoutGrid className="size-5 text-amber-500" />
@@ -213,7 +314,9 @@ export default function CatalogPage() {
         <div className="lg:hidden space-y-3 mb-5">
           {/* Style chips */}
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {categories.map((cat) => (
+            {filteredCategories.length === 0 ? (
+              <p className="text-slate-500 text-sm py-2">No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles</p>
+            ) : filteredCategories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => handleStyleClick(cat)}
@@ -294,7 +397,12 @@ export default function CatalogPage() {
               )}
             </div>
             <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2 scrollbar-hide">
-              {categories.map((cat) => {
+              {filteredCategories.length === 0 ? (
+                <p className="text-slate-500 text-sm px-2 py-4">
+                  No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles
+                </p>
+              ) : (
+              filteredCategories.map((cat) => {
                 const isExpanded = expandedStyles.has(cat.id)
                 const isActive = activeStyleId === cat.id
                 return (
@@ -342,7 +450,8 @@ export default function CatalogPage() {
                     )}
                   </div>
                 )
-              })}
+              })
+              )}
             </nav>
           </aside>
 
@@ -400,7 +509,11 @@ export default function CatalogPage() {
 
             {products.length === 0 ? (
               <div className="rounded-xl bg-slate-900/50 border border-slate-800 p-16 text-center">
-                <p className="text-slate-500">No products in this collection</p>
+                <p className="text-slate-500">
+                  {filteredCategories.length === 0
+                    ? `No ${METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} products in the catalogue`
+                    : 'No products in this collection'}
+                </p>
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">

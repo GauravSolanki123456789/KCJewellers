@@ -3630,6 +3630,8 @@ app.get('/api/catalog', async (req, res) => {
                         net_weight::float   AS net_weight,
                         purity::float       AS purity,
                         mc_rate::float      AS mc_rate,
+                        COALESCE(fixed_price, 0)::float AS fixed_price,
+                        COALESCE(stone_charges, 0)::float AS stone_charges,
                         COALESCE(metal_type, 'silver') AS metal_type
                     FROM web_products
                     WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
@@ -5288,7 +5290,9 @@ async function validateApiKey(req, res, next) {
         "grossWeight": 6.0,
         "purity": "22K",
         "imageUrl": "https://...",
-        "metalType": "gold"
+        "metalType": "gold",
+        "fixedPrice": 25000,
+        "stoneCharges": 500
       }
     ]
   }
@@ -5363,7 +5367,9 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
                 const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : (item.gross_weight != null ? Number(item.gross_weight) : null);
                 const purity      = item.purity   ? String(item.purity)    : null;
                 const mcRate      = item.mcRate   != null ? Number(item.mcRate)   : (item.mc_rate != null ? Number(item.mc_rate) : null);
-                const metalType   = String(item.metalType || item.metal_type || 'silver').toLowerCase();
+                const metalType   = String(item.metalType || item.metal_type || 'silver').toLowerCase().trim();
+                const fixedPrice  = item.fixedPrice != null ? Number(item.fixedPrice) : (item.fixed_price != null ? Number(item.fixed_price) : null);
+                const stoneCharges = item.stoneCharges != null ? Number(item.stoneCharges) : (item.stone_charges != null ? Number(item.stone_charges) : 0);
 
                 const imageUrl = 'https://api.kc.gauravsoftwares.tech/uploads/web_products/' + prodSku + '.webp';
 
@@ -5372,8 +5378,8 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
 
                 const upsertSql = `
                     INSERT INTO web_products
-                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, metal_type, image_url, is_active, last_synced_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, metal_type, fixed_price, stone_charges, image_url, is_active, last_synced_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (sku) DO UPDATE SET
                         subcategory_id  = EXCLUDED.subcategory_id,
                         barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -5383,12 +5389,14 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
                         purity          = EXCLUDED.purity,
                         mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
                         metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
+                        fixed_price     = COALESCE(EXCLUDED.fixed_price, web_products.fixed_price),
+                        stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
                         image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
                         is_active       = true,
                         last_synced_at  = CURRENT_TIMESTAMP,
                         updated_at      = CURRENT_TIMESTAMP
                 `;
-                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, metalType, imageUrl];
+                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, metalType, fixedPrice ?? 0, stoneCharges ?? 0, imageUrl];
 
                 try {
                     await query(upsertSql, upsertParams);
@@ -5402,6 +5410,12 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
                         await query(upsertSql, upsertParams);
                     } else if (msg.includes('column "metal_type" does not exist')) {
                         await pool.query("ALTER TABLE web_products ADD COLUMN IF NOT EXISTS metal_type VARCHAR(50) DEFAULT 'silver'");
+                        await query(upsertSql, upsertParams);
+                    } else if (msg.includes('column "fixed_price" does not exist')) {
+                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS fixed_price NUMERIC(12,2) DEFAULT 0');
+                        await query(upsertSql, upsertParams);
+                    } else if (msg.includes('column "stone_charges" does not exist')) {
+                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS stone_charges NUMERIC(12,2) DEFAULT 0');
                         await query(upsertSql, upsertParams);
                     } else {
                         throw upsertErr;

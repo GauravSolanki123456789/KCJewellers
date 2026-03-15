@@ -295,7 +295,9 @@ export default function DeveloperApiPage() {
                     ['purity',      'No',  'e.g. 22K, 18K, 925'],
                     ['imageUrl',    'No',  'Full HTTPS URL to product image'],
                     ['imageBase64', 'No',  'Base64 image data. Use Content-Type: application/json. Prefer Base64url (+→-, /→_) to avoid corruption'],
-                    ['metalType',   'No',  'gold / silver'],
+                    ['metalType',   'No',  'gold / silver / diamond / platinum'],
+                    ['fixedPrice',  'No*', 'Fixed price (₹). For diamond: bypasses live rate (*or fixed_price)'],
+                    ['stoneCharges','No',  'Stone charges (₹). For diamond: used with mc_rate when fixedPrice not set'],
                   ].map(([field, req, desc]) => (
                     <tr key={field} className="hover:bg-white/5 transition-colors">
                       <td className="py-2.5 px-4 font-mono text-violet-400">{field}</td>
