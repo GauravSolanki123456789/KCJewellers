@@ -11,7 +11,7 @@ Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
 
 command to access database 
 sudo -u postgres psql -d kcjewellers
-
+DELETE FROM web_products WHERE barcode = '100001';
 ssh root@159.65.145.59
 command to access terminal
 ---

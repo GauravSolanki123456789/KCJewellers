@@ -44,11 +44,19 @@ const uploadCertificate = multer({
         destination: (req, file, cb) => cb(null, uploadsCertificatesDir),
         filename: (req, file, cb) => {
             const barcode = req.params.barcode || 'unknown';
-            const ext = (file.originalname || '').split('.').pop() || 'pdf';
+            const ext = (file.originalname || '').split('.').pop()?.toLowerCase() || 'pdf';
             cb(null, `${barcode}.${ext}`);
         },
     }),
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+        const mime = (file.mimetype || '').toLowerCase();
+        const ext = (file.originalname || '').split('.').pop()?.toLowerCase() || '';
+        const allowedMimes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+        const allowedExts = ['pdf', 'jpeg', 'jpg', 'png', 'webp', 'gif'];
+        if (allowedMimes.includes(mime) || allowedExts.includes(ext)) return cb(null, true);
+        cb(new Error('Certificate must be PDF or image (JPEG, PNG, WebP, GIF)'));
+    },
 });
 
 const app = express();
@@ -3778,10 +3786,17 @@ app.put('/api/admin/catalog/reorder-subcategories', requireJson, isAdminStrict, 
 });
 
 // Admin: Diamond enrichment — update specs + upload certificate (multipart)
-app.post('/api/admin/products/:barcode/diamond-details', uploadCertificate.single('certificate'), async (req, res) => {
+const diamondDetailsUpload = (req, res, next) => {
+    uploadCertificate.single('certificate')(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message || 'Invalid certificate file' });
+        next();
+    });
+};
+app.post('/api/admin/products/:barcode/diamond-details', diamondDetailsUpload, async (req, res) => {
     try {
         const barcode = String(req.params.barcode || '').trim();
         if (!barcode) return res.status(400).json({ error: 'Barcode required' });
+
         const diamondCarat = req.body?.diamond_carat != null ? String(req.body.diamond_carat).trim() : null;
         const diamondCut = req.body?.diamond_cut != null ? String(req.body.diamond_cut).trim() : null;
         const diamondColor = req.body?.diamond_color != null ? String(req.body.diamond_color).trim() : null;
@@ -3791,25 +3806,37 @@ app.post('/api/admin/products/:barcode/diamond-details', uploadCertificate.singl
             const baseUrl = process.env.API_BASE_URL || 'https://api.kc.gauravsoftwares.tech';
             certificateUrl = `${baseUrl}/uploads/certificates/${req.file.filename}`;
         }
+
+        // Build dynamic UPDATE: each field maps to (column, value); only include non-null
+        const fields = [
+            ['diamond_carat', diamondCarat],
+            ['diamond_cut', diamondCut],
+            ['diamond_color', diamondColor],
+            ['diamond_clarity', diamondClarity],
+            ['certificate_url', certificateUrl],
+        ].filter(([, v]) => v != null && v !== '');
+
+        if (fields.length === 0) {
+            return res.status(400).json({ error: 'At least one diamond field or certificate must be provided' });
+        }
+
+        const setParts = [];
+        const values = [];
+        fields.forEach(([col, v], idx) => {
+            setParts.push(`${col} = $${idx + 1}`);
+            values.push(v);
+        });
+        values.push(barcode);
+        const barcodeParam = values.length;
+
         const rows = await query(
             `SELECT id, certificate_url FROM web_products WHERE barcode = $1 OR sku = $1 LIMIT 1`,
-            [barcode, barcode]
+            [barcode]
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Product not found' });
-        const updates = [];
-        const params = [];
-        let i = 1;
-        if (diamondCarat !== null) { updates.push(`diamond_carat = $${i++}`); params.push(diamondCarat || null); }
-        if (diamondCut !== null) { updates.push(`diamond_cut = $${i++}`); params.push(diamondCut || null); }
-        if (diamondColor !== null) { updates.push(`diamond_color = $${i++}`); params.push(diamondColor || null); }
-        if (diamondClarity !== null) { updates.push(`diamond_clarity = $${i++}`); params.push(diamondClarity || null); }
-        if (certificateUrl !== null) { updates.push(`certificate_url = $${i++}`); params.push(certificateUrl); }
-        if (updates.length === 0) return res.json({ success: true, updated: 0 });
-        params.push(barcode);
-        await query(
-            `UPDATE web_products SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE barcode = $${i} OR sku = $${i}`,
-            params
-        );
+
+        const sql = `UPDATE web_products SET ${setParts.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE barcode = $${barcodeParam} OR sku = $${barcodeParam}`;
+        await query(sql, values);
         res.json({ success: true, certificate_url: certificateUrl });
     } catch (error) {
         console.error('Diamond details error:', error);
