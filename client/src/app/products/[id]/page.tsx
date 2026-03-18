@@ -5,7 +5,7 @@ import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
 import BreakdownModal from "@/components/BreakdownModal"
 import HoverZoomImage from "@/components/HoverZoomImage"
-import { calculateBreakdown, type Item } from "@/lib/pricing"
+import { calculateBreakdown, getItemWeight, isDiamondItem, type Item } from "@/lib/pricing"
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics"
 import { getSocket } from "@/lib/socket"
 import React, { useEffect, useRef, useState } from "react"
@@ -49,9 +49,10 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const imageUrl = product.image_url
   const styleCode = product.style_code || ''
   const sku = product.sku || product.barcode || ''
-  const netWeight = product.net_wt ?? product.net_weight ?? product.weight ?? null
+  const netWeight = getItemWeight(product)
   const purity = product.purity ?? null
   const metalType = product.metal_type ?? null
+  const isDiamond = isDiamondItem(product)
   const barcode = product.barcode || product.sku || String(product.id || '')
   const hasDiscount = (b?.discountPercent ?? 0) > 0
   const thumbnails = imageUrl ? [imageUrl] : []
@@ -64,7 +65,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="p-4 max-w-6xl mx-auto mt-8">
+      <div className="p-4 max-w-6xl mx-auto mt-8 pb-24 md:pb-8">
       <Link
         href="/catalog"
         className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
@@ -148,7 +149,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
           </div>
 
           {/* Diamond Specifications — only for diamond products */}
-          {(metalType && String(metalType).toLowerCase().startsWith('diamond')) && (
+          {isDiamond && (
             <div className="mt-6 rounded-xl bg-slate-900/60 border border-amber-500/20 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-800/80">
                 <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider">Diamond Specifications</h3>
@@ -222,22 +223,32 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
             )}
           </div>
 
-          {/* Action buttons */}
-          <div className="mt-8 flex flex-wrap gap-3">
+          {/* Action buttons — stacked on mobile for visibility */}
+          <div className="mt-8 flex flex-col sm:flex-row gap-3">
             <button
-              className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors"
-              onClick={() => setOpen(true)}
-            >
-              View Breakdown
-            </button>
-            <button
-              className="px-6 py-3 rounded-xl border border-slate-600 hover:border-slate-500 bg-slate-800/50 hover:bg-slate-800 text-slate-100 font-semibold transition-colors"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors order-2 sm:order-1"
               onClick={handleAddToCart}
             >
               Add to Cart
             </button>
+            <button
+              className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-600 hover:border-slate-500 bg-slate-800/50 hover:bg-slate-800 text-slate-100 font-semibold transition-colors order-1 sm:order-2"
+              onClick={() => setOpen(true)}
+            >
+              View Breakdown
+            </button>
           </div>
         </div>
+      </div>
+
+      {/* Mobile: Sticky Add to Cart bar — always visible at bottom */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 p-4 pb-6 pt-3 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 safe-area-pb">
+        <button
+          className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-base transition-colors shadow-lg"
+          onClick={handleAddToCart}
+        >
+          Add to Cart — ₹{Math.round(b?.total || 0).toLocaleString('en-IN')}
+        </button>
       </div>
       {b && (
         <BreakdownModal
@@ -245,7 +256,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
           onClose={() => setOpen(false)}
           breakdown={b}
           productName={displayName}
-          isDiamond={metalType != null && String(metalType).toLowerCase().startsWith('diamond')}
+          isDiamond={isDiamond}
         />
       )}
       </div>

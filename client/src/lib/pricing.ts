@@ -58,8 +58,23 @@ function ratePerGram(live: unknown, metal: string): number {
 }
 
 function netWeight(item: Item): number {
-  const n = item.net_weight ?? item.net_wt ?? item.weight ?? 0
+  const n = item.net_weight ?? item.net_wt ?? item.weight ?? (item as { avg_wt?: number }).avg_wt ?? 0
   return Number(n) || 0
+}
+
+/** Consistent weight getter: net_wt ?? net_weight ?? weight ?? avg_wt. Returns null if none set. */
+export function getItemWeight(item: Item | null | undefined): number | null {
+  if (!item) return null
+  const n = item.net_wt ?? item.net_weight ?? item.weight ?? (item as { avg_wt?: number }).avg_wt
+  if (n == null || (typeof n === 'string' && n === '')) return null
+  const num = Number(n)
+  return isNaN(num) ? null : num
+}
+
+/** Returns true if item metal_type is diamond (case-insensitive, supports 'diamond', 'diamonds', etc.) */
+export function isDiamondItem(item: Item | null | undefined): boolean {
+  const mt = (item?.metal_type ?? '').toString().toLowerCase()
+  return mt.startsWith('diamond')
 }
 
 function purityPct(item: Item): number {

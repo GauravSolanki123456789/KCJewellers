@@ -2,13 +2,14 @@
 
 import { Suspense } from 'react'
 import { useAuth } from '@/hooks/useAuth'
+import { useLoginModal } from '@/context/LoginModalContext'
 import Link from 'next/link'
-import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut } from 'lucide-react'
+import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp } from 'lucide-react'
 import axios from 'axios'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
 
-type UserType = { role?: string; email?: string; name?: string }
+type UserType = { role?: string; email?: string; name?: string; mobile_number?: string }
 
 export default function ProfilePage() {
   return (
@@ -20,6 +21,7 @@ export default function ProfilePage() {
 
 function ProfilePageContent() {
   const auth = useAuth()
+  const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const email = (user?.email || '').toLowerCase().trim()
   const isAdmin = email === SUPER_ADMIN_EMAIL
@@ -46,8 +48,10 @@ function ProfilePageContent() {
           </h1>
           {auth.isAuthenticated && user && (
             <div className="mt-2">
-              <p className="text-slate-300 font-medium">{user.name || user.email}</p>
-              <p className="text-slate-500 text-sm">{user.email}</p>
+              <p className="text-slate-300 font-medium">{user.name || user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}</p>
+              {(user.email || user.mobile_number) && (
+                <p className="text-slate-500 text-sm">{user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : '')}</p>
+              )}
               {user.role === 'super_admin' && (
                 <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">
                   Admin
@@ -77,6 +81,29 @@ function ProfilePageContent() {
             </div>
           </div>
         </section>
+
+        {/* My SIP Investments - Only when authenticated */}
+        {auth.isAuthenticated && (
+          <section className="mb-6">
+            <Link
+              href="/profile/sips"
+              className="block glass-card rounded-2xl overflow-hidden border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 transition-all group"
+            >
+              <div className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/30 group-hover:bg-amber-500/30 transition-colors">
+                    <TrendingUp className="size-8 text-amber-500" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-amber-400">My SIPs</h2>
+                    <p className="text-sm text-slate-500">Track your Gold, Silver & Diamond investments</p>
+                  </div>
+                </div>
+                <span className="text-amber-500 group-hover:translate-x-1 transition-transform">→</span>
+              </div>
+            </Link>
+          </section>
+        )}
 
         {/* Order History / Active Bookings */}
         <section className="mb-6">
@@ -147,12 +174,20 @@ function ProfilePageContent() {
             <User className="size-12 text-slate-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-300">Sign in to view your profile</h3>
             <p className="text-slate-500 mt-2 text-sm">Access wallet, bookings, and order history</p>
-            <a
-              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google`}
-              className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold rounded-lg transition-colors"
-            >
-              Sign In with Google
-            </a>
+            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={() => openLoginModal('/profile')}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold rounded-lg transition-colors"
+              >
+                Sign In
+              </button>
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google?returnTo=${encodeURIComponent('/profile')}`}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 border border-slate-600 hover:border-slate-500 bg-slate-800/50 text-slate-200 font-medium rounded-lg transition-colors"
+              >
+                Sign In with Google
+              </a>
+            </div>
           </div>
         )}
       </main>

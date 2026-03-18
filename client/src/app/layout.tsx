@@ -6,8 +6,10 @@ import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
 import { BookRateProvider } from "@/context/BookRateContext";
+import { LoginModalProvider } from "@/context/LoginModalContext";
 import Navbar from "@/components/Navbar";
 import BookRateModal from "@/components/BookRateModal";
+import LoginModal from "@/components/LoginModal";
 import CartDrawerWrapper from "@/components/CartDrawerWrapper";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import AuthToast from "@/components/AuthToast";
@@ -32,6 +34,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "KC Jewellers",
   description: "Live gold rates and jewellery",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://kc.gauravsoftwares.tech"),
 };
 
 export default function RootLayout({
@@ -47,6 +50,7 @@ export default function RootLayout({
         <GoogleAnalytics />
         <CartProvider>
           <BookRateProvider>
+            <LoginModalProvider>
             <Suspense fallback={null}>
               <Navbar />
             </Suspense>
@@ -55,10 +59,14 @@ export default function RootLayout({
             </Suspense>
             <AddToCartToast />
             {children}
-            <BookRateModal />
+            <Suspense fallback={null}>
+              <BookRateModal />
+            </Suspense>
+            <LoginModal />
             <Suspense fallback={null}>
               <CartDrawerWrapper />
             </Suspense>
+            </LoginModalProvider>
           </BookRateProvider>
         </CartProvider>
       </body>

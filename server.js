@@ -401,6 +401,7 @@ app.get('/api/auth/current_user', (req, res) => {
             user: {
                 id: resolvedUser.id,
                 email: resolvedUser.email,
+                mobile_number: resolvedUser.mobile_number,
                 name: resolvedUser.name,
                 role: resolvedUser.role,
                 account_status: resolvedUser.account_status,
@@ -443,6 +444,94 @@ app.post('/api/users/complete-profile', async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
+// OTP AUTHENTICATION
+// ==========================================
+const { sendSMS } = require('./services/smsService');
+
+app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
+    try {
+        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
+        if (mobile_number.length !== 10) {
+            return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
+        }
+        const otp_code = String(Math.floor(100000 + Math.random() * 900000));
+        const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        await query(
+            'INSERT INTO otps (mobile_number, otp_code, expires_at) VALUES ($1, $2, $3)',
+            [mobile_number, otp_code, expires_at]
+        );
+        await sendSMS(mobile_number, otp_code);
+        res.json({ success: true, message: 'OTP sent' });
+    } catch (err) {
+        console.error('Send OTP error:', err);
+        res.status(500).json({ error: err.message || 'Failed to send OTP' });
+    }
+});
+
+app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
+    try {
+        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
+        const otp_code = String(req.body.otp_code || '').trim();
+        if (mobile_number.length !== 10 || otp_code.length < 4) {
+            return res.status(400).json({ error: 'Valid mobile number and OTP required' });
+        }
+        const rows = await query(
+            'SELECT id, otp_code, expires_at FROM otps WHERE mobile_number = $1 ORDER BY created_at DESC LIMIT 1',
+            [mobile_number]
+        );
+        if (rows.length === 0) {
+            return res.status(400).json({ error: 'Invalid or expired OTP' });
+        }
+        const otp = rows[0];
+        if (otp.otp_code !== otp_code) {
+            return res.status(400).json({ error: 'Invalid OTP' });
+        }
+        if (new Date(otp.expires_at) < new Date()) {
+            return res.status(400).json({ error: 'OTP expired' });
+        }
+        await query('DELETE FROM otps WHERE mobile_number = $1', [mobile_number]);
+        let userRows = await query(
+            'SELECT * FROM users WHERE mobile_number = $1',
+            [mobile_number]
+        );
+        let user;
+        if (userRows.length === 0) {
+            const insert = await query(
+                `INSERT INTO users (mobile_number, name, role, account_status, email) 
+                 VALUES ($1, $2, 'customer', 'active', $3) RETURNING *`,
+                [mobile_number, `Customer ${mobile_number.slice(-4)}`, null]
+            );
+            user = insert[0];
+            console.log(`📱 New OTP user: ${mobile_number}`);
+        } else {
+            user = userRows[0];
+        }
+        user = resolveUserRole(user);
+        req.login(user, (err) => {
+            if (err) {
+                console.error('OTP login session error:', err);
+                return res.status(500).json({ error: 'Login failed' });
+            }
+            res.json({
+                success: true,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    mobile_number: user.mobile_number,
+                    name: user.name,
+                    role: user.role,
+                    account_status: user.account_status,
+                    allowed_tabs: user.allowed_tabs || [],
+                },
+            });
+        });
+    } catch (err) {
+        console.error('Verify OTP error:', err);
+        res.status(500).json({ error: err.message || 'Verification failed' });
     }
 });
 
@@ -3299,7 +3388,7 @@ app.post('/api/quotations/issue', requireJson, async (req, res) => {
 // ==========================================
 app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), async (req, res) => {
     try {
-        const { metal_type, quantity_kg } = req.body || {};
+        const { metal_type, quantity_kg, amount: clientPayableAmount } = req.body || {};
         if (!metal_type || !quantity_kg) return res.status(400).json({ error: 'metal_type and quantity_kg required' });
         const payload = await liveRateService.getCurrentPayload();
         const rateEntry = (payload?.rates || []).find(r => (r.metal_type || '').toLowerCase() === String(metal_type).toLowerCase());
@@ -3307,16 +3396,21 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
         const displayRate = Number(rateEntry.display_rate || rateEntry.sell_rate || 0);
         const totalAmount = Math.round(displayRate * Number(quantity_kg) * 100) / 100;
         
-        // Fetch advance amount from settings (default ₹5000)
-        let advanceAmount = 5000;
+        // Fetch standard advance amount from settings (default ₹5000)
+        let standardAdvance = 5000;
         try {
             const advRow = await query('SELECT value FROM app_settings WHERE key = $1', ['booking_advance_amount']);
             if (advRow.length && advRow[0].value) {
-                advanceAmount = Math.max(0, parseInt(advRow[0].value || '5000', 10));
+                standardAdvance = Math.max(0, parseInt(advRow[0].value || '5000', 10));
             }
         } catch (e) {
             console.warn('Failed to fetch advance amount from settings, using default:', e.message);
         }
+        // Payable advance: min(totalValue, standardAdvance). Client sends amount when total < standard.
+        const clientAmount = clientPayableAmount != null ? Math.round(Number(clientPayableAmount)) : null;
+        const advanceAmount = (clientAmount != null && clientAmount > 0)
+            ? Math.min(clientAmount, Math.ceil(totalAmount), standardAdvance)
+            : Math.min(Math.ceil(totalAmount), standardAdvance);
         
         const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
         const insert = await query(`
@@ -3337,7 +3431,7 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
                         'Authorization': `Basic ${auth}`
                     },
                     body: JSON.stringify({
-                        amount: Math.round(advanceAmount * 100), // Charge only advance amount
+                        amount: Math.round(advanceAmount * 100), // Charge payable advance (min of total value, standard advance)
                         currency: 'INR',
                         receipt: `lock_${lock.id}`,
                         payment_capture: 1,
@@ -3415,10 +3509,27 @@ app.post('/api/payment/razorpay/webhook', require('express').raw({ type: '*/*' }
 
 // ==========================================
 // SIP Subscribe
+// Fintech SIP: plan_id -> user_sips | Legacy: user_id/amount/frequency -> sip_subscriptions
 // ==========================================
 app.post('/api/sip/subscribe', checkAuth, async (req, res) => {
     try {
-        const { user_id, amount, frequency } = req.body || {};
+        const { plan_id, user_id, amount, frequency } = req.body || {};
+        if (plan_id) {
+            const userId = req.user?.id;
+            if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+            const plans = await query('SELECT * FROM sip_plans WHERE id = $1 AND is_active = true', [parseInt(plan_id)]);
+            if (plans.length === 0) return res.status(404).json({ error: 'Plan not found or inactive' });
+            const plan = plans[0];
+            const durationMonths = parseInt(plan.duration_months) || 12;
+            const startDate = new Date();
+            const maturityDate = new Date(startDate);
+            maturityDate.setMonth(maturityDate.getMonth() + durationMonths);
+            const rows = await query(`
+                INSERT INTO user_sips (user_id, plan_id, start_date, maturity_date, autopay_mandate_id, status)
+                VALUES ($1, $2, $3, $4, NULL, 'active') RETURNING *
+            `, [userId, parseInt(plan_id), startDate, maturityDate]);
+            return res.json(rows[0]);
+        }
         if (!user_id || !amount || !frequency) return res.status(400).json({ error: 'user_id, amount, frequency required' });
         const keyId = process.env.RAZORPAY_KEY_ID;
         const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -3598,6 +3709,49 @@ app.get('/api/admin/gold-lot-movements', isAdminStrict, async (req, res) => {
 });
 // Placeholder endpoints (return 200 OK with empty data)
 app.get('/api/admin/rates', isAdminStrict, (req, res) => res.json({ success: true, data: [] }));
+// Fintech SIP: Admin payouts (replaces placeholder)
+app.get('/api/admin/sip/payouts', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query(`
+            SELECT pr.id, pr.user_sip_id, pr.user_id, pr.requested_amount, pr.amount, pr.request_date, pr.status, pr.admin_remarks, pr.paid_on_date, pr.grams,
+                   u.name AS customer_name, u.email AS customer_email, u.phone_number AS customer_phone, u.mobile_number AS customer_mobile,
+                   sp.name AS plan_name, sp.metal_type AS plan_metal_type, sp.duration_months AS plan_duration_months
+            FROM sip_payout_requests pr
+            LEFT JOIN users u ON u.id = pr.user_id
+            LEFT JOIN user_sips us ON us.id = pr.user_sip_id
+            LEFT JOIN sip_plans sp ON sp.id = us.plan_id
+            ORDER BY pr.request_date DESC NULLS LAST, pr.id DESC
+        `);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/admin/sip/payouts/:id/mark-paid', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const payoutId = parseInt(req.params.id, 10);
+        if (isNaN(payoutId)) return res.status(400).json({ error: 'Invalid payout id' });
+        const { admin_remarks } = req.body || {};
+
+        const payouts = await query('SELECT * FROM sip_payout_requests WHERE id = $1', [payoutId]);
+        if (payouts.length === 0) return res.status(404).json({ error: 'Payout request not found' });
+        const p = payouts[0];
+        if (p.status === 'paid') return res.status(409).json({ error: 'Already marked as paid' });
+
+        await query(`
+            UPDATE sip_payout_requests SET status = 'paid', admin_remarks = $2, paid_on_date = CURRENT_TIMESTAMP WHERE id = $1
+        `, [payoutId, admin_remarks || null]);
+
+        if (p.user_sip_id) {
+            await query('UPDATE user_sips SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['cancelled_and_refunded', p.user_sip_id]);
+        }
+        res.json({ success: true, status: 'paid' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get('/api/admin/sip-payouts', isAdminStrict, (req, res) => res.json({ success: true, data: [] }));
 
 // Order statuses for admin dashboard (delivery_status in DB)
@@ -4071,10 +4225,73 @@ app.post('/api/addresses', checkAuth, async (req, res) => {
     }
 });
 
+// ==========================================
+// Fintech SIP: Public plans (active only)
+// ==========================================
 app.get('/api/sip/plans', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM sip_plans WHERE is_active = true ORDER BY created_at DESC');
         res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Fintech SIP: User's SIPs with totals (total paid, grams accumulated)
+// ==========================================
+app.get('/api/user/sips', checkAuth, async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+        const rows = await query(`
+            SELECT us.id, us.plan_id, us.start_date, us.maturity_date, us.autopay_mandate_id, us.status,
+                   sp.name AS plan_name, sp.metal_type, sp.duration_months, sp.installment_amount, sp.jeweler_benefit_percentage,
+                   COALESCE(SUM(CASE WHEN st.amount_paid IS NOT NULL THEN st.amount_paid ELSE st.amount END), 0) AS total_paid,
+                   COALESCE(SUM(CASE WHEN st.accumulated_grams IS NOT NULL THEN st.accumulated_grams ELSE st.gold_credited END), 0) AS total_grams_accumulated
+            FROM user_sips us
+            LEFT JOIN sip_plans sp ON sp.id = us.plan_id
+            LEFT JOIN sip_transactions st ON st.user_sip_id = us.id
+            WHERE us.user_id = $1
+            GROUP BY us.id, us.plan_id, us.start_date, us.maturity_date, us.autopay_mandate_id, us.status,
+                     sp.name, sp.metal_type, sp.duration_months, sp.installment_amount, sp.jeweler_benefit_percentage
+            ORDER BY us.start_date DESC
+        `, [userId]);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Fintech SIP: Cancel subscription (sets cancellation_requested, creates payout request)
+// ==========================================
+app.post('/api/user/sips/:id/cancel', checkAuth, async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+        const sipId = parseInt(req.params.id, 10);
+        if (isNaN(sipId)) return res.status(400).json({ error: 'Invalid SIP id' });
+
+        const sips = await query('SELECT * FROM user_sips WHERE id = $1 AND user_id = $2', [sipId, userId]);
+        if (sips.length === 0) return res.status(404).json({ error: 'SIP not found' });
+        const us = sips[0];
+        if (us.status !== 'active') return res.status(409).json({ error: 'SIP is not active; cannot cancel' });
+
+        const totalPaidRows = await query(`
+            SELECT COALESCE(SUM(CASE WHEN amount_paid IS NOT NULL THEN amount_paid ELSE amount END), 0) AS total
+            FROM sip_transactions WHERE user_sip_id = $1
+        `, [sipId]);
+        const totalPaid = Number(totalPaidRows[0]?.total || 0);
+
+        await query('UPDATE user_sips SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['cancellation_requested', sipId]);
+
+        const payoutRows = await query(`
+            INSERT INTO sip_payout_requests (user_sip_id, user_id, requested_amount, amount, grams, request_date, status)
+            VALUES ($1, $2, $3, $4, NULL, CURRENT_TIMESTAMP, 'pending') RETURNING *
+        `, [sipId, userId, totalPaid, totalPaid]);
+        res.json({ success: true, sip: { id: us.id, status: 'cancellation_requested' }, payout_request: payoutRows[0] });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -4201,25 +4418,26 @@ app.get('/api/admin/sip/plans', isAdminStrict, async (req, res) => {
     }
 });
 
-// Create SIP plan
-app.post('/api/admin/sip/plans', requireJson, isAdminStrict, validateNumbers(['min_amount','duration_months']), async (req, res) => {
+// Create SIP plan (supports Fintech: metal_type, installment_amount, jeweler_benefit_percentage)
+app.post('/api/admin/sip/plans', requireJson, isAdminStrict, validateNumbers(['min_amount','duration_months','installment_amount','jeweler_benefit_percentage']), async (req, res) => {
     try {
         const p = req.body || {};
-        if (!p.name || !p.type || !p.duration_months) {
-            return res.status(400).json({ error: 'name, type, duration_months required' });
+        if (!p.name || !p.duration_months) {
+            return res.status(400).json({ error: 'name, duration_months required' });
         }
+        const metalType = p.metal_type && ['gold','silver','diamond'].includes(String(p.metal_type).toLowerCase()) ? String(p.metal_type).toLowerCase() : null;
         const rows = await query(`
-            INSERT INTO sip_plans (name, type, min_amount, duration_months, is_active, created_at)
-            VALUES ($1, $2, COALESCE($3,0), $4, COALESCE($5, true), CURRENT_TIMESTAMP) RETURNING *
-        `, [p.name, p.type, Number(p.min_amount || 0), parseInt(p.duration_months), p.is_active]);
+            INSERT INTO sip_plans (name, type, min_amount, duration_months, metal_type, installment_amount, jeweler_benefit_percentage, is_active, created_at)
+            VALUES ($1, COALESCE($2,'MONTHLY'), COALESCE($3,0), $4, $5, $6, $7, COALESCE($8, true), CURRENT_TIMESTAMP) RETURNING *
+        `, [p.name, p.type, Number(p.min_amount || 0), parseInt(p.duration_months), metalType, Number(p.installment_amount || 0) || null, Number(p.jeweler_benefit_percentage || 0) || null, p.is_active]);
         res.json(rows[0]);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Update SIP plan (partial)
-app.put('/api/admin/sip/plans/:id', requireJson, isAdminStrict, validateNumbers(['min_amount','duration_months']), async (req, res) => {
+// Update SIP plan (partial, includes Fintech columns)
+app.put('/api/admin/sip/plans/:id', requireJson, isAdminStrict, validateNumbers(['min_amount','duration_months','installment_amount','jeweler_benefit_percentage']), async (req, res) => {
     try {
         const { id } = req.params;
         const p = req.body || {};
@@ -4230,6 +4448,9 @@ app.put('/api/admin/sip/plans/:id', requireJson, isAdminStrict, validateNumbers(
         if (p.type !== undefined) { updates.push(`type = $${i++}`); params.push(p.type); }
         if (p.min_amount !== undefined) { updates.push(`min_amount = $${i++}`); params.push(Number(p.min_amount)); }
         if (p.duration_months !== undefined) { updates.push(`duration_months = $${i++}`); params.push(parseInt(p.duration_months)); }
+        if (p.metal_type !== undefined) { updates.push(`metal_type = $${i++}`); params.push(['gold','silver','diamond'].includes(String(p.metal_type).toLowerCase()) ? String(p.metal_type).toLowerCase() : null); }
+        if (p.installment_amount !== undefined) { updates.push(`installment_amount = $${i++}`); params.push(Number(p.installment_amount) || null); }
+        if (p.jeweler_benefit_percentage !== undefined) { updates.push(`jeweler_benefit_percentage = $${i++}`); params.push(Number(p.jeweler_benefit_percentage) || null); }
         if (p.is_active !== undefined) { updates.push(`is_active = $${i++}`); params.push(Boolean(p.is_active)); }
         if (updates.length === 0) return res.status(400).json({ error: 'no fields to update' });
         const rows = await query(`UPDATE sip_plans SET ${updates.join(', ')}, created_at = created_at WHERE id = $${i} RETURNING *`, [...params, parseInt(id)]);

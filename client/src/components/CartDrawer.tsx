@@ -4,7 +4,9 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
+import { useLoginModal } from '@/context/LoginModalContext'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { getItemWeight, isDiamondItem } from '@/lib/pricing'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
@@ -40,11 +42,13 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const router = useRouter()
   const { items, remove, setQty } = useCart()
   const auth = useAuth()
+  const { open: openLoginModal } = useLoginModal()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const handleCheckout = () => {
     if (!auth.isAuthenticated) {
-      window.location.href = `${API_URL}/auth/google?returnTo=${encodeURIComponent('/checkout')}`
+      onClose()
+      openLoginModal('/checkout')
       return
     }
     onClose()
@@ -114,6 +118,11 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                           <div className="font-semibold text-white truncate">
                             {displayName}
                           </div>
+                          {getItemWeight(ci.item) != null && (
+                            <div className="text-sm text-slate-400 mt-0.5">
+                              Weight: {Number(getItemWeight(ci.item)).toFixed(2)} gm
+                            </div>
+                          )}
                           <div className="text-sm text-amber-400 font-medium mt-0.5">
                             ₹{Math.round(lineTotal).toLocaleString('en-IN')}
                             <span className="text-slate-300 font-normal ml-1">
@@ -153,7 +162,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                     </button>
                     {isExpanded && (
                       <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-2 text-sm">
-                        {!(ci.item.metal_type || '').toLowerCase().startsWith('diamond') && (
+                        {!isDiamondItem(ci.item) && (
                           <>
                             <div className="flex justify-between text-slate-200">
                               <span>Metal Cost</span>
@@ -171,7 +180,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                             )}
                           </>
                         )}
-                        {(ci.item.metal_type || '').toLowerCase().startsWith('diamond') && (
+                        {isDiamondItem(ci.item) && (
                           <div className="flex justify-between text-slate-200">
                             <span>Price</span>
                             <span className="tabular-nums">₹{Math.round((b.taxable || 0) * ci.qty).toLocaleString('en-IN')}</span>

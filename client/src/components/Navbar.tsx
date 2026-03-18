@@ -4,15 +4,17 @@ import Link from 'next/link'
 import { useCart } from '@/context/CartContext'
 import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
-import { Home, BookMarked, ShoppingCart, User, LayoutGrid, LogOut } from 'lucide-react'
+import { useLoginModal } from '@/context/LoginModalContext'
+import { Home, BookMarked, ShoppingCart, User, LayoutGrid, LogOut, TrendingUp } from 'lucide-react'
 import axios from 'axios'
 
-type UserType = { email?: string; name?: string; role?: string }
+type UserType = { email?: string; name?: string; role?: string; mobile_number?: string }
 
 export default function Navbar() {
   const { items } = useCart()
   const { open: openBookRate } = useBookRate()
   const auth = useAuth()
+  const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const count = items.reduce((sum, i) => sum + i.qty, 0)
 
@@ -36,6 +38,7 @@ export default function Navbar() {
     { href: '/', icon: Home, label: 'Home' },
     { action: 'book-rate', icon: BookMarked, label: 'Book Rate' },
     { href: '/catalog', icon: LayoutGrid, label: 'Catalog' },
+    { href: '/sip', icon: TrendingUp, label: 'Investment Plans' },
     { action: 'cart', icon: ShoppingCart, label: 'Cart', badge: count },
     { href: '/profile', icon: User, label: 'Profile' },
   ]
@@ -49,10 +52,18 @@ export default function Navbar() {
             KC Jewellers
           </Link>
           <div className="flex items-center gap-6">
+            {!auth.isAuthenticated && (
+              <button
+                onClick={() => openLoginModal()}
+                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors"
+              >
+                Sign In
+              </button>
+            )}
             {auth.isAuthenticated && user && (
               <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
                 <div className="flex flex-col items-end">
-                  <span className="text-xs text-yellow-500 font-medium">{user.name || user.email}</span>
+                  <span className="text-xs text-yellow-500 font-medium">{user.name || user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}</span>
                   {user.role === 'super_admin' && (
                     <span className="text-[10px] text-amber-400">Admin</span>
                   )}
@@ -123,10 +134,20 @@ export default function Navbar() {
 
       {/* Mobile: Sticky bottom */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-white/10 safe-area-pb">
+        {!auth.isAuthenticated && (
+          <div className="px-4 py-2 border-b border-white/10">
+            <button
+              onClick={() => openLoginModal()}
+              className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm"
+            >
+              Sign In
+            </button>
+          </div>
+        )}
         {auth.isAuthenticated && user && (
           <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between">
             <div className="flex flex-col">
-              <span className="text-xs text-yellow-500 font-medium">{user.name || user.email}</span>
+              <span className="text-xs text-yellow-500 font-medium">{user.name || user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}</span>
               {user.role === 'super_admin' && (
                 <span className="text-[10px] text-amber-400">Admin</span>
               )}

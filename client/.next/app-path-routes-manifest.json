@@ -9,6 +9,7 @@
   "/admin/rates/page": "/admin/rates",
   "/admin/sip/movements/page": "/admin/sip/movements",
   "/admin/sip/payouts/page": "/admin/sip/payouts",
+  "/admin/sip/plans/page": "/admin/sip/plans",
   "/bullion/gold/page": "/bullion/gold",
   "/bullion/silver/page": "/bullion/silver",
   "/catalog/page": "/catalog",
@@ -16,8 +17,11 @@
   "/checkout/page": "/checkout",
   "/checkout/success/page": "/checkout/success",
   "/favicon.ico/route": "/favicon.ico",
+  "/icon.png/route": "/icon.png",
+  "/opengraph-image.png/route": "/opengraph-image.png",
   "/page": "/",
   "/products/[id]/page": "/products/[id]",
   "/profile/page": "/profile",
+  "/profile/sips/page": "/profile/sips",
   "/sip/page": "/sip"
 }

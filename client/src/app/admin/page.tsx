@@ -13,6 +13,7 @@ import {
   BookMarked,
   ShoppingCart,
   Code2,
+  CircleDollarSign,
 } from 'lucide-react'
 
 const ADMIN_SECTIONS = [
@@ -24,18 +25,25 @@ const ADMIN_SECTIONS = [
     color: 'yellow',
   },
   {
+    title: 'SIP Plans Manager',
+    description: 'Create and manage Gold, Silver & Diamond SIP plans',
+    href: '/admin/sip/plans',
+    icon: CircleDollarSign,
+    color: 'amber',
+  },
+  {
+    title: 'SIP Payout Requests',
+    description: 'Process withdrawal requests from SIP cancellations',
+    href: '/admin/sip/payouts',
+    icon: Wallet,
+    color: 'emerald',
+  },
+  {
     title: 'Gold Lot Movements',
     description: 'View credits, debits, and gold balance movements',
     href: '/admin/sip/movements',
     icon: BarChart3,
     color: 'cyan',
-  },
-  {
-    title: 'SIP Payout Requests',
-    description: 'Approve or reject withdrawal requests',
-    href: '/admin/sip/payouts',
-    icon: Wallet,
-    color: 'emerald',
   },
   {
     title: 'Products & Catalogue',

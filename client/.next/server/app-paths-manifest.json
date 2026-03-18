@@ -9,6 +9,7 @@
   "/admin/rates/page": "app/admin/rates/page.js",
   "/admin/sip/movements/page": "app/admin/sip/movements/page.js",
   "/admin/sip/payouts/page": "app/admin/sip/payouts/page.js",
+  "/admin/sip/plans/page": "app/admin/sip/plans/page.js",
   "/bullion/gold/page": "app/bullion/gold/page.js",
   "/bullion/silver/page": "app/bullion/silver/page.js",
   "/catalog/page": "app/catalog/page.js",
@@ -16,8 +17,11 @@
   "/checkout/page": "app/checkout/page.js",
   "/checkout/success/page": "app/checkout/success/page.js",
   "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/icon.png/route": "app/icon.png/route.js",
+  "/opengraph-image.png/route": "app/opengraph-image.png/route.js",
   "/page": "app/page.js",
   "/products/[id]/page": "app/products/[id]/page.js",
   "/profile/page": "app/profile/page.js",
+  "/profile/sips/page": "app/profile/sips/page.js",
   "/sip/page": "app/sip/page.js"
 }

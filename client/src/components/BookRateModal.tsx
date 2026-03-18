@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useBookRate } from '@/context/BookRateContext'
+import { useAuth } from '@/hooks/useAuth'
+import { useLoginModal } from '@/context/LoginModalContext'
 import { subscribeLiveRates } from '@/lib/socket'
 
 declare global {
@@ -43,6 +45,8 @@ function getRateForMetal(rates: Rates, metalKey: string): number {
 
 export default function BookRateModal() {
   const { isOpen, close } = useBookRate()
+  const auth = useAuth()
+  const { open: openLoginModal } = useLoginModal()
   const [mobile, setMobile] = useState('')
   const [selectedMetal, setSelectedMetal] = useState<string>('gold_24k')
   const [rates, setRates] = useState<Rates>({ gold24k_10g: 0, gold22k_10g: 0, gold18k_10g: 0, silver_1kg: 0 })
@@ -51,6 +55,7 @@ export default function BookRateModal() {
   const [weightMode, setWeightMode] = useState<'preset' | 'custom'>('preset')
   const [selectedWeight, setSelectedWeight] = useState<number>(1)
   const [customWeightInput, setCustomWeightInput] = useState('')
+  const [quantity, setQuantity] = useState(1)
   const [submitting, setSubmitting] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const razorpayScriptLoaded = useRef(false)
@@ -120,6 +125,8 @@ export default function BookRateModal() {
   const isGold = selectedMetal.startsWith('gold')
   const weightOptions = isGold ? bookingWeights.gold : bookingWeights.silver
   const effectiveWeight = weightMode === 'custom' ? parseCustomWeight(customWeightInput) : selectedWeight
+  const totalValue = effectiveWeight > 0 && lockedRate > 0 ? (effectiveWeight * quantity) * lockedRate : 0
+  const payableAdvance = totalValue > 0 ? Math.min(totalValue, advanceAmount) : advanceAmount
 
   useEffect(() => {
     const opts = selectedMetal.startsWith('gold') ? bookingWeights.gold : bookingWeights.silver
@@ -176,9 +183,14 @@ export default function BookRateModal() {
   }, [url])
 
   const handleSubmit = async () => {
-    if (mobile.length !== 10 || advanceAmount <= 0 || effectiveWeight <= 0) return
+    if (mobile.length !== 10 || payableAdvance <= 0 || effectiveWeight <= 0 || quantity < 1) return
     if (!lockedRate || lockedRate <= 0) {
       showToast('Please wait for rates to load')
+      return
+    }
+    if (!auth.isAuthenticated) {
+      openLoginModal()
+      showToast('Please sign in to continue')
       return
     }
 
@@ -195,22 +207,19 @@ export default function BookRateModal() {
       const metalOpt = METAL_OPTIONS.find((m) => m.key === selectedMetal)
       let apiMetalType = metalOpt?.metalType || selectedMetal
       
-      // Convert to format expected by API (gold_24k -> gold, gold_22k -> gold_22k, etc.)
+      // Map to API metal_type (live_rates has gold, gold_22k, silver; gold_18k falls back to gold)
       if (apiMetalType.startsWith('gold')) {
-        // For gold variants, use the specific type or default to 'gold'
-        apiMetalType = apiMetalType === 'gold_22k' ? 'gold_22k' : apiMetalType === 'gold_18k' ? 'gold_18k' : 'gold'
+        apiMetalType = apiMetalType === 'gold_22k' ? 'gold_22k' : 'gold'
       }
 
-      // Calculate quantity_kg that would result in advanceAmount
-      // API calculates: totalAmount = displayRate * quantity_kg
-      // If displayRate is per gram: totalAmount = rate_per_gram * quantity_kg * 1000
-      // So: quantity_kg = advanceAmount / (rate_per_gram * 1000)
-      const quantityKg = advanceAmount / (lockedRate * 1000)
+      // quantity_kg = (effectiveWeight in grams * quantity) / 1000
+      const quantityKg = (effectiveWeight * quantity) / 1000
       
-      // Call /api/booking/lock to generate Razorpay order
+      // Call /api/booking/lock with payable advance (min of total value, standard advance)
       const response = await axios.post(`${url}/api/booking/lock`, {
         metal_type: apiMetalType,
-        quantity_kg: Math.max(quantityKg, 0.001), // Ensure minimum quantity
+        quantity_kg: Math.max(quantityKg, 0.001),
+        amount: Math.round(payableAdvance),
       })
 
       const { razorpay_order_id, amount } = response.data
@@ -221,8 +230,7 @@ export default function BookRateModal() {
       }
 
       // Use the amount returned by API (must match Razorpay order)
-      // If API amount doesn't match advanceAmount, we'll use API amount
-      const paymentAmount = amount || advanceAmount
+      const paymentAmount = amount || payableAdvance
 
       // Open Razorpay checkout modal
       const options = {
@@ -242,6 +250,7 @@ export default function BookRateModal() {
           setMobile('')
           setCustomWeightInput('')
           setWeightMode('preset')
+          setQuantity(1)
         },
         modal: {
           ondismiss: function () {
@@ -271,7 +280,7 @@ export default function BookRateModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="bg-slate-900/95 backdrop-blur-xl border border-white/10 text-slate-100 max-w-sm max-h-[90svh] overflow-hidden grid-rows-[auto_1fr_auto]">
+      <DialogContent className="bg-slate-900/95 backdrop-blur-xl border border-white/10 text-slate-100 max-w-sm sm:max-w-md max-h-[90svh] overflow-hidden grid-rows-[auto_1fr_auto] w-[calc(100vw-2rem)] sm:w-auto">
         <DialogHeader className="px-1">
           <DialogTitle className="text-yellow-500 text-lg">Book Rate</DialogTitle>
           <DialogDescription className="text-slate-400 text-xs leading-snug">
@@ -298,6 +307,17 @@ export default function BookRateModal() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">Quantity</label>
+            <input
+              type="number"
+              min={1}
+              value={quantity}
+              onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              className="bg-slate-800 text-white border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-yellow-500 outline-none text-sm"
+            />
           </div>
 
           <div>
@@ -359,6 +379,15 @@ export default function BookRateModal() {
             </p>
           </div>
 
+          {totalValue > 0 && (
+            <div className="rounded-lg bg-slate-800/80 border border-slate-600 p-2.5 flex items-center justify-between">
+              <p className="text-xs text-slate-400">Total value</p>
+              <p className="text-base font-semibold text-slate-100 tabular-nums">
+                ₹{Math.round(totalValue).toLocaleString('en-IN')}
+              </p>
+            </div>
+          )}
+
           <div>
             <label htmlFor="mobile" className="block text-xs font-medium text-slate-400 mb-1.5">
               Mobile Number
@@ -375,10 +404,12 @@ export default function BookRateModal() {
 
           <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3">
             <p className="text-sm text-slate-300">
-              Pay <span className="text-yellow-500 font-semibold">₹{advanceAmount.toLocaleString('en-IN')}</span> advance to freeze your rate.
+              Pay <span className="text-yellow-500 font-semibold">₹{Math.round(payableAdvance).toLocaleString('en-IN')}</span> advance to freeze your rate.
             </p>
             <p className="text-xs text-slate-400 mt-0.5">
-              Advance will be adjusted against your final purchase.
+              {totalValue > 0 && totalValue < advanceAmount
+                ? 'Total value is less than standard advance — you pay only the total value.'
+                : 'Advance will be adjusted against your final purchase.'}
             </p>
           </div>
         </div>
@@ -393,10 +424,10 @@ export default function BookRateModal() {
           </Button>
           <Button
             className="w-full sm:w-auto order-1 sm:order-2 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold"
-            disabled={mobile.length !== 10 || submitting || effectiveWeight <= 0}
+            disabled={mobile.length !== 10 || submitting || effectiveWeight <= 0 || quantity < 1 || payableAdvance <= 0}
             onClick={handleSubmit}
           >
-            {submitting ? 'Processing…' : `Pay ₹${advanceAmount.toLocaleString('en-IN')} & Freeze`}
+            {submitting ? 'Processing…' : `Pay ₹${Math.round(payableAdvance).toLocaleString('en-IN')} & Freeze`}
           </Button>
         </DialogFooter>
       </DialogContent>

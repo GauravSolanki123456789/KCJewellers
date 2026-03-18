@@ -16,6 +16,10 @@ function resolveUserRole(user) {
     if (!user) return null;
     const email = String(user.email || '').toLowerCase().trim();
     const superAdminEmail = String(SUPER_ADMIN_EMAIL).toLowerCase().trim();
+    // OTP-only users have no email; always customer
+    if (!email) {
+        return { ...user, role: 'customer', allowed_tabs: user.allowed_tabs || [] };
+    }
     
     if (email === superAdminEmail) {
         // Strict override: Force super_admin role and all tabs access

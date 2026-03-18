@@ -106,6 +106,12 @@
       "namedRegex": "^/admin/sip/payouts(?:/)?$"
     },
     {
+      "page": "/admin/sip/plans",
+      "regex": "^/admin/sip/plans(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/sip/plans(?:/)?$"
+    },
+    {
       "page": "/bullion/gold",
       "regex": "^/bullion/gold(?:/)?$",
       "routeKeys": {},
@@ -142,10 +148,28 @@
       "namedRegex": "^/favicon\\.ico(?:/)?$"
     },
     {
+      "page": "/icon.png",
+      "regex": "^/icon\\.png(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/icon\\.png(?:/)?$"
+    },
+    {
+      "page": "/opengraph-image.png",
+      "regex": "^/opengraph\\-image\\.png(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/opengraph\\-image\\.png(?:/)?$"
+    },
+    {
       "page": "/profile",
       "regex": "^/profile(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/profile(?:/)?$"
+    },
+    {
+      "page": "/profile/sips",
+      "regex": "^/profile/sips(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/profile/sips(?:/)?$"
     },
     {
       "page": "/sip",

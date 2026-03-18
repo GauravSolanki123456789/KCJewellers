@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useCart } from '@/context/CartContext'
-import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 
 type ProductCardProps = { product: Item; rates?: unknown[] }
 
@@ -16,7 +16,7 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
     product.item_name ||
     product.short_name ||
     'Item'
-  const weight = product.net_weight ?? product.net_wt ?? product.weight
+  const weight = getItemWeight(product)
   const barcode = product.barcode || product.sku || String(product.id || '')
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
@@ -69,7 +69,7 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
 
         {weight != null && (
           <span className="text-sm text-slate-400">
-            Wt: {Number(weight).toFixed(2)} gm
+            Weight: {Number(weight).toFixed(2)} gm
           </span>
         )}
 

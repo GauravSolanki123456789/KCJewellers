@@ -6,7 +6,9 @@ import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
+import { useLoginModal } from '@/context/LoginModalContext'
 import axios from '@/lib/axios'
+import { getItemWeight } from '@/lib/pricing'
 
 declare global {
   interface Window {
@@ -21,14 +23,14 @@ function CheckoutContent() {
   const router = useRouter()
   const { items, remove, setQty } = useCart()
   const auth = useAuth()
+  const { open: openLoginModal } = useLoginModal()
   const [loading, setLoading] = useState(false)
   const [scriptLoaded, setScriptLoaded] = useState(false)
 
   useEffect(() => {
-    // Wait for auth check to complete before redirecting (prevents loop when landing with ?auth=success)
     if (!auth.hasChecked) return
-    if (!auth.isAuthenticated) {
-      window.location.href = `${API_URL}/auth/google?returnTo=${encodeURIComponent('/checkout')}`
+    if (!auth.isAuthenticated && items.length > 0) {
+      openLoginModal('/checkout')
       return
     }
     const script = document.createElement('script')
@@ -84,11 +86,38 @@ function CheckoutContent() {
     }
   }
 
-  if (!auth.hasChecked || !auth.isAuthenticated) {
+  if (!auth.hasChecked) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-slate-400">
-          {!auth.hasChecked ? 'Checking authentication…' : 'Redirecting to login…'}
+        <div className="text-slate-400">Checking authentication…</div>
+      </div>
+    )
+  }
+  if (!auth.isAuthenticated && items.length > 0) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
+        <p className="text-slate-400 mb-6">Sign in to proceed to checkout</p>
+        <button
+          onClick={() => openLoginModal('/checkout')}
+          className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold"
+        >
+          Sign In
+        </button>
+      </div>
+    )
+  }
+  if (!auth.isAuthenticated && items.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-4">
+        <Link href="/catalog" className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
+          <ChevronLeft className="size-4" />
+          Back to Catalog
+        </Link>
+        <div className="max-w-md mx-auto text-center py-16">
+          <p className="text-slate-300 text-lg">Your cart is empty</p>
+          <Link href="/catalog" className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400">
+            Browse Catalog
+          </Link>
         </div>
       </div>
     )
@@ -136,7 +165,12 @@ function CheckoutContent() {
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-white truncate">{name}</div>
-                  <div className="text-sm text-amber-400">₹{Math.round(lineTotal).toLocaleString('en-IN')} × {ci.qty}</div>
+                  {getItemWeight(ci.item) != null && (
+                    <div className="text-sm text-slate-400 mt-0.5">
+                      Weight: {Number(getItemWeight(ci.item)).toFixed(2)} gm
+                    </div>
+                  )}
+                  <div className="text-sm text-amber-400 mt-0.5">₹{Math.round(lineTotal).toLocaleString('en-IN')} × {ci.qty}</div>
                 </div>
               </div>
             )

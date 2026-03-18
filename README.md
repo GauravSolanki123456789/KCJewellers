@@ -8,7 +8,7 @@ command to kill ghost
 command to kill one drive error 
 Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
 
-
+rm -rf /var/www/kcjewellers/public/uploads/web_products/*
 command to access database 
 sudo -u postgres psql -d kcjewellers
 DELETE FROM web_products WHERE barcode = '100001';
@@ -174,6 +174,7 @@ See [`env.production.example`](./env.production.example) for all required enviro
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - For Google OAuth login
 - `GITHUB_REPO` - For self-update feature
 - `DOMAIN` - Your domain name
+- **Mobile OTP (SMS):** `MSG91_AUTH_KEY` or `SMS_PROVIDER_API_KEY` - For OTP delivery. Without this, OTPs are logged to console (dev only).
 
 ---
 
