@@ -43,10 +43,10 @@ async function run() {
                 await client.query('INSERT INTO _migrations (filename) VALUES ($1)', [filename]);
                 await client.query('COMMIT');
                 console.log(`✅ Done: ${filename}`);
-            } catch (err) {
+            } catch (error) {
                 await client.query('ROLLBACK');
-                console.error(`❌ Failed: ${err.message}`);
-                throw err;
+                console.error(`❌ Failed: ${error.message}`);
+                throw error;
             }
         }
         console.log('\n✅ Migrations 008 & 009 complete.');
@@ -56,7 +56,7 @@ async function run() {
     }
 }
 
-run().catch(err => {
-    console.error(err);
+run().catch(error => {
+    console.error(error);
     process.exit(1);
 });

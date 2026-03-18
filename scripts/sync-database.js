@@ -61,7 +61,7 @@ async function syncDatabase() {
         try {
             await sourceTenantPool.query('SELECT 1');
             console.log(`✅ Source tenant database exists: ${tenantDb}`);
-        } catch (e) {
+        } catch (error) {
             console.error(`❌ Source tenant database not found: ${tenantDb}`);
             process.exit(1);
         }
@@ -69,7 +69,7 @@ async function syncDatabase() {
         try {
             await destTenantPool.query('SELECT 1');
             console.log(`✅ Destination tenant database exists: ${tenantDb}\n`);
-        } catch (e) {
+        } catch (error) {
             console.error(`❌ Destination tenant database not found: ${tenantDb}`);
             console.log('Creating destination tenant database...');
             // Create database if doesn't exist

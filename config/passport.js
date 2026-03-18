@@ -19,9 +19,9 @@ passport.deserializeUser(async (id, done) => {
         } else {
             done(null, null);
         }
-    } catch (err) {
-        console.error('Deserialize user error:', err);
-        done(err, null);
+    } catch (error) {
+        console.error('Deserialize user error:', error);
+        done(error, null);
     }
 });
 
@@ -131,9 +131,9 @@ passport.use(new GoogleStrategy({
             console.log(`✅ New user created: ${emailLower} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
             return done(null, resolvedUser);
         }
-    } catch (err) {
-        console.error('Passport authentication error:', err);
-        return done(err, null);
+    } catch (error) {
+        console.error('Passport authentication error:', error);
+        return done(error, null);
     }
 }));
 

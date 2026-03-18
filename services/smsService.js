@@ -54,9 +54,9 @@ async function sendViaMSG91(mobile, otpCode) {
             throw new Error(data.message || 'SMS send failed');
         }
         return { success: true };
-    } catch (err) {
-        console.error('[SMS] MSG91 send error:', err.message);
-        throw err;
+    } catch (error) {
+        console.error('[SMS] MSG91 send error:', error.message);
+        throw error;
     }
 }
 
@@ -77,9 +77,9 @@ async function sendViaTwilio(mobile, otpCode) {
             to: `+91${mobile}`,
         });
         return { success: true };
-    } catch (err) {
-        console.error('[SMS] Twilio send error:', err.message);
-        throw err;
+    } catch (error) {
+        console.error('[SMS] Twilio send error:', error.message);
+        throw error;
     }
 }
 

@@ -547,8 +547,8 @@ async function initSchema() {
             VALUES ('booking_advance_amount', '5000', CURRENT_TIMESTAMP)
             ON CONFLICT (key) DO NOTHING
         `);
-    } catch (e) {
-        console.warn('App settings init:', e.message);
+    } catch (error) {
+        console.warn('App settings init:', error.message);
     }
 }
 

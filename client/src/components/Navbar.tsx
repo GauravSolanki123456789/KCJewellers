@@ -25,8 +25,8 @@ export default function Navbar() {
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
       window.location.href = '/'
-    } catch (err) {
-      console.error('Logout error:', err)
+    } catch (error) {
+      console.error('Logout error:', error)
       window.location.href = '/'
     }
   }

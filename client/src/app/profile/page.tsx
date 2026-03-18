@@ -31,8 +31,8 @@ function ProfilePageContent() {
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
       window.location.href = '/'
-    } catch (err) {
-      console.error('Logout error:', err)
+    } catch (error) {
+      console.error('Logout error:', error)
       window.location.href = '/'
     }
   }
@@ -82,7 +82,7 @@ function ProfilePageContent() {
           </div>
         </section>
 
-        {/* My SIP Investments - Only when authenticated */}
+        {/* My SIP Investments - For all authenticated customers */}
         {auth.isAuthenticated && (
           <section className="mb-6">
             <Link

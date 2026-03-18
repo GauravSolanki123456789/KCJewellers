@@ -241,8 +241,8 @@ app.get('/auth/bypass', authLimiter, async (req, res, next) => {
             user = newUser.rows[0];
         }
         const resolvedUser = resolveUserRole(user);
-        req.login(resolvedUser, (err) => {
-            if (err) return next(err);
+        req.login(resolvedUser, (error) => {
+            if (error) return next(error);
             const redirect = req.query.redirect && typeof req.query.redirect === 'string' ? req.query.redirect : '/';
             res.redirect(redirect);
         });
@@ -262,10 +262,10 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
         // Ensure session is saved before redirecting to Google (prevents losing returnTo)
         try {
             await new Promise((resolve, reject) => {
-                req.session.save((err) => (err ? reject(err) : resolve()));
+                req.session.save((error) => (error ? reject(error) : resolve()));
             });
-        } catch (e) {
-            console.warn('Session save before OAuth redirect failed:', e?.message);
+        } catch (error) {
+            console.warn('Session save before OAuth redirect failed:', error?.message);
         }
     }
     // 🛠️ LOCAL DEV BYPASS
@@ -303,10 +303,10 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
             // Ensure super_admin role and ['all'] tabs are set
             resolvedUser.role = 'super_admin';
             resolvedUser.allowed_tabs = ['all'];
-            req.login(resolvedUser, (err) => {
-                if (err) { 
-                    console.error("Login Error:", err);
-                    return next(err); 
+            req.login(resolvedUser, (error) => {
+                if (error) { 
+                    console.error("Login Error:", error);
+                    return next(error); 
                 }
                 const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
                 const target = req.session?.redirect_after_login || '/';
@@ -371,10 +371,10 @@ app.get('/auth/google/callback', authLimiter,
             res.redirect(redirectUrl);
         } else if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
             // Destroy session for suspended users
-            req.logout((err) => {
-                if (err) { console.error('Logout error:', err); }
-                req.session.destroy((err) => {
-                    if (err) { console.error('Session destroy error:', err); }
+            req.logout((error) => {
+                if (error) { console.error('Logout error:', error); }
+                req.session.destroy((error) => {
+                    if (error) { console.error('Session destroy error:', error); }
                     res.clearCookie('jp.sid');
                     res.redirect(clientUrl + '/?auth=suspended&email=' + encodeURIComponent(email));
                 });
@@ -442,8 +442,8 @@ app.post('/api/users/complete-profile', async (req, res) => {
         req.user.account_status = 'pending';
 
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -466,9 +466,9 @@ app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
         );
         await sendSMS(mobile_number, otp_code);
         res.json({ success: true, message: 'OTP sent' });
-    } catch (err) {
-        console.error('Send OTP error:', err);
-        res.status(500).json({ error: err.message || 'Failed to send OTP' });
+    } catch (error) {
+        console.error('Send OTP error:', error);
+        res.status(500).json({ error: error.message || 'Failed to send OTP' });
     }
 });
 
@@ -511,9 +511,9 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
             user = userRows[0];
         }
         user = resolveUserRole(user);
-        req.login(user, (err) => {
-            if (err) {
-                console.error('OTP login session error:', err);
+        req.login(user, (error) => {
+            if (error) {
+                console.error('OTP login session error:', error);
                 return res.status(500).json({ error: 'Login failed' });
             }
             res.json({
@@ -529,9 +529,9 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
                 },
             });
         });
-    } catch (err) {
-        console.error('Verify OTP error:', err);
-        res.status(500).json({ error: err.message || 'Verification failed' });
+    } catch (error) {
+        console.error('Verify OTP error:', error);
+        res.status(500).json({ error: error.message || 'Verification failed' });
     }
 });
 
@@ -541,17 +541,17 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
 
 app.get('/api/auth/logout', (req, res) => {
     const performLogout = () => {
-        req.logout((err) => {
-            if (err) { 
-                console.error('Logout error:', err);
+        req.logout((error) => {
+            if (error) { 
+                console.error('Logout error:', error);
                 if (req.xhr || req.headers.accept?.includes('application/json') || req.path.startsWith('/api/')) {
-                    return res.status(500).json({ error: 'Logout failed', details: err.message });
+                    return res.status(500).json({ error: 'Logout failed', details: error.message });
                 }
             }
             
             // Destroy the session completely
-            req.session.destroy((sessionErr) => {
-                if (sessionErr) { console.error('Session destroy error:', sessionErr); }
+            req.session.destroy((sessionError) => {
+                if (sessionError) { console.error('Session destroy error:', sessionError); }
                 
                 // Clear all cookies
                 res.clearCookie('jp.sid', { 
@@ -584,15 +584,15 @@ app.get('/api/auth/logout', (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-    req.logout((err) => {
-        if (err) { 
-            console.error('Logout error:', err);
+    req.logout((error) => {
+        if (error) { 
+            console.error('Logout error:', error);
             return res.status(500).json({ error: 'Logout failed' }); 
         }
         
         // Destroy the session completely
-        req.session.destroy((sessionErr) => {
-            if (sessionErr) { console.error('Session destroy error:', sessionErr); }
+        req.session.destroy((sessionError) => {
+            if (sessionError) { console.error('Session destroy error:', sessionError); }
             
             // Clear all cookies
             res.clearCookie('jp.sid', { path: '/' });
@@ -948,8 +948,8 @@ initDatabase().then(async success => {
         console.log('⚠️ Server started but database initialization failed.');
         console.log('💡 Please check your PostgreSQL connection and restart the server.');
     }
-}).catch(err => {
-    console.error('❌ Unexpected error during database initialization:', err);
+}).catch(error => {
+    console.error('❌ Unexpected error during database initialization:', error);
 });
 
 // ==========================================
@@ -1012,7 +1012,7 @@ app.post('/api/auth/login', async (req, res) => {
                     if (typeof allowedTabs === 'string') {
                         try {
                             allowedTabs = JSON.parse(allowedTabs);
-                        } catch (e) {
+                        } catch (error) {
                             allowedTabs = allowedTabs.split(',').map(t => t.trim()).filter(t => t);
                         }
                     }
@@ -1981,7 +1981,7 @@ app.post('/api/quotations/:id/recycle', checkAuth, hasPermission('quotations'), 
         let items = [];
         try {
             items = typeof quotation.items === 'string' ? JSON.parse(quotation.items) : quotation.items;
-        } catch (e) { items = []; }
+        } catch (error) { items = []; }
 
         // 2. Revert Stock (Un-sell products)
         if (items && Array.isArray(items) && items.length > 0) {
@@ -3403,8 +3403,8 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
             if (advRow.length && advRow[0].value) {
                 standardAdvance = Math.max(0, parseInt(advRow[0].value || '5000', 10));
             }
-        } catch (e) {
-            console.warn('Failed to fetch advance amount from settings, using default:', e.message);
+        } catch (error) {
+            console.warn('Failed to fetch advance amount from settings, using default:', error.message);
         }
         // Payable advance: min(totalValue, standardAdvance). Client sends amount when total < standard.
         const clientAmount = clientPayableAmount != null ? Math.round(Number(clientPayableAmount)) : null;
@@ -3445,8 +3445,8 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
                     console.warn('Razorpay order creation failed:', data);
                 }
             }
-        } catch (e) {
-            console.warn('Razorpay order error:', e.message);
+        } catch (error) {
+            console.warn('Razorpay order error:', error.message);
         }
         await query(`UPDATE booking_locks SET razorpay_order_id = $1 WHERE id = $2`, [orderId, lock.id]);
         res.json({ lock_id: lock.id, razorpay_order_id: orderId, amount: advanceAmount, currency: 'INR', expires_at });
@@ -3558,8 +3558,8 @@ app.post('/api/sip/subscribe', checkAuth, async (req, res) => {
                 const subData = await subResp.json();
                 if (subResp.ok && subData.id) subscriptionId = subData.id;
             }
-        } catch (e) {
-            console.warn('Razorpay subscription error:', e.message);
+        } catch (error) {
+            console.warn('Razorpay subscription error:', error.message);
         }
         const rows = await query(`
             INSERT INTO sip_subscriptions (user_id, amount, frequency, razorpay_subscription_id, status, created_at)
@@ -3941,8 +3941,8 @@ app.put('/api/admin/catalog/reorder-subcategories', requireJson, isAdminStrict, 
 
 // Admin: Diamond enrichment — update specs + upload certificate (multipart)
 const diamondDetailsUpload = (req, res, next) => {
-    uploadCertificate.single('certificate')(req, res, (err) => {
-        if (err) return res.status(400).json({ error: err.message || 'Invalid certificate file' });
+    uploadCertificate.single('certificate')(req, res, (error) => {
+        if (error) return res.status(400).json({ error: error.message || 'Invalid certificate file' });
         next();
     });
 };
@@ -4089,8 +4089,8 @@ try {
                     }
                 }
             }
-        } catch (e) {
-            console.warn('Cron reconcile error:', e.message);
+        } catch (error) {
+            console.warn('Cron reconcile error:', error.message);
         }
     });
 } catch {}
@@ -4149,11 +4149,28 @@ app.post('/api/orders', checkAuth, async (req, res) => {
 app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) => {
     try {
         const items = req.body.items || [];
+        const sipUserSipId = req.body.sip_user_sip_id ? parseInt(req.body.sip_user_sip_id, 10) : null;
+        const sipRedemptionAmount = sipUserSipId ? Math.max(0, Number(req.body.sip_redemption_amount || 0)) : 0;
+
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ error: 'Cart is empty' });
         }
-        const totalAmount = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
-        if (totalAmount <= 0) return res.status(400).json({ error: 'Invalid total' });
+        const grandTotal = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
+        if (grandTotal <= 0) return res.status(400).json({ error: 'Invalid total' });
+
+        let amountToCharge = grandTotal;
+        let finalSipRedemption = 0;
+
+        if (sipUserSipId && sipRedemptionAmount > 0 && sipRedemptionAmount <= grandTotal) {
+            const sipCheck = await query(
+                'SELECT id, status FROM user_sips WHERE id = $1 AND user_id = $2 AND status = $3',
+                [sipUserSipId, req.user?.id, 'completed']
+            );
+            if (sipCheck.length > 0) {
+                finalSipRedemption = sipRedemptionAmount;
+                amountToCharge = Math.max(0, grandTotal - finalSipRedemption);
+            }
+        }
 
         const itemsSnapshot = items.map((ci) => ({
             barcode: ci.item?.barcode || ci.id,
@@ -4167,33 +4184,50 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
         const keySecret = process.env.RAZORPAY_KEY_SECRET;
         let razorpayOrderId = null;
 
-        if (keyId && keySecret) {
+        if (keyId && keySecret && amountToCharge > 0) {
             const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
             const resp = await fetch('https://api.razorpay.com/v1/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
                 body: JSON.stringify({
-                    amount: Math.round(totalAmount * 100),
+                    amount: Math.round(amountToCharge * 100),
                     currency: 'INR',
                     receipt: `cart_${Date.now()}`,
                     payment_capture: 1,
-                    notes: { type: 'catalog', user_id: String(req.user?.id || '') },
+                    notes: { type: 'catalog', user_id: String(req.user?.id || ''), sip_redemption: String(finalSipRedemption) },
                 }),
             });
             const data = await resp.json();
             if (resp.ok && data?.id) razorpayOrderId = data.id;
         }
-        if (!razorpayOrderId) razorpayOrderId = `order_${Date.now()}`;
+        if (!razorpayOrderId && amountToCharge > 0) razorpayOrderId = `order_${Date.now()}`;
+        if (amountToCharge === 0) razorpayOrderId = razorpayOrderId || `order_${Date.now()}`;
 
         const [row] = await query(`
-            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, created_at)
-            VALUES ($1, $2, 'PENDING', 'RAZORPAY', $3, 'PENDING', $4, CURRENT_TIMESTAMP) RETURNING *
-        `, [req.user?.id || null, totalAmount, razorpayOrderId, JSON.stringify(itemsSnapshot)]);
+            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, sip_redemption_amount, sip_user_sip_id, amount_paid_via_pg, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8, $9, CURRENT_TIMESTAMP) RETURNING *
+        `, [
+            req.user?.id || null,
+            grandTotal,
+            amountToCharge === 0 ? 'PAID' : 'PENDING',
+            amountToCharge === 0 ? 'SIP_REDEMPTION' : (finalSipRedemption > 0 ? 'SIP_AND_RAZORPAY' : 'RAZORPAY'),
+            razorpayOrderId,
+            JSON.stringify(itemsSnapshot),
+            finalSipRedemption,
+            finalSipRedemption > 0 ? sipUserSipId : null,
+            amountToCharge > 0 ? amountToCharge : null,
+        ]);
+
+        if (finalSipRedemption > 0 && sipUserSipId) {
+            await query('UPDATE user_sips SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['redeemed', sipUserSipId]);
+        }
 
         res.json({
             order_id: row.id,
             razorpay_order_id: razorpayOrderId,
-            amount: totalAmount,
+            amount: amountToCharge,
+            grand_total: grandTotal,
+            sip_redemption_amount: finalSipRedemption,
             key_id: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
         });
     } catch (error) {
@@ -4259,6 +4293,69 @@ app.get('/api/user/sips', checkAuth, async (req, res) => {
             ORDER BY us.start_date DESC
         `, [userId]);
         res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Fintech SIP: Redeemable SIPs (completed only, with redemption_value)
+// Used at checkout to apply SIP balance
+// ==========================================
+app.get('/api/user/sips/redeemable', checkAuth, async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+        const rows = await query(`
+            SELECT us.id, us.plan_id, us.status,
+                   sp.name AS plan_name, sp.metal_type, sp.installment_amount, sp.jeweler_benefit_percentage,
+                   COALESCE(SUM(CASE WHEN st.amount_paid IS NOT NULL THEN st.amount_paid ELSE st.amount END), 0) AS total_paid,
+                   COALESCE(SUM(CASE WHEN st.accumulated_grams IS NOT NULL THEN st.accumulated_grams ELSE st.gold_credited END), 0) AS total_grams_accumulated
+            FROM user_sips us
+            LEFT JOIN sip_plans sp ON sp.id = us.plan_id
+            LEFT JOIN sip_transactions st ON st.user_sip_id = us.id
+            WHERE us.user_id = $1 AND us.status = 'completed'
+            GROUP BY us.id, us.plan_id, us.status, sp.name, sp.metal_type, sp.installment_amount, sp.jeweler_benefit_percentage
+            ORDER BY us.id DESC
+        `, [userId]);
+
+        const payload = await liveRateService.getCurrentPayload();
+        const rates = payload?.rates || [];
+        const goldRate = rates.find(r => (r.metal_type || '').toLowerCase() === 'gold');
+        const silverRate = rates.find(r => (r.metal_type || '').toLowerCase() === 'silver');
+        const goldPerGram = goldRate ? Number(goldRate.display_rate || goldRate.sell_rate || 0) / 10 : 0;
+        const silverPerGram = silverRate ? Number(silverRate.display_rate || silverRate.sell_rate || 0) / 1000 : 0;
+
+        const result = rows.map((r) => {
+            const metal = (r.metal_type || '').toLowerCase();
+            const totalPaid = Number(r.total_paid || 0);
+            const totalGrams = Number(r.total_grams_accumulated || 0);
+            const installmentAmount = Number(r.installment_amount || 0);
+            const benefitPct = Number(r.jeweler_benefit_percentage || 0);
+            const jewelerBenefitAmount = (benefitPct / 100) * installmentAmount;
+
+            let redemptionValue = 0;
+            if (metal === 'diamond') {
+                redemptionValue = totalPaid + jewelerBenefitAmount;
+            } else {
+                const ratePerGram = metal === 'silver' ? silverPerGram : goldPerGram;
+                const metalValue = totalGrams > 0 && ratePerGram > 0 ? totalGrams * ratePerGram : totalPaid;
+                redemptionValue = metalValue + jewelerBenefitAmount;
+            }
+
+            return {
+                id: r.id,
+                plan_name: r.plan_name,
+                metal_type: r.metal_type,
+                total_paid: totalPaid,
+                total_grams_accumulated: totalGrams,
+                jeweler_benefit_amount: jewelerBenefitAmount,
+                redemption_value: Math.round(redemptionValue * 100) / 100,
+            };
+        });
+
+        res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5489,7 +5586,7 @@ liveRateService.start(io);
 
 // 5-minute poller: keep live rates cache fresh
 setInterval(() => {
-    liveRateService.fetchLiveRates().catch(err => console.error('Rate poller error:', err.message));
+    liveRateService.fetchLiveRates().catch(error => console.error('Rate poller error:', error.message));
 }, 5 * 60 * 1000);
 
 // ==========================================
@@ -5503,11 +5600,11 @@ async function ensureApiKeyColumn() {
 }
 
 // Returns true when the error indicates the api_key column is missing.
-function isColumnMissingError(err) {
+function isColumnMissingError(error) {
     return (
-        err.code === '42703' ||              // PostgreSQL: undefined_column
-        err.code === '42P01' ||              // PostgreSQL: undefined_table
-        (typeof err.message === 'string' && err.message.includes('does not exist'))
+        error.code === '42703' ||              // PostgreSQL: undefined_column
+        error.code === '42P01' ||              // PostgreSQL: undefined_table
+        (typeof error.message === 'string' && error.message.includes('does not exist'))
     );
 }
 
@@ -5771,15 +5868,15 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
 // ERROR HANDLING
 // ==========================================
 
-app.use((err, req, res, next) => {
+app.use((error, req, res, next) => {
     if (req.path.startsWith('/api/')) {
-        console.error('API Error:', err);
-        res.status(err.status || 500).json({ 
-            error: err.message || 'Internal server error',
+        console.error('API Error:', error);
+        res.status(error.status || 500).json({ 
+            error: error.message || 'Internal server error',
             success: false 
         });
     } else {
-        next(err);
+        next(error);
     }
 });
 

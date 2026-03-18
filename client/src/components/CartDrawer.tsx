@@ -18,8 +18,8 @@ type CartDrawerProps = {
 }
 
 function CartItemImage({ src, alt }: { src: string; alt: string }) {
-  const [err, setErr] = useState(false)
-  if (err) {
+  const [hasImageError, setHasImageError] = useState(false)
+  if (hasImageError) {
     return (
       <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
         <span className="text-xl font-bold text-slate-500">{alt.charAt(0)}</span>
@@ -32,7 +32,7 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
         src={src}
         alt={alt}
         className="w-full h-full object-contain"
-        onError={() => setErr(true)}
+        onError={() => setHasImageError(true)}
       />
     </div>
   )

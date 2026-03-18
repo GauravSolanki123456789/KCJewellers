@@ -138,8 +138,8 @@ async function fetchLiveRates() {
       source: 'live_market',
       timestamp
     };
-  } catch (err) {
-    console.error('liveRateService Yahoo Finance failed:', err.message);
+  } catch (error) {
+    console.error('liveRateService Yahoo Finance failed:', error.message);
     // Fallback to 2026 Chennai rates
     const rates = { ...FALLBACK_RATES };
     const timestamp = Date.now();
@@ -251,8 +251,8 @@ async function tick(io) {
     io.to('main').emit('rate_update', payload);
     io.emit('live-rate', payload);
     io.emit('rate_update', payload);
-  } catch (err) {
-    console.error('liveRateService tick error:', err.message);
+  } catch (error) {
+    console.error('liveRateService tick error:', error.message);
   }
 }
 

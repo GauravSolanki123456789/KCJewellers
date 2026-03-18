@@ -88,8 +88,8 @@ export default function BookRateModal() {
   // Load Razorpay script when modal opens
   useEffect(() => {
     if (isOpen) {
-      loadRazorpayScript().catch((err) => {
-        console.error('Error loading Razorpay script:', err)
+      loadRazorpayScript().catch((error) => {
+        console.error('Error loading Razorpay script:', error)
       })
     }
   }, [isOpen])

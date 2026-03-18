@@ -270,9 +270,9 @@ module.exports = {
                 error: 'Admin access denied. Only whitelisted super admin email has access.',
                 code: 'ADMIN_ACCESS_DENIED'
             });
-        } catch (e) {
-            console.error('Error in isAdminStrict middleware:', e);
-            return res.status(500).json({ error: 'Access check failed', details: e.message });
+        } catch (error) {
+            console.error('Error in isAdminStrict middleware:', error);
+            return res.status(500).json({ error: 'Access check failed', details: error.message });
         }
     }
 };

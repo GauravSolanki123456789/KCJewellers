@@ -48,11 +48,11 @@ async function setup() {
                 if (statement.length > 10) {
                     try {
                         await pool.query(statement);
-                    } catch (err) {
+                    } catch (error) {
                         // Ignore "already exists" errors
-                        if (!err.message.includes('already exists') && 
-                            !err.message.includes('duplicate key')) {
-                            console.warn(`⚠️ Warning: ${err.message.substring(0, 100)}`);
+                        if (!error.message.includes('already exists') && 
+                            !error.message.includes('duplicate key')) {
+                            console.warn(`⚠️ Warning: ${error.message.substring(0, 100)}`);
                         }
                     }
                 }
@@ -340,9 +340,9 @@ async function initializeSchema(pool) {
     for (const stmt of tableStatements) {
         try {
             await pool.query(stmt);
-        } catch (err) {
-            if (!err.message.includes('already exists')) {
-                console.warn(`⚠️ ${err.message.substring(0, 80)}`);
+        } catch (error) {
+            if (!error.message.includes('already exists')) {
+                console.warn(`⚠️ ${error.message.substring(0, 80)}`);
             }
         }
     }
@@ -360,7 +360,7 @@ async function initializeSchema(pool) {
     for (const idx of indexes) {
         try {
             await pool.query(idx);
-        } catch (err) {
+        } catch (error) {
             // Ignore index errors
         }
     }

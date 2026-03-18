@@ -143,11 +143,11 @@ async function sendToNetworkPrinter(tsplCommands, printerIP, printerPort = 9100)
             console.log(`✅ Connected to printer at ${printerIP}:${printerPort}`);
             
             // Send TSPL commands
-            client.write(tsplCommands, 'utf8', (err) => {
-                if (err) {
-                    console.error('❌ Error sending data:', err);
+            client.write(tsplCommands, 'utf8', (error) => {
+                if (error) {
+                    console.error('❌ Error sending data:', error);
                     client.destroy();
-                    reject(err);
+                    reject(error);
                 } else {
                     console.log('✅ TSPL commands sent successfully');
                     client.destroy();
@@ -156,10 +156,10 @@ async function sendToNetworkPrinter(tsplCommands, printerIP, printerPort = 9100)
             });
         });
         
-        client.on('error', (err) => {
-            console.error('❌ Printer connection error:', err);
+        client.on('error', (error) => {
+            console.error('❌ Printer connection error:', error);
             if (!connected) {
-                reject(err);
+                reject(error);
             }
         });
         
@@ -201,7 +201,7 @@ async function sendToUSBPrinter(tsplCommands, printerPort) {
                     } else {
                         console.log('✅ TSPL commands sent to USB printer');
                         // Clean up temp file
-                        try { fs.unlinkSync(tempFile); } catch (e) {}
+                        try { fs.unlinkSync(tempFile); } catch (error) {}
                         resolve(true);
                     }
                 });
@@ -211,9 +211,9 @@ async function sendToUSBPrinter(tsplCommands, printerPort) {
                 console.log(`✅ TSPL commands written to ${printerPort}`);
                 resolve(true);
             }
-        } catch (err) {
-            console.error('❌ Error writing to printer:', err);
-            reject(err);
+        } catch (error) {
+            console.error('❌ Error writing to printer:', error);
+            reject(error);
         }
     });
 }

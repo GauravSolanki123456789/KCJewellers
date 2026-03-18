@@ -1,9 +1,9 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, Wallet, Sparkles, Info } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
@@ -16,16 +16,50 @@ declare global {
   }
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 const RAZORPAY_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || ''
+
+type RedeemableSip = {
+  id: number
+  plan_name: string
+  metal_type?: string | null
+  total_paid: number
+  total_grams_accumulated: number
+  jeweler_benefit_amount: number
+  redemption_value: number
+}
 
 function CheckoutContent() {
   const router = useRouter()
-  const { items, remove, setQty } = useCart()
+  const { items, remove } = useCart()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const [loading, setLoading] = useState(false)
   const [scriptLoaded, setScriptLoaded] = useState(false)
+  const [redeemableSips, setRedeemableSips] = useState<RedeemableSip[]>([])
+  const [sipsLoading, setSipsLoading] = useState(true)
+  const [applySipId, setApplySipId] = useState<number | null>(null)
+
+  const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+
+  const loadRedeemableSips = useCallback(async () => {
+    if (!auth.isAuthenticated) {
+      setSipsLoading(false)
+      return
+    }
+    setSipsLoading(true)
+    try {
+      const res = await axios.get('/api/user/sips/redeemable')
+      setRedeemableSips(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setRedeemableSips([])
+    } finally {
+      setSipsLoading(false)
+    }
+  }, [auth.isAuthenticated])
+
+  useEffect(() => {
+    loadRedeemableSips()
+  }, [loadRedeemableSips])
 
   useEffect(() => {
     if (!auth.hasChecked) return
@@ -41,27 +75,47 @@ function CheckoutContent() {
     return () => {
       if (script.parentNode) document.body.removeChild(script)
     }
-  }, [auth.isAuthenticated, auth.hasChecked])
+  }, [auth.isAuthenticated, auth.hasChecked, items.length, openLoginModal])
 
-  const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+  const selectedSip = applySipId ? redeemableSips.find((s) => s.id === applySipId) : null
+  const sipRedemptionValue = selectedSip ? selectedSip.redemption_value : 0
+  const canApplySip = selectedSip && grandTotal >= selectedSip.redemption_value
+  const finalPayableAmount = Math.max(0, grandTotal - (canApplySip ? sipRedemptionValue : 0))
+  const isFullSipRedemption = canApplySip && finalPayableAmount === 0
 
   const handlePay = async () => {
     if (items.length === 0) return
-    if (!scriptLoaded || !RAZORPAY_KEY) {
+    if (!canApplySip && applySipId) {
+      return
+    }
+    if (finalPayableAmount > 0 && (!scriptLoaded || !RAZORPAY_KEY)) {
       alert('Payment is loading. Please try again in a moment.')
       return
     }
     setLoading(true)
     try {
-      const payload = items.map((ci) => ({
-        id: ci.id,
-        item: ci.item,
-        qty: ci.qty,
-        price: ci.price,
-        breakdown: ci.breakdown,
-      }))
-      const res = await axios.post('/api/checkout/create-order', { items: payload })
+      const payload: { items: unknown[]; sip_user_sip_id?: number; sip_redemption_amount?: number } = {
+        items: items.map((ci) => ({
+          id: ci.id,
+          item: ci.item,
+          qty: ci.qty,
+          price: ci.price,
+          breakdown: ci.breakdown,
+        })),
+      }
+      if (canApplySip && selectedSip) {
+        payload.sip_user_sip_id = selectedSip.id
+        payload.sip_redemption_amount = selectedSip.redemption_value
+      }
+      const res = await axios.post('/api/checkout/create-order', payload)
       const { razorpay_order_id, amount, key_id } = res.data
+
+      if (amount === 0 || isFullSipRedemption) {
+        items.forEach((ci) => remove(ci.id))
+        router.push('/checkout/success')
+        return
+      }
+
       const options = {
         key: key_id || RAZORPAY_KEY,
         amount: Math.round(amount * 100),
@@ -79,8 +133,11 @@ function CheckoutContent() {
       }
       const rzp = new window.Razorpay(options)
       rzp.open()
-    } catch (err: any) {
-      alert(err?.response?.data?.error || 'Failed to create order')
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : 'Failed to create order'
+      alert(msg || 'Failed to create order')
     } finally {
       setLoading(false)
     }
@@ -142,7 +199,7 @@ function CheckoutContent() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="max-w-lg mx-auto px-4 py-6 pb-28">
+      <div className="max-w-lg mx-auto px-4 py-6 pb-28 md:pb-32">
         <Link href="/catalog" className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
           <ChevronLeft className="size-4" />
           Back to Catalog
@@ -150,16 +207,16 @@ function CheckoutContent() {
 
         <h1 className="text-xl font-semibold text-slate-200 mb-6">Checkout</h1>
 
-        <div className="space-y-3 mb-8">
+        <div className="space-y-3 mb-6">
           {items.map((ci) => {
             const lineTotal = ci.price * ci.qty
             const name = ci.item.item_name || ci.item.short_name || 'Item'
             return (
-              <div key={ci.id} className="flex gap-3 p-4 rounded-lg border border-white/10 bg-slate-800/30">
+              <div key={ci.id} className="flex gap-3 p-4 rounded-xl border border-white/10 bg-slate-800/30">
                 {ci.item.image_url ? (
-                  <img src={ci.item.image_url} alt={name} className="w-16 h-16 rounded-lg object-contain bg-slate-800" />
+                  <img src={ci.item.image_url} alt={name} className="w-16 h-16 rounded-lg object-contain bg-slate-800 shrink-0" />
                 ) : (
-                  <div className="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
                     <span className="text-xl font-bold text-slate-500">{name.charAt(0)}</span>
                   </div>
                 )}
@@ -177,19 +234,99 @@ function CheckoutContent() {
           })}
         </div>
 
-        <div className="border-t border-slate-800 pt-4 mb-6">
-          <div className="flex justify-between text-lg font-semibold">
-            <span>Grand Total</span>
-            <span className="text-amber-400">₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+        {/* Redeem SIP Balance Card */}
+        {auth.isAuthenticated && !sipsLoading && redeemableSips.length > 0 && (
+          <div className="mb-6 rounded-xl border border-amber-500/20 bg-slate-900/60 overflow-hidden">
+            <div className="p-4 border-b border-white/5">
+              <div className="flex items-center gap-2 mb-2">
+                <Wallet className="size-5 text-amber-500" />
+                <h2 className="font-semibold text-slate-200">Redeem SIP Balance</h2>
+              </div>
+              <p className="text-xs text-slate-500">Apply your completed SIP to reduce the order total</p>
+            </div>
+            <div className="p-4 space-y-3">
+              {redeemableSips.map((sip) => {
+                const canApply = grandTotal >= sip.redemption_value
+                const isSelected = applySipId === sip.id
+                return (
+                  <div
+                    key={sip.id}
+                    className={`rounded-lg border p-4 transition-colors ${
+                      isSelected ? 'border-amber-500/50 bg-amber-500/10' : 'border-white/10 bg-slate-800/30'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-slate-200">{sip.plan_name}</div>
+                        <div className="text-sm text-slate-500 mt-0.5 capitalize">{sip.metal_type || 'Gold'}</div>
+                        <div className="text-lg font-semibold text-amber-400 mt-2 tabular-nums">
+                          ₹{sip.redemption_value.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => canApply ? setApplySipId(isSelected ? null : sip.id) : undefined}
+                        disabled={!canApply}
+                        className={`shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                          canApply
+                            ? isSelected
+                              ? 'bg-amber-500 text-slate-950'
+                              : 'bg-slate-700 text-slate-200 hover:bg-slate-600 border border-slate-600'
+                            : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                        }`}
+                      >
+                        {canApply ? (isSelected ? 'Applied' : 'Apply to Order') : 'Add more items'}
+                      </button>
+                    </div>
+                    {!canApply && (
+                      <p className="mt-2 text-xs text-amber-500/90 flex items-center gap-1">
+                        <Info className="size-3.5 shrink-0" />
+                        Add more items to cart to redeem this SIP. (Cart must be ≥ ₹{sip.redemption_value.toLocaleString('en-IN')})
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Payment Summary */}
+        <div className="rounded-xl border border-white/10 bg-slate-900/50 p-4 mb-6">
+          <div className="space-y-2">
+            <div className="flex justify-between text-slate-400">
+              <span>Grand Total</span>
+              <span className="tabular-nums">₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+            </div>
+            {canApplySip && selectedSip && (
+              <div className="flex justify-between text-emerald-400">
+                <span>SIP Redemption ({selectedSip.plan_name})</span>
+                <span className="tabular-nums">-₹{sipRedemptionValue.toLocaleString('en-IN')}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-lg font-semibold pt-2 border-t border-white/10">
+              <span>Final Payable</span>
+              <span className="text-amber-400 tabular-nums">₹{Math.round(finalPayableAmount).toLocaleString('en-IN')}</span>
+            </div>
           </div>
         </div>
 
         <button
           onClick={handlePay}
-          disabled={loading}
-          className="w-full py-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-opacity"
+          disabled={loading || (applySipId !== null && !canApplySip)}
+          className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
         >
-          {loading ? 'Processing…' : 'Pay with Razorpay'}
+          {loading ? (
+            <>Processing…</>
+          ) : isFullSipRedemption ? (
+            <>
+              <Sparkles className="size-5" />
+              Complete with SIP
+            </>
+          ) : finalPayableAmount > 0 ? (
+            <>Pay ₹{Math.round(finalPayableAmount).toLocaleString('en-IN')} with Razorpay</>
+          ) : (
+            <>Pay with Razorpay</>
+          )}
         </button>
       </div>
     </div>
