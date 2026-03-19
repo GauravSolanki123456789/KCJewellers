@@ -31,7 +31,7 @@ const authLimiter  = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, me
 const adminLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, message: 'Admin rate limit exceeded' });
  
  function requireJson(req, res, next) {
-   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || req.method === 'DELETE') return next();
    const ct = String(req.headers['content-type'] || '').toLowerCase();
    if (!ct.includes('application/json')) {
      return res.status(415).json({ error: 'Unsupported Media Type. Use application/json' });

@@ -168,6 +168,8 @@ export function calculateBreakdown(item: Item, liveRates: unknown, gstRate?: num
       total,
       originalTotal: discountPct > 0 ? totalBeforeDiscount : undefined,
       discountPercent: discountPct > 0 ? discountPct : undefined,
+      rate_per_gram: adjustedRate,
+      net_weight: wt,
     }
   }
 
@@ -192,5 +194,7 @@ export function calculateBreakdown(item: Item, liveRates: unknown, gstRate?: num
     total,
     originalTotal: discountPct > 0 ? totalBeforeDiscount : undefined,
     discountPercent: discountPct > 0 ? discountPct : undefined,
+    rate_per_gram: wt > 0 ? rate * (purity / 100) : 0,
+    net_weight: wt,
   }
 }

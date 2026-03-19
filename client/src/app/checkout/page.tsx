@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ChevronLeft, Wallet, Sparkles, Info } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
+import { isDiamondItem } from '@/lib/pricing'
 import { useLoginModal } from '@/context/LoginModalContext'
 import axios from '@/lib/axios'
 import { getItemWeight } from '@/lib/pricing'
@@ -30,7 +31,7 @@ type RedeemableSip = {
 
 function CheckoutContent() {
   const router = useRouter()
-  const { items, remove } = useCart()
+  const { items, remove, ratesReady } = useCart()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const [loading, setLoading] = useState(false)
@@ -77,6 +78,15 @@ function CheckoutContent() {
     }
   }, [auth.isAuthenticated, auth.hasChecked, items.length, openLoginModal])
 
+  const hasMetalItems = items.some((ci) => !isDiamondItem(ci.item))
+  const canProceedRates = !hasMetalItems || ratesReady
+  const hasZeroMetalCost = hasMetalItems && items.some((ci) => {
+    if (isDiamondItem(ci.item)) return false
+    const b = (ci.breakdown || {}) as { metal?: number }
+    return (b.metal || 0) <= 0
+  })
+  const payDisabledRates = !canProceedRates || hasZeroMetalCost
+
   const selectedSip = applySipId ? redeemableSips.find((s) => s.id === applySipId) : null
   const sipRedemptionValue = selectedSip ? selectedSip.redemption_value : 0
   const canApplySip = selectedSip && grandTotal >= selectedSip.redemption_value
@@ -85,6 +95,7 @@ function CheckoutContent() {
 
   const handlePay = async () => {
     if (items.length === 0) return
+    if (payDisabledRates) return
     if (!canApplySip && applySipId) {
       return
     }
@@ -312,11 +323,13 @@ function CheckoutContent() {
 
         <button
           onClick={handlePay}
-          disabled={loading || (applySipId !== null && !canApplySip)}
+          disabled={loading || payDisabledRates || (applySipId !== null && !canApplySip)}
           className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
         >
           {loading ? (
             <>Processing…</>
+          ) : payDisabledRates && hasMetalItems ? (
+            <>Loading prices…</>
           ) : isFullSipRedemption ? (
             <>
               <Sparkles className="size-5" />

@@ -8,9 +8,7 @@ import { useLoginModal } from '@/context/LoginModalContext'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getItemWeight, isDiamondItem } from '@/lib/pricing'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-
-type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number }
+type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number; rate_per_gram?: number; net_weight?: number }
 
 type CartDrawerProps = {
   isOpen: boolean
@@ -40,12 +38,22 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
 
 export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const router = useRouter()
-  const { items, remove, setQty } = useCart()
+  const { items, remove, setQty, ratesReady } = useCart()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  const hasMetalItems = items.some((ci) => !isDiamondItem(ci.item))
+  const canProceed = !hasMetalItems || ratesReady
+  const hasZeroMetalCost = hasMetalItems && items.some((ci) => {
+    if (isDiamondItem(ci.item)) return false
+    const b = (ci.breakdown || {}) as Breakdown
+    return (b.metal || 0) <= 0
+  })
+  const checkoutDisabled = !canProceed || hasZeroMetalCost
+
   const handleCheckout = () => {
+    if (checkoutDisabled) return
     if (!auth.isAuthenticated) {
       onClose()
       openLoginModal('/checkout')
@@ -124,10 +132,16 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                             </div>
                           )}
                           <div className="text-sm text-amber-400 font-medium mt-0.5">
-                            ₹{Math.round(lineTotal).toLocaleString('en-IN')}
-                            <span className="text-slate-300 font-normal ml-1">
-                              (₹{Math.round(ci.price)} × {ci.qty})
-                            </span>
+                            {ratesReady || isDiamondItem(ci.item) ? (
+                              <>
+                                ₹{Math.round(lineTotal).toLocaleString('en-IN')}
+                                <span className="text-slate-300 font-normal ml-1">
+                                  (₹{Math.round(ci.price)} × {ci.qty})
+                                </span>
+                              </>
+                            ) : (
+                              <span className="inline-block w-20 h-4 bg-slate-600/50 rounded animate-pulse" aria-hidden="true" />
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -165,8 +179,22 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                         {!isDiamondItem(ci.item) && (
                           <>
                             <div className="flex justify-between text-slate-200">
-                              <span>Metal Cost</span>
-                              <span className="tabular-nums">₹{Math.round((b.metal || 0) * ci.qty).toLocaleString('en-IN')}</span>
+                              <span>
+                                Metal Cost
+                                {(() => {
+                                  const br = b as { rate_per_gram?: number; net_weight?: number }
+                                  const rpg = br?.rate_per_gram
+                                  const nw = br?.net_weight
+                                  return rpg != null && nw != null && rpg > 0
+                                    ? ` (₹${Math.round(rpg).toLocaleString('en-IN')}/g × ${Number(nw).toFixed(2)}g)`
+                                    : ''
+                                })()}
+                              </span>
+                              <span className="tabular-nums">
+                                {ratesReady ? `₹${Math.round((b.metal || 0) * ci.qty).toLocaleString('en-IN')}` : (
+                                  <span className="inline-block w-12 h-4 bg-slate-600/50 rounded animate-pulse" aria-hidden="true" />
+                                )}
+                              </span>
                             </div>
                             <div className="flex justify-between text-slate-200">
                               <span>Making Charges</span>
@@ -211,13 +239,24 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
           <div className="p-4 border-t border-slate-800 space-y-3 safe-area-pb">
             <div className="flex justify-between text-lg font-semibold text-white">
               <span>Grand Total</span>
-              <span className="text-amber-400 tabular-nums">₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+              <span className="text-amber-400 tabular-nums">
+                {checkoutDisabled && hasMetalItems ? (
+                  <span className="inline-block w-16 h-5 bg-slate-600/50 rounded animate-pulse" aria-hidden="true" />
+                ) : (
+                  `₹${Math.round(grandTotal).toLocaleString('en-IN')}`
+                )}
+              </span>
             </div>
             <button
               onClick={handleCheckout}
-              className="w-full py-3 gold-bg text-slate-950 font-semibold rounded-lg hover:opacity-90 transition-opacity"
+              disabled={checkoutDisabled}
+              className="w-full py-3 gold-bg text-slate-950 font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
             >
-              {auth.isAuthenticated ? 'Proceed to Checkout' : 'Sign In to Checkout'}
+              {checkoutDisabled && hasMetalItems
+                ? 'Loading prices…'
+                : auth.isAuthenticated
+                  ? 'Proceed to Checkout'
+                  : 'Sign In to Checkout'}
             </button>
           </div>
         )}

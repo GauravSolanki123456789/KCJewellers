@@ -1,5 +1,6 @@
 'use client'
 import '@/lib/axios'
+import axios from '@/lib/axios'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
@@ -21,7 +22,8 @@ const CartCtx = createContext<{
   closeCart: () => void
   lastAdded: ProductLite | null
   clearLastAdded: () => void
-}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {} })
+  ratesReady: boolean
+}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, ratesReady: false })
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [isCartOpen, setIsCartOpen] = useState(false)
@@ -45,28 +47,47 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   })
   const [lastRates, setLastRates] = useState<unknown[]>([])
+  const [ratesReady, setRatesReady] = useState(false)
   const cartCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
     localStorage.setItem('cart.v1', JSON.stringify(items))
   }, [items])
+
+  const applyRates = useCallback((rates: unknown[]) => {
+    setLastRates(rates)
+    setRatesReady(rates.length > 0)
+    setItems(prev => prev.map(ci => {
+      const b = calculateBreakdown(ci.item, rates, ci.item.gst_rate)
+      const delta = Math.abs(b.total - ci.price) / (ci.price || 1)
+      if (delta > 0.02) return { ...ci, price: b.total, breakdown: b }
+      return ci
+    }))
+  }, [])
+
+  useEffect(() => {
+    axios.get('/api/rates/display').then((res) => {
+      const rates = res.data?.rates || []
+      if (rates.length > 0) applyRates(rates)
+    }).catch(() => {})
+  }, [applyRates])
+
   useEffect(() => {
     const off = subscribeLiveRates((p) => {
       const rates = p?.rates || []
-      setLastRates(rates)
-      setItems(prev => prev.map(ci => {
-        const b = calculateBreakdown(ci.item, rates, ci.item.gst_rate)
-        const delta = Math.abs(b.total - ci.price) / (ci.price || 1)
-        if (delta > 0.02) return { ...ci, price: b.total, breakdown: b }
-        return ci
-      }))
+      if (rates.length > 0) applyRates(rates)
     })
     return off
-  }, [])
+  }, [applyRates])
   const add = useCallback((p: ProductLite) => {
     const b = calculateBreakdown(p, lastRates, p.gst_rate)
     const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
     setLastAdded(p)
     setIsCartOpen(true)
+    axios.post('/api/analytics/track', {
+      action_type: 'add_to_cart',
+      target_id: p.barcode || p.sku || String(p.id || ''),
+    }).catch(() => {})
     // Auto-close cart after 2.5s to keep user in shopping flow
     if (cartCloseTimerRef.current) clearTimeout(cartCloseTimerRef.current)
     cartCloseTimerRef.current = setTimeout(() => {
@@ -93,7 +114,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const openCart = useCallback(() => setIsCartOpen(true), [])
   const closeCart = useCallback(() => setIsCartOpen(false), [])
   const clearLastAdded = useCallback(() => setLastAdded(null), [])
-  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded }), [items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded])
+  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady }), [items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady])
   return <CartCtx.Provider value={value}>{children}</CartCtx.Provider>
 }
 

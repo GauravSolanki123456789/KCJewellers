@@ -128,12 +128,6 @@ export default function AdminDashboardPage() {
                   )
                 })}
               </div>
-
-              <div className="mt-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                <p className="text-sm text-amber-200/90">
-                  <strong>Note:</strong> Some sections may link to legacy admin panels. Full backend features (margins, MC, ERP import, catalogue management) will be built out in subsequent updates.
-                </p>
-              </div>
             </>
           ) : (
             <div className="glass-card p-8 text-center">

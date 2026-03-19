@@ -65,10 +65,6 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode })
     cart.openCart()
     trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
-    axios.post('/api/analytics/track', {
-      action_type: 'add_to_cart',
-      target_id: product.barcode || product.sku || String(product.id || ''),
-    }).catch(() => {})
   }
 
   return (
