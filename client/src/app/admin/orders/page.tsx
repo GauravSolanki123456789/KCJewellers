@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { ShoppingCart, ArrowLeft, Package, Calendar, User, CreditCard, MoreVertical, ChevronRight } from 'lucide-react'
+import { ShoppingCart, ArrowLeft, Package, Calendar, User, CreditCard, MoreVertical, ChevronRight, Phone, MessageCircle, Trash2 } from 'lucide-react'
 
 const ORDER_TABS = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'] as const
 
@@ -22,12 +22,24 @@ type Order = {
   customer_mobile?: string
 }
 
+const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'https://kc.gauravsoftwares.tech')
+
+function normalizeMobile(m: string | undefined): string {
+  if (!m) return ''
+  const digits = m.replace(/\D/g, '')
+  if (digits.length === 10) return '91' + digits
+  if (digits.length === 12 && digits.startsWith('91')) return digits
+  return digits
+}
+
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<typeof ORDER_TABS[number]>('New')
   const [updatingId, setUpdatingId] = useState<number | null>(null)
   const [openDropdownId, setOpenDropdownId] = useState<number | null>(null)
+  const [deleteModalOrderId, setDeleteModalOrderId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -49,7 +61,6 @@ export default function AdminOrdersPage() {
     setUpdatingId(orderId)
     try {
       await axios.patch(`/api/admin/orders/${orderId}/status`, { delivery_status: newStatus })
-      // Remove from list (moved to another tab)
       setOrders(prev => prev.filter(o => o.id !== orderId))
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'response' in err
@@ -60,6 +71,34 @@ export default function AdminOrdersPage() {
       setUpdatingId(null)
       setOpenDropdownId(null)
     }
+  }
+
+  const deleteOrder = async (orderId: number) => {
+    setDeletingId(orderId)
+    try {
+      await axios.delete(`/api/admin/orders/${orderId}`)
+      setOrders(prev => prev.filter(o => o.id !== orderId))
+      setDeleteModalOrderId(null)
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : 'Failed to delete order'
+      alert(msg || 'Failed to delete order')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const getWhatsAppUrl = (o: Order) => {
+    const mobile = normalizeMobile(o.customer_mobile)
+    if (!mobile) return null
+    const name = o.customer_name || 'Customer'
+    const amount = Number(o.total_amount || 0).toLocaleString('en-IN')
+    const invoiceUrl = `${getBaseUrl()}/orders/${o.id}`
+    const text = encodeURIComponent(
+      `Hello ${name}, your order #${o.id} for ₹${amount} has been confirmed! View your invoice here: ${invoiceUrl}`
+    )
+    return `https://wa.me/${mobile}?text=${text}`
   }
 
   const formatDate = (d: string) => {
@@ -133,6 +172,36 @@ export default function AdminOrdersPage() {
             <div className="text-slate-200 font-medium">{o.customer_name || 'Guest'}</div>
             <div className="text-xs text-slate-500">{o.customer_mobile || o.customer_email || '—'}</div>
           </div>
+        </div>
+        {/* Action buttons - mobile */}
+        <div className="flex flex-wrap gap-2">
+          {o.customer_mobile && (
+            <>
+              <a
+                href={`tel:+${normalizeMobile(o.customer_mobile)}`}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-700/50 text-slate-200 hover:bg-slate-600/50 text-xs font-medium border border-white/5"
+              >
+                <Phone className="size-3.5" /> Contact
+              </a>
+              {getWhatsAppUrl(o) && (
+                <a
+                  href={getWhatsAppUrl(o)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600/40 text-xs font-medium border border-emerald-500/20"
+                >
+                  <MessageCircle className="size-3.5" /> WhatsApp
+                </a>
+              )}
+            </>
+          )}
+          <button
+            onClick={() => setDeleteModalOrderId(o.id)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs font-medium border border-red-500/20"
+            aria-label="Delete order"
+          >
+            <Trash2 className="size-3.5" /> Delete
+          </button>
         </div>
         <div className="flex items-center justify-between pt-2 border-t border-white/5">
           <div className="flex items-center gap-4 text-sm text-slate-400">
@@ -268,6 +337,7 @@ export default function AdminOrdersPage() {
                           <th className="text-right py-4 px-5 text-slate-400 font-medium text-sm">Amount</th>
                           <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Payment</th>
                           <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Status</th>
+                          <th className="text-right py-4 px-5 text-slate-400 font-medium text-sm">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -358,6 +428,42 @@ export default function AdminOrdersPage() {
                                   )}
                                 </div>
                               </td>
+                              <td className="py-4 px-5">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {o.customer_mobile && (
+                                    <>
+                                      <a
+                                        href={`tel:+${normalizeMobile(o.customer_mobile)}`}
+                                        className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors"
+                                        aria-label="Contact buyer"
+                                        title="Contact buyer"
+                                      >
+                                        <Phone className="size-4" />
+                                      </a>
+                                      {getWhatsAppUrl(o) && (
+                                        <a
+                                          href={getWhatsAppUrl(o)!}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="p-2 rounded-lg hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 transition-colors"
+                                          aria-label="Send order via WhatsApp"
+                                          title="Send order via WhatsApp"
+                                        >
+                                          <MessageCircle className="size-4" />
+                                        </a>
+                                      )}
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={() => setDeleteModalOrderId(o.id)}
+                                    className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"
+                                    aria-label="Delete order"
+                                    title="Delete order"
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
                           )
                         })}
@@ -367,6 +473,48 @@ export default function AdminOrdersPage() {
                 </>
               )}
             </div>
+
+            {/* Delete confirmation modal */}
+            {deleteModalOrderId != null && (
+              <>
+                <div
+                  className="fixed inset-0 z-10 bg-black/60 backdrop-blur-sm"
+                  onClick={() => !deletingId && setDeleteModalOrderId(null)}
+                  aria-hidden="true"
+                />
+                <div className="fixed inset-0 z-20 flex items-center justify-center p-4">
+                  <div
+                    className="rounded-xl border border-white/10 bg-slate-900 shadow-2xl max-w-sm w-full p-6"
+                    role="dialog"
+                    aria-labelledby="delete-modal-title"
+                    aria-modal="true"
+                  >
+                    <h2 id="delete-modal-title" className="text-lg font-semibold text-slate-100 mb-2">
+                      Delete Order #{deleteModalOrderId}?
+                    </h2>
+                    <p className="text-slate-400 text-sm mb-6">
+                      This will permanently remove the order and cannot be undone.
+                    </p>
+                    <div className="flex gap-3 justify-end">
+                      <button
+                        onClick={() => !deletingId && setDeleteModalOrderId(null)}
+                        disabled={!!deletingId}
+                        className="px-4 py-2 rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => deleteOrder(deleteModalOrderId)}
+                        disabled={!!deletingId}
+                        className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 disabled:opacity-50 transition-colors font-medium"
+                      >
+                        {deletingId ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </main>
         </div>
       </AdminGuard>

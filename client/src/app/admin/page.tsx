@@ -14,6 +14,7 @@ import {
   ShoppingCart,
   Code2,
   CircleDollarSign,
+  Activity,
 } from 'lucide-react'
 
 const ADMIN_SECTIONS = [
@@ -65,6 +66,13 @@ const ADMIN_SECTIONS = [
     href: '/admin/orders',
     icon: ShoppingCart,
     color: 'indigo',
+  },
+  {
+    title: 'Customer Insights',
+    description: 'Activity feed: product views, logins, cart actions',
+    href: '/admin/insights',
+    icon: Activity,
+    color: 'amber',
   },
   {
     title: 'Developer API & Sync',

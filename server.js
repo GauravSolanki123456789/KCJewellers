@@ -361,6 +361,7 @@ app.get('/auth/google/callback', authLimiter,
             res.redirect(clientUrl + '/complete-profile');
         } else if (req.user.account_status === 'active') {
             console.log(`✅ Login successful: ${email} (Role: ${req.user.role})`);
+            logUserActivity({ user_id: req.user.id, action_type: 'login' }).catch(() => {});
             // Redirect to returnTo (e.g. /checkout) or home with success params
             const returnTo = req.session?.redirect_after_login;
             delete req.session?.redirect_after_login;
@@ -511,11 +512,12 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
             user = userRows[0];
         }
         user = resolveUserRole(user);
-        req.login(user, (error) => {
+        req.login(user, async (error) => {
             if (error) {
                 console.error('OTP login session error:', error);
                 return res.status(500).json({ error: 'Login failed' });
             }
+            await logUserActivity({ user_id: user.id, action_type: 'login' });
             res.json({
                 success: true,
                 user: {
@@ -532,6 +534,54 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
     } catch (error) {
         console.error('Verify OTP error:', error);
         res.status(500).json({ error: error.message || 'Verification failed' });
+    }
+});
+
+// ==========================================
+// ANALYTICS: First-party activity tracking
+// ==========================================
+const ALLOWED_ACTION_TYPES = ['login', 'view_product', 'add_to_cart'];
+async function logUserActivity(payload) {
+    const { user_id, session_id, action_type, target_id, metadata } = payload || {};
+    if (!action_type || !ALLOWED_ACTION_TYPES.includes(String(action_type))) return;
+    try {
+        await query(
+            `INSERT INTO user_activity_logs (user_id, session_id, action_type, target_id, metadata, created_at)
+             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+            [
+                user_id ? parseInt(user_id, 10) : null,
+                session_id ? String(session_id).slice(0, 255) : null,
+                String(action_type).slice(0, 50),
+                target_id ? String(target_id).slice(0, 255) : null,
+                metadata && typeof metadata === 'object' ? JSON.stringify(metadata) : '{}',
+            ]
+        );
+    } catch (e) { console.warn('logUserActivity:', e?.message); }
+}
+
+app.post('/api/analytics/track', globalLimiter, requireJson, async (req, res) => {
+    try {
+        const { user_id, session_id, action_type, target_id, metadata } = req.body || {};
+        if (!action_type || !ALLOWED_ACTION_TYPES.includes(String(action_type))) {
+            return res.status(400).json({ error: 'Invalid action_type. Use: login, view_product, add_to_cart' });
+        }
+        const uid = req.isAuthenticated() && req.user?.id ? req.user.id : (user_id ? parseInt(user_id, 10) : null);
+        const sid = session_id ? String(session_id).slice(0, 255) : null;
+        await query(
+            `INSERT INTO user_activity_logs (user_id, session_id, action_type, target_id, metadata, created_at)
+             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+            [
+                uid,
+                sid,
+                String(action_type).slice(0, 50),
+                target_id ? String(target_id).slice(0, 255) : null,
+                metadata && typeof metadata === 'object' ? JSON.stringify(metadata) : '{}',
+            ]
+        );
+        res.json({ success: true });
+    } catch (error) {
+        console.warn('Analytics track error:', error?.message);
+        res.status(500).json({ error: 'Failed to track' });
     }
 });
 
@@ -3519,6 +3569,15 @@ app.post('/api/sip/subscribe', checkAuth, async (req, res) => {
             if (!userId) return res.status(401).json({ error: 'Not authenticated' });
             const plans = await query('SELECT * FROM sip_plans WHERE id = $1 AND is_active = true', [parseInt(plan_id)]);
             if (plans.length === 0) return res.status(404).json({ error: 'Plan not found or inactive' });
+
+            const existing = await query(
+                'SELECT id FROM user_sips WHERE user_id = $1 AND plan_id = $2 AND status = $3',
+                [userId, parseInt(plan_id), 'active']
+            );
+            if (existing.length > 0) {
+                return res.status(409).json({ error: 'You already have an active subscription to this plan.' });
+            }
+
             const plan = plans[0];
             const durationMonths = parseInt(plan.duration_months) || 12;
             const startDate = new Date();
@@ -3799,6 +3858,37 @@ app.patch('/api/admin/orders/:id/status', isAdminStrict, requireJson, async (req
         if (!val || !ORDER_STATUSES.includes(delivery_status)) return res.status(400).json({ error: 'Invalid status. Use: ' + ORDER_STATUSES.join(', ') });
         await query(`UPDATE orders SET delivery_status = $1 WHERE id = $2`, [val, id]);
         res.json({ success: true, delivery_status: val });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: delete order (cascade - orders table only; items in items_snapshot_json)
+app.delete('/api/admin/orders/:id', isAdminStrict, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid order ID' });
+        const rows = await query('DELETE FROM orders WHERE id = $1 RETURNING id', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+        res.json({ success: true, deleted_id: id });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: Customer Insights - activity feed from user_activity_logs
+app.get('/api/admin/insights', isAdminStrict, async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+        const rows = await query(`
+            SELECT l.id, l.user_id, l.session_id, l.action_type, l.target_id, l.metadata, l.created_at,
+                   u.name as customer_name, u.mobile_number as customer_mobile, u.email as customer_email
+            FROM user_activity_logs l
+            LEFT JOIN users u ON l.user_id = u.id
+            ORDER BY l.created_at DESC
+            LIMIT $1
+        `, [limit]);
+        res.json({ success: true, data: rows });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -4113,10 +4203,13 @@ app.get('/api/orders', checkAuth, async (req, res) => {
 
 app.get('/api/orders/:id', checkAuth, async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid order ID' });
         const rows = await query('SELECT * FROM orders WHERE id = $1', [id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
-        res.json(rows[0]);
+        const order = rows[0];
+        if (order.user_id != null && order.user_id !== req.user?.id) return res.status(403).json({ error: 'Forbidden' });
+        res.json(order);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

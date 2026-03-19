@@ -130,7 +130,7 @@ export default function SipMarketingPage() {
           </h1>
           <p className="text-slate-400 text-lg max-w-2xl mx-auto mb-6">
             Build wealth with disciplined monthly investments in Gold, Silver or Diamond. 
-            Flexible plans with jeweler benefits and easy withdrawals.
+            Flexible plans with easy withdrawals and transparent pricing.
           </p>
           <div className="flex flex-wrap justify-center gap-4 text-slate-500 text-sm">
             <span className="flex items-center gap-2">
@@ -143,7 +143,7 @@ export default function SipMarketingPage() {
             </span>
             <span className="flex items-center gap-2">
               <Sparkles className="size-4 text-amber-500/70" />
-              Jeweler Benefits
+              Exclusive Rewards
             </span>
           </div>
         </section>
@@ -209,10 +209,6 @@ export default function SipMarketingPage() {
                     <div className="flex justify-between">
                       <span className="text-slate-500">Duration</span>
                       <span className="text-slate-200">{plan.duration_months} months</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Jeweler Benefit</span>
-                      <span className="text-slate-200">{plan.jeweler_benefit_percentage ?? 0}%</span>
                     </div>
                   </div>
                   <button

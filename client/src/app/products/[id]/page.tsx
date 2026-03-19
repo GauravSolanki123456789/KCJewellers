@@ -1,5 +1,5 @@
 'use client'
-import axios from "axios"
+import axios from "@/lib/axios"
 import Image from "next/image"
 import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
@@ -20,17 +20,21 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const cart = useCart()
   const productRef = useRef<Item | null>(null)
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
     const load = async () => {
       const safeId = String(id || '').slice(0, 64)
-      const res = await axios.get(`${url}/api/products`, { params: { barcode: safeId, limit: 1 } })
+      const res = await axios.get('/api/products', { params: { barcode: safeId, limit: 1 } })
       const item = Array.isArray(res.data?.items) ? res.data.items[0] : (res.data?.[0] || null)
       setProduct(item)
       productRef.current = item
-      const dr = await axios.get(`${url}/api/rates/display`)
+      const dr = await axios.get('/api/rates/display')
       if (item) {
         setB(calculateBreakdown(item, dr.data?.rates || []))
         trackProductView(item.barcode || String(item.id || ''), item.item_name || item.short_name || 'Product')
+        // First-party analytics: view_product
+        axios.post('/api/analytics/track', {
+          action_type: 'view_product',
+          target_id: item.barcode || item.sku || String(item.id || ''),
+        }).catch(() => {})
       }
     }
     load()
@@ -61,6 +65,10 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode })
     cart.openCart()
     trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
+    axios.post('/api/analytics/track', {
+      action_type: 'add_to_cart',
+      target_id: product.barcode || product.sku || String(product.id || ''),
+    }).catch(() => {})
   }
 
   return (

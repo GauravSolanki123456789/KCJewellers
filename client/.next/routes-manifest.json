@@ -30,6 +30,14 @@
       "namedRegex": "^/category/(?<nxtPkey>[^/]+?)(?:/)?$"
     },
     {
+      "page": "/orders/[id]",
+      "regex": "^/orders/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/orders/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
       "page": "/products/[id]",
       "regex": "^/products/([^/]+?)(?:/)?$",
       "routeKeys": {
@@ -74,6 +82,12 @@
       "regex": "^/admin/developer(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/admin/developer(?:/)?$"
+    },
+    {
+      "page": "/admin/insights",
+      "regex": "^/admin/insights(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/insights(?:/)?$"
     },
     {
       "page": "/admin/orders",
