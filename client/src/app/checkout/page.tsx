@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { isDiamondItem } from '@/lib/pricing'
 import { useLoginModal } from '@/context/LoginModalContext'
 import axios from '@/lib/axios'
+import { toPaise } from '@/lib/utils'
 import { getItemWeight } from '@/lib/pricing'
 
 declare global {
@@ -129,7 +130,7 @@ function CheckoutContent() {
 
       const options = {
         key: key_id || RAZORPAY_KEY,
-        amount: Math.round(amount * 100),
+        amount: toPaise(amount),
         currency: 'INR',
         name: 'KC Jewellers',
         description: 'Jewellery Order',

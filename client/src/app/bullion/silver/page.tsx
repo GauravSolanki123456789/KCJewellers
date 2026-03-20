@@ -1,5 +1,6 @@
 'use client'
 import axios from '@/lib/axios'
+import { toPaise } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 
 declare global {
@@ -25,7 +26,7 @@ export default function BuySilverPage() {
     const { razorpay_order_id, amount } = res.data
     const options = {
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
-      amount: Math.round(amount * 100),
+      amount: toPaise(amount),
       currency: 'INR',
       name: 'KC Jewellers',
       description: 'Bullion Purchase - Silver',

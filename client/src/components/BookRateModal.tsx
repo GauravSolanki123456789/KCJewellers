@@ -15,6 +15,7 @@ import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { subscribeLiveRates } from '@/lib/socket'
+import { toPaise } from '@/lib/utils'
 
 declare global {
   interface Window {
@@ -240,7 +241,7 @@ export default function BookRateModal() {
       // Open Razorpay checkout modal
       const options = {
         key: razorpayKeyId,
-        amount: Math.round(paymentAmount * 100), // Convert to paise
+        amount: toPaise(paymentAmount),
         currency: 'INR',
         name: 'KC Jewellers',
         description: `Rate Lock - ${metalOpt?.label || selectedMetal}`,

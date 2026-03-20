@@ -3435,6 +3435,11 @@ app.post('/api/quotations/issue', requireJson, async (req, res) => {
 
 // ==========================================
 // BOOKING LOCK (Cut Rate)
+// Helper: Convert Rupees to Paise for Razorpay (amount must be integer paise)
+function toPaise(rupees) {
+    return Math.round(Number(rupees) * 100);
+}
+
 // ==========================================
 app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), async (req, res) => {
     try {
@@ -3444,7 +3449,13 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
         const rateEntry = (payload?.rates || []).find(r => (r.metal_type || '').toLowerCase() === String(metal_type).toLowerCase());
         if (!rateEntry) return res.status(404).json({ error: 'Rate not found' });
         const displayRate = Number(rateEntry.display_rate || rateEntry.sell_rate || 0);
-        const totalAmount = Math.round(displayRate * Number(quantity_kg) * 100) / 100;
+        const qtyKg = Number(quantity_kg);
+        const metal = String(metal_type || '').toLowerCase();
+        // Gold: display_rate per 10g → value = displayRate * (grams/10) = displayRate * qtyKg * 100
+        // Silver: display_rate per 1kg → value = displayRate * qtyKg. totalAmount in Rupees.
+        const totalAmount = metal.startsWith('gold')
+            ? Math.round(displayRate * qtyKg * 100 * 100) / 100
+            : Math.round(displayRate * qtyKg * 100) / 100;
         
         // Fetch standard advance amount from settings (default ₹5000)
         let standardAdvance = 5000;
@@ -3484,7 +3495,7 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
                         'Authorization': `Basic ${auth}`
                     },
                     body: JSON.stringify({
-                        amount: Math.round(advanceAmount * 100), // Charge payable advance (min of total value, standard advance)
+                        amount: toPaise(advanceAmount),
                         currency: 'INR',
                         receipt: `lock_${lock.id}`,
                         payment_capture: 1,
@@ -4486,7 +4497,7 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
                 body: JSON.stringify({
-                    amount: Math.round(amountToCharge * 100),
+                    amount: toPaise(amountToCharge),
                     currency: 'INR',
                     receipt: `cart_${Date.now()}`,
                     payment_capture: 1,
@@ -4605,7 +4616,7 @@ app.post('/api/sip/checkout', checkAuth, requireJson, async (req, res) => {
 
         if (!razorpayPlanId) {
             const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-            const amountPaise = Math.round(installmentAmount * 100);
+            const amountPaise = toPaise(installmentAmount);
             const planPayload = {
                 period: 'monthly',
                 interval: 1,
