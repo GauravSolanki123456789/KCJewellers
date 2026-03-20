@@ -12,12 +12,14 @@ type Booking = {
   metal_type?: string
   locked_gold_rate?: number
   advance_amount?: number
+  weight_booked?: number
   status: string
   created_at: string
 }
 
 const METAL_OPTIONS = [
   { value: '', label: 'All Metals' },
+  { value: 'gold', label: 'Gold (all)' },
   { value: 'gold_24k', label: 'Gold 24K' },
   { value: 'gold_22k', label: 'Gold 22K' },
   { value: 'gold_18k', label: 'Gold 18K' },
@@ -129,6 +131,7 @@ export default function AdminBookingsPage() {
                       <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Booking ID</th>
                       <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Mobile</th>
                       <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Metal</th>
+                      <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Weight</th>
                       <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Locked Rate</th>
                       <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Advance</th>
                       <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Status</th>
@@ -144,6 +147,9 @@ export default function AdminBookingsPage() {
                         <td className="py-3 px-4 text-slate-200 font-medium">#{b.id}</td>
                         <td className="py-3 px-4 text-slate-300">{b.mobile_number || '—'}</td>
                         <td className="py-3 px-4 text-slate-300">{formatMetal(b.metal_type)}</td>
+                        <td className="py-3 px-4 text-right text-slate-300 tabular-nums">
+                          {b.weight_booked != null ? `${Number(b.weight_booked).toFixed(1)} g` : '—'}
+                        </td>
                         <td className="py-3 px-4 text-right text-slate-300 tabular-nums">
                           {b.locked_gold_rate != null ? `₹${Number(b.locked_gold_rate).toLocaleString('en-IN')}/g` : '—'}
                         </td>

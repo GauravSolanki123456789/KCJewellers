@@ -34,6 +34,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
         axios.post('/api/analytics/track', {
           action_type: 'view_product',
           target_id: item.barcode || item.sku || String(item.id || ''),
+          metadata: { product_name: item.item_name || item.short_name || 'Product' },
         }).catch(() => {})
       }
     }

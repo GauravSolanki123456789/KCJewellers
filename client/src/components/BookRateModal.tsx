@@ -214,12 +214,17 @@ export default function BookRateModal() {
 
       // quantity_kg = (effectiveWeight in grams * quantity) / 1000
       const quantityKg = (effectiveWeight * quantity) / 1000
-      
+
+      const user = auth.user as { id?: number } | undefined
+      const userId = user?.id ?? null
+
       // Call /api/booking/lock with payable advance (min of total value, standard advance)
       const response = await axios.post(`${url}/api/booking/lock`, {
         metal_type: apiMetalType,
         quantity_kg: Math.max(quantityKg, 0.001),
         amount: Math.round(payableAdvance),
+        user_id: userId,
+        mobile_number: mobile,
       })
 
       const { razorpay_order_id, amount } = response.data
@@ -243,14 +248,31 @@ export default function BookRateModal() {
         prefill: {
           contact: mobile,
         },
-        handler: function (response: any) {
-          // Success callback
-          showToast('Payment successful! Your rate has been locked.')
-          close()
-          setMobile('')
-          setCustomWeightInput('')
-          setWeightMode('preset')
-          setQuantity(1)
+        handler: async function (rzpResponse: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) {
+          try {
+            showToast('Verifying payment…')
+            const verifyRes = await axios.post(`${url}/api/bookings/verify`, {
+              razorpay_order_id: rzpResponse.razorpay_order_id,
+              razorpay_payment_id: rzpResponse.razorpay_payment_id,
+              razorpay_signature: rzpResponse.razorpay_signature,
+              user_id: (auth.user as { id?: number })?.id ?? null,
+              mobile_number: mobile,
+            })
+            if (verifyRes.data?.success) {
+              showToast('Payment successful! Your rate has been locked.')
+              close()
+              setMobile('')
+              setCustomWeightInput('')
+              setWeightMode('preset')
+              setQuantity(1)
+            } else {
+              showToast('Verification failed. Please contact support.')
+            }
+          } catch (err) {
+            showToast('Verification failed. Please contact support.')
+          } finally {
+            setSubmitting(false)
+          }
         },
         modal: {
           ondismiss: function () {

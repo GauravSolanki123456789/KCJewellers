@@ -4,6 +4,7 @@
   "/admin/bookings/page": "/admin/bookings",
   "/admin/developer/page": "/admin/developer",
   "/admin/insights/page": "/admin/insights",
+  "/admin/liabilities/page": "/admin/liabilities",
   "/admin/orders/page": "/admin/orders",
   "/admin/page": "/admin",
   "/admin/products/page": "/admin/products",

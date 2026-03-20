@@ -40,9 +40,9 @@ const ADMIN_SECTIONS = [
     color: 'emerald',
   },
   {
-    title: 'Gold Lot Movements',
-    description: 'View credits, debits, and gold balance movements',
-    href: '/admin/sip/movements',
+    title: 'Metal Liabilities Ledger',
+    description: 'Total Gold, Silver & Diamond owed across SIPs and Rate Bookings',
+    href: '/admin/liabilities',
     icon: BarChart3,
     color: 'cyan',
   },

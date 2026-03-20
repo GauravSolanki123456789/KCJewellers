@@ -87,6 +87,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     axios.post('/api/analytics/track', {
       action_type: 'add_to_cart',
       target_id: p.barcode || p.sku || String(p.id || ''),
+      metadata: { product_name: p.item_name || p.short_name || 'Product' },
     }).catch(() => {})
     // Auto-close cart after 2.5s to keep user in shopping flow
     if (cartCloseTimerRef.current) clearTimeout(cartCloseTimerRef.current)

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { Activity, ArrowLeft, User, Eye, LogIn, ShoppingCart } from 'lucide-react'
+import { Activity, ArrowLeft, User, Eye, LogIn, ShoppingCart, ChevronDown, ChevronUp } from 'lucide-react'
 
 type ActivityLog = {
   id: number
@@ -17,6 +17,15 @@ type ActivityLog = {
   customer_name: string | null
   customer_mobile: string | null
   customer_email: string | null
+}
+
+type GroupKey = string
+type GroupedUser = {
+  key: GroupKey
+  customerDisplay: string
+  lastActive: string
+  logs: ActivityLog[]
+  counts: { view_product: number; add_to_cart: number; login: number }
 }
 
 function getActionLabel(actionType: string): string {
@@ -37,14 +46,75 @@ function getActionIcon(actionType: string) {
   }
 }
 
+function getTargetDisplay(log: ActivityLog): string {
+  if (log.action_type !== 'view_product' && log.action_type !== 'add_to_cart') return '—'
+  const barcode = log.target_id || ''
+  const m = log.metadata
+  const meta = m != null && typeof m === 'object' ? m as Record<string, unknown> : null
+  const name = meta && 'product_name' in meta ? String(meta.product_name) : null
+  const itemName = meta && 'item_name' in meta ? String(meta.item_name) : null
+  const productName = name || itemName
+  if (productName && barcode) return `${barcode} — ${productName}`
+  if (productName) return productName
+  return barcode || '—'
+}
+
+function groupLogsByUser(logs: ActivityLog[]): GroupedUser[] {
+  const map = new Map<GroupKey, ActivityLog[]>()
+  for (const log of logs) {
+    const key: GroupKey = log.user_id != null ? `user_${log.user_id}` : (log.session_id || `anon_${log.id}`)
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(log)
+  }
+  const groups: GroupedUser[] = []
+  for (const [key, userLogs] of map) {
+    const sorted = [...userLogs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    const lastActive = sorted[0]?.created_at || ''
+    const firstLog = sorted[sorted.length - 1]
+    const customerDisplay = firstLog?.customer_name || firstLog?.customer_mobile || firstLog?.customer_email || 'Guest'
+    const counts = { view_product: 0, add_to_cart: 0, login: 0 }
+    for (const l of userLogs) {
+      if (l.action_type === 'view_product') counts.view_product++
+      else if (l.action_type === 'add_to_cart') counts.add_to_cart++
+      else if (l.action_type === 'login') counts.login++
+    }
+    groups.push({ key, customerDisplay, lastActive, logs: sorted, counts })
+  }
+  groups.sort((a, b) => new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime())
+  return groups
+}
+
+function deduplicateTimeline(logs: ActivityLog[]): Array<{ action_type: string; targetDisplay: string; count: number; latestAt: string }> {
+  const keyed = new Map<string, { count: number; latestAt: string; targetDisplay: string }>()
+  for (const log of logs) {
+    const targetDisplay = getTargetDisplay(log)
+    const k = `${log.action_type}::${log.target_id ?? ''}`
+    const existing = keyed.get(k)
+    if (existing) {
+      existing.count++
+      if (new Date(log.created_at) > new Date(existing.latestAt)) {
+        existing.latestAt = log.created_at
+        if (targetDisplay !== '—') existing.targetDisplay = targetDisplay
+      }
+    } else {
+      keyed.set(k, { count: 1, latestAt: log.created_at, targetDisplay })
+    }
+  }
+  return Array.from(keyed.entries()).map(([k, v]) => {
+    const [action_type] = k.split('::')
+    return { action_type, targetDisplay: v.targetDisplay, count: v.count, latestAt: v.latestAt }
+  }).sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
+}
+
 export default function AdminInsightsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [expandedKey, setExpandedKey] = useState<GroupKey | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/admin/insights', { params: { limit: 200 } })
+      const res = await axios.get('/api/admin/insights', { params: { limit: 500 } })
       setLogs(Array.isArray(res.data?.data) ? res.data.data : [])
     } catch {
       setLogs([])
@@ -71,20 +141,15 @@ export default function AdminInsightsPage() {
     }
   }
 
-  const getCustomerDisplay = (log: ActivityLog) => {
-    if (log.customer_name) return log.customer_name
-    if (log.customer_mobile) return log.customer_mobile
-    if (log.customer_email) return log.customer_email
-    return 'Guest'
+  const formatTimeShort = (d: string) => {
+    try {
+      return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    } catch {
+      return '—'
+    }
   }
 
-  const getTargetDisplay = (log: ActivityLog): string => {
-    if (log.action_type === 'view_product' || log.action_type === 'add_to_cart') {
-      const t = log.target_id || (log.metadata && typeof log.metadata === 'object' && 'product_name' in log.metadata ? log.metadata.product_name : null)
-      return t != null ? String(t) : '—'
-    }
-    return '—'
-  }
+  const groups = groupLogsByUser(logs)
 
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
@@ -105,7 +170,7 @@ export default function AdminInsightsPage() {
                 </div>
                 <div>
                   <h1 className="text-xl sm:text-2xl font-bold text-slate-100">Customer Insights</h1>
-                  <p className="text-slate-500 text-sm">Activity feed: product views, logins, cart actions</p>
+                  <p className="text-slate-500 text-sm">Business CRM: activity grouped by customer</p>
                 </div>
               </div>
             </div>
@@ -116,7 +181,7 @@ export default function AdminInsightsPage() {
                   <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
                   <p className="text-slate-500 mt-4">Loading activity…</p>
                 </div>
-              ) : logs.length === 0 ? (
+              ) : groups.length === 0 ? (
                 <div className="p-12 sm:p-16 text-center">
                   <div className="inline-flex p-4 rounded-full bg-slate-800/50 mb-4">
                     <Activity className="size-12 text-slate-600" />
@@ -127,87 +192,93 @@ export default function AdminInsightsPage() {
                   </p>
                 </div>
               ) : (
-                <>
-                  {/* Mobile: Card layout */}
-                  <div className="sm:hidden divide-y divide-white/5 p-4 space-y-3">
-                    {logs.map((log) => {
-                      const Icon = getActionIcon(log.action_type)
-                      return (
-                        <div
-                          key={log.id}
-                          className="rounded-xl border border-white/5 bg-slate-800/30 p-4 space-y-2"
+                <div className="divide-y divide-white/5">
+                  {groups.map((group) => {
+                    const isExpanded = expandedKey === group.key
+                    const timeline = deduplicateTimeline(group.logs)
+                    return (
+                      <div
+                        key={group.key}
+                        className="transition-colors hover:bg-white/[0.02]"
+                      >
+                        <button
+                          onClick={() => setExpandedKey(isExpanded ? null : group.key)}
+                          className="w-full text-left px-4 sm:px-5 py-4 sm:py-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4"
                         >
-                          <div className="flex items-center gap-2">
-                            <div className="p-1.5 rounded-lg bg-amber-500/10">
-                              <Icon className="size-4 text-amber-400" />
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="p-2 rounded-xl bg-slate-800/50 border border-white/5 shrink-0">
+                              <User className="size-5 text-amber-400" />
                             </div>
-                            <span className="font-medium text-slate-200">{getActionLabel(log.action_type)}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-slate-400 text-sm">
-                            <User className="size-4 shrink-0 opacity-60" />
-                            {getCustomerDisplay(log)}
-                          </div>
-                          {getTargetDisplay(log) !== '—' && (
-                            <div className="text-sm text-slate-500 font-mono truncate">
-                              {getTargetDisplay(log)}
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-100 truncate">{group.customerDisplay}</div>
+                              <div className="text-sm text-slate-500 mt-0.5">
+                                Last active: {formatDate(group.lastActive)}
+                              </div>
                             </div>
-                          )}
-                          <div className="text-xs text-slate-500 pt-1">
-                            {formatDate(log.created_at)}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {group.counts.login > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-medium border border-cyan-500/20">
+                                <LogIn className="size-3.5" /> {group.counts.login} Login{group.counts.login !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                            {group.counts.view_product > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-medium border border-amber-500/20">
+                                <Eye className="size-3.5" /> {group.counts.view_product} View{group.counts.view_product !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                            {group.counts.add_to_cart > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-medium border border-emerald-500/20">
+                                <ShoppingCart className="size-3.5" /> {group.counts.add_to_cart} Cart Add{group.counts.add_to_cart !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                          <div className="shrink-0 self-start sm:self-center">
+                            {isExpanded ? (
+                              <ChevronUp className="size-5 text-slate-400" />
+                            ) : (
+                              <ChevronDown className="size-5 text-slate-400" />
+                            )}
+                          </div>
+                        </button>
+
+                        <div
+                          className={`grid transition-all duration-300 ease-in-out overflow-hidden ${
+                            isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                          }`}
+                        >
+                          <div className="min-h-0">
+                            <div className="border-t border-white/5 bg-slate-800/20 px-4 sm:px-5 py-4">
+                              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Activity timeline</div>
+                              <ul className="space-y-2">
+                                {timeline.map((item, idx) => {
+                                  const Icon = getActionIcon(item.action_type)
+                                  const label = getActionLabel(item.action_type)
+                                  const targetPart = item.targetDisplay !== '—' ? `: ${item.targetDisplay}` : ''
+                                  const countPart = item.count > 1 ? ` (×${item.count})` : ''
+                                  return (
+                                    <li
+                                      key={idx}
+                                      className="flex items-start gap-3 py-2 px-3 rounded-lg bg-slate-800/40 border border-white/5"
+                                    >
+                                      <div className="p-1.5 rounded-lg bg-amber-500/10 shrink-0 mt-0.5">
+                                        <Icon className="size-4 text-amber-400" />
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <span className="text-slate-200">{label}{targetPart}{countPart}</span>
+                                        <div className="text-xs text-slate-500 mt-0.5">{formatTimeShort(item.latestAt)}</div>
+                                      </div>
+                                    </li>
+                                  )
+                                })}
+                              </ul>
+                            </div>
                           </div>
                         </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* Desktop: Table layout */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-white/10 bg-slate-800/40">
-                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Timestamp</th>
-                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Customer</th>
-                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Action</th>
-                          <th className="text-left py-4 px-5 text-slate-400 font-medium text-sm">Target</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {logs.map((log) => {
-                          const Icon = getActionIcon(log.action_type)
-                          return (
-                            <tr
-                              key={log.id}
-                              className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
-                            >
-                              <td className="py-4 px-5 text-slate-400 text-sm whitespace-nowrap">
-                                {formatDate(log.created_at)}
-                              </td>
-                              <td className="py-4 px-5">
-                                <div className="flex items-center gap-2">
-                                  <User className="size-4 text-slate-500 shrink-0 opacity-60" />
-                                  <span className="text-slate-200">{getCustomerDisplay(log)}</span>
-                                </div>
-                              </td>
-                              <td className="py-4 px-5">
-                                <div className="flex items-center gap-2">
-                                  <div className="p-1.5 rounded-lg bg-amber-500/10">
-                                    <Icon className="size-4 text-amber-400" />
-                                  </div>
-                                  <span className="text-slate-200">{getActionLabel(log.action_type)}</span>
-                                </div>
-                              </td>
-                              <td className="py-4 px-5">
-                                <span className="text-slate-400 font-mono text-sm truncate max-w-[200px] block">
-                                  {getTargetDisplay(log)}
-                                </span>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
           </main>

@@ -3438,7 +3438,7 @@ app.post('/api/quotations/issue', requireJson, async (req, res) => {
 // ==========================================
 app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), async (req, res) => {
     try {
-        const { metal_type, quantity_kg, amount: clientPayableAmount } = req.body || {};
+        const { metal_type, quantity_kg, amount: clientPayableAmount, user_id, mobile_number } = req.body || {};
         if (!metal_type || !quantity_kg) return res.status(400).json({ error: 'metal_type and quantity_kg required' });
         const payload = await liveRateService.getCurrentPayload();
         const rateEntry = (payload?.rates || []).find(r => (r.metal_type || '').toLowerCase() === String(metal_type).toLowerCase());
@@ -3463,10 +3463,13 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
             : Math.min(Math.ceil(totalAmount), standardAdvance);
         
         const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        const userId = user_id != null && !isNaN(parseInt(user_id)) ? parseInt(user_id) : null;
+        const mobile = (mobile_number && String(mobile_number).replace(/\D/g, '').length === 10)
+            ? String(mobile_number).replace(/\D/g, '').slice(0, 10) : null;
         const insert = await query(`
-            INSERT INTO booking_locks (user_id, metal_type, quantity_kg, lock_rate, total_amount, status, expires_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'LOCKED', $6, CURRENT_TIMESTAMP) RETURNING *
-        `, [null, metal_type, Number(quantity_kg), displayRate, totalAmount, expires_at]);
+            INSERT INTO booking_locks (user_id, metal_type, quantity_kg, lock_rate, total_amount, advance_amount, mobile_number, status, expires_at, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'LOCKED', $8, CURRENT_TIMESTAMP) RETURNING *
+        `, [userId, metal_type, Number(quantity_kg), displayRate, totalAmount, advanceAmount, mobile, expires_at]);
         const lock = insert[0];
         let orderId = `order_${lock.id}`;
         const keyId = process.env.RAZORPAY_KEY_ID;
@@ -3500,6 +3503,61 @@ app.post('/api/booking/lock', requireJson, validateNumbers(['quantity_kg']), asy
         }
         await query(`UPDATE booking_locks SET razorpay_order_id = $1 WHERE id = $2`, [orderId, lock.id]);
         res.json({ lock_id: lock.id, razorpay_order_id: orderId, amount: advanceAmount, currency: 'INR', expires_at });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// POST /api/bookings/verify - Client-side payment verification
+// Verifies Razorpay signature and inserts into bookings table
+// ==========================================
+app.post('/api/bookings/verify', requireJson, async (req, res) => {
+    try {
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, user_id, mobile_number } = req.body || {};
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+            return res.status(400).json({ error: 'razorpay_order_id, razorpay_payment_id, razorpay_signature required' });
+        }
+        const mobile = (mobile_number && String(mobile_number).replace(/\D/g, '').length === 10)
+            ? String(mobile_number).replace(/\D/g, '').slice(0, 10) : null;
+        if (!mobile) {
+            return res.status(400).json({ error: 'Valid 10-digit mobile_number required' });
+        }
+
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        if (!keySecret) {
+            return res.status(500).json({ error: 'Payment verification not configured' });
+        }
+
+        const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+        const expectedSig = crypto.createHmac('sha256', keySecret).update(body).digest('hex');
+        if (expectedSig !== razorpay_signature) {
+            return res.status(400).json({ error: 'Invalid payment signature' });
+        }
+
+        const rows = await query(`SELECT * FROM booking_locks WHERE razorpay_order_id = $1`, [razorpay_order_id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+        const lock = rows[0];
+        if (lock.status === 'CONFIRMED') {
+            return res.json({ success: true, message: 'Already verified', booking_id: lock.id });
+        }
+
+        const userId = user_id != null && !isNaN(parseInt(user_id)) ? parseInt(user_id) : null;
+        const weightBooked = Number(lock.quantity_kg || 0) * 1000;
+        const advanceAmount = Number(lock.advance_amount || lock.total_amount || 0);
+        const lockRate = Number(lock.lock_rate || 0);
+
+        const insert = await query(`
+            INSERT INTO bookings (user_id, status, locked_gold_rate, advance_amount, metal_type, mobile_number, weight_booked, created_at, updated_at)
+            VALUES ($1, 'booked', $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id, status, metal_type, mobile_number, advance_amount, locked_gold_rate, weight_booked, created_at
+        `, [userId, lockRate, advanceAmount, String(lock.metal_type || '').toLowerCase(), mobile, weightBooked]);
+
+        await query(`UPDATE booking_locks SET status = 'CONFIRMED' WHERE id = $1`, [lock.id]);
+
+        res.json({ success: true, booking: insert[0] });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -3739,6 +3797,100 @@ app.get('/api/admin/gold_lot_movements', isAdminStrict, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// ==========================================
+// GET /api/admin/liabilities - Metal Liabilities Ledger (unified)
+// UNION of SIPs (grams/cash) + Rate Bookings (grams locked)
+// ==========================================
+app.get('/api/admin/liabilities', isAdminStrict, async (req, res) => {
+    try {
+        const { metal, origin } = req.query;
+        const metalFilter = metal && String(metal).trim() ? String(metal).toLowerCase() : null;
+        const originFilter = origin && String(origin).trim() ? String(origin).toLowerCase() : null;
+
+        const sipRows = await query(`
+            SELECT us.id AS ref_id, us.user_id, u.mobile_number, u.email,
+                   sp.name AS plan_name, sp.metal_type,
+                   COALESCE(SUM(CASE WHEN st.accumulated_grams IS NOT NULL THEN st.accumulated_grams ELSE st.gold_credited END), 0) AS grams,
+                   COALESCE(SUM(CASE WHEN st.amount_paid IS NOT NULL THEN st.amount_paid ELSE st.amount END), 0) AS amount_inr,
+                   'SIP' AS origin, us.created_at
+            FROM user_sips us
+            LEFT JOIN sip_plans sp ON sp.id = us.plan_id
+            LEFT JOIN sip_transactions st ON st.user_sip_id = us.id
+            LEFT JOIN users u ON u.id = us.user_id
+            WHERE us.status = 'active' AND sp.metal_type IS NOT NULL
+            GROUP BY us.id, us.user_id, us.created_at, u.mobile_number, u.email, sp.name, sp.metal_type
+            HAVING (LOWER(sp.metal_type) IN ('gold','silver') AND COALESCE(SUM(CASE WHEN st.accumulated_grams IS NOT NULL THEN st.accumulated_grams ELSE st.gold_credited END), 0) > 0)
+               OR (LOWER(sp.metal_type) = 'diamond' AND COALESCE(SUM(CASE WHEN st.amount_paid IS NOT NULL THEN st.amount_paid ELSE st.amount END), 0) > 0)
+        `);
+
+        const bookingRows = await query(`
+            SELECT b.id AS ref_id, b.user_id, b.mobile_number, NULL AS email,
+                   'Rate Booking' AS plan_name, b.metal_type,
+                   COALESCE(b.weight_booked, 0) AS grams,
+                   COALESCE(b.advance_amount, 0) AS amount_inr,
+                   'BOOKING' AS origin, b.created_at
+            FROM bookings b
+            WHERE b.status = 'booked'
+              AND (LOWER(COALESCE(b.metal_type,'')) LIKE 'gold%' OR LOWER(COALESCE(b.metal_type,'')) = 'silver')
+              AND COALESCE(b.weight_booked, 0) > 0
+        `);
+
+        const isGold = (m) => (m || '').toLowerCase().startsWith('gold') || (m || '').toLowerCase() === 'gold_22k' || (m || '').toLowerCase() === 'gold_24k' || (m || '').toLowerCase() === 'gold_18k';
+        const isSilver = (m) => (m || '').toLowerCase() === 'silver';
+        const isDiamond = (m) => (m || '').toLowerCase() === 'diamond';
+
+        let items = [
+            ...sipRows.map(r => ({
+                ref_id: r.ref_id,
+                user_id: r.user_id,
+                mobile_number: r.mobile_number,
+                email: r.email,
+                plan_name: r.plan_name,
+                metal_type: (r.metal_type || '').toLowerCase(),
+                grams: Number(r.grams || 0),
+                amount_inr: Number(r.amount_inr || 0),
+                origin: 'SIP',
+                created_at: r.created_at,
+            })),
+            ...bookingRows.map(r => ({
+                ref_id: r.ref_id,
+                user_id: r.user_id,
+                mobile_number: r.mobile_number,
+                email: r.email,
+                plan_name: r.plan_name,
+                metal_type: (r.metal_type || '').toLowerCase().replace(/^gold.*/, 'gold'),
+                grams: Number(r.grams || 0),
+                amount_inr: Number(r.amount_inr || 0),
+                origin: 'BOOKING',
+                created_at: r.created_at,
+            })),
+        ];
+
+        const totalGoldGrams = items.reduce((s, i) => s + (isGold(i.metal_type) ? (i.grams || 0) : 0), 0);
+        const totalSilverGrams = items.reduce((s, i) => s + (isSilver(i.metal_type) ? (i.grams || 0) : 0), 0);
+        const totalDiamondValue = items.reduce((s, i) => s + (isDiamond(i.metal_type) ? (i.amount_inr || 0) : 0), 0);
+
+        if (metalFilter) {
+            if (metalFilter === 'gold') items = items.filter(i => isGold(i.metal_type));
+            else if (metalFilter === 'silver') items = items.filter(i => isSilver(i.metal_type));
+            else if (metalFilter === 'diamond') items = items.filter(i => isDiamond(i.metal_type));
+        }
+        if (originFilter) {
+            if (originFilter === 'sips') items = items.filter(i => i.origin === 'SIP');
+            else if (originFilter === 'bookings') items = items.filter(i => i.origin === 'BOOKING');
+        }
+
+        items.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+        res.json({
+            summary: { totalGoldGrams, totalSilverGrams, totalDiamondValue },
+            items,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Alias: hyphenated URL for frontend compatibility
 app.get('/api/admin/gold-lot-movements', isAdminStrict, async (req, res) => {
     try {
@@ -4095,8 +4247,13 @@ app.get('/api/admin/bookings', isAdminStrict, async (req, res) => {
         let q = `SELECT id, user_id, status, locked_gold_rate, advance_amount, metal_type, mobile_number, weight_booked, created_at FROM bookings WHERE 1=1`;
         const params = [];
         if (metal && String(metal).trim()) {
-            q += ` AND LOWER(COALESCE(metal_type, '')) = $1`;
-            params.push(String(metal).toLowerCase());
+            const m = String(metal).toLowerCase();
+            if (m === 'gold') {
+                q += ` AND (LOWER(COALESCE(metal_type, '')) LIKE 'gold%' OR LOWER(COALESCE(metal_type, '')) = 'gold')`;
+            } else {
+                q += ` AND LOWER(COALESCE(metal_type, '')) = $1`;
+                params.push(m);
+            }
         }
         q += ` ORDER BY created_at DESC LIMIT 500`;
         const rows = await query(q, params);
