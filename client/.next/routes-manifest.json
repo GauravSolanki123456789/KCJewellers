@@ -132,6 +132,12 @@
       "namedRegex": "^/admin/sip/plans(?:/)?$"
     },
     {
+      "page": "/admin/transactions",
+      "regex": "^/admin/transactions(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/transactions(?:/)?$"
+    },
+    {
       "page": "/bullion/gold",
       "regex": "^/bullion/gold(?:/)?$",
       "routeKeys": {},

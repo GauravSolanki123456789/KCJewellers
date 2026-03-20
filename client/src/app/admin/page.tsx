@@ -15,6 +15,7 @@ import {
   Code2,
   CircleDollarSign,
   Activity,
+  Receipt,
 } from 'lucide-react'
 
 const ADMIN_SECTIONS = [
@@ -45,6 +46,13 @@ const ADMIN_SECTIONS = [
     href: '/admin/liabilities',
     icon: BarChart3,
     color: 'cyan',
+  },
+  {
+    title: 'Master Transactions',
+    description: 'Every payment from Orders, Rate Bookings, and SIP Installments',
+    href: '/admin/transactions',
+    icon: Receipt,
+    color: 'amber',
   },
   {
     title: 'Products & Catalogue',

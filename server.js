@@ -4264,6 +4264,51 @@ app.get('/api/admin/bookings', isAdminStrict, async (req, res) => {
 });
 
 // ==========================================
+// Master Transactions Ledger: Orders + Bookings + SIP Installments
+// ==========================================
+app.get('/api/admin/transactions', isAdminStrict, async (req, res) => {
+    try {
+        const { type } = req.query;
+        const typeFilter = type && typeof type === 'string' ? type.trim().toLowerCase().replace(/\s+/g, '_') : '';
+
+        let typeCondition = '';
+        if (typeFilter === 'catalog_order' || typeFilter === 'order') {
+            typeCondition = " AND t.type = 'Catalog Order'";
+        } else if (typeFilter === 'rate_booking' || typeFilter === 'booking') {
+            typeCondition = " AND t.type = 'Rate Booking'";
+        } else if (typeFilter === 'sip_installment' || typeFilter === 'sip') {
+            typeCondition = " AND t.type = 'SIP Installment'";
+        }
+
+        const q = `
+            SELECT t.id, t.user_id, t.amount, t.date, t.type, t.ref_id,
+                   u.name AS customer_name, u.mobile_number AS customer_mobile, u.email AS customer_email
+            FROM (
+                SELECT id AS ref_id, user_id, total_amount AS amount, created_at AS date, 'Catalog Order' AS type
+                FROM orders WHERE payment_status = 'PAID' AND total_amount > 0
+                UNION ALL
+                SELECT id AS ref_id, user_id, advance_amount AS amount, created_at AS date, 'Rate Booking' AS type
+                FROM bookings WHERE status = 'booked' AND advance_amount > 0
+                UNION ALL
+                SELECT st.id AS ref_id, st.user_id, COALESCE(st.amount_paid, st.amount) AS amount,
+                       COALESCE(st.payment_date, st.transaction_date) AS date, 'SIP Installment' AS type
+                FROM sip_transactions st
+                WHERE st.status = 'SUCCESS' AND (COALESCE(st.amount_paid, st.amount) > 0)
+            ) t
+            LEFT JOIN users u ON u.id = t.user_id
+            WHERE 1=1 ${typeCondition}
+            ORDER BY t.date DESC
+            LIMIT 1000
+        `;
+        const rows = await query(q);
+        const totalRevenue = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        res.json({ success: true, data: rows, total_revenue: totalRevenue });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
 // Extend webhook: subscription invoice paid -> credit gold
 // ==========================================
 async function creditGoldFromPayment(userId, amountInr) {
@@ -4518,6 +4563,171 @@ app.get('/api/sip/plans', async (req, res) => {
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// SIP Checkout: Create Razorpay Subscription (Autopay)
+// Receives plan_id, creates/fetches Razorpay plan, creates subscription, returns subscription_id
+// ==========================================
+app.post('/api/sip/checkout', checkAuth, requireJson, async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+        const { plan_id } = req.body || {};
+        if (!plan_id) return res.status(400).json({ error: 'plan_id required' });
+
+        const plans = await query('SELECT * FROM sip_plans WHERE id = $1 AND is_active = true', [parseInt(plan_id)]);
+        if (plans.length === 0) return res.status(404).json({ error: 'Plan not found or inactive' });
+
+        const existing = await query(
+            'SELECT id FROM user_sips WHERE user_id = $1 AND plan_id = $2 AND status = $3',
+            [userId, parseInt(plan_id), 'active']
+        );
+        if (existing.length > 0) {
+            return res.status(409).json({ error: 'You already have an active subscription to this plan.' });
+        }
+
+        const plan = plans[0];
+        const installmentAmount = Number(plan.installment_amount ?? plan.min_amount ?? 0);
+        const durationMonths = parseInt(plan.duration_months) || 12;
+        const planName = (plan.name || 'SIP Plan').substring(0, 100);
+
+        if (installmentAmount <= 0) return res.status(400).json({ error: 'Invalid plan: installment amount must be positive' });
+
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        if (!keyId || !keySecret) return res.status(500).json({ error: 'Razorpay not configured' });
+
+        let razorpayPlanId = plan.razorpay_plan_id || null;
+
+        if (!razorpayPlanId) {
+            const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+            const planResp = await fetch('https://api.razorpay.com/v1/plans', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
+                body: JSON.stringify({
+                    period: 'monthly',
+                    interval: 1,
+                    item: {
+                        name: planName,
+                        amount: Math.round(installmentAmount * 100),
+                        currency: 'INR',
+                        description: `SIP: ${planName}`,
+                    },
+                }),
+            });
+            const planData = await planResp.json();
+            if (!planResp.ok || !planData.id) {
+                const errMsg = planData.error?.description || planData.error?.reason || 'Failed to create Razorpay plan';
+                return res.status(500).json({ error: errMsg });
+            }
+            razorpayPlanId = planData.id;
+            await query('UPDATE sip_plans SET razorpay_plan_id = $1 WHERE id = $2', [razorpayPlanId, plan.id]);
+        }
+
+        const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const subResp = await fetch('https://api.razorpay.com/v1/subscriptions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
+            body: JSON.stringify({
+                plan_id: razorpayPlanId,
+                total_count: durationMonths,
+                customer_notify: 1,
+                notes: { user_id: String(userId), plan_id: String(plan.id) },
+            }),
+        });
+        const subData = await subResp.json();
+        if (!subResp.ok || !subData.id) {
+            const errMsg = subData.error?.description || subData.error?.reason || 'Failed to create Razorpay subscription';
+            return res.status(500).json({ error: errMsg });
+        }
+
+        res.json({
+            subscription_id: subData.id,
+            key_id: keyId,
+            amount: installmentAmount,
+            currency: 'INR',
+        });
+    } catch (error) {
+        console.error('SIP checkout error:', error);
+        res.status(500).json({ error: error.message || 'Checkout failed' });
+    }
+});
+
+// ==========================================
+// SIP Verify Subscription: Verify Razorpay signature, activate user_sip, record first payment
+// ==========================================
+app.post('/api/sip/verify-subscription', checkAuth, requireJson, async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+        const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature, plan_id } = req.body || {};
+        if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+            return res.status(400).json({ error: 'razorpay_payment_id, razorpay_subscription_id, razorpay_signature required' });
+        }
+
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        if (!keySecret) return res.status(500).json({ error: 'Razorpay not configured' });
+
+        const payload = `${razorpay_payment_id}|${razorpay_subscription_id}`;
+        const expectedSig = crypto.createHmac('sha256', keySecret).update(payload).digest('hex');
+        if (expectedSig !== razorpay_signature) {
+            return res.status(400).json({ error: 'Invalid payment signature' });
+        }
+
+        const plans = await query('SELECT * FROM sip_plans WHERE id = $1 AND is_active = true', [parseInt(plan_id || '0')]);
+        if (plans.length === 0) return res.status(404).json({ error: 'Plan not found' });
+        const plan = plans[0];
+
+        const startDate = new Date();
+        const maturityDate = new Date(startDate);
+        maturityDate.setMonth(maturityDate.getMonth() + (parseInt(plan.duration_months) || 12));
+
+        const [userSip] = await query(`
+            INSERT INTO user_sips (user_id, plan_id, start_date, maturity_date, autopay_mandate_id, status)
+            VALUES ($1, $2, $3, $4, $5, 'active') RETURNING *
+        `, [userId, plan.id, startDate, maturityDate, razorpay_subscription_id]);
+
+        const installmentAmount = Number(plan.installment_amount ?? plan.min_amount ?? 0);
+        const metalType = (plan.metal_type || '').toLowerCase();
+
+        let accumulatedGrams = null;
+        let metalRateOnDate = null;
+
+        if (metalType === 'gold' || metalType === 'silver') {
+            const payload = await liveRateService.getCurrentPayload();
+            const rates = payload?.rates || [];
+            const rateEntry = rates.find(r => (r.metal_type || '').toLowerCase() === metalType);
+            const displayRate = rateEntry ? Number(rateEntry.display_rate || rateEntry.sell_rate || 0) : 0;
+            if (displayRate > 0) {
+                metalRateOnDate = displayRate;
+                if (metalType === 'gold') {
+                    accumulatedGrams = installmentAmount / (displayRate / 10);
+                } else {
+                    accumulatedGrams = installmentAmount / (displayRate / 1000);
+                }
+            }
+        }
+
+        await query(`
+            INSERT INTO sip_transactions (user_id, plan_id, user_sip_id, amount, amount_paid, metal_rate_on_date, accumulated_grams, payment_date, type, status, transaction_date)
+            VALUES ($1, $2, $3, $4, $4, $5, $6, CURRENT_TIMESTAMP, 'installment', 'SUCCESS', CURRENT_TIMESTAMP)
+        `, [userId, plan.id, userSip.id, installmentAmount, metalRateOnDate, accumulatedGrams]);
+
+        if (metalType === 'gold' && accumulatedGrams != null && accumulatedGrams > 0) {
+            await query('UPDATE users SET wallet_gold_balance = COALESCE(wallet_gold_balance,0) + $2 WHERE id = $1', [userId, accumulatedGrams]).catch(() => {});
+        }
+        if (metalType === 'silver' && accumulatedGrams != null && accumulatedGrams > 0) {
+            await query('UPDATE users SET wallet_silver_balance = COALESCE(wallet_silver_balance,0) + $2 WHERE id = $1', [userId, accumulatedGrams]).catch(() => {});
+        }
+
+        res.json({ success: true, user_sip_id: userSip.id });
+    } catch (error) {
+        console.error('SIP verify-subscription error:', error);
+        res.status(500).json({ error: error.message || 'Verification failed' });
     }
 });
 

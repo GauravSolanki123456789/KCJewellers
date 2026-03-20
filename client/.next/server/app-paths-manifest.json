@@ -12,6 +12,7 @@
   "/admin/sip/movements/page": "app/admin/sip/movements/page.js",
   "/admin/sip/payouts/page": "app/admin/sip/payouts/page.js",
   "/admin/sip/plans/page": "app/admin/sip/plans/page.js",
+  "/admin/transactions/page": "app/admin/transactions/page.js",
   "/bullion/gold/page": "app/bullion/gold/page.js",
   "/bullion/silver/page": "app/bullion/silver/page.js",
   "/catalog/page": "app/catalog/page.js",

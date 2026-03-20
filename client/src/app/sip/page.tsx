@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
@@ -56,10 +56,29 @@ export default function SipMarketingPage() {
   const [confirmPlan, setConfirmPlan] = useState<SipPlan | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const razorpayScriptLoaded = useRef(false)
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message })
     setTimeout(() => setToast(null), 4000)
+  }
+
+  const loadRazorpayScript = (): Promise<void> => {
+    if (razorpayScriptLoaded.current || (typeof window !== 'undefined' && window.Razorpay)) {
+      razorpayScriptLoaded.current = true
+      return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.async = true
+      script.onload = () => {
+        razorpayScriptLoaded.current = true
+        resolve()
+      }
+      script.onerror = () => resolve()
+      document.body.appendChild(script)
+    })
   }
 
   const load = useCallback(async () => {
@@ -95,17 +114,76 @@ export default function SipMarketingPage() {
     if (!confirmPlan || !auth.isAuthenticated) return
     setSubmitting(true)
     try {
-      await axios.post('/api/sip/subscribe', { plan_id: confirmPlan.id })
-      showToast('success', 'You have successfully subscribed! Redirecting to your dashboard.')
-      setConfirmPlan(null)
-      setTimeout(() => router.push('/profile/sips'), 1500)
+      await loadRazorpayScript()
+      if (!window.Razorpay) {
+        showToast('error', 'Payment gateway failed to load. Please refresh and try again.')
+        setSubmitting(false)
+        return
+      }
+
+      const checkoutRes = await axios.post('/api/sip/checkout', { plan_id: confirmPlan.id })
+      const { subscription_id, key_id } = checkoutRes.data
+      if (!subscription_id || !key_id) {
+        showToast('error', 'Could not create subscription. Please try again.')
+        setSubmitting(false)
+        return
+      }
+
+      const razorpayKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || key_id
+
+      const options = {
+        key: razorpayKeyId,
+        subscription_id,
+        name: 'KC Jewellers',
+        description: `SIP: ${confirmPlan.name}`,
+        prefill: {
+          email: (auth.user as { email?: string })?.email || '',
+          contact: (auth.user as { mobile_number?: string })?.mobile_number || '',
+        },
+        handler: async (rzpResponse: {
+          razorpay_payment_id: string
+          razorpay_subscription_id: string
+          razorpay_signature: string
+        }) => {
+          try {
+            showToast('success', 'Verifying payment…')
+            await axios.post('/api/sip/verify-subscription', {
+              razorpay_payment_id: rzpResponse.razorpay_payment_id,
+              razorpay_subscription_id: rzpResponse.razorpay_subscription_id,
+              razorpay_signature: rzpResponse.razorpay_signature,
+              plan_id: confirmPlan.id,
+            })
+            showToast('success', 'Subscription activated! Redirecting to your dashboard.')
+            setConfirmPlan(null)
+            setTimeout(() => router.push('/profile/sips'), 1500)
+          } catch (verifyErr: unknown) {
+            const msg =
+              verifyErr && typeof verifyErr === 'object' && 'response' in verifyErr
+                ? (verifyErr as { response?: { data?: { error?: string } } }).response?.data?.error
+                : 'Verification failed'
+            showToast('error', msg || 'Verification failed. Please contact support.')
+          } finally {
+            setSubmitting(false)
+          }
+        },
+        modal: {
+          ondismiss: () => setSubmitting(false),
+        },
+        theme: { color: '#eab308' },
+      }
+
+      const rzp = new window.Razorpay(options)
+      rzp.on('payment.failed', () => {
+        showToast('error', 'Payment failed. Please try again.')
+        setSubmitting(false)
+      })
+      rzp.open()
     } catch (err: unknown) {
       const msg =
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
-          : 'Failed to subscribe'
-      showToast('error', msg || 'Failed to subscribe')
-    } finally {
+          : 'Failed to start subscription'
+      showToast('error', msg || 'Failed to start subscription')
       setSubmitting(false)
     }
   }

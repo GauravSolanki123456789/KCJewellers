@@ -12,6 +12,7 @@
   "/admin/sip/movements/page": "/admin/sip/movements",
   "/admin/sip/payouts/page": "/admin/sip/payouts",
   "/admin/sip/plans/page": "/admin/sip/plans",
+  "/admin/transactions/page": "/admin/transactions",
   "/bullion/gold/page": "/bullion/gold",
   "/bullion/silver/page": "/bullion/silver",
   "/catalog/page": "/catalog",
