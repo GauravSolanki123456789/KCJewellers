@@ -4281,7 +4281,7 @@ app.get('/api/admin/transactions', isAdminStrict, async (req, res) => {
         }
 
         const q = `
-            SELECT t.id, t.user_id, t.amount, t.date, t.type, t.ref_id,
+            SELECT t.ref_id AS id, t.ref_id, t.user_id, t.amount, t.date, t.type,
                    u.name AS customer_name, u.mobile_number AS customer_mobile, u.email AS customer_email
             FROM (
                 SELECT id AS ref_id, user_id, total_amount AS amount, created_at AS date, 'Catalog Order' AS type
@@ -4304,6 +4304,7 @@ app.get('/api/admin/transactions', isAdminStrict, async (req, res) => {
         const totalRevenue = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
         res.json({ success: true, data: rows, total_revenue: totalRevenue });
     } catch (error) {
+        console.error('[admin/transactions]', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -4604,55 +4605,79 @@ app.post('/api/sip/checkout', checkAuth, requireJson, async (req, res) => {
 
         if (!razorpayPlanId) {
             const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-            const planResp = await fetch('https://api.razorpay.com/v1/plans', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
-                body: JSON.stringify({
-                    period: 'monthly',
-                    interval: 1,
-                    item: {
-                        name: planName,
-                        amount: Math.round(installmentAmount * 100),
-                        currency: 'INR',
-                        description: `SIP: ${planName}`,
-                    },
-                }),
-            });
-            const planData = await planResp.json();
-            if (!planResp.ok || !planData.id) {
-                const errMsg = planData.error?.description || planData.error?.reason || 'Failed to create Razorpay plan';
-                return res.status(500).json({ error: errMsg });
+            const amountPaise = Math.round(installmentAmount * 100);
+            const planPayload = {
+                period: 'monthly',
+                interval: 1,
+                item: {
+                    name: planName,
+                    amount: amountPaise,
+                    currency: 'INR',
+                    description: `SIP: ${planName}`,
+                },
+            };
+            try {
+                const planResp = await fetch('https://api.razorpay.com/v1/plans', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
+                    body: JSON.stringify(planPayload),
+                });
+                const planData = await planResp.json();
+                if (!planResp.ok || !planData.id) {
+                    const errMsg = planData.error?.description || planData.error?.reason || planData.error?.code || 'Failed to create Razorpay plan';
+                    console.error('[sip/checkout] Razorpay plan creation failed:', {
+                        status: planResp.status,
+                        planPayload: { ...planPayload, item: { ...planPayload.item, amount: amountPaise } },
+                        razorpayResponse: planData,
+                    });
+                    return res.status(500).json({ error: errMsg });
+                }
+                razorpayPlanId = planData.id;
+                await query('UPDATE sip_plans SET razorpay_plan_id = $1 WHERE id = $2', [razorpayPlanId, plan.id]);
+            } catch (planErr) {
+                console.error('[sip/checkout] Razorpay plan creation exception:', planErr);
+                throw planErr;
             }
-            razorpayPlanId = planData.id;
-            await query('UPDATE sip_plans SET razorpay_plan_id = $1 WHERE id = $2', [razorpayPlanId, plan.id]);
         }
 
         const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-        const subResp = await fetch('https://api.razorpay.com/v1/subscriptions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
-            body: JSON.stringify({
-                plan_id: razorpayPlanId,
-                total_count: durationMonths,
-                customer_notify: 1,
-                notes: { user_id: String(userId), plan_id: String(plan.id) },
-            }),
-        });
-        const subData = await subResp.json();
-        if (!subResp.ok || !subData.id) {
-            const errMsg = subData.error?.description || subData.error?.reason || 'Failed to create Razorpay subscription';
-            return res.status(500).json({ error: errMsg });
-        }
+        const subPayload = {
+            plan_id: razorpayPlanId,
+            total_count: durationMonths,
+            customer_notify: 1,
+            notes: { user_id: String(userId), plan_id: String(plan.id) },
+        };
+        try {
+            const subResp = await fetch('https://api.razorpay.com/v1/subscriptions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
+                body: JSON.stringify(subPayload),
+            });
+            const subData = await subResp.json();
+            if (!subResp.ok || !subData.id) {
+                const errMsg = subData.error?.description || subData.error?.reason || subData.error?.code || 'Failed to create Razorpay subscription';
+                console.error('[sip/checkout] Razorpay subscription creation failed:', {
+                    status: subResp.status,
+                    subPayload,
+                    razorpayResponse: subData,
+                });
+                return res.status(500).json({ error: errMsg });
+            }
 
-        res.json({
-            subscription_id: subData.id,
-            key_id: keyId,
-            amount: installmentAmount,
-            currency: 'INR',
-        });
+            res.json({
+                subscription_id: subData.id,
+                key_id: keyId,
+                amount: installmentAmount,
+                currency: 'INR',
+            });
+        } catch (subErr) {
+            console.error('[sip/checkout] Razorpay subscription creation exception:', subErr);
+            throw subErr;
+        }
     } catch (error) {
-        console.error('SIP checkout error:', error);
-        res.status(500).json({ error: error.message || 'Checkout failed' });
+        console.error('[sip/checkout] SIP checkout error:', error);
+        const errMsg = error.message || 'Checkout failed';
+        res.status(500).json({ error: errMsg });
     }
 });
 
