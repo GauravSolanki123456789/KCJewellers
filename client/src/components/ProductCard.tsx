@@ -5,9 +5,9 @@ import Link from 'next/link'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 
-type ProductCardProps = { product: Item; rates?: unknown[] }
+type ProductCardProps = { product: Item; rates?: unknown[]; onBeforeNavigate?: () => void }
 
-export default function ProductCard({ product, rates = [] }: ProductCardProps) {
+export default function ProductCard({ product, rates = [], onBeforeNavigate }: ProductCardProps) {
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
 
@@ -29,6 +29,7 @@ export default function ProductCard({ product, rates = [] }: ProductCardProps) {
   return (
     <Link
       href={`/products/${encodeURIComponent(barcode)}`}
+      onClick={() => onBeforeNavigate?.()}
       className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
     >
       {/* Image — 70 % of card */}

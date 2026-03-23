@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-react'
@@ -24,6 +24,8 @@ type Category = {
   image_url?: string
   subcategories: Subcategory[]
 }
+
+const CATALOG_STATE_KEY = 'kc_catalog_state'
 
 /** Metal types for catalog navigation — values match backend metal_type (lowercase) */
 const METAL_TABS = [
@@ -63,8 +65,33 @@ export default function CatalogPage() {
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
   const [activeSkuId, setActiveSkuId] = useState<number | null>(null)
   const [expandedStyles, setExpandedStyles] = useState<Set<number>>(new Set())
+  const [weightLow, setWeightLow] = useState(0)
+  const [weightHigh, setWeightHigh] = useState(100)
+  const [priceLow, setPriceLow] = useState(0)
+  const [priceHigh, setPriceHigh] = useState(100000)
+  const hasRestoredFromStorage = useRef(false)
+  const skipNextBoundsSync = useRef(false)
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+
+  const saveCatalogState = useCallback(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const state = {
+        selectedMetal,
+        activeStyleId,
+        activeSkuId,
+        expandedStyles: Array.from(expandedStyles),
+        weightLow,
+        weightHigh,
+        priceLow,
+        priceHigh,
+      }
+      sessionStorage.setItem(CATALOG_STATE_KEY, JSON.stringify(state))
+    } catch {
+      /* ignore */
+    }
+  }, [selectedMetal, activeStyleId, activeSkuId, expandedStyles, weightLow, weightHigh, priceLow, priceHigh])
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -76,12 +103,56 @@ export default function CatalogPage() {
       setCategories(cats)
       setRates(ratesRes.data?.rates ?? [])
 
-      if (cats.length > 0) {
+      if (cats.length > 0 && typeof window !== 'undefined' && !hasRestoredFromStorage.current) {
+        try {
+          const stored = sessionStorage.getItem(CATALOG_STATE_KEY)
+          if (stored) {
+            const parsed = JSON.parse(stored) as {
+              selectedMetal?: MetalKey
+              activeStyleId?: number
+              activeSkuId?: number
+              expandedStyles?: number[]
+              weightLow?: number
+              weightHigh?: number
+              priceLow?: number
+              priceHigh?: number
+            }
+            const validMetal = parsed.selectedMetal && METAL_TABS.some((t) => t.key === parsed.selectedMetal)
+            const styleExists = parsed.activeStyleId != null && cats.some((c) => c.id === parsed.activeStyleId)
+            const style = styleExists ? cats.find((c) => c.id === parsed.activeStyleId) : null
+            const subExists = style && parsed.activeSkuId != null && style.subcategories.some((s) => s.id === parsed.activeSkuId)
+            if (validMetal) setSelectedMetal(parsed.selectedMetal as MetalKey)
+            if (styleExists && subExists) {
+              setActiveStyleId(parsed.activeStyleId!)
+              setActiveSkuId(parsed.activeSkuId!)
+              setExpandedStyles(new Set(parsed.expandedStyles || [parsed.activeStyleId!]))
+            } else {
+              setActiveStyleId(cats[0].id)
+              setExpandedStyles(new Set([cats[0].id]))
+              setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+            }
+            if (parsed.weightLow != null) setWeightLow(parsed.weightLow)
+            if (parsed.weightHigh != null) setWeightHigh(parsed.weightHigh)
+            if (parsed.priceLow != null) setPriceLow(parsed.priceLow)
+            if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
+            skipNextBoundsSync.current = true
+            sessionStorage.removeItem(CATALOG_STATE_KEY)
+          } else {
+            setActiveStyleId(cats[0].id)
+            setExpandedStyles(new Set([cats[0].id]))
+            setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+          }
+        } catch {
+          setActiveStyleId(cats[0].id)
+          setExpandedStyles(new Set([cats[0].id]))
+          setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+        }
+        hasRestoredFromStorage.current = true
+      } else if (cats.length > 0 && !hasRestoredFromStorage.current) {
         setActiveStyleId(cats[0].id)
         setExpandedStyles(new Set([cats[0].id]))
-        if (cats[0].subcategories.length > 0) {
-          setActiveSkuId(cats[0].subcategories[0].id)
-        }
+        setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+        hasRestoredFromStorage.current = true
       }
     } catch {
       setCategories([])
@@ -176,14 +247,12 @@ export default function CatalogPage() {
     }
   }, [rawProducts, rates])
 
-  // Filter state: dual range sliders (numeric)
-  const [weightLow, setWeightLow] = useState(weightBounds[0])
-  const [weightHigh, setWeightHigh] = useState(weightBounds[1])
-  const [priceLow, setPriceLow] = useState(priceBounds[0])
-  const [priceHigh, setPriceHigh] = useState(priceBounds[1])
-
-  // Sync slider bounds when category changes
+  // Sync slider bounds when category changes (skip once after restore from sessionStorage)
   useEffect(() => {
+    if (skipNextBoundsSync.current) {
+      skipNextBoundsSync.current = false
+      return
+    }
     setWeightLow(weightBounds[0])
     setWeightHigh(weightBounds[1])
     setPriceLow(priceBounds[0])
@@ -527,6 +596,7 @@ export default function CatalogPage() {
                       } as Product
                     }
                     rates={rates}
+                    onBeforeNavigate={saveCatalogState}
                   />
                 ))}
               </div>

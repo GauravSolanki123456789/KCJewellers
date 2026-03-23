@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useState, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { CheckCircle2, XCircle, X } from 'lucide-react'
 
 function AuthToastContent() {
   const searchParams = useSearchParams()
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const authStatus = searchParams?.get('auth')
@@ -19,11 +20,9 @@ function AuthToastContent() {
         type: 'success',
         message: `Successfully logged in as ${name || email}${isAdmin ? ' (Admin)' : ''}`
       })
-      
-      // Auto-hide after 3 seconds
-      const timer = setTimeout(() => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => {
         setToast(null)
-        // Clean URL
         if (typeof window !== 'undefined') {
           const newUrl = new URL(window.location.href)
           newUrl.searchParams.delete('auth')
@@ -32,17 +31,16 @@ function AuthToastContent() {
           newUrl.searchParams.delete('name')
           window.history.replaceState({}, '', newUrl.toString())
         }
-      }, 3000)
-      
-      return () => clearTimeout(timer)
+        timerRef.current = null
+      }, 3500)
     } else if (authStatus === 'failed') {
       const reason = searchParams?.get('reason')
       setToast({
         type: 'error',
         message: `Login failed: ${reason || 'Unknown error'}`
       })
-      
-      const timer = setTimeout(() => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => {
         setToast(null)
         if (typeof window !== 'undefined') {
           const newUrl = new URL(window.location.href)
@@ -50,11 +48,19 @@ function AuthToastContent() {
           newUrl.searchParams.delete('reason')
           window.history.replaceState({}, '', newUrl.toString())
         }
+        timerRef.current = null
       }, 5000)
-      
-      return () => clearTimeout(timer)
     }
   }, [searchParams])
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [])
 
   if (!toast) return null
 

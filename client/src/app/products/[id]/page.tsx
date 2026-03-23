@@ -9,7 +9,7 @@ import HoverZoomImage from "@/components/HoverZoomImage"
 import { calculateBreakdown, getItemWeight, isDiamondItem, type Item } from "@/lib/pricing"
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics"
 import { getSocket } from "@/lib/socket"
-import React, { useEffect, useRef, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useCart } from "@/context/CartContext"
 
 type RateRow = { metal_type?: string, display_rate?: number, sell_rate?: number }
@@ -70,16 +70,22 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
   }
 
-  const handleBackToCatalog = () => {
-    const referrer = typeof document !== 'undefined' ? document.referrer : ''
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const isInternalNav = referrer && (referrer.startsWith(origin) || referrer.includes(CATALOG_PATH))
-    if (isInternalNav && typeof window !== 'undefined' && window.history.length > 1) {
-      router.back()
-    } else {
-      router.push(CATALOG_PATH)
+  const handleBackToCatalog = useCallback(() => {
+    try {
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const referrer = document.referrer || ''
+        const origin = window.location.origin || ''
+        const isInternalNav = referrer && (referrer.startsWith(origin) || referrer.includes(CATALOG_PATH))
+        if (isInternalNav && window.history.length > 1) {
+          router.back()
+          return
+        }
+      }
+    } catch {
+      /* fall through to default */
     }
-  }
+    router.push(CATALOG_PATH)
+  }, [router])
 
   return (
     <div className="min-h-screen bg-slate-950">

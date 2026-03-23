@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const bcrypt = require('bcrypt');
 const http = require('http');
 const session = require('express-session');
@@ -81,6 +82,7 @@ const allowedOrigins = [
     'http://localhost:3000',
 ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
 
+app.use(cookieParser());
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (curl, server-to-server)
@@ -252,6 +254,16 @@ app.get('/auth/bypass', authLimiter, async (req, res, next) => {
     }
 });
 
+const KC_RETURN_TO = 'kc_return_to';
+const RETURN_TO_COOKIE_OPTS = {
+    maxAge: 5 * 60 * 1000,
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    path: '/',
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
+};
+
 app.get('/auth/google', authLimiter, async (req, res, next) => {
     // Store returnTo for post-login redirect (e.g. /checkout)
     const returnTo = req.query.returnTo && typeof req.query.returnTo === 'string'
@@ -259,7 +271,7 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
         : null;
     if (returnTo && returnTo.startsWith('/')) {
         req.session.redirect_after_login = returnTo;
-        // Ensure session is saved before redirecting to Google (prevents losing returnTo)
+        res.cookie(KC_RETURN_TO, returnTo, RETURN_TO_COOKIE_OPTS);
         try {
             await new Promise((resolve, reject) => {
                 req.session.save((error) => (error ? reject(error) : resolve()));
@@ -303,14 +315,19 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
             // Ensure super_admin role and ['all'] tabs are set
             resolvedUser.role = 'super_admin';
             resolvedUser.allowed_tabs = ['all'];
-            req.login(resolvedUser, (error) => {
+                req.login(resolvedUser, (error) => {
                 if (error) { 
                     console.error("Login Error:", error);
                     return next(error); 
                 }
                 const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
-                const target = req.session?.redirect_after_login || '/';
+                let target = req.session?.redirect_after_login;
                 delete req.session?.redirect_after_login;
+                if (!target && req.cookies?.[KC_RETURN_TO] && req.cookies[KC_RETURN_TO].startsWith('/')) {
+                    target = req.cookies[KC_RETURN_TO];
+                    res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
+                }
+                target = target || '/';
                 if (target.startsWith('/')) {
                     return res.redirect(clientUrl + target);
                 }
@@ -363,8 +380,12 @@ app.get('/auth/google/callback', authLimiter,
             console.log(`✅ Login successful: ${email} (Role: ${req.user.role})`);
             logUserActivity({ user_id: req.user.id, action_type: 'login' }).catch(() => {});
             // Redirect to returnTo (e.g. /checkout) or home with success params
-            const returnTo = req.session?.redirect_after_login;
+            let returnTo = req.session?.redirect_after_login;
             delete req.session?.redirect_after_login;
+            if (!returnTo && req.cookies?.[KC_RETURN_TO] && req.cookies[KC_RETURN_TO].startsWith('/')) {
+                returnTo = req.cookies[KC_RETURN_TO];
+                res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
+            }
             const basePath = (returnTo && returnTo.startsWith('/')) ? returnTo : '/';
             const redirectUrl = basePath === '/'
                 ? `${clientUrl}/?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`
