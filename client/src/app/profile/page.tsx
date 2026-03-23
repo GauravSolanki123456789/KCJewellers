@@ -3,6 +3,7 @@
 import { Suspense } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
+import { PROFILE_PATH } from '@/lib/routes'
 import Link from 'next/link'
 import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp } from 'lucide-react'
 import axios from 'axios'
@@ -182,7 +183,7 @@ function ProfilePageContent() {
                 Sign In
               </button>
               <a
-                href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google?returnTo=${encodeURIComponent('/profile')}`}
+                href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google?returnTo=${encodeURIComponent(PROFILE_PATH)}`}
                 className="inline-flex items-center justify-center gap-2 px-6 py-3 border border-slate-600 hover:border-slate-500 bg-slate-800/50 text-slate-200 font-medium rounded-lg transition-colors"
               >
                 Sign In with Google

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { useCart } from '@/context/CartContext'
 import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
@@ -11,12 +12,17 @@ import axios from 'axios'
 type UserType = { email?: string; name?: string; role?: string; mobile_number?: string }
 
 export default function Navbar() {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { items } = useCart()
   const { open: openBookRate } = useBookRate()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const count = items.reduce((sum, i) => sum + i.qty, 0)
+  const returnTo = pathname
+    ? pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : '')
+    : '/'
 
   const { openCart } = useCart()
   
@@ -54,7 +60,7 @@ export default function Navbar() {
           <div className="flex items-center gap-6">
             {!auth.isAuthenticated && (
               <button
-                onClick={() => openLoginModal()}
+                onClick={() => openLoginModal(returnTo)}
                 className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors"
               >
                 Sign In
@@ -137,7 +143,7 @@ export default function Navbar() {
         {!auth.isAuthenticated && (
           <div className="px-4 py-2 border-b border-white/10">
             <button
-              onClick={() => openLoginModal()}
+              onClick={() => openLoginModal(returnTo)}
               className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm"
             >
               Sign In

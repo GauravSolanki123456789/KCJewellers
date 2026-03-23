@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
+import { PROFILE_SIPS_PATH } from '@/lib/routes'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -129,7 +130,7 @@ export default function ProfileSipsPage() {
             <h2 className="text-xl font-semibold text-slate-200 mb-2">Sign in to view your SIPs</h2>
             <p className="text-slate-500 text-sm mb-6">Track your investments and manage your SIP plans</p>
             <button
-              onClick={() => openLoginModal('/profile/sips')}
+              onClick={() => openLoginModal(PROFILE_SIPS_PATH)}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors"
             >
               Sign In

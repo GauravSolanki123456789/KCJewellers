@@ -3,11 +3,12 @@
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, Wallet, Sparkles, Info } from 'lucide-react'
+import { ChevronLeft, Wallet, Sparkles, Info, Tag, X, CheckCircle2 } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { isDiamondItem } from '@/lib/pricing'
 import { useLoginModal } from '@/context/LoginModalContext'
+import { CATALOG_PATH, CHECKOUT_PATH } from '@/lib/routes'
 import axios from '@/lib/axios'
 import { toPaise } from '@/lib/utils'
 import { getItemWeight } from '@/lib/pricing'
@@ -40,6 +41,15 @@ function CheckoutContent() {
   const [redeemableSips, setRedeemableSips] = useState<RedeemableSip[]>([])
   const [sipsLoading, setSipsLoading] = useState(true)
   const [applySipId, setApplySipId] = useState<number | null>(null)
+  const [promoCode, setPromoCode] = useState('')
+  const [promoLoading, setPromoLoading] = useState(false)
+  const [promoError, setPromoError] = useState<string | null>(null)
+  const [appliedPromo, setAppliedPromo] = useState<{
+    promo_code_id: number
+    code: string
+    discount_amount: number
+    description?: string | null
+  } | null>(null)
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
 
@@ -66,7 +76,7 @@ function CheckoutContent() {
   useEffect(() => {
     if (!auth.hasChecked) return
     if (!auth.isAuthenticated && items.length > 0) {
-      openLoginModal('/checkout')
+      openLoginModal(CHECKOUT_PATH)
       return
     }
     const script = document.createElement('script')
@@ -91,8 +101,47 @@ function CheckoutContent() {
   const selectedSip = applySipId ? redeemableSips.find((s) => s.id === applySipId) : null
   const sipRedemptionValue = selectedSip ? selectedSip.redemption_value : 0
   const canApplySip = selectedSip && grandTotal >= selectedSip.redemption_value
-  const finalPayableAmount = Math.max(0, grandTotal - (canApplySip ? sipRedemptionValue : 0))
-  const isFullSipRedemption = canApplySip && finalPayableAmount === 0
+  const promoDiscount = appliedPromo?.discount_amount ?? 0
+  const afterSipTotal = Math.max(0, grandTotal - (canApplySip ? sipRedemptionValue : 0))
+  const finalPayableAmount = Math.max(0, afterSipTotal - promoDiscount)
+  const isFullSipRedemption = canApplySip && afterSipTotal === 0
+
+  const handleApplyPromo = async () => {
+    const code = promoCode.trim().toUpperCase()
+    if (!code) {
+      setPromoError('Enter a promo code')
+      return
+    }
+    setPromoError(null)
+    setPromoLoading(true)
+    try {
+      const res = await axios.post('/api/promos/validate', { code, cart_total: grandTotal })
+      const data = res.data
+      if (data.valid && data.discount_amount > 0) {
+        setAppliedPromo({
+          promo_code_id: data.promo_code_id,
+          code: data.code,
+          discount_amount: data.discount_amount,
+          description: data.description,
+        })
+        setPromoCode('')
+      } else {
+        setPromoError('Discount could not be applied')
+      }
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : 'Invalid promo code'
+      setPromoError(msg || 'Invalid promo code')
+    } finally {
+      setPromoLoading(false)
+    }
+  }
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null)
+    setPromoError(null)
+  }
 
   const handlePay = async () => {
     if (items.length === 0) return
@@ -106,7 +155,13 @@ function CheckoutContent() {
     }
     setLoading(true)
     try {
-      const payload: { items: unknown[]; sip_user_sip_id?: number; sip_redemption_amount?: number } = {
+      const payload: {
+        items: unknown[]
+        sip_user_sip_id?: number
+        sip_redemption_amount?: number
+        promo_code_id?: number
+        promo_discount_amount?: number
+      } = {
         items: items.map((ci) => ({
           id: ci.id,
           item: ci.item,
@@ -118,6 +173,10 @@ function CheckoutContent() {
       if (canApplySip && selectedSip) {
         payload.sip_user_sip_id = selectedSip.id
         payload.sip_redemption_amount = selectedSip.redemption_value
+      }
+      if (appliedPromo && appliedPromo.discount_amount > 0) {
+        payload.promo_code_id = appliedPromo.promo_code_id
+        payload.promo_discount_amount = appliedPromo.discount_amount
       }
       const res = await axios.post('/api/checkout/create-order', payload)
       const { razorpay_order_id, amount, key_id } = res.data
@@ -178,13 +237,13 @@ function CheckoutContent() {
   if (!auth.isAuthenticated && items.length === 0) {
     return (
       <div className="min-h-screen bg-slate-950 p-4">
-        <Link href="/catalog" className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
+        <Link href={CATALOG_PATH} className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
           <ChevronLeft className="size-4" />
           Back to Catalog
         </Link>
         <div className="max-w-md mx-auto text-center py-16">
           <p className="text-slate-300 text-lg">Your cart is empty</p>
-          <Link href="/catalog" className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400">
+          <Link href={CATALOG_PATH} className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400">
             Browse Catalog
           </Link>
         </div>
@@ -195,13 +254,13 @@ function CheckoutContent() {
   if (items.length === 0) {
     return (
       <div className="min-h-screen bg-slate-950 p-4">
-        <Link href="/catalog" className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
+        <Link href={CATALOG_PATH} className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
           <ChevronLeft className="size-4" />
           Back to Catalog
         </Link>
         <div className="max-w-md mx-auto text-center py-16">
           <p className="text-slate-300 text-lg">Your cart is empty</p>
-          <Link href="/catalog" className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400">
+          <Link href={CATALOG_PATH} className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400">
             Browse Catalog
           </Link>
         </div>
@@ -212,7 +271,7 @@ function CheckoutContent() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="max-w-lg mx-auto px-4 py-6 pb-28 md:pb-32">
-        <Link href="/catalog" className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
+        <Link href={CATALOG_PATH} className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6">
           <ChevronLeft className="size-4" />
           Back to Catalog
         </Link>
@@ -302,6 +361,61 @@ function CheckoutContent() {
           </div>
         )}
 
+        {/* Promo Code Section */}
+        <div className="mb-6 rounded-xl border border-white/10 bg-slate-900/50 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Tag className="size-5 text-amber-500" />
+            <h3 className="font-semibold text-slate-200">Promo Code</h3>
+          </div>
+          {appliedPromo ? (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+              <div className="flex items-center gap-2 min-w-0">
+                <CheckCircle2 className="size-5 text-emerald-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-medium text-emerald-400 truncate">
+                    {appliedPromo.description || `${appliedPromo.code} Applied`}
+                  </p>
+                  <p className="text-sm text-emerald-500/80">
+                    -₹{Math.round(appliedPromo.discount_amount).toLocaleString('en-IN')} discount
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRemovePromo}
+                className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                aria-label="Remove promo"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={promoCode}
+                onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoError(null); }}
+                placeholder="Enter code (e.g. WELCOME500)"
+                className="flex-1 px-4 py-3 rounded-xl bg-slate-800 border border-slate-600 text-slate-100 placeholder:text-slate-500 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none text-sm sm:text-base"
+                disabled={promoLoading}
+              />
+              <button
+                type="button"
+                onClick={handleApplyPromo}
+                disabled={promoLoading || !promoCode.trim()}
+                className="px-5 py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-semibold border border-amber-500/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {promoLoading ? 'Applying…' : 'Apply'}
+              </button>
+            </div>
+          )}
+          {promoError && (
+            <p className="mt-2 text-sm text-red-400 flex items-center gap-1">
+              {promoError}
+            </p>
+          )}
+        </div>
+
         {/* Payment Summary */}
         <div className="rounded-xl border border-white/10 bg-slate-900/50 p-4 mb-6">
           <div className="space-y-2">
@@ -313,6 +427,12 @@ function CheckoutContent() {
               <div className="flex justify-between text-emerald-400">
                 <span>SIP Redemption ({selectedSip.plan_name})</span>
                 <span className="tabular-nums">-₹{sipRedemptionValue.toLocaleString('en-IN')}</span>
+              </div>
+            )}
+            {appliedPromo && appliedPromo.discount_amount > 0 && (
+              <div className="flex justify-between text-emerald-400">
+                <span>Promo ({appliedPromo.code})</span>
+                <span className="tabular-nums">-₹{Math.round(appliedPromo.discount_amount).toLocaleString('en-IN')}</span>
               </div>
             )}
             <div className="flex justify-between text-lg font-semibold pt-2 border-t border-white/10">

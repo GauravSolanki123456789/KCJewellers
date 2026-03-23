@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import axios from 'axios'
 import {
   Dialog,
@@ -19,6 +19,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
 export default function LoginModal() {
   const router = useRouter()
+  const pathname = usePathname()
   const { isOpen, close, returnTo } = useLoginModal()
   const [step, setStep] = useState<'choose' | 'mobile' | 'otp'>('choose')
   const [mobile_number, setMobileNumber] = useState('')
@@ -77,10 +78,11 @@ export default function LoginModal() {
         { withCredentials: true }
       )
       handleClose()
-      if (returnTo) {
-        router.push(returnTo)
+      const target = returnTo || pathname || '/'
+      if (target.startsWith('/')) {
+        window.location.href = target
       } else {
-        window.location.reload()
+        window.location.href = '/'
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Invalid OTP'
@@ -91,7 +93,9 @@ export default function LoginModal() {
   }
 
   const handleGoogleLogin = () => {
-    const url = `${API_URL}/auth/google?returnTo=${encodeURIComponent(returnTo || window.location.pathname || '/')}`
+    const target = returnTo || pathname || '/'
+    const safeReturnTo = target.startsWith('/') ? target : '/'
+    const url = `${API_URL}/auth/google?returnTo=${encodeURIComponent(safeReturnTo)}`
     window.location.href = url
   }
 
@@ -151,7 +155,11 @@ export default function LoginModal() {
                   autoFocus
                 />
               </div>
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && (
+                <p className="text-sm text-red-400 break-words" role="alert">
+                  {error}
+                </p>
+              )}
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -189,7 +197,11 @@ export default function LoginModal() {
                   autoFocus
                 />
               </div>
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && (
+                <p className="text-sm text-red-400 break-words" role="alert">
+                  {error}
+                </p>
+              )}
               <div className="flex gap-2">
                 <Button
                   variant="outline"

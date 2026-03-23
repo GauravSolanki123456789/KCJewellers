@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import axios from 'axios'
 import {
   Dialog,
@@ -45,6 +46,8 @@ function getRateForMetal(rates: Rates, metalKey: string): number {
 }
 
 export default function BookRateModal() {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { isOpen, close } = useBookRate()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
@@ -190,7 +193,10 @@ export default function BookRateModal() {
       return
     }
     if (!auth.isAuthenticated) {
-      openLoginModal()
+      const returnTo = pathname
+        ? pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : '')
+        : '/'
+      openLoginModal(returnTo)
       showToast('Please sign in to continue')
       return
     }

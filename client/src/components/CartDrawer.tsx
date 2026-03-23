@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { CHECKOUT_PATH } from '@/lib/routes'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
@@ -56,7 +57,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
     if (checkoutDisabled) return
     if (!auth.isAuthenticated) {
       onClose()
-      openLoginModal('/checkout')
+      openLoginModal(CHECKOUT_PATH)
       return
     }
     onClose()
@@ -96,6 +97,9 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
         <div className="flex-1 overflow-y-auto p-4">
           <p className="text-slate-300 text-sm mb-4">
             See breakdown of Metal, MC, GST for each item
+          </p>
+          <p className="text-slate-500 text-xs mb-2">
+            Have a promo code? Apply it at checkout.
           </p>
           {items.length === 0 ? (
             <div className="py-12 text-center text-slate-300">No items in cart</div>

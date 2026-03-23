@@ -8,6 +8,7 @@
   "/admin/orders/page": "app/admin/orders/page.js",
   "/admin/page": "app/admin/page.js",
   "/admin/products/page": "app/admin/products/page.js",
+  "/admin/promos/page": "app/admin/promos/page.js",
   "/admin/rates/page": "app/admin/rates/page.js",
   "/admin/sip/movements/page": "app/admin/sip/movements/page.js",
   "/admin/sip/payouts/page": "app/admin/sip/payouts/page.js",

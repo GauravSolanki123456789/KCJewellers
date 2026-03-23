@@ -465,11 +465,17 @@ app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
             'INSERT INTO otps (mobile_number, otp_code, expires_at) VALUES ($1, $2, $3)',
             [mobile_number, otp_code, expires_at]
         );
-        await sendSMS(mobile_number, otp_code);
+        try {
+            await sendSMS(mobile_number, otp_code);
+        } catch (smsError) {
+            await query('DELETE FROM otps WHERE mobile_number = $1 AND otp_code = $2', [mobile_number, otp_code]);
+            throw smsError;
+        }
         res.json({ success: true, message: 'OTP sent' });
     } catch (error) {
-        console.error('Send OTP error:', error);
-        res.status(500).json({ error: error.message || 'Failed to send OTP' });
+        console.error('Send OTP error:', error.message || error);
+        const userMessage = error.message || 'Failed to send OTP';
+        res.status(500).json({ error: userMessage });
     }
 });
 
@@ -4451,6 +4457,53 @@ app.post('/api/orders', checkAuth, async (req, res) => {
 });
 
 // ==========================================
+// Promo Codes: Validate (public - used at checkout before auth)
+// ==========================================
+app.post('/api/promos/validate', requireJson, async (req, res) => {
+    try {
+        const code = (req.body.code || '').toString().trim().toUpperCase();
+        const cartTotal = Math.max(0, Number(req.body.cart_total) || 0);
+        if (!code) return res.status(400).json({ error: 'Promo code is required' });
+
+        const promos = await query(
+            'SELECT id, code, discount_type, discount_value, min_order_value, max_uses, current_uses, expires_at, is_active, description FROM promo_codes WHERE UPPER(code) = $1',
+            [code]
+        );
+        if (promos.length === 0) return res.status(404).json({ error: 'Invalid or expired promo code' });
+
+        const promo = promos[0];
+        if (!promo.is_active) return res.status(400).json({ error: 'This promo code is no longer active' });
+        if (promo.expires_at && new Date(promo.expires_at) < new Date()) return res.status(400).json({ error: 'This promo code has expired' });
+        if (promo.max_uses != null && (promo.current_uses || 0) >= promo.max_uses) return res.status(400).json({ error: 'This promo code has reached its usage limit' });
+        if (promo.min_order_value != null && cartTotal < Number(promo.min_order_value)) {
+            return res.status(400).json({ error: `Minimum order value of ₹${Math.round(Number(promo.min_order_value)).toLocaleString('en-IN')} required` });
+        }
+
+        let discountAmount = 0;
+        if (promo.discount_type === 'fixed_amount') {
+            discountAmount = Math.min(Number(promo.discount_value) || 0, cartTotal);
+        } else if (promo.discount_type === 'percentage') {
+            const pct = Math.min(100, Math.max(0, Number(promo.discount_value) || 0));
+            discountAmount = Math.round((cartTotal * pct) / 100);
+        } else if (promo.discount_type === 'free_shipping') {
+            discountAmount = Math.min(Number(promo.discount_value) || 0, cartTotal);
+        }
+
+        res.json({
+            valid: true,
+            promo_code_id: promo.id,
+            code: promo.code,
+            discount_type: promo.discount_type,
+            discount_value: Number(promo.discount_value),
+            discount_amount: discountAmount,
+            description: promo.description || null,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
 // Checkout: Create Razorpay order for catalog cart
 // ==========================================
 app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) => {
@@ -4458,6 +4511,8 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
         const items = req.body.items || [];
         const sipUserSipId = req.body.sip_user_sip_id ? parseInt(req.body.sip_user_sip_id, 10) : null;
         const sipRedemptionAmount = sipUserSipId ? Math.max(0, Number(req.body.sip_redemption_amount || 0)) : 0;
+        const promoCodeId = req.body.promo_code_id ? parseInt(req.body.promo_code_id, 10) : null;
+        const promoDiscountAmount = promoCodeId ? Math.max(0, Number(req.body.promo_discount_amount || 0)) : 0;
 
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ error: 'Cart is empty' });
@@ -4467,8 +4522,25 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
 
         let amountToCharge = grandTotal;
         let finalSipRedemption = 0;
+        let finalPromoDiscount = 0;
 
-        if (sipUserSipId && sipRedemptionAmount > 0 && sipRedemptionAmount <= grandTotal) {
+        if (promoCodeId && promoDiscountAmount > 0) {
+            const promoCheck = await query(
+                'SELECT id, code, discount_type, discount_value, min_order_value, max_uses, current_uses, expires_at, is_active FROM promo_codes WHERE id = $1',
+                [promoCodeId]
+            );
+            if (promoCheck.length > 0) {
+                const p = promoCheck[0];
+                if (p.is_active && (!p.expires_at || new Date(p.expires_at) >= new Date()) &&
+                    (p.max_uses == null || (p.current_uses || 0) < p.max_uses) &&
+                    (p.min_order_value == null || grandTotal >= Number(p.min_order_value))) {
+                    finalPromoDiscount = Math.min(promoDiscountAmount, amountToCharge);
+                    amountToCharge = Math.max(0, amountToCharge - finalPromoDiscount);
+                }
+            }
+        }
+
+        if (sipUserSipId && sipRedemptionAmount > 0 && sipRedemptionAmount <= amountToCharge) {
             const sipCheck = await query(
                 'SELECT id, status FROM user_sips WHERE id = $1 AND user_id = $2 AND status = $3',
                 [sipUserSipId, req.user?.id, 'completed']
@@ -4511,8 +4583,8 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
         if (amountToCharge === 0) razorpayOrderId = razorpayOrderId || `order_${Date.now()}`;
 
         const [row] = await query(`
-            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, sip_redemption_amount, sip_user_sip_id, amount_paid_via_pg, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8, $9, CURRENT_TIMESTAMP) RETURNING *
+            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, sip_redemption_amount, sip_user_sip_id, amount_paid_via_pg, promo_code_id, promo_discount_amount, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP) RETURNING *
         `, [
             req.user?.id || null,
             grandTotal,
@@ -4523,10 +4595,15 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
             finalSipRedemption,
             finalSipRedemption > 0 ? sipUserSipId : null,
             amountToCharge > 0 ? amountToCharge : null,
+            finalPromoDiscount > 0 ? promoCodeId : null,
+            finalPromoDiscount,
         ]);
 
         if (finalSipRedemption > 0 && sipUserSipId) {
             await query('UPDATE user_sips SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['redeemed', sipUserSipId]);
+        }
+        if (finalPromoDiscount > 0 && promoCodeId) {
+            await query('UPDATE promo_codes SET current_uses = current_uses + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [promoCodeId]);
         }
 
         res.json({
@@ -4535,6 +4612,7 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
             amount: amountToCharge,
             grand_total: grandTotal,
             sip_redemption_amount: finalSipRedemption,
+            promo_discount_amount: finalPromoDiscount,
             key_id: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
         });
     } catch (error) {
@@ -5061,6 +5139,90 @@ app.delete('/api/admin/sip/plans/:id', isAdminStrict, async (req, res) => {
         const rows = await query(`UPDATE sip_plans SET is_active = false WHERE id = $1 RETURNING *`, [parseInt(id)]);
         if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
         res.json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// Promo Codes: Admin CRUD
+// ==========================================
+app.get('/api/admin/promos', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query('SELECT * FROM promo_codes ORDER BY created_at DESC');
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/admin/promos', requireJson, isAdminStrict, validateNumbers(['discount_value', 'min_order_value', 'max_uses']), async (req, res) => {
+    try {
+        const p = req.body || {};
+        const code = (p.code || '').toString().trim().toUpperCase();
+        if (!code) return res.status(400).json({ error: 'Promo code is required' });
+        const discountType = ['fixed_amount', 'percentage', 'free_shipping'].includes(p.discount_type) ? p.discount_type : 'fixed_amount';
+        const discountValue = Math.max(0, Number(p.discount_value) || 0);
+        const minOrderValue = p.min_order_value != null && p.min_order_value !== '' ? Number(p.min_order_value) : null;
+        const maxUses = p.max_uses != null && p.max_uses !== '' ? Math.max(0, parseInt(p.max_uses, 10)) : null;
+        const expiresAt = p.expires_at ? new Date(p.expires_at) : null;
+        const isActive = p.is_active !== false;
+        const description = (p.description || '').toString().trim() || null;
+
+        const rows = await query(`
+            INSERT INTO promo_codes (code, discount_type, discount_value, min_order_value, max_uses, expires_at, is_active, description, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *
+        `, [code, discountType, discountValue, minOrderValue, maxUses, expiresAt && !isNaN(expiresAt.getTime()) ? expiresAt : null, isActive, description]);
+        res.json(rows[0]);
+    } catch (error) {
+        if (error.code === '23505') return res.status(400).json({ error: 'Promo code already exists' });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/admin/promos/:id', requireJson, isAdminStrict, validateNumbers(['discount_value', 'min_order_value', 'max_uses']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const p = req.body || {};
+        const updates = ['updated_at = CURRENT_TIMESTAMP'];
+        const params = [];
+        let i = 1;
+        if (p.code !== undefined) {
+            const code = (p.code || '').toString().trim().toUpperCase();
+            if (!code) return res.status(400).json({ error: 'Promo code cannot be empty' });
+            updates.push(`code = $${i++}`);
+            params.push(code);
+        }
+        if (p.discount_type !== undefined) {
+            const dt = ['fixed_amount', 'percentage', 'free_shipping'].includes(p.discount_type) ? p.discount_type : null;
+            if (dt) { updates.push(`discount_type = $${i++}`); params.push(dt); }
+        }
+        if (p.discount_value !== undefined) { updates.push(`discount_value = $${i++}`); params.push(Math.max(0, Number(p.discount_value) || 0)); }
+        if (p.min_order_value !== undefined) { params.push(p.min_order_value === null || p.min_order_value === '' ? null : Number(p.min_order_value)); updates.push(`min_order_value = $${i++}`); }
+        if (p.max_uses !== undefined) { params.push(p.max_uses === null || p.max_uses === '' ? null : Math.max(0, parseInt(p.max_uses, 10))); updates.push(`max_uses = $${i++}`); }
+        if (p.expires_at !== undefined) {
+            const exp = p.expires_at ? new Date(p.expires_at) : null;
+            updates.push(`expires_at = $${i++}`);
+            params.push(exp && !isNaN(exp.getTime()) ? exp : null);
+        }
+        if (p.is_active !== undefined) { updates.push(`is_active = $${i++}`); params.push(Boolean(p.is_active)); }
+        if (p.description !== undefined) { updates.push(`description = $${i++}`); params.push((p.description || '').toString().trim() || null); }
+        if (updates.length <= 1) return res.status(400).json({ error: 'No fields to update' });
+        const rows = await query(`UPDATE promo_codes SET ${updates.join(', ')} WHERE id = $${i} RETURNING *`, [...params, parseInt(id)]);
+        if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+        res.json(rows[0]);
+    } catch (error) {
+        if (error.code === '23505') return res.status(400).json({ error: 'Promo code already exists' });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/admin/promos/:id', isAdminStrict, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rows = await query('DELETE FROM promo_codes WHERE id = $1 RETURNING *', [parseInt(id)]);
+        if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+        res.json({ deleted: true, id: rows[0].id });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

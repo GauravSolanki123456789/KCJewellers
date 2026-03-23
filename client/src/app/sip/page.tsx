@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
+import { SIP_PATH } from '@/lib/routes'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -104,7 +105,7 @@ export default function SipMarketingPage() {
 
   const handleStartInvesting = (plan: SipPlan) => {
     if (!auth.isAuthenticated) {
-      openLoginModal('/sip')
+      openLoginModal(SIP_PATH)
       return
     }
     setConfirmPlan(plan)

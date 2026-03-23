@@ -16,6 +16,7 @@ import {
   CircleDollarSign,
   Activity,
   Receipt,
+  Tag,
 } from 'lucide-react'
 
 const ADMIN_SECTIONS = [
@@ -74,6 +75,13 @@ const ADMIN_SECTIONS = [
     href: '/admin/orders',
     icon: ShoppingCart,
     color: 'indigo',
+  },
+  {
+    title: 'Promo Codes & Offers',
+    description: 'Create marketing campaigns: fixed amount, percentage, free shipping',
+    href: '/admin/promos',
+    icon: Tag,
+    color: 'rose',
   },
   {
     title: 'Customer Insights',

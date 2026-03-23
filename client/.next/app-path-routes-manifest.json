@@ -8,6 +8,7 @@
   "/admin/orders/page": "/admin/orders",
   "/admin/page": "/admin",
   "/admin/products/page": "/admin/products",
+  "/admin/promos/page": "/admin/promos",
   "/admin/rates/page": "/admin/rates",
   "/admin/sip/movements/page": "/admin/sip/movements",
   "/admin/sip/payouts/page": "/admin/sip/payouts",

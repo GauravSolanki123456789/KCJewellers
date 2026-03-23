@@ -1,8 +1,9 @@
 'use client'
 import axios from "@/lib/axios"
 import Image from "next/image"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { ChevronLeft } from "lucide-react"
+import { CATALOG_PATH } from "@/lib/routes"
 import BreakdownModal from "@/components/BreakdownModal"
 import HoverZoomImage from "@/components/HoverZoomImage"
 import { calculateBreakdown, getItemWeight, isDiamondItem, type Item } from "@/lib/pricing"
@@ -13,6 +14,7 @@ import { useCart } from "@/context/CartContext"
 
 type RateRow = { metal_type?: string, display_rate?: number, sell_rate?: number }
 export default function ProductPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter()
   const { id } = React.use(params)
   const [product, setProduct] = useState<Item | null>(null)
   const [open, setOpen] = useState(false)
@@ -68,16 +70,28 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
   }
 
+  const handleBackToCatalog = () => {
+    const referrer = typeof document !== 'undefined' ? document.referrer : ''
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const isInternalNav = referrer && (referrer.startsWith(origin) || referrer.includes(CATALOG_PATH))
+    if (isInternalNav && typeof window !== 'undefined' && window.history.length > 1) {
+      router.back()
+    } else {
+      router.push(CATALOG_PATH)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-950">
       <div className="p-4 max-w-6xl mx-auto mt-8 pb-24 md:pb-8">
-      <Link
-        href="/catalog"
+      <button
+        type="button"
+        onClick={handleBackToCatalog}
         className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
       >
         <ChevronLeft className="size-4" />
         Back to Catalogue
-      </Link>
+      </button>
 
       <div className="grid md:grid-cols-2 gap-12">
         {/* Left column — Image with thumbnails */}

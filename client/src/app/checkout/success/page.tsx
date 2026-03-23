@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { CheckCircle2 } from 'lucide-react'
+import { CATALOG_PATH } from '@/lib/routes'
 
 export default function CheckoutSuccessPage() {
 
@@ -17,7 +18,7 @@ export default function CheckoutSuccessPage() {
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
-            href="/catalog"
+            href={CATALOG_PATH}
             className="px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400 transition-colors"
           >
             Continue Shopping
