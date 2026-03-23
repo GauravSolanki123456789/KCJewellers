@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
-const cookieParser = require('cookie-parser');
 const bcrypt = require('bcrypt');
 const http = require('http');
 const session = require('express-session');
@@ -82,7 +81,6 @@ const allowedOrigins = [
     'http://localhost:3000',
 ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
 
-app.use(cookieParser());
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (curl, server-to-server)
@@ -255,6 +253,14 @@ app.get('/auth/bypass', authLimiter, async (req, res, next) => {
 });
 
 const KC_RETURN_TO = 'kc_return_to';
+
+/** Parse Cookie header for a single value (no external deps) */
+function getCookie(req, name) {
+    const h = req.headers?.cookie || '';
+    const match = RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)').exec(h);
+    return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : null;
+}
+
 const RETURN_TO_COOKIE_OPTS = {
     maxAge: 5 * 60 * 1000,
     httpOnly: true,
@@ -323,8 +329,9 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
                 const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
                 let target = req.session?.redirect_after_login;
                 delete req.session?.redirect_after_login;
-                if (!target && req.cookies?.[KC_RETURN_TO] && req.cookies[KC_RETURN_TO].startsWith('/')) {
-                    target = req.cookies[KC_RETURN_TO];
+                const cookieVal = getCookie(req, KC_RETURN_TO);
+                if (!target && cookieVal && cookieVal.startsWith('/')) {
+                    target = cookieVal;
                     res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
                 }
                 target = target || '/';
@@ -382,8 +389,9 @@ app.get('/auth/google/callback', authLimiter,
             // Redirect to returnTo (e.g. /checkout) or home with success params
             let returnTo = req.session?.redirect_after_login;
             delete req.session?.redirect_after_login;
-            if (!returnTo && req.cookies?.[KC_RETURN_TO] && req.cookies[KC_RETURN_TO].startsWith('/')) {
-                returnTo = req.cookies[KC_RETURN_TO];
+            const cookieVal = getCookie(req, KC_RETURN_TO);
+            if (!returnTo && cookieVal && cookieVal.startsWith('/')) {
+                returnTo = cookieVal;
                 res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
             }
             const basePath = (returnTo && returnTo.startsWith('/')) ? returnTo : '/';
