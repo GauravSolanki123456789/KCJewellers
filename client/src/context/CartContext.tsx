@@ -25,34 +25,44 @@ const CartCtx = createContext<{
   ratesReady: boolean
 }>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, ratesReady: false })
 
+function loadCartFromStorage(): CartItem[] {
+  if (typeof window === 'undefined') return []
+  const raw = localStorage.getItem('cart.v1')
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((ci: any) => {
+      const id = String(ci?.id || '')
+      const qty = Math.max(1, Number(ci?.qty || 1))
+      const price = Number(ci?.price || 0)
+      const item: ProductLite = ci?.item ?? {}
+      const breakdown: unknown = ci?.breakdown ?? {}
+      return { id, qty, price, item, breakdown }
+    }).filter((ci: CartItem) => ci.id)
+  } catch {
+    return []
+  }
+}
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [lastAdded, setLastAdded] = useState<ProductLite | null>(null)
-  const [items, setItems] = useState<CartItem[]>(() => {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem('cart.v1') : null
-    if (!raw) return []
-    try {
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return []
-      return parsed.map((ci: any) => {
-        const id = String(ci?.id || '')
-        const qty = Math.max(1, Number(ci?.qty || 1))
-        const price = Number(ci?.price || 0)
-        const item: ProductLite = ci?.item ?? {}
-        const breakdown: unknown = ci?.breakdown ?? {}
-        return { id, qty, price, item, breakdown }
-      }).filter((ci: CartItem) => ci.id)
-    } catch {
-      return []
-    }
-  })
+  const [items, setItems] = useState<CartItem[]>([])
   const [lastRates, setLastRates] = useState<unknown[]>([])
   const [ratesReady, setRatesReady] = useState(false)
+  const [isHydrated, setIsHydrated] = useState(false)
   const cartCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    setItems(loadCartFromStorage())
+    setIsHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isHydrated) return
     localStorage.setItem('cart.v1', JSON.stringify(items))
-  }, [items])
+  }, [items, isHydrated])
 
   const applyRates = useCallback((rates: unknown[]) => {
     setLastRates(rates)
