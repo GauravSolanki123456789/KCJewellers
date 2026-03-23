@@ -49,6 +49,24 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     s.on("live-rate", on)
     return () => { s.off("live-rate", on) }
   }, [id])
+
+  const handleBackToCatalog = useCallback(() => {
+    try {
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const referrer = document.referrer || ''
+        const origin = window.location.origin || ''
+        const isInternalNav = referrer && (referrer.startsWith(origin) || referrer.includes(CATALOG_PATH))
+        if (isInternalNav && window.history.length > 1) {
+          router.back()
+          return
+        }
+      }
+    } catch {
+      /* fall through to default */
+    }
+    router.push(CATALOG_PATH)
+  }, [router])
+
   // Breakdown recompute occurs in socket handler and after initial load
   if (!product) return <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center"><div className="text-slate-400 animate-pulse">Loading…</div></div>
 
@@ -69,23 +87,6 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     cart.openCart()
     trackAddToCart(product.barcode || String(product.id || ''), product.item_name || product.short_name || 'Product', b?.total || 0)
   }
-
-  const handleBackToCatalog = useCallback(() => {
-    try {
-      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-        const referrer = document.referrer || ''
-        const origin = window.location.origin || ''
-        const isInternalNav = referrer && (referrer.startsWith(origin) || referrer.includes(CATALOG_PATH))
-        if (isInternalNav && window.history.length > 1) {
-          router.back()
-          return
-        }
-      }
-    } catch {
-      /* fall through to default */
-    }
-    router.push(CATALOG_PATH)
-  }, [router])
 
   return (
     <div className="min-h-screen bg-slate-950">
