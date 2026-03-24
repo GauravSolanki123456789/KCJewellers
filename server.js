@@ -1350,6 +1350,53 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
+// Adjacent products in the same catalog subcategory (same order as /api/catalog)
+app.get('/api/products/neighbors', async (req, res) => {
+    try {
+        const raw = String(req.query.barcode || req.query.id || '').trim().slice(0, 64);
+        if (!raw) {
+            return res.status(400).json({ error: 'barcode or id required', prev: null, next: null });
+        }
+        const rows = await query(
+            `SELECT id, barcode, sku, subcategory_id FROM web_products
+             WHERE (barcode = $1 OR sku = $1 OR CAST(id AS TEXT) = $1)
+             AND (is_active IS NULL OR is_active = true)
+             LIMIT 1`,
+            [raw]
+        );
+        if (rows.length === 0) {
+            return res.json({ prev: null, next: null });
+        }
+        const row = rows[0];
+        const subId = row.subcategory_id;
+        if (subId == null) {
+            return res.json({ prev: null, next: null });
+        }
+        const siblings = await query(
+            `SELECT barcode, sku FROM web_products
+             WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
+             ORDER BY updated_at DESC, id ASC`,
+            [subId]
+        );
+        const keys = siblings.map((s) => String(s.barcode || s.sku || '').trim()).filter(Boolean);
+        const norm = (k) => String(k || '').trim().toLowerCase();
+        const curKey = norm(row.barcode || row.sku || raw);
+        const idx = keys.findIndex((k) => norm(k) === curKey);
+        if (idx < 0) {
+            return res.json({ prev: null, next: null });
+        }
+        const prevBarcode = idx > 0 ? keys[idx - 1] : null;
+        const nextBarcode = idx < keys.length - 1 ? keys[idx + 1] : null;
+        res.json({
+            prev: prevBarcode ? { barcode: prevBarcode } : null,
+            next: nextBarcode ? { barcode: nextBarcode } : null,
+        });
+    } catch (error) {
+        console.error('Product neighbors error:', error);
+        res.status(500).json({ error: error.message, prev: null, next: null });
+    }
+});
+
 // ==========================================
 // CATEGORIES API (Nested Catalog)
 // ==========================================

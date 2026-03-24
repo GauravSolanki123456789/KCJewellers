@@ -8,7 +8,7 @@ import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-rea
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
-import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY, CATALOG_PRODUCT_ORDER_KEY } from '@/lib/routes'
+import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY } from '@/lib/routes'
 
 type Product = Item
 
@@ -297,8 +297,6 @@ export default function CatalogPage() {
     })
     return list
   }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates])
-
-  productsForOrderRef.current = products
 
   useEffect(() => {
     if (!scrollToBarcode || products.length === 0 || typeof window === 'undefined') return
