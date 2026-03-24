@@ -22,8 +22,10 @@ const CartCtx = createContext<{
   closeCart: () => void
   lastAdded: ProductLite | null
   clearLastAdded: () => void
+  scrollToItemId: string | null
+  clearScrollToItemId: () => void
   ratesReady: boolean
-}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, ratesReady: false })
+}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, scrollToItemId: null, clearScrollToItemId: () => {}, ratesReady: false })
 
 function loadCartFromStorage(): CartItem[] {
   if (typeof window === 'undefined') return []
@@ -52,6 +54,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [lastRates, setLastRates] = useState<unknown[]>([])
   const [ratesReady, setRatesReady] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
+  const [scrollToItemId, setScrollToItemId] = useState<string | null>(null)
   const cartCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -93,6 +96,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const b = calculateBreakdown(p, lastRates, p.gst_rate)
     const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
     setLastAdded(p)
+    setScrollToItemId(ci.id)
     setIsCartOpen(true)
     axios.post('/api/analytics/track', {
       action_type: 'add_to_cart',
@@ -125,7 +129,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const openCart = useCallback(() => setIsCartOpen(true), [])
   const closeCart = useCallback(() => setIsCartOpen(false), [])
   const clearLastAdded = useCallback(() => setLastAdded(null), [])
-  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady }), [items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady])
+  const clearScrollToItemId = useCallback(() => setScrollToItemId(null), [])
+  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, scrollToItemId, clearScrollToItemId, ratesReady }), [items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, scrollToItemId, clearScrollToItemId, ratesReady])
   return <CartCtx.Provider value={value}>{children}</CartCtx.Provider>
 }
 

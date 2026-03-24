@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { usePathname } from 'next/navigation'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-react'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY } from '@/lib/routes'
 
 type Product = Item
 
@@ -57,6 +59,7 @@ function firstAvailableMetal(categories: Category[]): MetalKey {
 }
 
 export default function CatalogPage() {
+  const pathname = usePathname()
   const [categories, setCategories] = useState<Category[]>([])
   const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,11 +74,11 @@ export default function CatalogPage() {
   const [priceHigh, setPriceHigh] = useState(100000)
   const hasRestoredFromStorage = useRef(false)
   const skipNextBoundsSync = useRef(false)
-  const scrollToBarcodeRef = useRef<string | null>(null)
+  const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
-  const saveCatalogState = useCallback((barcode?: string) => {
+  const saveCatalogState = useCallback((scrollToBarcode?: string) => {
     if (typeof window === 'undefined') return
     try {
       const state = {
@@ -87,9 +90,12 @@ export default function CatalogPage() {
         weightHigh,
         priceLow,
         priceHigh,
-        scrollToBarcode: barcode || null,
+        scrollToBarcode,
       }
       sessionStorage.setItem(CATALOG_STATE_KEY, JSON.stringify(state))
+      if (scrollToBarcode) {
+        sessionStorage.setItem(CATALOG_SCROLL_TO_KEY, scrollToBarcode)
+      }
     } catch {
       /* ignore */
     }
@@ -118,7 +124,7 @@ export default function CatalogPage() {
               weightHigh?: number
               priceLow?: number
               priceHigh?: number
-              scrollToBarcode?: string | null
+              scrollToBarcode?: string
             }
             const validMetal = parsed.selectedMetal && METAL_TABS.some((t) => t.key === parsed.selectedMetal)
             const styleExists = parsed.activeStyleId != null && cats.some((c) => c.id === parsed.activeStyleId)
@@ -138,8 +144,8 @@ export default function CatalogPage() {
             if (parsed.weightHigh != null) setWeightHigh(parsed.weightHigh)
             if (parsed.priceLow != null) setPriceLow(parsed.priceLow)
             if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
-            if (parsed.scrollToBarcode) scrollToBarcodeRef.current = parsed.scrollToBarcode
             skipNextBoundsSync.current = true
+            if (parsed.scrollToBarcode) setScrollToBarcode(parsed.scrollToBarcode)
             sessionStorage.removeItem(CATALOG_STATE_KEY)
           } else {
             setActiveStyleId(cats[0].id)
@@ -158,6 +164,13 @@ export default function CatalogPage() {
         setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
         hasRestoredFromStorage.current = true
       }
+      if (cats.length > 0 && typeof window !== 'undefined') {
+        const scrollTarget = sessionStorage.getItem(CATALOG_SCROLL_TO_KEY)
+        if (scrollTarget) {
+          setScrollToBarcode(scrollTarget)
+          sessionStorage.removeItem(CATALOG_SCROLL_TO_KEY)
+        }
+      }
     } catch {
       setCategories([])
     } finally {
@@ -171,6 +184,15 @@ export default function CatalogPage() {
     setLoading(true)
     loadCatalog()
   }, [loadCatalog])
+
+  useEffect(() => {
+    if (pathname !== CATALOG_PATH || typeof window === 'undefined') return
+    const scrollTarget = sessionStorage.getItem(CATALOG_SCROLL_TO_KEY)
+    if (scrollTarget) {
+      setScrollToBarcode(scrollTarget)
+      sessionStorage.removeItem(CATALOG_SCROLL_TO_KEY)
+    }
+  }, [pathname])
 
   /** Smart default: when catalog loads, if current metal has no products, switch to first available */
   useEffect(() => {
@@ -251,40 +273,6 @@ export default function CatalogPage() {
     }
   }, [rawProducts, rates])
 
-  /** Scroll to product card when returning from product page */
-  const scrollToProduct = useCallback((barcode: string) => {
-    const el = document.querySelector(`[data-product-barcode="${CSS.escape(barcode)}"]`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [])
-
-  useEffect(() => {
-    const barcode = scrollToBarcodeRef.current
-    if (!barcode || products.length === 0) return
-    scrollToBarcodeRef.current = null
-    const timer = requestAnimationFrame(() => scrollToProduct(barcode))
-    return () => cancelAnimationFrame(timer)
-  }, [products, scrollToProduct])
-
-  /** Handle bfcache restore (e.g. router.back()) - sessionStorage may have scrollToBarcode */
-  useEffect(() => {
-    const handler = (e: PageTransitionEvent) => {
-      if (!e.persisted || typeof window === 'undefined') return
-      try {
-        const stored = sessionStorage.getItem(CATALOG_STATE_KEY)
-        if (!stored) return
-        const parsed = JSON.parse(stored) as { scrollToBarcode?: string | null }
-        if (parsed.scrollToBarcode && products.length > 0) {
-          sessionStorage.removeItem(CATALOG_STATE_KEY)
-          requestAnimationFrame(() => scrollToProduct(parsed.scrollToBarcode!))
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    window.addEventListener('pageshow', handler)
-    return () => window.removeEventListener('pageshow', handler)
-  }, [products.length, scrollToProduct])
-
   // Sync slider bounds when category changes (skip once after restore from sessionStorage)
   useEffect(() => {
     if (skipNextBoundsSync.current) {
@@ -309,6 +297,19 @@ export default function CatalogPage() {
     })
     return list
   }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates])
+
+  useEffect(() => {
+    if (!scrollToBarcode || products.length === 0 || typeof window === 'undefined') return
+    const el = document.querySelector(`[data-product-id="${CSS.escape(scrollToBarcode)}"]`)
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+      setScrollToBarcode(null)
+    } else {
+      setScrollToBarcode(null)
+    }
+  }, [scrollToBarcode, products])
 
   const hasActiveFilters =
     weightLow > weightBounds[0] ||
@@ -624,23 +625,19 @@ export default function CatalogPage() {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                {products.map((p) => {
-                  const barcode = p.barcode || p.sku || String(p.id || '')
-                  return (
-                    <div key={barcode} data-product-barcode={barcode}>
-                      <ProductCard
-                        product={
-                          {
-                            ...p,
-                            style_code: activeStyle?.name,
-                          } as Product
-                        }
-                        rates={rates}
-                        onBeforeNavigate={saveCatalogState}
-                      />
-                    </div>
-                  )
-                })}
+                {products.map((p) => (
+                  <ProductCard
+                    key={p.barcode || p.id || p.sku}
+                    product={
+                      {
+                        ...p,
+                        style_code: activeStyle?.name,
+                      } as Product
+                    }
+                    rates={rates}
+                    onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
+                  />
+                ))}
               </div>
             )}
           </section>

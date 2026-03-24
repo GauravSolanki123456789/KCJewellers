@@ -39,8 +39,7 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
 
 export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const router = useRouter()
-  const { items, remove, setQty, ratesReady, lastAdded, clearLastAdded } = useCart()
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const { items, remove, setQty, ratesReady, scrollToItemId, clearScrollToItemId } = useCart()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -66,24 +65,20 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   }
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  /** Scroll to newly added item when cart opens */
   useEffect(() => {
-    if (!isOpen || !lastAdded || items.length === 0) return
-    const addedId = String(lastAdded.barcode || lastAdded.id || '')
-    if (!addedId) return
-    const timer = requestAnimationFrame(() => {
-      const el = scrollContainerRef.current?.querySelector(`[data-cart-item-id="${CSS.escape(addedId)}"]`)
-      if (el) {
+    if (!isOpen || !scrollToItemId || items.length === 0) return
+    const el = scrollContainerRef.current?.querySelector(`[data-cart-item-id="${CSS.escape(scrollToItemId)}"]`)
+    if (el) {
+      requestAnimationFrame(() => {
         el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      }
-    })
-    const clearTimer = setTimeout(() => clearLastAdded(), 100)
-    return () => {
-      cancelAnimationFrame(timer)
-      clearTimeout(clearTimer)
+      })
+      clearScrollToItemId()
+    } else {
+      clearScrollToItemId()
     }
-  }, [isOpen, lastAdded, items.length, clearLastAdded])
+  }, [isOpen, scrollToItemId, items, clearScrollToItemId])
 
   return (
     <>
@@ -134,11 +129,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                   <div
                     key={ci.id}
                     data-cart-item-id={ci.id}
-                    className={`rounded-lg border overflow-hidden transition-all duration-300 ${
-                      lastAdded && (String(lastAdded.barcode || lastAdded.id || '') === ci.id)
-                        ? 'border-amber-500/60 bg-amber-500/5 shadow-lg shadow-amber-500/10'
-                        : 'border-white/10 bg-slate-800/30'
-                    }`}
+                    className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
                   >
                     <div className="p-4 flex gap-3 sm:gap-4">
                       {/* Product thumbnail */}

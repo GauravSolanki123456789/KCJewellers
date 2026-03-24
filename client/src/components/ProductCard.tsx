@@ -30,6 +30,7 @@ export default function ProductCard({ product, rates = [], onBeforeNavigate }: P
     <Link
       href={`/products/${encodeURIComponent(barcode)}`}
       onClick={() => onBeforeNavigate?.(barcode)}
+      data-product-id={barcode}
       className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
     >
       {/* Image — 70 % of card */}

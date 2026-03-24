@@ -3,7 +3,7 @@ import axios from "@/lib/axios"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { ChevronLeft } from "lucide-react"
-import { CATALOG_PATH } from "@/lib/routes"
+import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY } from "@/lib/routes"
 import BreakdownModal from "@/components/BreakdownModal"
 import HoverZoomImage from "@/components/HoverZoomImage"
 import { calculateBreakdown, getItemWeight, isDiamondItem, type Item } from "@/lib/pricing"
@@ -51,6 +51,14 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   }, [id])
 
   const handleBackToCatalog = useCallback(() => {
+    const barcode = product?.barcode || product?.sku || String(product?.id ?? id ?? '')
+    if (typeof window !== 'undefined' && barcode && barcode.length > 0) {
+      try {
+        sessionStorage.setItem(CATALOG_SCROLL_TO_KEY, barcode)
+      } catch {
+        /* ignore */
+      }
+    }
     try {
       if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         const referrer = document.referrer || ''
@@ -65,7 +73,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
       /* fall through to default */
     }
     router.push(CATALOG_PATH)
-  }, [router])
+  }, [router, product, id])
 
   // Breakdown recompute occurs in socket handler and after initial load
   if (!product) return <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center"><div className="text-slate-400 animate-pulse">Loading…</div></div>
