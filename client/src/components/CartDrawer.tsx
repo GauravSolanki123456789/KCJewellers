@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { CHECKOUT_PATH } from '@/lib/routes'
 import { useCart } from '@/context/CartContext'
@@ -39,7 +39,8 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
 
 export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const router = useRouter()
-  const { items, remove, setQty, ratesReady } = useCart()
+  const { items, remove, setQty, ratesReady, lastAdded, clearLastAdded } = useCart()
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -65,6 +66,24 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   }
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+
+  /** Scroll to newly added item when cart opens */
+  useEffect(() => {
+    if (!isOpen || !lastAdded || items.length === 0) return
+    const addedId = String(lastAdded.barcode || lastAdded.id || '')
+    if (!addedId) return
+    const timer = requestAnimationFrame(() => {
+      const el = scrollContainerRef.current?.querySelector(`[data-cart-item-id="${CSS.escape(addedId)}"]`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }
+    })
+    const clearTimer = setTimeout(() => clearLastAdded(), 100)
+    return () => {
+      cancelAnimationFrame(timer)
+      clearTimeout(clearTimer)
+    }
+  }, [isOpen, lastAdded, items.length, clearLastAdded])
 
   return (
     <>
@@ -94,7 +113,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
           <p className="text-slate-300 text-sm mb-4">
             See breakdown of Metal, MC, GST for each item
           </p>
@@ -114,7 +133,12 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                 return (
                   <div
                     key={ci.id}
-                    className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
+                    data-cart-item-id={ci.id}
+                    className={`rounded-lg border overflow-hidden transition-all duration-300 ${
+                      lastAdded && (String(lastAdded.barcode || lastAdded.id || '') === ci.id)
+                        ? 'border-amber-500/60 bg-amber-500/5 shadow-lg shadow-amber-500/10'
+                        : 'border-white/10 bg-slate-800/30'
+                    }`}
                   >
                     <div className="p-4 flex gap-3 sm:gap-4">
                       {/* Product thumbnail */}

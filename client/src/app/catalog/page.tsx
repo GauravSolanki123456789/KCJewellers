@@ -75,7 +75,7 @@ export default function CatalogPage() {
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
-  const saveCatalogState = useCallback((scrollToBarcode?: string) => {
+  const saveCatalogState = useCallback((barcode?: string) => {
     if (typeof window === 'undefined') return
     try {
       const state = {
@@ -87,7 +87,7 @@ export default function CatalogPage() {
         weightHigh,
         priceLow,
         priceHigh,
-        scrollToBarcode: scrollToBarcode || undefined,
+        scrollToBarcode: barcode || null,
       }
       sessionStorage.setItem(CATALOG_STATE_KEY, JSON.stringify(state))
     } catch {
@@ -118,7 +118,7 @@ export default function CatalogPage() {
               weightHigh?: number
               priceLow?: number
               priceHigh?: number
-              scrollToBarcode?: string
+              scrollToBarcode?: string | null
             }
             const validMetal = parsed.selectedMetal && METAL_TABS.some((t) => t.key === parsed.selectedMetal)
             const styleExists = parsed.activeStyleId != null && cats.some((c) => c.id === parsed.activeStyleId)
@@ -138,9 +138,7 @@ export default function CatalogPage() {
             if (parsed.weightHigh != null) setWeightHigh(parsed.weightHigh)
             if (parsed.priceLow != null) setPriceLow(parsed.priceLow)
             if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
-            if (parsed.scrollToBarcode && typeof parsed.scrollToBarcode === 'string') {
-              scrollToBarcodeRef.current = parsed.scrollToBarcode
-            }
+            if (parsed.scrollToBarcode) scrollToBarcodeRef.current = parsed.scrollToBarcode
             skipNextBoundsSync.current = true
             sessionStorage.removeItem(CATALOG_STATE_KEY)
           } else {
@@ -253,6 +251,40 @@ export default function CatalogPage() {
     }
   }, [rawProducts, rates])
 
+  /** Scroll to product card when returning from product page */
+  const scrollToProduct = useCallback((barcode: string) => {
+    const el = document.querySelector(`[data-product-barcode="${CSS.escape(barcode)}"]`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [])
+
+  useEffect(() => {
+    const barcode = scrollToBarcodeRef.current
+    if (!barcode || products.length === 0) return
+    scrollToBarcodeRef.current = null
+    const timer = requestAnimationFrame(() => scrollToProduct(barcode))
+    return () => cancelAnimationFrame(timer)
+  }, [products, scrollToProduct])
+
+  /** Handle bfcache restore (e.g. router.back()) - sessionStorage may have scrollToBarcode */
+  useEffect(() => {
+    const handler = (e: PageTransitionEvent) => {
+      if (!e.persisted || typeof window === 'undefined') return
+      try {
+        const stored = sessionStorage.getItem(CATALOG_STATE_KEY)
+        if (!stored) return
+        const parsed = JSON.parse(stored) as { scrollToBarcode?: string | null }
+        if (parsed.scrollToBarcode && products.length > 0) {
+          sessionStorage.removeItem(CATALOG_STATE_KEY)
+          requestAnimationFrame(() => scrollToProduct(parsed.scrollToBarcode!))
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    window.addEventListener('pageshow', handler)
+    return () => window.removeEventListener('pageshow', handler)
+  }, [products.length, scrollToProduct])
+
   // Sync slider bounds when category changes (skip once after restore from sessionStorage)
   useEffect(() => {
     if (skipNextBoundsSync.current) {
@@ -283,20 +315,6 @@ export default function CatalogPage() {
     weightHigh < weightBounds[1] ||
     priceLow > priceBounds[0] ||
     priceHigh < priceBounds[1]
-
-  // Scroll to product when returning from product detail page
-  useEffect(() => {
-    const barcode = scrollToBarcodeRef.current
-    if (!barcode || products.length === 0) return
-    scrollToBarcodeRef.current = null
-    const timer = requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-product-barcode="${CSS.escape(barcode)}"]`)
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
-    })
-    return () => cancelAnimationFrame(timer)
-  }, [products])
 
   const handleStyleClick = (cat: Category) => {
     setActiveStyleId(cat.id)
@@ -611,7 +629,12 @@ export default function CatalogPage() {
                   return (
                     <div key={barcode} data-product-barcode={barcode}>
                       <ProductCard
-                        product={{ ...p, style_code: activeStyle?.name } as Product}
+                        product={
+                          {
+                            ...p,
+                            style_code: activeStyle?.name,
+                          } as Product
+                        }
                         rates={rates}
                         onBeforeNavigate={saveCatalogState}
                       />

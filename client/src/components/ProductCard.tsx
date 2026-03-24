@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 
-type ProductCardProps = { product: Item; rates?: unknown[]; onBeforeNavigate?: (barcode?: string) => void }
+type ProductCardProps = { product: Item; rates?: unknown[]; onBeforeNavigate?: (barcode: string) => void }
 
 export default function ProductCard({ product, rates = [], onBeforeNavigate }: ProductCardProps) {
   const cart = useCart()
