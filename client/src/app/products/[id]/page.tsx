@@ -2,8 +2,8 @@
 import axios from "@/lib/axios"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { ChevronLeft } from "lucide-react"
-import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY } from "@/lib/routes"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY, CATALOG_PRODUCT_ORDER_KEY } from "@/lib/routes"
 import BreakdownModal from "@/components/BreakdownModal"
 import HoverZoomImage from "@/components/HoverZoomImage"
 import { calculateBreakdown, getItemWeight, isDiamondItem, type Item } from "@/lib/pricing"
@@ -21,6 +21,43 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const [b, setB] = useState<ReturnType<typeof calculateBreakdown> | null>(null)
   const cart = useCart()
   const productRef = useRef<Item | null>(null)
+  const [catalogNav, setCatalogNav] = useState<{
+    prevBarcode: string | null
+    nextBarcode: string | null
+    position: number
+    total: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = sessionStorage.getItem(CATALOG_PRODUCT_ORDER_KEY)
+      if (!raw) {
+        setCatalogNav(null)
+        return
+      }
+      const barcodes: string[] = JSON.parse(raw)
+      if (!Array.isArray(barcodes) || barcodes.length === 0) {
+        setCatalogNav(null)
+        return
+      }
+      const current = String(id || '').trim()
+      const idx = barcodes.findIndex((b) => String(b).trim() === current)
+      if (idx < 0) {
+        setCatalogNav(null)
+        return
+      }
+      setCatalogNav({
+        prevBarcode: idx > 0 ? String(barcodes[idx - 1]).trim() : null,
+        nextBarcode: idx < barcodes.length - 1 ? String(barcodes[idx + 1]).trim() : null,
+        position: idx + 1,
+        total: barcodes.length,
+      })
+    } catch {
+      setCatalogNav(null)
+    }
+  }, [id])
+
   useEffect(() => {
     const load = async () => {
       const safeId = String(id || '').slice(0, 64)
@@ -75,6 +112,30 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     router.push(CATALOG_PATH)
   }, [router, product, id])
 
+  const goToProduct = useCallback(
+    (barcode: string) => {
+      router.push(`/products/${encodeURIComponent(barcode)}`)
+    },
+    [router],
+  )
+
+  useEffect(() => {
+    if (!catalogNav) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'ArrowLeft' && catalogNav.prevBarcode) {
+        e.preventDefault()
+        goToProduct(catalogNav.prevBarcode)
+      }
+      if (e.key === 'ArrowRight' && catalogNav.nextBarcode) {
+        e.preventDefault()
+        goToProduct(catalogNav.nextBarcode)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [catalogNav, goToProduct])
+
   // Breakdown recompute occurs in socket handler and after initial load
   if (!product) return <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center"><div className="text-slate-400 animate-pulse">Loading…</div></div>
 
@@ -111,7 +172,39 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
       <div className="grid md:grid-cols-2 gap-12">
         {/* Left column — Image with thumbnails */}
         <div className="space-y-3">
+          {catalogNav && catalogNav.total > 1 && (
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-500 md:hidden">
+              <span className="tabular-nums font-medium text-slate-400">
+                {catalogNav.position} / {catalogNav.total}
+              </span>
+              <span className="text-slate-600">in catalogue</span>
+            </div>
+          )}
           <div className="relative w-full aspect-square md:aspect-[4/5] bg-[#0B1120] rounded-2xl overflow-hidden shadow-2xl border border-white/5">
+            {catalogNav && catalogNav.total > 1 && (
+              <>
+                {catalogNav.prevBarcode && (
+                  <button
+                    type="button"
+                    aria-label="Previous product"
+                    onClick={() => goToProduct(catalogNav.prevBarcode!)}
+                    className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-full bg-slate-950/75 text-amber-400 shadow-lg ring-1 ring-white/10 backdrop-blur-sm transition hover:bg-slate-900/90 hover:text-amber-300 active:scale-95"
+                  >
+                    <ChevronLeft className="size-6 md:size-7" strokeWidth={2.5} />
+                  </button>
+                )}
+                {catalogNav.nextBarcode && (
+                  <button
+                    type="button"
+                    aria-label="Next product"
+                    onClick={() => goToProduct(catalogNav.nextBarcode!)}
+                    className="absolute right-2 top-1/2 z-20 -translate-y-1/2 flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-full bg-slate-950/75 text-amber-400 shadow-lg ring-1 ring-white/10 backdrop-blur-sm transition hover:bg-slate-900/90 hover:text-amber-300 active:scale-95"
+                  >
+                    <ChevronRight className="size-6 md:size-7" strokeWidth={2.5} />
+                  </button>
+                )}
+              </>
+            )}
             {hasDiscount && (
               <span className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg bg-amber-500 text-slate-950 text-sm font-bold">
                 {Math.round(b?.discountPercent ?? 0)}% OFF
@@ -142,6 +235,15 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
               </div>
             )}
           </div>
+          {catalogNav && catalogNav.total > 1 && (
+            <p className="hidden md:flex items-center justify-center gap-2 text-xs text-slate-500">
+              <span className="tabular-nums">
+                Product {catalogNav.position} of {catalogNav.total}
+              </span>
+              <span className="text-slate-600">·</span>
+              <span className="text-slate-600">Use arrows on image or ← → keys</span>
+            </p>
+          )}
           {thumbnails.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {thumbnails.map((src, i) => (

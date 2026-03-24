@@ -1,3 +1,0 @@
-module.exports=[88947,(a,b,c)=>{b.exports=a.x("stream",()=>require("stream"))},21517,(a,b,c)=>{b.exports=a.x("http",()=>require("http"))},24836,(a,b,c)=>{b.exports=a.x("https",()=>require("https"))},92509,(a,b,c)=>{b.exports=a.x("url",()=>require("url"))},22734,(a,b,c)=>{b.exports=a.x("fs",()=>require("fs"))},54799,(a,b,c)=>{b.exports=a.x("crypto",()=>require("crypto"))},70722,(a,b,c)=>{b.exports=a.x("tty",()=>require("tty"))},46786,(a,b,c)=>{b.exports=a.x("os",()=>require("os"))},6461,(a,b,c)=>{b.exports=a.x("zlib",()=>require("zlib"))},27699,(a,b,c)=>{b.exports=a.x("events",()=>require("events"))}];
-
-//# sourceMappingURL=%5Bexternals%5D__aeca2e49._.js.map
