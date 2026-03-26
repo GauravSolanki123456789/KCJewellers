@@ -14,6 +14,7 @@ import CartDrawerWrapper from "@/components/CartDrawerWrapper";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import AuthToast from "@/components/AuthToast";
 import AddToCartToast from "@/components/AddToCartToast";
+import WhatsAppContactFab from "@/components/WhatsAppContactFab";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -31,10 +32,54 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const site = process.env.NEXT_PUBLIC_SITE_URL || "https://kcjewellers.co.in";
+
 export const metadata: Metadata = {
-  title: "KC Jewellers",
-  description: "Live gold rates and jewellery",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://kcjewellers.co.in"),
+  metadataBase: new URL(site),
+  applicationName: "KC Jewellers",
+  title: {
+    default: "KC Jewellers — Gold, Silver & Diamond Jewellery",
+    template: "%s · KC Jewellers",
+  },
+  description:
+    "KC Jewellers — curated gold, silver, and diamond jewellery with transparent live pricing incl. GST. Book rates, SIP plans, and shop the catalogue online.",
+  keywords: [
+    "KC Jewellers",
+    "jewellery",
+    "gold",
+    "silver",
+    "diamond",
+    "catalogue",
+    "India",
+  ],
+  authors: [{ name: "KC Jewellers" }],
+  creator: "KC Jewellers",
+  publisher: "KC Jewellers",
+  formatDetection: {
+    telephone: true,
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_IN",
+    url: site,
+    siteName: "KC Jewellers",
+    title: "KC Jewellers — Gold, Silver & Diamond Jewellery",
+    description:
+      "Curated jewellery with live rates, SIP plans, and a full online catalogue.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "KC Jewellers",
+    description:
+      "Gold, silver & diamond jewellery — live pricing and catalogue shopping.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: site,
+  },
 };
 
 export default function RootLayout({
@@ -66,6 +111,7 @@ export default function RootLayout({
             <Suspense fallback={null}>
               <CartDrawerWrapper />
             </Suspense>
+            <WhatsAppContactFab className="bottom-24 left-4 md:bottom-8 md:left-6" />
             </LoginModalProvider>
           </BookRateProvider>
         </CartProvider>

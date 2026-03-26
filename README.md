@@ -8,7 +8,7 @@ rm -rf /var/www/kcjewellers/public/uploads/web_products/*
 command to access database 
 sudo -u postgres psql -d kcjewellers
 DELETE FROM web_products WHERE barcode = '100001';
-ssh root@159.65.145.59
+ssh root@159.65.145.51
 
 
 1. Force Git to overwrite everything with your perfect GitHub code:
@@ -26,7 +26,6 @@ npm install
 npm run build
 
 pm2 restart all
-pm2 restart all --upadate env
 
 
 ## ?? License

@@ -1261,7 +1261,7 @@ app.get('/api/update/check', async (req, res) => {
 // STEP 3: Public GET access for products (read-only)
 app.get('/api/products', async (req, res) => {
     try {
-        const { barcode, styleCode, search, includeDeleted, limit, offset, recent, category_id } = req.query;
+        const { barcode, styleCode, search, includeDeleted, limit, offset, recent, category_id, subcategory_id } = req.query;
 
         // Base query — reads from web_products (ERP-synced catalogue)
         // JOINs bring in category/subcategory names for filtering and display
@@ -1327,6 +1327,13 @@ app.get('/api/products', async (req, res) => {
         if (category_id) {
             whereClauses.push(`wc.id = $${p++}`);
             params.push(parseInt(category_id));
+        }
+        if (subcategory_id != null && subcategory_id !== '') {
+            const sid = parseInt(subcategory_id, 10);
+            if (!isNaN(sid)) {
+                whereClauses.push(`ws.id = $${p++}`);
+                params.push(sid);
+            }
         }
         if (search) {
             whereClauses.push(`(wp.name ILIKE $${p} OR wp.sku ILIKE $${p} OR wp.barcode ILIKE $${p} OR wc.name ILIKE $${p++})`);
