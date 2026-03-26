@@ -2,10 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { MessageCircle } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
-import { buildWhatsAppShareLink, productShareMessage } from '@/lib/whatsapp'
 
 type ProductCardProps = { product: Item; rates?: unknown[]; onBeforeNavigate?: (barcode: string) => void }
 
@@ -28,13 +26,6 @@ export default function ProductCard({ product, rates = [], onBeforeNavigate }: P
 
   const showImage = product.image_url && !imgError
 
-  const waShare = productShareMessage({
-    name: displayName,
-    weightGm: weight,
-    barcode: String(barcode),
-  })
-  const waHref = buildWhatsAppShareLink(waShare)
-
   return (
     <Link
       href={`/products/${encodeURIComponent(barcode)}`}
@@ -49,18 +40,6 @@ export default function ProductCard({ product, rates = [], onBeforeNavigate }: P
             {Math.round(discountPercent ?? 0)}% OFF
           </span>
         )}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            window.open(waHref, '_blank', 'noopener,noreferrer')
-          }}
-          className="absolute bottom-2 left-2 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-2 ring-slate-950/50 transition-transform hover:scale-105 active:scale-95"
-          aria-label="Share on WhatsApp"
-        >
-          <MessageCircle className="size-4" strokeWidth={2.2} />
-        </button>
         {showImage ? (
           <img
             src={product.image_url}
