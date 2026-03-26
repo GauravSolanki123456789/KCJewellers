@@ -34,7 +34,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "KC Jewellers",
   description: "Live gold rates and jewellery",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://kc.gauravsoftwares.tech"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://kcjewellers.co.in"),
 };
 
 export default function RootLayout({

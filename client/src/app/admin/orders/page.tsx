@@ -22,7 +22,7 @@ type Order = {
   customer_mobile?: string
 }
 
-const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'https://kc.gauravsoftwares.tech')
+const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'https://kcjewellers.co.in')
 
 function normalizeMobile(m: string | undefined): string {
   if (!m) return ''

@@ -26,7 +26,7 @@ npm install
 npm run build
 
 pm2 restart all
-
+pm2 restart all --upadate env
 
 
 ## ?? License
