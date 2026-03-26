@@ -4,6 +4,10 @@
  */
 export const CATALOG_PATH = '/catalog'
 export const CATALOG_SCROLL_TO_KEY = 'kc_catalog_scroll_to'
+/** Session snapshot for catalogue filters (metal, style, sku, sliders). */
+export const CATALOG_STATE_KEY = 'kc_catalog_state'
+/** Set when opening a product from the catalogue so "Back" can restore metal/style. */
+export const CATALOG_FROM_PRODUCT_KEY = 'kc_catalog_from_product'
 export const CHECKOUT_PATH = '/checkout'
 export const PROFILE_PATH = '/profile'
 export const PROFILE_SIPS_PATH = '/profile/sips'

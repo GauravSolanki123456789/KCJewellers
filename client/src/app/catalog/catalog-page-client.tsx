@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
@@ -9,7 +9,12 @@ import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-rea
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
-import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY } from '@/lib/routes'
+import {
+  CATALOG_PATH,
+  CATALOG_SCROLL_TO_KEY,
+  CATALOG_STATE_KEY,
+  CATALOG_FROM_PRODUCT_KEY,
+} from '@/lib/routes'
 import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
 
 type Product = Item
@@ -29,8 +34,6 @@ type Category = {
   subcategories: Subcategory[]
 }
 
-const CATALOG_STATE_KEY = 'kc_catalog_state'
-
 /** Metal types for catalog navigation — values match backend metal_type (lowercase) */
 const METAL_TABS = [
   { key: 'gold', label: 'Gold', icon: Sparkles },
@@ -39,6 +42,18 @@ const METAL_TABS = [
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']
+
+type CatalogSessionState = {
+  selectedMetal?: MetalKey
+  activeStyleId?: number
+  activeSkuId?: number
+  expandedStyles?: number[]
+  weightLow?: number
+  weightHigh?: number
+  priceLow?: number
+  priceHigh?: number
+  scrollToBarcode?: string
+}
 
 /** Returns true if product's metal_type matches the selected metal tab */
 function productMatchesMetal(product: Product, metal: MetalKey): boolean {
@@ -63,7 +78,6 @@ function firstAvailableMetal(categories: Category[]): MetalKey {
 export default function CatalogPageClient() {
   const pathname = usePathname()
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [categories, setCategories] = useState<Category[]>([])
   const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
@@ -79,6 +93,8 @@ export default function CatalogPageClient() {
   const hasRestoredFromStorage = useRef(false)
   const skipNextBoundsSync = useRef(false)
   const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
+  /** False until initial load finishes — blocks URL bar sync from forcing ?metal=gold before session/URL apply. */
+  const [catalogHydrated, setCatalogHydrated] = useState(false)
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
@@ -97,6 +113,7 @@ export default function CatalogPageClient() {
         scrollToBarcode,
       }
       sessionStorage.setItem(CATALOG_STATE_KEY, JSON.stringify(state))
+      sessionStorage.setItem(CATALOG_FROM_PRODUCT_KEY, '1')
       if (scrollToBarcode) {
         sessionStorage.setItem(CATALOG_SCROLL_TO_KEY, scrollToBarcode)
       }
@@ -106,6 +123,7 @@ export default function CatalogPageClient() {
   }, [selectedMetal, activeStyleId, activeSkuId, expandedStyles, weightLow, weightHigh, priceLow, priceHigh])
 
   const loadCatalog = useCallback(async () => {
+    setCatalogHydrated(false)
     try {
       const [catalogRes, ratesRes] = await Promise.all([
         axios.get(`${url}/api/catalog`),
@@ -117,30 +135,27 @@ export default function CatalogPageClient() {
 
       if (cats.length > 0 && typeof window !== 'undefined' && !hasRestoredFromStorage.current) {
         let hasUrlParams = false
+        let fromProduct = false
         try {
           const u = new URLSearchParams(window.location.search)
           hasUrlParams = u.has('style') || u.has('sku') || u.has('metal')
+          fromProduct = sessionStorage.getItem(CATALOG_FROM_PRODUCT_KEY) === '1'
         } catch {
           hasUrlParams = false
         }
         try {
           const stored = sessionStorage.getItem(CATALOG_STATE_KEY)
-          if (stored && !hasUrlParams) {
-            const parsed = JSON.parse(stored) as {
-              selectedMetal?: MetalKey
-              activeStyleId?: number
-              activeSkuId?: number
-              expandedStyles?: number[]
-              weightLow?: number
-              weightHigh?: number
-              priceLow?: number
-              priceHigh?: number
-              scrollToBarcode?: string
-            }
-            const validMetal = parsed.selectedMetal && METAL_TABS.some((t) => t.key === parsed.selectedMetal)
-            const styleExists = parsed.activeStyleId != null && cats.some((c) => c.id === parsed.activeStyleId)
+
+          const applyParsedSession = (parsed: CatalogSessionState) => {
+            const validMetal =
+              parsed.selectedMetal && METAL_TABS.some((t) => t.key === parsed.selectedMetal)
+            const styleExists =
+              parsed.activeStyleId != null && cats.some((c) => c.id === parsed.activeStyleId)
             const style = styleExists ? cats.find((c) => c.id === parsed.activeStyleId) : null
-            const subExists = style && parsed.activeSkuId != null && style.subcategories.some((s) => s.id === parsed.activeSkuId)
+            const subExists =
+              style &&
+              parsed.activeSkuId != null &&
+              style.subcategories.some((s) => s.id === parsed.activeSkuId)
             if (validMetal) setSelectedMetal(parsed.selectedMetal as MetalKey)
             if (styleExists && subExists) {
               setActiveStyleId(parsed.activeStyleId!)
@@ -157,6 +172,63 @@ export default function CatalogPageClient() {
             if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
             skipNextBoundsSync.current = true
             if (parsed.scrollToBarcode) setScrollToBarcode(parsed.scrollToBarcode)
+          }
+
+          const applyUrlQuery = () => {
+            const u = new URLSearchParams(window.location.search)
+            const metalParam = u.get('metal')?.toLowerCase()?.trim() || ''
+            if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
+              setSelectedMetal(metalParam)
+            }
+            const styleSlug = u.get('style')?.toLowerCase()?.trim() || ''
+            const skuSlug = u.get('sku')?.toLowerCase()?.trim() || ''
+            if (styleSlug) {
+              const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
+              if (cat) {
+                setActiveStyleId(cat.id)
+                setExpandedStyles((prev) => new Set([...prev, cat.id]))
+                if (skuSlug) {
+                  const sub = cat.subcategories.find(
+                    (s) => (s.slug || '').toLowerCase() === skuSlug,
+                  )
+                  if (sub) setActiveSkuId(sub.id)
+                  else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
+                } else if (cat.subcategories[0]) {
+                  setActiveSkuId(cat.subcategories[0].id)
+                }
+              }
+            } else if (skuSlug) {
+              for (const cat of cats) {
+                const sub = cat.subcategories.find(
+                  (s) => (s.slug || '').toLowerCase() === skuSlug,
+                )
+                if (sub) {
+                  setActiveStyleId(cat.id)
+                  setExpandedStyles((prev) => new Set([...prev, cat.id]))
+                  setActiveSkuId(sub.id)
+                  break
+                }
+              }
+            }
+            if (!styleSlug && !skuSlug) {
+              setActiveStyleId(cats[0].id)
+              setExpandedStyles(new Set([cats[0].id]))
+              setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+            }
+          }
+
+          if (stored && fromProduct) {
+            const parsed = JSON.parse(stored) as CatalogSessionState
+            applyParsedSession(parsed)
+            sessionStorage.removeItem(CATALOG_STATE_KEY)
+            sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+          } else if (hasUrlParams) {
+            if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
+            sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+            applyUrlQuery()
+          } else if (stored) {
+            const parsed = JSON.parse(stored) as CatalogSessionState
+            applyParsedSession(parsed)
             sessionStorage.removeItem(CATALOG_STATE_KEY)
           } else {
             setActiveStyleId(cats[0].id)
@@ -186,6 +258,7 @@ export default function CatalogPageClient() {
       setCategories([])
     } finally {
       setLoading(false)
+      setCatalogHydrated(true)
     }
   }, [url])
 
@@ -352,54 +425,9 @@ export default function CatalogPageClient() {
     .filter(Boolean)
     .join(' \u203A ')
 
-  /**
-   * Apply deep-link query params → state. MUST depend only on searchParams + categories.
-   * If filteredCategories is in the dependency array, changing metal tab re-runs this while
-   * the URL still has the old ?metal= value and the selection snaps back (e.g. Diamond → Silver).
-   */
+  /** Sync query string after initial load (initial URL is applied inside loadCatalog). */
   useEffect(() => {
-    if (categories.length === 0) return
-    const styleSlug = searchParams.get('style')?.toLowerCase()?.trim() || ''
-    const skuSlug = searchParams.get('sku')?.toLowerCase()?.trim() || ''
-    const metalParam = searchParams.get('metal')?.toLowerCase()?.trim() || ''
-    if (!styleSlug && !skuSlug && !metalParam) return
-
-    if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
-      setSelectedMetal(metalParam)
-    }
-    if (styleSlug) {
-      const cat = categories.find((c) => (c.slug || '').toLowerCase() === styleSlug)
-      if (cat) {
-        setActiveStyleId(cat.id)
-        setExpandedStyles((prev) => new Set([...prev, cat.id]))
-        if (skuSlug) {
-          const sub = cat.subcategories.find(
-            (s) => (s.slug || '').toLowerCase() === skuSlug,
-          )
-          if (sub) setActiveSkuId(sub.id)
-          else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
-        } else if (cat.subcategories[0]) {
-          setActiveSkuId(cat.subcategories[0].id)
-        }
-      }
-    } else if (skuSlug) {
-      for (const cat of categories) {
-        const sub = cat.subcategories.find(
-          (s) => (s.slug || '').toLowerCase() === skuSlug,
-        )
-        if (sub) {
-          setActiveStyleId(cat.id)
-          setExpandedStyles((prev) => new Set([...prev, cat.id]))
-          setActiveSkuId(sub.id)
-          break
-        }
-      }
-    }
-  }, [searchParams, categories])
-
-  /** Keep the address bar in sync so the current collection is shareable (always set metal, even if no rows for that metal). */
-  useEffect(() => {
-    if (pathname !== CATALOG_PATH) return
+    if (!catalogHydrated || pathname !== CATALOG_PATH) return
     const params = new URLSearchParams()
     if (filteredCategories.length > 0) {
       const style = filteredCategories.find((c) => c.id === activeStyleId)
@@ -414,6 +442,7 @@ export default function CatalogPageClient() {
       router.replace(`${pathname}${nextSearch}`, { scroll: false })
     }
   }, [
+    catalogHydrated,
     activeStyleId,
     activeSkuId,
     selectedMetal,
@@ -516,18 +545,11 @@ export default function CatalogPageClient() {
             </h1>
           </div>
           {activeStyle && (
-            <>
-              <WhatsAppShareButton
-                message={catalogShareText}
-                compact
-                label="Share"
-                className="md:hidden shrink-0 rounded-full border-emerald-600/40 bg-emerald-950/30 p-2.5"
-              />
-              <WhatsAppShareButton
-                message={catalogShareText}
-                className="hidden md:inline-flex shrink-0 py-2.5 px-4 text-sm"
-              />
-            </>
+            <WhatsAppShareButton
+              message={catalogShareText}
+              label="Share"
+              className="shrink-0 rounded-lg border-emerald-600/50 bg-emerald-950/40 px-3 py-2 text-xs font-semibold sm:text-sm"
+            />
           )}
         </div>
 

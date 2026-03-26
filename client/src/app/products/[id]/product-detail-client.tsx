@@ -4,7 +4,13 @@ import axios from "@/lib/axios";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { CATALOG_PATH, CATALOG_SCROLL_TO_KEY } from "@/lib/routes";
+import {
+  CATALOG_PATH,
+  CATALOG_SCROLL_TO_KEY,
+  CATALOG_STATE_KEY,
+  CATALOG_FROM_PRODUCT_KEY,
+} from "@/lib/routes";
+import { inferCatalogMetalParam } from "@/lib/catalog-navigation";
 import BreakdownModal from "@/components/BreakdownModal";
 import HoverZoomImage from "@/components/HoverZoomImage";
 import WhatsAppShareButton from "@/components/WhatsAppShareButton";
@@ -138,21 +144,19 @@ export default function ProductDetailClient({ id }: { id: string }) {
       }
     }
     try {
-      if (typeof window !== "undefined" && typeof document !== "undefined") {
-        const referrer = document.referrer || "";
-        const origin = window.location.origin || "";
-        const isInternalNav =
-          referrer &&
-          (referrer.startsWith(origin) || referrer.includes(CATALOG_PATH));
-        if (isInternalNav && window.history.length > 1) {
-          router.back();
+      if (typeof window !== "undefined") {
+        const from = sessionStorage.getItem(CATALOG_FROM_PRODUCT_KEY);
+        const hasStored = sessionStorage.getItem(CATALOG_STATE_KEY);
+        if (from === "1" && hasStored) {
+          router.push(CATALOG_PATH);
           return;
         }
       }
     } catch {
       /* fall through */
     }
-    router.push(CATALOG_PATH);
+    const metal = inferCatalogMetalParam(product);
+    router.push(`${CATALOG_PATH}?metal=${metal}`);
   }, [router, product, id]);
 
   if (!product)
@@ -273,12 +277,6 @@ export default function ProductDetailClient({ id }: { id: string }) {
                   </button>
                 ))}
               </div>
-            )}
-            {(neighbors.prev || neighbors.next) && (
-              <p className="text-center text-[11px] leading-snug text-slate-500 md:text-xs px-1">
-                Browse more in this style — use the arrows on the photo or ← →
-                keys
-              </p>
             )}
           </div>
 
