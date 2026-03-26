@@ -45,7 +45,7 @@ function productMatchesMetal(product: Product, metal: MetalKey): boolean {
   const m = (product.metal_type || '').toLowerCase()
   if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
   if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
-  if (metal === 'diamond') return m.startsWith('diamond')
+  if (metal === 'diamond') return m.startsWith('diamond') || m.includes('diamond')
   return false
 }
 
@@ -352,9 +352,13 @@ export default function CatalogPageClient() {
     .filter(Boolean)
     .join(' \u203A ')
 
-  /** Deep links: ?style=web_categories.slug&sku=web_subcategories.slug&metal=gold|silver|diamond */
+  /**
+   * Apply deep-link query params → state. MUST depend only on searchParams + categories.
+   * If filteredCategories is in the dependency array, changing metal tab re-runs this while
+   * the URL still has the old ?metal= value and the selection snaps back (e.g. Diamond → Silver).
+   */
   useEffect(() => {
-    if (filteredCategories.length === 0) return
+    if (categories.length === 0) return
     const styleSlug = searchParams.get('style')?.toLowerCase()?.trim() || ''
     const skuSlug = searchParams.get('sku')?.toLowerCase()?.trim() || ''
     const metalParam = searchParams.get('metal')?.toLowerCase()?.trim() || ''
@@ -364,9 +368,7 @@ export default function CatalogPageClient() {
       setSelectedMetal(metalParam)
     }
     if (styleSlug) {
-      const cat = filteredCategories.find(
-        (c) => (c.slug || '').toLowerCase() === styleSlug,
-      )
+      const cat = categories.find((c) => (c.slug || '').toLowerCase() === styleSlug)
       if (cat) {
         setActiveStyleId(cat.id)
         setExpandedStyles((prev) => new Set([...prev, cat.id]))
@@ -381,7 +383,7 @@ export default function CatalogPageClient() {
         }
       }
     } else if (skuSlug) {
-      for (const cat of filteredCategories) {
+      for (const cat of categories) {
         const sub = cat.subcategories.find(
           (s) => (s.slug || '').toLowerCase() === skuSlug,
         )
@@ -393,16 +395,18 @@ export default function CatalogPageClient() {
         }
       }
     }
-  }, [filteredCategories, searchParams])
+  }, [searchParams, categories])
 
-  /** Keep the address bar in sync so the current collection is shareable */
+  /** Keep the address bar in sync so the current collection is shareable (always set metal, even if no rows for that metal). */
   useEffect(() => {
-    if (filteredCategories.length === 0 || pathname !== CATALOG_PATH) return
-    const style = filteredCategories.find((c) => c.id === activeStyleId)
-    const sub = style?.subcategories.find((s) => s.id === activeSkuId)
+    if (pathname !== CATALOG_PATH) return
     const params = new URLSearchParams()
-    if (style?.slug) params.set('style', style.slug)
-    if (sub?.slug) params.set('sku', sub.slug)
+    if (filteredCategories.length > 0) {
+      const style = filteredCategories.find((c) => c.id === activeStyleId)
+      const sub = style?.subcategories.find((s) => s.id === activeSkuId)
+      if (style?.slug) params.set('style', style.slug)
+      if (sub?.slug) params.set('sku', sub.slug)
+    }
     params.set('metal', selectedMetal)
     const qs = params.toString()
     const nextSearch = `?${qs}`
@@ -479,42 +483,51 @@ export default function CatalogPageClient() {
         </div>
       )}
       <main className="max-w-[1400px] mx-auto px-4 py-6 pb-28">
-        {/* Metal Type Tabs — top-level navigation, responsive */}
-        <div className="flex justify-center mb-6 px-1">
-          <div className="inline-flex w-full sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
+        {/* Metal Type Tabs — touch-friendly; labels must not truncate (was blocking Diamond taps on narrow screens). */}
+        <div className="flex justify-center mb-4 px-1">
+          <div className="inline-flex w-full max-w-xl sm:max-w-none sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
             {METAL_TABS.map(({ key, label, icon: Icon }) => {
               const isActive = selectedMetal === key
               return (
                 <button
                   key={key}
+                  type="button"
                   onClick={() => setSelectedMetal(key)}
-                  className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 min-w-0 ${
+                  className={`relative z-10 flex-1 sm:flex-initial flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-2 sm:px-5 py-2.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 whitespace-nowrap ${
                     isActive
                       ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400/30'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                   }`}
                 >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="truncate">{label}</span>
+                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <span>{label}</span>
                 </button>
               )
             })}
           </div>
         </div>
 
-        {/* Header */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+        {/* Header — mobile: compact share icon; desktop: full button */}
+        <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2 min-w-0">
             <LayoutGrid className="size-5 text-amber-500 shrink-0" />
-            <h1 className="text-lg font-semibold text-slate-200 truncate">
-              Product Catalogue
+            <h1 className="text-base sm:text-lg font-semibold text-slate-200 truncate">
+              Catalogue
             </h1>
           </div>
           {activeStyle && (
-            <WhatsAppShareButton
-              message={catalogShareText}
-              className="w-full sm:w-auto shrink-0 py-2.5 text-sm"
-            />
+            <>
+              <WhatsAppShareButton
+                message={catalogShareText}
+                compact
+                label="Share"
+                className="md:hidden shrink-0 rounded-full border-emerald-600/40 bg-emerald-950/30 p-2.5"
+              />
+              <WhatsAppShareButton
+                message={catalogShareText}
+                className="hidden md:inline-flex shrink-0 py-2.5 px-4 text-sm"
+              />
+            </>
           )}
         </div>
 

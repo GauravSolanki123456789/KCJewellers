@@ -20,6 +20,8 @@ export default function WhatsAppContactFab({ className = "" }: Props) {
   const href = buildWhatsAppBusinessChatLink(DEFAULT_PROMPT);
   if (!href) return null;
   if (pathname?.startsWith("/admin")) return null;
+  /* Catalogue has its own share control; avoid overlapping filters / bottom nav on small screens. */
+  if (pathname === "/catalog") return null;
   return (
     <a
       href={href}

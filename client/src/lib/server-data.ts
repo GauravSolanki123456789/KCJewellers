@@ -87,7 +87,8 @@ export function resolveCatalogView(
     if (m === "gold") return mt.startsWith("gold") || mt.includes("gold");
     if (m === "silver")
       return mt.startsWith("silver") || mt.includes("silver");
-    if (m === "diamond") return mt.startsWith("diamond");
+    if (m === "diamond")
+      return mt.startsWith("diamond") || mt.includes("diamond");
     return true;
   }
 

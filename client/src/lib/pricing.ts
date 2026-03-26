@@ -74,7 +74,7 @@ export function getItemWeight(item: Item | null | undefined): number | null {
 /** Returns true if item metal_type is diamond (case-insensitive, supports 'diamond', 'diamonds', etc.) */
 export function isDiamondItem(item: Item | null | undefined): boolean {
   const mt = (item?.metal_type ?? '').toString().toLowerCase()
-  return mt.startsWith('diamond')
+  return mt.startsWith('diamond') || mt.includes('diamond')
 }
 
 function purityPct(item: Item): number {

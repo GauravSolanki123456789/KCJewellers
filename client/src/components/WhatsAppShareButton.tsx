@@ -23,7 +23,9 @@ export default function WhatsAppShareButton({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-600/50 bg-emerald-950/40 px-4 py-3 text-sm font-semibold text-emerald-300 transition-colors hover:border-emerald-500 hover:bg-emerald-900/50 hover:text-emerald-200 ${className}`}
+      aria-label={compact ? label : undefined}
+      title={compact ? label : undefined}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-600/50 bg-emerald-950/40 px-4 py-3 text-sm font-semibold text-emerald-300 transition-colors hover:border-emerald-500 hover:bg-emerald-900/50 hover:text-emerald-200 ${compact ? "px-0 py-0 min-h-[2.5rem] min-w-[2.5rem]" : ""} ${className}`}
     >
       <MessageCircle className="size-5 shrink-0" aria-hidden />
       {!compact && <span>{label}</span>}

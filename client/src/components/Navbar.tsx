@@ -25,6 +25,7 @@ export default function Navbar() {
     : '/'
 
   const { openCart } = useCart()
+  const isCatalog = pathname === '/catalog'
   
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -141,10 +142,12 @@ export default function Navbar() {
       {/* Mobile: Sticky bottom */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-white/10 safe-area-pb">
         {!auth.isAuthenticated && (
-          <div className="px-4 py-2 border-b border-white/10">
+          <div
+            className={`px-3 border-b border-white/10 ${isCatalog ? 'py-1' : 'py-2'}`}
+          >
             <button
               onClick={() => openLoginModal(returnTo)}
-              className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm"
+              className={`w-full rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold ${isCatalog ? 'py-1.5 text-xs' : 'py-2 text-sm'}`}
             >
               Sign In
             </button>
