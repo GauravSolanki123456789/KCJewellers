@@ -73,6 +73,54 @@ async function initDatabase(retries = 3, delay = 2000) {
 
 // Initialize database schema
 async function initSchema() {
+    // Legacy databases may have `products` without `barcode`, but later DDL references
+    // `products(barcode)` (index + rol_data FK). Fix before running the main migration list.
+    try {
+        await pool.query(`
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'products'
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'barcode'
+                ) THEN
+                    ALTER TABLE products ADD COLUMN barcode VARCHAR(100);
+                END IF;
+            END $$;
+        `);
+    } catch (e) {
+        console.warn('products.barcode ensure (non-fatal):', e.message);
+    }
+
+    // Web catalog: migration history can be out of sync with the real schema; API queries expect `barcode`.
+    try {
+        await pool.query(`
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'web_products'
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'web_products' AND column_name = 'barcode'
+                ) THEN
+                    ALTER TABLE web_products ADD COLUMN barcode VARCHAR(255);
+                END IF;
+            END $$;
+        `);
+        try {
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_web_products_barcode ON web_products(barcode)`
+            );
+        } catch (_) {
+            /* table may not exist yet; index may already exist */
+        }
+    } catch (e) {
+        console.warn('web_products.barcode ensure (non-fatal):', e.message);
+    }
+
     const queries = [
         // Products table
         `CREATE TABLE IF NOT EXISTS products (

@@ -1,4 +1,34 @@
 require('dotenv').config();
+
+/** Backend public origin (no trailing slash), e.g. https://api.kcjewellers.co.in */
+function getPublicApiBaseUrl() {
+    const raw = (process.env.API_PUBLIC_URL || process.env.API_BASE_URL || '').trim();
+    if (raw) return raw.replace(/\/$/, '');
+    const domain = (process.env.DOMAIN || '').trim();
+    const port = process.env.PORT || 3000;
+    if (process.env.NODE_ENV === 'production') {
+        if (domain) return `https://${domain}`;
+        console.warn('⚠️ Set API_PUBLIC_URL (recommended) or DOMAIN so upload/certificate URLs use your API host.');
+    }
+    return `http://localhost:${port}`;
+}
+
+/** Origins allowed for CORS and Socket.IO (set CLIENT_URL, optional CORS_ORIGINS comma list). */
+function buildAllowedCorsOrigins() {
+    const out = [];
+    if (process.env.NODE_ENV !== 'production') {
+        out.push('http://localhost:3001', 'http://localhost:3000');
+    }
+    const client = (process.env.CLIENT_URL || '').trim();
+    if (client) out.push(client.replace(/\/$/, ''));
+    String(process.env.CORS_ORIGINS || '')
+        .split(',')
+        .map((s) => s.trim().replace(/\/$/, ''))
+        .filter(Boolean)
+        .forEach((o) => out.push(o));
+    return [...new Set(out)];
+}
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -63,9 +93,17 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 const server = http.createServer(app);
+const allowedOrigins = buildAllowedCorsOrigins();
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+    console.error('❌ Production CORS: set CLIENT_URL and/or CORS_ORIGINS (e.g. https://kcjewellers.co.in,https://www.kcjewellers.co.in).');
+}
 const io = new Server(server, {
     cors: {
-        origin: ["http://localhost:3001", "http://localhost:3000"],
+        origin: (origin, callback) => {
+            if (!origin) return callback(null, true);
+            if (allowedOrigins.includes(origin)) return callback(null, true);
+            callback(new Error(`CORS: origin ${origin} not allowed`));
+        },
         methods: ["GET", "POST"],
         credentials: true
     }
@@ -73,14 +111,6 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 
 // Middleware - CORS must allow credentials for cross-subdomain cookie sharing
-const PRODUCTION_FRONTEND = 'https://kc.gauravsoftwares.tech';
-const allowedOrigins = [
-    PRODUCTION_FRONTEND,
-    process.env.CLIENT_URL,
-    'http://localhost:3001',
-    'http://localhost:3000',
-].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
-
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (curl, server-to-server)
@@ -94,10 +124,12 @@ app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Session and Passport MUST run before /api/admin so req.user is populated
-// COOKIE_DOMAIN must be .gauravsoftwares.tech in production so the cookie is
-// shared between api.kc.gauravsoftwares.tech and kc.gauravsoftwares.tech.
+// COOKIE_DOMAIN e.g. .kcjewellers.co.in — required for session cookies on api.* + apex/www when using separate hosts.
 const isProduction = process.env.NODE_ENV === 'production';
-const cookieDomain  = process.env.COOKIE_DOMAIN  || (isProduction ? '.gauravsoftwares.tech' : undefined);
+const cookieDomain = (process.env.COOKIE_DOMAIN || '').trim() || undefined;
+if (isProduction && !cookieDomain) {
+    console.warn('⚠️ COOKIE_DOMAIN is not set; OAuth/session cookies may not work across api and web subdomains. Set e.g. COOKIE_DOMAIN=.kcjewellers.co.in');
+}
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'jewelry_estimation_secret_change_me',
@@ -641,7 +673,7 @@ app.get('/api/auth/logout', (req, res) => {
                 // Clear all cookies
                 res.clearCookie('jp.sid', { 
                     path: '/',
-                    domain: process.env.NODE_ENV === 'production' ? '.gauravsoftwares.tech' : undefined,
+                    ...(cookieDomain ? { domain: cookieDomain } : {}),
                     secure: true,
                     sameSite: 'none',
                     httpOnly: true
@@ -4292,7 +4324,7 @@ app.post('/api/admin/products/:barcode/diamond-details', diamondDetailsUpload, a
         const diamondClarity = req.body?.diamond_clarity != null ? String(req.body.diamond_clarity).trim() : null;
         let certificateUrl = null;
         if (req.file && req.file.filename) {
-            const baseUrl = process.env.API_BASE_URL || 'https://api.kc.gauravsoftwares.tech';
+            const baseUrl = getPublicApiBaseUrl();
             certificateUrl = `${baseUrl}/uploads/certificates/${req.file.filename}`;
         }
 
@@ -6528,7 +6560,7 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
                 const fixedPrice  = item.fixedPrice != null ? Number(item.fixedPrice) : (item.fixed_price != null ? Number(item.fixed_price) : null);
                 const stoneCharges = item.stoneCharges != null ? Number(item.stoneCharges) : (item.stone_charges != null ? Number(item.stone_charges) : 0);
 
-                const imageUrl = 'https://api.kc.gauravsoftwares.tech/uploads/web_products/' + prodSku + '.webp';
+                const imageUrl = `${getPublicApiBaseUrl()}/uploads/web_products/${prodSku}.webp`;
 
                 // Explicit barcode value (may equal prodSku when barcode was the unique key source)
                 const barcode = String(item.barcode || '').trim() || null;
@@ -6626,11 +6658,7 @@ app.get('*', (req, res) => {
 // START SERVER
 // ==========================================
 
-const DOMAIN = process.env.DOMAIN || 'localhost';
-const PROTOCOL = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-const BASE_URL = process.env.NODE_ENV === 'production' 
-  ? `${PROTOCOL}://${DOMAIN}` 
-  : `http://localhost:${PORT}`;
+const BASE_URL = getPublicApiBaseUrl();
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Server running on port ${PORT}`);

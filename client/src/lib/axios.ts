@@ -1,18 +1,12 @@
 import axios from 'axios'
 
-// Bulletproof URL resolution with fallback logic
+// Resolve API base URL (no trailing slash). Production builds must set NEXT_PUBLIC_API_URL.
 function getApiUrl(): string {
-  // First, try to use process.env.NEXT_PUBLIC_API_URL
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL
-  }
-  
-  // If missing, check if process.env.NODE_ENV === 'production'
+  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim()
+  if (fromEnv) return fromEnv.replace(/\/$/, '')
   if (process.env.NODE_ENV === 'production') {
-    return 'https://api.kc.gauravsoftwares.tech'
+    console.warn('[KC] NEXT_PUBLIC_API_URL is not set; configure it for the API host (e.g. https://api.kcjewellers.co.in).')
   }
-  
-  // Otherwise, default to localhost for local development
   return 'http://localhost:4000'
 }
 

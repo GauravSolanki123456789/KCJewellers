@@ -2,19 +2,12 @@ import { io, Socket } from "socket.io-client";
 
 let socket: Socket | null = null;
 
-// Bulletproof URL resolution with fallback logic
 function getSocketUrl(): string {
-  // First, try to use process.env.NEXT_PUBLIC_API_URL
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL
-  }
-  
-  // If missing, check if process.env.NODE_ENV === 'production'
+  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim()
+  if (fromEnv) return fromEnv.replace(/\/$/, '')
   if (process.env.NODE_ENV === 'production') {
-    return 'https://api.kc.gauravsoftwares.tech'
+    console.warn('[KC] NEXT_PUBLIC_API_URL is not set; Socket.IO needs the API origin.')
   }
-  
-  // Otherwise, default to localhost for local development
   return 'http://localhost:4000'
 }
 
