@@ -3,20 +3,24 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCart } from '@/context/CartContext'
-import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import {
-  BookMarked,
+  Home,
   ShoppingCart,
   User,
-  LayoutGrid,
   LogOut,
   TrendingUp,
   LineChart,
 } from 'lucide-react'
 import axios from 'axios'
-import { CATALOG_PATH, HOME_PATH, RATES_PATH } from '@/lib/routes'
+import {
+  CATALOG_PATH,
+  HOME_PATH,
+  PROFILE_PATH,
+  RATES_PATH,
+  SIP_PATH,
+} from '@/lib/routes'
 
 type UserType = { email?: string; name?: string; role?: string; mobile_number?: string }
 
@@ -29,14 +33,28 @@ function navIsActive(pathname: string | null, href: string): boolean {
       pathname.startsWith('/products/')
     )
   }
+  if (href === PROFILE_PATH) {
+    return pathname === PROFILE_PATH || pathname.startsWith(`${PROFILE_PATH}/`)
+  }
   return pathname === href || pathname.startsWith(`${href}/`)
 }
+
+const BOTTOM_NAV: Array<{
+  href: string
+  icon: typeof Home
+  label: string
+  shortLabel?: string
+}> = [
+  { href: CATALOG_PATH, icon: Home, label: 'Home' },
+  { href: RATES_PATH, icon: LineChart, label: 'Live Rates', shortLabel: 'Rates' },
+  { href: SIP_PATH, icon: TrendingUp, label: 'Invest' },
+  { href: PROFILE_PATH, icon: User, label: 'Profile' },
+]
 
 export default function Navbar() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { items } = useCart()
-  const { open: openBookRate } = useBookRate()
+  const { items, openCart } = useCart()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
@@ -44,8 +62,6 @@ export default function Navbar() {
   const returnTo = pathname
     ? pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : '')
     : HOME_PATH
-
-  const { openCart } = useCart()
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -58,46 +74,81 @@ export default function Navbar() {
     }
   }
 
-  const navItems: Array<
-    | { href: string; icon: typeof LayoutGrid; label: string; shortLabel?: string; badge?: number }
-    | { action: 'book-rate'; icon: typeof BookMarked; label: string; shortLabel?: string }
-    | { action: 'cart'; icon: typeof ShoppingCart; label: string; shortLabel?: string; badge: number }
-  > = [
-    { href: CATALOG_PATH, icon: LayoutGrid, label: 'Catalog' },
-    { href: RATES_PATH, icon: LineChart, label: 'Rates' },
-    { action: 'book-rate', icon: BookMarked, label: 'Book Rate', shortLabel: 'Book' },
-    { href: '/sip', icon: TrendingUp, label: 'Investment Plans', shortLabel: 'Invest' },
-    { action: 'cart', icon: ShoppingCart, label: 'Cart', badge: count },
-    { href: '/profile', icon: User, label: 'Profile' },
-  ]
-
   const linkClass = (href: string) =>
     navIsActive(pathname, href)
       ? 'text-yellow-500'
       : 'text-slate-300 hover:text-yellow-500'
 
+  const CartButton = ({ className = '' }: { className?: string }) => (
+    <button
+      type="button"
+      onClick={openCart}
+      className={`relative flex items-center justify-center rounded-lg p-2 text-slate-300 transition-colors hover:bg-white/10 hover:text-yellow-500 ${className}`}
+      aria-label={`Cart${count > 0 ? `, ${count} items` : ''}`}
+      title="Cart"
+    >
+      <ShoppingCart className="size-5 md:size-5" />
+      {count > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-500 px-1 text-[10px] font-bold text-slate-950">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </button>
+  )
+
   return (
     <>
-      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-white/10">
-        <div className="flex items-center justify-between w-full max-w-6xl mx-auto px-6 py-4 gap-4">
-          <Link href={CATALOG_PATH} className="text-xl font-bold text-yellow-500 tracking-tight shrink-0">
+      {/* Mobile: top bar — brand + cart (cart not in bottom nav) */}
+      <header className="safe-area-pt fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-slate-950/90 backdrop-blur-md md:hidden">
+        <div className="flex h-12 items-center justify-between px-3">
+          <Link
+            href={CATALOG_PATH}
+            className="text-base font-bold tracking-tight text-yellow-500"
+          >
             KC Jewellers
           </Link>
-          <div className="flex items-center gap-4 lg:gap-6 flex-wrap justify-end">
+          <CartButton />
+        </div>
+      </header>
+
+      {/* Desktop: full top nav */}
+      <nav className="fixed left-0 right-0 top-0 z-50 hidden border-b border-white/10 bg-slate-950/80 backdrop-blur-md md:flex">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-4">
+          <Link
+            href={CATALOG_PATH}
+            className="shrink-0 text-xl font-bold tracking-tight text-yellow-500"
+          >
+            KC Jewellers
+          </Link>
+          <div className="flex flex-1 flex-wrap items-center justify-center gap-4 lg:gap-6">
+            {BOTTOM_NAV.map(({ href, icon: Icon, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className={`flex items-center gap-2 transition-colors ${linkClass(href)}`}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="text-sm">{label}</span>
+              </Link>
+            ))}
+          </div>
+          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
             {!auth.isAuthenticated && (
               <button
                 type="button"
                 onClick={() => openLoginModal(returnTo)}
-                className="text-sm text-slate-400 hover:text-yellow-400 transition-colors px-2 py-1 rounded-md border border-transparent hover:border-white/10"
+                className="rounded-md border border-transparent px-2 py-1 text-sm text-slate-400 transition-colors hover:border-white/10 hover:text-yellow-400"
               >
                 Sign in
               </button>
             )}
             {auth.isAuthenticated && user && (
-              <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                <div className="flex flex-col items-end">
-                  <span className="text-xs text-yellow-500 font-medium">
-                    {user.name || user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
+              <div className="flex max-w-[10rem] items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1">
+                <div className="min-w-0 flex-1 text-right">
+                  <span className="block truncate text-xs font-medium text-yellow-500">
+                    {user.name ||
+                      user.email ||
+                      (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
                   </span>
                   {user.role === 'super_admin' && (
                     <span className="text-[10px] text-amber-400">Admin</span>
@@ -105,7 +156,7 @@ export default function Navbar() {
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="p-1.5 rounded hover:bg-white/10 transition-colors"
+                  className="shrink-0 rounded p-1 hover:bg-white/10"
                   title="Logout"
                   type="button"
                 >
@@ -113,67 +164,20 @@ export default function Navbar() {
                 </button>
               </div>
             )}
-            {navItems.map((item) => {
-              if ('action' in item && item.action === 'book-rate') {
-                const { icon: Icon, label } = item
-                return (
-                  <button
-                    key="book-rate"
-                    type="button"
-                    onClick={openBookRate}
-                    className="flex items-center gap-2 text-slate-300 hover:text-yellow-500 transition-colors"
-                  >
-                    <Icon className="size-4" />
-                    <span>{label}</span>
-                  </button>
-                )
-              }
-              if ('action' in item && item.action === 'cart') {
-                const { icon: Icon, label, badge } = item
-                return (
-                  <button
-                    key="cart"
-                    type="button"
-                    onClick={openCart}
-                    className="flex items-center gap-2 text-slate-300 hover:text-yellow-500 transition-colors"
-                  >
-                    <Icon className="size-4" />
-                    <span>{label}</span>
-                    {badge > 0 && (
-                      <span className="ml-1 min-w-5 h-5 flex items-center justify-center rounded-full bg-yellow-500/20 text-yellow-500 text-xs font-medium px-1.5">
-                        {badge}
-                      </span>
-                    )}
-                  </button>
-                )
-              }
-              const { href, icon: Icon, label, badge } = item
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-2 transition-colors ${linkClass(href)}`}
-                >
-                  <Icon className="size-4" />
-                  <span>{label}</span>
-                  {badge !== undefined && badge > 0 && (
-                    <span className="ml-1 min-w-5 h-5 flex items-center justify-center rounded-full bg-yellow-500/20 text-yellow-500 text-xs font-medium px-1.5">
-                      {badge}
-                    </span>
-                  )}
-                </Link>
-              )
-            })}
+            <CartButton className="shrink-0" />
           </div>
         </div>
       </nav>
 
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-white/10 safe-area-pb">
+      {/* Mobile bottom: 4 tabs only */}
+      <nav className="safe-area-pb fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-slate-950/90 backdrop-blur-md md:hidden">
         {auth.isAuthenticated && user && (
-          <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between">
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs text-yellow-500 font-medium truncate">
-                {user.name || user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium text-yellow-500">
+                {user.name ||
+                  user.email ||
+                  (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
               </span>
               {user.role === 'super_admin' && (
                 <span className="text-[10px] text-amber-400">Admin</span>
@@ -181,7 +185,7 @@ export default function Navbar() {
             </div>
             <button
               onClick={handleLogout}
-              className="p-1.5 rounded hover:bg-white/10 transition-colors shrink-0"
+              className="shrink-0 rounded p-1.5 hover:bg-white/10"
               title="Logout"
               type="button"
             >
@@ -189,64 +193,19 @@ export default function Navbar() {
             </button>
           </div>
         )}
-        <div className="flex items-center justify-around py-2 px-1 gap-0.5">
-          {navItems.map((item) => {
-            if ('action' in item && item.action === 'book-rate') {
-              const { icon: Icon, label, shortLabel } = item
-              return (
-                <button
-                  key="book-rate"
-                  type="button"
-                  onClick={openBookRate}
-                  className="flex flex-col items-center gap-0.5 text-slate-300 hover:text-yellow-500 transition-colors min-w-0 flex-1 py-1"
-                >
-                  <Icon className="size-[1.15rem] sm:size-5" />
-                  <span className="text-[9px] leading-tight text-center truncate max-w-full px-0.5">
-                    {shortLabel ?? label}
-                  </span>
-                </button>
-              )
-            }
-            if ('action' in item && item.action === 'cart') {
-              const { icon: Icon, label, badge } = item
-              return (
-                <button
-                  key="cart"
-                  type="button"
-                  onClick={openCart}
-                  className="flex flex-col items-center gap-0.5 text-slate-300 hover:text-yellow-500 transition-colors min-w-0 flex-1 py-1"
-                >
-                  <span className="relative">
-                    <Icon className="size-[1.15rem] sm:size-5" />
-                    {badge > 0 && (
-                      <span className="absolute -top-2 -right-2 min-w-4 h-4 flex items-center justify-center rounded-full bg-yellow-500 text-slate-950 text-[10px] font-bold">
-                        {badge}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-[9px] leading-tight truncate max-w-full">{label}</span>
-                </button>
-              )
-            }
-            const { href, icon: Icon, label, shortLabel, badge } = item
+        <div className="flex items-center justify-around gap-1 px-1 py-2">
+          {BOTTOM_NAV.map(({ href, icon: Icon, label, shortLabel }) => {
             const active = navIsActive(pathname, href)
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex flex-col items-center gap-0.5 min-w-0 flex-1 py-1 rounded-lg transition-colors ${
+                className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-lg py-1 transition-colors ${
                   active ? 'text-yellow-500' : 'text-slate-300 hover:text-yellow-500'
                 }`}
               >
-                <span className="relative">
-                  <Icon className="size-[1.15rem] sm:size-5" />
-                  {badge !== undefined && badge > 0 && (
-                    <span className="absolute -top-2 -right-2 min-w-4 h-4 flex items-center justify-center rounded-full bg-yellow-500 text-slate-950 text-[10px] font-bold">
-                      {badge}
-                    </span>
-                  )}
-                </span>
-                <span className="text-[9px] leading-tight text-center truncate max-w-full px-0.5">
+                <Icon className="size-[1.15rem] shrink-0 sm:size-5" />
+                <span className="max-w-full truncate px-0.5 text-center text-[9px] leading-tight">
                   {shortLabel ?? label}
                 </span>
               </Link>
@@ -255,7 +214,8 @@ export default function Navbar() {
         </div>
       </nav>
 
-      <div className="h-0 md:h-14" />
+      {/* Offset fixed headers: mobile top bar + desktop nav */}
+      <div className="h-12 md:h-14" />
     </>
   )
 }

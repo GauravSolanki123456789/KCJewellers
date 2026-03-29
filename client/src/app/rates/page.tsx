@@ -108,7 +108,12 @@ export default function RatesPage() {
           <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden">
             <div className="px-3 sm:px-6 py-4 sm:py-5 border-b border-white/10">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <h1 className="text-xl sm:text-2xl font-bold text-yellow-500">Live Gold Rates</h1>
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-bold text-yellow-500">Live Rates</h1>
+                  <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+                    Gold & silver prices — book your rate below or from any row
+                  </p>
+                </div>
                 {isEstimated && (
                   <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-yellow-500/20 border border-yellow-500/30 text-yellow-500 text-xs sm:text-sm">
                     <AlertTriangle className="size-3.5 sm:size-4 shrink-0" />
@@ -205,6 +210,28 @@ export default function RatesPage() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {!loading && (
+              <div className="border-t border-white/10 bg-gradient-to-b from-amber-500/10 to-transparent px-3 py-5 sm:px-6 sm:py-6">
+                <div className="rounded-xl border border-amber-500/25 bg-slate-900/60 p-4 sm:p-5">
+                  <h2 className="text-base font-semibold text-amber-400 sm:text-lg">
+                    Book your rate
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-400 sm:text-sm">
+                    Freeze the current market rate with a small advance — same flow as tapping Book on a
+                    row above. Opens here so you don&apos;t need a separate tab.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={openBookRate}
+                    className="mt-4 w-full bg-amber-500 font-semibold text-slate-950 hover:bg-amber-400 sm:w-auto sm:px-8"
+                  >
+                    <BookMarked className="mr-2 size-4" />
+                    Open book rate form
+                  </Button>
                 </div>
               </div>
             )}
