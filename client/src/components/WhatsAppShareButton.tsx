@@ -1,16 +1,16 @@
 "use client";
 
-import { MessageCircle } from "lucide-react";
+import { Share2 } from "lucide-react";
 import { buildWhatsAppShareLink } from "@/lib/whatsapp";
 
 type Props = {
   message: string;
   label?: string;
   className?: string;
-  /** Use compact icon-only on narrow cards */
+  /** Narrow screens: icon only; from `sm` up, show label next to icon */
   compact?: boolean;
-  /** Muted styling so the control does not compete with product CTAs */
-  subtle?: boolean;
+  /** `whatsapp`: green-tinted (share via WhatsApp). `muted`: slate, secondary */
+  variant?: "whatsapp" | "muted";
 };
 
 export default function WhatsAppShareButton({
@@ -18,23 +18,25 @@ export default function WhatsAppShareButton({
   label = "Share on WhatsApp",
   className = "",
   compact = false,
-  subtle = false,
+  variant = "whatsapp",
 }: Props) {
   const href = buildWhatsAppShareLink(message);
-  const base = subtle
-    ? "border border-white/15 bg-slate-800/50 text-slate-300 hover:bg-slate-800 hover:text-white hover:border-white/25"
-    : "border border-emerald-600/50 bg-emerald-950/40 text-emerald-300 hover:border-emerald-500 hover:bg-emerald-900/50 hover:text-emerald-200";
+  const styles =
+    variant === "muted"
+      ? "border border-white/15 bg-slate-800/50 text-slate-300 hover:bg-slate-800 hover:text-white hover:border-white/25"
+      : "border border-emerald-500/50 bg-emerald-950/60 text-emerald-100 hover:bg-emerald-900/70 hover:border-emerald-400/60";
+
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={compact ? label : undefined}
-      title={compact ? label : undefined}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${base} ${compact ? "px-0 py-0 min-h-[2.25rem] min-w-[2.25rem] rounded-lg" : ""} ${className}`}
+      aria-label={label}
+      title={label}
+      className={`inline-flex h-9 max-w-full items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors sm:gap-2 sm:px-3 sm:text-sm ${styles} ${compact ? "min-w-9 sm:min-w-0" : ""} ${className}`}
     >
-      <MessageCircle className="size-5 shrink-0" aria-hidden />
-      {!compact && <span>{label}</span>}
+      <Share2 className="size-4 shrink-0" aria-hidden />
+      <span className={compact ? "hidden truncate sm:inline" : "truncate"}>{label}</span>
     </a>
   );
 }

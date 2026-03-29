@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
+import WhatsAppContactLink from '@/components/WhatsAppContactLink'
 import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-react'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
@@ -536,30 +537,24 @@ export default function CatalogPageClient() {
           </div>
         </div>
 
-        {/* Header — mobile: compact share icon; desktop: full button */}
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <LayoutGrid className="size-5 text-amber-500 shrink-0" />
-            <h1 className="text-base sm:text-lg font-semibold text-slate-200 truncate">
+        {/* Contact = business chat; Share = wa.me/?text= catalogue link (distinct icons) */}
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <LayoutGrid className="size-5 shrink-0 text-amber-500" />
+            <h1 className="truncate text-base font-semibold text-slate-200 sm:text-lg">
               Catalogue
             </h1>
           </div>
           {activeStyle && (
-            <>
-              <WhatsAppShareButton
-                message={catalogShareText}
-                label="Share catalogue"
-                compact
-                subtle
-                className="lg:hidden shrink-0"
-              />
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <WhatsAppContactLink />
               <WhatsAppShareButton
                 message={catalogShareText}
                 label="Share"
-                subtle
-                className="hidden lg:inline-flex shrink-0 rounded-lg px-3 py-2 text-xs sm:text-sm"
+                compact
+                variant="whatsapp"
               />
-            </>
+            </div>
           )}
         </div>
 

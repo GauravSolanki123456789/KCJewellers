@@ -2,6 +2,10 @@ import { getSiteUrl } from "@/lib/site";
 
 const BRAND = "KC Jewellers";
 
+/** Prefilled text when customers tap “Contact” / the WhatsApp FAB (keep in sync with UX copy). */
+export const WHATSAPP_CONTACT_DEFAULT_PROMPT =
+  "Hi KC Jewellers! I'd like to know more about your jewellery.";
+
 export type CatalogShareQuery = {
   style?: string;
   sku?: string;

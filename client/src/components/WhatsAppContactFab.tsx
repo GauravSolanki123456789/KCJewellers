@@ -2,10 +2,10 @@
 
 import { MessageCircle } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { buildWhatsAppBusinessChatLink } from "@/lib/whatsapp";
-
-const DEFAULT_PROMPT =
-  "Hi KC Jewellers! I have a question about your catalogue.";
+import {
+  buildWhatsAppBusinessChatLink,
+  WHATSAPP_CONTACT_DEFAULT_PROMPT,
+} from "@/lib/whatsapp";
 
 type Props = {
   className?: string;
@@ -17,7 +17,7 @@ type Props = {
  */
 export default function WhatsAppContactFab({ className = "" }: Props) {
   const pathname = usePathname();
-  const href = buildWhatsAppBusinessChatLink(DEFAULT_PROMPT);
+  const href = buildWhatsAppBusinessChatLink(WHATSAPP_CONTACT_DEFAULT_PROMPT);
   if (!href) return null;
   if (pathname?.startsWith("/admin")) return null;
   /* Catalogue has its own share control; avoid duplicate entry points. */
