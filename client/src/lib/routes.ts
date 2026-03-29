@@ -18,3 +18,6 @@ export const CHECKOUT_PATH = '/checkout'
 export const PROFILE_PATH = '/profile'
 export const PROFILE_SIPS_PATH = '/profile/sips'
 export const SIP_PATH = '/sip'
+
+/** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
+export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const

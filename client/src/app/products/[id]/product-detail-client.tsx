@@ -180,7 +180,6 @@ export default function ProductDetailClient({ id }: { id: string }) {
 
   const handleAddToCart = () => {
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode });
-    cart.openCart();
     trackAddToCart(
       product.barcode || String(product.id || ""),
       displayName,

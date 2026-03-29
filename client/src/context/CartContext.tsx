@@ -1,9 +1,10 @@
 'use client'
 import '@/lib/axios'
 import axios from '@/lib/axios'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
 
 /**
  * ProductLite extends Item to ensure all product fields are available in cart items.
@@ -22,14 +23,12 @@ const CartCtx = createContext<{
   closeCart: () => void
   lastAdded: ProductLite | null
   clearLastAdded: () => void
-  scrollToItemId: string | null
-  clearScrollToItemId: () => void
   ratesReady: boolean
-}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, scrollToItemId: null, clearScrollToItemId: () => {}, ratesReady: false })
+}>({ items: [], add: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, ratesReady: false })
 
 function loadCartFromStorage(): CartItem[] {
   if (typeof window === 'undefined') return []
-  const raw = localStorage.getItem('cart.v1')
+  const raw = localStorage.getItem(CART_LOCAL_STORAGE_KEY)
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
@@ -54,8 +53,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [lastRates, setLastRates] = useState<unknown[]>([])
   const [ratesReady, setRatesReady] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
-  const [scrollToItemId, setScrollToItemId] = useState<string | null>(null)
-  const cartCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     setItems(loadCartFromStorage())
@@ -64,7 +61,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !isHydrated) return
-    localStorage.setItem('cart.v1', JSON.stringify(items))
+    localStorage.setItem(CART_LOCAL_STORAGE_KEY, JSON.stringify(items))
   }, [items, isHydrated])
 
   const applyRates = useCallback((rates: unknown[]) => {
@@ -96,19 +93,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const b = calculateBreakdown(p, lastRates, p.gst_rate)
     const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
     setLastAdded(p)
-    setScrollToItemId(ci.id)
-    setIsCartOpen(true)
     axios.post('/api/analytics/track', {
       action_type: 'add_to_cart',
       target_id: p.barcode || p.sku || String(p.id || ''),
       metadata: { product_name: p.item_name || p.short_name || 'Product' },
     }).catch(() => {})
-    // Auto-close cart after 2.5s to keep user in shopping flow
-    if (cartCloseTimerRef.current) clearTimeout(cartCloseTimerRef.current)
-    cartCloseTimerRef.current = setTimeout(() => {
-      setIsCartOpen(false)
-      cartCloseTimerRef.current = null
-    }, 2500)
     setItems(prev => {
       const exists = prev.find(x => x.id === ci.id)
       if (exists) {
@@ -122,15 +111,18 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     })
   }, [lastRates])
   const remove = useCallback((id: string) => setItems(prev => prev.filter(x => x.id !== id)), [])
+  /** qty below 1 removes the line (minus at quantity 1 matches Remove). */
   const setQty = useCallback((id: string, qty: number) => {
-    const n = Math.max(1, qty)
-    setItems(prev => prev.map(x => x.id === id ? { ...x, qty: n } : x))
+    if (qty < 1) {
+      setItems((prev) => prev.filter((x) => x.id !== id))
+      return
+    }
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, qty } : x)))
   }, [])
   const openCart = useCallback(() => setIsCartOpen(true), [])
   const closeCart = useCallback(() => setIsCartOpen(false), [])
   const clearLastAdded = useCallback(() => setLastAdded(null), [])
-  const clearScrollToItemId = useCallback(() => setScrollToItemId(null), [])
-  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, scrollToItemId, clearScrollToItemId, ratesReady }), [items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, scrollToItemId, clearScrollToItemId, ratesReady])
+  const value = useMemo(() => ({ items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady }), [items, add, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady])
   return <CartCtx.Provider value={value}>{children}</CartCtx.Provider>
 }
 

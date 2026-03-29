@@ -39,7 +39,7 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
 
 export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const router = useRouter()
-  const { items, remove, setQty, ratesReady, scrollToItemId, clearScrollToItemId } = useCart()
+  const { items, remove, setQty, ratesReady } = useCart()
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -66,19 +66,6 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!isOpen || !scrollToItemId || items.length === 0) return
-    const el = scrollContainerRef.current?.querySelector(`[data-cart-item-id="${CSS.escape(scrollToItemId)}"]`)
-    if (el) {
-      requestAnimationFrame(() => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      })
-      clearScrollToItemId()
-    } else {
-      clearScrollToItemId()
-    }
-  }, [isOpen, scrollToItemId, items, clearScrollToItemId])
 
   return (
     <>
@@ -165,8 +152,10 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                         <button
+                          type="button"
                           className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-white"
                           onClick={() => setQty(ci.id, ci.qty - 1)}
+                          aria-label={ci.qty <= 1 ? 'Remove from cart' : 'Decrease quantity'}
                         >
                           −
                         </button>
