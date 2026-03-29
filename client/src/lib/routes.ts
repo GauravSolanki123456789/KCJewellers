@@ -21,3 +21,8 @@ export const SIP_PATH = '/sip'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const
+
+export const POLICY_TERMS_PATH = '/policies/terms'
+export const POLICY_PRIVACY_PATH = '/policies/privacy'
+export const POLICY_REFUNDS_PATH = '/policies/refunds'
+export const POLICY_SHIPPING_PATH = '/policies/shipping'

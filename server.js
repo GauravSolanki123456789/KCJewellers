@@ -1389,6 +1389,55 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
+/**
+ * SEO: product URLs for Next.js sitemap. Matches public catalogue rules:
+ * web_products joined to published web_categories, active rows only.
+ * product_key = COALESCE(barcode, sku, id::text) — same resolution as storefront /products/[id].
+ */
+app.get('/api/seo/sitemap-products', async (req, res) => {
+    try {
+        const rows = await query(`
+            SELECT
+                COALESCE(
+                    NULLIF(TRIM(wp.barcode), ''),
+                    NULLIF(TRIM(wp.sku), ''),
+                    wp.id::text
+                ) AS product_key,
+                wp.updated_at
+            FROM web_products wp
+            INNER JOIN web_subcategories ws ON wp.subcategory_id = ws.id
+            INNER JOIN web_categories wc ON ws.category_id = wc.id
+            WHERE (wp.is_active IS NULL OR wp.is_active = true)
+              AND wc.is_published = true
+            ORDER BY wp.id ASC
+        `);
+        /** Dedupe by storefront product URL key; keep latest updated_at */
+        const byKey = new Map();
+        for (const r of rows) {
+            const path = String(r.product_key || '').trim();
+            if (!path) continue;
+            const ts = r.updated_at ? new Date(r.updated_at).getTime() : 0;
+            const prev = byKey.get(path);
+            if (!prev || ts > prev.ts) {
+                byKey.set(path, {
+                    path,
+                    lastmod: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+                    ts,
+                });
+            }
+        }
+        const items = Array.from(byKey.values()).map(({ path, lastmod }) => ({
+            path,
+            lastmod,
+        }));
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+        res.json({ items });
+    } catch (error) {
+        console.error('sitemap-products error:', error);
+        res.status(500).json({ error: error.message, items: [] });
+    }
+});
+
 // Adjacent products in the same catalog subcategory (same order as /api/catalog)
 app.get('/api/products/neighbors', async (req, res) => {
     try {

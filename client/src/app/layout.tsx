@@ -15,6 +15,7 @@ import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import AuthToast from "@/components/AuthToast";
 import AddToCartToast from "@/components/AddToCartToast";
 import WhatsAppContactFab from "@/components/WhatsAppContactFab";
+import Footer from "@/components/Footer";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -90,7 +91,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="bg-slate-950">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100 min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >
         <GoogleAnalytics />
         <CartProvider>
@@ -103,7 +104,8 @@ export default function RootLayout({
               <AuthToast />
             </Suspense>
             <AddToCartToast />
-            {children}
+            <div className="flex flex-1 flex-col">{children}</div>
+            <Footer />
             <Suspense fallback={null}>
               <BookRateModal />
             </Suspense>
