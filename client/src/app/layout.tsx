@@ -78,7 +78,7 @@ export const metadata: Metadata = {
     follow: true,
   },
   alternates: {
-    canonical: site,
+    canonical: `${site.replace(/\/$/, "")}/catalog`,
   },
 };
 
@@ -111,7 +111,7 @@ export default function RootLayout({
             <Suspense fallback={null}>
               <CartDrawerWrapper />
             </Suspense>
-            <WhatsAppContactFab className="bottom-24 left-4 md:bottom-8 md:left-6" />
+            <WhatsAppContactFab />
             </LoginModalProvider>
           </BookRateProvider>
         </CartProvider>

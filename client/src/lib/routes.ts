@@ -3,6 +3,10 @@
  * Use these across the frontend and backend for consistency.
  */
 export const CATALOG_PATH = '/catalog'
+/** Live bullion rates (formerly the app root). */
+export const RATES_PATH = '/rates'
+/** Default post-login / logout redirect — storefront catalogue. */
+export const HOME_PATH = CATALOG_PATH
 export const CATALOG_SCROLL_TO_KEY = 'kc_catalog_scroll_to'
 /** Session snapshot for catalogue filters (metal, style, sku, sliders). */
 export const CATALOG_STATE_KEY = 'kc_catalog_state'
@@ -12,4 +16,3 @@ export const CHECKOUT_PATH = '/checkout'
 export const PROFILE_PATH = '/profile'
 export const PROFILE_SIPS_PATH = '/profile/sips'
 export const SIP_PATH = '/sip'
-export const HOME_PATH = '/'

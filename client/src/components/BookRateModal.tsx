@@ -17,6 +17,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { subscribeLiveRates } from '@/lib/socket'
 import { toPaise } from '@/lib/utils'
+import { CATALOG_PATH } from '@/lib/routes'
 
 declare global {
   interface Window {
@@ -195,7 +196,7 @@ export default function BookRateModal() {
     if (!auth.isAuthenticated) {
       const returnTo = pathname
         ? pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : '')
-        : '/'
+        : CATALOG_PATH
       openLoginModal(returnTo)
       showToast('Please sign in to continue')
       return

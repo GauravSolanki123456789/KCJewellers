@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Suspense } from 'react'
+import { CATALOG_PATH } from '@/lib/routes'
 
 export default function NotFound() {
   return (
@@ -12,10 +13,10 @@ export default function NotFound() {
             The page you're looking for doesn't exist or has been moved.
           </p>
           <Link
-            href="/"
+            href={CATALOG_PATH}
             className="inline-block px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold rounded-lg transition-colors"
           >
-            Return to Home
+            Back to catalogue
           </Link>
         </div>
       </div>

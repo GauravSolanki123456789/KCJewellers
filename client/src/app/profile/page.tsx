@@ -3,7 +3,7 @@
 import { Suspense } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
-import { PROFILE_PATH } from '@/lib/routes'
+import { HOME_PATH, PROFILE_PATH } from '@/lib/routes'
 import Link from 'next/link'
 import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp } from 'lucide-react'
 import axios from 'axios'
@@ -31,10 +31,10 @@ function ProfilePageContent() {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
-      window.location.href = '/'
+      window.location.href = HOME_PATH
     } catch (error) {
       console.error('Logout error:', error)
-      window.location.href = '/'
+      window.location.href = HOME_PATH
     }
   }
 

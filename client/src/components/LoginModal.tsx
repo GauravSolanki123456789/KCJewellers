@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useLoginModal } from '@/context/LoginModalContext'
+import { CATALOG_PATH } from '@/lib/routes'
 import { Smartphone, Mail } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -78,11 +79,11 @@ export default function LoginModal() {
         { withCredentials: true }
       )
       handleClose()
-      const target = returnTo || pathname || '/'
+      const target = returnTo || pathname || CATALOG_PATH
       if (target.startsWith('/')) {
         window.location.href = target
       } else {
-        window.location.href = '/'
+        window.location.href = CATALOG_PATH
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Invalid OTP'
@@ -93,8 +94,8 @@ export default function LoginModal() {
   }
 
   const handleGoogleLogin = () => {
-    const target = returnTo || pathname || '/'
-    const safeReturnTo = target.startsWith('/') ? target : '/'
+      const target = returnTo || pathname || CATALOG_PATH
+      const safeReturnTo = target.startsWith('/') ? target : CATALOG_PATH
     const url = `${API_URL}/auth/google?returnTo=${encodeURIComponent(safeReturnTo)}`
     window.location.href = url
   }

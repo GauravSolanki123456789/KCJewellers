@@ -20,7 +20,7 @@ export default function WhatsAppContactFab({ className = "" }: Props) {
   const href = buildWhatsAppBusinessChatLink(DEFAULT_PROMPT);
   if (!href) return null;
   if (pathname?.startsWith("/admin")) return null;
-  /* Catalogue has its own share control; avoid overlapping filters / bottom nav on small screens. */
+  /* Catalogue has its own share control; avoid duplicate entry points. */
   if (pathname === "/catalog" || pathname?.startsWith("/products/")) return null;
   return (
     <a
@@ -29,9 +29,9 @@ export default function WhatsAppContactFab({ className = "" }: Props) {
       rel="noopener noreferrer"
       title="Chat on WhatsApp"
       aria-label="Chat with KC Jewellers on WhatsApp"
-      className={`fixed z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-2 ring-white/10 transition-transform hover:scale-105 active:scale-95 md:h-12 md:w-12 ${className}`}
+      className={`fixed z-40 flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-1 ring-white/15 transition-transform hover:scale-105 active:scale-95 left-auto right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] md:bottom-8 md:right-6 ${className}`}
     >
-      <MessageCircle className="size-7 md:size-6" strokeWidth={2} />
+      <MessageCircle className="size-6 md:size-6" strokeWidth={2} />
     </a>
   );
 }

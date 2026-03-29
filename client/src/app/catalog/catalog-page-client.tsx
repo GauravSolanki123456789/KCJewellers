@@ -545,11 +545,21 @@ export default function CatalogPageClient() {
             </h1>
           </div>
           {activeStyle && (
-            <WhatsAppShareButton
-              message={catalogShareText}
-              label="Share"
-              className="shrink-0 rounded-lg border-emerald-600/50 bg-emerald-950/40 px-3 py-2 text-xs font-semibold sm:text-sm"
-            />
+            <>
+              <WhatsAppShareButton
+                message={catalogShareText}
+                label="Share catalogue"
+                compact
+                subtle
+                className="lg:hidden shrink-0"
+              />
+              <WhatsAppShareButton
+                message={catalogShareText}
+                label="Share"
+                subtle
+                className="hidden lg:inline-flex shrink-0 rounded-lg px-3 py-2 text-xs sm:text-sm"
+              />
+            </>
           )}
         </div>
 

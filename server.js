@@ -275,7 +275,7 @@ app.get('/auth/bypass', authLimiter, async (req, res, next) => {
         const resolvedUser = resolveUserRole(user);
         req.login(resolvedUser, (error) => {
             if (error) return next(error);
-            const redirect = req.query.redirect && typeof req.query.redirect === 'string' ? req.query.redirect : '/';
+            const redirect = req.query.redirect && typeof req.query.redirect === 'string' ? req.query.redirect : '/catalog';
             res.redirect(redirect);
         });
     } catch (error) {
@@ -366,11 +366,11 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
                     target = cookieVal;
                     res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
                 }
-                target = target || '/';
+                target = target || '/catalog';
                 if (target.startsWith('/')) {
                     return res.redirect(clientUrl + target);
                 }
-                return res.redirect(clientUrl + '/');
+                return res.redirect(clientUrl + '/catalog');
             });
 
         } catch (error) {
@@ -387,14 +387,14 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
 // Google OAuth Callback - Handle authentication
 app.get('/auth/google/callback', authLimiter, 
     passport.authenticate('google', { 
-        failureRedirect: (process.env.CLIENT_URL || 'http://localhost:3001') + '/?auth=failed&reason=ACCESS_DENIED',
+        failureRedirect: (process.env.CLIENT_URL || 'http://localhost:3001') + '/catalog?auth=failed&reason=ACCESS_DENIED',
         failureMessage: true
     }),
     async (req, res) => {
         const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
         
         if (!req.user) {
-            return res.redirect(clientUrl + '/?auth=failed&reason=ACCESS_DENIED');
+            return res.redirect(clientUrl + '/catalog?auth=failed&reason=ACCESS_DENIED');
         }
         
         // CRITICAL: Ensure role is resolved correctly (passport strategy already handles DB update)
@@ -426,9 +426,9 @@ app.get('/auth/google/callback', authLimiter,
                 returnTo = cookieVal;
                 res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
             }
-            const basePath = (returnTo && returnTo.startsWith('/')) ? returnTo : '/';
-            const redirectUrl = basePath === '/'
-                ? `${clientUrl}/?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`
+            const basePath = (returnTo && returnTo.startsWith('/')) ? returnTo : '/catalog';
+            const redirectUrl = (basePath === '/' || basePath === '/catalog')
+                ? `${clientUrl}/catalog?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`
                 : `${clientUrl}${basePath}?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`;
             res.redirect(redirectUrl);
         } else if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
@@ -438,11 +438,11 @@ app.get('/auth/google/callback', authLimiter,
                 req.session.destroy((error) => {
                     if (error) { console.error('Session destroy error:', error); }
                     res.clearCookie('jp.sid');
-                    res.redirect(clientUrl + '/?auth=suspended&email=' + encodeURIComponent(email));
+                    res.redirect(clientUrl + '/catalog?auth=suspended&email=' + encodeURIComponent(email));
                 });
             });
         } else {
-            res.redirect(clientUrl + '/?auth=failed&reason=UNKNOWN_STATUS');
+            res.redirect(clientUrl + '/catalog?auth=failed&reason=UNKNOWN_STATUS');
         }
     }
 );  

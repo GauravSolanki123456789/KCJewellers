@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import { ShieldX, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { CATALOG_PATH } from '@/lib/routes'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
 
@@ -77,10 +78,10 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
           <p className="text-slate-500 mt-2">Admin access is restricted. Only authorized users can view this area.</p>
           <p className="text-slate-400 text-xs mt-2">Email: {email || 'N/A'} | Role: {role || 'N/A'}</p>
           <Link
-            href="/"
+            href={CATALOG_PATH}
             className="mt-6 inline-block px-6 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold rounded-lg"
           >
-            Return to Home
+            Back to catalogue
           </Link>
         </div>
       </div>
