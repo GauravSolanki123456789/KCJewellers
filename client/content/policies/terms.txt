@@ -1,14 +1,23 @@
 TERMS & CONDITIONS — KC JEWELLERS
 
-Last updated: Replace this file with your lawyer-approved terms.
+Last updated: March 30, 2026
 
 1. Introduction
-These Terms govern use of the KC Jewellers website and services.
+Welcome to KC Jewellers. These Terms & Conditions govern your use of our website (kcjewellers.co.in) and our services, including catalog purchases, live rate bookings, and Systematic Investment Plans (SIP). By accessing our platform, you agree to be bound by these terms. Our physical operations are based out of KC Jewellers, Sowcarpet, Chennai.
 
-2. Orders & pricing
-Prices, availability, and promotions are subject to change. Final amounts are confirmed at checkout where applicable.
+2. Live Rates & Pricing
+The prices of Gold, Silver, and Diamonds are subject to real-time market fluctuations. 
+- For Catalog Orders: The final price is confirmed at checkout.
+- For Rate Bookings: Paying the advance locks the metal rate for the specified weight. The remaining balance must be cleared prior to delivery or physical store pickup. Failure to pay the balance within the stipulated timeframe may result in forfeiture of the advance.
 
-3. Limitation of liability
-To the extent permitted by law, KC Jewellers’ liability is limited as set out in your final agreement with us.
+3. Systematic Investment Plans (SIP)
+Our SIP allows users to accumulate metal weight or value over time. SIP installments are binding for the chosen tenure. Missed payments may result in the suspension of the plan. Accumulated weight is calculated based on the live rate at the exact time of successful payment realization.
 
-Replace the text above with your full Terms & Conditions.
+4. User Accounts
+You must provide accurate mobile numbers and information for OTP verification and order fulfillment. You are responsible for maintaining the confidentiality of your account.
+
+5. Limitation of Liability
+To the maximum extent permitted by law, KC Jewellers shall not be liable for any indirect, incidental, or consequential damages arising from the use of our services or market price fluctuations.
+
+6. Governing Law
+These terms are governed by the laws of India. Any disputes shall be subject to the exclusive jurisdiction of the courts in Chennai, Tamil Nadu.

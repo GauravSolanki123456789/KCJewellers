@@ -69,55 +69,6 @@ function ProfilePageContent() {
           )}
         </div>
 
-        {/* Legal & policies — especially useful on mobile (footer stays minimal) */}
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-3">
-            Legal & support
-          </h2>
-          <div className="glass-card rounded-2xl overflow-hidden border border-white/10 divide-y divide-white/10">
-            <Link
-              href={POLICY_TERMS_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Terms & Conditions</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-            <Link
-              href={POLICY_PRIVACY_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Privacy Policy</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-            <Link
-              href={POLICY_REFUNDS_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Refunds & cancellations</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-            <Link
-              href={POLICY_SHIPPING_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Shipping & delivery</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-          </div>
-        </section>
-
         {/* Wallet Balance - Glassmorphism */}
         <section className="mb-6">
           <div className="glass-card rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl">
@@ -161,6 +112,55 @@ function ProfilePageContent() {
             </Link>
           </section>
         )}
+
+        {/* Legal & policies — after account highlights; footer is minimal on mobile */}
+        <section className="mb-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-3">
+            Legal & support
+          </h2>
+          <div className="glass-card rounded-2xl overflow-hidden border border-white/10 divide-y divide-white/10">
+            <Link
+              href={POLICY_TERMS_PATH}
+              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
+            >
+              <span className="flex items-center gap-3 min-w-0">
+                <FileText className="size-5 shrink-0 text-amber-500/80" />
+                <span className="text-sm font-medium truncate">Terms & Conditions</span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-slate-500" />
+            </Link>
+            <Link
+              href={POLICY_PRIVACY_PATH}
+              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
+            >
+              <span className="flex items-center gap-3 min-w-0">
+                <FileText className="size-5 shrink-0 text-amber-500/80" />
+                <span className="text-sm font-medium truncate">Privacy Policy</span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-slate-500" />
+            </Link>
+            <Link
+              href={POLICY_REFUNDS_PATH}
+              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
+            >
+              <span className="flex items-center gap-3 min-w-0">
+                <FileText className="size-5 shrink-0 text-amber-500/80" />
+                <span className="text-sm font-medium truncate">Refunds & cancellations</span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-slate-500" />
+            </Link>
+            <Link
+              href={POLICY_SHIPPING_PATH}
+              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
+            >
+              <span className="flex items-center gap-3 min-w-0">
+                <FileText className="size-5 shrink-0 text-amber-500/80" />
+                <span className="text-sm font-medium truncate">Shipping & delivery</span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-slate-500" />
+            </Link>
+          </div>
+        </section>
 
         {/* Order History / Active Bookings */}
         <section className="mb-6">
