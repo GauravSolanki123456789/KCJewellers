@@ -1,21 +1,14 @@
 REFUND & CANCELLATION POLICY — KC JEWELLERS
 
-Last updated: March 30, 2026
+Last updated: Replace this file with your refund and cancellation policy.
 
-1. Standard E-commerce Orders
+1. Order cancellation
+Set out time windows and fees for cancellations before dispatch / after payment.
 
-No Cancellation: Once an order is placed, it cannot be cancelled by the customer under any circumstances.
-No Return / No Exchange: All products sold are final. We do not accept returns, exchanges, or replacements after delivery. Customers are advised to carefully review product details before placing an order.
+2. Refunds
+Describe eligibility, timelines, and method of refund (original payment channel, store credit, etc.).
 
-2. Systematic Investment Plans (SIP)
+3. Non-returnable items
+List categories that are final sale if applicable (e.g. custom orders, certain bullion products).
 
-Strict No-Cash-Refund Policy: Contributions made toward Gold, Silver, or Diamond SIPs are strictly non-refundable in cash.
-Redemptions: Upon maturity or premature closure of an SIP, the accumulated value can only be redeemed against physical jewellery available in our catalog or store.
-
-3. Rate Bookings
-
-Advances paid to lock live market rates are non-refundable. If the customer does not proceed with the final purchase, the advance amount will be converted into store credit.
-
-4. Refund Processing
-
-In cases where a refund is approved solely at the discretion of KC Jewellers, the amount may be processed through any suitable payment method, including bank transfer, digital payment, store adjustment, or other mutually agreed methods, within a reasonable processing period.
+Replace the text above with your full Refund & Cancellation Policy.

@@ -17,6 +17,13 @@ import axios from 'axios'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
 
+const LEGAL_SUPPORT_LINKS = [
+  { href: POLICY_TERMS_PATH, label: 'Terms & Conditions' },
+  { href: POLICY_PRIVACY_PATH, label: 'Privacy Policy' },
+  { href: POLICY_REFUNDS_PATH, label: 'Refunds & cancellations' },
+  { href: POLICY_SHIPPING_PATH, label: 'Shipping & delivery' },
+] as const
+
 type UserType = { role?: string; email?: string; name?: string; mobile_number?: string }
 
 export default function ProfilePage() {
@@ -69,6 +76,31 @@ function ProfilePageContent() {
           )}
         </div>
 
+        {/* Legal & policies — grid on tablet+; large tap targets on mobile */}
+        <section className="mb-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-1">
+            Legal & support
+          </h2>
+          <p className="text-xs text-slate-600 mb-3">
+            Policies and help — use &quot;Back to profile&quot; on each page to return here.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+            {LEGAL_SUPPORT_LINKS.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className="glass-card flex min-h-[52px] items-center justify-between gap-3 rounded-xl border border-white/10 px-4 py-3 text-slate-200 transition-colors hover:border-amber-500/25 hover:bg-white/5 active:bg-white/[0.07]"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <FileText className="size-5 shrink-0 text-amber-500/80" aria-hidden />
+                  <span className="text-sm font-medium leading-snug">{label}</span>
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-slate-500" aria-hidden />
+              </Link>
+            ))}
+          </div>
+        </section>
+
         {/* Wallet Balance - Glassmorphism */}
         <section className="mb-6">
           <div className="glass-card rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl">
@@ -112,55 +144,6 @@ function ProfilePageContent() {
             </Link>
           </section>
         )}
-
-        {/* Legal & policies — after account highlights; footer is minimal on mobile */}
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-3">
-            Legal & support
-          </h2>
-          <div className="glass-card rounded-2xl overflow-hidden border border-white/10 divide-y divide-white/10">
-            <Link
-              href={POLICY_TERMS_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Terms & Conditions</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-            <Link
-              href={POLICY_PRIVACY_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Privacy Policy</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-            <Link
-              href={POLICY_REFUNDS_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Refunds & cancellations</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-            <Link
-              href={POLICY_SHIPPING_PATH}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-slate-200 hover:bg-white/5 transition-colors min-h-[48px]"
-            >
-              <span className="flex items-center gap-3 min-w-0">
-                <FileText className="size-5 shrink-0 text-amber-500/80" />
-                <span className="text-sm font-medium truncate">Shipping & delivery</span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-slate-500" />
-            </Link>
-          </div>
-        </section>
 
         {/* Order History / Active Bookings */}
         <section className="mb-6">

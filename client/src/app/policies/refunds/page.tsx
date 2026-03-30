@@ -17,13 +17,13 @@ export const revalidate = 3600;
 export default function RefundsPolicyPage() {
   const body = getPolicyPlainText("refunds");
   return (
-    <main className="mx-auto max-w-3xl px-4 pb-28 pt-4 md:pb-16 md:pt-6">
+    <>
       <h1 className="text-2xl font-bold tracking-tight text-amber-400 md:text-3xl">
         Refund & Cancellation Policy
       </h1>
-      <article className="mt-6 whitespace-pre-wrap text-sm leading-relaxed text-slate-300 md:mt-8 md:text-base">
+      <article className="mt-8 whitespace-pre-wrap text-sm leading-relaxed text-slate-300 md:text-base">
         {body}
       </article>
-    </main>
+    </>
   );
 }

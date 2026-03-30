@@ -1,16 +1,17 @@
 SHIPPING & DELIVERY POLICY — KC JEWELLERS
 
-Last updated: March 30, 2026
+Last updated: Replace this file with your shipping policy.
 
-1. Delivery Areas
-We ship high-value jewelry across India. However, delivery is restricted to certain PIN codes serviced by our secure logistics partners.
+1. Delivery areas
+State regions or pin codes you serve.
 
-2. Shipping Timelines
-- In-Stock Items: Dispatched within 3 business days. Delivery typically takes an additional 3-5 business days depending on your location.
-- Custom/Made-to-Order: May require up to 20-28 days for manufacturing before dispatch.
+2. Timelines
+Indicative dispatch and delivery times; factors that may delay delivery.
 
-3. Shipping Charges
-All orders are shipped on a "To Pay" basis. Shipping charges are calculated by our delivery partners based on the weight and dimensions of the package. These charges must be paid directly to the courier partner at the time of delivery.
+3. Shipping charges
+How fees are calculated (flat, weight-based, free thresholds).
 
-4. Secure Handover
-Due to the high value of our products, all shipments are fully insured in transit. The risk of loss passes to you upon delivery. A valid Government ID and an OTP may be required by the delivery agent to securely hand over the package. Please ensure you or an authorized representative is available to receive it.
+4. Risk of loss
+When title and risk pass to the buyer (e.g. on handover to carrier / on delivery).
+
+Replace the text above with your full Shipping & Delivery Policy.
