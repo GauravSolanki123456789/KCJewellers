@@ -1,14 +1,32 @@
 PRIVACY POLICY — KC JEWELLERS
 
-Last updated: Replace this file with your privacy policy.
+Last updated: March 30, 2026
 
-1. Data we collect
-Describe categories of personal data you collect (e.g. name, phone, order history).
+1. Data We Collect
+We collect necessary personal information including:
 
-2. How we use data
-Describe purposes (order fulfilment, payment processing, marketing where applicable).
+Name
+Mobile number (for OTP authentication)
+Email address
+Shipping address
+Order and SIP history
 
-3. Your rights
-Describe access, correction, deletion, and grievance mechanisms as required by applicable law (e.g. India DPDP where relevant).
+2. How We Use Your Data
+Your data is used strictly for:
 
-Replace the text above with your full Privacy Policy.
+Processing and fulfilling orders
+Managing SIP accounts and rate bookings
+Sending transactional updates (SMS/WhatsApp)
+Compliance with Indian financial and tax regulations
+
+3. Payment Processing
+We do not store sensitive payment details. Payments are processed through secure and compliant third-party payment partners.
+
+4. Data Sharing
+We do not sell your data. Information is shared only with:
+
+Delivery/logistics partners
+Payment processing providers
+
+5. Your Rights
+You may request access, correction, or deletion of your personal data, subject to applicable legal requirements.

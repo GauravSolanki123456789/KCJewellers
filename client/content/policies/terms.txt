@@ -1,14 +1,35 @@
 TERMS & CONDITIONS — KC JEWELLERS
 
-Last updated: Replace this file with your lawyer-approved terms.
+Last updated: March 30, 2026
 
 1. Introduction
-These Terms govern use of the KC Jewellers website and services.
+Welcome to KC Jewellers. These Terms & Conditions govern your use of our website (kcjewellers.co.in) and our services, including catalog purchases, live rate bookings, and Systematic Investment Plans (SIP). By accessing our platform, you agree to be bound by these terms.
+Our physical operations are based out of KC Jewellers, Sowcarpet, Chennai.
 
-2. Orders & pricing
-Prices, availability, and promotions are subject to change. Final amounts are confirmed at checkout where applicable.
+2. Live Rates & Pricing
+The prices of Gold, Silver, and Diamonds are subject to real-time market fluctuations.
 
-3. Limitation of liability
-To the extent permitted by law, KC Jewellers’ liability is limited as set out in your final agreement with us.
+Catalog Orders: The final price is confirmed at checkout and is binding.
+Rate Bookings: Payment of an advance locks the metal rate for the specified weight. The remaining balance must be cleared before delivery or store pickup. Failure to complete payment within the stipulated timeframe may result in forfeiture of the advance.
 
-Replace the text above with your full Terms & Conditions.
+3. Systematic Investment Plans (SIP)
+Our SIP allows users to accumulate metal weight or value over time.
+
+SIP installments are binding for the selected tenure.
+Missed payments may lead to suspension of the plan.
+Accumulated weight/value is calculated based on the live rate at the exact time of successful payment realization.
+
+4. Orders, Cancellations & Modifications
+No Cancellation: Once an order is placed, it cannot be cancelled, modified, or reversed under any circumstances.
+Customers are advised to review their order carefully before confirming the purchase.
+
+5. User Accounts
+You must provide accurate details, including mobile number for OTP verification and order processing.
+You are responsible for maintaining the confidentiality of your account.
+
+6. Limitation of Liability
+To the maximum extent permitted by law, KC Jewellers shall not be liable for any indirect, incidental, or consequential damages, including losses arising from market fluctuations or inability to deliver due to external factors.
+
+7. Governing Law
+These terms are governed by the laws of India.
+Any disputes shall fall under the exclusive jurisdiction of courts in Chennai, Tamil Nadu.
