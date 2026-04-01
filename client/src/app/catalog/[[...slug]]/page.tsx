@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
-import CatalogPageClient from "../catalog-page-client";
 import CatalogStructuredData from "../catalog-structured-data";
 import CatalogRootStructuredData from "../catalog-root-structured-data";
 import { absoluteImageUrl, getSiteUrl } from "@/lib/site";
@@ -115,14 +113,6 @@ export async function generateMetadata({
   };
 }
 
-function CatalogFallback() {
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-      <div className="text-slate-400 animate-pulse">Loading catalogue…</div>
-    </div>
-  );
-}
-
 export default async function CatalogPage({
   params,
 }: {
@@ -134,14 +124,7 @@ export default async function CatalogPage({
   const categories = await fetchCatalogJson();
 
   if (!segments) {
-    return (
-      <>
-        <CatalogRootStructuredData siteUrl={site} />
-        <Suspense fallback={<CatalogFallback />}>
-          <CatalogPageClient />
-        </Suspense>
-      </>
-    );
+    return <CatalogRootStructuredData siteUrl={site} />;
   }
 
   const { metal, styleSlug, skuSlug } = segments;
@@ -171,18 +154,13 @@ export default async function CatalogPage({
   ];
 
   return (
-    <>
-      <CatalogStructuredData
-        siteUrl={site}
-        pageUrl={canonical}
-        pageName={pageName}
-        pageDescription={pageDescription}
-        listItems={listItems}
-        breadcrumbItems={breadcrumbItems}
-      />
-      <Suspense fallback={<CatalogFallback />}>
-        <CatalogPageClient />
-      </Suspense>
-    </>
+    <CatalogStructuredData
+      siteUrl={site}
+      pageUrl={canonical}
+      pageName={pageName}
+      pageDescription={pageDescription}
+      listItems={listItems}
+      breadcrumbItems={breadcrumbItems}
+    />
   );
 }

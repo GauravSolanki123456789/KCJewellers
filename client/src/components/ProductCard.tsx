@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useCart } from '@/context/CartContext'
@@ -22,6 +22,7 @@ export default function ProductCard({
 }: ProductCardProps) {
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
 
   const displayName =
     (product as { name?: string }).name ||
@@ -38,6 +39,11 @@ export default function ProductCard({
 
   const showImage = product.image_url && !imgError
 
+  useEffect(() => {
+    setImgLoaded(false)
+    setImgError(false)
+  }, [product.image_url, barcode])
+
   return (
     <Link
       href={`/products/${encodeURIComponent(barcode)}`}
@@ -52,16 +58,27 @@ export default function ProductCard({
           </span>
         )}
         {showImage ? (
-          <Image
-            src={product.image_url!}
-            alt={displayName}
-            fill
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            className="object-contain transition-transform duration-500 group-hover:scale-105"
-            loading={priority ? 'eager' : 'lazy'}
-            priority={priority}
-            onError={() => setImgError(true)}
-          />
+          <>
+            {!imgLoaded && (
+              <div
+                className="absolute inset-0 z-[1] bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 animate-pulse"
+                aria-hidden
+              />
+            )}
+            <Image
+              src={product.image_url!}
+              alt={displayName}
+              fill
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className={`object-contain transition-all duration-300 group-hover:scale-105 ${
+                imgLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
+              loading={priority ? 'eager' : 'lazy'}
+              priority={priority}
+              onLoad={() => setImgLoaded(true)}
+              onError={() => setImgError(true)}
+            />
+          </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">
             <span className="text-5xl font-bold text-slate-600 select-none">

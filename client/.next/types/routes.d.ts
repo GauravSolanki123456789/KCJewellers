@@ -3,7 +3,7 @@
 
 type AppRoutes = "/" | "/admin" | "/admin/bookings" | "/admin/developer" | "/admin/insights" | "/admin/liabilities" | "/admin/orders" | "/admin/products" | "/admin/promos" | "/admin/rates" | "/admin/sip/movements" | "/admin/sip/payouts" | "/admin/sip/plans" | "/admin/transactions" | "/bullion/gold" | "/bullion/silver" | "/catalog/[[...slug]]" | "/category/[key]" | "/checkout" | "/checkout/success" | "/orders/[id]" | "/policies/privacy" | "/policies/refunds" | "/policies/shipping" | "/policies/terms" | "/products/[id]" | "/profile" | "/profile/sips" | "/rates" | "/sip"
 type PageRoutes = never
-type LayoutRoutes = "/" | "/policies" | "/rates"
+type LayoutRoutes = "/" | "/catalog" | "/policies" | "/rates"
 type RedirectRoutes = never
 type RewriteRoutes = never
 type Routes = AppRoutes | PageRoutes | LayoutRoutes | RedirectRoutes | RewriteRoutes
@@ -26,6 +26,7 @@ interface ParamMap {
   "/admin/transactions": {}
   "/bullion/gold": {}
   "/bullion/silver": {}
+  "/catalog": {}
   "/catalog/[[...slug]]": { "slug"?: string[]; }
   "/category/[key]": { "key": string; }
   "/checkout": {}
@@ -48,6 +49,7 @@ export type ParamsOf<Route extends Routes> = ParamMap[Route]
 
 interface LayoutSlotMap {
   "/": never
+  "/catalog": never
   "/policies": never
   "/rates": never
 }

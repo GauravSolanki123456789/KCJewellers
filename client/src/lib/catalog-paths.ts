@@ -30,3 +30,19 @@ export function parseCatalogSlugSegments(
   if (!METALS.has(metal.toLowerCase())) return null;
   return { metal: metal.toLowerCase(), styleSlug, skuSlug };
 }
+
+/** Parse /catalog/{metal}/{style}/{sku} from the current pathname (client navigation). */
+export function pathSegmentsFromPathname(
+  pathname: string
+): ParsedCatalogPath | null {
+  if (!pathname.startsWith(CATALOG_PATH + "/") && pathname !== CATALOG_PATH) {
+    return null;
+  }
+  const rest =
+    pathname === CATALOG_PATH
+      ? ""
+      : pathname.slice(CATALOG_PATH.length).replace(/^\//, "").replace(/\/$/, "");
+  if (!rest) return null;
+  const parts = rest.split("/").filter(Boolean);
+  return parseCatalogSlugSegments(parts);
+}
