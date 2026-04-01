@@ -1,5 +1,7 @@
 import type { MetadataRoute } from "next";
 import { getApiUrlForServer, getSiteUrl } from "@/lib/site";
+import { buildCatalogSegmentPath } from "@/lib/catalog-paths";
+import { fetchCatalogJson } from "@/lib/server-data";
 import {
   CATALOG_PATH,
   POLICY_PRIVACY_PATH,
@@ -9,6 +11,48 @@ import {
   RATES_PATH,
   SIP_PATH,
 } from "@/lib/routes";
+
+function matchesMetalForSitemap(
+  p: { metal_type?: string },
+  m: string
+): boolean {
+  const mt = (p.metal_type || "").toLowerCase();
+  if (m === "gold") return mt.startsWith("gold") || mt.includes("gold");
+  if (m === "silver") return mt.startsWith("silver") || mt.includes("silver");
+  if (m === "diamond") return mt.startsWith("diamond") || mt.includes("diamond");
+  return false;
+}
+
+async function catalogPillarEntries(
+  base: string
+): Promise<MetadataRoute.Sitemap> {
+  const categories = await fetchCatalogJson();
+  const now = new Date();
+  const metals = ["gold", "silver", "diamond"] as const;
+  const out: MetadataRoute.Sitemap = [];
+  const seen = new Set<string>();
+  for (const cat of categories) {
+    for (const sub of cat.subcategories) {
+      for (const metal of metals) {
+        const prods = sub.products || [];
+        const has = prods.some((p) =>
+          matchesMetalForSitemap(p as { metal_type?: string }, metal)
+        );
+        if (!has) continue;
+        const path = buildCatalogSegmentPath(metal, cat.slug, sub.slug);
+        if (seen.has(path)) continue;
+        seen.add(path);
+        out.push({
+          url: `${base}${path}`,
+          lastModified: now,
+          changeFrequency: "daily",
+          priority: 0.9,
+        });
+      }
+    }
+  }
+  return out;
+}
 
 type SitemapProductRow = { path: string; lastmod: string | null };
 
@@ -84,7 +128,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
-  const rows = await fetchSitemapProducts();
+  const [rows, catalogPillars] = await Promise.all([
+    fetchSitemapProducts(),
+    catalogPillarEntries(base),
+  ]);
   const productEntries: MetadataRoute.Sitemap = rows.map((row) => ({
     url: `${base}/products/${encodeURIComponent(row.path)}`,
     lastModified: row.lastmod ? new Date(row.lastmod) : now,
@@ -92,5 +139,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }));
 
-  return [...staticRoutes, ...productEntries];
+  return [...staticRoutes, ...catalogPillars, ...productEntries];
 }

@@ -2,12 +2,24 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 
-type ProductCardProps = { product: Item; rates?: unknown[]; onBeforeNavigate?: (barcode: string) => void }
+type ProductCardProps = {
+  product: Item
+  rates?: unknown[]
+  onBeforeNavigate?: (barcode: string) => void
+  /** First grid items: faster LCP */
+  priority?: boolean
+}
 
-export default function ProductCard({ product, rates = [], onBeforeNavigate }: ProductCardProps) {
+export default function ProductCard({
+  product,
+  rates = [],
+  onBeforeNavigate,
+  priority = false,
+}: ProductCardProps) {
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
 
@@ -33,7 +45,6 @@ export default function ProductCard({ product, rates = [], onBeforeNavigate }: P
       data-product-id={barcode}
       className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
     >
-      {/* Image — 70 % of card */}
       <div className="relative aspect-[4/5] bg-[#0B1120] overflow-hidden">
         {hasDiscount && (
           <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs font-bold">
@@ -41,15 +52,18 @@ export default function ProductCard({ product, rates = [], onBeforeNavigate }: P
           </span>
         )}
         {showImage ? (
-          <img
-            src={product.image_url}
+          <Image
+            src={product.image_url!}
             alt={displayName}
-            loading="lazy"
+            fill
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+            className="object-contain transition-transform duration-500 group-hover:scale-105"
+            loading={priority ? 'eager' : 'lazy'}
+            priority={priority}
             onError={() => setImgError(true)}
-            className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-[#0B1120]">
+          <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">
             <span className="text-5xl font-bold text-slate-600 select-none">
               {displayName.charAt(0)}
             </span>
@@ -57,7 +71,6 @@ export default function ProductCard({ product, rates = [], onBeforeNavigate }: P
         )}
       </div>
 
-      {/* Details — 30 % of card */}
       <div className="flex flex-col gap-0.5 p-3 flex-1">
         {styleCode && (
           <span className="text-[11px] text-slate-500 uppercase tracking-wider">

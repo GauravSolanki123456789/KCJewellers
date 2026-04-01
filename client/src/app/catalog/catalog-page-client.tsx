@@ -16,6 +16,11 @@ import {
   CATALOG_STATE_KEY,
   CATALOG_FROM_PRODUCT_KEY,
 } from '@/lib/routes'
+import {
+  buildCatalogSegmentPath,
+  parseCatalogSlugSegments,
+  type ParsedCatalogPath,
+} from '@/lib/catalog-paths'
 import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
 
 type Product = Item
@@ -74,6 +79,19 @@ function firstAvailableMetal(categories: Category[]): MetalKey {
     if (allProducts.some((p) => productMatchesMetal(p, tab.key))) return tab.key
   }
   return 'gold'
+}
+
+function pathSegmentsFromWindow(): ParsedCatalogPath | null {
+  if (typeof window === 'undefined') return null
+  const pathname = window.location.pathname
+  if (!pathname.startsWith(CATALOG_PATH + '/') && pathname !== CATALOG_PATH) return null
+  const rest =
+    pathname === CATALOG_PATH
+      ? ''
+      : pathname.slice(CATALOG_PATH.length).replace(/^\//, '')
+  if (!rest) return null
+  const parts = rest.split('/').filter(Boolean)
+  return parseCatalogSlugSegments(parts)
 }
 
 export default function CatalogPageClient() {
@@ -218,11 +236,48 @@ export default function CatalogPageClient() {
             }
           }
 
+          const applyPathSegments = (parsed: ParsedCatalogPath) => {
+            const metalParam = parsed.metal
+            if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
+              setSelectedMetal(metalParam)
+            }
+            const styleSlug = parsed.styleSlug.toLowerCase()
+            const skuSlug = parsed.skuSlug.toLowerCase()
+            const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
+            if (cat) {
+              setActiveStyleId(cat.id)
+              setExpandedStyles((prev) => new Set([...prev, cat.id]))
+              const sub = cat.subcategories.find(
+                (s) => (s.slug || '').toLowerCase() === skuSlug,
+              )
+              if (sub) setActiveSkuId(sub.id)
+              else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
+            } else {
+              for (const c of cats) {
+                const sub = c.subcategories.find(
+                  (s) => (s.slug || '').toLowerCase() === skuSlug,
+                )
+                if (sub) {
+                  setActiveStyleId(c.id)
+                  setExpandedStyles((prev) => new Set([...prev, c.id]))
+                  setActiveSkuId(sub.id)
+                  break
+                }
+              }
+            }
+          }
+
+          const pathFromUrl = pathSegmentsFromWindow()
+
           if (stored && fromProduct) {
             const parsed = JSON.parse(stored) as CatalogSessionState
             applyParsedSession(parsed)
             sessionStorage.removeItem(CATALOG_STATE_KEY)
             sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+          } else if (pathFromUrl) {
+            if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
+            sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+            applyPathSegments(pathFromUrl)
           } else if (hasUrlParams) {
             if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
             sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
@@ -271,7 +326,7 @@ export default function CatalogPageClient() {
   }, [loadCatalog])
 
   useEffect(() => {
-    if (pathname !== CATALOG_PATH || typeof window === 'undefined') return
+    if (!pathname.startsWith(CATALOG_PATH) || typeof window === 'undefined') return
     const scrollTarget = sessionStorage.getItem(CATALOG_SCROLL_TO_KEY)
     if (scrollTarget) {
       setScrollToBarcode(scrollTarget)
@@ -426,21 +481,16 @@ export default function CatalogPageClient() {
     .filter(Boolean)
     .join(' \u203A ')
 
-  /** Sync query string after initial load (initial URL is applied inside loadCatalog). */
+  /** Canonical path /catalog/{metal}/{category_slug}/{subcategory_slug} */
   useEffect(() => {
-    if (!catalogHydrated || pathname !== CATALOG_PATH) return
-    const params = new URLSearchParams()
-    if (filteredCategories.length > 0) {
-      const style = filteredCategories.find((c) => c.id === activeStyleId)
-      const sub = style?.subcategories.find((s) => s.id === activeSkuId)
-      if (style?.slug) params.set('style', style.slug)
-      if (sub?.slug) params.set('sku', sub.slug)
-    }
-    params.set('metal', selectedMetal)
-    const qs = params.toString()
-    const nextSearch = `?${qs}`
-    if (typeof window !== 'undefined' && window.location.search !== nextSearch) {
-      router.replace(`${pathname}${nextSearch}`, { scroll: false })
+    if (!catalogHydrated || !pathname.startsWith(CATALOG_PATH)) return
+    if (filteredCategories.length === 0) return
+    const style = filteredCategories.find((c) => c.id === activeStyleId)
+    const sub = style?.subcategories.find((s) => s.id === activeSkuId)
+    if (!style?.slug || !sub?.slug) return
+    const nextPath = buildCatalogSegmentPath(selectedMetal, style.slug, sub.slug)
+    if (pathname !== nextPath) {
+      router.replace(nextPath, { scroll: false })
     }
   }, [
     catalogHydrated,
@@ -765,7 +815,7 @@ export default function CatalogPageClient() {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                {products.map((p) => (
+                {products.map((p, i) => (
                   <ProductCard
                     key={p.barcode || p.id || p.sku}
                     product={
@@ -775,6 +825,7 @@ export default function CatalogPageClient() {
                       } as Product
                     }
                     rates={rates}
+                    priority={i < 8}
                     onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
                   />
                 ))}

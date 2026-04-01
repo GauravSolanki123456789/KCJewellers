@@ -21,7 +21,12 @@ export default function WhatsAppContactFab({ className = "" }: Props) {
   if (!href) return null;
   if (pathname?.startsWith("/admin")) return null;
   /* Catalogue has its own share control; avoid duplicate entry points. */
-  if (pathname === "/catalog" || pathname?.startsWith("/products/")) return null;
+  if (
+    pathname === "/catalog" ||
+    pathname?.startsWith("/catalog/") ||
+    pathname?.startsWith("/products/")
+  )
+    return null;
   return (
     <a
       href={href}

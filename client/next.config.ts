@@ -31,6 +31,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, ".."),
   images: {
     remotePatterns: uploadsRemotePatterns(),
+    formats: ["image/avif", "image/webp"],
   },
 };
 

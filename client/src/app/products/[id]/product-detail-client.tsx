@@ -10,6 +10,7 @@ import {
   CATALOG_STATE_KEY,
   CATALOG_FROM_PRODUCT_KEY,
 } from "@/lib/routes";
+import { buildCatalogSegmentPath } from "@/lib/catalog-paths";
 import { inferCatalogMetalParam } from "@/lib/catalog-navigation";
 import BreakdownModal from "@/components/BreakdownModal";
 import HoverZoomImage from "@/components/HoverZoomImage";
@@ -39,9 +40,15 @@ function productDisplayName(p: Item | null): string {
   return named || p.item_name || p.short_name || "Product";
 }
 
-export default function ProductDetailClient({ id }: { id: string }) {
+export default function ProductDetailClient({
+  id,
+  initialProduct = null,
+}: {
+  id: string;
+  initialProduct?: Item | null;
+}) {
   const router = useRouter();
-  const [product, setProduct] = useState<Item | null>(null);
+  const [product, setProduct] = useState<Item | null>(initialProduct ?? null);
   const [open, setOpen] = useState(false);
   const [b, setB] = useState<ReturnType<typeof calculateBreakdown> | null>(null);
   const [neighbors, setNeighbors] = useState<ProductNeighbors>({
@@ -54,22 +61,31 @@ export default function ProductDetailClient({ id }: { id: string }) {
   useEffect(() => {
     const load = async () => {
       const safeId = String(id || "").slice(0, 64);
-      const res = await axios.get("/api/products", {
-        params: { barcode: safeId, limit: 1 },
-      });
-      const item = Array.isArray(res.data?.items)
-        ? res.data.items[0]
-        : res.data?.[0] || null;
+      const initialKey =
+        initialProduct?.barcode ||
+        initialProduct?.sku ||
+        String(initialProduct?.id ?? "");
+      const useInitial =
+        initialProduct &&
+        initialKey &&
+        String(initialKey).toLowerCase() === safeId.toLowerCase();
+
+      let item: Item | null = useInitial ? initialProduct : null;
+      if (!item) {
+        const res = await axios.get("/api/products", {
+          params: { barcode: safeId, limit: 1 },
+        });
+        item = Array.isArray(res.data?.items)
+          ? res.data.items[0]
+          : res.data?.[0] || null;
+      }
       setProduct(item);
       productRef.current = item;
       const dr = await axios.get("/api/rates/display");
       if (item) {
         setB(calculateBreakdown(item, dr.data?.rates || []));
         const dn = productDisplayName(item);
-        trackProductView(
-          item.barcode || String(item.id || ""),
-          dn
-        );
+        trackProductView(item.barcode || String(item.id || ""), dn);
         axios
           .post("/api/analytics/track", {
             action_type: "view_product",
@@ -89,7 +105,7 @@ export default function ProductDetailClient({ id }: { id: string }) {
     return () => {
       s.off("live-rate", on);
     };
-  }, [id]);
+  }, [id, initialProduct]);
 
   useEffect(() => {
     const safeId = String(id || "").slice(0, 64);
@@ -156,6 +172,12 @@ export default function ProductDetailClient({ id }: { id: string }) {
       /* fall through */
     }
     const metal = inferCatalogMetalParam(product);
+    const cat = (product as { category_slug?: string }).category_slug;
+    const sub = (product as { subcategory_slug?: string }).subcategory_slug;
+    if (cat && sub) {
+      router.push(buildCatalogSegmentPath(metal, cat, sub));
+      return;
+    }
     router.push(`${CATALOG_PATH}?metal=${metal}`);
   }, [router, product, id]);
 

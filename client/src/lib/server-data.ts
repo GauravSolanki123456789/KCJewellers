@@ -1,16 +1,28 @@
+import { cache } from "react";
 import { getApiUrlForServer } from "@/lib/site";
 
+/** Mirrors public GET /api/products row (web_products + joins). */
 export type ApiProductRow = {
   id?: number | string;
   sku?: string;
   barcode?: string;
   name?: string;
+  item_name?: string;
+  short_name?: string;
   net_weight?: number;
   net_wt?: number;
   weight?: number;
+  purity?: number;
   image_url?: string;
   metal_type?: string;
   style_code?: string;
+  category_slug?: string;
+  subcategory_slug?: string;
+  fixed_price?: number;
+  mc_rate?: number;
+  stone_charges?: number;
+  gst_rate?: number;
+  discount_percentage?: number;
 };
 
 export type ApiCatalogCategory = {
@@ -31,7 +43,7 @@ const FETCH_OPTS: RequestInit = {
   headers: { Accept: "application/json" },
 };
 
-export async function fetchProductByBarcode(
+export const fetchProductByBarcode = cache(async function fetchProductByBarcode(
   barcode: string
 ): Promise<ApiProductRow | null> {
   const id = String(barcode || "")
@@ -55,9 +67,11 @@ export async function fetchProductByBarcode(
   } catch {
     return null;
   }
-}
+});
 
-export async function fetchCatalogJson(): Promise<ApiCatalogCategory[]> {
+export const fetchCatalogJson = cache(async function fetchCatalogJson(): Promise<
+  ApiCatalogCategory[]
+> {
   const api = getApiUrlForServer();
   try {
     const res = await fetch(`${api}/api/catalog`, FETCH_OPTS);
@@ -67,7 +81,20 @@ export async function fetchCatalogJson(): Promise<ApiCatalogCategory[]> {
   } catch {
     return [];
   }
-}
+});
+
+/** Live display rates — same payload as client GET /api/rates/display (for SSR price in SEO). */
+export const fetchDisplayRates = cache(async function fetchDisplayRates(): Promise<unknown> {
+  const api = getApiUrlForServer();
+  try {
+    const res = await fetch(`${api}/api/rates/display`, FETCH_OPTS);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { rates?: unknown };
+    return data.rates ?? [];
+  } catch {
+    return [];
+  }
+});
 
 export function resolveCatalogView(
   categories: ApiCatalogCategory[],
@@ -77,6 +104,8 @@ export function resolveCatalogView(
   sub?: ApiCatalogCategory["subcategories"][number];
   itemCount: number;
   metalLabel?: string;
+  /** Products in this view after metal filter (for JSON-LD ItemList). */
+  products: unknown[];
 } {
   const styleSlug = (query.style || "").toLowerCase().trim();
   const skuSlug = (query.sku || "").toLowerCase().trim();
@@ -143,5 +172,5 @@ export function resolveCatalogView(
           ? "Diamond"
           : undefined;
 
-  return { style, sub, itemCount, metalLabel };
+  return { style, sub, itemCount, metalLabel, products };
 }

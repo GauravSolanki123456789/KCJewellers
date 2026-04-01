@@ -1,4 +1,5 @@
 import { getSiteUrl } from "@/lib/site";
+import { buildCatalogSegmentPath } from "@/lib/catalog-paths";
 
 const BRAND = "KC Jewellers";
 
@@ -12,8 +13,19 @@ export type CatalogShareQuery = {
   metal?: string;
 };
 
+/** Canonical SEO URL: /catalog/{metal}/{category_slug}/{subcategory_slug} */
 export function buildCatalogShareUrl(query: CatalogShareQuery): string {
   const site = getSiteUrl();
+  const metal = (query.metal || "gold").toLowerCase().trim();
+  const style = (query.style || "").trim();
+  const sku = (query.sku || "").trim();
+  if (
+    style &&
+    sku &&
+    (metal === "gold" || metal === "silver" || metal === "diamond")
+  ) {
+    return `${site}${buildCatalogSegmentPath(metal, style, sku)}`;
+  }
   const path = "/catalog";
   const params = new URLSearchParams();
   if (query.style) params.set("style", query.style);
