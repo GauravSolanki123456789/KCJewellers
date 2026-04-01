@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useCart } from '@/context/CartContext'
@@ -24,6 +24,10 @@ export default function ProductCard({
   const [imgError, setImgError] = useState(false)
   const [imgLoaded, setImgLoaded] = useState(false)
 
+  useEffect(() => {
+    setImgLoaded(false)
+  }, [product.image_url])
+
   const displayName =
     (product as { name?: string }).name ||
     product.item_name ||
@@ -38,11 +42,6 @@ export default function ProductCard({
   const hasDiscount = (discountPercent ?? 0) > 0
 
   const showImage = product.image_url && !imgError
-
-  useEffect(() => {
-    setImgLoaded(false)
-    setImgError(false)
-  }, [product.image_url, barcode])
 
   return (
     <Link
@@ -61,7 +60,7 @@ export default function ProductCard({
           <>
             {!imgLoaded && (
               <div
-                className="absolute inset-0 z-[1] bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 animate-pulse"
+                className="absolute inset-0 z-[1] bg-gradient-to-r from-slate-900 via-slate-800/80 to-slate-900 animate-pulse"
                 aria-hidden
               />
             )}
@@ -70,8 +69,8 @@ export default function ProductCard({
               alt={displayName}
               fill
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-              className={`object-contain transition-all duration-300 group-hover:scale-105 ${
-                imgLoaded ? 'opacity-100' : 'opacity-0'
+              className={`object-contain transition-[opacity,transform] duration-300 ease-out group-hover:scale-105 ${
+                imgLoaded ? 'opacity-100 z-[2]' : 'opacity-0 z-[2]'
               }`}
               loading={priority ? 'eager' : 'lazy'}
               priority={priority}

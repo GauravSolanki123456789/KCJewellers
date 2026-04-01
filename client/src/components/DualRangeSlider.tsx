@@ -33,12 +33,20 @@ export default function DualRangeSlider({
   const rangeRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setLowVal(low)
-    setHighVal(high)
-  }, [low, high])
+    const clamp = (v: number) => Math.min(max, Math.max(min, v))
+    let lo = clamp(low)
+    let hi = clamp(high)
+    if (lo > hi) {
+      lo = min
+      hi = max
+    }
+    setLowVal(lo)
+    setHighVal(hi)
+  }, [low, high, min, max])
 
-  const percentLow = ((lowVal - min) / (max - min)) * 100
-  const percentHigh = ((highVal - min) / (max - min)) * 100
+  const span = Math.max(max - min, 1e-9)
+  const percentLow = ((lowVal - min) / span) * 100
+  const percentHigh = ((highVal - min) / span) * 100
 
   const handleLowChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,14 +69,14 @@ export default function DualRangeSlider({
   return (
     <div className="space-y-2">
       {label && (
-        <div className="flex justify-between text-xs">
-          <span className="text-slate-500">{label}</span>
-          <span className="text-slate-300 font-medium tabular-nums">
+        <div className="flex justify-between items-start gap-2 text-xs min-h-[2.5rem]">
+          <span className="text-slate-500 shrink-0">{label}</span>
+          <span className="text-slate-300 font-medium tabular-nums text-right leading-snug break-all max-w-[min(100%,11rem)]">
             {formatValue(lowVal)} – {formatValue(highVal)}
           </span>
         </div>
       )}
-      <div className="relative h-8 flex items-center" ref={rangeRef}>
+      <div className="relative h-8 flex items-center shrink-0" ref={rangeRef}>
         {/* Track background */}
         <div className="absolute w-full h-1.5 rounded-full bg-slate-700" />
         {/* Active range fill */}
