@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import axios from "@/lib/axios";
+import type { Item } from "@/lib/pricing";
 
 type Category = {
   id: number;
@@ -20,7 +21,7 @@ type Category = {
     id: number;
     name: string;
     slug: string;
-    products: unknown[];
+    products: Item[];
   }[];
 };
 

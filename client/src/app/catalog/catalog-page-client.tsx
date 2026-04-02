@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import axios from '@/lib/axios'
 import ProductCard from '@/components/ProductCard'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
 import WhatsAppContactLink from '@/components/WhatsAppContactLink'
@@ -22,11 +21,7 @@ import {
   type ParsedCatalogPath,
 } from '@/lib/catalog-paths'
 import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
-import {
-  clearCatalogCache,
-  readCatalogCache,
-  writeCatalogCache,
-} from './catalog-cache'
+import { useCatalogData } from './catalog-data-context'
 
 type Product = Item
 
@@ -86,9 +81,7 @@ function firstAvailableMetal(categories: Category[]): MetalKey {
   return 'gold'
 }
 
-function pathSegmentsFromWindow(): ParsedCatalogPath | null {
-  if (typeof window === 'undefined') return null
-  const pathname = window.location.pathname
+function pathSegmentsFromPathname(pathname: string): ParsedCatalogPath | null {
   if (!pathname.startsWith(CATALOG_PATH + '/') && pathname !== CATALOG_PATH) return null
   const rest =
     pathname === CATALOG_PATH
@@ -99,12 +92,28 @@ function pathSegmentsFromWindow(): ParsedCatalogPath | null {
   return parseCatalogSlugSegments(parts)
 }
 
+/** True when URL path already matches current style/sku/metal (skip re-apply → fewer renders / no loops). */
+function selectionMatchesPath(
+  cats: Category[],
+  parsed: ParsedCatalogPath,
+  selectedMetal: MetalKey,
+  activeStyleId: number | null,
+  activeSkuId: number | null,
+): boolean {
+  if (parsed.metal !== selectedMetal) return false
+  const cat = cats.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
+  if (!cat || cat.id !== activeStyleId) return false
+  const sub = cat.subcategories.find(
+    (s) => (s.slug || '').toLowerCase() === parsed.skuSlug.toLowerCase(),
+  )
+  return !!sub && sub.id === activeSkuId
+}
+
 export default function CatalogPageClient() {
   const pathname = usePathname()
   const router = useRouter()
-  const [categories, setCategories] = useState<Category[]>([])
-  const [rates, setRates] = useState<unknown[]>([])
-  const [loading, setLoading] = useState(true)
+  const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing } =
+    useCatalogData()
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
@@ -119,8 +128,6 @@ export default function CatalogPageClient() {
   const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
   /** False until initial load finishes — blocks URL bar sync from forcing ?metal=gold before session/URL apply. */
   const [catalogHydrated, setCatalogHydrated] = useState(false)
-
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
   const saveCatalogState = useCallback((scrollToBarcode?: string) => {
     if (typeof window === 'undefined') return
@@ -146,207 +153,203 @@ export default function CatalogPageClient() {
     }
   }, [selectedMetal, activeStyleId, activeSkuId, expandedStyles, weightLow, weightHigh, priceLow, priceHigh])
 
-  const loadCatalog = useCallback(async (opts?: { force?: boolean }) => {
-    if (opts?.force) {
-      clearCatalogCache()
+  const selectedMetalRef = useRef(selectedMetal)
+  const activeStyleIdRef = useRef(activeStyleId)
+  const activeSkuIdRef = useRef(activeSkuId)
+  useEffect(() => {
+    selectedMetalRef.current = selectedMetal
+  }, [selectedMetal])
+  useEffect(() => {
+    activeStyleIdRef.current = activeStyleId
+  }, [activeStyleId])
+  useEffect(() => {
+    activeSkuIdRef.current = activeSkuId
+  }, [activeSkuId])
+
+  const applyPathSegments = useCallback((parsed: ParsedCatalogPath, cats: Category[]) => {
+    const metalParam = parsed.metal
+    if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
+      setSelectedMetal(metalParam)
     }
-    try {
-      const [catalogRes, ratesRes] = await Promise.all([
-        axios.get(`${url}/api/catalog`),
-        axios.get(`${url}/api/rates/display`),
-      ])
-      const cats: Category[] = catalogRes.data?.categories || []
-      setCategories(cats)
-      setRates(ratesRes.data?.rates ?? [])
-      writeCatalogCache({
-        categories: cats,
-        rates: ratesRes.data?.rates ?? [],
-      })
-
-      if (cats.length > 0 && typeof window !== 'undefined' && !hasRestoredFromStorage.current) {
-        let hasUrlParams = false
-        let fromProduct = false
-        try {
-          const u = new URLSearchParams(window.location.search)
-          hasUrlParams = u.has('style') || u.has('sku') || u.has('metal')
-          fromProduct = sessionStorage.getItem(CATALOG_FROM_PRODUCT_KEY) === '1'
-        } catch {
-          hasUrlParams = false
-        }
-        try {
-          const stored = sessionStorage.getItem(CATALOG_STATE_KEY)
-
-          const applyParsedSession = (parsed: CatalogSessionState) => {
-            const validMetal =
-              parsed.selectedMetal && METAL_TABS.some((t) => t.key === parsed.selectedMetal)
-            const styleExists =
-              parsed.activeStyleId != null && cats.some((c) => c.id === parsed.activeStyleId)
-            const style = styleExists ? cats.find((c) => c.id === parsed.activeStyleId) : null
-            const subExists =
-              style &&
-              parsed.activeSkuId != null &&
-              style.subcategories.some((s) => s.id === parsed.activeSkuId)
-            if (validMetal) setSelectedMetal(parsed.selectedMetal as MetalKey)
-            if (styleExists && subExists) {
-              setActiveStyleId(parsed.activeStyleId!)
-              setActiveSkuId(parsed.activeSkuId!)
-              setExpandedStyles(new Set(parsed.expandedStyles || [parsed.activeStyleId!]))
-            } else {
-              setActiveStyleId(cats[0].id)
-              setExpandedStyles(new Set([cats[0].id]))
-              setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
-            }
-            if (parsed.weightLow != null) setWeightLow(parsed.weightLow)
-            if (parsed.weightHigh != null) setWeightHigh(parsed.weightHigh)
-            if (parsed.priceLow != null) setPriceLow(parsed.priceLow)
-            if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
-            skipNextBoundsSync.current = true
-            if (parsed.scrollToBarcode) setScrollToBarcode(parsed.scrollToBarcode)
-          }
-
-          const applyUrlQuery = () => {
-            const u = new URLSearchParams(window.location.search)
-            const metalParam = u.get('metal')?.toLowerCase()?.trim() || ''
-            if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
-              setSelectedMetal(metalParam)
-            }
-            const styleSlug = u.get('style')?.toLowerCase()?.trim() || ''
-            const skuSlug = u.get('sku')?.toLowerCase()?.trim() || ''
-            if (styleSlug) {
-              const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
-              if (cat) {
-                setActiveStyleId(cat.id)
-                setExpandedStyles((prev) => new Set([...prev, cat.id]))
-                if (skuSlug) {
-                  const sub = cat.subcategories.find(
-                    (s) => (s.slug || '').toLowerCase() === skuSlug,
-                  )
-                  if (sub) setActiveSkuId(sub.id)
-                  else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
-                } else if (cat.subcategories[0]) {
-                  setActiveSkuId(cat.subcategories[0].id)
-                }
-              }
-            } else if (skuSlug) {
-              for (const cat of cats) {
-                const sub = cat.subcategories.find(
-                  (s) => (s.slug || '').toLowerCase() === skuSlug,
-                )
-                if (sub) {
-                  setActiveStyleId(cat.id)
-                  setExpandedStyles((prev) => new Set([...prev, cat.id]))
-                  setActiveSkuId(sub.id)
-                  break
-                }
-              }
-            }
-            if (!styleSlug && !skuSlug) {
-              setActiveStyleId(cats[0].id)
-              setExpandedStyles(new Set([cats[0].id]))
-              setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
-            }
-          }
-
-          const applyPathSegments = (parsed: ParsedCatalogPath) => {
-            const metalParam = parsed.metal
-            if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
-              setSelectedMetal(metalParam)
-            }
-            const styleSlug = parsed.styleSlug.toLowerCase()
-            const skuSlug = parsed.skuSlug.toLowerCase()
-            const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
-            if (cat) {
-              setActiveStyleId(cat.id)
-              setExpandedStyles((prev) => new Set([...prev, cat.id]))
-              const sub = cat.subcategories.find(
-                (s) => (s.slug || '').toLowerCase() === skuSlug,
-              )
-              if (sub) setActiveSkuId(sub.id)
-              else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
-            } else {
-              for (const c of cats) {
-                const sub = c.subcategories.find(
-                  (s) => (s.slug || '').toLowerCase() === skuSlug,
-                )
-                if (sub) {
-                  setActiveStyleId(c.id)
-                  setExpandedStyles((prev) => new Set([...prev, c.id]))
-                  setActiveSkuId(sub.id)
-                  break
-                }
-              }
-            }
-          }
-
-          const pathFromUrl = pathSegmentsFromWindow()
-
-          if (stored && fromProduct) {
-            const parsed = JSON.parse(stored) as CatalogSessionState
-            applyParsedSession(parsed)
-            sessionStorage.removeItem(CATALOG_STATE_KEY)
-            sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
-          } else if (pathFromUrl) {
-            if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
-            sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
-            applyPathSegments(pathFromUrl)
-          } else if (hasUrlParams) {
-            if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
-            sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
-            applyUrlQuery()
-          } else if (stored) {
-            const parsed = JSON.parse(stored) as CatalogSessionState
-            applyParsedSession(parsed)
-            sessionStorage.removeItem(CATALOG_STATE_KEY)
-          } else {
-            setActiveStyleId(cats[0].id)
-            setExpandedStyles(new Set([cats[0].id]))
-            setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
-          }
-        } catch {
-          setActiveStyleId(cats[0].id)
-          setExpandedStyles(new Set([cats[0].id]))
-          setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
-        }
-        hasRestoredFromStorage.current = true
-      } else if (cats.length > 0 && !hasRestoredFromStorage.current) {
-        setActiveStyleId(cats[0].id)
-        setExpandedStyles(new Set([cats[0].id]))
-        setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
-        hasRestoredFromStorage.current = true
-      }
-      if (cats.length > 0 && typeof window !== 'undefined') {
-        const scrollTarget = sessionStorage.getItem(CATALOG_SCROLL_TO_KEY)
-        if (scrollTarget) {
-          setScrollToBarcode(scrollTarget)
-          sessionStorage.removeItem(CATALOG_SCROLL_TO_KEY)
+    const styleSlug = parsed.styleSlug.toLowerCase()
+    const skuSlug = parsed.skuSlug.toLowerCase()
+    const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
+    if (cat) {
+      setActiveStyleId(cat.id)
+      setExpandedStyles((prev) => new Set([...prev, cat.id]))
+      const sub = cat.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
+      if (sub) setActiveSkuId(sub.id)
+      else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
+    } else {
+      for (const c of cats) {
+        const sub = c.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
+        if (sub) {
+          setActiveStyleId(c.id)
+          setExpandedStyles((prev) => new Set([...prev, c.id]))
+          setActiveSkuId(sub.id)
+          break
         }
       }
-    } catch {
-      setCategories([])
-    } finally {
-      setLoading(false)
-      setCatalogHydrated(true)
-    }
-  }, [url])
-
-  /** Hydrate from memory cache before paint to avoid a blank “Loading catalogue…” flash on navigation. */
-  useLayoutEffect(() => {
-    const cached = readCatalogCache()
-    if (cached) {
-      setCategories((cached.categories ?? []) as Category[])
-      setRates(cached.rates)
-      setLoading(false)
-      setCatalogHydrated(true)
     }
   }, [])
 
-  const { pullY, isRefreshing, handleTouchStart, handleTouchMove, handleTouchEnd } = usePullToRefresh(
-    () => loadCatalog({ force: true }),
-  )
-
+  /** First paint: session restore, path, legacy query, or defaults — runs once when categories load. */
   useEffect(() => {
-    loadCatalog()
-  }, [loadCatalog])
+    if (categories.length === 0) return
+    if (hasRestoredFromStorage.current) return
+
+    const cats = categories
+    let hasUrlParams = false
+    let fromProduct = false
+    try {
+      const u = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
+      hasUrlParams = u.has('style') || u.has('sku') || u.has('metal')
+      fromProduct = sessionStorage.getItem(CATALOG_FROM_PRODUCT_KEY) === '1'
+    } catch {
+      hasUrlParams = false
+    }
+
+    const applyParsedSession = (parsed: CatalogSessionState) => {
+      const validMetal =
+        parsed.selectedMetal && METAL_TABS.some((t) => t.key === parsed.selectedMetal)
+      const styleExists =
+        parsed.activeStyleId != null && cats.some((c) => c.id === parsed.activeStyleId)
+      const style = styleExists ? cats.find((c) => c.id === parsed.activeStyleId) : null
+      const subExists =
+        style &&
+        parsed.activeSkuId != null &&
+        style.subcategories.some((s) => s.id === parsed.activeSkuId)
+      if (validMetal) setSelectedMetal(parsed.selectedMetal as MetalKey)
+      if (styleExists && subExists) {
+        setActiveStyleId(parsed.activeStyleId!)
+        setActiveSkuId(parsed.activeSkuId!)
+        setExpandedStyles(new Set(parsed.expandedStyles || [parsed.activeStyleId!]))
+      } else {
+        setActiveStyleId(cats[0].id)
+        setExpandedStyles(new Set([cats[0].id]))
+        setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+      }
+      if (parsed.weightLow != null) setWeightLow(parsed.weightLow)
+      if (parsed.weightHigh != null) setWeightHigh(parsed.weightHigh)
+      if (parsed.priceLow != null) setPriceLow(parsed.priceLow)
+      if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
+      skipNextBoundsSync.current = true
+      if (parsed.scrollToBarcode) setScrollToBarcode(parsed.scrollToBarcode)
+    }
+
+    const applyUrlQuery = () => {
+      const u = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
+      const metalParam = u.get('metal')?.toLowerCase()?.trim() || ''
+      if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
+        setSelectedMetal(metalParam)
+      }
+      const styleSlug = u.get('style')?.toLowerCase()?.trim() || ''
+      const skuSlug = u.get('sku')?.toLowerCase()?.trim() || ''
+      if (styleSlug) {
+        const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
+        if (cat) {
+          setActiveStyleId(cat.id)
+          setExpandedStyles((prev) => new Set([...prev, cat.id]))
+          if (skuSlug) {
+            const sub = cat.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
+            if (sub) setActiveSkuId(sub.id)
+            else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
+          } else if (cat.subcategories[0]) {
+            setActiveSkuId(cat.subcategories[0].id)
+          }
+        }
+      } else if (skuSlug) {
+        for (const cat of cats) {
+          const sub = cat.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
+          if (sub) {
+            setActiveStyleId(cat.id)
+            setExpandedStyles((prev) => new Set([...prev, cat.id]))
+            setActiveSkuId(sub.id)
+            break
+          }
+        }
+      }
+      if (!styleSlug && !skuSlug) {
+        setActiveStyleId(cats[0].id)
+        setExpandedStyles(new Set([cats[0].id]))
+        setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+      }
+    }
+
+    try {
+      const stored = typeof window !== 'undefined' ? sessionStorage.getItem(CATALOG_STATE_KEY) : null
+      const pathFromUrl = pathSegmentsFromPathname(pathname)
+
+      if (stored && fromProduct) {
+        const parsed = JSON.parse(stored) as CatalogSessionState
+        applyParsedSession(parsed)
+        sessionStorage.removeItem(CATALOG_STATE_KEY)
+        sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+      } else if (pathFromUrl) {
+        if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
+        sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+        applyPathSegments(pathFromUrl, cats)
+      } else if (hasUrlParams) {
+        if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
+        sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+        applyUrlQuery()
+      } else if (stored) {
+        const parsed = JSON.parse(stored) as CatalogSessionState
+        applyParsedSession(parsed)
+        sessionStorage.removeItem(CATALOG_STATE_KEY)
+      } else {
+        setActiveStyleId(cats[0].id)
+        setExpandedStyles(new Set([cats[0].id]))
+        setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+      }
+    } catch {
+      setActiveStyleId(cats[0].id)
+      setExpandedStyles(new Set([cats[0].id]))
+      setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
+    }
+
+    hasRestoredFromStorage.current = true
+    setCatalogHydrated(true)
+
+    if (typeof window !== 'undefined') {
+      const scrollTarget = sessionStorage.getItem(CATALOG_SCROLL_TO_KEY)
+      if (scrollTarget) {
+        setScrollToBarcode(scrollTarget)
+        sessionStorage.removeItem(CATALOG_SCROLL_TO_KEY)
+      }
+    }
+  }, [categories, applyPathSegments, pathname])
+
+  const prevPathnameRef = useRef<string | null>(null)
+
+  /** Browser back/forward or deep link: pathname changed while shell stayed mounted (skip first paint). */
+  useEffect(() => {
+    if (categories.length === 0 || !hasRestoredFromStorage.current) return
+    if (prevPathnameRef.current === null) {
+      prevPathnameRef.current = pathname
+      return
+    }
+    if (prevPathnameRef.current === pathname) return
+    prevPathnameRef.current = pathname
+    const pathFromUrl = pathSegmentsFromPathname(pathname)
+    if (!pathFromUrl) return
+    if (
+      selectionMatchesPath(
+        categories,
+        pathFromUrl,
+        selectedMetalRef.current,
+        activeStyleIdRef.current,
+        activeSkuIdRef.current,
+      )
+    ) {
+      return
+    }
+    applyPathSegments(pathFromUrl, categories)
+  }, [pathname, categories, applyPathSegments])
+
+  const { pullY, isRefreshing: pullRefreshing, handleTouchStart, handleTouchMove, handleTouchEnd } =
+    usePullToRefresh(refresh)
+  const showRefreshing = pullRefreshing || contextRefreshing
 
   useEffect(() => {
     if (!pathname.startsWith(CATALOG_PATH) || typeof window === 'undefined') return
@@ -540,12 +543,42 @@ export default function CatalogPageClient() {
     })
   }, [activeStyle, activeSku, selectedMetal, products.length])
 
-  /** Full-screen loader only on cold start with no data yet — never hide the UI during refresh or navigation. */
-  if (loading && categories.length === 0) {
+  if (isBootstrapping) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center gap-4 px-4">
-        <div className="h-10 w-10 rounded-full border-2 border-amber-500/30 border-t-amber-500 animate-spin" aria-hidden />
-        <p className="text-slate-400 text-sm">Loading catalogue…</p>
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <div className="max-w-[1400px] mx-auto px-4 py-6 pb-28">
+          <div className="flex justify-center mb-4">
+            <div className="h-12 w-full max-w-xl rounded-xl bg-slate-900/80 border border-slate-800 animate-pulse" />
+          </div>
+          <div className="flex gap-6">
+            <aside className="hidden lg:block w-64 shrink-0 space-y-4">
+              <div className="min-h-[280px] rounded-xl bg-slate-900/50 border border-slate-800 p-4 space-y-3">
+                <div className="h-4 w-20 bg-slate-800 rounded animate-pulse" />
+                <div className="h-10 bg-slate-800/80 rounded-lg animate-pulse" />
+                <div className="h-10 bg-slate-800/80 rounded-lg animate-pulse" />
+              </div>
+              <div className="min-h-[200px] rounded-xl border border-slate-800/60 p-2 space-y-2">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-9 bg-slate-800/50 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            </aside>
+            <div className="flex-1 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl border border-slate-800 overflow-hidden bg-slate-900/40"
+                >
+                  <div className="aspect-[4/5] bg-slate-800/60 animate-pulse" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-3 bg-slate-800 rounded animate-pulse" />
+                    <div className="h-4 w-2/3 bg-slate-800 rounded animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -582,7 +615,7 @@ export default function CatalogPageClient() {
           {pullY >= PULL_THRESHOLD ? 'Release to refresh' : 'Pull to refresh'}
         </div>
       )}
-      {isRefreshing && (
+      {showRefreshing && (
         <div className="absolute top-0 left-0 right-0 w-full text-center transition-all z-50 py-3 text-sm text-amber-500 bg-slate-900/90 backdrop-blur safe-area-pt">
           Refreshing…
         </div>
@@ -679,9 +712,9 @@ export default function CatalogPageClient() {
 
         <div className="flex gap-6">
           {/* ── Desktop sidebar (25 %) ── */}
-          <aside className="hidden lg:block w-64 shrink-0">
-            {/* Filters */}
-            <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-5">
+          <aside className="hidden lg:block w-64 shrink-0 lg:min-h-[min(100vh,920px)]">
+            {/* Filters — min height reduces layout jump when collection changes */}
+            <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-5 min-h-[260px]">
               <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Filters</h3>
               <DualRangeSlider
                 min={weightBounds[0]}
@@ -719,7 +752,7 @@ export default function CatalogPageClient() {
                 </button>
               )}
             </div>
-            <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2 scrollbar-hide">
+            <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] min-h-[12rem] overflow-y-auto pr-2 scrollbar-hide">
               {filteredCategories.length === 0 ? (
                 <p className="text-slate-500 text-sm px-2 py-4">
                   No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles

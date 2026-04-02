@@ -1,8 +1,9 @@
 import CatalogPageClient from "./catalog-page-client";
+import { CatalogDataProvider } from "./catalog-data-context";
 
 /**
- * Keeps the catalogue shell mounted across /catalog and /catalog/... slug changes
- * so navigation does not remount the client (no full-screen blank flash).
+ * Single client shell + shared catalogue/rates cache across /catalog and /catalog/.../.../...
+ * so client-side navigation does not refetch or remount the grid (no blank flash).
  */
 export default function CatalogLayout({
   children,
@@ -10,9 +11,9 @@ export default function CatalogLayout({
   children: React.ReactNode;
 }) {
   return (
-    <>
+    <CatalogDataProvider>
       {children}
       <CatalogPageClient />
-    </>
+    </CatalogDataProvider>
   );
 }

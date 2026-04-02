@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { cn } from '@/lib/utils'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
-import { productImageAbsoluteUrl } from '@/lib/product-image-url'
 
 type ProductCardProps = {
   product: Item
@@ -23,6 +23,7 @@ export default function ProductCard({
 }: ProductCardProps) {
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
+  const [imageLoaded, setImageLoaded] = useState(false)
 
   const displayName =
     (product as { name?: string }).name ||
@@ -31,14 +32,18 @@ export default function ProductCard({
     'Item'
   const weight = getItemWeight(product)
   const barcode = product.barcode || product.sku || String(product.id || '')
+
+  useEffect(() => {
+    setImageLoaded(false)
+    setImgError(false)
+  }, [product.image_url, barcode])
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
   const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3)
   const { total, originalTotal, discountPercent } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
 
-  const resolvedSrc = productImageAbsoluteUrl(product.image_url)
-  const showImage = Boolean(resolvedSrc) && !imgError
+  const showImage = product.image_url && !imgError
 
   return (
     <Link
@@ -53,19 +58,43 @@ export default function ProductCard({
             {Math.round(discountPercent ?? 0)}% OFF
           </span>
         )}
-        {showImage && resolvedSrc ? (
-          <Image
-            src={resolvedSrc}
-            alt={displayName}
-            fill
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            className="object-contain transition-transform duration-500 group-hover:scale-105"
-            loading={priority ? 'eager' : 'lazy'}
-            priority={priority}
-            fetchPriority={priority ? 'high' : 'low'}
-            decoding="async"
-            onError={() => setImgError(true)}
-          />
+        {showImage ? (
+          <>
+            <div
+              aria-hidden
+              className={cn(
+                'absolute inset-0 bg-gradient-to-br from-slate-800/40 via-[#0B1120] to-slate-950',
+                imageLoaded ? 'opacity-0' : 'opacity-100',
+                'transition-opacity duration-300',
+              )}
+            />
+            <div
+              className={cn(
+                'absolute inset-0 flex items-center justify-center bg-[#0B1120]',
+                imageLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100',
+                'transition-opacity duration-300',
+              )}
+            >
+              <span className="text-5xl font-bold text-slate-600/60 select-none">
+                {displayName.charAt(0)}
+              </span>
+            </div>
+            <Image
+              src={product.image_url!}
+              alt={displayName}
+              fill
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className={cn(
+                'object-contain transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
+                imageLoaded ? 'opacity-100' : 'opacity-0',
+              )}
+              loading={priority ? 'eager' : 'lazy'}
+              priority={priority}
+              fetchPriority={priority ? 'high' : 'low'}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImgError(true)}
+            />
+          </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">
             <span className="text-5xl font-bold text-slate-600 select-none">

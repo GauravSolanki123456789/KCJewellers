@@ -32,52 +32,34 @@ export default function DualRangeSlider({
   const [highVal, setHighVal] = useState(high)
   const rangeRef = useRef<HTMLDivElement>(null)
 
-  const safeMin = min >= max ? min : Math.min(min, max)
-  const safeMax = max <= min ? max : Math.max(min, max)
-  const denom = safeMax - safeMin || 1
-
   useEffect(() => {
-    const lo = Math.min(Math.max(low, safeMin), safeMax)
-    const hi = Math.max(Math.min(high, safeMax), safeMin)
-    let loClamped = lo
-    let hiClamped = Math.max(hi, loClamped + step)
-    if (hiClamped > safeMax) {
-      hiClamped = safeMax
-      loClamped = Math.max(safeMin, hiClamped - step)
-    }
-    setLowVal(loClamped)
-    setHighVal(hiClamped)
-  }, [low, high, safeMin, safeMax, step])
+    setLowVal(low)
+    setHighVal(high)
+  }, [low, high])
 
-  const percentLow = Math.max(0, Math.min(100, ((lowVal - safeMin) / denom) * 100))
-  const percentHigh = Math.max(0, Math.min(100, ((highVal - safeMin) / denom) * 100))
+  const percentLow = ((lowVal - min) / (max - min)) * 100
+  const percentHigh = ((highVal - min) / (max - min)) * 100
 
   const handleLowChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      let v = Number(e.target.value)
-      v = Math.min(v, highVal - step)
-      v = Math.max(v, safeMin)
-      v = Math.min(v, safeMax)
+      const v = Math.min(Number(e.target.value), highVal - step)
       setLowVal(v)
       onLowChange(v)
     },
-    [highVal, step, onLowChange, safeMin, safeMax],
+    [highVal, step, onLowChange],
   )
 
   const handleHighChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      let v = Number(e.target.value)
-      v = Math.max(v, lowVal + step)
-      v = Math.min(v, safeMax)
-      v = Math.max(v, safeMin)
+      const v = Math.max(Number(e.target.value), lowVal + step)
       setHighVal(v)
       onHighChange(v)
     },
-    [lowVal, step, onHighChange, safeMin, safeMax],
+    [lowVal, step, onHighChange],
   )
 
   return (
-    <div className="space-y-2 min-h-[4.5rem]">
+    <div className="space-y-2">
       {label && (
         <div className="flex justify-between text-xs">
           <span className="text-slate-500">{label}</span>
@@ -91,17 +73,17 @@ export default function DualRangeSlider({
         <div className="absolute w-full h-1.5 rounded-full bg-slate-700" />
         {/* Active range fill */}
         <div
-          className="absolute h-1.5 rounded-full bg-amber-500 transition-[left,width] duration-150 ease-out"
+          className="absolute h-1.5 rounded-full bg-amber-500 transition-all duration-100"
           style={{
             left: `${percentLow}%`,
-            width: `${Math.max(0, percentHigh - percentLow)}%`,
+            width: `${percentHigh - percentLow}%`,
           }}
         />
         {/* Low thumb input */}
         <input
           type="range"
-          min={safeMin}
-          max={safeMax}
+          min={min}
+          max={max}
           step={step}
           value={lowVal}
           onChange={handleLowChange}
@@ -110,8 +92,8 @@ export default function DualRangeSlider({
         {/* High thumb input - overlapping, higher z so its thumb is on top when overlapping */}
         <input
           type="range"
-          min={safeMin}
-          max={safeMax}
+          min={min}
+          max={max}
           step={step}
           value={highVal}
           onChange={handleHighChange}
