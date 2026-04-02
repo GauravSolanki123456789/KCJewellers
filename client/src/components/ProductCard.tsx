@@ -5,6 +5,12 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
 import { catalogProductImageClass } from '@/lib/product-image-classes'
+import {
+  detectImageSurfaceTone,
+  shouldAnalyzeImageSurface,
+  type ImageSurfaceTone,
+} from '@/lib/detect-image-surface'
+import { blendClassForSurface } from '@/lib/product-image-blend'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 
@@ -28,6 +34,7 @@ export default function ProductCard({
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
+  const [surfaceTone, setSurfaceTone] = useState<ImageSurfaceTone | null>(null)
 
   const displayName =
     (product as { name?: string }).name ||
@@ -40,6 +47,7 @@ export default function ProductCard({
   useEffect(() => {
     setImageLoaded(false)
     setImgError(false)
+    setSurfaceTone(null)
   }, [product.image_url, barcode])
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
@@ -56,7 +64,7 @@ export default function ProductCard({
       data-product-id={barcode}
       className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
     >
-      <div className="relative aspect-[4/5] bg-[#0B1120] overflow-hidden">
+      <div className="relative isolate aspect-[4/5] bg-[#0B1120] overflow-hidden">
         {hasDiscount && (
           <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs font-bold">
             {Math.round(discountPercent ?? 0)}% OFF
@@ -90,13 +98,20 @@ export default function ProductCard({
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               className={cn(
                 catalogProductImageClass(subcategorySlug),
+                blendClassForSurface(surfaceTone),
                 'transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
                 imageLoaded ? 'opacity-100' : 'opacity-0',
               )}
               loading={priority ? 'eager' : 'lazy'}
               priority={priority}
               fetchPriority={priority ? 'high' : 'low'}
-              onLoad={() => setImageLoaded(true)}
+              onLoad={(e) => {
+                setImageLoaded(true)
+                const el = e.currentTarget
+                if (shouldAnalyzeImageSurface(el)) {
+                  setSurfaceTone(detectImageSurfaceTone(el))
+                }
+              }}
               onError={() => setImgError(true)}
             />
           </>

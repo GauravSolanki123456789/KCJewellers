@@ -8,6 +8,13 @@ import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getItemWeight, isDiamondItem } from '@/lib/pricing'
+import { cn } from '@/lib/utils'
+import {
+  detectImageSurfaceTone,
+  shouldAnalyzeImageSurface,
+  type ImageSurfaceTone,
+} from '@/lib/detect-image-surface'
+import { blendClassForSurface } from '@/lib/product-image-blend'
 
 type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number; rate_per_gram?: number; net_weight?: number }
 
@@ -18,6 +25,10 @@ type CartDrawerProps = {
 
 function CartItemImage({ src, alt }: { src: string; alt: string }) {
   const [hasImageError, setHasImageError] = useState(false)
+  const [surfaceTone, setSurfaceTone] = useState<ImageSurfaceTone | null>(null)
+  useEffect(() => {
+    setSurfaceTone(null)
+  }, [src])
   if (hasImageError) {
     return (
       <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
@@ -26,11 +37,20 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
     )
   }
   return (
-    <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden bg-slate-800">
+    <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden bg-slate-800 isolate">
       <img
         src={src}
         alt={alt}
-        className="w-full h-full object-contain"
+        className={cn(
+          'w-full h-full object-contain',
+          blendClassForSurface(surfaceTone),
+        )}
+        onLoad={(e) => {
+          const el = e.currentTarget
+          if (shouldAnalyzeImageSurface(el)) {
+            setSurfaceTone(detectImageSurfaceTone(el))
+          }
+        }}
         onError={() => setHasImageError(true)}
       />
     </div>

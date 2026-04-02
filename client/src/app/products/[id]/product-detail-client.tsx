@@ -22,10 +22,22 @@ import {
   type Item,
 } from "@/lib/pricing";
 import { detailProductImageClass } from "@/lib/product-image-classes";
+import {
+  detectImageSurfaceTone,
+  shouldAnalyzeImageSurface,
+  type ImageSurfaceTone,
+} from "@/lib/detect-image-surface";
+import { blendClassForSurface } from "@/lib/product-image-blend";
 import { productShareMessage } from "@/lib/whatsapp";
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics";
 import { getSocket } from "@/lib/socket";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type SyntheticEvent,
+} from "react";
 import { useCart } from "@/context/CartContext";
 import { cn } from "@/lib/utils";
 
@@ -59,6 +71,11 @@ export default function ProductDetailClient({
   });
   const cart = useCart();
   const productRef = useRef<Item | null>(null);
+  const [surfaceTone, setSurfaceTone] = useState<ImageSurfaceTone | null>(null);
+
+  useEffect(() => {
+    setSurfaceTone(null);
+  }, [id, product?.image_url]);
 
   useEffect(() => {
     const load = async () => {
@@ -183,6 +200,16 @@ export default function ProductDetailClient({
     router.push(`${CATALOG_PATH}?metal=${metal}`);
   }, [router, product, id]);
 
+  const handleProductImageLoad = useCallback(
+    (e: SyntheticEvent<HTMLImageElement>) => {
+      const el = e.currentTarget;
+      if (shouldAnalyzeImageSurface(el)) {
+        setSurfaceTone(detectImageSurfaceTone(el));
+      }
+    },
+    [],
+  );
+
   if (!product)
     return (
       <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center">
@@ -203,7 +230,10 @@ export default function ProductDetailClient({
   const thumbnails = imageUrl ? [imageUrl] : [];
   const subcategorySlug =
     (product as { subcategory_slug?: string }).subcategory_slug ?? null;
-  const detailImgClass = detailProductImageClass(subcategorySlug);
+  const detailImgClass = cn(
+    detailProductImageClass(subcategorySlug),
+    blendClassForSurface(surfaceTone),
+  );
 
   const handleAddToCart = () => {
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode });
@@ -234,7 +264,7 @@ export default function ProductDetailClient({
 
         <div className="grid md:grid-cols-2 gap-12">
           <div className="space-y-3">
-            <div className="relative w-full aspect-square md:aspect-[4/5] bg-[#0B1120] rounded-2xl overflow-hidden shadow-2xl border border-white/5">
+            <div className="relative isolate w-full aspect-square md:aspect-[4/5] bg-[#0B1120] rounded-2xl overflow-hidden shadow-2xl border border-white/5">
               {neighbors.prev && (
                 <button
                   type="button"
@@ -270,6 +300,7 @@ export default function ProductDetailClient({
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
                         className={detailImgClass}
+                        onLoad={handleProductImageLoad}
                       />
                     </HoverZoomImage>
                   </div>
@@ -299,6 +330,7 @@ export default function ProductDetailClient({
                       width={64}
                       height={64}
                       className={cn("w-full h-full", detailImgClass)}
+                      onLoad={handleProductImageLoad}
                     />
                   </button>
                 ))}
