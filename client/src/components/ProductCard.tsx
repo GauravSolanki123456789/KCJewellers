@@ -11,6 +11,10 @@ import {
   type ProductImageAnalysis,
 } from '@/lib/detect-image-surface'
 import { blendClassForSurface } from '@/lib/product-image-blend'
+import {
+  isFlatProductImageTone,
+  productImageViewportWrapperClass,
+} from '@/lib/flat-product-image'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 
@@ -56,13 +60,7 @@ export default function ProductCard({
   const hasDiscount = (discountPercent ?? 0) > 0
 
   const showImage = product.image_url && !imgError
-  const hasFocal = !!imageAnalysis?.focalPercent
-  const focalStyle =
-    imageAnalysis?.focalPercent != null
-      ? {
-          objectPosition: `${imageAnalysis.focalPercent.x}% ${imageAnalysis.focalPercent.y}%`,
-        }
-      : undefined
+  const isFlatBg = isFlatProductImageTone(imageAnalysis?.tone)
 
   return (
     <Link
@@ -98,31 +96,32 @@ export default function ProductCard({
                 {displayName.charAt(0)}
               </span>
             </div>
-            <Image
-              src={product.image_url!}
-              alt={displayName}
-              fill
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-              className={cn(
-                catalogProductImageClass(subcategorySlug, hasFocal),
-                blendClassForSurface(imageAnalysis?.tone ?? null),
-                'transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
-                imageLoaded ? 'opacity-100' : 'opacity-0',
-              )}
-              style={focalStyle}
-              decoding="async"
-              loading={priority ? 'eager' : 'lazy'}
-              priority={priority}
-              fetchPriority={priority ? 'high' : 'low'}
-              onLoad={(e) => {
-                const el = e.currentTarget
-                setImageLoaded(true)
-                if (shouldAnalyzeImageSurface(el)) {
-                  setImageAnalysis(analyzeProductImage(el))
-                }
-              }}
-              onError={() => setImgError(true)}
-            />
+            <div className={productImageViewportWrapperClass(isFlatBg)}>
+              <Image
+                src={product.image_url!}
+                alt={displayName}
+                fill
+                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                className={cn(
+                  catalogProductImageClass(subcategorySlug, { flatTone: isFlatBg }),
+                  blendClassForSurface(imageAnalysis?.tone ?? null),
+                  'transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
+                  imageLoaded ? 'opacity-100' : 'opacity-0',
+                )}
+                decoding="async"
+                loading={priority ? 'eager' : 'lazy'}
+                priority={priority}
+                fetchPriority={priority ? 'high' : 'low'}
+                onLoad={(e) => {
+                  const el = e.currentTarget
+                  setImageLoaded(true)
+                  if (shouldAnalyzeImageSurface(el)) {
+                    setImageAnalysis(analyzeProductImage(el))
+                  }
+                }}
+                onError={() => setImgError(true)}
+              />
+            </div>
           </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">

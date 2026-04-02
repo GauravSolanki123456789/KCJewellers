@@ -28,6 +28,10 @@ import {
   type ProductImageAnalysis,
 } from "@/lib/detect-image-surface";
 import { blendClassForSurface } from "@/lib/product-image-blend";
+import {
+  isFlatProductImageTone,
+  productImageViewportWrapperClass,
+} from "@/lib/flat-product-image";
 import { productShareMessage } from "@/lib/whatsapp";
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics";
 import { getSocket } from "@/lib/socket";
@@ -230,15 +234,9 @@ export default function ProductDetailClient({
   const thumbnails = imageUrl ? [imageUrl] : [];
   const subcategorySlug =
     (product as { subcategory_slug?: string }).subcategory_slug ?? null;
-  const hasFocal = !!imageAnalysis?.focalPercent;
-  const focalStyle =
-    imageAnalysis?.focalPercent != null
-      ? {
-          objectPosition: `${imageAnalysis.focalPercent.x}% ${imageAnalysis.focalPercent.y}%`,
-        }
-      : undefined;
+  const isFlatBg = isFlatProductImageTone(imageAnalysis?.tone);
   const detailImgClass = cn(
-    detailProductImageClass(subcategorySlug, hasFocal),
+    detailProductImageClass(subcategorySlug, { flatTone: isFlatBg }),
     blendClassForSurface(imageAnalysis?.tone ?? null),
   );
 
@@ -299,7 +297,7 @@ export default function ProductDetailClient({
               )}
               {imageUrl ? (
                 <>
-                  <div className="absolute inset-0">
+                  <div className={productImageViewportWrapperClass(isFlatBg)}>
                     <HoverZoomImage>
                       <Image
                         src={imageUrl}
@@ -307,7 +305,6 @@ export default function ProductDetailClient({
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
                         className={detailImgClass}
-                        style={focalStyle}
                         priority
                         fetchPriority="high"
                         decoding="async"
@@ -333,16 +330,17 @@ export default function ProductDetailClient({
                   <button
                     key={i}
                     type="button"
-                    className="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-[#0B1120] border border-slate-700 hover:border-amber-500/50 transition-colors"
+                    className="relative shrink-0 h-16 w-16 rounded-lg overflow-hidden bg-[#0B1120] border border-slate-700 hover:border-amber-500/50 transition-colors"
                   >
-                    <Image
-                      src={src}
-                      alt=""
-                      width={64}
-                      height={64}
-                      className={cn("w-full h-full", detailImgClass)}
-                      style={focalStyle}
-                    />
+                    <div className={productImageViewportWrapperClass(isFlatBg)}>
+                      <Image
+                        src={src}
+                        alt=""
+                        fill
+                        sizes="64px"
+                        className={detailImgClass}
+                      />
+                    </div>
                   </button>
                 ))}
               </div>
