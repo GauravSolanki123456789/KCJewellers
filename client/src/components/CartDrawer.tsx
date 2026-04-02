@@ -10,12 +10,11 @@ import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getItemWeight, isDiamondItem } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
 import {
-  detectImageSurfaceTone,
+  analyzeProductImage,
   shouldAnalyzeImageSurface,
   type ImageSurfaceTone,
 } from '@/lib/detect-image-surface'
 import { blendClassForSurface } from '@/lib/product-image-blend'
-import { productImageObjectClass } from '@/lib/product-image-classes'
 
 type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number; rate_per_gram?: number; net_weight?: number }
 
@@ -43,14 +42,13 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
         src={src}
         alt={alt}
         className={cn(
-          'w-full h-full',
-          productImageObjectClass(surfaceTone, null, 'catalog'),
+          'w-full h-full object-contain',
           blendClassForSurface(surfaceTone),
         )}
         onLoad={(e) => {
           const el = e.currentTarget
           if (shouldAnalyzeImageSurface(el)) {
-            setSurfaceTone(detectImageSurfaceTone(el))
+            setSurfaceTone(analyzeProductImage(el).tone)
           }
         }}
         onError={() => setHasImageError(true)}

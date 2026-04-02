@@ -883,7 +883,7 @@ export default function CatalogPageClient() {
                       } as Product
                     }
                     rates={rates}
-                    priority={i < 8}
+                    priority={i < 16}
                     subcategorySlug={activeSku?.slug}
                     onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
                   />

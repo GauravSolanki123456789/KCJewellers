@@ -4,11 +4,11 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
-import { productImageObjectClass } from '@/lib/product-image-classes'
+import { catalogProductImageClass } from '@/lib/product-image-classes'
 import {
-  detectImageSurfaceTone,
+  analyzeProductImage,
   shouldAnalyzeImageSurface,
-  type ImageSurfaceTone,
+  type ProductImageAnalysis,
 } from '@/lib/detect-image-surface'
 import { blendClassForSurface } from '@/lib/product-image-blend'
 import { useCart } from '@/context/CartContext'
@@ -34,7 +34,7 @@ export default function ProductCard({
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
-  const [surfaceTone, setSurfaceTone] = useState<ImageSurfaceTone | null>(null)
+  const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null)
 
   const displayName =
     (product as { name?: string }).name ||
@@ -47,7 +47,7 @@ export default function ProductCard({
   useEffect(() => {
     setImageLoaded(false)
     setImgError(false)
-    setSurfaceTone(null)
+    setImageAnalysis(null)
   }, [product.image_url, barcode])
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
@@ -56,6 +56,13 @@ export default function ProductCard({
   const hasDiscount = (discountPercent ?? 0) > 0
 
   const showImage = product.image_url && !imgError
+  const hasFocal = !!imageAnalysis?.focalPercent
+  const focalStyle =
+    imageAnalysis?.focalPercent != null
+      ? {
+          objectPosition: `${imageAnalysis.focalPercent.x}% ${imageAnalysis.focalPercent.y}%`,
+        }
+      : undefined
 
   return (
     <Link
@@ -77,14 +84,14 @@ export default function ProductCard({
               className={cn(
                 'absolute inset-0 bg-gradient-to-br from-slate-800/40 via-[#0B1120] to-slate-950',
                 imageLoaded ? 'opacity-0' : 'opacity-100',
-                'transition-opacity duration-300',
+                'transition-opacity duration-150',
               )}
             />
             <div
               className={cn(
                 'absolute inset-0 flex items-center justify-center bg-[#0B1120]',
                 imageLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100',
-                'transition-opacity duration-300',
+                'transition-opacity duration-150',
               )}
             >
               <span className="text-5xl font-bold text-slate-600/60 select-none">
@@ -97,19 +104,21 @@ export default function ProductCard({
               fill
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               className={cn(
-                productImageObjectClass(surfaceTone, subcategorySlug, 'catalog'),
-                blendClassForSurface(surfaceTone),
+                catalogProductImageClass(subcategorySlug, hasFocal),
+                blendClassForSurface(imageAnalysis?.tone ?? null),
                 'transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
                 imageLoaded ? 'opacity-100' : 'opacity-0',
               )}
+              style={focalStyle}
+              decoding="async"
               loading={priority ? 'eager' : 'lazy'}
               priority={priority}
               fetchPriority={priority ? 'high' : 'low'}
               onLoad={(e) => {
-                setImageLoaded(true)
                 const el = e.currentTarget
+                setImageLoaded(true)
                 if (shouldAnalyzeImageSurface(el)) {
-                  setSurfaceTone(detectImageSurfaceTone(el))
+                  setImageAnalysis(analyzeProductImage(el))
                 }
               }}
               onError={() => setImgError(true)}

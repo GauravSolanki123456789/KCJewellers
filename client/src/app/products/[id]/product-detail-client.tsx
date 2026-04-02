@@ -21,11 +21,11 @@ import {
   isDiamondItem,
   type Item,
 } from "@/lib/pricing";
-import { productImageObjectClass } from "@/lib/product-image-classes";
+import { detailProductImageClass } from "@/lib/product-image-classes";
 import {
-  detectImageSurfaceTone,
+  analyzeProductImage,
   shouldAnalyzeImageSurface,
-  type ImageSurfaceTone,
+  type ProductImageAnalysis,
 } from "@/lib/detect-image-surface";
 import { blendClassForSurface } from "@/lib/product-image-blend";
 import { productShareMessage } from "@/lib/whatsapp";
@@ -71,10 +71,10 @@ export default function ProductDetailClient({
   });
   const cart = useCart();
   const productRef = useRef<Item | null>(null);
-  const [surfaceTone, setSurfaceTone] = useState<ImageSurfaceTone | null>(null);
+  const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
 
   useEffect(() => {
-    setSurfaceTone(null);
+    setImageAnalysis(null);
   }, [id, product?.image_url]);
 
   useEffect(() => {
@@ -204,7 +204,7 @@ export default function ProductDetailClient({
     (e: SyntheticEvent<HTMLImageElement>) => {
       const el = e.currentTarget;
       if (shouldAnalyzeImageSurface(el)) {
-        setSurfaceTone(detectImageSurfaceTone(el));
+        setImageAnalysis(analyzeProductImage(el));
       }
     },
     [],
@@ -230,9 +230,16 @@ export default function ProductDetailClient({
   const thumbnails = imageUrl ? [imageUrl] : [];
   const subcategorySlug =
     (product as { subcategory_slug?: string }).subcategory_slug ?? null;
+  const hasFocal = !!imageAnalysis?.focalPercent;
+  const focalStyle =
+    imageAnalysis?.focalPercent != null
+      ? {
+          objectPosition: `${imageAnalysis.focalPercent.x}% ${imageAnalysis.focalPercent.y}%`,
+        }
+      : undefined;
   const detailImgClass = cn(
-    productImageObjectClass(surfaceTone, subcategorySlug, "detail"),
-    blendClassForSurface(surfaceTone),
+    detailProductImageClass(subcategorySlug, hasFocal),
+    blendClassForSurface(imageAnalysis?.tone ?? null),
   );
 
   const handleAddToCart = () => {
@@ -300,6 +307,10 @@ export default function ProductDetailClient({
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
                         className={detailImgClass}
+                        style={focalStyle}
+                        priority
+                        fetchPriority="high"
+                        decoding="async"
                         onLoad={handleProductImageLoad}
                       />
                     </HoverZoomImage>
@@ -330,7 +341,7 @@ export default function ProductDetailClient({
                       width={64}
                       height={64}
                       className={cn("w-full h-full", detailImgClass)}
-                      onLoad={handleProductImageLoad}
+                      style={focalStyle}
                     />
                   </button>
                 ))}
