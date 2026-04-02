@@ -17,6 +17,7 @@ import {
 } from '@/lib/flat-product-image'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
+import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 
 type ProductCardProps = {
   product: Item
@@ -39,6 +40,7 @@ export default function ProductCard({
   const [imgError, setImgError] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null)
+  const [fallbackUnoptimized, setFallbackUnoptimized] = useState(false)
 
   const displayName =
     (product as { name?: string }).name ||
@@ -48,18 +50,21 @@ export default function ProductCard({
   const weight = getItemWeight(product)
   const barcode = product.barcode || product.sku || String(product.id || '')
 
+  const imageSrc = normalizeCatalogImageSrc(product.image_url)
+
   useEffect(() => {
     setImageLoaded(false)
     setImgError(false)
     setImageAnalysis(null)
-  }, [product.image_url, barcode])
+    setFallbackUnoptimized(false)
+  }, [product.image_url, barcode, imageSrc])
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
   const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3)
   const { total, originalTotal, discountPercent } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
 
-  const showImage = product.image_url && !imgError
+  const showImage = !!imageSrc && !imgError
   const isFlatBg = isFlatProductImageTone(imageAnalysis?.tone)
 
   return (
@@ -98,16 +103,17 @@ export default function ProductCard({
             </div>
             <div className={productImageViewportWrapperClass(isFlatBg)}>
               <Image
-                src={product.image_url!}
+                key={`${imageSrc}-${fallbackUnoptimized ? 'u' : 'o'}`}
+                src={imageSrc}
                 alt={displayName}
                 fill
                 sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                 className={cn(
                   catalogProductImageClass(subcategorySlug, { flatTone: isFlatBg }),
                   blendClassForSurface(imageAnalysis?.tone ?? null),
-                  'transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
-                  imageLoaded ? 'opacity-100' : 'opacity-0',
+                  'transition-transform duration-300 ease-out group-hover:scale-105',
                 )}
+                unoptimized={fallbackUnoptimized}
                 decoding="async"
                 loading={priority ? 'eager' : 'lazy'}
                 priority={priority}
@@ -119,7 +125,13 @@ export default function ProductCard({
                     setImageAnalysis(analyzeProductImage(el))
                   }
                 }}
-                onError={() => setImgError(true)}
+                onError={() => {
+                  if (!fallbackUnoptimized) {
+                    setFallbackUnoptimized(true)
+                    return
+                  }
+                  setImgError(true)
+                }}
               />
             </div>
           </>

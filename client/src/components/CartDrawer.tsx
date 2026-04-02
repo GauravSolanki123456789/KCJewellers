@@ -15,6 +15,7 @@ import {
   type ImageSurfaceTone,
 } from '@/lib/detect-image-surface'
 import { blendClassForSurface } from '@/lib/product-image-blend'
+import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 
 type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number; rate_per_gram?: number; net_weight?: number }
 
@@ -24,11 +25,19 @@ type CartDrawerProps = {
 }
 
 function CartItemImage({ src, alt }: { src: string; alt: string }) {
+  const normalized = normalizeCatalogImageSrc(src)
   const [hasImageError, setHasImageError] = useState(false)
   const [surfaceTone, setSurfaceTone] = useState<ImageSurfaceTone | null>(null)
   useEffect(() => {
     setSurfaceTone(null)
   }, [src])
+  if (!normalized) {
+    return (
+      <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
+        <span className="text-xl font-bold text-slate-500">{alt.charAt(0)}</span>
+      </div>
+    )
+  }
   if (hasImageError) {
     return (
       <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
@@ -39,7 +48,7 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
   return (
     <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden bg-slate-800 isolate">
       <img
-        src={src}
+        src={normalized}
         alt={alt}
         className={cn(
           'w-full h-full object-contain',

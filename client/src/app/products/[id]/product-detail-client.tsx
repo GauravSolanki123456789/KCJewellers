@@ -44,6 +44,7 @@ import {
 } from "react";
 import { useCart } from "@/context/CartContext";
 import { cn } from "@/lib/utils";
+import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 
 type RateRow = {
   metal_type?: string;
@@ -76,9 +77,11 @@ export default function ProductDetailClient({
   const cart = useCart();
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
+  const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(false);
 
   useEffect(() => {
     setImageAnalysis(null);
+    setPdpImageUnoptimized(false);
   }, [id, product?.image_url]);
 
   useEffect(() => {
@@ -222,7 +225,9 @@ export default function ProductDetailClient({
     );
 
   const displayName = productDisplayName(product);
-  const imageUrl = product.image_url;
+  const imageUrl = product.image_url
+    ? normalizeCatalogImageSrc(product.image_url)
+    : undefined;
   const styleCode = product.style_code || "";
   const sku = product.sku || product.barcode || "";
   const netWeight = getItemWeight(product);
@@ -300,15 +305,20 @@ export default function ProductDetailClient({
                   <div className={productImageViewportWrapperClass(isFlatBg)}>
                     <HoverZoomImage>
                       <Image
+                        key={`${imageUrl}-${pdpImageUnoptimized ? "u" : "o"}`}
                         src={imageUrl}
                         alt={displayName}
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
                         className={detailImgClass}
+                        unoptimized={pdpImageUnoptimized}
                         priority
                         fetchPriority="high"
                         decoding="async"
                         onLoad={handleProductImageLoad}
+                        onError={() => {
+                          if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
+                        }}
                       />
                     </HoverZoomImage>
                   </div>
@@ -334,11 +344,12 @@ export default function ProductDetailClient({
                   >
                     <div className={productImageViewportWrapperClass(isFlatBg)}>
                       <Image
-                        src={src}
+                        src={normalizeCatalogImageSrc(src)}
                         alt=""
                         fill
                         sizes="64px"
                         className={detailImgClass}
+                        unoptimized={pdpImageUnoptimized}
                       />
                     </div>
                   </button>
