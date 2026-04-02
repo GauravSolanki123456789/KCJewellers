@@ -1,6 +1,9 @@
+import { absoluteImageUrl } from "@/lib/site";
+
 /**
- * Force catalogue product image URLs onto NEXT_PUBLIC_API_URL so Next/Image
- * remotePatterns match even when the DB still has a legacy API hostname.
+ * Canonical resolver for product photos. The API / DB field is always `image_url`
+ * (see `web_products`, cart `Item`, catalog rows). Rewrites any `…/uploads/…` URL
+ * to `NEXT_PUBLIC_API_URL` so Next/Image `remotePatterns` match legacy hosts.
  */
 export function normalizeCatalogImageSrc(
   raw: string | null | undefined,
@@ -21,4 +24,13 @@ export function normalizeCatalogImageSrc(
 
   if (/^https?:\/\//i.test(t)) return t;
   return `${api}${t.startsWith("/") ? "" : "/"}${t}`;
+}
+
+/** Server metadata / JSON-LD: prefer normalized host, then legacy absolute rules. */
+export function resolveCatalogImageUrlForMeta(
+  raw: string | null | undefined,
+): string | undefined {
+  const n = normalizeCatalogImageSrc(raw);
+  if (n) return n;
+  return absoluteImageUrl(raw);
 }

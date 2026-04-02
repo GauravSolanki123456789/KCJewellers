@@ -10,11 +10,11 @@ import {
   shouldAnalyzeImageSurface,
   type ProductImageAnalysis,
 } from '@/lib/detect-image-surface'
-import { blendClassForSurface } from '@/lib/product-image-blend'
 import {
   isFlatProductImageTone,
   productImageViewportWrapperClass,
 } from '@/lib/flat-product-image'
+import { productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
@@ -74,7 +74,9 @@ export default function ProductCard({
       data-product-id={barcode}
       className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
     >
-      <div className="relative isolate aspect-[4/5] bg-[#0B1120] overflow-hidden">
+      <div
+        className={`relative isolate aspect-[4/5] overflow-hidden ${productImageWellClass}`}
+      >
         {hasDiscount && (
           <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs font-bold">
             {Math.round(discountPercent ?? 0)}% OFF
@@ -85,9 +87,10 @@ export default function ProductCard({
             <div
               aria-hidden
               className={cn(
-                'absolute inset-0 bg-gradient-to-br from-slate-800/40 via-[#0B1120] to-slate-950',
+                'absolute inset-0 bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950',
                 imageLoaded ? 'opacity-0' : 'opacity-100',
-                'transition-opacity duration-150',
+                'transition-opacity duration-200',
+                !imageLoaded && 'animate-pulse',
               )}
             />
             <div
@@ -110,8 +113,7 @@ export default function ProductCard({
                 sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                 className={cn(
                   catalogProductImageClass(subcategorySlug, { flatTone: isFlatBg }),
-                  blendClassForSurface(imageAnalysis?.tone ?? null),
-                  'transition-transform duration-300 ease-out group-hover:scale-105',
+                  'transition-[filter] duration-300 ease-out group-hover:brightness-105',
                 )}
                 unoptimized={fallbackUnoptimized}
                 decoding="async"

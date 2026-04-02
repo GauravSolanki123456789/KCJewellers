@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import CatalogStructuredData from "../catalog-structured-data";
 import CatalogRootStructuredData from "../catalog-root-structured-data";
-import { absoluteImageUrl, getSiteUrl } from "@/lib/site";
+import { getSiteUrl } from "@/lib/site";
+import { resolveCatalogImageUrlForMeta } from "@/lib/normalize-image-url";
 import { fetchCatalogJson, resolveCatalogView } from "@/lib/server-data";
 import { parseCatalogSlugSegments } from "@/lib/catalog-paths";
 import {
@@ -72,11 +73,10 @@ export async function generateMetadata({
   const titleParts = [cat?.name, sub?.name].filter(Boolean);
 
   const ogImage =
-    absoluteImageUrl(cat?.image_url) ||
-    (() => {
-      const first = sub?.products?.[0] as { image_url?: string } | undefined;
-      return absoluteImageUrl(first?.image_url);
-    })();
+    resolveCatalogImageUrlForMeta(cat?.image_url) ||
+    resolveCatalogImageUrlForMeta(
+      (sub?.products?.[0] as { image_url?: string } | undefined)?.image_url,
+    );
 
   const pathSeg = `${metal}/${encodeURIComponent(styleSlug)}/${encodeURIComponent(skuSlug)}`;
   const canonical = `${site}/catalog/${pathSeg}`;

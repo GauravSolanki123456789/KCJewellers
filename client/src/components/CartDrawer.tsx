@@ -9,13 +9,8 @@ import { useLoginModal } from '@/context/LoginModalContext'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getItemWeight, isDiamondItem } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
-import {
-  analyzeProductImage,
-  shouldAnalyzeImageSurface,
-  type ImageSurfaceTone,
-} from '@/lib/detect-image-surface'
-import { blendClassForSurface } from '@/lib/product-image-blend'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
+import { productImageSurfaceClass, productImageWellClass } from '@/lib/product-image-theme'
 
 type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number; rate_per_gram?: number; net_weight?: number }
 
@@ -27,39 +22,34 @@ type CartDrawerProps = {
 function CartItemImage({ src, alt }: { src: string; alt: string }) {
   const normalized = normalizeCatalogImageSrc(src)
   const [hasImageError, setHasImageError] = useState(false)
-  const [surfaceTone, setSurfaceTone] = useState<ImageSurfaceTone | null>(null)
   useEffect(() => {
-    setSurfaceTone(null)
+    setHasImageError(false)
   }, [src])
+  const thumbShell = `w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg flex items-center justify-center ${productImageSurfaceClass}`
   if (!normalized) {
     return (
-      <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
+      <div className={thumbShell}>
         <span className="text-xl font-bold text-slate-500">{alt.charAt(0)}</span>
       </div>
     )
   }
   if (hasImageError) {
     return (
-      <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
+      <div className={thumbShell}>
         <span className="text-xl font-bold text-slate-500">{alt.charAt(0)}</span>
       </div>
     )
   }
   return (
-    <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden bg-slate-800 isolate">
+    <div
+      className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden isolate ${productImageWellClass}`}
+    >
       <img
         src={normalized}
         alt={alt}
-        className={cn(
-          'w-full h-full object-contain',
-          blendClassForSurface(surfaceTone),
-        )}
-        onLoad={(e) => {
-          const el = e.currentTarget
-          if (shouldAnalyzeImageSurface(el)) {
-            setSurfaceTone(analyzeProductImage(el).tone)
-          }
-        }}
+        className={cn('w-full h-full object-contain')}
+        loading="lazy"
+        decoding="async"
         onError={() => setHasImageError(true)}
       />
     </div>

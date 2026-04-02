@@ -1,4 +1,5 @@
-import { absoluteImageUrl, getSiteUrl } from "@/lib/site";
+import { getSiteUrl } from "@/lib/site";
+import { resolveCatalogImageUrlForMeta } from "@/lib/normalize-image-url";
 import { calculateBreakdown, getItemWeight, type Item } from "@/lib/pricing";
 import type { ApiProductRow } from "@/lib/server-data";
 
@@ -24,8 +25,8 @@ export default function ProductJsonLd({
   const site = getSiteUrl();
   const url = `${site}${productPath}`;
   const name = displayName(product);
-  const img = absoluteImageUrl(
-    (product as { image_url?: string }).image_url
+  const img = resolveCatalogImageUrlForMeta(
+    (product as { image_url?: string }).image_url,
   );
   const gst = Number((product as { gst_rate?: number }).gst_rate ?? 3) || 3;
   const b = calculateBreakdown(product as Item, liveRates, gst);

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 
 const ZOOM_SCALE = 2.5
 const TRANSITION_MS = 180
@@ -11,12 +11,22 @@ type HoverZoomImageProps = {
 }
 
 /**
- * Wraps an image (e.g. Next.js Image) with a premium hover-to-zoom magnifier effect.
- * On hover: scales to 2.5x and pans based on cursor position (transform-origin tracks X/Y %).
+ * Hover-to-zoom for fine pointers only (desktop). Touch / coarse pointers keep
+ * the static image so mobile stays predictable and scroll-friendly.
  */
 export default function HoverZoomImage({ children, className = '' }: HoverZoomImageProps) {
   const [origin, setOrigin] = useState({ x: 50, y: 50 })
   const [isHovering, setIsHovering] = useState(false)
+  const [allowZoom, setAllowZoom] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(hover: hover) and (pointer: fine)')
+    const sync = () => setAllowZoom(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -42,7 +52,7 @@ export default function HoverZoomImage({ children, className = '' }: HoverZoomIm
         className="absolute inset-0"
         style={{
           transition: `transform ${TRANSITION_MS}ms cubic-bezier(0.25, 0.46, 0.45, 0.94)`,
-          transform: isHovering
+          transform: isHovering && allowZoom
             ? `scale(${ZOOM_SCALE})`
             : 'scale(1)',
           transformOrigin: `${origin.x}% ${origin.y}%`,

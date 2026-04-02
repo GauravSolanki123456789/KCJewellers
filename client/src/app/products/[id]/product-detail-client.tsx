@@ -27,11 +27,11 @@ import {
   shouldAnalyzeImageSurface,
   type ProductImageAnalysis,
 } from "@/lib/detect-image-surface";
-import { blendClassForSurface } from "@/lib/product-image-blend";
 import {
   isFlatProductImageTone,
   productImageViewportWrapperClass,
 } from "@/lib/flat-product-image";
+import { productImageWellClass } from "@/lib/product-image-theme";
 import { productShareMessage } from "@/lib/whatsapp";
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics";
 import { getSocket } from "@/lib/socket";
@@ -78,10 +78,12 @@ export default function ProductDetailClient({
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
   const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(false);
+  const [pdpImageLoaded, setPdpImageLoaded] = useState(false);
 
   useEffect(() => {
     setImageAnalysis(null);
     setPdpImageUnoptimized(false);
+    setPdpImageLoaded(false);
   }, [id, product?.image_url]);
 
   useEffect(() => {
@@ -210,6 +212,7 @@ export default function ProductDetailClient({
   const handleProductImageLoad = useCallback(
     (e: SyntheticEvent<HTMLImageElement>) => {
       const el = e.currentTarget;
+      setPdpImageLoaded(true);
       if (shouldAnalyzeImageSurface(el)) {
         setImageAnalysis(analyzeProductImage(el));
       }
@@ -240,10 +243,9 @@ export default function ProductDetailClient({
   const subcategorySlug =
     (product as { subcategory_slug?: string }).subcategory_slug ?? null;
   const isFlatBg = isFlatProductImageTone(imageAnalysis?.tone);
-  const detailImgClass = cn(
-    detailProductImageClass(subcategorySlug, { flatTone: isFlatBg }),
-    blendClassForSurface(imageAnalysis?.tone ?? null),
-  );
+  const detailImgClass = detailProductImageClass(subcategorySlug, {
+    flatTone: isFlatBg,
+  });
 
   const handleAddToCart = () => {
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode });
@@ -274,7 +276,9 @@ export default function ProductDetailClient({
 
         <div className="grid md:grid-cols-2 gap-12">
           <div className="space-y-3">
-            <div className="relative isolate w-full aspect-square md:aspect-[4/5] bg-[#0B1120] rounded-2xl overflow-hidden shadow-2xl border border-white/5">
+            <div
+              className={`relative isolate w-full aspect-square md:aspect-[4/5] rounded-2xl overflow-hidden shadow-2xl border border-white/5 ${productImageWellClass}`}
+            >
               {neighbors.prev && (
                 <button
                   type="button"
@@ -302,6 +306,15 @@ export default function ProductDetailClient({
               )}
               {imageUrl ? (
                 <>
+                  <div
+                    aria-hidden
+                    className={cn(
+                      "absolute inset-0 bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950",
+                      pdpImageLoaded ? "opacity-0" : "opacity-100",
+                      "transition-opacity duration-200 pointer-events-none z-[1]",
+                      !pdpImageLoaded && "animate-pulse",
+                    )}
+                  />
                   <div className={productImageViewportWrapperClass(isFlatBg)}>
                     <HoverZoomImage>
                       <Image
@@ -322,7 +335,7 @@ export default function ProductDetailClient({
                       />
                     </HoverZoomImage>
                   </div>
-                  <span className="absolute bottom-3 left-3 text-[10px] text-slate-500 uppercase tracking-wider">
+                  <span className="hidden md:block absolute bottom-3 left-3 z-10 text-[10px] text-slate-500 uppercase tracking-wider pointer-events-none">
                     Hover to zoom
                   </span>
                 </>
@@ -340,7 +353,7 @@ export default function ProductDetailClient({
                   <button
                     key={i}
                     type="button"
-                    className="relative shrink-0 h-16 w-16 rounded-lg overflow-hidden bg-[#0B1120] border border-slate-700 hover:border-amber-500/50 transition-colors"
+                    className={`relative shrink-0 h-16 w-16 rounded-lg overflow-hidden border border-slate-700 hover:border-amber-500/50 transition-colors ${productImageWellClass}`}
                   >
                     <div className={productImageViewportWrapperClass(isFlatBg)}>
                       <Image

@@ -10,7 +10,7 @@ export function isFlatProductImageTone(
 /**
  * Wrapper for the Next/Image fill layer: clips the bottom strip where ERP watermarks
  * (e.g. PITARA RING + barcode) usually sit on pure white/black frames.
- * Use with object-contain + object-center so the full piece stays visible; only the label band is hidden.
+ * Use with `object-contain` + centred positioning so the full piece stays visible; only the label band is hidden.
  */
 export function productImageViewportWrapperClass(isFlat: boolean): string {
   return isFlat

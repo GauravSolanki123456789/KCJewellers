@@ -12,6 +12,8 @@ import { CATALOG_PATH, CHECKOUT_PATH } from '@/lib/routes'
 import axios from '@/lib/axios'
 import { toPaise } from '@/lib/utils'
 import { getItemWeight } from '@/lib/pricing'
+import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
+import { productImageWellClass } from '@/lib/product-image-theme'
 
 declare global {
   interface Window {
@@ -285,7 +287,15 @@ function CheckoutContent() {
             return (
               <div key={ci.id} className="flex gap-3 p-4 rounded-xl border border-white/10 bg-slate-800/30">
                 {ci.item.image_url ? (
-                  <img src={ci.item.image_url} alt={name} className="w-16 h-16 rounded-lg object-contain bg-slate-800 shrink-0" />
+                  <div className={`w-16 h-16 shrink-0 rounded-lg overflow-hidden ${productImageWellClass}`}>
+                    <img
+                      src={normalizeCatalogImageSrc(ci.item.image_url) || ci.item.image_url}
+                      alt={name}
+                      className="w-full h-full object-contain"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </div>
                 ) : (
                   <div className="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
                     <span className="text-xl font-bold text-slate-500">{name.charAt(0)}</span>

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import ProductDetailClient from "./product-detail-client";
 import ProductJsonLd from "./product-json-ld";
-import { absoluteImageUrl, getSiteUrl } from "@/lib/site";
+import { getSiteUrl } from "@/lib/site";
+import { resolveCatalogImageUrlForMeta } from "@/lib/normalize-image-url";
 import {
   fetchDisplayRates,
   fetchProductByBarcode,
@@ -44,7 +45,7 @@ export async function generateMetadata({
   const item = product as Item;
   const absTitle = buildProductSeoTitle(item);
   const description = buildProductMetaDescription(item, liveRates);
-  const ogImage = absoluteImageUrl(product.image_url);
+  const ogImage = resolveCatalogImageUrlForMeta(product.image_url);
   const name =
     (product.name || "").trim() ||
     item.item_name ||

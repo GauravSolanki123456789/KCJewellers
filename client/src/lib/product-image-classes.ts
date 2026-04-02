@@ -1,7 +1,8 @@
 /**
  * Catalogue / PDP image framing for known ERP batches.
  *
- * Flat white/black shots use `flatTone` so we keep object-center (full bitmap, no focal nudge).
+ * Uses `object-contain` so the full piece stays visible (no perceived cropping).
+ * Padding uses the same deep-navy well (`bg-[#0B1120]`) on the parent so edges blend with the UI.
  */
 const SUBCATEGORY_OBJECT_POSITION_TUNING = new Set([
   "pitara-tops",
@@ -14,7 +15,7 @@ function useTunedFraming(subcategorySlug?: string | null): boolean {
 }
 
 type FramingOpts = {
-  /** Pure white/black frame: always centred; avoids conflicting slug nudges. */
+  /** Pure white/black frame — same contain + centre; bottom strip may be clipped via viewport wrapper. */
   flatTone?: boolean;
 };
 

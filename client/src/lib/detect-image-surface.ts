@@ -44,7 +44,33 @@ function cornerAverageLuminance(
   return sum / n;
 }
 
-/** Corner-only tone: full bitmap stays centred with object-contain (no focal shifting). */
+/** Middle of frame — catches dark product photos that still have bright corners (mis-blend → blackout). */
+function centerAverageLuminance(
+  ctx: CanvasRenderingContext2D,
+  cw: number,
+  ch: number,
+): number | null {
+  const mw = Math.max(8, Math.floor(cw * 0.42));
+  const mh = Math.max(8, Math.floor(ch * 0.42));
+  const x = Math.floor((cw - mw) / 2);
+  const y = Math.floor((ch - mh) / 2);
+  try {
+    const data = ctx.getImageData(x, y, mw, mh).data;
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      sum += luminance(data[i], data[i + 1], data[i + 2]);
+      n++;
+    }
+    return n ? sum / n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Corner tone + centre check: avoid multiply on overall-dark photos (blackout) and screen on bright scenes.
+ */
 export function analyzeProductImage(img: HTMLImageElement): ProductImageAnalysis {
   const w = img.naturalWidth;
   const h = img.naturalHeight;
@@ -69,8 +95,20 @@ export function analyzeProductImage(img: HTMLImageElement): ProductImageAnalysis
   const cornerAvg = cornerAverageLuminance(ctx, cw, ch);
   if (cornerAvg == null) return { tone: "neutral" };
 
-  if (cornerAvg >= LIGHT_THRESHOLD) return { tone: "light" };
-  if (cornerAvg <= DARK_THRESHOLD) return { tone: "dark" };
+  const centerAvg = centerAverageLuminance(ctx, cw, ch);
+
+  if (cornerAvg >= LIGHT_THRESHOLD) {
+    if (centerAvg != null && centerAvg < 92) {
+      return { tone: "neutral" };
+    }
+    return { tone: "light" };
+  }
+  if (cornerAvg <= DARK_THRESHOLD) {
+    if (centerAvg != null && centerAvg > 168) {
+      return { tone: "neutral" };
+    }
+    return { tone: "dark" };
+  }
   return { tone: "neutral" };
 }
 
