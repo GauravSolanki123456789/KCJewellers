@@ -21,11 +21,13 @@ import {
   isDiamondItem,
   type Item,
 } from "@/lib/pricing";
+import { detailProductImageClass } from "@/lib/product-image-classes";
 import { productShareMessage } from "@/lib/whatsapp";
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics";
 import { getSocket } from "@/lib/socket";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCart } from "@/context/CartContext";
+import { cn } from "@/lib/utils";
 
 type RateRow = {
   metal_type?: string;
@@ -199,6 +201,9 @@ export default function ProductDetailClient({
   const barcode = product.barcode || product.sku || String(product.id || "");
   const hasDiscount = (b?.discountPercent ?? 0) > 0;
   const thumbnails = imageUrl ? [imageUrl] : [];
+  const subcategorySlug =
+    (product as { subcategory_slug?: string }).subcategory_slug ?? null;
+  const detailImgClass = detailProductImageClass(subcategorySlug);
 
   const handleAddToCart = () => {
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode });
@@ -264,7 +269,7 @@ export default function ProductDetailClient({
                         alt={displayName}
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
-                        className="object-contain"
+                        className={detailImgClass}
                       />
                     </HoverZoomImage>
                   </div>
@@ -293,7 +298,7 @@ export default function ProductDetailClient({
                       alt=""
                       width={64}
                       height={64}
-                      className="w-full h-full object-contain"
+                      className={cn("w-full h-full", detailImgClass)}
                     />
                   </button>
                 ))}

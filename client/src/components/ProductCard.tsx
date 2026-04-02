@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
+import { catalogProductImageClass } from '@/lib/product-image-classes'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 
@@ -13,6 +14,8 @@ type ProductCardProps = {
   onBeforeNavigate?: (barcode: string) => void
   /** First grid items: faster LCP */
   priority?: boolean
+  /** Web subcategory slug (e.g. `pitara-tops`) — optional framing tweak for known batches */
+  subcategorySlug?: string | null
 }
 
 export default function ProductCard({
@@ -20,6 +23,7 @@ export default function ProductCard({
   rates = [],
   onBeforeNavigate,
   priority = false,
+  subcategorySlug = null,
 }: ProductCardProps) {
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
@@ -85,7 +89,8 @@ export default function ProductCard({
               fill
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               className={cn(
-                'object-contain transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
+                catalogProductImageClass(subcategorySlug),
+                'transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
                 imageLoaded ? 'opacity-100' : 'opacity-0',
               )}
               loading={priority ? 'eager' : 'lazy'}

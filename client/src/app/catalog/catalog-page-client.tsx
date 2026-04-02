@@ -884,6 +884,7 @@ export default function CatalogPageClient() {
                     }
                     rates={rates}
                     priority={i < 8}
+                    subcategorySlug={activeSku?.slug}
                     onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
                   />
                 ))}
