@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
-import { catalogProductImageClass } from '@/lib/product-image-classes'
+import { productImageObjectClass } from '@/lib/product-image-classes'
 import {
   detectImageSurfaceTone,
   shouldAnalyzeImageSurface,
@@ -97,7 +97,7 @@ export default function ProductCard({
               fill
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               className={cn(
-                catalogProductImageClass(subcategorySlug),
+                productImageObjectClass(surfaceTone, subcategorySlug, 'catalog'),
                 blendClassForSurface(surfaceTone),
                 'transition-[opacity,transform] duration-300 ease-out group-hover:scale-105',
                 imageLoaded ? 'opacity-100' : 'opacity-0',

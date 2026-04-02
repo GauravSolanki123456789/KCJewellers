@@ -15,6 +15,7 @@ import {
   type ImageSurfaceTone,
 } from '@/lib/detect-image-surface'
 import { blendClassForSurface } from '@/lib/product-image-blend'
+import { productImageObjectClass } from '@/lib/product-image-classes'
 
 type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number; rate_per_gram?: number; net_weight?: number }
 
@@ -42,7 +43,8 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
         src={src}
         alt={alt}
         className={cn(
-          'w-full h-full object-contain',
+          'w-full h-full',
+          productImageObjectClass(surfaceTone, null, 'catalog'),
           blendClassForSurface(surfaceTone),
         )}
         onLoad={(e) => {

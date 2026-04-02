@@ -21,7 +21,7 @@ import {
   isDiamondItem,
   type Item,
 } from "@/lib/pricing";
-import { detailProductImageClass } from "@/lib/product-image-classes";
+import { productImageObjectClass } from "@/lib/product-image-classes";
 import {
   detectImageSurfaceTone,
   shouldAnalyzeImageSurface,
@@ -231,7 +231,7 @@ export default function ProductDetailClient({
   const subcategorySlug =
     (product as { subcategory_slug?: string }).subcategory_slug ?? null;
   const detailImgClass = cn(
-    detailProductImageClass(subcategorySlug),
+    productImageObjectClass(surfaceTone, subcategorySlug, "detail"),
     blendClassForSurface(surfaceTone),
   );
 

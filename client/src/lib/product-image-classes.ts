@@ -1,3 +1,5 @@
+import type { ImageSurfaceTone } from "./detect-image-surface";
+
 /**
  * Catalogue / PDP image framing for known ERP batches.
  *
@@ -9,6 +11,9 @@
  *
  * Here we only nudge `object-position` for specific subcategory slugs so other lines
  * keep the default centred framing.
+ *
+ * Solid white/black JPEG frames (detected client-side) use `object-cover` so the photo
+ * fills the card and avoids a “floating rectangle” / letterboxed look.
  */
 const SUBCATEGORY_OBJECT_POSITION_TUNING = new Set([
   "pitara-tops",
@@ -35,4 +40,22 @@ export function detailProductImageClass(subcategorySlug?: string | null): string
     return "object-contain object-[center_38%]";
   }
   return "object-contain object-center";
+}
+
+/**
+ * Unified `object-fit` / `object-position` for any product image (catalog, PDP, cart).
+ * When corners look like flat white or black studio frames, use cover + centre so the
+ * image fills the slot and blends with the card instead of sitting as a small box.
+ */
+export function productImageObjectClass(
+  surfaceTone: ImageSurfaceTone | null,
+  subcategorySlug: string | null | undefined,
+  variant: "catalog" | "detail",
+): string {
+  if (surfaceTone === "light" || surfaceTone === "dark") {
+    return "object-cover object-center";
+  }
+  return variant === "catalog"
+    ? catalogProductImageClass(subcategorySlug)
+    : detailProductImageClass(subcategorySlug);
 }
