@@ -35,7 +35,7 @@ type CatalogDataContextValue = {
 
 const CatalogDataContext = createContext<CatalogDataContextValue | null>(null);
 
-export default function CatalogDataProvider({ children }: { children: ReactNode }) {
+export function CatalogDataProvider({ children }: { children: ReactNode }) {
   const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
   const [categories, setCategories] = useState<Category[]>([]);
   const [rates, setRates] = useState<unknown[]>([]);

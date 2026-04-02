@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
+import { productImageAbsoluteUrl } from '@/lib/product-image-url'
 
 type ProductCardProps = {
   product: Item
@@ -22,11 +23,6 @@ export default function ProductCard({
 }: ProductCardProps) {
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
-  const [imgLoaded, setImgLoaded] = useState(false)
-
-  useEffect(() => {
-    setImgLoaded(false)
-  }, [product.image_url])
 
   const displayName =
     (product as { name?: string }).name ||
@@ -41,7 +37,8 @@ export default function ProductCard({
   const { total, originalTotal, discountPercent } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
 
-  const showImage = product.image_url && !imgError
+  const resolvedSrc = productImageAbsoluteUrl(product.image_url)
+  const showImage = Boolean(resolvedSrc) && !imgError
 
   return (
     <Link
@@ -56,28 +53,19 @@ export default function ProductCard({
             {Math.round(discountPercent ?? 0)}% OFF
           </span>
         )}
-        {showImage ? (
-          <>
-            {!imgLoaded && (
-              <div
-                className="absolute inset-0 z-[1] bg-gradient-to-r from-slate-900 via-slate-800/80 to-slate-900 animate-pulse"
-                aria-hidden
-              />
-            )}
-            <Image
-              src={product.image_url!}
-              alt={displayName}
-              fill
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-              className={`object-contain transition-[opacity,transform] duration-300 ease-out group-hover:scale-105 ${
-                imgLoaded ? 'opacity-100 z-[2]' : 'opacity-0 z-[2]'
-              }`}
-              loading={priority ? 'eager' : 'lazy'}
-              priority={priority}
-              onLoad={() => setImgLoaded(true)}
-              onError={() => setImgError(true)}
-            />
-          </>
+        {showImage && resolvedSrc ? (
+          <Image
+            src={resolvedSrc}
+            alt={displayName}
+            fill
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+            className="object-contain transition-transform duration-500 group-hover:scale-105"
+            loading={priority ? 'eager' : 'lazy'}
+            priority={priority}
+            fetchPriority={priority ? 'high' : 'low'}
+            decoding="async"
+            onError={() => setImgError(true)}
+          />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">
             <span className="text-5xl font-bold text-slate-600 select-none">

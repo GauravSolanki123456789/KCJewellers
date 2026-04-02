@@ -32,66 +32,76 @@ export default function DualRangeSlider({
   const [highVal, setHighVal] = useState(high)
   const rangeRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const clamp = (v: number) => Math.min(max, Math.max(min, v))
-    let lo = clamp(low)
-    let hi = clamp(high)
-    if (lo > hi) {
-      lo = min
-      hi = max
-    }
-    setLowVal(lo)
-    setHighVal(hi)
-  }, [low, high, min, max])
+  const safeMin = min >= max ? min : Math.min(min, max)
+  const safeMax = max <= min ? max : Math.max(min, max)
+  const denom = safeMax - safeMin || 1
 
-  const span = Math.max(max - min, 1e-9)
-  const percentLow = ((lowVal - min) / span) * 100
-  const percentHigh = ((highVal - min) / span) * 100
+  useEffect(() => {
+    const lo = Math.min(Math.max(low, safeMin), safeMax)
+    const hi = Math.max(Math.min(high, safeMax), safeMin)
+    let loClamped = lo
+    let hiClamped = Math.max(hi, loClamped + step)
+    if (hiClamped > safeMax) {
+      hiClamped = safeMax
+      loClamped = Math.max(safeMin, hiClamped - step)
+    }
+    setLowVal(loClamped)
+    setHighVal(hiClamped)
+  }, [low, high, safeMin, safeMax, step])
+
+  const percentLow = Math.max(0, Math.min(100, ((lowVal - safeMin) / denom) * 100))
+  const percentHigh = Math.max(0, Math.min(100, ((highVal - safeMin) / denom) * 100))
 
   const handleLowChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const v = Math.min(Number(e.target.value), highVal - step)
+      let v = Number(e.target.value)
+      v = Math.min(v, highVal - step)
+      v = Math.max(v, safeMin)
+      v = Math.min(v, safeMax)
       setLowVal(v)
       onLowChange(v)
     },
-    [highVal, step, onLowChange],
+    [highVal, step, onLowChange, safeMin, safeMax],
   )
 
   const handleHighChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const v = Math.max(Number(e.target.value), lowVal + step)
+      let v = Number(e.target.value)
+      v = Math.max(v, lowVal + step)
+      v = Math.min(v, safeMax)
+      v = Math.max(v, safeMin)
       setHighVal(v)
       onHighChange(v)
     },
-    [lowVal, step, onHighChange],
+    [lowVal, step, onHighChange, safeMin, safeMax],
   )
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-h-[4.5rem]">
       {label && (
-        <div className="flex justify-between items-start gap-2 text-xs min-h-[2.5rem]">
-          <span className="text-slate-500 shrink-0">{label}</span>
-          <span className="text-slate-300 font-medium tabular-nums text-right leading-snug break-all max-w-[min(100%,11rem)]">
+        <div className="flex justify-between text-xs">
+          <span className="text-slate-500">{label}</span>
+          <span className="text-slate-300 font-medium tabular-nums">
             {formatValue(lowVal)} – {formatValue(highVal)}
           </span>
         </div>
       )}
-      <div className="relative h-8 flex items-center shrink-0" ref={rangeRef}>
+      <div className="relative h-8 flex items-center" ref={rangeRef}>
         {/* Track background */}
         <div className="absolute w-full h-1.5 rounded-full bg-slate-700" />
         {/* Active range fill */}
         <div
-          className="absolute h-1.5 rounded-full bg-amber-500 transition-all duration-100"
+          className="absolute h-1.5 rounded-full bg-amber-500 transition-[left,width] duration-150 ease-out"
           style={{
             left: `${percentLow}%`,
-            width: `${percentHigh - percentLow}%`,
+            width: `${Math.max(0, percentHigh - percentLow)}%`,
           }}
         />
         {/* Low thumb input */}
         <input
           type="range"
-          min={min}
-          max={max}
+          min={safeMin}
+          max={safeMax}
           step={step}
           value={lowVal}
           onChange={handleLowChange}
@@ -100,8 +110,8 @@ export default function DualRangeSlider({
         {/* High thumb input - overlapping, higher z so its thumb is on top when overlapping */}
         <input
           type="range"
-          min={min}
-          max={max}
+          min={safeMin}
+          max={safeMax}
           step={step}
           value={highVal}
           onChange={handleHighChange}

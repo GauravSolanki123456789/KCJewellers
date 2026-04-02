@@ -22,6 +22,7 @@ import {
   type Item,
 } from "@/lib/pricing";
 import { productShareMessage } from "@/lib/whatsapp";
+import { productImageAbsoluteUrl } from "@/lib/product-image-url";
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics";
 import { getSocket } from "@/lib/socket";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -189,7 +190,7 @@ export default function ProductDetailClient({
     );
 
   const displayName = productDisplayName(product);
-  const imageUrl = product.image_url;
+  const imageUrl = productImageAbsoluteUrl(product.image_url) || undefined;
   const styleCode = product.style_code || "";
   const sku = product.sku || product.barcode || "";
   const netWeight = getItemWeight(product);
@@ -265,6 +266,8 @@ export default function ProductDetailClient({
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
                         className="object-contain"
+                        priority
+                        fetchPriority="high"
                       />
                     </HoverZoomImage>
                   </div>

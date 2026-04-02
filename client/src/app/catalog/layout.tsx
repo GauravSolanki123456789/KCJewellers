@@ -1,9 +1,8 @@
-import CatalogDataProvider from "./catalog-data-context";
 import CatalogPageClient from "./catalog-page-client";
 
 /**
- * Keeps catalogue UI + data provider mounted across /catalog and /catalog/... slug changes
- * so navigation does not blank the screen or refetch from scratch on every segment change.
+ * Keeps the catalogue shell mounted across /catalog and /catalog/... slug changes
+ * so navigation does not remount the client (no full-screen blank flash).
  */
 export default function CatalogLayout({
   children,
@@ -11,9 +10,9 @@ export default function CatalogLayout({
   children: React.ReactNode;
 }) {
   return (
-    <CatalogDataProvider>
-      <CatalogPageClient />
+    <>
       {children}
-    </CatalogDataProvider>
+      <CatalogPageClient />
+    </>
   );
 }
