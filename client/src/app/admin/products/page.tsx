@@ -73,6 +73,10 @@ type WebCategory = {
   is_published: boolean
   discount_percentage?: number
   subcategories?: SubcategoryInfo[]
+  /** From /api/admin/catalog — which metals have ≥1 active product in this style */
+  has_gold?: boolean
+  has_silver?: boolean
+  has_diamond?: boolean
 }
 
 export default function AdminProductsPage() {
@@ -127,7 +131,7 @@ export default function AdminProductsPage() {
     setLoading(true)
     try {
       const [productsRes, ratesRes] = await Promise.all([
-        axios.get(`${url}/api/products`, { params: { limit: 500, metal_type: selectedMetal } }),
+        axios.get(`${url}/api/products`, { params: { limit: 5000, metal_type: selectedMetal } }),
         axios.get(`${url}/api/rates/display`),
       ])
       const items =
@@ -341,11 +345,22 @@ export default function AdminProductsPage() {
 
   const catalog = groupedCatalog()
 
-  /** Categories that have at least one product of selected metal */
+  /** Styles that have ≥1 active catalogue product for the selected metal (prefer server flags; else fall back to loaded products). */
   const categoriesWithProducts = useMemo(() => {
-    const styleSet = new Set(products.map((p) => (p as { style_code?: string }).style_code).filter(Boolean))
-    return orderedCategories.filter((c) => styleSet.has(c.name))
-  }, [orderedCategories, products])
+    const styleSet = new Set(
+      products.map((p) => (p as { style_code?: string }).style_code).filter(Boolean),
+    )
+    return orderedCategories.filter((c) => {
+      const hasMeta =
+        c.has_gold !== undefined ||
+        c.has_silver !== undefined ||
+        c.has_diamond !== undefined
+      if (!hasMeta) return styleSet.has(c.name)
+      if (selectedMetal === 'gold') return !!c.has_gold
+      if (selectedMetal === 'silver') return !!c.has_silver
+      return !!c.has_diamond
+    })
+  }, [orderedCategories, selectedMetal, products])
 
   const uniqueStyles = Array.from(
     new Set(

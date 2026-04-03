@@ -1346,14 +1346,18 @@ app.get('/api/products', async (req, res) => {
             } else if (mt === 'gold') {
                 whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%' OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%')`);
             } else if (mt === 'silver') {
-                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'silver%' OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%silver%')`);
+                // Match public /api/catalog: NULL/empty metal_type is treated as silver in JSON (COALESCE(..., 'silver')).
+                whereClauses.push(`(
+                    LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE 'silver%'
+                    OR LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE '%silver%'
+                )`);
             }
         }
 
         const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
 
-        // Pagination
-        const limitValue = recent === 'true' ? 5 : (limit ? Math.min(parseInt(limit), 500) : (search ? 100 : null));
+        // Pagination (cap raised so admin Products view can list large single-style inventories)
+        const limitValue = recent === 'true' ? 5 : (limit ? Math.min(parseInt(limit, 10), 5000) : (search ? 100 : null));
         let paginationSQL = ' ORDER BY wp.updated_at DESC';
         const paginationParams = [...params];
         let pp = p;
@@ -4283,13 +4287,45 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                    COALESCE(discount_percentage, 0)::float AS discount_percentage
             FROM web_categories ORDER BY sort_order, name
         `);
+        /** Per-style metal presence (matches storefront filtering; not limited by /api/products LIMIT). */
+        const metalRows = await query(`
+            SELECT wc.id,
+                COALESCE(BOOL_OR(
+                    wp.id IS NOT NULL AND (
+                        LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%'
+                        OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%'
+                    )
+                ), false) AS has_gold,
+                COALESCE(BOOL_OR(
+                    wp.id IS NOT NULL AND (
+                        LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE 'silver%'
+                        OR LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE '%silver%'
+                    )
+                ), false) AS has_silver,
+                COALESCE(BOOL_OR(
+                    wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')
+                ), false) AS has_diamond
+            FROM web_categories wc
+            LEFT JOIN web_subcategories ws ON ws.category_id = wc.id
+            LEFT JOIN web_products wp ON wp.subcategory_id = ws.id
+                AND (wp.is_active IS NULL OR wp.is_active = true)
+            GROUP BY wc.id
+        `);
+        const metalById = new Map(metalRows.map((r) => [r.id, r]));
         const categories = [];
         for (const c of cats) {
             const subs = await query(`
                 SELECT id, name, slug FROM web_subcategories
                 WHERE category_id = $1 ORDER BY sort_order, name
             `, [c.id]);
-            categories.push({ ...c, subcategories: subs });
+            const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false };
+            categories.push({
+                ...c,
+                has_gold: !!m.has_gold,
+                has_silver: !!m.has_silver,
+                has_diamond: !!m.has_diamond,
+                subcategories: subs,
+            });
         }
         res.json({ categories });
     } catch (error) {
