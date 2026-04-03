@@ -1,6 +1,6 @@
 import type { ImageSurfaceTone } from "./detect-image-surface";
 
-/** True for pure white / black ERP frames (blend + optional watermark strip clip). */
+/** True for pure white / black ERP frames (used on PDP for framing hints only). */
 export function isFlatProductImageTone(
   tone: ImageSurfaceTone | null | undefined,
 ): boolean {
@@ -8,12 +8,10 @@ export function isFlatProductImageTone(
 }
 
 /**
- * Wrapper for the Next/Image fill layer: clips the bottom strip where ERP watermarks
- * (e.g. PITARA RING + barcode) usually sit on pure white/black frames.
- * Use with `object-contain` + centred positioning so the full piece stays visible; only the label band is hidden.
+ * Full-bleed viewport for Next/Image `fill`. We no longer reserve a bottom strip:
+ * that strip showed as empty navy in the grid. Watermarks are handled by `object-cover`
+ * cropping instead.
  */
-export function productImageViewportWrapperClass(isFlat: boolean): string {
-  return isFlat
-    ? "absolute inset-x-0 top-0 bottom-[11%] sm:bottom-[10%] overflow-hidden"
-    : "absolute inset-0 overflow-hidden";
+export function productImageViewportWrapperClass(): string {
+  return "absolute inset-0 overflow-hidden";
 }

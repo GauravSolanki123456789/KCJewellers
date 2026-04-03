@@ -315,7 +315,7 @@ export default function ProductDetailClient({
                       !pdpImageLoaded && "animate-pulse",
                     )}
                   />
-                  <div className={productImageViewportWrapperClass(isFlatBg)}>
+                  <div className={productImageViewportWrapperClass()}>
                     <HoverZoomImage>
                       <Image
                         key={`${imageUrl}-${pdpImageUnoptimized ? "u" : "o"}`}
@@ -355,7 +355,7 @@ export default function ProductDetailClient({
                     type="button"
                     className={`relative shrink-0 h-16 w-16 rounded-lg overflow-hidden border border-slate-700 hover:border-amber-500/50 transition-colors ${productImageWellClass}`}
                   >
-                    <div className={productImageViewportWrapperClass(isFlatBg)}>
+                    <div className={productImageViewportWrapperClass()}>
                       <Image
                         src={normalizeCatalogImageSrc(src)}
                         alt=""

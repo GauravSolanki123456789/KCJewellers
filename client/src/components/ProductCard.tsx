@@ -5,15 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
 import { catalogProductImageClass } from '@/lib/product-image-classes'
-import {
-  analyzeProductImage,
-  shouldAnalyzeImageSurface,
-  type ProductImageAnalysis,
-} from '@/lib/detect-image-surface'
-import {
-  isFlatProductImageTone,
-  productImageViewportWrapperClass,
-} from '@/lib/flat-product-image'
+import { productImageViewportWrapperClass } from '@/lib/flat-product-image'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
@@ -39,7 +31,6 @@ export default function ProductCard({
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
-  const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null)
   const [fallbackUnoptimized, setFallbackUnoptimized] = useState(false)
 
   const displayName =
@@ -55,7 +46,6 @@ export default function ProductCard({
   useEffect(() => {
     setImageLoaded(false)
     setImgError(false)
-    setImageAnalysis(null)
     setFallbackUnoptimized(false)
   }, [product.image_url, barcode, imageSrc])
   const styleCode =
@@ -65,8 +55,6 @@ export default function ProductCard({
   const hasDiscount = (discountPercent ?? 0) > 0
 
   const showImage = !!imageSrc && !imgError
-  const isFlatBg = isFlatProductImageTone(imageAnalysis?.tone)
-
   return (
     <Link
       href={`/products/${encodeURIComponent(barcode)}`}
@@ -104,7 +92,7 @@ export default function ProductCard({
                 {displayName.charAt(0)}
               </span>
             </div>
-            <div className={productImageViewportWrapperClass(isFlatBg)}>
+            <div className={productImageViewportWrapperClass()}>
               <Image
                 key={`${imageSrc}-${fallbackUnoptimized ? 'u' : 'o'}`}
                 src={imageSrc}
@@ -112,7 +100,7 @@ export default function ProductCard({
                 fill
                 sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                 className={cn(
-                  catalogProductImageClass(subcategorySlug, { flatTone: isFlatBg }),
+                  catalogProductImageClass(subcategorySlug),
                   'transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]',
                 )}
                 unoptimized={fallbackUnoptimized}
@@ -120,13 +108,7 @@ export default function ProductCard({
                 loading={priority ? 'eager' : 'lazy'}
                 priority={priority}
                 fetchPriority={priority ? 'high' : 'low'}
-                onLoad={(e) => {
-                  const el = e.currentTarget
-                  setImageLoaded(true)
-                  if (shouldAnalyzeImageSurface(el)) {
-                    setImageAnalysis(analyzeProductImage(el))
-                  }
-                }}
+                onLoad={() => setImageLoaded(true)}
                 onError={() => {
                   if (!fallbackUnoptimized) {
                     setFallbackUnoptimized(true)

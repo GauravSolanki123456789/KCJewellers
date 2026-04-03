@@ -1,33 +1,35 @@
 /**
  * Catalogue / PDP image framing for known ERP batches.
  *
- * **Catalog grid:** `object-cover` so thumbnails fill the card (no empty letterboxing).
+ * **Catalog grid:** `object-cover` + full-bleed viewport (see `flat-product-image`).
  * **PDP:** `object-contain` so the full piece is visible for purchase decisions.
  * Wells use `bg-[#0B1120]` on parents (`product-image-theme`).
+ *
+ * Subcategory `object-position` nudges focal point for batches where the subject
+ * sits slightly off-centre in the source file (reduces uneven crops vs plain `center`).
  */
-const SUBCATEGORY_OBJECT_POSITION_TUNING = new Set([
-  "pitara-tops",
-  "pitara-pendant",
-]);
+const CATALOG_OBJECT_POSITION: Record<string, string> = {
+  "pitara-tops": "object-[center_50%_42%]",
+  "pitara-pendant": "object-[center_50%_42%]",
+  "pitara-ring": "object-[center_50%_43%]",
+};
 
-function useTunedFraming(subcategorySlug?: string | null): boolean {
-  const s = (subcategorySlug || "").toLowerCase().trim();
-  return SUBCATEGORY_OBJECT_POSITION_TUNING.has(s);
-}
+/** Same focal nudges as the grid, with `contain` for the PDP hero. */
+const PDP_OBJECT_POSITION: Record<string, string> = {
+  "pitara-tops": "object-[center_50%_42%]",
+  "pitara-pendant": "object-[center_50%_42%]",
+  "pitara-ring": "object-[center_50%_43%]",
+};
 
 type FramingOpts = {
-  /** Pure white/black frame — cover + centre; bottom strip may be clipped via viewport wrapper. */
+  /** Pure white/black frame — PDP only. */
   flatTone?: boolean;
 };
 
-export function catalogProductImageClass(
-  subcategorySlug?: string | null,
-  opts?: FramingOpts,
-): string {
-  if (opts?.flatTone) return "object-cover object-center";
-  if (useTunedFraming(subcategorySlug)) {
-    return "object-cover object-[center_38%]";
-  }
+export function catalogProductImageClass(subcategorySlug?: string | null): string {
+  const s = (subcategorySlug || "").toLowerCase().trim();
+  const pos = CATALOG_OBJECT_POSITION[s];
+  if (pos) return `object-cover ${pos}`;
   return "object-cover object-center";
 }
 
@@ -36,8 +38,8 @@ export function detailProductImageClass(
   opts?: FramingOpts,
 ): string {
   if (opts?.flatTone) return "object-contain object-center";
-  if (useTunedFraming(subcategorySlug)) {
-    return "object-contain object-[center_38%]";
-  }
+  const s = (subcategorySlug || "").toLowerCase().trim();
+  const pos = PDP_OBJECT_POSITION[s];
+  if (pos) return `object-contain ${pos}`;
   return "object-contain object-center";
 }
