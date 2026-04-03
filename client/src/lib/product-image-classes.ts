@@ -1,8 +1,9 @@
 /**
  * Catalogue / PDP image framing for known ERP batches.
  *
- * Uses `object-contain` so the full piece stays visible (no perceived cropping).
- * Padding uses the same deep-navy well (`bg-[#0B1120]`) on the parent so edges blend with the UI.
+ * **Catalog grid:** `object-cover` so thumbnails fill the card (no empty letterboxing).
+ * **PDP:** `object-contain` so the full piece is visible for purchase decisions.
+ * Wells use `bg-[#0B1120]` on parents (`product-image-theme`).
  */
 const SUBCATEGORY_OBJECT_POSITION_TUNING = new Set([
   "pitara-tops",
@@ -15,7 +16,7 @@ function useTunedFraming(subcategorySlug?: string | null): boolean {
 }
 
 type FramingOpts = {
-  /** Pure white/black frame — same contain + centre; bottom strip may be clipped via viewport wrapper. */
+  /** Pure white/black frame — cover + centre; bottom strip may be clipped via viewport wrapper. */
   flatTone?: boolean;
 };
 
@@ -23,11 +24,11 @@ export function catalogProductImageClass(
   subcategorySlug?: string | null,
   opts?: FramingOpts,
 ): string {
-  if (opts?.flatTone) return "object-contain object-center";
+  if (opts?.flatTone) return "object-cover object-center";
   if (useTunedFraming(subcategorySlug)) {
-    return "object-contain object-[center_38%]";
+    return "object-cover object-[center_38%]";
   }
-  return "object-contain object-center";
+  return "object-cover object-center";
 }
 
 export function detailProductImageClass(

@@ -113,7 +113,7 @@ export default function ProductCard({
                 sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                 className={cn(
                   catalogProductImageClass(subcategorySlug, { flatTone: isFlatBg }),
-                  'transition-[filter] duration-300 ease-out group-hover:brightness-105',
+                  'transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]',
                 )}
                 unoptimized={fallbackUnoptimized}
                 decoding="async"
