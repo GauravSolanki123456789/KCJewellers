@@ -118,7 +118,6 @@ export default function CatalogPageClient() {
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
   const [activeSkuId, setActiveSkuId] = useState<number | null>(null)
-  const [expandedStyles, setExpandedStyles] = useState<Set<number>>(new Set())
   const [weightLow, setWeightLow] = useState(0)
   const [weightHigh, setWeightHigh] = useState(100)
   const [priceLow, setPriceLow] = useState(0)
@@ -136,7 +135,6 @@ export default function CatalogPageClient() {
         selectedMetal,
         activeStyleId,
         activeSkuId,
-        expandedStyles: Array.from(expandedStyles),
         weightLow,
         weightHigh,
         priceLow,
@@ -151,7 +149,7 @@ export default function CatalogPageClient() {
     } catch {
       /* ignore */
     }
-  }, [selectedMetal, activeStyleId, activeSkuId, expandedStyles, weightLow, weightHigh, priceLow, priceHigh])
+  }, [selectedMetal, activeStyleId, activeSkuId, weightLow, weightHigh, priceLow, priceHigh])
 
   const selectedMetalRef = useRef(selectedMetal)
   const activeStyleIdRef = useRef(activeStyleId)
@@ -176,7 +174,6 @@ export default function CatalogPageClient() {
     const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
     if (cat) {
       setActiveStyleId(cat.id)
-      setExpandedStyles((prev) => new Set([...prev, cat.id]))
       const sub = cat.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
       if (sub) setActiveSkuId(sub.id)
       else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
@@ -185,7 +182,6 @@ export default function CatalogPageClient() {
         const sub = c.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
         if (sub) {
           setActiveStyleId(c.id)
-          setExpandedStyles((prev) => new Set([...prev, c.id]))
           setActiveSkuId(sub.id)
           break
         }
@@ -223,10 +219,8 @@ export default function CatalogPageClient() {
       if (styleExists && subExists) {
         setActiveStyleId(parsed.activeStyleId!)
         setActiveSkuId(parsed.activeSkuId!)
-        setExpandedStyles(new Set(parsed.expandedStyles || [parsed.activeStyleId!]))
       } else {
         setActiveStyleId(cats[0].id)
-        setExpandedStyles(new Set([cats[0].id]))
         setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
       }
       if (parsed.weightLow != null) setWeightLow(parsed.weightLow)
@@ -249,7 +243,6 @@ export default function CatalogPageClient() {
         const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
         if (cat) {
           setActiveStyleId(cat.id)
-          setExpandedStyles((prev) => new Set([...prev, cat.id]))
           if (skuSlug) {
             const sub = cat.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
             if (sub) setActiveSkuId(sub.id)
@@ -263,7 +256,6 @@ export default function CatalogPageClient() {
           const sub = cat.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
           if (sub) {
             setActiveStyleId(cat.id)
-            setExpandedStyles((prev) => new Set([...prev, cat.id]))
             setActiveSkuId(sub.id)
             break
           }
@@ -271,7 +263,6 @@ export default function CatalogPageClient() {
       }
       if (!styleSlug && !skuSlug) {
         setActiveStyleId(cats[0].id)
-        setExpandedStyles(new Set([cats[0].id]))
         setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
       }
     }
@@ -299,12 +290,10 @@ export default function CatalogPageClient() {
         sessionStorage.removeItem(CATALOG_STATE_KEY)
       } else {
         setActiveStyleId(cats[0].id)
-        setExpandedStyles(new Set([cats[0].id]))
         setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
       }
     } catch {
       setActiveStyleId(cats[0].id)
-      setExpandedStyles(new Set([cats[0].id]))
       setActiveSkuId(cats[0].subcategories[0]?.id ?? null)
     }
 
@@ -402,7 +391,6 @@ export default function CatalogPageClient() {
     if (!stillValid) {
       const first = filteredCategories[0]
       setActiveStyleId(first.id)
-      setExpandedStyles(new Set([first.id]))
       setActiveSkuId(first.subcategories[0]?.id ?? null)
     }
   }, [filteredCategories, activeStyleId, activeSkuId])
@@ -477,6 +465,46 @@ export default function CatalogPageClient() {
     }
   }, [scrollToBarcode, products])
 
+  const productGridSectionRef = useRef<HTMLElement | null>(null)
+  const catalogSelectionSnapshotRef = useRef<{
+    metal: MetalKey
+    styleId: number | null
+    skuId: number | null
+  } | null>(null)
+
+  useEffect(() => {
+    if (!catalogHydrated || typeof window === 'undefined') return
+
+    const next = {
+      metal: selectedMetal,
+      styleId: activeStyleId,
+      skuId: activeSkuId,
+    }
+    if (scrollToBarcode) {
+      catalogSelectionSnapshotRef.current = next
+      return
+    }
+    const prev = catalogSelectionSnapshotRef.current
+    catalogSelectionSnapshotRef.current = next
+    if (prev === null) return
+    if (
+      prev.metal === next.metal &&
+      prev.styleId === next.styleId &&
+      prev.skuId === next.skuId
+    ) {
+      return
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        productGridSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      })
+    })
+  }, [catalogHydrated, selectedMetal, activeStyleId, activeSkuId, scrollToBarcode])
+
   const hasActiveFilters =
     weightLow > weightBounds[0] ||
     weightHigh < weightBounds[1] ||
@@ -485,12 +513,6 @@ export default function CatalogPageClient() {
 
   const handleStyleClick = (cat: Category) => {
     setActiveStyleId(cat.id)
-    setExpandedStyles((prev) => {
-      const next = new Set(prev)
-      if (next.has(cat.id)) next.delete(cat.id)
-      else next.add(cat.id)
-      return next
-    })
     if (cat.subcategories.length > 0) {
       setActiveSkuId(cat.subcategories[0].id)
     } else {
@@ -759,7 +781,7 @@ export default function CatalogPageClient() {
                 </p>
               ) : (
               filteredCategories.map((cat) => {
-                const isExpanded = expandedStyles.has(cat.id)
+                const isExpanded = activeStyleId === cat.id
                 const isActive = activeStyleId === cat.id
                 return (
                   <div key={cat.id}>
@@ -812,7 +834,11 @@ export default function CatalogPageClient() {
           </aside>
 
           {/* ── Right: product grid (75 %) ── */}
-          <section className="flex-1 min-w-0">
+          <section
+            ref={productGridSectionRef}
+            id="catalog-product-grid"
+            className="flex-1 min-w-0 scroll-mt-12 md:scroll-mt-14"
+          >
             {/* Mobile filters */}
             <div className="lg:hidden mb-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-4">
               <DualRangeSlider
