@@ -30,8 +30,8 @@ export async function generateMetadata({
       images: [
         {
           url: ogImage,
-          width: 1200,
-          height: 1200,
+          width: 2048,
+          height: 2048,
           alt: "KC Jewellers",
         },
       ],
