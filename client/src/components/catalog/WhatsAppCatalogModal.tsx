@@ -10,7 +10,6 @@ import type { Item } from '@/lib/pricing'
 import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
 import { shareCatalogPdfBlob } from '@/lib/pdf-share'
-import { getSiteUrl } from '@/lib/site'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 
 const EXPIRY_OPTIONS = [
@@ -156,8 +155,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
   const waShareHref = useMemo(() => {
     if (!shareUrl) return null
-    const site = getSiteUrl()
-    const text = `KC Jewellers — curated catalogue for you:\n${shareUrl}\n\n(View prices on ${site})`
+    const text = `KC Jewellers — curated catalogue for you:\n${shareUrl}`
     return buildWhatsAppShareLink(text)
   }, [shareUrl])
 

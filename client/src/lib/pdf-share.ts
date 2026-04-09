@@ -15,37 +15,43 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 /**
- * 1) Always save the PDF to the device (Downloads / Files).
- * 2) Then open the system share sheet when supported (e.g. WhatsApp on mobile).
- * 3) If share isn’t available, open WhatsApp with a short message (attach the file you saved).
- * If the user dismisses share, the file remains downloaded from step 1.
+ * 1) Save the PDF to the device.
+ * 2) After a short delay (lets mobile browsers finish the download), open the system share sheet
+ *    with the PDF so the user can pick WhatsApp. Some Android builds report `canShare` false even
+ *    when sharing works — we still call `navigator.share({ files })` and rely on try/catch.
+ * 3) If file sharing isn’t supported or fails, open WhatsApp with a short text (user attaches the file).
  */
 export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise<void> {
   triggerDownload(blob, filename)
 
-  const file = new File([blob], filename, { type: 'application/pdf' })
-  const share = typeof navigator !== 'undefined' && navigator.share
-  const canShareFiles =
-    share &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [file] })
+  /* Brief yield so the download can start; keeps closer to the user gesture for `navigator.share` on mobile. */
+  await new Promise<void>((resolve) => {
+    setTimeout(() => resolve(), 200)
+  })
 
-  if (canShareFiles) {
+  const file = new File([blob], filename, { type: 'application/pdf' })
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    const payload: ShareData = {
+      files: [file],
+      title: 'KC Jewellers catalogue',
+      text: 'KC Jewellers — catalogue PDF',
+    }
+
     try {
-      await navigator.share({
-        files: [file],
-        title: 'KC Jewellers catalogue',
-        text: 'KC Jewellers — catalogue PDF',
-      })
+      if (typeof navigator.canShare === 'function' && !navigator.canShare(payload)) {
+        /* still try — mobile Chrome/WebView sometimes misreports */
+      }
+      await navigator.share(payload)
+      return
     } catch (e) {
-      if ((e as Error)?.name === 'AbortError') {
-        /* user closed share — download already completed */
+      const err = e as Error
+      if (err?.name === 'AbortError') {
         return
       }
     }
-    return
   }
 
-  const msg = `KC Jewellers — catalogue PDF (${filename}). Attach the file you just saved from Downloads.`
+  const msg = `KC Jewellers — catalogue PDF (${filename}). Attach the file you just saved.`
   window.open(buildWhatsAppShareLink(msg), '_blank', 'noopener,noreferrer')
 }

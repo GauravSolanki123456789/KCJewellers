@@ -224,10 +224,6 @@ export default function SharedCatalogClient() {
           </ul>
         )}
       </main>
-
-      <footer className="mx-auto mt-14 max-w-6xl px-4 text-center text-xs text-slate-600 md:px-8">
-        <p>Pricing is indicative — visit {site} or contact us to confirm.</p>
-      </footer>
     </div>
   )
 }

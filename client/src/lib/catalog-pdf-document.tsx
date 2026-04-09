@@ -111,7 +111,6 @@ export function CatalogPdfDocument({
               <Text style={styles.brand}>{brandName}</Text>
               <Text style={styles.sub}>
                 Catalogue · {products.length} item{products.length !== 1 ? 's' : ''}
-                {markupPercentage > 0 ? ` · ${markupPercentage}% markup incl.` : ''}
               </Text>
             </View>
           )}
