@@ -580,6 +580,24 @@ async function initSchema() {
             VALUES ('http://localhost:9000', 'Default Company', false, 'manual', false)`);
     }
 
+    // Shared WhatsApp catalog links (admin-generated, time-limited product sets + markup)
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS shared_catalogs (
+                id UUID PRIMARY KEY NOT NULL,
+                product_ids TEXT[] NOT NULL,
+                markup_percentage DOUBLE PRECISION NOT NULL DEFAULT 0,
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_shared_catalogs_expires_at ON shared_catalogs(expires_at)
+        `);
+    } catch (error) {
+        console.warn('shared_catalogs init:', error.message);
+    }
+
     // App settings (booking advance amount, etc.)
     try {
         await pool.query(`

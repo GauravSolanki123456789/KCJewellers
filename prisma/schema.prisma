@@ -1,0 +1,21 @@
+// Mirrors PostgreSQL table `shared_catalogs` created in config/database.js (initSchema).
+// Runtime uses `pg` in server.js — this file documents the shape for tooling / future Prisma adoption.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SharedCatalog {
+  id               String   @id @db.Uuid
+  productIds       String[] @map("product_ids")
+  markupPercentage Float    @map("markup_percentage")
+  expiresAt        DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("shared_catalogs")
+}

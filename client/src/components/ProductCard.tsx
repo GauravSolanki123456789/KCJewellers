@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { catalogProductImageClass } from '@/lib/product-image-classes'
 import { productImageViewportWrapperClass } from '@/lib/flat-product-image'
@@ -19,6 +20,10 @@ type ProductCardProps = {
   priority?: boolean
   /** Web subcategory slug (e.g. `pitara-tops`) — optional framing tweak for known batches */
   subcategorySlug?: string | null
+  /** Admin catalogue builder: selection checkbox on the card */
+  catalogBuilderActive?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
 }
 
 export default function ProductCard({
@@ -27,6 +32,9 @@ export default function ProductCard({
   onBeforeNavigate,
   priority = false,
   subcategorySlug = null,
+  catalogBuilderActive = false,
+  selected = false,
+  onToggleSelect,
 }: ProductCardProps) {
   const cart = useCart()
   const [imgError, setImgError] = useState(false)
@@ -56,12 +64,37 @@ export default function ProductCard({
 
   const showImage = !!imageSrc && !imgError
   return (
-    <Link
-      href={`/products/${encodeURIComponent(barcode)}`}
-      onClick={() => onBeforeNavigate?.(barcode)}
-      data-product-id={barcode}
-      className="group rounded-xl overflow-hidden bg-slate-900 border border-slate-800 hover:border-amber-500/30 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 flex flex-col"
-    >
+    <div className="relative">
+      {catalogBuilderActive && (
+        <button
+          type="button"
+          aria-pressed={selected}
+          aria-label={selected ? 'Deselect item' : 'Select item'}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onToggleSelect?.()
+          }}
+          className="absolute left-2 top-2 z-30 flex size-9 items-center justify-center rounded-lg border border-slate-600/90 bg-slate-950/90 shadow-md backdrop-blur-sm transition hover:border-amber-500/50 md:left-2.5 md:top-2.5"
+        >
+          <span
+            className={cn(
+              'flex size-5 items-center justify-center rounded border-2 transition-colors',
+              selected
+                ? 'border-amber-400 bg-amber-500 text-slate-950'
+                : 'border-slate-500 bg-slate-900/80',
+            )}
+          >
+            {selected && <Check className="size-3.5 stroke-[3]" aria-hidden />}
+          </span>
+        </button>
+      )}
+      <Link
+        href={`/products/${encodeURIComponent(barcode)}`}
+        onClick={() => onBeforeNavigate?.(barcode)}
+        data-product-id={barcode}
+        className="group flex flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-sm transition-all duration-300 hover:border-amber-500/30 hover:shadow-lg hover:shadow-amber-500/5"
+      >
       <div
         className={`relative isolate aspect-[4/5] overflow-hidden ${productImageWellClass}`}
       >
@@ -161,18 +194,21 @@ export default function ProductCard({
           </div>
         </div>
 
-        <button
-          className="w-full mt-auto pt-2"
-          onClick={(e) => {
-            e.preventDefault()
-            cart.add(product)
-          }}
-        >
-          <span className="block w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold transition-colors">
-            Add to Cart
-          </span>
-        </button>
+        {!catalogBuilderActive && (
+          <button
+            className="mt-auto w-full pt-2"
+            onClick={(e) => {
+              e.preventDefault()
+              cart.add(product)
+            }}
+          >
+            <span className="block w-full rounded-lg bg-amber-500 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-amber-400">
+              Add to Cart
+            </span>
+          </button>
+        )}
       </div>
     </Link>
+    </div>
   )
 }

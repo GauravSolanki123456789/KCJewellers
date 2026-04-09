@@ -22,6 +22,16 @@ import {
 } from '@/lib/catalog-paths'
 import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
 import { useCatalogData } from './catalog-data-context'
+import { useAuth } from '@/hooks/useAuth'
+import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
+import { isCatalogAdminUser } from '@/lib/is-catalog-admin'
+import CatalogSelectionFab from '@/components/catalog/CatalogSelectionFab'
+import WhatsAppCatalogModal from '@/components/catalog/WhatsAppCatalogModal'
+import {
+  productMatchesMetal,
+  productPassesCatalogFilters,
+  getProductSelectionKey,
+} from '@/lib/catalog-product-filters'
 
 type Product = Item
 
@@ -61,15 +71,6 @@ type CatalogSessionState = {
   scrollToBarcode?: string
 }
 
-/** Returns true if product's metal_type matches the selected metal tab */
-function productMatchesMetal(product: Product, metal: MetalKey): boolean {
-  const m = (product.metal_type || '').toLowerCase()
-  if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
-  if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
-  if (metal === 'diamond') return m.startsWith('diamond') || m.includes('diamond')
-  return false
-}
-
 /** First metal that has products; used for smart default */
 function firstAvailableMetal(categories: Category[]): MetalKey {
   const allProducts = categories.flatMap((c) =>
@@ -79,6 +80,106 @@ function firstAvailableMetal(categories: Category[]): MetalKey {
     if (allProducts.some((p) => productMatchesMetal(p, tab.key))) return tab.key
   }
   return 'gold'
+}
+
+function collectFilteredIdsForStyle(
+  filteredCategories: Category[],
+  styleId: number,
+  selectedMetal: MetalKey,
+  weightLow: number,
+  weightHigh: number,
+  priceLow: number,
+  priceHigh: number,
+  rates: unknown,
+): string[] {
+  const cat = filteredCategories.find((c) => c.id === styleId)
+  if (!cat) return []
+  const out: string[] = []
+  for (const sub of cat.subcategories) {
+    for (const p of sub.products) {
+      if (
+        productPassesCatalogFilters(
+          p,
+          selectedMetal,
+          weightLow,
+          weightHigh,
+          priceLow,
+          priceHigh,
+          rates,
+        )
+      ) {
+        const k = getProductSelectionKey(p)
+        if (k) out.push(k)
+      }
+    }
+  }
+  return [...new Set(out)]
+}
+
+function collectFilteredIdsForSku(
+  filteredCategories: Category[],
+  styleId: number,
+  skuId: number,
+  selectedMetal: MetalKey,
+  weightLow: number,
+  weightHigh: number,
+  priceLow: number,
+  priceHigh: number,
+  rates: unknown,
+): string[] {
+  const cat = filteredCategories.find((c) => c.id === styleId)
+  if (!cat) return []
+  const sub = cat.subcategories.find((s) => s.id === skuId)
+  if (!sub) return []
+  const out: string[] = []
+  for (const p of sub.products) {
+    if (
+      productPassesCatalogFilters(
+        p,
+        selectedMetal,
+        weightLow,
+        weightHigh,
+        priceLow,
+        priceHigh,
+        rates,
+      )
+    ) {
+      const k = getProductSelectionKey(p)
+      if (k) out.push(k)
+    }
+  }
+  return [...new Set(out)]
+}
+
+function BulkSelectCheckbox({
+  allSelected,
+  someSelected,
+  onToggle,
+  ariaLabel,
+}: {
+  allSelected: boolean
+  someSelected: boolean
+  onToggle: () => void
+  ariaLabel: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = someSelected && !allSelected
+  }, [someSelected, allSelected])
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={allSelected}
+      onChange={(e) => {
+        e.stopPropagation()
+        onToggle()
+      }}
+      onClick={(e) => e.stopPropagation()}
+      aria-label={ariaLabel}
+      className="size-4 shrink-0 cursor-pointer rounded border-slate-600 bg-slate-900 accent-amber-500"
+    />
+  )
 }
 
 function pathSegmentsFromPathname(pathname: string): ParsedCatalogPath | null {
@@ -114,6 +215,20 @@ export default function CatalogPageClient() {
   const router = useRouter()
   const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing } =
     useCatalogData()
+  const auth = useAuth()
+  const {
+    catalogBuilderMode,
+    setCatalogBuilderMode,
+    selectedProductIds,
+    toggleProductId,
+    addProductIds,
+    removeProductIds,
+    isProductSelected,
+    clearSelection,
+  } = useCatalogBuilder()
+  const isAdmin = auth.isAuthenticated === true && isCatalogAdminUser(auth.user)
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
+
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
@@ -154,6 +269,10 @@ export default function CatalogPageClient() {
   const selectedMetalRef = useRef(selectedMetal)
   const activeStyleIdRef = useRef(activeStyleId)
   const activeSkuIdRef = useRef(activeSkuId)
+  useEffect(() => {
+    if (!catalogBuilderMode) clearSelection()
+  }, [catalogBuilderMode, clearSelection])
+
   useEffect(() => {
     selectedMetalRef.current = selectedMetal
   }, [selectedMetal])
@@ -525,6 +644,41 @@ export default function CatalogPageClient() {
     setActiveSkuId(sub.id)
   }
 
+  const toggleStyleSelectAll = (styleId: number) => {
+    const ids = collectFilteredIdsForStyle(
+      filteredCategories,
+      styleId,
+      selectedMetal,
+      weightLow,
+      weightHigh,
+      priceLow,
+      priceHigh,
+      rates,
+    )
+    if (ids.length === 0) return
+    const allOn = ids.every((id) => selectedProductIds.includes(id))
+    if (allOn) removeProductIds(ids)
+    else addProductIds(ids)
+  }
+
+  const toggleSkuSelectAll = (styleId: number, skuId: number) => {
+    const ids = collectFilteredIdsForSku(
+      filteredCategories,
+      styleId,
+      skuId,
+      selectedMetal,
+      weightLow,
+      weightHigh,
+      priceLow,
+      priceHigh,
+      rates,
+    )
+    if (ids.length === 0) return
+    const allOn = ids.every((id) => selectedProductIds.includes(id))
+    if (allOn) removeProductIds(ids)
+    else addProductIds(ids)
+  }
+
   const breadcrumb = [activeStyle?.name, activeSku?.name]
     .filter(Boolean)
     .join(' \u203A ')
@@ -642,7 +796,11 @@ export default function CatalogPageClient() {
           Refreshing…
         </div>
       )}
-      <main className="max-w-[1400px] mx-auto px-4 py-6 pb-28">
+      <main
+        className={`max-w-[1400px] mx-auto px-4 py-6 ${
+          catalogBuilderMode && selectedProductIds.length > 0 ? 'pb-40 sm:pb-36' : 'pb-28'
+        }`}
+      >
         {/* Metal Type Tabs — touch-friendly; labels must not truncate (was blocking Diamond taps on narrow screens). */}
         <div className="flex justify-center mb-4 px-1">
           <div className="inline-flex w-full max-w-xl sm:max-w-none sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
@@ -666,6 +824,31 @@ export default function CatalogPageClient() {
             })}
           </div>
         </div>
+
+        {isAdmin && (
+          <div className="flex justify-center mb-4 px-1">
+            <div className="flex w-full max-w-xl items-center justify-between gap-3 rounded-xl border border-slate-800/90 bg-slate-900/35 px-3 py-2 shadow-inner sm:justify-center sm:gap-6">
+              <span className="text-xs font-medium text-slate-400 sm:text-sm">Catalog Builder</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={catalogBuilderMode}
+                onClick={() => setCatalogBuilderMode(!catalogBuilderMode)}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 ${
+                  catalogBuilderMode
+                    ? 'border-amber-400/50 bg-amber-500'
+                    : 'border-slate-600 bg-slate-800'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                    catalogBuilderMode ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Contact = business chat; Share = wa.me/?text= catalogue link (distinct icons) */}
         <div className="flex items-center justify-between gap-2 mb-4">
@@ -691,43 +874,108 @@ export default function CatalogPageClient() {
         {/* ── Mobile: horizontal chips ── */}
         <div className="lg:hidden space-y-3 mb-5">
           {/* Style chips */}
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {filteredCategories.length === 0 ? (
-              <p className="text-slate-500 text-sm py-2">No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles</p>
-            ) : filteredCategories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => handleStyleClick(cat)}
-                className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-                  activeStyleId === cat.id
-                    ? 'bg-amber-500 text-slate-950'
-                    : 'bg-slate-800 text-slate-300 border border-slate-700'
-                }`}
-              >
-                {cat.name}
-              </button>
-            ))}
+          <div className="flex flex-col gap-1.5">
+            {catalogBuilderMode && isAdmin && (
+              <div className="flex items-center justify-between px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                <span>Style</span>
+                <span className="text-slate-600">Select</span>
+              </div>
+            )}
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {filteredCategories.length === 0 ? (
+                <p className="text-slate-500 text-sm py-2">No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles</p>
+              ) : filteredCategories.map((cat) => {
+                const styleScopeIds = collectFilteredIdsForStyle(
+                  filteredCategories,
+                  cat.id,
+                  selectedMetal,
+                  weightLow,
+                  weightHigh,
+                  priceLow,
+                  priceHigh,
+                  rates,
+                )
+                const sn = styleScopeIds.filter((id) => selectedProductIds.includes(id)).length
+                const allStyle = styleScopeIds.length > 0 && sn === styleScopeIds.length
+                const someStyle = sn > 0 && sn < styleScopeIds.length
+                return (
+                  <div key={cat.id} className="flex shrink-0 items-center gap-1.5">
+                    {catalogBuilderMode && isAdmin && (
+                      <BulkSelectCheckbox
+                        allSelected={allStyle}
+                        someSelected={someStyle}
+                        onToggle={() => toggleStyleSelectAll(cat.id)}
+                        ariaLabel={`Select all filtered items in style ${cat.name}`}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleStyleClick(cat)}
+                      className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                        activeStyleId === cat.id
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-300 border border-slate-700'
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           {/* SKU pills */}
           {activeStyle && activeStyle.subcategories.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-              {activeStyle.subcategories.map((sub) => (
-                <button
-                  key={sub.id}
-                  onClick={() => handleSkuClick(sub, activeStyle.id)}
-                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    activeSkuId === sub.id
-                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                      : 'bg-slate-800/60 text-slate-400 border border-slate-700/60'
-                  }`}
-                >
-                  {sub.name}
-                  <span className="ml-1 opacity-60">
-                    {sub.products.length}
-                  </span>
-                </button>
-              ))}
+            <div className="flex flex-col gap-1.5">
+              {catalogBuilderMode && isAdmin && (
+                <div className="flex items-center justify-between px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  <span>SKU</span>
+                  <span className="text-slate-600">Select</span>
+                </div>
+              )}
+              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                {activeStyle.subcategories.map((sub) => {
+                  const skuScopeIds = collectFilteredIdsForSku(
+                    filteredCategories,
+                    activeStyle.id,
+                    sub.id,
+                    selectedMetal,
+                    weightLow,
+                    weightHigh,
+                    priceLow,
+                    priceHigh,
+                    rates,
+                  )
+                  const kn = skuScopeIds.filter((id) => selectedProductIds.includes(id)).length
+                  const allSku = skuScopeIds.length > 0 && kn === skuScopeIds.length
+                  const someSku = kn > 0 && kn < skuScopeIds.length
+                  return (
+                    <div key={sub.id} className="flex shrink-0 items-center gap-1.5">
+                      {catalogBuilderMode && isAdmin && (
+                        <BulkSelectCheckbox
+                          allSelected={allSku}
+                          someSelected={someSku}
+                          onToggle={() => toggleSkuSelectAll(activeStyle.id, sub.id)}
+                          ariaLabel={`Select all filtered items in SKU ${sub.name}`}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleSkuClick(sub, activeStyle.id)}
+                        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                          activeSkuId === sub.id
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                            : 'bg-slate-800/60 text-slate-400 border border-slate-700/60'
+                        }`}
+                      >
+                        {sub.name}
+                        <span className="ml-1 opacity-60">{sub.products.length}</span>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -775,60 +1023,139 @@ export default function CatalogPageClient() {
               )}
             </div>
             <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] min-h-[12rem] overflow-y-auto pr-2 scrollbar-hide">
+              {catalogBuilderMode && isAdmin && (
+                <div className="flex items-center justify-between gap-2 px-2 pb-2 mb-1 border-b border-slate-800/60">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Style
+                  </span>
+                  <span className="text-[10px] font-medium uppercase text-slate-600">Select</span>
+                </div>
+              )}
               {filteredCategories.length === 0 ? (
                 <p className="text-slate-500 text-sm px-2 py-4">
                   No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles
                 </p>
               ) : (
-              filteredCategories.map((cat) => {
-                const isExpanded = activeStyleId === cat.id
-                const isActive = activeStyleId === cat.id
-                return (
-                  <div key={cat.id}>
-                    <button
-                      onClick={() => handleStyleClick(cat)}
-                      className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                        isActive
-                          ? 'bg-slate-800/80 text-amber-400'
-                          : 'text-slate-300 hover:bg-slate-800/40'
-                      }`}
-                    >
-                      <span className="font-semibold text-sm tracking-wide uppercase">
-                        {cat.name}
-                      </span>
-                      {isExpanded ? (
-                        <ChevronDown className="size-4 shrink-0 text-slate-500" />
-                      ) : (
-                        <ChevronRight className="size-4 shrink-0 text-slate-500" />
-                      )}
-                    </button>
-
-                    {isExpanded && cat.subcategories.length > 0 && (
-                      <div className="ml-3 mt-0.5 mb-1 space-y-0.5 border-l border-slate-800 pl-3">
-                        {cat.subcategories.map((sub) => {
-                          const isSubActive = activeSkuId === sub.id
-                          return (
-                            <button
-                              key={sub.id}
-                              onClick={() => handleSkuClick(sub, cat.id)}
-                              className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm transition-colors ${
-                                isSubActive
-                                  ? 'bg-amber-500/10 text-amber-400 font-medium'
-                                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
-                              }`}
-                            >
-                              {sub.name}
-                              <span className="ml-1.5 text-xs opacity-50">
-                                {sub.products.length}
-                              </span>
-                            </button>
-                          )
-                        })}
+                filteredCategories.map((cat) => {
+                  const isExpanded = activeStyleId === cat.id
+                  const isActive = activeStyleId === cat.id
+                  const styleScopeIds = collectFilteredIdsForStyle(
+                    filteredCategories,
+                    cat.id,
+                    selectedMetal,
+                    weightLow,
+                    weightHigh,
+                    priceLow,
+                    priceHigh,
+                    rates,
+                  )
+                  const sn = styleScopeIds.filter((id) => selectedProductIds.includes(id)).length
+                  const allStyle = styleScopeIds.length > 0 && sn === styleScopeIds.length
+                  const someStyle = sn > 0 && sn < styleScopeIds.length
+                  return (
+                    <div key={cat.id}>
+                      <div
+                        className={`flex w-full items-center gap-1.5 rounded-lg px-1 py-0.5 ${
+                          isActive ? 'bg-slate-800/50' : ''
+                        }`}
+                      >
+                        {catalogBuilderMode && isAdmin && (
+                          <BulkSelectCheckbox
+                            allSelected={allStyle}
+                            someSelected={someStyle}
+                            onToggle={() => toggleStyleSelectAll(cat.id)}
+                            ariaLabel={`Select all filtered items in style ${cat.name}`}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleStyleClick(cat)}
+                          className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-2 rounded-lg text-left transition-colors ${
+                            isActive
+                              ? 'text-amber-400'
+                              : 'text-slate-300 hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <span className="font-semibold text-sm tracking-wide uppercase truncate">
+                            {cat.name}
+                          </span>
+                          {isExpanded ? (
+                            <ChevronDown className="size-4 shrink-0 text-slate-500" />
+                          ) : (
+                            <ChevronRight className="size-4 shrink-0 text-slate-500" />
+                          )}
+                        </button>
                       </div>
-                    )}
-                  </div>
-                )
-              })
+
+                      {isExpanded && cat.subcategories.length > 0 && (
+                        <>
+                          {catalogBuilderMode && isAdmin && (
+                            <div className="ml-3 mt-1 flex items-center justify-between pl-3 border-l border-slate-800">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                                SKU
+                              </span>
+                              <span className="text-[10px] font-medium uppercase text-slate-600 pr-1">
+                                Select
+                              </span>
+                            </div>
+                          )}
+                          <div className="ml-3 mt-0.5 mb-1 space-y-0.5 border-l border-slate-800 pl-3">
+                            {cat.subcategories.map((sub) => {
+                              const isSubActive = activeSkuId === sub.id
+                              const skuScopeIds = collectFilteredIdsForSku(
+                                filteredCategories,
+                                cat.id,
+                                sub.id,
+                                selectedMetal,
+                                weightLow,
+                                weightHigh,
+                                priceLow,
+                                priceHigh,
+                                rates,
+                              )
+                              const kn = skuScopeIds.filter((id) =>
+                                selectedProductIds.includes(id),
+                              ).length
+                              const allSku = skuScopeIds.length > 0 && kn === skuScopeIds.length
+                              const someSku = kn > 0 && kn < skuScopeIds.length
+                              return (
+                                <div
+                                  key={sub.id}
+                                  className={`flex w-full items-center gap-1.5 rounded-md px-0.5 py-0.5 ${
+                                    isSubActive ? 'bg-amber-500/5' : ''
+                                  }`}
+                                >
+                                  {catalogBuilderMode && isAdmin && (
+                                    <BulkSelectCheckbox
+                                      allSelected={allSku}
+                                      someSelected={someSku}
+                                      onToggle={() => toggleSkuSelectAll(cat.id, sub.id)}
+                                      ariaLabel={`Select all filtered items in SKU ${sub.name}`}
+                                    />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSkuClick(sub, cat.id)}
+                                    className={`min-w-0 flex-1 text-left px-2 py-1.5 rounded-md text-sm transition-colors ${
+                                      isSubActive
+                                        ? 'bg-amber-500/10 text-amber-400 font-medium'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+                                    }`}
+                                  >
+                                    {sub.name}
+                                    <span className="ml-1.5 text-xs opacity-50">
+                                      {sub.products.length}
+                                    </span>
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })
               )}
             </nav>
           </aside>
@@ -899,26 +1226,39 @@ export default function CatalogPageClient() {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                {products.map((p, i) => (
-                  <ProductCard
-                    key={p.barcode || p.id || p.sku}
-                    product={
-                      {
-                        ...p,
-                        style_code: activeStyle?.name,
-                      } as Product
-                    }
-                    rates={rates}
-                    priority={i < 16}
-                    subcategorySlug={activeSku?.slug}
-                    onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
-                  />
-                ))}
+                {products.map((p, i) => {
+                  const selectionKey = getProductSelectionKey(p as Product)
+                  return (
+                    <ProductCard
+                      key={p.barcode || p.id || p.sku}
+                      product={
+                        {
+                          ...p,
+                          style_code: activeStyle?.name,
+                        } as Product
+                      }
+                      rates={rates}
+                      priority={i < 16}
+                      subcategorySlug={activeSku?.slug}
+                      onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
+                      catalogBuilderActive={catalogBuilderMode && isAdmin}
+                      selected={selectionKey ? isProductSelected(selectionKey) : false}
+                      onToggleSelect={
+                        selectionKey ? () => toggleProductId(selectionKey) : undefined
+                      }
+                    />
+                  )
+                })}
               </div>
             )}
           </section>
         </div>
       </main>
+      <CatalogSelectionFab onGenerateClick={() => setWhatsappModalOpen(true)} />
+      <WhatsAppCatalogModal
+        open={whatsappModalOpen}
+        onClose={() => setWhatsappModalOpen(false)}
+      />
     </div>
   )
 }

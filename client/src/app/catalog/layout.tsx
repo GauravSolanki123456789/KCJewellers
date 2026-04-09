@@ -1,5 +1,6 @@
 import CatalogPageClient from "./catalog-page-client";
 import { CatalogDataProvider } from "./catalog-data-context";
+import { CatalogBuilderProvider } from "@/context/CatalogBuilderContext";
 
 /**
  * Single client shell + shared catalogue/rates cache across /catalog and /catalog/.../.../...
@@ -11,9 +12,11 @@ export default function CatalogLayout({
   children: React.ReactNode;
 }) {
   return (
-    <CatalogDataProvider>
-      {children}
-      <CatalogPageClient />
-    </CatalogDataProvider>
+    <CatalogBuilderProvider>
+      <CatalogDataProvider>
+        {children}
+        <CatalogPageClient />
+      </CatalogDataProvider>
+    </CatalogBuilderProvider>
   );
 }

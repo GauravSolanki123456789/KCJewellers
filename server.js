@@ -4279,6 +4279,153 @@ app.get('/api/catalog', async (req, res) => {
     }
 });
 
+const { randomUUID } = require('crypto');
+const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Admin: create a time-limited shared catalogue link (WhatsApp-friendly).
+ * Body: { selectedProductIds, markupPercentage, format: 'temporary_web_link'|'pdf', expiresAt?: ISO string }
+ * PDF format is handled on the client; this endpoint only persists web links.
+ */
+app.post('/api/admin/shared-catalog', adminLimiter, requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { selectedProductIds, markupPercentage, format, expiresAt } = req.body || {};
+        const ids = Array.isArray(selectedProductIds)
+            ? [...new Set(selectedProductIds.map((x) => String(x).trim()).filter(Boolean))]
+            : [];
+        if (ids.length === 0) {
+            return res.status(400).json({ error: 'selectedProductIds is required and must be non-empty' });
+        }
+        if (ids.length > 500) {
+            return res.status(400).json({ error: 'Too many products (max 500)' });
+        }
+        const markup = Math.max(0, Math.min(1000, Number(markupPercentage) || 0));
+        const fmt = format === 'pdf' ? 'pdf' : 'temporary_web_link';
+
+        if (fmt === 'pdf') {
+            return res.json({
+                success: true,
+                format: 'pdf',
+                message: 'Generate the PDF in the browser using selected products and markup.',
+            });
+        }
+
+        const exp = expiresAt ? new Date(expiresAt) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+        if (Number.isNaN(exp.getTime()) || exp.getTime() <= Date.now()) {
+            return res.status(400).json({ error: 'expiresAt must be a future date' });
+        }
+        const maxExp = Date.now() + 30 * 24 * 60 * 60 * 1000;
+        if (exp.getTime() > maxExp) {
+            return res.status(400).json({ error: 'expiresAt cannot be more than 30 days ahead' });
+        }
+
+        const id = randomUUID();
+        await query(
+            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at)
+             VALUES ($1::uuid, $2::text[], $3, $4)`,
+            [id, ids, markup, exp],
+        );
+
+        const clientSite =
+            (process.env.NEXT_PUBLIC_SITE_URL || process.env.CLIENT_URL || '').trim().replace(/\/$/, '') ||
+            'https://kcjewellers.co.in';
+        const shareUrl = `${clientSite}/shared/${id}`;
+
+        res.json({
+            success: true,
+            format: 'temporary_web_link',
+            id,
+            shareUrl,
+            expiresAt: exp.toISOString(),
+            selectedProductIds: ids,
+            markupPercentage: markup,
+        });
+    } catch (error) {
+        console.error('shared-catalog create:', error);
+        res.status(500).json({ error: error.message || 'Failed to create shared catalog' });
+    }
+});
+
+/**
+ * Public: load a shared catalogue by UUID (for /shared/[uuid] brochure page).
+ */
+app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
+    try {
+        const uuid = String(req.params.uuid || '').trim();
+        if (!UUID_RE.test(uuid)) {
+            return res.status(400).json({ error: 'Invalid catalog id' });
+        }
+        const rows = await query(
+            `SELECT id, product_ids, markup_percentage, expires_at, created_at
+             FROM shared_catalogs WHERE id = $1::uuid`,
+            [uuid],
+        );
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Catalog not found' });
+        }
+        const row = rows[0];
+        const expiresAt = new Date(row.expires_at);
+        if (expiresAt.getTime() <= Date.now()) {
+            return res.json({
+                expired: true,
+                expiresAt: expiresAt.toISOString(),
+                markupPercentage: Number(row.markup_percentage) || 0,
+                products: [],
+            });
+        }
+
+        const barcodes = Array.isArray(row.product_ids) ? row.product_ids.map(String) : [];
+        if (barcodes.length === 0) {
+            const payload = await liveRateService.getCurrentPayload();
+            return res.json({
+                expired: false,
+                expiresAt: expiresAt.toISOString(),
+                createdAt: new Date(row.created_at).toISOString(),
+                markupPercentage: Number(row.markup_percentage) || 0,
+                products: [],
+                rates: payload?.rates ?? [],
+            });
+        }
+
+        const products = await query(
+            `SELECT
+                wp.id, wp.sku, wp.barcode, wp.name AS name, wp.image_url,
+                wp.gross_weight::float AS gross_weight,
+                wp.net_weight::float AS net_weight,
+                wp.purity::float AS purity,
+                wp.mc_rate::float AS mc_rate,
+                COALESCE(wp.fixed_price, 0)::float AS fixed_price,
+                COALESCE(wp.stone_charges, 0)::float AS stone_charges,
+                COALESCE(wp.metal_type, 'silver') AS metal_type,
+                wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,
+                COALESCE(wc.discount_percentage, 0)::float AS discount_percentage,
+                wc.name AS style_name
+            FROM web_products wp
+            JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+            JOIN web_categories wc ON wc.id = ws.category_id
+            WHERE wp.barcode = ANY($1::text[])
+            AND (wp.is_active IS NULL OR wp.is_active = true)
+            ORDER BY array_position($1::text[], wp.barcode::text)`,
+            [barcodes],
+        );
+
+        const payload = await liveRateService.getCurrentPayload();
+
+        res.json({
+            expired: false,
+            expiresAt: expiresAt.toISOString(),
+            createdAt: new Date(row.created_at).toISOString(),
+            markupPercentage: Number(row.markup_percentage) || 0,
+            products,
+            rates: payload?.rates ?? [],
+        });
+    } catch (error) {
+        console.error('shared-catalog get:', error);
+        res.status(500).json({ error: error.message || 'Failed to load shared catalog' });
+    }
+});
+
 // Admin: list all catalog categories with publish status
 app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
     try {

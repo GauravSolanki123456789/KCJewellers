@@ -53,6 +53,7 @@ const BOTTOM_NAV: Array<{
 
 export default function Navbar() {
   const pathname = usePathname()
+  const isSharedBrochure = pathname?.startsWith('/shared/')
   const searchParams = useSearchParams()
   const { items, openCart } = useCart()
   const auth = useAuth()
@@ -78,6 +79,10 @@ export default function Navbar() {
     navIsActive(pathname, href)
       ? 'text-yellow-500'
       : 'text-slate-300 hover:text-yellow-500'
+
+  if (isSharedBrochure) {
+    return null
+  }
 
   const CartButton = ({ className = '' }: { className?: string }) => (
     <button

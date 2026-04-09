@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   POLICY_PRIVACY_PATH,
   POLICY_REFUNDS_PATH,
@@ -16,6 +19,10 @@ const policyLinks = [
 ] as const;
 
 export default function Footer() {
+  const pathname = usePathname();
+  if (pathname?.startsWith("/shared/")) {
+    return null;
+  }
   return (
     <footer className="mt-auto border-t border-white/10 bg-slate-950/80">
       <div className="mx-auto max-w-6xl px-4 py-4 md:py-6">
