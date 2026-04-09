@@ -1,18 +1,15 @@
 /**
  * Open Graph / WhatsApp link preview image.
  *
- * File on disk (from repo root): `client/public/og/kc-jewellers.png`
- * Served URL: `/og/kc-jewellers.png`
+ * Source asset: `client/public/og/kc-jewellers.png` (designer export).
+ * Crawler-friendly build: `client/public/og/kc-jewellers.jpg` (run
+ * `node scripts/optimize-og-image.mjs` after changing the PNG).
  *
- * We keep the asset under `public/` and set it explicitly in `metadata` so we
- * don’t rely only on Next’s `app/opengraph-image` convention (which can stack
- * with `metadata.openGraph.images` and confuse crawlers).
+ * Use a **clean URL** (no query string): some crawlers mishandle `?v=` on
+ * og:image. Prefer renaming the file to bust cache when you replace the art.
  *
- * Bump `OG_IMAGE_VERSION` whenever you replace the PNG so WhatsApp / Facebook
- * treat it as a new URL and refresh their cache (they cache og:image aggressively).
+ * Served URL: `/og/kc-jewellers.jpg`
  */
-export const OG_IMAGE_VERSION = "3";
-
 export function getOgImagePath(): string {
-  return `/og/kc-jewellers.png?v=${OG_IMAGE_VERSION}`;
+  return "/og/kc-jewellers.jpg";
 }

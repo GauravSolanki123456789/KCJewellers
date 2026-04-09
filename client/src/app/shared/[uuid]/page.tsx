@@ -14,6 +14,7 @@ export async function generateMetadata({
   const ogImage = getOgImagePath();
 
   return {
+    metadataBase: new URL(site),
     title: "Shared catalogue",
     description:
       "KC Jewellers — curated jewellery selection with live pricing incl. GST.",
@@ -29,8 +30,8 @@ export async function generateMetadata({
       images: [
         {
           url: ogImage,
-          width: 2048,
-          height: 2048,
+          width: 1200,
+          height: 1200,
           alt: "KC Jewellers",
         },
       ],

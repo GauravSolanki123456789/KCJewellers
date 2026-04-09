@@ -73,8 +73,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: ogImage,
-        width: 2048,
-        height: 2048,
+        width: 1200,
+        height: 1200,
         alt: "KC Jewellers",
       },
     ],
