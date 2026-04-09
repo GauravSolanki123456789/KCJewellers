@@ -1,6 +1,7 @@
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
+import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 
 const styles = StyleSheet.create({
   page: {
@@ -48,7 +49,7 @@ const styles = StyleSheet.create({
   thumbPlaceholder: {
     fontSize: 28,
     color: '#475569',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
   },
   code: { fontSize: 8, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 },
   title: { fontSize: 9, color: '#e2e8f0', marginBottom: 4, minHeight: 22 },
@@ -82,7 +83,7 @@ function markedUpTotal(item: Item, rates: unknown, markupPct: number) {
 }
 
 export type CatalogPdfDocumentProps = {
-  products: Item[]
+  products: ItemWithPdfImage[]
   rates: unknown[]
   markupPercentage: number
   brandName?: string
@@ -117,9 +118,11 @@ export function CatalogPdfDocument({
           )}
           <View style={styles.grid}>
             {chunk.map((raw, i) => {
-              const p = raw as Item
+              const p = raw as ItemWithPdfImage
               const name = displayName(p)
-              const img = normalizeCatalogImageSrc(p.image_url as string | undefined)
+              const img =
+                p.pdfImageSrc ||
+                normalizeCatalogImageSrc(p.image_url as string | undefined)
               const total = markedUpTotal(p, rates, markupPercentage)
               const code = String(p.barcode || p.sku || '')
               return (

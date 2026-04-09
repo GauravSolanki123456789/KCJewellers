@@ -8,6 +8,8 @@ import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
 import { createSharedCatalog } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
 import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
+import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
+import { shareCatalogPdfBlob } from '@/lib/pdf-share'
 import { getSiteUrl } from '@/lib/site'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 
@@ -96,21 +98,16 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           setBusy(false)
           return
         }
+        const itemsForPdf = await resolveItemsForPdf(items)
         const blob = await pdf(
           <CatalogPdfDocument
-            products={items}
+            products={itemsForPdf}
             rates={rates}
             markupPercentage={markupPercentage}
           />,
         ).toBlob()
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `kc-jewellers-catalog-${new Date().toISOString().slice(0, 10)}.pdf`
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        URL.revokeObjectURL(url)
+        const filename = `kc-jewellers-catalog-${new Date().toISOString().slice(0, 10)}.pdf`
+        await shareCatalogPdfBlob(blob, filename)
         clearSelection()
         resetAndClose()
         return
@@ -310,7 +307,13 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             onClick={handleSubmit}
             className="w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-900/20 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {busy ? 'Working…' : shareUrl ? 'Done' : outputFormat === 'pdf' ? 'Download PDF' : 'Create share link'}
+            {busy
+              ? 'Working…'
+              : shareUrl
+                ? 'Done'
+                : outputFormat === 'pdf'
+                  ? 'Generate PDF & share'
+                  : 'Create share link'}
           </button>
         </div>
       </div>
