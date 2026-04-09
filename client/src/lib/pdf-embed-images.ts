@@ -1,33 +1,65 @@
 import type { Item } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 
-/** Item with optional inlined image for @react-pdf/renderer (data URL). */
+/** Item with optional inlined image for @react-pdf/renderer (PNG data URL). */
 export type ItemWithPdfImage = Item & { pdfImageSrc?: string }
 
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => resolve(reader.result as string)
-    reader.onerror = () => reject(new Error('read failed'))
-    reader.readAsDataURL(blob)
-  })
+/**
+ * Decode image blob in the browser and re-encode as PNG. pdfkit/react-pdf often fails on WebP
+ * and some JPEG variants; PNG is reliably embedded.
+ */
+async function imageBlobToPngDataUrl(blob: Blob): Promise<string | null> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return null
+
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('image decode'))
+      el.src = objectUrl
+    })
+
+    const maxW = 900
+    const maxH = 1120
+    let w = img.naturalWidth || img.width
+    let h = img.naturalHeight || img.height
+    if (!w || !h) return null
+
+    const scale = Math.min(1, maxW / w, maxH / h)
+    w = Math.max(1, Math.round(w * scale))
+    h = Math.max(1, Math.round(h * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(img, 0, 0, w, h)
+    return canvas.toDataURL('image/png')
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
 }
 
 /**
  * Fetch image via same-origin proxy → data URL so react-pdf can embed reliably.
  */
 export async function fetchCatalogImageAsDataUrl(absoluteUrl: string): Promise<string | null> {
-  const tryBlob = async (blob: Blob | null) => {
+  const toPng = async (blob: Blob | null) => {
     if (!blob || !blob.size) return null
-    return blobToDataUrl(blob)
+    const png = await imageBlobToPngDataUrl(blob)
+    return png
   }
 
   const proxy = `/api/catalog-pdf-image?url=${encodeURIComponent(absoluteUrl)}`
   try {
     const res = await fetch(proxy, { method: 'GET', credentials: 'same-origin' })
     if (res.ok) {
-      const dataUrl = await tryBlob(await res.blob())
-      if (dataUrl) return dataUrl
+      const png = await toPng(await res.blob())
+      if (png) return png
     }
   } catch {
     /* fall through */
@@ -36,7 +68,7 @@ export async function fetchCatalogImageAsDataUrl(absoluteUrl: string): Promise<s
   try {
     const res = await fetch(absoluteUrl, { mode: 'cors', credentials: 'omit' })
     if (!res.ok) return null
-    return await tryBlob(await res.blob())
+    return await toPng(await res.blob())
   } catch {
     return null
   }

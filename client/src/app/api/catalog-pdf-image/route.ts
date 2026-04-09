@@ -34,7 +34,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid NEXT_PUBLIC_API_URL" }, { status: 500 });
   }
 
-  if (target.origin !== allowed.origin) {
+  /** Allow API host and storefront host (images may be stored with either origin). */
+  const allowedOrigins = new Set<string>([allowed.origin]);
+  const siteRaw = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  if (siteRaw) {
+    try {
+      const withScheme =
+        siteRaw.startsWith("http://") || siteRaw.startsWith("https://")
+          ? siteRaw
+          : `https://${siteRaw}`;
+      allowedOrigins.add(new URL(withScheme).origin);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (![...allowedOrigins].includes(target.origin)) {
     return NextResponse.json({ error: "forbidden origin" }, { status: 403 });
   }
 

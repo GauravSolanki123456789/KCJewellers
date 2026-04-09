@@ -137,7 +137,6 @@ export default function SharedCatalogClient() {
     return null
   }
 
-  const markupPct = Number((payload as { markupPercentage?: number }).markupPercentage) || 0
   const expiresAt = (payload as { expiresAt?: string }).expiresAt
   const expDate = expiresAt ? new Date(expiresAt) : null
 
@@ -150,12 +149,6 @@ export default function SharedCatalogClient() {
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">
           Shared catalogue
         </h1>
-        {markupPct > 0 && (
-          <p className="mt-2 text-sm text-slate-400">
-            Prices include <span className="font-semibold text-amber-400/90">{markupPct}%</span> on
-            our live rate (incl. GST).
-          </p>
-        )}
         {expDate && !Number.isNaN(expDate.getTime()) && (
           <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-slate-700/80 bg-slate-900/50 px-3 py-1 text-xs text-slate-500">
             <Clock className="size-3.5 shrink-0" aria-hidden />

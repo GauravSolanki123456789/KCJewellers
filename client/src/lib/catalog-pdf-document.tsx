@@ -1,6 +1,5 @@
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
-import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 
 const styles = StyleSheet.create({
@@ -97,7 +96,7 @@ export function CatalogPdfDocument({
   markupPercentage,
   brandName = 'KC Jewellers',
 }: CatalogPdfDocumentProps) {
-  const chunks: Item[][] = []
+  const chunks: ItemWithPdfImage[][] = []
   for (let i = 0; i < products.length; i += PER_PAGE) {
     chunks.push(products.slice(i, i + PER_PAGE))
   }
@@ -120,9 +119,8 @@ export function CatalogPdfDocument({
             {chunk.map((raw, i) => {
               const p = raw as ItemWithPdfImage
               const name = displayName(p)
-              const img =
-                p.pdfImageSrc ||
-                normalizeCatalogImageSrc(p.image_url as string | undefined)
+              /** Only embedded PNG data URLs — remote URLs fail silently in react-pdf. */
+              const img = p.pdfImageSrc
               const total = markedUpTotal(p, rates, markupPercentage)
               const code = String(p.barcode || p.sku || '')
               return (
