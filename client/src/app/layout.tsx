@@ -16,6 +16,7 @@ import AuthToast from "@/components/AuthToast";
 import AddToCartToast from "@/components/AddToCartToast";
 import WhatsAppContactFab from "@/components/WhatsAppContactFab";
 import Footer from "@/components/Footer";
+import { getOgImagePath } from "@/lib/og-image";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -34,6 +35,8 @@ const geistMono = Geist_Mono({
 });
 
 const site = process.env.NEXT_PUBLIC_SITE_URL || "https://kcjewellers.co.in";
+
+const ogImage = getOgImagePath();
 
 export const metadata: Metadata = {
   metadataBase: new URL(site),
@@ -67,12 +70,21 @@ export const metadata: Metadata = {
     title: "KC Jewellers — Gold, Silver & Diamond Jewellery",
     description:
       "Curated jewellery with live rates, SIP plans, and a full online catalogue.",
+    images: [
+      {
+        url: ogImage,
+        width: 2048,
+        height: 2048,
+        alt: "KC Jewellers",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "KC Jewellers",
     description:
       "Gold, silver & diamond jewellery — live pricing and catalogue shopping.",
+    images: [ogImage],
   },
   robots: {
     index: true,
