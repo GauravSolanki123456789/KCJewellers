@@ -29,7 +29,6 @@ import { isCatalogAdminUser } from '@/lib/is-catalog-admin'
 import CatalogSelectionFab from '@/components/catalog/CatalogSelectionFab'
 import WhatsAppCatalogModal from '@/components/catalog/WhatsAppCatalogModal'
 import {
-  firstMetalWithProducts,
   productMatchesMetal,
   productPassesCatalogFilters,
   getProductSelectionKey,
@@ -71,6 +70,17 @@ type CatalogSessionState = {
   priceLow?: number
   priceHigh?: number
   scrollToBarcode?: string
+}
+
+/** First metal that has products; used for smart default */
+function firstAvailableMetal(categories: Category[]): MetalKey {
+  const allProducts = categories.flatMap((c) =>
+    c.subcategories.flatMap((s) => s.products),
+  )
+  for (const tab of METAL_TABS) {
+    if (allProducts.some((p) => productMatchesMetal(p, tab.key))) return tab.key
+  }
+  return 'gold'
 }
 
 function collectFilteredIdsForStyle(
@@ -467,7 +477,7 @@ export default function CatalogPageClient() {
   /** Smart default: when catalog loads, if current metal has no products, switch to first available */
   useEffect(() => {
     if (categories.length === 0) return
-    const first = firstMetalWithProducts(categories)
+    const first = firstAvailableMetal(categories)
     setSelectedMetal((prev) => {
       const hasCurrent = categories.some((c) =>
         c.subcategories.some((s) =>
