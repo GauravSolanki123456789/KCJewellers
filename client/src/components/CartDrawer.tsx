@@ -6,13 +6,26 @@ import { CHECKOUT_PATH } from '@/lib/routes'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
+import { useCustomerTier } from '@/context/CustomerTierContext'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getItemWeight, isDiamondItem } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { productImageSurfaceClass, productImageWellClass } from '@/lib/product-image-theme'
 
-type Breakdown = { metal?: number; mc?: number; stone?: number; cgst?: number; sgst?: number; taxable?: number; total?: number; rate_per_gram?: number; net_weight?: number }
+type Breakdown = {
+  metal?: number
+  mc?: number
+  stone?: number
+  cgst?: number
+  sgst?: number
+  taxable?: number
+  total?: number
+  rate_per_gram?: number
+  net_weight?: number
+  wholesale_retail_total?: number
+  is_wholesale_price?: boolean
+}
 
 type CartDrawerProps = {
   isOpen: boolean
@@ -60,6 +73,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const router = useRouter()
   const { items, remove, setQty, ratesReady } = useCart()
   const auth = useAuth()
+  const { hasWholesaleAccess } = useCustomerTier()
   const { open: openLoginModal } = useLoginModal()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -129,6 +143,15 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                 const b = (ci.breakdown || {}) as Breakdown
                 const isExpanded = expandedId === ci.id
                 const lineTotal = ci.price * ci.qty
+                const retailLine =
+                  b.wholesale_retail_total != null
+                    ? b.wholesale_retail_total * ci.qty
+                    : null
+                const showCartWholesale =
+                  hasWholesaleAccess &&
+                  b.is_wholesale_price &&
+                  retailLine != null &&
+                  retailLine > lineTotal + 0.5
                 const displayName = ci.item.item_name || ci.item.short_name || 'Item'
                 const imageUrl = ci.item.image_url
                 return (
@@ -156,9 +179,23 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                               Weight: {Number(getItemWeight(ci.item)).toFixed(2)} gm
                             </div>
                           )}
-                          <div className="text-sm text-amber-400 font-medium mt-0.5">
+                          <div
+                            className={`text-sm font-medium mt-0.5 ${
+                              showCartWholesale ? 'text-emerald-400' : 'text-amber-400'
+                            }`}
+                          >
                             {ratesReady || isDiamondItem(ci.item) ? (
                               <>
+                                {showCartWholesale && (
+                                  <span className="line-through text-slate-500 mr-2 text-xs tabular-nums">
+                                    ₹{Math.round(retailLine!).toLocaleString('en-IN')}
+                                  </span>
+                                )}
+                                {showCartWholesale && (
+                                  <span className="mr-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400">
+                                    Wholesale
+                                  </span>
+                                )}
                                 ₹{Math.round(lineTotal).toLocaleString('en-IN')}
                                 <span className="text-slate-300 font-normal ml-1">
                                   (₹{Math.round(ci.price)} × {ci.qty})

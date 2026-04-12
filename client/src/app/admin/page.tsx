@@ -17,6 +17,7 @@ import {
   Activity,
   Receipt,
   Tag,
+  Building2,
 } from 'lucide-react'
 
 const ADMIN_SECTIONS = [
@@ -75,6 +76,13 @@ const ADMIN_SECTIONS = [
     href: '/admin/orders',
     icon: ShoppingCart,
     color: 'indigo',
+  },
+  {
+    title: 'B2B wholesale clients',
+    description: 'Enable B2B tier by email or mobile, set MC discount & markup, post ledger entries',
+    href: '/admin/b2b-clients',
+    icon: Building2,
+    color: 'emerald',
   },
   {
     title: 'Promo Codes & Offers',

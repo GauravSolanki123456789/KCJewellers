@@ -3,7 +3,13 @@ import axios from "axios"
 import { useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 
-export type AuthState = { isAuthenticated: boolean, user?: unknown, hasChecked?: boolean }
+export type AuthState = {
+  isAuthenticated: boolean
+  user?: unknown
+  /** True after first `/api/auth/current_user` response (success or failure) */
+  hasChecked?: boolean
+  has_wholesale_access?: boolean
+}
 
 export function useAuth() {
   const [auth, setAuth] = useState<AuthState>({ isAuthenticated: false, hasChecked: false })

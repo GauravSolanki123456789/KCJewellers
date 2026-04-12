@@ -16,9 +16,11 @@ export const CATALOG_STATE_KEY = 'kc_catalog_state'
 export const CATALOG_FROM_PRODUCT_KEY = 'kc_catalog_from_product'
 export const CHECKOUT_PATH = '/checkout'
 export const PROFILE_PATH = '/profile'
-export const PROFILE_LEDGER_PATH = '/profile/ledger'
-export const WHOLESALE_ORDER_PATH = '/wholesale-order'
 export const PROFILE_SIPS_PATH = '/profile/sips'
+/** B2B wholesale quick order matrix (requires `customer_tier` B2B / ADMIN). */
+export const WHOLESALE_ORDER_PATH = '/wholesale-order'
+/** B2B client ledger (Khata) — rupee + fine metal balances. */
+export const PROFILE_LEDGER_PATH = '/profile/ledger'
 export const SIP_PATH = '/sip'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */

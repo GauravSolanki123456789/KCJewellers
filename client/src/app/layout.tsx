@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
+import { CustomerTierProvider } from "@/context/CustomerTierContext";
 import { CartProvider } from "@/context/CartContext";
-import { WholesalePricingProvider } from "@/context/WholesalePricingContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
 import { BookRateProvider } from "@/context/BookRateContext";
@@ -104,10 +104,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="bg-slate-950">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
+        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >
         <GoogleAnalytics />
-        <WholesalePricingProvider>
+        <CustomerTierProvider>
         <CartProvider>
           <BookRateProvider>
             <LoginModalProvider>
@@ -131,7 +131,7 @@ export default function RootLayout({
             </LoginModalProvider>
           </BookRateProvider>
         </CartProvider>
-        </WholesalePricingProvider>
+        </CustomerTierProvider>
       </body>
     </html>
   );

@@ -1,5 +1,5 @@
-// Runtime DB is PostgreSQL (see config/database.js / migrations). This schema documents
-// models used by the KC Jewellers app and enables Prisma tooling where configured.
+// KC Jewellers — Prisma documents selected tables; full `users` shape lives in PostgreSQL (server.js migrations).
+// Runtime uses `pg` in server.js.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,55 +10,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Storefront / ERP user accounts (shared `users` table).
-/// Roles: super_admin, admin, employee (ERP) | B2C_CUSTOMER, B2B_WHOLESALE (commerce)
-model User {
-  id                     Int      @id @default(autoincrement())
-  email                  String?  @db.VarChar(255)
-  google_id              String?  @db.VarChar(255)
-  name                   String?  @db.VarChar(255)
-  role                   String   @default("B2C_CUSTOMER") @db.VarChar(64)
-  account_status         String?  @db.VarChar(50)
-  mobile_number          String?  @db.VarChar(20)
-  mc_discount_percent    Decimal? @db.Decimal(6, 3)
-  metal_markup_percent   Decimal? @db.Decimal(6, 3)
-  ledger_rupee_balance     Decimal? @db.Decimal(14, 2)
-  ledger_fine_metal_grams  Decimal? @db.Decimal(14, 6)
-  created_at             DateTime? @default(now())
-  updated_at             DateTime? @updatedAt
-
-  ledgerEntries UserLedgerEntry[]
-
-  @@map("users")
-}
-
-model UserLedgerEntry {
-  id                     Int      @id @default(autoincrement())
-  user_id                Int
-  entry_type             String   @db.VarChar(32)
-  rupee_delta            Decimal  @default(0) @db.Decimal(14, 2)
-  fine_metal_delta_grams Decimal  @default(0) @db.Decimal(14, 6)
-  metal_type             String?  @db.VarChar(32)
-  description            String?
-  reference              String?  @db.VarChar(128)
-  created_at             DateTime @default(now()) @db.Timestamptz(6)
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@map("user_ledger_entries")
-}
-
-model B2bWhitelist {
-  id                         Int      @id @default(autoincrement())
-  email_norm                 String?  @db.VarChar(255)
-  mobile_last10              String?  @db.VarChar(10)
-  default_mc_discount_percent  Decimal? @db.Decimal(6, 3)
-  default_metal_markup_percent Decimal? @db.Decimal(6, 3)
-  notes                      String?
-  created_at                 DateTime @default(now()) @db.Timestamptz(6)
-
-  @@map("b2b_whitelist")
+/// Values stored in `users.customer_tier` — ADMIN, B2C_CUSTOMER, B2B_WHOLESALE
+enum CustomerTier {
+  ADMIN
+  B2C_CUSTOMER
+  B2B_WHOLESALE
 }
 
 model SharedCatalog {
@@ -69,4 +25,19 @@ model SharedCatalog {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("shared_catalogs")
+}
+
+model B2bClientLedgerEntry {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  txnCategory    String   @map("txn_category") @db.VarChar(32)
+  amountRupees   Decimal  @default(0) @map("amount_rupees") @db.Decimal(16, 2)
+  fineMetalGrams Decimal  @default(0) @map("fine_metal_grams") @db.Decimal(16, 6)
+  metalType      String?  @map("metal_type") @db.VarChar(32)
+  description    String?
+  reference      String?  @db.VarChar(128)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_b2b_ledger_user_created")
+  @@map("b2b_client_ledger_entries")
 }

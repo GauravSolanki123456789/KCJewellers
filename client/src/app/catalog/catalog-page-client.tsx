@@ -7,7 +7,7 @@ import WhatsAppShareButton from '@/components/WhatsAppShareButton'
 import WhatsAppContactLink from '@/components/WhatsAppContactLink'
 import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-react'
 import DualRangeSlider from '@/components/DualRangeSlider'
-import { calculateBreakdown, type DiscountTier, type Item } from '@/lib/pricing'
+import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import {
   CATALOG_PATH,
@@ -23,7 +23,7 @@ import {
 import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
 import { useCatalogData } from './catalog-data-context'
 import { useAuth } from '@/hooks/useAuth'
-import { useWholesalePricing } from '@/context/WholesalePricingContext'
+import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
 import { isCatalogAdminUser } from '@/lib/is-catalog-admin'
 import CatalogSelectionFab from '@/components/catalog/CatalogSelectionFab'
@@ -92,7 +92,7 @@ function collectFilteredIdsForStyle(
   priceLow: number,
   priceHigh: number,
   rates: unknown,
-  discountTier: DiscountTier | null,
+  wholesale: import('@/lib/pricing').WholesalePricingInput | null,
 ): string[] {
   const cat = filteredCategories.find((c) => c.id === styleId)
   if (!cat) return []
@@ -108,7 +108,7 @@ function collectFilteredIdsForStyle(
           priceLow,
           priceHigh,
           rates,
-          discountTier,
+          wholesale,
         )
       ) {
         const k = getProductSelectionKey(p)
@@ -129,7 +129,7 @@ function collectFilteredIdsForSku(
   priceLow: number,
   priceHigh: number,
   rates: unknown,
-  discountTier: DiscountTier | null,
+  wholesale: import('@/lib/pricing').WholesalePricingInput | null,
 ): string[] {
   const cat = filteredCategories.find((c) => c.id === styleId)
   if (!cat) return []
@@ -146,7 +146,7 @@ function collectFilteredIdsForSku(
         priceLow,
         priceHigh,
         rates,
-        discountTier,
+        wholesale,
       )
     ) {
       const k = getProductSelectionKey(p)
@@ -221,8 +221,7 @@ export default function CatalogPageClient() {
   const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing } =
     useCatalogData()
   const auth = useAuth()
-  const wholesale = useWholesalePricing()
-  const discountTier = wholesale.isWholesaleBuyer ? wholesale.discountTier : null
+  const { wholesalePricing } = useCustomerTier()
   const {
     catalogBuilderMode,
     setCatalogBuilderMode,
@@ -540,7 +539,12 @@ export default function CatalogPageClient() {
     }
     const weights = rawProducts.map((p) => p.net_weight ?? p.net_wt ?? p.weight ?? 0).filter((w) => w > 0)
     const prices = rawProducts.map((p) => {
-      const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3, discountTier)
+      const b = calculateBreakdown(
+        p,
+        rates,
+        (p as { gst_rate?: number }).gst_rate ?? 3,
+        wholesalePricing,
+      )
       return b.total
     })
     const wMin = weights.length ? Math.floor(Math.min(...weights)) : 0
@@ -551,7 +555,7 @@ export default function CatalogPageClient() {
       weightBounds: [Math.max(0, wMin - 1), wMax + 1] as [number, number],
       priceBounds: [Math.max(0, pMin - 1000), pMax + 1000] as [number, number],
     }
-  }, [rawProducts, rates, discountTier])
+  }, [rawProducts, rates, wholesalePricing])
 
   // Sync slider bounds when category changes (skip once after restore from sessionStorage)
   useEffect(() => {
@@ -572,11 +576,16 @@ export default function CatalogPageClient() {
       return w >= weightLow && w <= weightHigh
     })
     list = list.filter((p) => {
-      const b = calculateBreakdown(p, rates, (p as { gst_rate?: number }).gst_rate ?? 3, discountTier)
+      const b = calculateBreakdown(
+        p,
+        rates,
+        (p as { gst_rate?: number }).gst_rate ?? 3,
+        wholesalePricing,
+      )
       return b.total >= priceLow && b.total <= priceHigh
     })
     return list
-  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, discountTier])
+  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing])
 
   useEffect(() => {
     if (!scrollToBarcode || products.length === 0 || typeof window === 'undefined') return
@@ -661,7 +670,7 @@ export default function CatalogPageClient() {
       priceLow,
       priceHigh,
       rates,
-      discountTier,
+      wholesalePricing,
     )
     if (ids.length === 0) return
     const allOn = ids.every((id) => selectedProductIds.includes(id))
@@ -680,7 +689,7 @@ export default function CatalogPageClient() {
       priceLow,
       priceHigh,
       rates,
-      discountTier,
+      wholesalePricing,
     )
     if (ids.length === 0) return
     const allOn = ids.every((id) => selectedProductIds.includes(id))
@@ -903,7 +912,7 @@ export default function CatalogPageClient() {
                   priceLow,
                   priceHigh,
                   rates,
-                  discountTier,
+                  wholesalePricing,
                 )
                 const sn = styleScopeIds.filter((id) => selectedProductIds.includes(id)).length
                 const allStyle = styleScopeIds.length > 0 && sn === styleScopeIds.length
@@ -956,7 +965,7 @@ export default function CatalogPageClient() {
                     priceLow,
                     priceHigh,
                     rates,
-                    discountTier,
+                    wholesalePricing,
                   )
                   const kn = skuScopeIds.filter((id) => selectedProductIds.includes(id)).length
                   const allSku = skuScopeIds.length > 0 && kn === skuScopeIds.length
@@ -1059,7 +1068,7 @@ export default function CatalogPageClient() {
                     priceLow,
                     priceHigh,
                     rates,
-                    discountTier,
+                    wholesalePricing,
                   )
                   const sn = styleScopeIds.filter((id) => selectedProductIds.includes(id)).length
                   const allStyle = styleScopeIds.length > 0 && sn === styleScopeIds.length
@@ -1124,7 +1133,7 @@ export default function CatalogPageClient() {
                                 priceLow,
                                 priceHigh,
                                 rates,
-                                discountTier,
+                                wholesalePricing,
                               )
                               const kn = skuScopeIds.filter((id) =>
                                 selectedProductIds.includes(id),

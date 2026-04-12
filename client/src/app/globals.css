@@ -10,6 +10,8 @@
 }
 
 :root {
+  /* Fixed mobile bottom nav: user row + B2B strip (if any) + 4 tabs + home indicator */
+  --kc-mobile-nav-stack: calc(9.5rem + env(safe-area-inset-bottom, 0px));
   --glass-bg: rgba(13, 13, 13, 0.55);
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
@@ -47,9 +49,12 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Legacy fallback — prefer @layer base body + layout font-sans */
 body {
-  background-color: #020617; /* slate-950 */
-  color: #f1f5f9; /* slate-100 */
+  background-color: #020617;
+  color: #f1f5f9;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: rgba(245, 158, 11, 0.12);
 }
 
 .glass-card {
@@ -151,11 +156,7 @@ body {
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+/* Removed duplicate Arial stack — Geist applied in @layer base */
 
 .dark {
   --background: oklch(0.145 0 0);
@@ -196,7 +197,8 @@ body {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased font-sans;
+    @apply selection:bg-amber-500/25 selection:text-amber-50;
   }
 }
 
@@ -215,6 +217,25 @@ body {
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /** Scrollable content clears fixed mobile tab bar (+ optional B2B row). Max-md only — avoids fighting md:pb-*. */
+  @media (max-width: 767.98px) {
+    .kc-pb-mobile-nav {
+      padding-bottom: var(--kc-mobile-nav-stack);
+    }
+  }
+
+  /** Sticky toolbars that must sit above the mobile nav */
+  @media (max-width: 767.98px) {
+    .kc-bottom-above-mobile-nav {
+      bottom: var(--kc-mobile-nav-stack);
+    }
+  }
+  @media (min-width: 768px) {
+    .kc-bottom-above-mobile-nav {
+      bottom: 0;
+    }
   }
 
   /* Dual range slider thumbs - luxury dark theme */

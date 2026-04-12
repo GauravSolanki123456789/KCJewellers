@@ -1,126 +1,100 @@
-import {
-  Document,
-  Page,
-  Text,
-  View,
-  StyleSheet,
-} from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 
 const styles = StyleSheet.create({
-  page: {
-    padding: 36,
-    fontSize: 10,
-    fontFamily: "Helvetica",
-    color: "#111",
-  },
-  title: { fontSize: 16, marginBottom: 8, fontWeight: "bold" },
-  sub: { fontSize: 9, color: "#444", marginBottom: 16 },
-  row: { flexDirection: "row", marginBottom: 4 },
-  label: { width: 140, fontWeight: "bold" },
-  val: { flex: 1 },
-  tableHeader: {
-    flexDirection: "row",
+  page: { padding: 32, fontFamily: 'Helvetica', backgroundColor: '#020617', color: '#e2e8f0' },
+  h1: { fontSize: 18, color: '#fbbf24', marginBottom: 4 },
+  sub: { fontSize: 9, color: '#94a3b8', marginBottom: 16 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  label: { fontSize: 9, color: '#64748b' },
+  val: { fontSize: 12, fontWeight: 'bold', color: '#f1f5f9' },
+  tableHead: {
+    flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: "#999",
-    paddingBottom: 4,
+    borderBottomColor: '#334155',
+    paddingBottom: 6,
     marginTop: 12,
-    fontWeight: "bold",
   },
-  tr: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#ddd", paddingVertical: 4 },
-  c1: { width: "22%" },
-  c2: { width: "18%" },
-  c3: { width: "20%" },
-  c4: { width: "40%" },
-});
+  th: { fontSize: 8, color: '#94a3b8', flex: 1 },
+  tr: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#1e293b', paddingVertical: 6 },
+  td: { fontSize: 8, color: '#cbd5e1', flex: 1 },
+  foot: { marginTop: 20, fontSize: 7, color: '#475569', textAlign: 'center' },
+})
 
-export type LedgerPdfEntry = {
-  id: number;
-  entry_type: string;
-  rupee_delta: number;
-  fine_metal_delta_grams: number;
-  metal_type?: string | null;
-  description?: string | null;
-  reference?: string | null;
-  created_at: string;
-};
+export type LedgerTxnRow = {
+  id: number
+  txn_category: string
+  amount_rupees: string | number
+  fine_metal_grams: string | number
+  metal_type?: string | null
+  description?: string | null
+  reference?: string | null
+  created_at: string
+}
 
-type Props = {
-  customerName: string;
-  generatedAt: string;
-  rupeeBalance: number;
-  fineMetalGrams: number;
-  entries: LedgerPdfEntry[];
-};
-
-function typeLabel(t: string): string {
-  switch (t) {
-    case "PURCHASE":
-      return "Purchase";
-    case "CASH_PAYMENT":
-      return "Cash payment";
-    case "METAL_DEPOSIT":
-      return "Metal deposit";
-    default:
-      return t;
-  }
+function labelForCategory(cat: string): string {
+  const c = String(cat || '').toUpperCase()
+  if (c === 'PURCHASE') return 'Purchase'
+  if (c === 'CASH_PAYMENT') return 'Cash Payment'
+  if (c === 'METAL_DEPOSIT') return 'Metal Deposit'
+  return cat
 }
 
 export function LedgerPdfDocument({
-  customerName,
-  generatedAt,
+  name,
+  email,
+  mobile,
   rupeeBalance,
   fineMetalGrams,
-  entries,
-}: Props) {
+  transactions,
+  generatedAt,
+}: {
+  name: string
+  email: string
+  mobile: string
+  rupeeBalance: number
+  fineMetalGrams: number
+  transactions: LedgerTxnRow[]
+  generatedAt: string
+}) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <Text style={styles.title}>KC Jewellers — Account statement (Khata)</Text>
-        <Text style={styles.sub}>Generated: {generatedAt}</Text>
-
+        <Text style={styles.h1}>KC Jewellers — Account ledger (Khata)</Text>
+        <Text style={styles.sub}>
+          {name} · {email || mobile || '—'} · Generated {generatedAt}
+        </Text>
         <View style={styles.row}>
-          <Text style={styles.label}>Customer</Text>
-          <Text style={styles.val}>{customerName}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Rupee balance (outstanding)</Text>
-          <Text style={styles.val}>
-            ₹{rupeeBalance.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-          </Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Fine metal balance (grams)</Text>
-          <Text style={styles.val}>
-            {fineMetalGrams.toLocaleString("en-IN", { maximumFractionDigits: 3 })} g
-          </Text>
-        </View>
-
-        <View style={styles.tableHeader}>
-          <Text style={styles.c1}>Date</Text>
-          <Text style={styles.c2}>Type</Text>
-          <Text style={styles.c3}>Rupee Δ</Text>
-          <Text style={styles.c4}>Fine metal Δ (g)</Text>
-        </View>
-        {entries.map((e) => (
-          <View key={e.id} style={styles.tr} wrap={false}>
-            <Text style={styles.c1}>
-              {new Date(e.created_at).toLocaleString("en-IN", {
-                dateStyle: "short",
-                timeStyle: "short",
-              })}
+          <View>
+            <Text style={styles.label}>Rupee balance (₹)</Text>
+            <Text style={styles.val}>₹{rupeeBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</Text>
+          </View>
+          <View>
+            <Text style={styles.label}>Fine metal balance (g)</Text>
+            <Text style={styles.val}>
+              {fineMetalGrams.toLocaleString('en-IN', { maximumFractionDigits: 3 })} g
             </Text>
-            <Text style={styles.c2}>{typeLabel(e.entry_type)}</Text>
-            <Text style={styles.c3}>
-              ₹{Number(e.rupee_delta).toLocaleString("en-IN")}
-            </Text>
-            <Text style={styles.c4}>
-              {Number(e.fine_metal_delta_grams).toLocaleString("en-IN", {
-                maximumFractionDigits: 4,
-              })}
+          </View>
+        </View>
+        <View style={styles.tableHead}>
+          <Text style={styles.th}>Date</Text>
+          <Text style={styles.th}>Type</Text>
+          <Text style={styles.th}>₹</Text>
+          <Text style={styles.th}>Metal (g)</Text>
+          <Text style={[styles.th, { flex: 1.4 }]}>Note</Text>
+        </View>
+        {transactions.slice(0, 80).map((t) => (
+          <View key={t.id} style={styles.tr} wrap={false}>
+            <Text style={styles.td}>{new Date(t.created_at).toLocaleString('en-IN')}</Text>
+            <Text style={styles.td}>{labelForCategory(t.txn_category)}</Text>
+            <Text style={styles.td}>{Number(t.amount_rupees).toFixed(2)}</Text>
+            <Text style={styles.td}>{Number(t.fine_metal_grams).toFixed(3)}</Text>
+            <Text style={[styles.td, { flex: 1.4 }]}>
+              {(t.description || '').slice(0, 80)}
             </Text>
           </View>
         ))}
+        <Text style={styles.foot}>KC Jewellers — for your records. Outstanding balances are estimates from posted entries.</Text>
       </Page>
     </Document>
-  );
+  )
 }

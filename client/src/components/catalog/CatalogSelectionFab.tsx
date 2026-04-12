@@ -14,7 +14,7 @@ export default function CatalogSelectionFab({ onGenerateClick }: Props) {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))] md:pb-8"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[var(--kc-mobile-nav-stack)] md:pb-8"
       role="status"
       aria-live="polite"
     >

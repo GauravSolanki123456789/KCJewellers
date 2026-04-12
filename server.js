@@ -46,9 +46,8 @@ const {
     query,
     getPool
 } = require('./config/database');
-const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict, requireSessionJson, requireB2BWholesale } = require('./middleware/auth');
-const { resolveUserRole, isB2BWholesaleRole } = require('./services/authService');
-const { applyB2BWhitelistOnLogin } = require('./services/b2bWhitelistService');
+const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict, requireB2BWholesale } = require('./middleware/auth');
+const { resolveUserRole, hasWholesaleCatalogAccess } = require('./services/authService');
 const { sanitizeMiddleware, validateNumbers } = require('./middleware/sanitize');
 const { globalLimiter, authLimiter, adminLimiter, requireJson } = require('./middleware/rateLimit');
 const { hasPermission, getPermissionContext } = require('./middleware/checkPermission');
@@ -449,21 +448,17 @@ app.get('/auth/google/callback', authLimiter,
 );  
 
 // Current user endpoint - include full permissions context
-app.get('/api/auth/current_user', async (req, res) => {
+app.get('/api/auth/current_user', (req, res) => {
     if (req.isAuthenticated()) {
+        // CRITICAL: Always resolve role to ensure super_admin gets correct role
         const { resolveUserRole } = require('./services/authService');
-        let resolvedUser = resolveUserRole(req.user);
-        try {
-            resolvedUser = await applyB2BWhitelistOnLogin(resolvedUser);
-        } catch (e) {
-            console.warn('current_user whitelist:', e?.message);
-        }
-
+        const resolvedUser = resolveUserRole(req.user);
+        
+        // Get both legacy and new permission formats using resolved user
         const legacyPermissions = getUserPermissions(resolvedUser);
         const permissionContext = getPermissionContext(resolvedUser);
-        const mcDisc = Number(resolvedUser.mc_discount_percent ?? 0) || 0;
-        const metalMu = Number(resolvedUser.metal_markup_percent ?? 0) || 0;
-
+        
+        const tier = String(resolvedUser.customer_tier || 'B2C_CUSTOMER').toUpperCase();
         res.json({ 
             isAuthenticated: true, 
             user: {
@@ -472,24 +467,97 @@ app.get('/api/auth/current_user', async (req, res) => {
                 mobile_number: resolvedUser.mobile_number,
                 name: resolvedUser.name,
                 role: resolvedUser.role,
+                customer_tier: tier,
+                wholesale_making_charge_discount_percent: Number(resolvedUser.wholesale_making_charge_discount_percent ?? 0),
+                wholesale_markup_percent: Number(resolvedUser.wholesale_markup_percent ?? 0),
+                b2b_linked_customer_id: resolvedUser.b2b_linked_customer_id ?? null,
                 account_status: resolvedUser.account_status,
                 allowed_tabs: resolvedUser.allowed_tabs || [],
-                permissions: resolvedUser.permissions || {},
-                discount_tier: {
-                    mc_discount_percent: mcDisc,
-                    metal_markup_percent: metalMu,
-                },
-                is_b2b_wholesale: isB2BWholesaleRole(resolvedUser),
+                permissions: resolvedUser.permissions || {}
             },
+            has_wholesale_access: hasWholesaleCatalogAccess(resolvedUser),
+            // Legacy format for backward compatibility
             permissions: legacyPermissions,
+            // New granular permission context
             permissionContext: permissionContext
         });
     } else {
         res.json({ 
             isAuthenticated: false,
+            has_wholesale_access: false,
             permissions: getUserPermissions(null),
             permissionContext: getPermissionContext(null)
         });
+    }
+});
+
+// ==========================================
+// B2B WHOLESALE — client ledger (Khata) & admin ledger lines
+// ==========================================
+
+app.get('/api/b2b/ledger', checkAuth, requireB2BWholesale, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const rows = await query(
+            `SELECT id, txn_category, amount_rupees, fine_metal_grams, metal_type, description, reference, created_at
+             FROM b2b_client_ledger_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500`,
+            [userId],
+        );
+        const sum = await query(
+            `SELECT COALESCE(SUM(amount_rupees),0) AS rupee_balance,
+                    COALESCE(SUM(fine_metal_grams),0) AS fine_metal_balance
+             FROM b2b_client_ledger_entries WHERE user_id = $1`,
+            [userId],
+        );
+        res.json({
+            rupee_balance: Number(sum[0]?.rupee_balance || 0),
+            fine_metal_balance_grams: Number(sum[0]?.fine_metal_balance || 0),
+            transactions: rows,
+        });
+    } catch (error) {
+        console.error('B2B ledger GET:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/admin/b2b/ledger-entries', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        const {
+            user_id,
+            txn_category,
+            amount_rupees,
+            fine_metal_grams,
+            metal_type,
+            description,
+            reference,
+        } = req.body || {};
+        const uid = parseInt(String(user_id), 10);
+        if (!uid || Number.isNaN(uid)) {
+            return res.status(400).json({ error: 'user_id required' });
+        }
+        const cat = String(txn_category || '').toUpperCase();
+        const validCat = ['PURCHASE', 'CASH_PAYMENT', 'METAL_DEPOSIT'];
+        if (!validCat.includes(cat)) {
+            return res.status(400).json({ error: 'txn_category must be PURCHASE, CASH_PAYMENT, or METAL_DEPOSIT' });
+        }
+        const urows = await query('SELECT id FROM users WHERE id = $1', [uid]);
+        if (urows.length === 0) return res.status(404).json({ error: 'User not found' });
+        const ar = Number(amount_rupees);
+        const fg = Number(fine_metal_grams);
+        if (Number.isNaN(ar) || Number.isNaN(fg)) {
+            return res.status(400).json({ error: 'amount_rupees and fine_metal_grams must be numbers' });
+        }
+        const mt = String(metal_type || 'gold').toLowerCase().slice(0, 32) || 'gold';
+        const result = await query(
+            `INSERT INTO b2b_client_ledger_entries
+             (user_id, txn_category, amount_rupees, fine_metal_grams, metal_type, description, reference)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [uid, cat, ar, fg, mt, description || '', reference || ''],
+        );
+        res.json({ success: true, entry: result[0] });
+    } catch (error) {
+        console.error('admin b2b ledger-entries:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -579,7 +647,7 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
         if (userRows.length === 0) {
             const insert = await query(
                 `INSERT INTO users (mobile_number, name, role, account_status, email) 
-                 VALUES ($1, $2, 'B2C_CUSTOMER', 'active', $3) RETURNING *`,
+                 VALUES ($1, $2, 'customer', 'active', $3) RETURNING *`,
                 [mobile_number, `Customer ${mobile_number.slice(-4)}`, null]
             );
             user = insert[0];
@@ -587,7 +655,6 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
         } else {
             user = userRows[0];
         }
-        user = await applyB2BWhitelistOnLogin(user);
         user = resolveUserRole(user);
         req.login(user, async (error) => {
             if (error) {
@@ -595,61 +662,27 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
                 return res.status(500).json({ error: 'Login failed' });
             }
             await logUserActivity({ user_id: user.id, action_type: 'login' });
-            const mcDisc = Number(user.mc_discount_percent ?? 0) || 0;
-            const metalMu = Number(user.metal_markup_percent ?? 0) || 0;
+            const tier = String(user.customer_tier || 'B2C_CUSTOMER').toUpperCase();
             res.json({
                 success: true,
+                has_wholesale_access: hasWholesaleCatalogAccess(user),
                 user: {
                     id: user.id,
                     email: user.email,
                     mobile_number: user.mobile_number,
                     name: user.name,
                     role: user.role,
+                    customer_tier: tier,
+                    wholesale_making_charge_discount_percent: Number(user.wholesale_making_charge_discount_percent ?? 0),
+                    wholesale_markup_percent: Number(user.wholesale_markup_percent ?? 0),
                     account_status: user.account_status,
                     allowed_tabs: user.allowed_tabs || [],
-                    discount_tier: {
-                        mc_discount_percent: mcDisc,
-                        metal_markup_percent: metalMu,
-                    },
-                    is_b2b_wholesale: isB2BWholesaleRole(user),
                 },
             });
         });
     } catch (error) {
         console.error('Verify OTP error:', error);
         res.status(500).json({ error: error.message || 'Verification failed' });
-    }
-});
-
-// ==========================================
-// B2B: client ledger (Khata) — wholesale buyers only
-// ==========================================
-app.get('/api/b2b/ledger', requireSessionJson, requireB2BWholesale, async (req, res) => {
-    try {
-        const uid = req.user.id;
-        const rows = await query(
-            `SELECT id, entry_type, rupee_delta, fine_metal_delta_grams, metal_type, description, reference, created_at
-             FROM user_ledger_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT 200`,
-            [uid],
-        );
-        const bal = await query(
-            `SELECT ledger_rupee_balance, ledger_fine_metal_grams, mc_discount_percent, metal_markup_percent
-             FROM users WHERE id = $1`,
-            [uid],
-        );
-        const b = bal[0] || {};
-        res.json({
-            rupee_balance: Number(b.ledger_rupee_balance ?? 0),
-            fine_metal_balance_grams: Number(b.ledger_fine_metal_grams ?? 0),
-            discount_tier: {
-                mc_discount_percent: Number(b.mc_discount_percent ?? 0),
-                metal_markup_percent: Number(b.metal_markup_percent ?? 0),
-            },
-            entries: rows,
-        });
-    } catch (e) {
-        console.error('b2b ledger:', e);
-        res.status(500).json({ error: e.message || 'Failed to load ledger' });
     }
 });
 
@@ -1102,7 +1135,8 @@ async function checkAndMigrateUsersTable() {
     }
 }
 
-async function checkAndMigrateB2BSchema() {
+/** B2B wholesale: customer_tier, discount columns, b2b_client_ledger_entries */
+async function checkAndMigrateB2BWholesale() {
     try {
         const dbPool = getPool();
         await dbPool.query(`
@@ -1110,9 +1144,11 @@ async function checkAndMigrateB2BSchema() {
             BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'users' AND column_name = 'mc_discount_percent'
+                    WHERE table_name = 'users' AND column_name = 'customer_tier'
                 ) THEN
-                    ALTER TABLE users ADD COLUMN mc_discount_percent NUMERIC(6,3) DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN customer_tier VARCHAR(32) NOT NULL DEFAULT 'B2C_CUSTOMER';
+                    ALTER TABLE users ADD CONSTRAINT users_customer_tier_check
+                        CHECK (customer_tier IN ('ADMIN', 'B2C_CUSTOMER', 'B2B_WHOLESALE'));
                 END IF;
             END $$;
         `);
@@ -1121,9 +1157,9 @@ async function checkAndMigrateB2BSchema() {
             BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'users' AND column_name = 'metal_markup_percent'
+                    WHERE table_name = 'users' AND column_name = 'wholesale_making_charge_discount_percent'
                 ) THEN
-                    ALTER TABLE users ADD COLUMN metal_markup_percent NUMERIC(6,3) DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN wholesale_making_charge_discount_percent NUMERIC(8,4) NOT NULL DEFAULT 0;
                 END IF;
             END $$;
         `);
@@ -1132,9 +1168,9 @@ async function checkAndMigrateB2BSchema() {
             BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'users' AND column_name = 'ledger_rupee_balance'
+                    WHERE table_name = 'users' AND column_name = 'wholesale_markup_percent'
                 ) THEN
-                    ALTER TABLE users ADD COLUMN ledger_rupee_balance NUMERIC(14,2) DEFAULT 0 NOT NULL;
+                    ALTER TABLE users ADD COLUMN wholesale_markup_percent NUMERIC(8,4) NOT NULL DEFAULT 0;
                 END IF;
             END $$;
         `);
@@ -1143,49 +1179,35 @@ async function checkAndMigrateB2BSchema() {
             BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'users' AND column_name = 'ledger_fine_metal_grams'
+                    WHERE table_name = 'users' AND column_name = 'b2b_linked_customer_id'
                 ) THEN
-                    ALTER TABLE users ADD COLUMN ledger_fine_metal_grams NUMERIC(14,6) DEFAULT 0 NOT NULL;
+                    ALTER TABLE users ADD COLUMN b2b_linked_customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL;
                 END IF;
             END $$;
         `);
         await dbPool.query(`
-            CREATE TABLE IF NOT EXISTS user_ledger_entries (
+            CREATE TABLE IF NOT EXISTS b2b_client_ledger_entries (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                entry_type VARCHAR(32) NOT NULL CHECK (entry_type IN ('PURCHASE', 'CASH_PAYMENT', 'METAL_DEPOSIT')),
-                rupee_delta NUMERIC(14,2) DEFAULT 0 NOT NULL,
-                fine_metal_delta_grams NUMERIC(14,6) DEFAULT 0 NOT NULL,
-                metal_type VARCHAR(32),
+                txn_category VARCHAR(32) NOT NULL,
+                amount_rupees NUMERIC(16,2) NOT NULL DEFAULT 0,
+                fine_metal_grams NUMERIC(16,6) NOT NULL DEFAULT 0,
+                metal_type VARCHAR(32) DEFAULT 'gold',
                 description TEXT,
                 reference VARCHAR(128),
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        await dbPool.query(`CREATE INDEX IF NOT EXISTS idx_user_ledger_entries_user_id ON user_ledger_entries(user_id);`);
-        await dbPool.query(`
-            CREATE TABLE IF NOT EXISTS b2b_whitelist (
-                id SERIAL PRIMARY KEY,
-                email_norm VARCHAR(255),
-                mobile_last10 VARCHAR(10),
-                default_mc_discount_percent NUMERIC(6,3) DEFAULT 0,
-                default_metal_markup_percent NUMERIC(6,3) DEFAULT 0,
-                notes TEXT,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT b2b_ledger_txn_category_check CHECK (
+                    txn_category IN ('PURCHASE', 'CASH_PAYMENT', 'METAL_DEPOSIT')
+                )
             );
         `);
         await dbPool.query(`
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_whitelist_email
-            ON b2b_whitelist(email_norm) WHERE email_norm IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_b2b_ledger_user_created ON b2b_client_ledger_entries(user_id, created_at DESC);
         `);
-        await dbPool.query(`
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_whitelist_mobile
-            ON b2b_whitelist(mobile_last10) WHERE mobile_last10 IS NOT NULL;
-        `);
-        console.log('✅ B2B / ledger schema verified');
+        console.log('✅ B2B wholesale schema verified');
         return true;
     } catch (error) {
-        console.error('❌ B2B schema migration failed:', error.message);
+        console.error('❌ B2B wholesale migration failed:', error.message);
         return false;
     }
 }
@@ -1198,7 +1220,7 @@ initDatabase().then(async success => {
         await checkAndUpdateProductsSchema();
         await checkAndCreateStylesTable();
         await checkAndMigrateUsersTable();
-        await checkAndMigrateB2BSchema();
+        await checkAndMigrateB2BWholesale();
     } else {
         console.log('⚠️ Server started but database initialization failed.');
         console.log('💡 Please check your PostgreSQL connection and restart the server.');
@@ -2535,11 +2557,10 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
         let result;
         try {
             result = await query(`
-                SELECT id, google_id, email, name, role, allowed_tabs, permissions,
+                SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
                        account_status, phone_number, mobile_number,
-                       mc_discount_percent, metal_markup_percent,
-                       ledger_rupee_balance, ledger_fine_metal_grams,
-                       created_at, updated_at
+                       customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
+                       created_at, updated_at 
                 FROM users 
                 WHERE COALESCE(is_deleted, false) = false
                 ORDER BY 
@@ -2552,11 +2573,10 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
             if (colError.message && colError.message.includes('is_deleted')) {
                 console.warn('is_deleted column not found, querying all users');
                 result = await query(`
-                    SELECT id, google_id, email, name, role, allowed_tabs, permissions,
+                    SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
                            account_status, phone_number, mobile_number,
-                           mc_discount_percent, metal_markup_percent,
-                           ledger_rupee_balance, ledger_fine_metal_grams,
-                           created_at, updated_at
+                           customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
+                           created_at, updated_at 
                     FROM users 
                     ORDER BY 
                         CASE WHEN email = 'jaigaurav56789@gmail.com' THEN 0 ELSE 1 END,
@@ -2578,167 +2598,6 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
         console.error('Error fetching users:', error);
         // Return empty array on error instead of crashing (prevents 500 error)
         res.json([]);
-    }
-});
-
-/** B2B storefront: set role + discount tier (super admin only) */
-app.put('/api/admin/b2b/users/:id', isAdminStrict, async (req, res) => {
-    try {
-        const id = parseInt(req.params.id, 10);
-        if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-        const existing = await query('SELECT id, email FROM users WHERE id = $1', [id]);
-        if (existing.length === 0) return res.status(404).json({ error: 'User not found' });
-        if (existing[0].email === 'jaigaurav56789@gmail.com') {
-            return res.status(403).json({ error: 'Cannot modify super admin' });
-        }
-        const {
-            role,
-            mc_discount_percent: mc,
-            metal_markup_percent: mm,
-        } = req.body || {};
-        const updates = [];
-        const params = [];
-        let i = 1;
-        if (role !== undefined && role !== null) {
-            const r = String(role).trim();
-            const roleNorm = r === 'customer' ? 'B2C_CUSTOMER' : r;
-            if (!['B2C_CUSTOMER', 'B2B_WHOLESALE'].includes(roleNorm)) {
-                return res.status(400).json({ error: 'Use only B2C_CUSTOMER or B2B_WHOLESALE for storefront role' });
-            }
-            updates.push(`role = $${i++}`);
-            params.push(roleNorm);
-        }
-        if (mc !== undefined) {
-            updates.push(`mc_discount_percent = $${i++}`);
-            params.push(Number(mc));
-        }
-        if (mm !== undefined) {
-            updates.push(`metal_markup_percent = $${i++}`);
-            params.push(Number(mm));
-        }
-        if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
-        updates.push('updated_at = CURRENT_TIMESTAMP');
-        params.push(id);
-        const q = `UPDATE users SET ${updates.join(', ')} WHERE id = $${i} RETURNING *`;
-        const out = await query(q, params);
-        res.json({ success: true, user: out[0] });
-    } catch (e) {
-        console.error('admin b2b user:', e);
-        res.status(500).json({ error: e.message || 'Update failed' });
-    }
-});
-
-app.get('/api/admin/b2b/whitelist', isAdminStrict, async (req, res) => {
-    try {
-        const rows = await query('SELECT * FROM b2b_whitelist ORDER BY id DESC');
-        res.json(rows);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.post('/api/admin/b2b/whitelist', isAdminStrict, async (req, res) => {
-    try {
-        const {
-            email,
-            mobile_number,
-            default_mc_discount_percent: mc,
-            default_metal_markup_percent: mm,
-            notes,
-        } = req.body || {};
-        const emailNorm = email ? String(email).toLowerCase().trim() : null;
-        const mobile = mobile_number ? String(mobile_number).replace(/\D/g, '').slice(-10) : null;
-        if (!emailNorm && !mobile) {
-            return res.status(400).json({ error: 'Provide email or mobile_number' });
-        }
-        const ins = await query(
-            `INSERT INTO b2b_whitelist (email_norm, mobile_last10, default_mc_discount_percent, default_metal_markup_percent, notes)
-             VALUES ($1, $2, COALESCE($3,0), COALESCE($4,0), $5) RETURNING *`,
-            [emailNorm, mobile, mc != null ? Number(mc) : 0, mm != null ? Number(mm) : 0, notes || null],
-        );
-        if (emailNorm) {
-            await query(
-                `UPDATE users SET role = 'B2B_WHOLESALE',
-                    mc_discount_percent = COALESCE($2::numeric, mc_discount_percent, 0),
-                    metal_markup_percent = COALESCE($3::numeric, metal_markup_percent, 0),
-                    updated_at = CURRENT_TIMESTAMP
-                 WHERE LOWER(TRIM(email)) = $1 AND role NOT IN ('super_admin','admin','employee')`,
-                [emailNorm, mc != null ? Number(mc) : null, mm != null ? Number(mm) : null],
-            );
-        }
-        if (mobile) {
-            await query(
-                `UPDATE users SET role = 'B2B_WHOLESALE',
-                    mc_discount_percent = COALESCE($2::numeric, mc_discount_percent, 0),
-                    metal_markup_percent = COALESCE($3::numeric, metal_markup_percent, 0),
-                    updated_at = CURRENT_TIMESTAMP
-                 WHERE mobile_number = $1 OR RIGHT(REGEXP_REPLACE(COALESCE(mobile_number,''), '[^0-9]', '', 'g'), 10) = $1
-                 AND role NOT IN ('super_admin','admin','employee')`,
-                [mobile, mc != null ? Number(mc) : null, mm != null ? Number(mm) : null],
-            );
-        }
-        res.json({ success: true, row: ins[0] });
-    } catch (e) {
-        if (e.code === '23505') return res.status(409).json({ error: 'Duplicate email or mobile in whitelist' });
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.delete('/api/admin/b2b/whitelist/:id', isAdminStrict, async (req, res) => {
-    try {
-        await query('DELETE FROM b2b_whitelist WHERE id = $1', [req.params.id]);
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-/** Post a ledger line + update running balances */
-app.post('/api/admin/b2b/ledger-entry', isAdminStrict, async (req, res) => {
-    const {
-        user_id,
-        entry_type,
-        rupee_delta,
-        fine_metal_delta_grams,
-        metal_type,
-        description,
-        reference,
-    } = req.body || {};
-    const uid = parseInt(user_id, 10);
-    if (Number.isNaN(uid)) return res.status(400).json({ error: 'user_id required' });
-    const et = String(entry_type || '').toUpperCase();
-    if (!['PURCHASE', 'CASH_PAYMENT', 'METAL_DEPOSIT'].includes(et)) {
-        return res.status(400).json({ error: 'Invalid entry_type' });
-    }
-    const rd = Number(rupee_delta ?? 0);
-    const fg = Number(fine_metal_delta_grams ?? 0);
-
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        await client.query(
-            `INSERT INTO user_ledger_entries (user_id, entry_type, rupee_delta, fine_metal_delta_grams, metal_type, description, reference)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [uid, et, rd, fg, metal_type || null, description || null, reference || null],
-        );
-        await client.query(
-            `UPDATE users SET
-                ledger_rupee_balance = COALESCE(ledger_rupee_balance,0) + $2,
-                ledger_fine_metal_grams = COALESCE(ledger_fine_metal_grams,0) + $3,
-                updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1`,
-            [uid, rd, fg],
-        );
-        await client.query('COMMIT');
-        const u = await query('SELECT ledger_rupee_balance, ledger_fine_metal_grams FROM users WHERE id = $1', [uid]);
-        res.json({ success: true, balances: u[0] });
-    } catch (e) {
-        try {
-            await client.query('ROLLBACK');
-        } catch (_) { /* ignore */ }
-        res.status(500).json({ error: e.message });
-    } finally {
-        client.release();
     }
 });
 
@@ -2947,7 +2806,17 @@ app.post('/api/admin/add-user', isAdminStrict, async (req, res) => {
 app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, role, account_status, allowed_tabs, permissions } = req.body;
+        const {
+            name,
+            role,
+            account_status,
+            allowed_tabs,
+            permissions,
+            customer_tier,
+            wholesale_making_charge_discount_percent,
+            wholesale_markup_percent,
+            mobile_number,
+        } = req.body;
         
         // Check if user exists
         const existingUser = await query('SELECT * FROM users WHERE id = $1', [id]);
@@ -2991,6 +2860,36 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             if (validStatuses.includes(account_status)) {
                 updates.push(`account_status = $${paramIndex++}`);
                 params.push(account_status);
+            }
+        }
+
+        if (customer_tier !== undefined) {
+            const validTiers = ['ADMIN', 'B2C_CUSTOMER', 'B2B_WHOLESALE'];
+            const t = String(customer_tier).toUpperCase();
+            if (validTiers.includes(t)) {
+                updates.push(`customer_tier = $${paramIndex++}`);
+                params.push(t);
+            }
+        }
+        if (wholesale_making_charge_discount_percent !== undefined) {
+            const n = Number(wholesale_making_charge_discount_percent);
+            if (!Number.isNaN(n)) {
+                updates.push(`wholesale_making_charge_discount_percent = $${paramIndex++}`);
+                params.push(Math.max(-100, Math.min(100, n)));
+            }
+        }
+        if (wholesale_markup_percent !== undefined) {
+            const n = Number(wholesale_markup_percent);
+            if (!Number.isNaN(n)) {
+                updates.push(`wholesale_markup_percent = $${paramIndex++}`);
+                params.push(Math.max(-100, Math.min(100, n)));
+            }
+        }
+        if (mobile_number !== undefined) {
+            const digits = String(mobile_number).replace(/\D/g, '').slice(-10);
+            if (digits.length === 10) {
+                updates.push(`mobile_number = $${paramIndex++}`);
+                params.push(digits);
             }
         }
         

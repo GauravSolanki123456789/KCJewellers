@@ -13,9 +13,9 @@ import {
   PROFILE_LEDGER_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
-import { useWholesalePricing } from '@/context/WholesalePricingContext'
+import { useCustomerTier } from '@/context/CustomerTierContext'
 import Link from 'next/link'
-import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, FileText, ChevronRight, Table2, BookOpen } from 'lucide-react'
+import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, FileText, ChevronRight, Package, BookMarked } from 'lucide-react'
 import axios from 'axios'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
@@ -39,7 +39,7 @@ export default function ProfilePage() {
 
 function ProfilePageContent() {
   const auth = useAuth()
-  const wholesale = useWholesalePricing()
+  const { hasWholesaleAccess } = useCustomerTier()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const email = (user?.email || '').toLowerCase().trim()
@@ -58,7 +58,7 @@ function ProfilePageContent() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <main className="max-w-4xl mx-auto px-4 py-8 pb-24 md:pb-12">
+      <main className="max-w-4xl mx-auto px-4 py-8 kc-pb-mobile-nav md:pb-12">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 bg-clip-text text-transparent flex items-center gap-2">
@@ -74,11 +74,6 @@ function ProfilePageContent() {
               {user.role === 'super_admin' && (
                 <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">
                   Admin
-                </span>
-              )}
-              {user.role === 'B2B_WHOLESALE' && (
-                <span className="inline-block mt-1 ml-1 px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded">
-                  Wholesale
                 </span>
               )}
             </div>
@@ -131,41 +126,37 @@ function ProfilePageContent() {
           </div>
         </section>
 
-        {/* B2B wholesale — quick links */}
-        {auth.isAuthenticated && wholesale.isWholesaleBuyer && (
-          <section className="mb-6 grid gap-3 sm:grid-cols-2">
+        {/* B2B wholesale — only approved wholesale accounts */}
+        {auth.isAuthenticated && hasWholesaleAccess && (
+          <section className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Link
               href={WHOLESALE_ORDER_PATH}
-              className="block glass-card rounded-2xl overflow-hidden border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 hover:from-emerald-500/20 hover:to-emerald-500/10 transition-all group"
+              className="group block glass-card rounded-2xl overflow-hidden border border-emerald-500/30 bg-gradient-to-br from-emerald-500/[0.12] to-emerald-950/25 shadow-lg shadow-black/20 transition hover:border-emerald-500/50 hover:from-emerald-500/20 active:scale-[0.99]"
             >
-              <div className="p-5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30">
-                    <Table2 className="size-7 text-emerald-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-base font-semibold text-emerald-400">Wholesale quick order</h2>
-                    <p className="text-xs text-slate-500">Spreadsheet-style matrix — fast bulk lines</p>
-                  </div>
+              <div className="flex min-h-[5.5rem] items-center gap-4 p-5">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/25 transition group-hover:bg-emerald-500/25">
+                  <Package className="size-6 text-emerald-400" aria-hidden />
                 </div>
-                <ChevronRight className="size-5 shrink-0 text-emerald-500/80 group-hover:translate-x-0.5 transition-transform" />
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-base font-semibold text-emerald-300">Wholesale quick order</h2>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">SKU matrix & bulk add to cart</p>
+                </div>
+                <ChevronRight className="size-5 shrink-0 text-emerald-500/80 transition group-hover:translate-x-0.5" aria-hidden />
               </div>
             </Link>
             <Link
               href={PROFILE_LEDGER_PATH}
-              className="block glass-card rounded-2xl overflow-hidden border border-sky-500/30 bg-gradient-to-br from-sky-500/10 to-sky-500/5 hover:from-sky-500/20 hover:to-sky-500/10 transition-all group"
+              className="group block glass-card rounded-2xl overflow-hidden border border-emerald-500/30 bg-gradient-to-br from-emerald-500/[0.12] to-emerald-950/25 shadow-lg shadow-black/20 transition hover:border-emerald-500/50 hover:from-emerald-500/20 active:scale-[0.99]"
             >
-              <div className="p-5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30">
-                    <BookOpen className="size-7 text-sky-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-base font-semibold text-sky-400">Business ledger (Khata)</h2>
-                    <p className="text-xs text-slate-500">Rupee & fine metal balances</p>
-                  </div>
+              <div className="flex min-h-[5.5rem] items-center gap-4 p-5">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/25 transition group-hover:bg-emerald-500/25">
+                  <BookMarked className="size-6 text-emerald-400" aria-hidden />
                 </div>
-                <ChevronRight className="size-5 shrink-0 text-sky-500/80 group-hover:translate-x-0.5 transition-transform" />
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-base font-semibold text-emerald-300">Ledger (Khata)</h2>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">Rupee & fine metal balances</p>
+                </div>
+                <ChevronRight className="size-5 shrink-0 text-emerald-500/80 transition group-hover:translate-x-0.5" aria-hidden />
               </div>
             </Link>
           </section>
@@ -213,7 +204,7 @@ function ProfilePageContent() {
 
         {/* Admin Dashboard - Only for admin */}
         {isAdmin && (
-          <section className="mb-6 space-y-3">
+          <section className="mb-6">
             <Link
               href="/admin"
               className="block glass-card rounded-2xl overflow-hidden border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 transition-all group"
@@ -229,21 +220,6 @@ function ProfilePageContent() {
                   </div>
                 </div>
                 <span className="text-amber-500 group-hover:translate-x-1 transition-transform">→</span>
-              </div>
-            </Link>
-            <Link
-              href="/admin/b2b"
-              className="block glass-card rounded-2xl overflow-hidden border border-emerald-500/25 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 hover:from-emerald-500/20 hover:to-emerald-500/10 transition-all group"
-            >
-              <div className="p-5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Table2 className="size-7 text-emerald-400" />
-                  <div>
-                    <h2 className="text-base font-semibold text-emerald-400">B2B wholesale admin</h2>
-                    <p className="text-xs text-slate-500">Roles, whitelist, ledger entries</p>
-                  </div>
-                </div>
-                <span className="text-emerald-400 group-hover:translate-x-1 transition-transform">→</span>
               </div>
             </Link>
           </section>

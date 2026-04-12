@@ -10,8 +10,8 @@ import { productImageViewportWrapperClass } from '@/lib/flat-product-image'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
+import { useCustomerTier } from '@/context/CustomerTierContext'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
-import { useWholesalePricing } from '@/context/WholesalePricingContext'
 
 type ProductCardProps = {
   product: Item
@@ -38,8 +38,7 @@ export default function ProductCard({
   onToggleSelect,
 }: ProductCardProps) {
   const cart = useCart()
-  const wholesale = useWholesalePricing()
-  const discountTier = wholesale.isWholesaleBuyer ? wholesale.discountTier : null
+  const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
   const [imgError, setImgError] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
   const [fallbackUnoptimized, setFallbackUnoptimized] = useState(false)
@@ -61,13 +60,14 @@ export default function ProductCard({
   }, [product.image_url, barcode, imageSrc])
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
-  const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, discountTier)
-  const { total, originalTotal, discountPercent } = breakdown
+  const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing)
+  const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
-  const isWholesaleRate = breakdown.isWholesaleRate === true
-  const showStrike =
-    isWholesaleRate && originalTotal != null && Math.round(originalTotal) !== Math.round(total)
-  const strikeAmount = showStrike ? originalTotal : hasDiscount ? originalTotal : undefined
+  const showWholesale =
+    hasWholesaleAccess &&
+    is_wholesale_price &&
+    wholesale_retail_total != null &&
+    wholesale_retail_total > total + 0.5
 
   const showImage = !!imageSrc && !imgError
   return (
@@ -105,9 +105,14 @@ export default function ProductCard({
       <div
         className={`relative isolate aspect-[4/5] overflow-hidden ${productImageWellClass}`}
       >
-        {(hasDiscount || isWholesaleRate) && (
+        {showWholesale && (
+          <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-emerald-600/95 text-white text-[10px] font-bold uppercase tracking-wide border border-emerald-400/40">
+            Wholesale
+          </span>
+        )}
+        {hasDiscount && (
           <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs font-bold">
-            {isWholesaleRate ? 'Wholesale' : `${Math.round(discountPercent ?? 0)}% OFF`}
+            {Math.round(discountPercent ?? 0)}% OFF
           </span>
         )}
         {showImage ? (
@@ -186,23 +191,31 @@ export default function ProductCard({
         )}
 
         <div className="flex flex-col gap-0.5 mt-0.5 min-w-0">
-          {(hasDiscount || showStrike) && strikeAmount != null && (
+          {showWholesale && (
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-400/90">
+              Wholesale rate
+            </span>
+          )}
+          {showWholesale && (
             <span className="line-through text-slate-500 text-sm sm:text-base">
-              ₹{Math.round(strikeAmount).toLocaleString('en-IN')}
+              ₹{Math.round(wholesale_retail_total ?? total).toLocaleString('en-IN')}
+            </span>
+          )}
+          {!showWholesale && hasDiscount && (
+            <span className="line-through text-slate-500 text-sm sm:text-base">
+              ₹{Math.round(originalTotal ?? total).toLocaleString('en-IN')}
             </span>
           )}
           <div className="flex items-baseline gap-1.5 flex-wrap">
             <span
-              className={
-                isWholesaleRate
-                  ? 'text-emerald-400 font-semibold tabular-nums text-base sm:text-lg'
-                  : 'text-amber-500 font-medium tabular-nums text-base sm:text-lg'
-              }
+              className={`font-medium tabular-nums text-base sm:text-lg ${
+                showWholesale ? 'text-emerald-400' : 'text-amber-500'
+              }`}
             >
               ₹{Math.round(total).toLocaleString('en-IN')}
             </span>
             <span className="text-xs text-slate-500 font-normal shrink-0">
-              {isWholesaleRate ? 'Wholesale · incl. GST' : 'incl. GST'}
+              incl. GST
             </span>
           </div>
         </div>

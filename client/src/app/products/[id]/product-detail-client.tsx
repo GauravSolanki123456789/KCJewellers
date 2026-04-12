@@ -43,7 +43,7 @@ import {
   type SyntheticEvent,
 } from "react";
 import { useCart } from "@/context/CartContext";
-import { useWholesalePricing } from "@/context/WholesalePricingContext";
+import { useCustomerTier } from "@/context/CustomerTierContext";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 
@@ -76,8 +76,7 @@ export default function ProductDetailClient({
     next: null,
   });
   const cart = useCart();
-  const wholesale = useWholesalePricing();
-  const discountTier = wholesale.isWholesaleBuyer ? wholesale.discountTier : null;
+  const { wholesalePricing, hasWholesaleAccess } = useCustomerTier();
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
   const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(false);
@@ -115,7 +114,12 @@ export default function ProductDetailClient({
       const dr = await axios.get("/api/rates/display");
       if (item) {
         setB(
-          calculateBreakdown(item, dr.data?.rates || [], item.gst_rate, discountTier),
+          calculateBreakdown(
+            item,
+            dr.data?.rates || [],
+            item.gst_rate ?? 3,
+            wholesalePricing,
+          ),
         );
         const dn = productDisplayName(item);
         trackProductView(item.barcode || String(item.id || ""), dn);
@@ -133,13 +137,20 @@ export default function ProductDetailClient({
     const on = (p: { rates?: RateRow[] }) => {
       const cur = productRef.current;
       if (cur)
-        setB(calculateBreakdown(cur, p?.rates || [], cur.gst_rate, discountTier));
+        setB(
+          calculateBreakdown(
+            cur,
+            p?.rates || [],
+            cur.gst_rate ?? 3,
+            wholesalePricing,
+          ),
+        );
     };
     s.on("live-rate", on);
     return () => {
       s.off("live-rate", on);
     };
-  }, [id, initialProduct, discountTier]);
+  }, [id, initialProduct, wholesalePricing]);
 
   useEffect(() => {
     const safeId = String(id || "").slice(0, 64);
@@ -245,7 +256,11 @@ export default function ProductDetailClient({
   const isDiamond = isDiamondItem(product);
   const barcode = product.barcode || product.sku || String(product.id || "");
   const hasDiscount = (b?.discountPercent ?? 0) > 0;
-  const isWholesaleRate = b?.isWholesaleRate === true;
+  const showWholesale =
+    hasWholesaleAccess &&
+    b?.is_wholesale_price &&
+    b.wholesale_retail_total != null &&
+    b.wholesale_retail_total > (b?.total ?? 0) + 0.5;
   const thumbnails = imageUrl ? [imageUrl] : [];
   const subcategorySlug =
     (product as { subcategory_slug?: string }).subcategory_slug ?? null;
@@ -306,9 +321,9 @@ export default function ProductDetailClient({
                   <ChevronRight className="size-6 md:size-7" strokeWidth={2.5} />
                 </button>
               )}
-              {(hasDiscount || isWholesaleRate) && (
+              {hasDiscount && (
                 <span className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg bg-amber-500 text-slate-950 text-sm font-bold">
-                  {isWholesaleRate ? "Wholesale rate" : `${Math.round(b?.discountPercent ?? 0)}% OFF`}
+                  {Math.round(b?.discountPercent ?? 0)}% OFF
                 </span>
               )}
               {imageUrl ? (
@@ -395,17 +410,25 @@ export default function ProductDetailClient({
             )}
 
             <div className="mt-6">
-              {(hasDiscount || isWholesaleRate) && b?.originalTotal != null && (
+              {showWholesale && (
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
+                  Wholesale rate
+                </p>
+              )}
+              {showWholesale && (
                 <span className="line-through text-slate-500 text-xl mr-2">
-                  ₹{Math.round(b.originalTotal).toLocaleString("en-IN")}
+                  ₹{Math.round(b?.wholesale_retail_total ?? 0).toLocaleString("en-IN")}
+                </span>
+              )}
+              {!showWholesale && hasDiscount && (
+                <span className="line-through text-slate-500 text-xl mr-2">
+                  ₹{Math.round(b?.originalTotal ?? 0).toLocaleString("en-IN")}
                 </span>
               )}
               <span
-                className={
-                  isWholesaleRate
-                    ? "text-3xl md:text-4xl font-bold text-emerald-400 tabular-nums"
-                    : "text-3xl md:text-4xl font-bold text-amber-500 tabular-nums"
-                }
+                className={`text-3xl md:text-4xl font-bold tabular-nums ${
+                  showWholesale ? "text-emerald-400" : "text-amber-500"
+                }`}
               >
                 ₹{Math.round(b?.total || 0).toLocaleString("en-IN")}
               </span>

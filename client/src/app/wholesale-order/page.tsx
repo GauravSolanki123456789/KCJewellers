@@ -1,12 +1,15 @@
-import type { Metadata } from "next";
-import WholesaleOrderClient from "./wholesale-order-client";
+import { CatalogDataProvider } from '@/app/catalog/catalog-data-context'
+import WholesaleOrderClient from './wholesale-order-client'
 
-export const metadata: Metadata = {
-  title: "Wholesale quick order",
-  description:
-    "Dense spreadsheet-style ordering for B2B wholesale buyers — KC Jewellers.",
-};
+export const metadata = {
+  title: 'Wholesale quick order',
+  description: 'Dense SKU matrix for B2B buyers — KC Jewellers',
+}
 
 export default function WholesaleOrderPage() {
-  return <WholesaleOrderClient />;
+  return (
+    <CatalogDataProvider>
+      <WholesaleOrderClient />
+    </CatalogDataProvider>
+  )
 }

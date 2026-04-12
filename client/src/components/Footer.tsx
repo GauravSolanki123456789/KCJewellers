@@ -25,7 +25,7 @@ export default function Footer() {
   }
   return (
     <footer className="mt-auto border-t border-white/10 bg-slate-950/80">
-      <div className="mx-auto max-w-6xl px-4 py-4 md:py-6">
+      <div className="mx-auto max-w-6xl px-4 pt-4 pb-4 md:py-6 kc-pb-mobile-nav">
         <div className="hidden items-center justify-between gap-4 text-sm md:flex">
           <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-500">
             {policyLinks.map(({ href, label }) => (
