@@ -228,6 +228,37 @@ const getUserPermissions = (user) => {
 // For backward compatibility
 const verifyTenantAccess = checkAuth;
 
+/**
+ * JSON API: must be logged in (any role). Does not enforce ERP active-tab rules.
+ */
+const requireSessionJson = (req, res, next) => {
+    if (!req.isAuthenticated || !req.isAuthenticated()) {
+        return res.status(401).json({ error: 'Not authenticated', code: 'AUTH_REQUIRED' });
+    }
+    next();
+};
+
+/**
+ * B2B wholesale portal: session + role B2B_WHOLESALE
+ */
+const requireB2BWholesale = (req, res, next) => {
+    try {
+        const { resolveUserRole, isB2BWholesaleRole } = require('../services/authService');
+        if (!req.isAuthenticated || !req.isAuthenticated()) {
+            return res.status(401).json({ error: 'Not authenticated', code: 'AUTH_REQUIRED' });
+        }
+        const u = resolveUserRole(req.user);
+        if (!isB2BWholesaleRole(u)) {
+            return res.status(403).json({ error: 'B2B wholesale access required', code: 'B2B_REQUIRED' });
+        }
+        req.user = u;
+        return next();
+    } catch (e) {
+        console.error('requireB2BWholesale:', e);
+        return res.status(500).json({ error: 'Access check failed' });
+    }
+};
+
 module.exports = {
     checkAuth,
     checkAdmin,
@@ -237,6 +268,8 @@ module.exports = {
     requireActiveAccount,
     getUserPermissions,
     verifyTenantAccess,
+    requireSessionJson,
+    requireB2BWholesale,
     /**
      * Strict admin guard: only allow the whitelisted super admin email
      * Forces super_admin role and ['all'] allowed_tabs for jaigaurav56789@gmail.com

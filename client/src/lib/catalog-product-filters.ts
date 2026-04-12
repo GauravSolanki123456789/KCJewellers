@@ -1,4 +1,4 @@
-import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { calculateBreakdown, type DiscountTier, type Item } from '@/lib/pricing'
 
 /** Metal tab keys — match `metal_type` filtering on the catalogue (see METAL_TABS in catalog-page-client). */
 export type CatalogMetalKey = 'gold' | 'silver' | 'diamond'
@@ -27,11 +27,17 @@ export function productPassesCatalogFilters(
   priceLow: number,
   priceHigh: number,
   rates: unknown,
+  discountTier?: DiscountTier | null,
 ): boolean {
   if (!productMatchesMetal(product, metal)) return false
   const w = product.net_weight ?? product.net_wt ?? product.weight ?? 0
   const wt = Number(w) || 0
   if (wt < weightLow || wt > weightHigh) return false
-  const b = calculateBreakdown(product, rates, (product as { gst_rate?: number }).gst_rate ?? 3)
+  const b = calculateBreakdown(
+    product,
+    rates,
+    (product as { gst_rate?: number }).gst_rate ?? 3,
+    discountTier,
+  )
   return b.total >= priceLow && b.total <= priceHigh
 }

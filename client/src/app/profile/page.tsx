@@ -10,9 +10,12 @@ import {
   POLICY_SHIPPING_PATH,
   POLICY_TERMS_PATH,
   PROFILE_PATH,
+  PROFILE_LEDGER_PATH,
+  WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
+import { useWholesalePricing } from '@/context/WholesalePricingContext'
 import Link from 'next/link'
-import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, FileText, ChevronRight } from 'lucide-react'
+import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, FileText, ChevronRight, Table2, BookOpen } from 'lucide-react'
 import axios from 'axios'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
@@ -36,6 +39,7 @@ export default function ProfilePage() {
 
 function ProfilePageContent() {
   const auth = useAuth()
+  const wholesale = useWholesalePricing()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const email = (user?.email || '').toLowerCase().trim()
@@ -70,6 +74,11 @@ function ProfilePageContent() {
               {user.role === 'super_admin' && (
                 <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">
                   Admin
+                </span>
+              )}
+              {user.role === 'B2B_WHOLESALE' && (
+                <span className="inline-block mt-1 ml-1 px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded">
+                  Wholesale
                 </span>
               )}
             </div>
@@ -122,6 +131,46 @@ function ProfilePageContent() {
           </div>
         </section>
 
+        {/* B2B wholesale — quick links */}
+        {auth.isAuthenticated && wholesale.isWholesaleBuyer && (
+          <section className="mb-6 grid gap-3 sm:grid-cols-2">
+            <Link
+              href={WHOLESALE_ORDER_PATH}
+              className="block glass-card rounded-2xl overflow-hidden border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 hover:from-emerald-500/20 hover:to-emerald-500/10 transition-all group"
+            >
+              <div className="p-5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30">
+                    <Table2 className="size-7 text-emerald-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold text-emerald-400">Wholesale quick order</h2>
+                    <p className="text-xs text-slate-500">Spreadsheet-style matrix — fast bulk lines</p>
+                  </div>
+                </div>
+                <ChevronRight className="size-5 shrink-0 text-emerald-500/80 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </Link>
+            <Link
+              href={PROFILE_LEDGER_PATH}
+              className="block glass-card rounded-2xl overflow-hidden border border-sky-500/30 bg-gradient-to-br from-sky-500/10 to-sky-500/5 hover:from-sky-500/20 hover:to-sky-500/10 transition-all group"
+            >
+              <div className="p-5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30">
+                    <BookOpen className="size-7 text-sky-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold text-sky-400">Business ledger (Khata)</h2>
+                    <p className="text-xs text-slate-500">Rupee & fine metal balances</p>
+                  </div>
+                </div>
+                <ChevronRight className="size-5 shrink-0 text-sky-500/80 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </Link>
+          </section>
+        )}
+
         {/* My SIP Investments - For all authenticated customers */}
         {auth.isAuthenticated && (
           <section className="mb-6">
@@ -164,7 +213,7 @@ function ProfilePageContent() {
 
         {/* Admin Dashboard - Only for admin */}
         {isAdmin && (
-          <section className="mb-6">
+          <section className="mb-6 space-y-3">
             <Link
               href="/admin"
               className="block glass-card rounded-2xl overflow-hidden border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 transition-all group"
@@ -180,6 +229,21 @@ function ProfilePageContent() {
                   </div>
                 </div>
                 <span className="text-amber-500 group-hover:translate-x-1 transition-transform">→</span>
+              </div>
+            </Link>
+            <Link
+              href="/admin/b2b"
+              className="block glass-card rounded-2xl overflow-hidden border border-emerald-500/25 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 hover:from-emerald-500/20 hover:to-emerald-500/10 transition-all group"
+            >
+              <div className="p-5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Table2 className="size-7 text-emerald-400" />
+                  <div>
+                    <h2 className="text-base font-semibold text-emerald-400">B2B wholesale admin</h2>
+                    <p className="text-xs text-slate-500">Roles, whitelist, ledger entries</p>
+                  </div>
+                </div>
+                <span className="text-emerald-400 group-hover:translate-x-1 transition-transform">→</span>
               </div>
             </Link>
           </section>

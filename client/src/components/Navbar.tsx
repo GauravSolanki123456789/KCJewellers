@@ -18,14 +18,23 @@ import {
   CATALOG_PATH,
   HOME_PATH,
   PROFILE_PATH,
+  PROFILE_LEDGER_PATH,
   RATES_PATH,
   SIP_PATH,
+  WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
+import { useWholesalePricing } from '@/context/WholesalePricingContext'
 
 type UserType = { email?: string; name?: string; role?: string; mobile_number?: string }
 
 function navIsActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false
+  if (href === WHOLESALE_ORDER_PATH) {
+    return pathname === WHOLESALE_ORDER_PATH || pathname.startsWith(`${WHOLESALE_ORDER_PATH}/`)
+  }
+  if (href === PROFILE_LEDGER_PATH) {
+    return pathname === PROFILE_LEDGER_PATH || pathname.startsWith(`${PROFILE_LEDGER_PATH}/`)
+  }
   if (href === CATALOG_PATH) {
     return (
       pathname === CATALOG_PATH ||
@@ -57,6 +66,7 @@ export default function Navbar() {
   const searchParams = useSearchParams()
   const { items, openCart } = useCart()
   const auth = useAuth()
+  const wholesale = useWholesalePricing()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const count = items.reduce((sum, i) => sum + i.qty, 0)
@@ -136,6 +146,22 @@ export default function Navbar() {
                 <span className="text-sm">{label}</span>
               </Link>
             ))}
+            {wholesale.isWholesaleBuyer && (
+              <>
+                <Link
+                  href={WHOLESALE_ORDER_PATH}
+                  className={`text-sm transition-colors ${linkClass(WHOLESALE_ORDER_PATH)}`}
+                >
+                  Wholesale order
+                </Link>
+                <Link
+                  href={PROFILE_LEDGER_PATH}
+                  className={`text-sm transition-colors ${linkClass(PROFILE_LEDGER_PATH)}`}
+                >
+                  Ledger
+                </Link>
+              </>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2 lg:gap-3">
             {!auth.isAuthenticated && (

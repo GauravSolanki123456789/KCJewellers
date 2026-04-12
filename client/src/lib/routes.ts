@@ -16,6 +16,8 @@ export const CATALOG_STATE_KEY = 'kc_catalog_state'
 export const CATALOG_FROM_PRODUCT_KEY = 'kc_catalog_from_product'
 export const CHECKOUT_PATH = '/checkout'
 export const PROFILE_PATH = '/profile'
+export const PROFILE_LEDGER_PATH = '/profile/ledger'
+export const WHOLESALE_ORDER_PATH = '/wholesale-order'
 export const PROFILE_SIPS_PATH = '/profile/sips'
 export const SIP_PATH = '/sip'
 
