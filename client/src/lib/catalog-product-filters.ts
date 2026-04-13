@@ -26,6 +26,22 @@ export function firstMetalWithProducts(
   return 'gold'
 }
 
+/** Count products in the catalogue for a given metal tab (for validating persisted wholesale state). */
+export function countProductsForMetal(
+  categories: { subcategories: { products: Item[] }[] }[],
+  metal: CatalogMetalKey,
+): number {
+  let n = 0
+  for (const c of categories) {
+    for (const s of c.subcategories) {
+      for (const p of s.products) {
+        if (productMatchesMetal(p, metal)) n++
+      }
+    }
+  }
+  return n
+}
+
 export type WholesaleProductRow = {
   product: Item
   styleName: string
@@ -79,27 +95,6 @@ export function productMatchesMetal(product: Item, metal: CatalogMetalKey): bool
 /** Stable id for selection state — matches ProductCard `data-product-id` (barcode preferred). */
 export function getProductSelectionKey(product: Item): string {
   return String(product.barcode ?? product.sku ?? product.id ?? '').trim()
-}
-
-/** Lookup by barcode/sku key and by `row-${sku}` fallback used in wholesale matrix rows. */
-export function buildCatalogProductByKeyMap(
-  categories: { subcategories: { products: Item[] }[] }[],
-): Map<string, Item> {
-  const m = new Map<string, Item>()
-  for (const c of categories) {
-    for (const s of c.subcategories) {
-      for (const p of s.products) {
-        const k = getProductSelectionKey(p)
-        if (k) m.set(k, p)
-        const sku = String(p.sku ?? '').trim()
-        if (sku) {
-          const alt = `row-${sku}`
-          if (!m.has(alt)) m.set(alt, p)
-        }
-      }
-    }
-  }
-  return m
 }
 
 /**

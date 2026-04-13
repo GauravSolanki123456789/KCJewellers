@@ -11,7 +11,7 @@ import { useCart } from '@/context/CartContext'
 import { CATALOG_PATH } from '@/lib/routes'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 import {
-  buildCatalogProductByKeyMap,
+  countProductsForMetal,
   firstMetalWithProducts,
   flattenWholesaleRows,
   getProductSelectionKey,
@@ -19,12 +19,7 @@ import {
   wholesaleRowMatchesSearch,
   type CatalogMetalKey,
 } from '@/lib/catalog-product-filters'
-import {
-  clearWholesaleQtyDraft,
-  loadWholesaleQtyDraft,
-  saveWholesaleQtyDraft,
-  WHOLESALE_METAL_KEY,
-} from '@/lib/wholesale-draft-storage'
+import { writeWholesaleQuickOrder, readWholesaleQuickOrder } from '@/lib/wholesale-quick-order-storage'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { cn } from '@/lib/utils'
 
@@ -34,8 +29,9 @@ const METAL_TABS: { key: CatalogMetalKey; label: string; icon: typeof Sparkles }
   { key: 'diamond', label: 'Diamond', icon: Gem },
 ]
 
-function productKey(p: Item): string {
-  return getProductSelectionKey(p)
+function rowKey(p: Item): string {
+  const k = getProductSelectionKey(p)
+  return k || `row-${String(p.sku ?? p.id ?? '')}`
 }
 
 type PricedWholesaleRow = {
@@ -52,9 +48,10 @@ export default function WholesaleOrderClient() {
   const { hasWholesaleAccess, tierReady, wholesalePricing } = useCustomerTier()
   const cart = useCart()
   const [metal, setMetal] = useState<CatalogMetalKey>('gold')
-  const metalInitialized = useRef(false)
-  const [qtyByKey, setQtyByKey] = useState<Record<string, number>>({})
   const [draftHydrated, setDraftHydrated] = useState(false)
+  const lastSliderMetalRef = useRef<CatalogMetalKey | null>(null)
+  const prevMetalForClearRef = useRef<CatalogMetalKey | null>(null)
+  const [qtyByKey, setQtyByKey] = useState<Record<string, number>>({})
   const [adding, setAdding] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [weightLow, setWeightLow] = useState(0)
@@ -64,27 +61,6 @@ export default function WholesaleOrderClient() {
   const [bulkQtyDraft, setBulkQtyDraft] = useState('')
 
   const rowsWithMeta = useMemo(() => flattenWholesaleRows(categories, metal), [categories, metal])
-
-  /** Restore metal + qty draft from session (same tab — survives Ledger / back nav). */
-  useEffect(() => {
-    try {
-      const m = sessionStorage.getItem(WHOLESALE_METAL_KEY)
-      if (m === 'gold' || m === 'silver' || m === 'diamond') setMetal(m)
-    } catch {
-      /* ignore */
-    }
-    setQtyByKey(loadWholesaleQtyDraft())
-    setDraftHydrated(true)
-  }, [])
-
-  /** After session restore, land on first metal with stock only if the restored tab is empty. */
-  useEffect(() => {
-    if (categories.length === 0 || !draftHydrated || metalInitialized.current) return
-    metalInitialized.current = true
-    setMetal((prev) =>
-      flattenWholesaleRows(categories, prev).length > 0 ? prev : firstMetalWithProducts(categories),
-    )
-  }, [categories, draftHydrated])
 
   const { weightBounds, priceBounds } = useMemo(() => {
     const products = rowsWithMeta.map((r) => r.product)
@@ -107,37 +83,105 @@ export default function WholesaleOrderClient() {
     }
   }, [rowsWithMeta, rates, wholesalePricing])
 
+  /** Restore draft from session (survives Ledger / other routes); pick metal with stock. */
   useEffect(() => {
-    setWeightLow(weightBounds[0])
-    setWeightHigh(weightBounds[1])
-    setPriceLow(priceBounds[0])
-    setPriceHigh(priceBounds[1])
-  }, [weightBounds[0], weightBounds[1], priceBounds[0], priceBounds[1]])
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem(WHOLESALE_METAL_KEY, metal)
-    } catch {
-      /* ignore */
+    if (categories.length === 0 || !tierReady || !hasWholesaleAccess || draftHydrated) return
+    const saved = readWholesaleQuickOrder()
+    if (saved) {
+      if (saved.qtyByKey && typeof saved.qtyByKey === 'object') setQtyByKey(saved.qtyByKey)
+      if (typeof saved.searchQuery === 'string') setSearchQuery(saved.searchQuery)
+      if (typeof saved.bulkQtyDraft === 'string') setBulkQtyDraft(saved.bulkQtyDraft)
+      const m = saved.metal
+      if (m && METAL_TABS.some((t) => t.key === m) && countProductsForMetal(categories, m) > 0) {
+        setMetal(m)
+      } else {
+        setMetal(firstMetalWithProducts(categories))
+      }
+    } else {
+      setMetal(firstMetalWithProducts(categories))
     }
-  }, [metal])
+    setDraftHydrated(true)
+  }, [categories, tierReady, hasWholesaleAccess, draftHydrated])
 
+  /** When metal tab changes (not first paint): clear qty + search for that metal only. */
   useEffect(() => {
     if (!draftHydrated) return
-    saveWholesaleQtyDraft(qtyByKey)
-  }, [qtyByKey, draftHydrated])
+    if (prevMetalForClearRef.current === null) {
+      prevMetalForClearRef.current = metal
+      return
+    }
+    if (prevMetalForClearRef.current !== metal) {
+      prevMetalForClearRef.current = metal
+      setQtyByKey({})
+      setSearchQuery('')
+      lastSliderMetalRef.current = null
+    }
+  }, [metal, draftHydrated])
 
-  /** Changing metal only clears search — quantities stay in the draft (all metals). */
+  /** Initialise or sync sliders for current metal (restore from session once per metal; no global bounds churn). */
   useEffect(() => {
-    setSearchQuery('')
-  }, [metal])
+    if (!draftHydrated || rowsWithMeta.length === 0) return
+    if (lastSliderMetalRef.current === metal) return
+    const saved = readWholesaleQuickOrder()
+    if (
+      saved &&
+      saved.metal === metal &&
+      typeof saved.weightLow === 'number' &&
+      typeof saved.weightHigh === 'number' &&
+      typeof saved.priceLow === 'number' &&
+      typeof saved.priceHigh === 'number'
+    ) {
+      setWeightLow(Math.max(weightBounds[0], Math.min(weightBounds[1], saved.weightLow)))
+      setWeightHigh(Math.max(weightBounds[0], Math.min(weightBounds[1], saved.weightHigh)))
+      setPriceLow(Math.max(priceBounds[0], Math.min(priceBounds[1], saved.priceLow)))
+      setPriceHigh(Math.max(priceBounds[0], Math.min(priceBounds[1], saved.priceHigh)))
+    } else {
+      setWeightLow(weightBounds[0])
+      setWeightHigh(weightBounds[1])
+      setPriceLow(priceBounds[0])
+      setPriceHigh(priceBounds[1])
+    }
+    lastSliderMetalRef.current = metal
+  }, [
+    draftHydrated,
+    metal,
+    rowsWithMeta.length,
+    weightBounds[0],
+    weightBounds[1],
+    priceBounds[0],
+    priceBounds[1],
+  ])
 
-  const productByKey = useMemo(() => buildCatalogProductByKeyMap(categories), [categories])
+  /** Persist draft so navigating to Ledger and back keeps quantities and filters. */
+  useEffect(() => {
+    if (!draftHydrated || !hasWholesaleAccess) return
+    writeWholesaleQuickOrder({
+      v: 1,
+      metal,
+      qtyByKey,
+      searchQuery,
+      weightLow,
+      weightHigh,
+      priceLow,
+      priceHigh,
+      bulkQtyDraft,
+    })
+  }, [
+    draftHydrated,
+    hasWholesaleAccess,
+    metal,
+    qtyByKey,
+    searchQuery,
+    weightLow,
+    weightHigh,
+    priceLow,
+    priceHigh,
+    bulkQtyDraft,
+  ])
 
   const pricedRowsAll = useMemo((): PricedWholesaleRow[] => {
     return rowsWithMeta.map(({ product, styleName, subcategoryName }) => {
-      const k = productKey(product)
-      const key = k || `row-${String(product.sku ?? '')}`
+      const key = rowKey(product)
       const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing)
       const weight = getItemWeight(product)
       return { product, key, breakdown, weight, styleName, subcategoryName }
@@ -196,30 +240,34 @@ export default function WholesaleOrderClient() {
     setPriceHigh(priceBounds[1])
   }, [weightBounds, priceBounds])
 
-  const clearAllQuantities = useCallback(() => {
-    setQtyByKey({})
-    clearWholesaleQtyDraft()
-  }, [])
+  const draftLineCount = useMemo(() => {
+    const valid = new Set(pricedRowsAll.map((r) => r.key))
+    let n = 0
+    for (const [k, q] of Object.entries(qtyByKey)) {
+      if (q > 0 && valid.has(k)) n += 1
+    }
+    return n
+  }, [pricedRowsAll, qtyByKey])
 
-  /** Totals for the full draft (all metals / all filters), not only the current visible slice. */
+  /** Full draft totals (all qty lines in this metal), not only visible filter rows. */
   const footerTotals = useMemo(() => {
     let weight = 0
     let price = 0
     let lines = 0
-    for (const [key, q] of Object.entries(qtyByKey)) {
+    for (const { product, key, breakdown } of pricedRowsAll) {
+      const q = qtyByKey[key] ?? 0
       if (q <= 0) continue
-      const product = productByKey.get(key)
-      if (!product) continue
-      const pk = productKey(product)
-      if (!pk) continue
-      const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing)
       lines += 1
       const w = getItemWeight(product) ?? 0
       weight += w * q
       price += breakdown.total * q
     }
     return { weight, price, lines }
-  }, [qtyByKey, productByKey, rates, wholesalePricing])
+  }, [pricedRowsAll, qtyByKey])
+
+  const clearDraftList = useCallback(() => {
+    setQtyByKey({})
+  }, [])
 
   const onQtyChange = useCallback((key: string, raw: string) => {
     const n = parseInt(raw, 10)
@@ -249,19 +297,18 @@ export default function WholesaleOrderClient() {
   const handleBulkAdd = useCallback(async () => {
     setAdding(true)
     try {
-      for (const [key, q] of Object.entries(qtyByKey)) {
+      for (const { product, key } of pricedRowsAll) {
+        const q = qtyByKey[key] ?? 0
         if (q < 1) continue
-        const product = productByKey.get(key)
-        if (!product || !productKey(product)) continue
+        if (!getProductSelectionKey(product)) continue
         cart.addWithQty(product, q)
       }
       cart.openCart()
       setQtyByKey({})
-      clearWholesaleQtyDraft()
     } finally {
       setAdding(false)
     }
-  }, [qtyByKey, productByKey, cart])
+  }, [pricedRowsAll, qtyByKey, cart])
 
   const sliderBlock = (
     <>
@@ -359,17 +406,13 @@ export default function WholesaleOrderClient() {
           ))}
         </div>
 
-        <p className="mb-3 text-[11px] leading-relaxed text-slate-500 md:text-xs">
-          <span className="text-slate-400">
-            {pricedVisible.length} shown
-            {pricedRowsAll.length !== pricedVisible.length ? ` of ${pricedRowsAll.length}` : ''} · {metal}
-            {hasActiveFilters ? ' · filtered' : ''}
-          </span>
-          {footerTotals.lines > 0 && (
-            <span className="mt-1 block text-emerald-400/95 sm:mt-0 sm:ml-1 sm:inline">
-              · Draft {footerTotals.lines} line{footerTotals.lines === 1 ? '' : 's'}
-            </span>
-          )}
+        <p className="mb-3 text-[11px] text-slate-500 md:text-xs">
+          {pricedVisible.length} shown
+          {pricedRowsAll.length !== pricedVisible.length ? ` of ${pricedRowsAll.length}` : ''} · {metal}
+          {hasActiveFilters ? ' · filtered' : ''}
+          {draftLineCount > 0 ? (
+            <span className="text-emerald-400/90"> · {draftLineCount} in draft</span>
+          ) : null}
         </p>
 
         <div className="lg:grid lg:grid-cols-[minmax(240px,280px)_1fr] lg:items-start lg:gap-8">
@@ -424,7 +467,16 @@ export default function WholesaleOrderClient() {
               >
                 Apply to list
               </button>
-              <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 sm:ml-auto sm:w-auto">
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {draftLineCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearDraftList}
+                    className="text-xs font-medium text-slate-400 underline-offset-2 hover:text-red-400 hover:underline"
+                  >
+                    Clear list
+                  </button>
+                )}
                 {hasActiveFilters && (
                   <button
                     type="button"
@@ -432,15 +484,6 @@ export default function WholesaleOrderClient() {
                     className="text-xs font-medium text-amber-400/90 underline-offset-2 hover:underline"
                   >
                     Clear filters
-                  </button>
-                )}
-                {Object.keys(qtyByKey).length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearAllQuantities}
-                    className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-rose-400/90 hover:underline"
-                  >
-                    Clear quantities
                   </button>
                 )}
               </div>
@@ -453,18 +496,19 @@ export default function WholesaleOrderClient() {
                 <div className="rounded-2xl border border-dashed border-slate-700 py-12 text-center text-sm text-slate-500">
                   No products in this metal.
                 </div>
+              ) : emptyMatches && draftLineCount > 0 ? (
+                <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/20 px-4 py-10 text-center text-sm leading-relaxed text-slate-300">
+                  No rows match current filters.{' '}
+                  <button type="button" onClick={resetFilters} className="font-semibold text-emerald-400 underline">
+                    Clear filters
+                  </button>{' '}
+                  to see items — your{' '}
+                  <span className="tabular-nums text-emerald-300">{draftLineCount}</span> draft line
+                  {draftLineCount !== 1 ? 's' : ''} stay saved.
+                </div>
               ) : emptyMatches ? (
-                <div className="rounded-2xl border border-dashed border-slate-700 px-3 py-12 text-center text-sm text-slate-500">
-                  {footerTotals.lines > 0 ? (
-                    <>
-                      <span className="text-slate-300">No rows match current filters.</span>{' '}
-                      <span className="text-emerald-400/90">
-                        Your draft still has {footerTotals.lines} line{footerTotals.lines === 1 ? '' : 's'} — clear filters or search to see them.
-                      </span>
-                    </>
-                  ) : (
-                    'No matches — try another search or widen weight / price.'
-                  )}
+                <div className="rounded-2xl border border-dashed border-slate-700 py-12 text-center text-sm text-slate-500">
+                  No matches — try another search or widen weight / price.
                 </div>
               ) : (
                 pricedVisible.map(({ product, key, breakdown, weight, styleName, subcategoryName }) => {
@@ -566,19 +610,22 @@ export default function WholesaleOrderClient() {
                           No products in this metal.
                         </td>
                       </tr>
+                    ) : emptyMatches && draftLineCount > 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-14 text-center text-sm leading-relaxed text-slate-300">
+                          No rows match current filters.{' '}
+                          <button type="button" onClick={resetFilters} className="font-semibold text-emerald-400 underline">
+                            Clear filters
+                          </button>{' '}
+                          to see items — your{' '}
+                          <span className="tabular-nums text-emerald-300">{draftLineCount}</span> draft line
+                          {draftLineCount !== 1 ? 's' : ''} stay saved.
+                        </td>
+                      </tr>
                     ) : emptyMatches ? (
                       <tr>
                         <td colSpan={7} className="px-4 py-14 text-center text-slate-500">
-                          {footerTotals.lines > 0 ? (
-                            <>
-                              <span className="text-slate-300">No rows match current filters.</span>{' '}
-                              <span className="text-emerald-400/90">
-                                Draft has {footerTotals.lines} line{footerTotals.lines === 1 ? '' : 's'} — use Clear filters to show them.
-                              </span>
-                            </>
-                          ) : (
-                            'No matches — adjust search or filters.'
-                          )}
+                          No matches — adjust search or filters.
                         </td>
                       </tr>
                     ) : (
@@ -663,9 +710,7 @@ export default function WholesaleOrderClient() {
         <div className="max-w-[1600px] mx-auto flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex flex-wrap items-end gap-4 text-xs sm:gap-6 sm:text-sm">
             <div>
-              <span className="block text-[9px] font-semibold uppercase tracking-wider text-slate-500 sm:text-[10px]">
-                Lines <span className="font-normal text-slate-600">(draft)</span>
-              </span>
+              <span className="block text-[9px] font-semibold uppercase tracking-wider text-slate-500 sm:text-[10px]">Lines</span>
               <span className="tabular-nums text-base font-bold text-slate-100 sm:text-lg">{footerTotals.lines}</span>
             </div>
             <div>

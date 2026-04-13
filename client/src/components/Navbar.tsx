@@ -208,15 +208,15 @@ export default function Navbar() {
       <nav className="safe-area-pb fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-slate-950/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.42)] md:hidden">
         {auth.isAuthenticated && user && (
           <div className="flex items-center gap-2 border-b border-white/10 px-2.5 py-1">
-            <div className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate text-[11px] font-medium text-yellow-500">
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-[10px] font-medium leading-tight text-yellow-500/95">
                 {user.name ||
                   user.email ||
                   (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
+                {user.role === 'super_admin' ? (
+                  <span className="ml-1 text-[9px] text-amber-400/90">· Admin</span>
+                ) : null}
               </span>
-              {user.role === 'super_admin' && (
-                <span className="text-[9px] text-amber-400/90">Admin</span>
-              )}
             </div>
             <button
               onClick={handleLogout}
@@ -224,7 +224,7 @@ export default function Navbar() {
               title="Logout"
               type="button"
             >
-              <LogOut className="size-[15px] text-red-400/95" />
+              <LogOut className="size-3.5 text-red-400" />
             </button>
           </div>
         )}
@@ -238,7 +238,7 @@ export default function Navbar() {
                   : 'border-white/10 bg-white/5 text-emerald-400/95 active:bg-white/10'
               }`}
             >
-              <Package className="size-[15px] shrink-0 opacity-90" aria-hidden />
+              <Package className="size-3.5 shrink-0 opacity-90" aria-hidden />
               <span className="truncate">Wholesale</span>
             </Link>
             <Link
@@ -249,12 +249,12 @@ export default function Navbar() {
                   : 'border-white/10 bg-white/5 text-emerald-400/95 active:bg-white/10'
               }`}
             >
-              <BookMarked className="size-[15px] shrink-0 opacity-90" aria-hidden />
+              <BookMarked className="size-3.5 shrink-0 opacity-90" aria-hidden />
               <span className="truncate">Ledger</span>
             </Link>
           </div>
         )}
-        <div className="flex min-h-[50px] items-stretch justify-around gap-0.5 px-1.5 pb-1.5 pt-0.5">
+        <div className="flex min-h-[50px] items-stretch justify-around gap-0.5 px-1.5 pb-1.5 pt-1">
           {BOTTOM_NAV.map(({ href, icon: Icon, label, shortLabel }) => {
             const active = navIsActive(pathname, href)
             return (
