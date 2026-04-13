@@ -1,5 +1,5 @@
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
-import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { getItemWeight, type Item } from '@/lib/pricing'
 import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 
 const styles = StyleSheet.create({
@@ -50,11 +50,10 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontWeight: 'bold',
   },
-  code: { fontSize: 8, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 },
-  title: { fontSize: 9, color: '#e2e8f0', marginBottom: 4, minHeight: 22 },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' },
-  price: { fontSize: 11, color: '#fbbf24', fontWeight: 'bold' },
-  gst: { fontSize: 7, color: '#64748b' },
+  title: { fontSize: 9, color: '#e2e8f0', marginBottom: 4, minHeight: 20 },
+  metaLabel: { fontSize: 6, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 },
+  barcodeValue: { fontSize: 10, color: '#fbbf24', fontWeight: 'bold', marginBottom: 4 },
+  weightLine: { fontSize: 8, color: '#94a3b8' },
   footer: {
     position: 'absolute',
     bottom: 20,
@@ -75,25 +74,19 @@ function displayName(p: Item) {
   )
 }
 
-function markedUpTotal(item: Item, rates: unknown, markupPct: number) {
-  const b = calculateBreakdown(item, rates, (item as { gst_rate?: number }).gst_rate ?? 3)
-  const m = Math.max(0, markupPct)
-  return b.total * (1 + m / 100)
-}
-
 export type CatalogPdfDocumentProps = {
   products: ItemWithPdfImage[]
-  rates: unknown[]
-  markupPercentage: number
   brandName?: string
 }
 
 const PER_PAGE = 9
 
+function itemBarcode(item: Item): string {
+  return String(item.barcode ?? item.sku ?? '').trim()
+}
+
 export function CatalogPdfDocument({
   products,
-  rates,
-  markupPercentage,
   brandName = 'KC Jewellers',
 }: CatalogPdfDocumentProps) {
   const chunks: ItemWithPdfImage[][] = []
@@ -120,14 +113,11 @@ export function CatalogPdfDocument({
               const name = displayName(p)
               /** Only embedded PNG data URLs — remote URLs fail silently in react-pdf. */
               const img = p.pdfImageSrc
-              const total = markedUpTotal(p, rates, markupPercentage)
-              const code = String(p.barcode || p.sku || '')
+              const barcode = itemBarcode(p)
+              const weight = getItemWeight(p)
+              const key = `${barcode || String(p.id ?? i)}-${pageIndex}-${i}`
               return (
-                <View
-                  key={`${code}-${pageIndex}-${i}`}
-                  style={styles.card}
-                  wrap={false}
-                >
+                <View key={key} style={styles.card} wrap={false}>
                   <View style={styles.thumbWrap}>
                     {img ? (
                       <Image style={styles.thumb} src={img} />
@@ -135,18 +125,22 @@ export function CatalogPdfDocument({
                       <Text style={styles.thumbPlaceholder}>{name.charAt(0)}</Text>
                     )}
                   </View>
-                  {code ? (
-                    <Text style={styles.code} hyphenationCallback={() => []}>
-                      {code}
-                    </Text>
-                  ) : null}
                   <Text style={styles.title} hyphenationCallback={() => []}>
                     {name}
                   </Text>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.price}>₹{Math.round(total).toLocaleString('en-IN')}</Text>
-                    <Text style={styles.gst}>incl. GST</Text>
-                  </View>
+                  {barcode ? (
+                    <View>
+                      <Text style={styles.metaLabel}>Barcode</Text>
+                      <Text style={styles.barcodeValue} hyphenationCallback={() => []}>
+                        {barcode}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {weight != null ? (
+                    <Text style={styles.weightLine} hyphenationCallback={() => []}>
+                      Weight · {Number(weight).toFixed(2)} gm
+                    </Text>
+                  ) : null}
                 </View>
               )
             })}

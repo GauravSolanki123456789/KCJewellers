@@ -81,6 +81,27 @@ export function getProductSelectionKey(product: Item): string {
   return String(product.barcode ?? product.sku ?? product.id ?? '').trim()
 }
 
+/** Lookup by barcode/sku key and by `row-${sku}` fallback used in wholesale matrix rows. */
+export function buildCatalogProductByKeyMap(
+  categories: { subcategories: { products: Item[] }[] }[],
+): Map<string, Item> {
+  const m = new Map<string, Item>()
+  for (const c of categories) {
+    for (const s of c.subcategories) {
+      for (const p of s.products) {
+        const k = getProductSelectionKey(p)
+        if (k) m.set(k, p)
+        const sku = String(p.sku ?? '').trim()
+        if (sku) {
+          const alt = `row-${sku}`
+          if (!m.has(alt)) m.set(alt, p)
+        }
+      }
+    }
+  }
+  return m
+}
+
 /**
  * Same weight + price bounds as the catalogue grid (dual sliders), for a single product row.
  */

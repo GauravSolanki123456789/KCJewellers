@@ -207,54 +207,54 @@ export default function Navbar() {
       {/* Mobile bottom: 4 tabs only */}
       <nav className="safe-area-pb fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-slate-950/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.42)] md:hidden">
         {auth.isAuthenticated && user && (
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
-            <div className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-medium text-yellow-500">
+          <div className="flex items-center gap-2 border-b border-white/10 px-2.5 py-1">
+            <div className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate text-[11px] font-medium text-yellow-500">
                 {user.name ||
                   user.email ||
                   (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
               </span>
               {user.role === 'super_admin' && (
-                <span className="text-[10px] text-amber-400">Admin</span>
+                <span className="text-[9px] text-amber-400/90">Admin</span>
               )}
             </div>
             <button
               onClick={handleLogout}
-              className="shrink-0 rounded p-1.5 hover:bg-white/10"
+              className="shrink-0 rounded-md p-1 hover:bg-white/10"
               title="Logout"
               type="button"
             >
-              <LogOut className="size-4 text-red-400" />
+              <LogOut className="size-[15px] text-red-400/95" />
             </button>
           </div>
         )}
         {auth.isAuthenticated && hasWholesaleAccess && (
-          <div className="flex gap-2 border-b border-emerald-500/15 bg-gradient-to-r from-emerald-950/40 to-slate-950 px-3 py-2">
+          <div className="flex gap-1.5 border-b border-emerald-500/15 bg-gradient-to-r from-emerald-950/40 to-slate-950 px-2 py-1.5">
             <Link
               href={WHOLESALE_ORDER_PATH}
-              className={`flex min-h-[44px] flex-1 touch-manipulation items-center justify-center gap-2 rounded-xl border px-2 py-2 text-xs font-semibold transition-colors ${
+              className={`flex min-h-[40px] flex-1 touch-manipulation items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
                 navIsActive(pathname, WHOLESALE_ORDER_PATH)
                   ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
                   : 'border-white/10 bg-white/5 text-emerald-400/95 active:bg-white/10'
               }`}
             >
-              <Package className="size-4 shrink-0 opacity-90" aria-hidden />
+              <Package className="size-[15px] shrink-0 opacity-90" aria-hidden />
               <span className="truncate">Wholesale</span>
             </Link>
             <Link
               href={PROFILE_LEDGER_PATH}
-              className={`flex min-h-[44px] flex-1 touch-manipulation items-center justify-center gap-2 rounded-xl border px-2 py-2 text-xs font-semibold transition-colors ${
+              className={`flex min-h-[40px] flex-1 touch-manipulation items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
                 navIsActive(pathname, PROFILE_LEDGER_PATH)
                   ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
                   : 'border-white/10 bg-white/5 text-emerald-400/95 active:bg-white/10'
               }`}
             >
-              <BookMarked className="size-4 shrink-0 opacity-90" aria-hidden />
+              <BookMarked className="size-[15px] shrink-0 opacity-90" aria-hidden />
               <span className="truncate">Ledger</span>
             </Link>
           </div>
         )}
-        <div className="flex min-h-[52px] items-stretch justify-around gap-0.5 px-1.5 pb-2 pt-1">
+        <div className="flex min-h-[50px] items-stretch justify-around gap-0.5 px-1.5 pb-1.5 pt-0.5">
           {BOTTOM_NAV.map(({ href, icon: Icon, label, shortLabel }) => {
             const active = navIsActive(pathname, href)
             return (

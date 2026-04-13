@@ -50,7 +50,7 @@ function findProductsByBarcodes(
 }
 
 export default function WhatsAppCatalogModal({ open, onClose }: Props) {
-  const { categories, rates } = useCatalogData()
+  const { categories } = useCatalogData()
   const { selectedProductIds, clearSelection } = useCatalogBuilder()
   const [outputFormat, setOutputFormat] = useState<'temporary_web_link' | 'pdf'>('temporary_web_link')
   const [markupPercentage, setMarkupPercentage] = useState(0)
@@ -99,11 +99,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         }
         const itemsForPdf = await resolveItemsForPdf(items)
         const blob = await pdf(
-          <CatalogPdfDocument
-            products={itemsForPdf}
-            rates={rates}
-            markupPercentage={markupPercentage}
-          />,
+          <CatalogPdfDocument products={itemsForPdf} />,
         ).toBlob()
         const filename = `kc-jewellers-catalog-${new Date().toISOString().slice(0, 10)}.pdf`
         await shareCatalogPdfBlob(blob, filename)
@@ -137,7 +133,6 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     markupPercentage,
     expiresAtIso,
     categories,
-    rates,
     clearSelection,
     resetAndClose,
   ])
@@ -220,44 +215,50 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 <span className="text-[11px] opacity-80">Download a printable PDF</span>
               </button>
             </div>
-          </div>
-
-          <div>
-            <label htmlFor="markup-pct" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
-              Global markup (%)
-            </label>
-            <input
-              id="markup-pct"
-              type="number"
-              min={0}
-              max={500}
-              step={0.5}
-              value={markupPercentage}
-              onChange={(e) => setMarkupPercentage(Number(e.target.value) || 0)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-slate-100 outline-none ring-amber-500/0 transition focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30"
-            />
-            <p className="mt-1 text-[11px] text-slate-500">
-              Applied on top of the live price incl. GST (e.g. 10 = +10%).
-            </p>
+            {outputFormat === 'pdf' && (
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                PDF includes product image, name, barcode, and net weight — prices are not shown.
+              </p>
+            )}
           </div>
 
           {outputFormat === 'temporary_web_link' && (
-            <div>
-              <label htmlFor="expiry" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
-                Link expires in
-              </label>
-              <select
-                id="expiry"
-                value={expiryHours}
-                onChange={(e) => setExpiryHours(Number(e.target.value))}
-                className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30"
-              >
-                {EXPIRY_OPTIONS.map((o) => (
-                  <option key={o.hours} value={o.hours}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-5">
+              <div>
+                <label htmlFor="markup-pct" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Global markup (%)
+                </label>
+                <input
+                  id="markup-pct"
+                  type="number"
+                  min={0}
+                  max={500}
+                  step={0.5}
+                  value={markupPercentage}
+                  onChange={(e) => setMarkupPercentage(Number(e.target.value) || 0)}
+                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none ring-amber-500/0 transition focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Applied on top of the live price incl. GST on the shared link (e.g. 10 = +10%).
+                </p>
+              </div>
+              <div>
+                <label htmlFor="expiry" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Link expires in
+                </label>
+                <select
+                  id="expiry"
+                  value={expiryHours}
+                  onChange={(e) => setExpiryHours(Number(e.target.value))}
+                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                >
+                  {EXPIRY_OPTIONS.map((o) => (
+                    <option key={o.hours} value={o.hours}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
@@ -303,7 +304,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             type="button"
             disabled={busy || !!shareUrl}
             onClick={handleSubmit}
-            className="w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-900/20 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-[48px] w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-900/20 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
           >
             {busy
               ? 'Working…'

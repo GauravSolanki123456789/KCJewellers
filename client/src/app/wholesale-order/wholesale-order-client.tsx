@@ -11,12 +11,20 @@ import { useCart } from '@/context/CartContext'
 import { CATALOG_PATH } from '@/lib/routes'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 import {
+  buildCatalogProductByKeyMap,
   firstMetalWithProducts,
   flattenWholesaleRows,
+  getProductSelectionKey,
   productPassesCatalogFilters,
   wholesaleRowMatchesSearch,
   type CatalogMetalKey,
 } from '@/lib/catalog-product-filters'
+import {
+  clearWholesaleQtyDraft,
+  loadWholesaleQtyDraft,
+  saveWholesaleQtyDraft,
+  WHOLESALE_METAL_KEY,
+} from '@/lib/wholesale-draft-storage'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { cn } from '@/lib/utils'
 
@@ -27,7 +35,7 @@ const METAL_TABS: { key: CatalogMetalKey; label: string; icon: typeof Sparkles }
 ]
 
 function productKey(p: Item): string {
-  return String(p.barcode ?? p.sku ?? p.id ?? '').trim()
+  return getProductSelectionKey(p)
 }
 
 type PricedWholesaleRow = {
@@ -46,6 +54,7 @@ export default function WholesaleOrderClient() {
   const [metal, setMetal] = useState<CatalogMetalKey>('gold')
   const metalInitialized = useRef(false)
   const [qtyByKey, setQtyByKey] = useState<Record<string, number>>({})
+  const [draftHydrated, setDraftHydrated] = useState(false)
   const [adding, setAdding] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [weightLow, setWeightLow] = useState(0)
@@ -56,12 +65,26 @@ export default function WholesaleOrderClient() {
 
   const rowsWithMeta = useMemo(() => flattenWholesaleRows(categories, metal), [categories, metal])
 
-  /** Land on first metal that has stock (e.g. empty Gold → Silver). */
+  /** Restore metal + qty draft from session (same tab — survives Ledger / back nav). */
   useEffect(() => {
-    if (categories.length === 0 || metalInitialized.current) return
+    try {
+      const m = sessionStorage.getItem(WHOLESALE_METAL_KEY)
+      if (m === 'gold' || m === 'silver' || m === 'diamond') setMetal(m)
+    } catch {
+      /* ignore */
+    }
+    setQtyByKey(loadWholesaleQtyDraft())
+    setDraftHydrated(true)
+  }, [])
+
+  /** After session restore, land on first metal with stock only if the restored tab is empty. */
+  useEffect(() => {
+    if (categories.length === 0 || !draftHydrated || metalInitialized.current) return
     metalInitialized.current = true
-    setMetal(firstMetalWithProducts(categories))
-  }, [categories])
+    setMetal((prev) =>
+      flattenWholesaleRows(categories, prev).length > 0 ? prev : firstMetalWithProducts(categories),
+    )
+  }, [categories, draftHydrated])
 
   const { weightBounds, priceBounds } = useMemo(() => {
     const products = rowsWithMeta.map((r) => r.product)
@@ -92,9 +115,24 @@ export default function WholesaleOrderClient() {
   }, [weightBounds[0], weightBounds[1], priceBounds[0], priceBounds[1]])
 
   useEffect(() => {
-    setQtyByKey({})
+    try {
+      sessionStorage.setItem(WHOLESALE_METAL_KEY, metal)
+    } catch {
+      /* ignore */
+    }
+  }, [metal])
+
+  useEffect(() => {
+    if (!draftHydrated) return
+    saveWholesaleQtyDraft(qtyByKey)
+  }, [qtyByKey, draftHydrated])
+
+  /** Changing metal only clears search — quantities stay in the draft (all metals). */
+  useEffect(() => {
     setSearchQuery('')
   }, [metal])
+
+  const productByKey = useMemo(() => buildCatalogProductByKeyMap(categories), [categories])
 
   const pricedRowsAll = useMemo((): PricedWholesaleRow[] => {
     return rowsWithMeta.map(({ product, styleName, subcategoryName }) => {
@@ -158,20 +196,30 @@ export default function WholesaleOrderClient() {
     setPriceHigh(priceBounds[1])
   }, [weightBounds, priceBounds])
 
+  const clearAllQuantities = useCallback(() => {
+    setQtyByKey({})
+    clearWholesaleQtyDraft()
+  }, [])
+
+  /** Totals for the full draft (all metals / all filters), not only the current visible slice. */
   const footerTotals = useMemo(() => {
     let weight = 0
     let price = 0
     let lines = 0
-    for (const { product, key, breakdown } of pricedVisible) {
-      const q = qtyByKey[key] ?? 0
+    for (const [key, q] of Object.entries(qtyByKey)) {
       if (q <= 0) continue
+      const product = productByKey.get(key)
+      if (!product) continue
+      const pk = productKey(product)
+      if (!pk) continue
+      const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing)
       lines += 1
       const w = getItemWeight(product) ?? 0
       weight += w * q
       price += breakdown.total * q
     }
     return { weight, price, lines }
-  }, [pricedVisible, qtyByKey])
+  }, [qtyByKey, productByKey, rates, wholesalePricing])
 
   const onQtyChange = useCallback((key: string, raw: string) => {
     const n = parseInt(raw, 10)
@@ -201,18 +249,19 @@ export default function WholesaleOrderClient() {
   const handleBulkAdd = useCallback(async () => {
     setAdding(true)
     try {
-      for (const { product, key } of pricedVisible) {
-        const q = qtyByKey[key] ?? 0
+      for (const [key, q] of Object.entries(qtyByKey)) {
         if (q < 1) continue
-        if (!productKey(product)) continue
+        const product = productByKey.get(key)
+        if (!product || !productKey(product)) continue
         cart.addWithQty(product, q)
       }
       cart.openCart()
       setQtyByKey({})
+      clearWholesaleQtyDraft()
     } finally {
       setAdding(false)
     }
-  }, [pricedVisible, qtyByKey, cart])
+  }, [qtyByKey, productByKey, cart])
 
   const sliderBlock = (
     <>
@@ -310,10 +359,17 @@ export default function WholesaleOrderClient() {
           ))}
         </div>
 
-        <p className="mb-3 text-[11px] text-slate-500 md:text-xs">
-          {pricedVisible.length} shown
-          {pricedRowsAll.length !== pricedVisible.length ? ` of ${pricedRowsAll.length}` : ''} · {metal}
-          {hasActiveFilters ? ' · filtered' : ''}
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-500 md:text-xs">
+          <span className="text-slate-400">
+            {pricedVisible.length} shown
+            {pricedRowsAll.length !== pricedVisible.length ? ` of ${pricedRowsAll.length}` : ''} · {metal}
+            {hasActiveFilters ? ' · filtered' : ''}
+          </span>
+          {footerTotals.lines > 0 && (
+            <span className="mt-1 block text-emerald-400/95 sm:mt-0 sm:ml-1 sm:inline">
+              · Draft {footerTotals.lines} line{footerTotals.lines === 1 ? '' : 's'}
+            </span>
+          )}
         </p>
 
         <div className="lg:grid lg:grid-cols-[minmax(240px,280px)_1fr] lg:items-start lg:gap-8">
@@ -368,15 +424,26 @@ export default function WholesaleOrderClient() {
               >
                 Apply to list
               </button>
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="ml-auto text-xs font-medium text-amber-400/90 underline-offset-2 hover:underline"
-                >
-                  Clear filters
-                </button>
-              )}
+              <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 sm:ml-auto sm:w-auto">
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="text-xs font-medium text-amber-400/90 underline-offset-2 hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                )}
+                {Object.keys(qtyByKey).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllQuantities}
+                    className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-rose-400/90 hover:underline"
+                  >
+                    Clear quantities
+                  </button>
+                )}
+              </div>
             </div>
           </aside>
 
@@ -387,8 +454,17 @@ export default function WholesaleOrderClient() {
                   No products in this metal.
                 </div>
               ) : emptyMatches ? (
-                <div className="rounded-2xl border border-dashed border-slate-700 py-12 text-center text-sm text-slate-500">
-                  No matches — try another search or widen weight / price.
+                <div className="rounded-2xl border border-dashed border-slate-700 px-3 py-12 text-center text-sm text-slate-500">
+                  {footerTotals.lines > 0 ? (
+                    <>
+                      <span className="text-slate-300">No rows match current filters.</span>{' '}
+                      <span className="text-emerald-400/90">
+                        Your draft still has {footerTotals.lines} line{footerTotals.lines === 1 ? '' : 's'} — clear filters or search to see them.
+                      </span>
+                    </>
+                  ) : (
+                    'No matches — try another search or widen weight / price.'
+                  )}
                 </div>
               ) : (
                 pricedVisible.map(({ product, key, breakdown, weight, styleName, subcategoryName }) => {
@@ -493,7 +569,16 @@ export default function WholesaleOrderClient() {
                     ) : emptyMatches ? (
                       <tr>
                         <td colSpan={7} className="px-4 py-14 text-center text-slate-500">
-                          No matches — adjust search or filters.
+                          {footerTotals.lines > 0 ? (
+                            <>
+                              <span className="text-slate-300">No rows match current filters.</span>{' '}
+                              <span className="text-emerald-400/90">
+                                Draft has {footerTotals.lines} line{footerTotals.lines === 1 ? '' : 's'} — use Clear filters to show them.
+                              </span>
+                            </>
+                          ) : (
+                            'No matches — adjust search or filters.'
+                          )}
                         </td>
                       </tr>
                     ) : (
@@ -578,7 +663,9 @@ export default function WholesaleOrderClient() {
         <div className="max-w-[1600px] mx-auto flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex flex-wrap items-end gap-4 text-xs sm:gap-6 sm:text-sm">
             <div>
-              <span className="block text-[9px] font-semibold uppercase tracking-wider text-slate-500 sm:text-[10px]">Lines</span>
+              <span className="block text-[9px] font-semibold uppercase tracking-wider text-slate-500 sm:text-[10px]">
+                Lines <span className="font-normal text-slate-600">(draft)</span>
+              </span>
               <span className="tabular-nums text-base font-bold text-slate-100 sm:text-lg">{footerTotals.lines}</span>
             </div>
             <div>
