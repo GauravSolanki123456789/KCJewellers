@@ -1,5 +1,6 @@
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
-import { getItemWeight, type Item } from '@/lib/pricing'
+import { getItemWeightWithGrossFallback, type Item } from '@/lib/pricing'
+import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 
 const styles = StyleSheet.create({
@@ -32,7 +33,7 @@ const styles = StyleSheet.create({
   },
   thumbWrap: {
     width: '100%',
-    height: 110,
+    height: 100,
     backgroundColor: '#1e293b',
     borderRadius: 6,
     marginBottom: 6,
@@ -41,7 +42,7 @@ const styles = StyleSheet.create({
   },
   thumb: {
     width: '100%',
-    height: 110,
+    height: 100,
     objectFit: 'cover',
     borderRadius: 6,
   },
@@ -50,10 +51,17 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontWeight: 'bold',
   },
-  title: { fontSize: 9, color: '#e2e8f0', marginBottom: 4, minHeight: 20 },
+  title: { fontSize: 8, color: '#e2e8f0', marginBottom: 2, marginTop: 2 },
   metaLabel: { fontSize: 6, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 },
-  barcodeValue: { fontSize: 10, color: '#fbbf24', fontWeight: 'bold', marginBottom: 4 },
-  weightLine: { fontSize: 8, color: '#94a3b8' },
+  /** Standard Helvetica bold — same as ProductCard numeric id emphasis */
+  barcodeValue: {
+    fontSize: 11,
+    color: '#fbbf24',
+    fontFamily: 'Helvetica-Bold',
+    marginBottom: 3,
+  },
+  weightLine: { fontSize: 8, color: '#94a3b8', marginBottom: 2 },
+  weightMuted: { fontSize: 8, color: '#475569' },
   footer: {
     position: 'absolute',
     bottom: 20,
@@ -80,10 +88,6 @@ export type CatalogPdfDocumentProps = {
 }
 
 const PER_PAGE = 9
-
-function itemBarcode(item: Item): string {
-  return String(item.barcode ?? item.sku ?? '').trim()
-}
 
 export function CatalogPdfDocument({
   products,
@@ -113,9 +117,13 @@ export function CatalogPdfDocument({
               const name = displayName(p)
               /** Only embedded PNG data URLs — remote URLs fail silently in react-pdf. */
               const img = p.pdfImageSrc
-              const barcode = itemBarcode(p)
-              const weight = getItemWeight(p)
+              /** Same key as ProductCard / catalogue selection (`barcode ?? sku ?? id`). */
+              const barcode = getProductSelectionKey(p)
+              const weight = getItemWeightWithGrossFallback(p)
               const key = `${barcode || String(p.id ?? i)}-${pageIndex}-${i}`
+              const barcodeText = barcode || '—'
+              const weightText =
+                weight != null ? `${Number(weight).toFixed(2)} gm` : '—'
               return (
                 <View key={key} style={styles.card} wrap={false}>
                   <View style={styles.thumbWrap}>
@@ -125,22 +133,21 @@ export function CatalogPdfDocument({
                       <Text style={styles.thumbPlaceholder}>{name.charAt(0)}</Text>
                     )}
                   </View>
+                  <View>
+                    <Text style={styles.metaLabel}>Barcode</Text>
+                    <Text style={styles.barcodeValue} hyphenationCallback={() => []}>
+                      {barcodeText}
+                    </Text>
+                  </View>
+                  <Text
+                    style={weight != null ? styles.weightLine : styles.weightMuted}
+                    hyphenationCallback={() => []}
+                  >
+                    Weight · {weightText}
+                  </Text>
                   <Text style={styles.title} hyphenationCallback={() => []}>
                     {name}
                   </Text>
-                  {barcode ? (
-                    <View>
-                      <Text style={styles.metaLabel}>Barcode</Text>
-                      <Text style={styles.barcodeValue} hyphenationCallback={() => []}>
-                        {barcode}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {weight != null ? (
-                    <Text style={styles.weightLine} hyphenationCallback={() => []}>
-                      Weight · {Number(weight).toFixed(2)} gm
-                    </Text>
-                  ) : null}
                 </View>
               )
             })}

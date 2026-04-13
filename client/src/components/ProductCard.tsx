@@ -10,6 +10,7 @@ import { productImageViewportWrapperClass } from '@/lib/flat-product-image'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
+import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 
@@ -49,7 +50,7 @@ export default function ProductCard({
     product.short_name ||
     'Item'
   const weight = getItemWeight(product)
-  const barcode = product.barcode || product.sku || String(product.id || '')
+  const barcode = getProductSelectionKey(product)
 
   const imageSrc = normalizeCatalogImageSrc(product.image_url)
 

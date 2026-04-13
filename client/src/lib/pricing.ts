@@ -12,6 +12,7 @@ export type Item = {
   fixed_price?: number
   net_wt?: number
   net_weight?: number
+  gross_weight?: number
   weight?: number
   purity?: number | string
   mc_type?: string
@@ -88,6 +89,22 @@ export function getItemWeight(item: Item | null | undefined): number | null {
   if (n == null || (typeof n === 'string' && n === '')) return null
   const num = Number(n)
   return isNaN(num) ? null : num
+}
+
+/**
+ * Net/gross weight for catalogue PDF when net is missing (ERP sometimes only has gross).
+ * Does not change cart/checkout — use `getItemWeight` there.
+ */
+export function getItemWeightWithGrossFallback(
+  item: Item | null | undefined,
+): number | null {
+  const net = getItemWeight(item)
+  if (net != null && net > 0) return net
+  const g = (item as { gross_weight?: number }).gross_weight
+  if (g == null) return net
+  const num = Number(g)
+  if (isNaN(num) || num <= 0) return net
+  return num
 }
 
 /** Returns true if item metal_type is diamond (case-insensitive, supports 'diamond', 'diamonds', etc.) */
