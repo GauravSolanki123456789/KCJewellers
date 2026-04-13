@@ -3,11 +3,12 @@
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, Wallet, Sparkles, Info, Tag, X, CheckCircle2 } from 'lucide-react'
+import { ChevronLeft, Wallet, Sparkles, Info, Tag, X, CheckCircle2, Landmark, BookMarked } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { isDiamondItem } from '@/lib/pricing'
 import { useLoginModal } from '@/context/LoginModalContext'
+import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CATALOG_PATH, CHECKOUT_PATH } from '@/lib/routes'
 import axios from '@/lib/axios'
 import { toPaise } from '@/lib/utils'
@@ -37,6 +38,7 @@ function CheckoutContent() {
   const router = useRouter()
   const { items, remove, ratesReady } = useCart()
   const auth = useAuth()
+  const { hasWholesaleAccess, tierReady } = useCustomerTier()
   const { open: openLoginModal } = useLoginModal()
   const [loading, setLoading] = useState(false)
   const [scriptLoaded, setScriptLoaded] = useState(false)
@@ -54,6 +56,7 @@ function CheckoutContent() {
   } | null>(null)
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+  const isWholesaleCheckout = Boolean(auth.isAuthenticated && hasWholesaleAccess && tierReady)
 
   const loadRedeemableSips = useCallback(async () => {
     if (!auth.isAuthenticated) {
@@ -72,13 +75,21 @@ function CheckoutContent() {
   }, [auth.isAuthenticated])
 
   useEffect(() => {
+    if (isWholesaleCheckout) {
+      setSipsLoading(false)
+      return
+    }
     loadRedeemableSips()
-  }, [loadRedeemableSips])
+  }, [loadRedeemableSips, isWholesaleCheckout])
 
   useEffect(() => {
     if (!auth.hasChecked) return
     if (!auth.isAuthenticated && items.length > 0) {
       openLoginModal(CHECKOUT_PATH)
+      return
+    }
+    if (isWholesaleCheckout) {
+      setScriptLoaded(false)
       return
     }
     const script = document.createElement('script')
@@ -89,7 +100,7 @@ function CheckoutContent() {
     return () => {
       if (script.parentNode) document.body.removeChild(script)
     }
-  }, [auth.isAuthenticated, auth.hasChecked, items.length, openLoginModal])
+  }, [auth.isAuthenticated, auth.hasChecked, items.length, openLoginModal, isWholesaleCheckout])
 
   const hasMetalItems = items.some((ci) => !isDiamondItem(ci.item))
   const canProceedRates = !hasMetalItems || ratesReady
@@ -143,6 +154,35 @@ function CheckoutContent() {
   const handleRemovePromo = () => {
     setAppliedPromo(null)
     setPromoError(null)
+  }
+
+  const handleB2bPlace = async (checkoutType: 'NEFT' | 'LEDGER') => {
+    if (items.length === 0) return
+    if (payDisabledRates) return
+    setLoading(true)
+    try {
+      const res = await axios.post<{ order_id: number }>('/api/checkout/b2b-create-order', {
+        b2b_checkout_type: checkoutType,
+        items: items.map((ci) => ({
+          id: ci.id,
+          item: ci.item,
+          qty: ci.qty,
+          price: ci.price,
+          breakdown: ci.breakdown,
+        })),
+      })
+      const id = res.data?.order_id
+      items.forEach((ci) => remove(ci.id))
+      router.push(id ? `/checkout/b2b-success?orderId=${id}` : '/checkout/b2b-success')
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+          : 'Could not place purchase order'
+      alert(msg || 'Could not place purchase order')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handlePay = async () => {
@@ -315,8 +355,8 @@ function CheckoutContent() {
           })}
         </div>
 
-        {/* Redeem SIP Balance Card */}
-        {auth.isAuthenticated && !sipsLoading && redeemableSips.length > 0 && (
+        {/* Redeem SIP Balance Card — retail only */}
+        {auth.isAuthenticated && !isWholesaleCheckout && !sipsLoading && redeemableSips.length > 0 && (
           <div className="mb-6 rounded-xl border border-amber-500/20 bg-slate-900/60 overflow-hidden">
             <div className="p-4 border-b border-white/5">
               <div className="flex items-center gap-2 mb-2">
@@ -371,7 +411,8 @@ function CheckoutContent() {
           </div>
         )}
 
-        {/* Promo Code Section */}
+        {/* Promo Code Section — retail only */}
+        {!isWholesaleCheckout && (
         <div className="mb-6 rounded-xl border border-white/10 bg-slate-900/50 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Tag className="size-5 text-amber-500" />
@@ -425,6 +466,7 @@ function CheckoutContent() {
             </p>
           )}
         </div>
+        )}
 
         {/* Payment Summary */}
         <div className="rounded-xl border border-white/10 bg-slate-900/50 p-4 mb-6">
@@ -433,45 +475,73 @@ function CheckoutContent() {
               <span>Grand Total</span>
               <span className="tabular-nums">₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
             </div>
-            {canApplySip && selectedSip && (
+            {!isWholesaleCheckout && canApplySip && selectedSip && (
               <div className="flex justify-between text-emerald-400">
                 <span>SIP Redemption ({selectedSip.plan_name})</span>
                 <span className="tabular-nums">-₹{sipRedemptionValue.toLocaleString('en-IN')}</span>
               </div>
             )}
-            {appliedPromo && appliedPromo.discount_amount > 0 && (
+            {!isWholesaleCheckout && appliedPromo && appliedPromo.discount_amount > 0 && (
               <div className="flex justify-between text-emerald-400">
                 <span>Promo ({appliedPromo.code})</span>
                 <span className="tabular-nums">-₹{Math.round(appliedPromo.discount_amount).toLocaleString('en-IN')}</span>
               </div>
             )}
             <div className="flex justify-between text-lg font-semibold pt-2 border-t border-white/10">
-              <span>Final Payable</span>
-              <span className="text-amber-400 tabular-nums">₹{Math.round(finalPayableAmount).toLocaleString('en-IN')}</span>
+              <span>{isWholesaleCheckout ? 'Order total (est.)' : 'Final Payable'}</span>
+              <span className="text-amber-400 tabular-nums">
+                ₹{Math.round(isWholesaleCheckout ? grandTotal : finalPayableAmount).toLocaleString('en-IN')}
+              </span>
             </div>
           </div>
         </div>
 
-        <button
-          onClick={handlePay}
-          disabled={loading || payDisabledRates || (applySipId !== null && !canApplySip)}
-          className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
-        >
-          {loading ? (
-            <>Processing…</>
-          ) : payDisabledRates && hasMetalItems ? (
-            <>Loading prices…</>
-          ) : isFullSipRedemption ? (
-            <>
-              <Sparkles className="size-5" />
-              Complete with SIP
-            </>
-          ) : finalPayableAmount > 0 ? (
-            <>Pay ₹{Math.round(finalPayableAmount).toLocaleString('en-IN')} with Razorpay</>
-          ) : (
-            <>Pay with Razorpay</>
-          )}
-        </button>
+        {isWholesaleCheckout ? (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500 leading-relaxed rounded-lg border border-emerald-500/20 bg-emerald-950/20 px-3 py-2">
+              B2B checkout: no online card payment. Your purchase order is sent for approval. You will receive a proforma summary on the next screen.
+            </p>
+            <button
+              type="button"
+              onClick={() => handleB2bPlace('NEFT')}
+              disabled={loading || payDisabledRates}
+              className="w-full py-3.5 rounded-xl border border-emerald-500/40 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-100 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+            >
+              <Landmark className="size-5 shrink-0" aria-hidden />
+              {loading ? 'Submitting…' : 'Place purchase order (Pay via NEFT / RTGS)'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleB2bPlace('LEDGER')}
+              disabled={loading || payDisabledRates}
+              className="w-full py-3.5 rounded-xl border border-amber-500/35 bg-amber-500/10 hover:bg-amber-500/15 text-amber-100 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+            >
+              <BookMarked className="size-5 shrink-0" aria-hidden />
+              {loading ? 'Submitting…' : 'Deduct from ledger / Khata'}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handlePay}
+            disabled={loading || payDisabledRates || (applySipId !== null && !canApplySip)}
+            className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>Processing…</>
+            ) : payDisabledRates && hasMetalItems ? (
+              <>Loading prices…</>
+            ) : isFullSipRedemption ? (
+              <>
+                <Sparkles className="size-5" />
+                Complete with SIP
+              </>
+            ) : finalPayableAmount > 0 ? (
+              <>Pay ₹{Math.round(finalPayableAmount).toLocaleString('en-IN')} with Razorpay</>
+            ) : (
+              <>Pay with Razorpay</>
+            )}
+          </button>
+        )}
       </div>
     </div>
   )

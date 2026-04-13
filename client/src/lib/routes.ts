@@ -15,6 +15,8 @@ export const CATALOG_STATE_KEY = 'kc_catalog_state'
 /** Set when opening a product from the catalogue so "Back" can restore metal/style. */
 export const CATALOG_FROM_PRODUCT_KEY = 'kc_catalog_from_product'
 export const CHECKOUT_PATH = '/checkout'
+/** B2B wholesale PO success + proforma (after NEFT / ledger checkout). */
+export const CHECKOUT_B2B_SUCCESS_PATH = '/checkout/b2b-success'
 export const PROFILE_PATH = '/profile'
 export const PROFILE_SIPS_PATH = '/profile/sips'
 /** B2B wholesale quick order matrix (requires `customer_tier` B2B / ADMIN). */

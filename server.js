@@ -1212,6 +1212,56 @@ async function checkAndMigrateB2BWholesale() {
     }
 }
 
+/** B2B wholesale purchase orders: orders.order_channel, b2b_checkout_type */
+async function checkAndMigrateB2BOrdersChannel() {
+    try {
+        const dbPool = getPool();
+        await dbPool.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'orders' AND column_name = 'order_channel'
+                ) THEN
+                    ALTER TABLE orders ADD COLUMN order_channel VARCHAR(32) NOT NULL DEFAULT 'RETAIL';
+                    ALTER TABLE orders ADD CONSTRAINT orders_order_channel_check
+                        CHECK (order_channel IN ('RETAIL', 'B2B_WHOLESALE'));
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'orders' AND column_name = 'b2b_checkout_type'
+                ) THEN
+                    ALTER TABLE orders ADD COLUMN b2b_checkout_type VARCHAR(16);
+                    ALTER TABLE orders ADD CONSTRAINT orders_b2b_checkout_type_check
+                        CHECK (b2b_checkout_type IS NULL OR b2b_checkout_type IN ('NEFT', 'LEDGER'));
+                END IF;
+            END $$;
+        `);
+        await dbPool.query(`
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'orders' AND column_name = 'payment_status'
+                      AND character_maximum_length IS NOT NULL AND character_maximum_length < 36
+                ) THEN
+                    ALTER TABLE orders ALTER COLUMN payment_status TYPE VARCHAR(48);
+                END IF;
+            END $$;
+        `);
+        await dbPool.query(`
+            CREATE INDEX IF NOT EXISTS idx_orders_b2b_pending
+            ON orders (order_channel, payment_status)
+            WHERE order_channel = 'B2B_WHOLESALE' AND payment_status = 'PENDING_APPROVAL';
+        `);
+        console.log('✅ B2B wholesale order columns verified');
+        return true;
+    } catch (error) {
+        console.error('❌ B2B orders column migration failed:', error.message);
+        return false;
+    }
+}
+
 // Initialize database on startup
 initDatabase().then(async success => {
     if (success) {
@@ -1221,6 +1271,7 @@ initDatabase().then(async success => {
         await checkAndCreateStylesTable();
         await checkAndMigrateUsersTable();
         await checkAndMigrateB2BWholesale();
+        await checkAndMigrateB2BOrdersChannel();
     } else {
         console.log('⚠️ Server started but database initialization failed.');
         console.log('💡 Please check your PostgreSQL connection and restart the server.');
@@ -5167,6 +5218,144 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
             key_id: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
         });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Config: B2B NEFT bank details (env — not hardcoded in app source)
+app.get('/api/config/b2b-bank', (req, res) => {
+    try {
+        res.json({
+            account_name: process.env.B2B_BANK_ACCOUNT_NAME || '',
+            bank_name: process.env.B2B_BANK_NAME || '',
+            account_number: process.env.B2B_BANK_ACCOUNT_NUMBER || '',
+            ifsc: process.env.B2B_BANK_IFSC || '',
+            upi_id: process.env.B2B_BANK_UPI_ID || '',
+            notes: process.env.B2B_BANK_NOTES || '',
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// B2B wholesale checkout — no Razorpay; creates PENDING_APPROVAL purchase order
+app.post('/api/checkout/b2b-create-order', checkAuth, requireB2BWholesale, requireJson, async (req, res) => {
+    try {
+        const rawType = String(req.body.b2b_checkout_type || '').toUpperCase();
+        if (rawType !== 'NEFT' && rawType !== 'LEDGER') {
+            return res.status(400).json({ error: 'b2b_checkout_type must be NEFT or LEDGER' });
+        }
+        const items = req.body.items || [];
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'Cart is empty' });
+        }
+        const grandTotal = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
+        if (grandTotal <= 0) return res.status(400).json({ error: 'Invalid total' });
+
+        const itemsSnapshot = items.map((ci) => ({
+            barcode: ci.item?.barcode || ci.id,
+            item_name: ci.item?.item_name || ci.item?.short_name || 'Item',
+            qty: ci.qty || 1,
+            price: ci.price || 0,
+            breakdown: ci.breakdown || {},
+            net_wt_g: ci.item?.net_weight ?? ci.item?.net_wt ?? ci.item?.weight ?? null,
+        }));
+
+        const refId = `b2b_po_${Date.now()}_${req.user.id}`;
+        const paymentMethod = rawType === 'NEFT' ? 'B2B_NEFT' : 'B2B_LEDGER';
+
+        const [row] = await query(`
+            INSERT INTO orders (
+                user_id, total_amount, payment_status, payment_method, razorpay_order_id,
+                delivery_status, items_snapshot_json, order_channel, b2b_checkout_type,
+                sip_redemption_amount, sip_user_sip_id, amount_paid_via_pg, promo_code_id, promo_discount_amount,
+                created_at
+            )
+            VALUES ($1, $2, 'PENDING_APPROVAL', $3, $4, 'PENDING', $5, 'B2B_WHOLESALE', $6,
+                0, NULL, NULL, NULL, NULL, CURRENT_TIMESTAMP) RETURNING *
+        `, [
+            req.user.id,
+            grandTotal,
+            paymentMethod,
+            refId,
+            JSON.stringify(itemsSnapshot),
+            rawType,
+        ]);
+
+        res.json({
+            success: true,
+            order_id: row.id,
+            razorpay_order_id: refId,
+            grand_total: grandTotal,
+        });
+    } catch (error) {
+        console.error('[checkout/b2b-create-order]', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/admin/orders/b2b-pending', isAdminStrict, async (req, res) => {
+    try {
+        const rows = await query(`
+            SELECT o.id, o.user_id, o.total_amount, o.payment_status, o.payment_method,
+                   o.delivery_status, o.items_snapshot_json, o.razorpay_order_id, o.created_at,
+                   o.order_channel, o.b2b_checkout_type,
+                   u.name AS customer_name, u.email AS customer_email, u.mobile_number AS customer_mobile
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            WHERE o.order_channel = 'B2B_WHOLESALE' AND o.payment_status = 'PENDING_APPROVAL'
+            ORDER BY o.created_at ASC
+            LIMIT 200
+        `);
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/admin/orders/:id/b2b-approve', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid order ID' });
+        const mode = String(req.body.mode || '').toLowerCase();
+        if (mode !== 'confirm_neft' && mode !== 'post_ledger') {
+            return res.status(400).json({ error: 'mode must be confirm_neft or post_ledger' });
+        }
+
+        const rows = await query(`SELECT * FROM orders WHERE id = $1`, [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+        const o = rows[0];
+        if (o.order_channel !== 'B2B_WHOLESALE' || o.payment_status !== 'PENDING_APPROVAL') {
+            return res.status(400).json({ error: 'Not a pending B2B purchase order' });
+        }
+
+        const total = Number(o.total_amount || 0);
+        const uid = parseInt(String(o.user_id), 10);
+        if (!uid) return res.status(400).json({ error: 'Order missing user' });
+
+        if (mode === 'confirm_neft') {
+            if (String(o.b2b_checkout_type || '').toUpperCase() !== 'NEFT') {
+                return res.status(400).json({ error: 'This PO is not NEFT type' });
+            }
+        } else if (mode === 'post_ledger') {
+            if (String(o.b2b_checkout_type || '').toUpperCase() !== 'LEDGER') {
+                return res.status(400).json({ error: 'This PO is not Ledger type' });
+            }
+            await query(
+                `INSERT INTO b2b_client_ledger_entries
+                 (user_id, txn_category, amount_rupees, fine_metal_grams, metal_type, description, reference)
+                 VALUES ($1, 'PURCHASE', $2, 0, 'gold', $3, $4)`,
+                [uid, total, `Wholesale PO #${id}`, `ORDER_${id}`],
+            );
+        }
+
+        await query(
+            `UPDATE orders SET payment_status = 'PAID', delivery_status = 'ACCEPTED' WHERE id = $1`,
+            [id],
+        );
+        res.json({ success: true, order_id: id, payment_status: 'PAID', delivery_status: 'ACCEPTED' });
+    } catch (error) {
+        console.error('[admin/b2b-approve]', error);
         res.status(500).json({ error: error.message });
     }
 });

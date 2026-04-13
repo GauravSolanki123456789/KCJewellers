@@ -261,12 +261,20 @@ export default function AdminOrdersPage() {
       <AdminGuard>
         <div className="min-h-screen bg-slate-950 text-slate-100">
           <main className="max-w-7xl mx-auto px-4 py-6 sm:py-8 pb-24 sm:pb-12">
-            <Link
-              href="/admin"
-              className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
-            >
-              <ArrowLeft className="size-4" /> Back to Dashboard
-            </Link>
+            <div className="flex flex-wrap items-center gap-3 mb-6">
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 transition-colors"
+              >
+                <ArrowLeft className="size-4" /> Back to Dashboard
+              </Link>
+              <Link
+                href="/admin/orders/b2b"
+                className="text-sm font-medium text-emerald-400/90 hover:text-emerald-300 rounded-lg border border-emerald-500/25 bg-emerald-950/30 px-3 py-1.5"
+              >
+                B2B purchase orders
+              </Link>
+            </div>
 
             <div className="mb-6 sm:mb-8">
               <div className="flex items-center gap-3 mb-2">

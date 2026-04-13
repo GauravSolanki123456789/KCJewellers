@@ -18,6 +18,7 @@ import {
   Receipt,
   Tag,
   Building2,
+  ClipboardList,
 } from 'lucide-react'
 
 const ADMIN_SECTIONS = [
@@ -76,6 +77,13 @@ const ADMIN_SECTIONS = [
     href: '/admin/orders',
     icon: ShoppingCart,
     color: 'indigo',
+  },
+  {
+    title: 'B2B purchase orders',
+    description: 'Approve wholesale POs: verify NEFT or post to Khata (ledger)',
+    href: '/admin/orders/b2b',
+    icon: ClipboardList,
+    color: 'emerald',
   },
   {
     title: 'B2B wholesale clients',
