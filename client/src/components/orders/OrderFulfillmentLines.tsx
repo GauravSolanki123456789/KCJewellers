@@ -8,8 +8,11 @@ import { cn } from '@/lib/utils'
 
 function LineMeta({ line, dense }: { line: OrderSnapshotLine; dense?: boolean }) {
   const parts: string[] = []
+  const sku = line.sku != null ? String(line.sku).trim() : ''
+  const bc = line.barcode != null ? String(line.barcode).trim() : ''
+  const skuDupBarcode = sku !== '' && bc !== '' && sku === bc
   if (line.style_code) parts.push(`Style: ${line.style_code}`)
-  if (line.sku) parts.push(`SKU ${line.sku}`)
+  if (sku && !skuDupBarcode) parts.push(`SKU ${sku}`)
   if (line.barcode) parts.push(`Barcode ${line.barcode}`)
   const wt =
     line.net_wt_g != null && !Number.isNaN(Number(line.net_wt_g))
@@ -138,9 +141,10 @@ export function OrderItemsColumnPeek({
   const src = normalizeCatalogImageSrc(first.image_url || undefined)
   const title = snapshotLineTitle(first)
   const more = lines.length - 1
-  const metaBits = [first.style_code ? `Style: ${first.style_code}` : null, first.sku ? `SKU ${first.sku}` : null].filter(
-    Boolean,
-  ) as string[]
+  const fSku = first.sku != null ? String(first.sku).trim() : ''
+  const fBc = first.barcode != null ? String(first.barcode).trim() : ''
+  const skuPeek = fSku && !(fBc && fSku === fBc) ? `SKU ${fSku}` : null
+  const metaBits = [first.style_code ? `Style: ${first.style_code}` : null, skuPeek].filter(Boolean) as string[]
   return (
     <div className={cn('flex items-start gap-2.5', compact ? 'max-w-none' : 'max-w-[min(100%,260px)]')}>
       <PeekThumb src={src} />

@@ -4466,7 +4466,10 @@ async function enrichManyOrderRows(rows) {
             if (p.name) out.item_name = p.name;
         }
         if (!out.image_url && p.image_url) out.image_url = p.image_url;
-        if (!out.sku && p.sku) out.sku = String(p.sku);
+        /** Prefer ERP `web_products.sku` — cart snapshots often copy barcode into `sku`. */
+        if (p.sku != null && String(p.sku).trim() !== '') {
+            out.sku = String(p.sku).trim();
+        }
         if (!out.style_code && p.style_name) out.style_code = String(p.style_name);
         if (out.net_wt_g == null && p.net_weight != null) {
             const nw = Number(p.net_weight);
@@ -5238,7 +5241,8 @@ function buildCatalogOrderSnapshotLine(ci) {
     const bcRaw = it.barcode ?? it.sku ?? lineId;
     const barcode = bcRaw != null && String(bcRaw).trim() !== '' ? String(bcRaw).trim() : lineId;
     const item_name = String(it.item_name || it.short_name || it.name || 'Item').trim() || 'Item';
-    const sku = it.sku != null && String(it.sku).trim() !== '' ? String(it.sku).trim() : null;
+    let sku = it.sku != null && String(it.sku).trim() !== '' ? String(it.sku).trim() : null;
+    if (sku && barcode && sku === barcode) sku = null;
     const style_code =
         it.style_code != null && String(it.style_code).trim() !== ''
             ? String(it.style_code).trim()
