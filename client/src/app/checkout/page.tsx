@@ -221,11 +221,22 @@ function CheckoutContent() {
         payload.promo_discount_amount = appliedPromo.discount_amount
       }
       const res = await axios.post('/api/checkout/create-order', payload)
-      const { razorpay_order_id, amount, key_id } = res.data
+      const { razorpay_order_id, amount: amountRaw, key_id, order_id: createdOrderId } = res.data as {
+        razorpay_order_id?: string
+        amount?: number
+        key_id?: string
+        order_id?: number
+      }
+      const amount = Number(amountRaw ?? 0)
+
+      const successHref =
+        createdOrderId != null
+          ? `/checkout/success?orderId=${createdOrderId}`
+          : '/checkout/success'
 
       if (amount === 0 || isFullSipRedemption) {
         items.forEach((ci) => remove(ci.id))
-        router.push('/checkout/success')
+        router.push(successHref)
         return
       }
 
@@ -238,7 +249,7 @@ function CheckoutContent() {
         order_id: razorpay_order_id,
         handler: () => {
           items.forEach((ci) => remove(ci.id))
-          router.push('/checkout/success')
+          router.push(successHref)
         },
         modal: {
           ondismiss: () => setLoading(false),

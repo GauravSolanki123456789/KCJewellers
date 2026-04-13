@@ -4,16 +4,19 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import axios from '@/lib/axios'
-import { ChevronLeft, Package, CreditCard, Calendar } from 'lucide-react'
+import { ChevronLeft, CreditCard, Calendar, MessageCircle } from 'lucide-react'
+import { OrderFulfillmentLines } from '@/components/orders/OrderFulfillmentLines'
+import { describeOrderStatusForCustomer } from '@/lib/order-customer-status'
+import { buildWhatsAppBusinessChatLink, orderConfirmationWhatsAppMessage } from '@/lib/whatsapp'
 
-type OrderItem = { barcode?: string; item_name?: string; qty?: number; price?: number }
 type Order = {
   id: number
   total_amount?: number
   payment_status?: string
   payment_method?: string
   delivery_status?: string
-  items_snapshot_json?: OrderItem[]
+  order_channel?: string
+  items_snapshot_json?: unknown
   created_at: string
 }
 
@@ -60,8 +63,6 @@ export default function OrderViewPage() {
     }
   }
 
-  const items = Array.isArray(order?.items_snapshot_json) ? order.items_snapshot_json : []
-
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -86,6 +87,15 @@ export default function OrderViewPage() {
     )
   }
 
+  const customerStatus = describeOrderStatusForCustomer(order)
+  const orderWhatsAppHref = buildWhatsAppBusinessChatLink(
+    orderConfirmationWhatsAppMessage({
+      orderId: order.id,
+      totalInr: Number(order.total_amount || 0),
+      kind: order.order_channel === 'B2B_WHOLESALE' ? 'b2b' : 'retail',
+    }),
+  )
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <main className="max-w-2xl mx-auto px-4 py-8 pb-24">
@@ -101,9 +111,12 @@ export default function OrderViewPage() {
             <div className="flex items-center justify-between flex-wrap gap-3">
               <h1 className="text-xl font-bold text-slate-100">Order #{order.id}</h1>
               <span className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-sm font-medium border border-amber-500/30">
-                {order.delivery_status || order.payment_status || 'PENDING'}
+                {customerStatus.label}
               </span>
             </div>
+            {customerStatus.hint ? (
+              <p className="text-sm text-slate-500 mt-2">{customerStatus.hint}</p>
+            ) : null}
             <div className="flex items-center gap-4 mt-3 text-slate-400 text-sm">
               <span className="flex items-center gap-1.5">
                 <Calendar className="size-4" />
@@ -117,37 +130,30 @@ export default function OrderViewPage() {
           </div>
 
           <div className="p-5 sm:p-6 border-b border-white/5">
-            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Package className="size-4" /> Items
-            </h2>
-            <ul className="space-y-3">
-              {items.map((item, i) => (
-                <li
-                  key={i}
-                  className="flex justify-between items-center py-2 border-b border-white/5 last:border-0"
-                >
-                  <div>
-                    <span className="text-slate-200">{item.item_name || 'Item'}</span>
-                    {item.barcode && (
-                      <span className="block text-xs text-slate-500 font-mono">{item.barcode}</span>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <span className="text-amber-400 font-medium">
-                      ₹{Number(item.price || 0).toLocaleString('en-IN')} × {item.qty || 1}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Order items</h2>
+            <OrderFulfillmentLines snapshot={order.items_snapshot_json} />
           </div>
 
-          <div className="p-5 sm:p-6 flex justify-between items-center">
+          <div className="p-5 sm:p-6 flex justify-between items-center border-t border-white/5">
             <span className="text-slate-400">Total</span>
             <span className="text-xl font-bold text-amber-500 tabular-nums">
               ₹{Number(order.total_amount || 0).toLocaleString('en-IN')}
             </span>
           </div>
+
+          {orderWhatsAppHref ? (
+            <div className="px-5 sm:px-6 pb-6">
+              <a
+                href={orderWhatsAppHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600/85 hover:bg-emerald-500 py-3.5 text-sm font-semibold text-white transition-colors"
+              >
+                <MessageCircle className="size-5 shrink-0" aria-hidden />
+                WhatsApp KC about this order
+              </a>
+            </div>
+          ) : null}
         </div>
       </main>
     </div>

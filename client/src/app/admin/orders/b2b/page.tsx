@@ -5,6 +5,8 @@ import Link from 'next/link'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import { ArrowLeft, Building2, CheckCircle2, Package } from 'lucide-react'
+import { OrderFulfillmentLines } from '@/components/orders/OrderFulfillmentLines'
+import { parseOrderItemsSnapshot, snapshotItemsQtySum } from '@/lib/order-snapshot'
 
 type B2bOrder = {
   id: number
@@ -18,18 +20,6 @@ type B2bOrder = {
   customer_name?: string
   customer_email?: string
   customer_mobile?: string
-}
-
-function parseItems(raw: unknown): Array<{ barcode?: string; item_name?: string; qty?: number; price?: number; net_wt_g?: unknown }> {
-  let arr: unknown = raw
-  if (typeof raw === 'string') {
-    try {
-      arr = JSON.parse(raw)
-    } catch {
-      return []
-    }
-  }
-  return Array.isArray(arr) ? arr : []
 }
 
 export default function AdminB2bPurchaseOrdersPage() {
@@ -111,8 +101,8 @@ export default function AdminB2bPurchaseOrdersPage() {
           ) : (
             <ul className="space-y-3">
               {orders.map((o) => {
-                const items = parseItems(o.items_snapshot_json)
-                const lines = items.reduce((s, it) => s + (Number(it.qty) || 1), 0)
+                const lineList = parseOrderItemsSnapshot(o.items_snapshot_json)
+                const lines = snapshotItemsQtySum(lineList)
                 const type = String(o.b2b_checkout_type || '').toUpperCase()
                 return (
                   <li key={o.id}>
@@ -160,23 +150,9 @@ export default function AdminB2bPurchaseOrdersPage() {
                         </div>
                         <div className="border-t border-white/10 pt-3 space-y-2">
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Lines</p>
-                          <ul className="space-y-2 max-h-48 overflow-y-auto text-xs">
-                            {items.map((it, idx) => {
-                              const qty = Number(it.qty) || 1
-                              const price = Number(it.price) || 0
-                              const wt = it.net_wt_g != null ? Number(it.net_wt_g) : null
-                              return (
-                                <li key={idx} className="flex justify-between gap-2 border-b border-white/5 pb-2">
-                                  <div className="min-w-0">
-                                    <p className="font-mono text-emerald-400/90">{String(it.barcode ?? '—')}</p>
-                                    <p className="text-slate-400 truncate">{String(it.item_name ?? '')}</p>
-                                    <p className="text-slate-600">{wt != null ? `${wt.toFixed(2)} g` : '—'} × {qty}</p>
-                                  </div>
-                                  <span className="tabular-nums text-slate-300 shrink-0">₹{Math.round(price * qty).toLocaleString('en-IN')}</span>
-                                </li>
-                              )
-                            })}
-                          </ul>
+                          <div className="max-h-[min(70vh,28rem)] overflow-y-auto pr-1 -mr-1">
+                            <OrderFulfillmentLines snapshot={o.items_snapshot_json} dense />
+                          </div>
                         </div>
                         <div className="flex flex-col sm:flex-row gap-2 pt-1">
                           {type === 'NEFT' && (

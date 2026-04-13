@@ -17,6 +17,7 @@ import { useCustomerTier } from '@/context/CustomerTierContext'
 import Link from 'next/link'
 import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, FileText, ChevronRight, Package, BookMarked } from 'lucide-react'
 import axios from 'axios'
+import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
 
 const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
 
@@ -186,21 +187,22 @@ function ProfilePageContent() {
         )}
 
         {/* Order History / Active Bookings */}
-        <section className="mb-6">
-          <div className="glass-card rounded-2xl overflow-hidden border border-white/10">
-            <div className="px-6 py-4 border-b border-white/10 flex items-center gap-3">
-              <History className="size-5 text-slate-400" />
-              <h2 className="text-lg font-semibold text-slate-200">Order History / Active Bookings</h2>
-            </div>
-            <div className="p-12 text-center">
-              <div className="inline-flex p-4 rounded-full bg-slate-800/50 border border-white/5 mb-4">
-                <History className="size-10 text-slate-500" />
+        {auth.isAuthenticated && (
+          <section className="mb-6">
+            <div className="glass-card rounded-2xl overflow-hidden border border-white/10">
+              <div className="px-5 sm:px-6 py-4 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <History className="size-5 text-slate-400 shrink-0" />
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-200">Orders & rate bookings</h2>
+                    <p className="text-xs text-slate-500">Status, items, and quick WhatsApp to KC</p>
+                  </div>
+                </div>
               </div>
-              <p className="text-slate-400 font-medium">No active bookings</p>
-              <p className="text-sm text-slate-500 mt-1">Your rate bookings and orders will appear here</p>
+              <ProfileOrderHistory />
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Admin Dashboard - Only for admin */}
         {isAdmin && (

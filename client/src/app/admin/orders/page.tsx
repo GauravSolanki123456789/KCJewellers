@@ -5,6 +5,8 @@ import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
 import { ShoppingCart, ArrowLeft, Package, Calendar, User, CreditCard, MoreVertical, ChevronRight, Phone, MessageCircle, Trash2 } from 'lucide-react'
+import { OrderItemsColumnPeek } from '@/components/orders/OrderFulfillmentLines'
+import { parseOrderItemsSnapshot, snapshotItemsQtySum } from '@/lib/order-snapshot'
 
 const ORDER_TABS = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'] as const
 
@@ -115,11 +117,7 @@ export default function AdminOrdersPage() {
     }
   }
 
-  const getItemsCount = (items: unknown) => {
-    if (!items) return 0
-    const arr = Array.isArray(items) ? items : []
-    return arr.reduce((sum, i) => sum + (Number(i?.qty) || 1), 0)
-  }
+  const getItemsCount = (items: unknown) => snapshotItemsQtySum(parseOrderItemsSnapshot(items))
 
   const getDisplayStatus = (s: string | undefined) => {
     if (!s) return 'New'
@@ -153,7 +151,12 @@ export default function AdminOrdersPage() {
       <div className="rounded-xl border border-white/10 bg-slate-800/40 p-4 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <span className="font-mono text-slate-200 font-semibold">#{o.id}</span>
+            <Link
+              href={`/admin/orders/${o.id}`}
+              className="font-mono text-slate-200 font-semibold hover:text-amber-400"
+            >
+              #{o.id}
+            </Link>
             <span className={`ml-2 inline-flex px-2 py-0.5 rounded-lg text-xs font-medium ${statusBadgeClass(o.delivery_status || 'PENDING')}`}>
               {getDisplayStatus(o.delivery_status)}
             </span>
@@ -203,11 +206,20 @@ export default function AdminOrdersPage() {
             <Trash2 className="size-3.5" /> Delete
           </button>
         </div>
+        <div className="border-t border-white/5 pt-3 space-y-2">
+          <OrderItemsColumnPeek snapshot={o.items_snapshot_json} />
+          <Link
+            href={`/admin/orders/${o.id}`}
+            className="text-xs font-medium text-amber-500/90 hover:text-amber-400"
+          >
+            Full packing detail →
+          </Link>
+        </div>
         <div className="flex items-center justify-between pt-2 border-t border-white/5">
           <div className="flex items-center gap-4 text-sm text-slate-400">
             <span className="flex items-center gap-1">
               <Package className="size-4 opacity-60" />
-              {getItemsCount(o.items_snapshot_json)} item{getItemsCount(o.items_snapshot_json) !== 1 ? 's' : ''}
+              {getItemsCount(o.items_snapshot_json)} pc{getItemsCount(o.items_snapshot_json) !== 1 ? 's' : ''}
             </span>
             <span className="flex items-center gap-1">
               <CreditCard className="size-4 opacity-60" />
@@ -357,8 +369,13 @@ export default function AdminOrdersPage() {
                               key={o.id}
                               className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
                             >
-                              <td className="py-4 px-5">
-                                <span className="font-mono text-slate-200 font-medium">#{o.id}</span>
+                              <td className="py-4 px-5 align-top">
+                                <Link
+                                  href={`/admin/orders/${o.id}`}
+                                  className="font-mono text-amber-400/90 hover:text-amber-300 font-medium hover:underline underline-offset-2"
+                                >
+                                  #{o.id}
+                                </Link>
                               </td>
                               <td className="py-4 px-5">
                                 <div className="flex items-center gap-2 text-slate-400 text-sm">
@@ -377,11 +394,14 @@ export default function AdminOrdersPage() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="py-4 px-5">
-                                <div className="flex items-center gap-2 text-slate-400">
-                                  <Package className="size-4 shrink-0 opacity-60" />
-                                  {getItemsCount(o.items_snapshot_json)} item{getItemsCount(o.items_snapshot_json) !== 1 ? 's' : ''}
-                                </div>
+                              <td className="py-4 px-5 align-top min-w-[200px] max-w-[280px]">
+                                <OrderItemsColumnPeek snapshot={o.items_snapshot_json} />
+                                <Link
+                                  href={`/admin/orders/${o.id}`}
+                                  className="text-[11px] font-medium text-amber-500/85 hover:text-amber-400 mt-1.5 inline-block"
+                                >
+                                  View lines →
+                                </Link>
                               </td>
                               <td className="py-4 px-5 text-right">
                                 <span className="font-semibold text-amber-400 tabular-nums">

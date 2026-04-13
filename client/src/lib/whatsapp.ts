@@ -83,6 +83,26 @@ export function productShareMessage(params: {
   return `Check out this stunning ${name} at ${BRAND}!${weightPart} See it here: ${url}`;
 }
 
+/** After checkout — contact KC about a specific order (uses profile /orders/[id] link). */
+export function orderConfirmationWhatsAppMessage(params: {
+  orderId: number;
+  /** Approx total for context; omit if unknown */
+  totalInr?: number;
+  /** Retail Razorpay vs B2B wholesale PO */
+  kind: "retail" | "b2b";
+}): string {
+  const site = getSiteUrl().replace(/\/$/, "");
+  const total =
+    params.totalInr != null && !Number.isNaN(Number(params.totalInr))
+      ? `₹${Math.round(Number(params.totalInr)).toLocaleString("en-IN")}`
+      : "";
+  const url = `${site}/orders/${params.orderId}`;
+  if (params.kind === "b2b") {
+    return `Hi KC Jewellers — I placed wholesale purchase order #${params.orderId}${total ? ` (${total})` : ""}. Please confirm receipt or let me know the next step. Order link: ${url}`;
+  }
+  return `Hi KC Jewellers — I just placed order #${params.orderId} on your website${total ? ` (${total})` : ""}. Please confirm. Thank you! View order: ${url}`;
+}
+
 export function catalogShareMessage(params: {
   styleName?: string;
   skuName?: string;

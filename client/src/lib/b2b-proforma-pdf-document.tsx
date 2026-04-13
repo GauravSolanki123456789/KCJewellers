@@ -11,8 +11,9 @@ const styles = StyleSheet.create({
   th: { fontSize: 7, color: '#64748b', textTransform: 'uppercase' },
   tr: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#1e293b', paddingVertical: 5 },
   td: { fontSize: 8, color: '#cbd5e1', paddingRight: 4 },
+  subItem: { fontSize: 6.5, color: '#64748b', marginTop: 2 },
   col1: { width: '22%' },
-  col2: { width: '30%' },
+  col2: { width: '30%', flexDirection: 'column', paddingRight: 4, justifyContent: 'center' },
   col3: { width: '12%', textAlign: 'right' },
   col4: { width: '14%', textAlign: 'right' },
   col5: { width: '22%', textAlign: 'right' },
@@ -25,6 +26,8 @@ const styles = StyleSheet.create({
 export type ProformaLine = {
   barcode: string
   item_name: string
+  sku?: string | null
+  style_code?: string | null
   qty: number
   line_total: number
   net_wt_g: number | null
@@ -73,7 +76,9 @@ export function B2bProformaPdfDocument({
         </View>
         <View style={{ ...styles.tr, borderBottomWidth: 1, borderBottomColor: '#334155', paddingBottom: 4 }}>
           <Text style={[styles.th, styles.col1]}>Barcode / ID</Text>
-          <Text style={[styles.th, styles.col2]}>Item</Text>
+          <View style={styles.col2}>
+            <Text style={styles.th}>Item</Text>
+          </View>
           <Text style={[styles.th, styles.col3]}>Wt (g)</Text>
           <Text style={[styles.th, styles.col4]}>Qty</Text>
           <Text style={[styles.th, styles.col5]}>Line</Text>
@@ -81,11 +86,18 @@ export function B2bProformaPdfDocument({
         {lines.map((line, i) => (
           <View key={`${line.barcode}-${i}`} style={styles.tr} wrap={false}>
             <Text style={[styles.td, styles.col1]} hyphenationCallback={() => []}>
-              {line.barcode || '—'}
+              {String(line.barcode || '—')}
             </Text>
-            <Text style={[styles.td, styles.col2]} hyphenationCallback={() => []}>
-              {line.item_name}
-            </Text>
+            <View style={styles.col2}>
+              <Text style={[styles.td, { paddingRight: 0 }]} hyphenationCallback={() => []}>
+                {String(line.item_name || '—')}
+              </Text>
+              {(line.style_code || line.sku) ? (
+                <Text style={styles.subItem} hyphenationCallback={() => []}>
+                  {[line.style_code, line.sku ? `SKU ${line.sku}` : ''].filter(Boolean).join(' · ')}
+                </Text>
+              ) : null}
+            </View>
             <Text style={[styles.td, styles.col3]}>
               {line.net_wt_g != null ? Number(line.net_wt_g).toFixed(2) : '—'}
             </Text>

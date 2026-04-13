@@ -4,9 +4,12 @@ import { Suspense, useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { pdf } from '@react-pdf/renderer'
-import { CheckCircle2, Download, Landmark, Package } from 'lucide-react'
+import { CheckCircle2, Download, Landmark, MessageCircle, Package } from 'lucide-react'
 import axios from '@/lib/axios'
 import { CATALOG_PATH } from '@/lib/routes'
+import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
+import { parseOrderItemsSnapshot, snapshotLineTitle } from '@/lib/order-snapshot'
+import { buildWhatsAppBusinessChatLink, orderConfirmationWhatsAppMessage } from '@/lib/whatsapp'
 import {
   B2bProformaPdfDocument,
   type B2bBankDetailsPdf,
@@ -22,26 +25,18 @@ type OrderRow = {
   created_at: string
 }
 
-function parseSnapshot(raw: unknown): ProformaLine[] {
-  let arr: unknown = raw
-  if (typeof raw === 'string') {
-    try {
-      arr = JSON.parse(raw)
-    } catch {
-      return []
-    }
-  }
-  if (!Array.isArray(arr)) return []
-  return arr.map((row: Record<string, unknown>) => {
-    const qty = Number(row.qty) || 1
-    const price = Number(row.price) || 0
-    const net = row.net_wt_g ?? row.net_weight ?? row.net_wt
+function toProformaLines(raw: unknown): ProformaLine[] {
+  return parseOrderItemsSnapshot(raw).map((l) => {
+    const qty = Number(l.qty) || 1
+    const price = Number(l.price) || 0
     return {
-      barcode: String(row.barcode ?? row.sku ?? '—'),
-      item_name: String(row.item_name ?? 'Item'),
+      barcode: String(l.barcode || l.sku || '—'),
+      item_name: snapshotLineTitle(l),
+      sku: l.sku,
+      style_code: l.style_code,
       qty,
       line_total: price * qty,
-      net_wt_g: net != null && net !== '' ? Number(net) : null,
+      net_wt_g: l.net_wt_g ?? null,
     }
   })
 }
@@ -82,7 +77,17 @@ function B2bSuccessInner() {
     load()
   }, [load])
 
-  const lines = order ? parseSnapshot(order.items_snapshot_json) : []
+  const lines = order ? toProformaLines(order.items_snapshot_json) : []
+  const displayLines = order ? parseOrderItemsSnapshot(order.items_snapshot_json) : []
+  const b2bWhatsAppHref = order
+    ? buildWhatsAppBusinessChatLink(
+        orderConfirmationWhatsAppMessage({
+          orderId: order.id,
+          totalInr: Number(order.total_amount || 0),
+          kind: 'b2b',
+        }),
+      )
+    : null
   const checkoutLabel =
     order?.b2b_checkout_type === 'LEDGER'
       ? 'Ledger / Khata'
@@ -156,20 +161,43 @@ function B2bSuccessInner() {
             </span>
           </div>
           <ul className="divide-y divide-white/5 border-t border-white/10 pt-3 max-h-[40vh] overflow-y-auto">
-            {lines.map((line, i) => (
-              <li key={i} className="py-2.5 flex justify-between gap-3 text-xs">
-                <div className="min-w-0 flex-1">
-                  <p className="font-mono text-emerald-400/90 truncate">{line.barcode}</p>
-                  <p className="text-slate-400 truncate">{line.item_name}</p>
-                  <p className="text-slate-600 mt-0.5">
-                    {line.net_wt_g != null ? `${Number(line.net_wt_g).toFixed(2)} g` : '—'} × {line.qty}
-                  </p>
-                </div>
-                <span className="shrink-0 text-slate-300 tabular-nums">
-                  ₹{Math.round(line.line_total).toLocaleString('en-IN')}
-                </span>
-              </li>
-            ))}
+            {displayLines.map((line, i) => {
+              const src = normalizeCatalogImageSrc(line.image_url || undefined)
+              const qty = Number(line.qty) || 1
+              const lineTotal = (Number(line.price) || 0) * qty
+              return (
+                <li key={i} className="py-2.5 flex justify-between gap-3 text-xs">
+                  <div className="flex gap-2.5 min-w-0 flex-1">
+                    {src ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={src}
+                        alt=""
+                        className="size-11 rounded-lg object-cover border border-white/10 shrink-0"
+                      />
+                    ) : (
+                      <div className="size-11 rounded-lg bg-slate-800 border border-white/10 shrink-0 flex items-center justify-center">
+                        <Package className="size-4 text-slate-600" aria-hidden />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-slate-200 font-medium truncate">{snapshotLineTitle(line)}</p>
+                      <p className="font-mono text-[10px] text-emerald-500/90 truncate mt-0.5">
+                        {line.barcode ? line.barcode : ''}
+                        {line.sku ? ` · SKU ${line.sku}` : ''}
+                        {line.style_code ? ` · ${line.style_code}` : ''}
+                      </p>
+                      <p className="text-slate-600 mt-0.5">
+                        {line.net_wt_g != null ? `${Number(line.net_wt_g).toFixed(2)} g` : '—'} × {qty}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-slate-300 tabular-nums self-start pt-0.5">
+                    ₹{Math.round(lineTotal).toLocaleString('en-IN')}
+                  </span>
+                </li>
+              )
+            })}
           </ul>
         </div>
 
@@ -194,6 +222,26 @@ function B2bSuccessInner() {
         <p className="text-[11px] text-slate-500 leading-relaxed text-center">
           Shipment after admin confirms payment or ledger entry. You&apos;ll be contacted if anything is needed.
         </p>
+
+        <Link
+          href={`/orders/${order.id}`}
+          className="flex w-full items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-slate-900/50 text-sm font-medium text-slate-100 hover:bg-slate-800/80 transition-colors"
+        >
+          <Package className="size-4 text-emerald-400/90" aria-hidden />
+          View order &amp; line items
+        </Link>
+
+        {b2bWhatsAppHref ? (
+          <a
+            href={b2bWhatsAppHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-2 py-3.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-sm font-semibold text-white shadow-lg shadow-emerald-950/30 transition-colors"
+          >
+            <MessageCircle className="size-5 shrink-0" aria-hidden />
+            WhatsApp KC about this PO
+          </a>
+        ) : null}
 
         <button
           type="button"

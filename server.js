@@ -4439,6 +4439,25 @@ app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
     }
 });
 
+// Admin: single order for packing / fulfilment (full row + customer + items_snapshot_json)
+app.get('/api/admin/orders/detail/:id', isAdminStrict, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid order ID' });
+        const rows = await query(`
+            SELECT o.*,
+                   u.name AS customer_name, u.email AS customer_email, u.mobile_number AS customer_mobile
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            WHERE o.id = $1
+        `, [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+        res.json({ success: true, data: rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Admin: update order delivery status
 app.patch('/api/admin/orders/:id/status', isAdminStrict, requireJson, async (req, res) => {
     try {
@@ -5008,15 +5027,35 @@ try {
 } catch {}
 app.get('/api/orders', checkAuth, async (req, res) => {
     try {
-        const { user_id } = req.query;
-        let q = 'SELECT * FROM orders';
-        const params = [];
-        if (user_id) {
-            q += ' WHERE user_id = $1';
-            params.push(user_id);
-        }
-        q += ' ORDER BY created_at DESC';
-        const rows = await query(q, params);
+        const uid = req.user?.id;
+        if (!uid) return res.status(401).json({ error: 'Unauthorized' });
+        const rows = await query(`
+            SELECT id, user_id, total_amount, payment_status, payment_method, delivery_status,
+                   items_snapshot_json, razorpay_order_id, order_channel, b2b_checkout_type,
+                   promo_code_id, promo_discount_amount, created_at
+            FROM orders
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT 100
+        `, [uid]);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/user/bookings', checkAuth, async (req, res) => {
+    try {
+        const uid = req.user?.id;
+        if (!uid) return res.status(401).json({ error: 'Unauthorized' });
+        const rows = await query(`
+            SELECT id, user_id, status, locked_gold_rate, advance_amount, metal_type,
+                   mobile_number, weight_booked, created_at, updated_at
+            FROM bookings
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT 50
+        `, [uid]);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -5108,6 +5147,39 @@ app.post('/api/promos/validate', requireJson, async (req, res) => {
 // ==========================================
 // Checkout: Create Razorpay order for catalog cart
 // ==========================================
+
+/** Persisted on `orders.items_snapshot_json` — must include catalogue `name` (not only item_name). */
+function buildCatalogOrderSnapshotLine(ci) {
+    const it = ci && typeof ci === 'object' && ci.item && typeof ci.item === 'object' ? ci.item : {};
+    const lineId = ci && ci.id != null ? String(ci.id) : '';
+    const bcRaw = it.barcode ?? it.sku ?? lineId;
+    const barcode = bcRaw != null && String(bcRaw).trim() !== '' ? String(bcRaw).trim() : lineId;
+    const item_name = String(it.item_name || it.short_name || it.name || 'Item').trim() || 'Item';
+    const sku = it.sku != null && String(it.sku).trim() !== '' ? String(it.sku).trim() : null;
+    const style_code =
+        it.style_code != null && String(it.style_code).trim() !== ''
+            ? String(it.style_code).trim()
+            : it.style_name != null && String(it.style_name).trim() !== ''
+                ? String(it.style_name).trim()
+                : null;
+    const image_url = it.image_url != null && String(it.image_url).trim() !== '' ? String(it.image_url).trim() : null;
+    const metal_type =
+        it.metal_type != null && String(it.metal_type).trim() !== '' ? String(it.metal_type).trim() : null;
+    const nw = it.net_weight ?? it.net_wt ?? it.weight ?? it.avg_wt ?? null;
+    let net_wt_g = null;
+    if (nw != null && nw !== '') {
+        const n = Number(nw);
+        if (!Number.isNaN(n)) net_wt_g = n;
+    }
+    const qty = Math.max(1, Math.floor(Number(ci.qty) || 1));
+    const price = Number(ci.price) || 0;
+    const breakdown = ci.breakdown && typeof ci.breakdown === 'object' ? ci.breakdown : {};
+    const line = { barcode, sku, item_name, style_code, image_url, metal_type, qty, price, breakdown };
+    const nwg = net_wt_g;
+    if (nwg != null) line.net_wt_g = nwg;
+    return line;
+}
+
 app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) => {
     try {
         const items = req.body.items || [];
@@ -5153,13 +5225,7 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
             }
         }
 
-        const itemsSnapshot = items.map((ci) => ({
-            barcode: ci.item?.barcode || ci.id,
-            item_name: ci.item?.item_name || ci.item?.short_name || 'Item',
-            qty: ci.qty || 1,
-            price: ci.price || 0,
-            breakdown: ci.breakdown || {},
-        }));
+        const itemsSnapshot = items.map((ci) => buildCatalogOrderSnapshotLine(ci));
 
         const keyId = process.env.RAZORPAY_KEY_ID;
         const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -5252,14 +5318,7 @@ app.post('/api/checkout/b2b-create-order', checkAuth, requireB2BWholesale, requi
         const grandTotal = items.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
         if (grandTotal <= 0) return res.status(400).json({ error: 'Invalid total' });
 
-        const itemsSnapshot = items.map((ci) => ({
-            barcode: ci.item?.barcode || ci.id,
-            item_name: ci.item?.item_name || ci.item?.short_name || 'Item',
-            qty: ci.qty || 1,
-            price: ci.price || 0,
-            breakdown: ci.breakdown || {},
-            net_wt_g: ci.item?.net_weight ?? ci.item?.net_wt ?? ci.item?.weight ?? null,
-        }));
+        const itemsSnapshot = items.map((ci) => buildCatalogOrderSnapshotLine(ci));
 
         const refId = `b2b_po_${Date.now()}_${req.user.id}`;
         const paymentMethod = rawType === 'NEFT' ? 'B2B_NEFT' : 'B2B_LEDGER';
