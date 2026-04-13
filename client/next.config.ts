@@ -51,6 +51,8 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: uploadsRemotePatterns(),
     formats: ["image/avif", "image/webp"],
+    /** Longer edge cache for optimized `/ _next/image` URLs — faster repeat views of the same catalogue photos. */
+    minimumCacheTTL: 60 * 60 * 24 * 7,
   },
 };
 

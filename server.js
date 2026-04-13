@@ -4409,6 +4409,85 @@ app.get('/api/admin/sip-payouts', isAdminStrict, (req, res) => res.json({ succes
 const ORDER_STATUSES = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'];
 const STATUS_TO_DB = { New: ['PENDING', 'NEW'], Accepted: 'ACCEPTED', Ready: 'READY', Dispatched: 'DISPATCHED', Delivered: 'DELIVERED', Cancelled: 'CANCELLED' };
 
+/** Merge `web_products` into `items_snapshot_json` when lines lack name / image / style / SKU (legacy orders). */
+async function enrichManyOrderRows(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+    const allKeys = new Set();
+    for (const row of rows) {
+        let arr = row.items_snapshot_json;
+        if (typeof arr === 'string') {
+            try { arr = JSON.parse(arr); } catch { continue; }
+        }
+        if (!Array.isArray(arr)) continue;
+        for (const line of arr) {
+            if (!line || typeof line !== 'object') continue;
+            const bc = line.barcode != null ? String(line.barcode).trim() : '';
+            const sk = line.sku != null ? String(line.sku).trim() : '';
+            if (bc) allKeys.add(bc);
+            if (sk && sk !== bc) allKeys.add(sk);
+        }
+    }
+    const barcodes = Array.from(allKeys).filter(Boolean).slice(0, 500);
+    if (barcodes.length === 0) return rows;
+
+    let products = [];
+    try {
+        products = await query(`
+            SELECT wp.barcode, wp.sku, wp.name, wp.image_url, wp.net_weight::float AS net_weight,
+                   COALESCE(wp.metal_type, 'silver') AS metal_type,
+                   wc.name AS style_name
+            FROM web_products wp
+            LEFT JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+            LEFT JOIN web_categories wc ON wc.id = ws.category_id
+            WHERE wp.barcode::text = ANY($1::text[])
+               OR wp.sku::text = ANY($1::text[])
+        `, [barcodes]);
+    } catch (e) {
+        console.warn('[enrichManyOrderRows] catalog lookup failed:', e.message);
+        return rows;
+    }
+
+    const byBarcode = {};
+    const bySku = {};
+    for (const p of products) {
+        if (p.barcode != null) byBarcode[String(p.barcode).trim()] = p;
+        if (p.sku != null) bySku[String(p.sku).trim()] = p;
+    }
+
+    const mergeLine = (line) => {
+        if (!line || typeof line !== 'object') return line;
+        const bc = line.barcode != null ? String(line.barcode).trim() : '';
+        const sk = line.sku != null ? String(line.sku).trim() : '';
+        const p = (bc && byBarcode[bc]) || (sk && bySku[sk]) || (bc && bySku[bc]) || null;
+        if (!p) return line;
+        const out = { ...line };
+        const currentName = String(out.item_name || line.name || '').trim();
+        if (!currentName || currentName === 'Item') {
+            if (p.name) out.item_name = p.name;
+        }
+        if (!out.image_url && p.image_url) out.image_url = p.image_url;
+        if (!out.sku && p.sku) out.sku = String(p.sku);
+        if (!out.style_code && p.style_name) out.style_code = String(p.style_name);
+        if (out.net_wt_g == null && p.net_weight != null) {
+            const nw = Number(p.net_weight);
+            if (!Number.isNaN(nw)) out.net_wt_g = nw;
+        }
+        if (!out.metal_type && p.metal_type) out.metal_type = p.metal_type;
+        return out;
+    };
+
+    return rows.map((row) => {
+        const arr = row.items_snapshot_json;
+        if (arr == null) return row;
+        let parsed = arr;
+        if (typeof parsed === 'string') {
+            try { parsed = JSON.parse(parsed); } catch { return row; }
+        }
+        if (!Array.isArray(parsed)) return row;
+        return { ...row, items_snapshot_json: parsed.map(mergeLine) };
+    });
+}
+
 // Admin Orders - who ordered what, when, rate, delivery
 app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
     try {
@@ -4433,7 +4512,8 @@ app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
         }
         q += ` ORDER BY o.created_at DESC LIMIT 500`;
         const rows = await query(q, params);
-        res.json({ success: true, data: rows });
+        const enriched = await enrichManyOrderRows(rows);
+        res.json({ success: true, data: enriched });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -4452,7 +4532,8 @@ app.get('/api/admin/orders/detail/:id', isAdminStrict, async (req, res) => {
             WHERE o.id = $1
         `, [id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
-        res.json({ success: true, data: rows[0] });
+        const enriched = await enrichManyOrderRows([rows[0]]);
+        res.json({ success: true, data: enriched[0] });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5038,7 +5119,8 @@ app.get('/api/orders', checkAuth, async (req, res) => {
             ORDER BY created_at DESC
             LIMIT 100
         `, [uid]);
-        res.json(rows);
+        const enriched = await enrichManyOrderRows(rows);
+        res.json(enriched);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5070,7 +5152,8 @@ app.get('/api/orders/:id', checkAuth, async (req, res) => {
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
         const order = rows[0];
         if (order.user_id != null && order.user_id !== req.user?.id) return res.status(403).json({ error: 'Forbidden' });
-        res.json(order);
+        const enriched = await enrichManyOrderRows([order]);
+        res.json(enriched[0]);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5366,7 +5449,8 @@ app.get('/api/admin/orders/b2b-pending', isAdminStrict, async (req, res) => {
             ORDER BY o.created_at ASC
             LIMIT 200
         `);
-        res.json({ success: true, data: rows });
+        const enriched = await enrichManyOrderRows(rows);
+        res.json({ success: true, data: enriched });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

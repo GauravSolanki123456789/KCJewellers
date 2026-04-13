@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Calendar, History, Package, Scale, ChevronRight, MessageCircle } from 'lucide-react'
+import { Calendar, History, Scale, ChevronRight, MessageCircle } from 'lucide-react'
 import axios from '@/lib/axios'
 import { OrderItemsColumnPeek } from '@/components/orders/OrderFulfillmentLines'
 import { describeOrderStatusForCustomer } from '@/lib/order-customer-status'
 import { buildWhatsAppBusinessChatLink, orderConfirmationWhatsAppMessage } from '@/lib/whatsapp'
+import { parseOrderItemsSnapshot, snapshotItemsQtySum } from '@/lib/order-snapshot'
 
 type OrderRow = {
   id: number
@@ -113,10 +114,11 @@ export function ProfileOrderHistory() {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400/95 hover:text-emerald-300 mt-2"
+        title="WhatsApp KC Jewellers"
+        className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20 transition-colors"
+        onClick={(e) => e.stopPropagation()}
       >
-        <MessageCircle className="size-3.5 shrink-0" aria-hidden />
-        WhatsApp KC
+        <MessageCircle className="size-4" aria-hidden />
       </a>
     )
   }
@@ -189,47 +191,50 @@ export function ProfileOrderHistory() {
         const o = item.order
         const st = describeOrderStatusForCustomer(o)
         const b2b = o.order_channel === 'B2B_WHOLESALE'
+        const pcs = snapshotItemsQtySum(parseOrderItemsSnapshot(o.items_snapshot_json))
         return (
-          <li key={`o-${o.id}`} className="px-4 sm:px-6 py-4 hover:bg-white/[0.03] transition-colors">
-            <Link
-              href={`/orders/${o.id}`}
-              className="flex items-start gap-3 group rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
-            >
-              <div
-                className={`p-2 rounded-xl shrink-0 border ${
-                  b2b ? 'bg-emerald-500/10 border-emerald-500/25' : 'bg-amber-500/10 border-amber-500/25'
-                }`}
-              >
-                <Package className={`size-5 ${b2b ? 'text-emerald-400' : 'text-amber-400'}`} aria-hidden />
+          <li key={`o-${o.id}`} className="hover:bg-white/[0.02] transition-colors">
+            <div className="flex gap-2 sm:gap-3 px-3 py-3 sm:px-4 items-start">
+              <div className="shrink-0 pt-0.5 w-[7.5rem] sm:w-44">
+                <OrderItemsColumnPeek snapshot={o.items_snapshot_json} compact />
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-slate-100 font-semibold">#{o.id}</span>
-                  <span
-                    className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded ${
-                      b2b ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700/80 text-slate-300'
-                    }`}
-                  >
-                    {b2b ? 'Wholesale PO' : 'Order'}
-                  </span>
-                </div>
-                <p className="text-xs text-amber-400/90 font-medium mt-0.5">{st.label}</p>
-                {st.hint ? <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{st.hint}</p> : null}
-                <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-1.5">
-                  <Calendar className="size-3.5 shrink-0 opacity-70" />
-                  {fmtShort(o.created_at)}
-                  <span className="tabular-nums text-slate-400">
-                    · ₹{Number(o.total_amount || 0).toLocaleString('en-IN')}
-                  </span>
-                </p>
-                <div className="mt-2 max-w-[min(100%,320px)]">
-                  <OrderItemsColumnPeek snapshot={o.items_snapshot_json} />
+              <Link
+                href={`/orders/${o.id}`}
+                className="min-w-0 flex-1 group rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="font-mono text-sm text-slate-100 font-semibold">#{o.id}</span>
+                      <span
+                        className={`text-[9px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded ${
+                          b2b ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700/80 text-slate-400'
+                        }`}
+                      >
+                        {b2b ? 'B2B' : 'Retail'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-400/95 font-medium mt-0.5">{st.label}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      <span className="inline-flex items-center gap-1">
+                        <Calendar className="size-3 shrink-0 opacity-60" />
+                        {fmtShort(o.created_at)}
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span>{pcs} pc{pcs !== 1 ? 's' : ''}</span>
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-sm font-semibold text-amber-400/95 tabular-nums">
+                      ₹{Number(o.total_amount || 0).toLocaleString('en-IN')}
+                    </span>
+                    <ChevronRight className="size-4 text-slate-600 group-hover:text-amber-500/80 transition-colors" aria-hidden />
+                  </div>
                 </div>
                 <span className="sr-only">View order #{o.id}</span>
-              </div>
-              <ChevronRight className="size-5 text-slate-600 group-hover:text-amber-500/80 shrink-0 mt-1 transition-colors" aria-hidden />
-            </Link>
-            <div className="pl-[52px] sm:pl-[60px] mt-2">{waOrder(o)}</div>
+              </Link>
+              {waOrder(o)}
+            </div>
           </li>
         )
       })}

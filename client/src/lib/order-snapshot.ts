@@ -35,10 +35,11 @@ export function parseOrderItemsSnapshot(raw: unknown): OrderSnapshotLine[] {
       return { item_name: 'Item', qty: 1, price: 0 }
     }
     const r = row as Record<string, unknown>
-    const title =
-      String(r.item_name ?? r.name ?? '').trim() ||
-      String(r.short_name ?? '').trim() ||
-      'Item'
+    const nameField = String(r.name ?? '').trim()
+    let title = String(r.item_name ?? '').trim()
+    if (!title || title === 'Item') title = nameField || title
+    if (!title) title = String(r.short_name ?? '').trim()
+    if (!title) title = 'Item'
     const bc = r.barcode ?? r.sku ?? ''
     const barcode = bc != null && String(bc).trim() !== '' ? String(bc).trim() : ''
     let net_wt_g: number | null = null

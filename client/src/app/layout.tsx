@@ -39,6 +39,19 @@ const site = process.env.NEXT_PUBLIC_SITE_URL || "https://kcjewellers.co.in";
 
 const ogImage = getOgImagePath();
 
+/** Preconnect to API host so TLS + first image bytes start earlier (catalog photos live under this origin). */
+function apiOriginForPreconnect(): string | null {
+  const raw = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
 export const metadata: Metadata = {
   metadataBase: new URL(site),
   applicationName: "KC Jewellers",
@@ -101,8 +114,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const imageHost = apiOriginForPreconnect();
   return (
     <html lang="en" className="bg-slate-950">
+      <head>
+        {imageHost ? (
+          <>
+            <link rel="preconnect" href={imageHost} crossOrigin="anonymous" />
+            <link rel="dns-prefetch" href={imageHost} />
+          </>
+        ) : null}
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >

@@ -153,7 +153,7 @@ export default function ProductCard({
                 decoding="async"
                 loading={priority ? 'eager' : 'lazy'}
                 priority={priority}
-                fetchPriority={priority ? 'high' : 'low'}
+                fetchPriority={priority ? 'high' : undefined}
                 onLoad={() => setImageLoaded(true)}
                 onError={() => {
                   if (!fallbackUnoptimized) {

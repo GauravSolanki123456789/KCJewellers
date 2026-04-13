@@ -1260,7 +1260,7 @@ export default function CatalogPageClient() {
                         } as Product
                       }
                       rates={rates}
-                      priority={i < 16}
+                      priority={i < 24}
                       subcategorySlug={activeSku?.slug}
                       onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
                       catalogBuilderActive={catalogBuilderMode && isAdmin}
