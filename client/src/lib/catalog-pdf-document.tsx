@@ -20,11 +20,12 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    /* `gap` is not reliably supported in all @react-pdf layout builds */
   },
   card: {
-    width: '30%',
-    minWidth: 120,
+    width: '31%',
+    minWidth: 118,
+    marginBottom: 8,
     backgroundColor: '#0f172a',
     borderRadius: 8,
     borderWidth: 1,
@@ -53,11 +54,15 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 8, color: '#e2e8f0', marginBottom: 2, marginTop: 2 },
   metaLabel: { fontSize: 6, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 },
-  /** Standard Helvetica bold — same as ProductCard numeric id emphasis */
+  /**
+   * Use Helvetica + fontWeight — `fontFamily: "Helvetica-Bold"` is invalid in react-pdf
+   * and can render blank glyphs in the PDF (label inherited Helvetica and still showed).
+   */
   barcodeValue: {
     fontSize: 11,
     color: '#fbbf24',
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Helvetica',
+    fontWeight: 'bold',
     marginBottom: 3,
   },
   weightLine: { fontSize: 8, color: '#94a3b8', marginBottom: 2 },
@@ -121,11 +126,14 @@ export function CatalogPdfDocument({
               const barcode = getProductSelectionKey(p)
               const weight = getItemWeightWithGrossFallback(p)
               const key = `${barcode || String(p.id ?? i)}-${pageIndex}-${i}`
-              const barcodeText = barcode || '—'
+              const barcodeText =
+                barcode && String(barcode).trim() !== '' ? String(barcode) : '-'
               const weightText =
-                weight != null ? `${Number(weight).toFixed(2)} gm` : '—'
+                weight != null && !Number.isNaN(Number(weight))
+                  ? `${Number(weight).toFixed(2)} gm`
+                  : '-'
               return (
-                <View key={key} style={styles.card} wrap={false}>
+                <View key={key} style={styles.card}>
                   <View style={styles.thumbWrap}>
                     {img ? (
                       <Image style={styles.thumb} src={img} />
@@ -133,21 +141,12 @@ export function CatalogPdfDocument({
                       <Text style={styles.thumbPlaceholder}>{name.charAt(0)}</Text>
                     )}
                   </View>
-                  <View>
-                    <Text style={styles.metaLabel}>Barcode</Text>
-                    <Text style={styles.barcodeValue} hyphenationCallback={() => []}>
-                      {barcodeText}
-                    </Text>
-                  </View>
-                  <Text
-                    style={weight != null ? styles.weightLine : styles.weightMuted}
-                    hyphenationCallback={() => []}
-                  >
+                  <Text style={styles.metaLabel}>Barcode</Text>
+                  <Text style={styles.barcodeValue}>{barcodeText}</Text>
+                  <Text style={styles.weightLine}>
                     Weight · {weightText}
                   </Text>
-                  <Text style={styles.title} hyphenationCallback={() => []}>
-                    {name}
-                  </Text>
+                  <Text style={styles.title}>{name}</Text>
                 </View>
               )
             })}
