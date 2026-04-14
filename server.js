@@ -4498,6 +4498,7 @@ app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
         let q = `
             SELECT o.id, o.user_id, o.total_amount, o.payment_status, o.payment_method,
                    o.delivery_status, o.items_snapshot_json, o.razorpay_order_id, o.created_at,
+                   o.order_channel,
                    u.name as customer_name, u.email as customer_email, u.mobile_number as customer_mobile
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.id

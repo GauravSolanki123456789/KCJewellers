@@ -27,6 +27,7 @@ import {
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import SmartSearch from '@/components/SmartSearch'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 type UserType = { email?: string; name?: string; role?: string; mobile_number?: string }
 
@@ -65,6 +66,7 @@ const BOTTOM_NAV: Array<{
 
 export default function Navbar() {
   const pathname = usePathname()
+  const isDesktopNav = useMediaQuery('(min-width: 768px)', false)
   const isSharedBrochure = pathname?.startsWith('/shared/')
   const searchParams = useSearchParams()
   const { items, openCart } = useCart()
@@ -116,32 +118,16 @@ export default function Navbar() {
 
   return (
     <>
-      {/* Mobile: top bar — brand + cart (cart not in bottom nav) */}
-      <header className="safe-area-pt fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-slate-950/90 backdrop-blur-md md:hidden">
-        <div className="flex h-12 items-center gap-2 px-2 sm:px-3">
+      {/* Single top bar + one SmartSearch (avoids duplicate inputs / double navigation). */}
+      <header className="safe-area-pt fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-slate-950/90 backdrop-blur-md md:bg-slate-950/80">
+        <div className="mx-auto flex h-12 max-w-6xl items-center gap-2 px-2 sm:px-3 md:h-auto md:min-h-[3.5rem] md:gap-4 md:px-6 md:py-3">
           <Link
             href={CATALOG_PATH}
-            className="shrink-0 text-base font-bold tracking-tight text-yellow-500"
+            className="shrink-0 text-base font-bold tracking-tight text-yellow-500 md:text-xl"
           >
             KC Jewellers
           </Link>
-          <div className="min-w-0 flex-1">
-            <SmartSearch compact />
-          </div>
-          <CartButton />
-        </div>
-      </header>
-
-      {/* Desktop: full top nav */}
-      <nav className="fixed left-0 right-0 top-0 z-50 hidden border-b border-white/10 bg-slate-950/80 backdrop-blur-md md:flex">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-4">
-          <Link
-            href={CATALOG_PATH}
-            className="shrink-0 text-xl font-bold tracking-tight text-yellow-500"
-          >
-            KC Jewellers
-          </Link>
-          <div className="flex flex-1 flex-wrap items-center justify-center gap-4 lg:gap-6">
+          <div className="hidden flex-1 flex-wrap items-center justify-center gap-4 lg:gap-6 md:flex">
             {BOTTOM_NAV.map(({ href, icon: Icon, label }) => (
               <Link
                 key={href}
@@ -171,10 +157,10 @@ export default function Navbar() {
               </>
             )}
           </div>
-          <div className="hidden min-w-0 max-w-[min(22rem,28vw)] shrink md:block">
-            <SmartSearch />
+          <div className="min-w-0 flex-1 md:max-w-md md:flex-none lg:max-w-lg">
+            <SmartSearch compact={!isDesktopNav} />
           </div>
-          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
+          <div className="hidden shrink-0 items-center gap-2 md:flex lg:gap-3">
             {!auth.isAuthenticated && (
               <button
                 type="button"
@@ -206,10 +192,10 @@ export default function Navbar() {
                 </button>
               </div>
             )}
-            <CartButton className="shrink-0" />
           </div>
+          <CartButton className="shrink-0" />
         </div>
-      </nav>
+      </header>
 
       {/* Mobile bottom: 4 tabs only */}
       <nav className="safe-area-pb fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-slate-950/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.42)] md:hidden">
@@ -284,8 +270,8 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* Offset fixed headers: mobile top bar + desktop nav */}
-      <div className="h-12 md:h-14" />
+      {/* Offset fixed header */}
+      <div className="h-12 md:h-[3.75rem]" />
     </>
   )
 }

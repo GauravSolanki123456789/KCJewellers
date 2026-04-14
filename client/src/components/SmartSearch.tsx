@@ -1,9 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, LayoutGrid, Sparkles } from "lucide-react";
+import { ChevronRight, LayoutGrid, Package, Search } from "lucide-react";
 import {
   normalizeSearchQuery,
   resolveSearchSynonym,
@@ -30,7 +37,6 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 }
 
 type SmartSearchProps = {
-  /** Tighter layout for the mobile header row. */
   compact?: boolean;
   className?: string;
 };
@@ -40,11 +46,11 @@ export default function SmartSearch({
   className = "",
 }: SmartSearchProps) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState("");
   const debounced = useDebouncedValue(raw, DEBOUNCE_MS);
   const [records, setRecords] = useState<SearchIndexRecord[]>([]);
-  const [fuseReady, setFuseReady] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -53,7 +59,6 @@ export default function SmartSearch({
     getCatalogForSearchIndex().then((cats) => {
       if (cancelled) return;
       setRecords(flattenCatalogToSearchRecords(cats));
-      setFuseReady(true);
     });
     return () => {
       cancelled = true;
@@ -91,7 +96,7 @@ export default function SmartSearch({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const goToSearchPage = useCallback(
+  const navigateSearch = useCallback(
     (q: string) => {
       const t = q.trim();
       if (!t) return;
@@ -99,30 +104,41 @@ export default function SmartSearch({
       if (!shouldSkipSearchSynonym(n)) {
         const syn = resolveSearchSynonym(t);
         if (syn) {
-          router.push(syn.href);
+          startTransition(() => {
+            router.replace(syn.href);
+          });
           setOpen(false);
           setRaw("");
+          inputRef.current?.blur();
           return;
         }
       }
-      router.push(`${SEARCH_PATH}?q=${encodeURIComponent(t)}`);
+      startTransition(() => {
+        router.push(`${SEARCH_PATH}?q=${encodeURIComponent(t)}`);
+      });
       setOpen(false);
+      setRaw("");
+      inputRef.current?.blur();
     },
-    [router]
+    [router, startTransition]
   );
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    goToSearchPage(raw);
+    navigateSearch(raw);
   };
 
   const inputCls = compact
-    ? "h-9 pl-9 pr-3 text-sm"
+    ? "h-9 pl-9 pr-2.5 text-[13px] leading-tight"
     : "h-10 pl-10 pr-3 text-sm md:text-[15px]";
+
+  const placeholder = compact
+    ? "Search jewellery, SKU…"
+    : "Search jewellery, SKU, or barcode";
 
   return (
     <div ref={rootRef} className={`relative min-w-0 ${className}`}>
-      <form onSubmit={onSubmit} className="relative">
+      <form onSubmit={onSubmit} className="relative" noValidate>
         <Search
           className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
           aria-hidden
@@ -134,17 +150,25 @@ export default function SmartSearch({
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          placeholder="Search jewellery, SKU, barcode…"
+          placeholder={placeholder}
           value={raw}
+          disabled={isPending}
           onChange={(e) => {
             setRaw(e.target.value);
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          className={`w-full rounded-xl border border-white/10 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color] placeholder:text-slate-500 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 ${inputCls}`}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setOpen(false);
+              inputRef.current?.blur();
+            }
+          }}
+          className={`w-full rounded-xl border border-white/10 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color,opacity] placeholder:text-slate-500 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 disabled:opacity-60 ${inputCls}`}
           aria-label="Search catalogue"
           aria-expanded={showPanel}
           aria-controls="smart-search-results"
+          aria-busy={isPending}
         />
       </form>
 
@@ -152,21 +176,25 @@ export default function SmartSearch({
         <div
           id="smart-search-results"
           role="listbox"
-          className="absolute left-0 right-0 top-[calc(100%+6px)] z-[60] max-h-[min(70vh,22rem)] overflow-y-auto rounded-xl border border-white/10 bg-slate-900/98 py-1 shadow-2xl shadow-black/50 backdrop-blur-md"
+          className="absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(65vh,20rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/12 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl"
         >
           {synonymMatch ? (
             <Link
               role="option"
               href={synonymMatch.href}
+              replace
+              scroll={false}
               onClick={() => {
                 setOpen(false);
                 setRaw("");
               }}
-              className="flex items-start gap-3 border-b border-amber-500/15 bg-amber-500/8 px-3 py-2.5 transition-colors hover:bg-amber-500/12"
+              className="group mx-1.5 mb-1 flex items-center gap-3 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/12 to-amber-600/5 px-3 py-2.5 transition-colors hover:from-amber-500/16 hover:to-amber-600/10"
             >
-              <LayoutGrid className="mt-0.5 size-4 shrink-0 text-amber-400" />
-              <span className="min-w-0 flex-1">
-                <span className="block font-medium text-amber-100">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+                <LayoutGrid className="size-4" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block text-[13px] font-semibold leading-snug text-amber-50">
                   {synonymMatch.label}
                 </span>
                 {synonymMatch.hint ? (
@@ -175,30 +203,61 @@ export default function SmartSearch({
                   </span>
                 ) : null}
               </span>
-              <Sparkles className="size-4 shrink-0 text-amber-500/80" />
+              <ChevronRight className="size-4 shrink-0 text-amber-500/70 transition group-hover:translate-x-0.5" />
             </Link>
           ) : null}
 
-          {fuseHits.map((row) => (
-            <Link
-              key={`${row.key}-${row.catalogHref}`}
-              role="option"
-              href={row.productHref}
-              onClick={() => {
-                setOpen(false);
-                setRaw("");
-              }}
-              className="flex flex-col gap-0.5 border-b border-white/5 px-3 py-2 last:border-b-0 hover:bg-white/6"
+          {fuseHits.length > 0 ? (
+            <div
+              className={
+                synonymMatch
+                  ? "mt-1 border-t border-white/8 pt-1"
+                  : undefined
+              }
             >
-              <span className="truncate font-medium text-slate-100">
-                {row.name}
-              </span>
-              <span className="truncate text-xs text-slate-400">
-                {row.styleName} · {row.subcategoryName}
-                {row.sku ? ` · ${row.sku}` : ""}
-              </span>
-            </Link>
-          ))}
+              <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Products
+              </p>
+              <ul className="space-y-0.5 px-1">
+                {fuseHits.map((row) => (
+                  <li key={`${row.key}-${row.catalogHref}`}>
+                    <Link
+                      role="option"
+                      href={row.productHref}
+                      scroll={false}
+                      onClick={() => {
+                        setOpen(false);
+                        setRaw("");
+                      }}
+                      className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-white/[0.06]"
+                    >
+                      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-slate-800/90 text-slate-400">
+                        <Package className="size-3.5" aria-hidden />
+                      </span>
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="line-clamp-2 text-[13px] font-medium leading-snug text-slate-100">
+                          {row.name}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                          <span className="text-slate-400">{row.styleName}</span>
+                          <span className="mx-1 text-slate-600">·</span>
+                          <span>{row.subcategoryName}</span>
+                          {row.sku ? (
+                            <>
+                              <span className="mx-1 text-slate-600">·</span>
+                              <span className="font-mono text-slate-500">
+                                {row.sku}
+                              </span>
+                            </>
+                          ) : null}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

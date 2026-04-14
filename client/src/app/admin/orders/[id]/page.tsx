@@ -7,6 +7,7 @@ import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import { OrderFulfillmentLines } from '@/components/orders/OrderFulfillmentLines'
 import { ArrowLeft, Calendar, CreditCard, Package, User } from 'lucide-react'
+import { AdminOrderPdfActions } from '@/components/AdminOrderPdfActions'
 import { snapshotItemsQtySum, parseOrderItemsSnapshot } from '@/lib/order-snapshot'
 
 type OrderRow = {
@@ -150,6 +151,7 @@ export default function AdminOrderDetailPage() {
                   {order.payment_method || order.payment_status || '—'}
                 </div>
               </div>
+              <AdminOrderPdfActions order={order} className="mt-5 w-full sm:w-auto" />
             </div>
 
             <div className="p-5 sm:p-6 border-b border-white/10">

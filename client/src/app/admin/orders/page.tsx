@@ -6,6 +6,7 @@ import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
 import { ShoppingCart, ArrowLeft, Package, Calendar, User, CreditCard, MoreVertical, ChevronRight, Phone, MessageCircle, Trash2 } from 'lucide-react'
 import { OrderItemsColumnPeek } from '@/components/orders/OrderFulfillmentLines'
+import { AdminOrderPdfActions } from '@/components/AdminOrderPdfActions'
 import { parseOrderItemsSnapshot, snapshotItemsQtySum } from '@/lib/order-snapshot'
 
 const ORDER_TABS = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'] as const
@@ -17,6 +18,7 @@ type Order = {
   payment_status?: string
   payment_method?: string
   delivery_status?: string
+  order_channel?: string
   items_snapshot_json?: unknown
   created_at: string
   customer_name?: string
@@ -176,6 +178,7 @@ export default function AdminOrdersPage() {
             <div className="text-xs text-slate-500">{o.customer_mobile || o.customer_email || '—'}</div>
           </div>
         </div>
+        <AdminOrderPdfActions order={o} className="w-full" />
         {/* Action buttons - mobile */}
         <div className="flex flex-wrap gap-2">
           {o.customer_mobile && (
@@ -457,7 +460,8 @@ export default function AdminOrdersPage() {
                                 </div>
                               </td>
                               <td className="py-4 px-5">
-                                <div className="flex items-center justify-end gap-1.5">
+                                <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                  <AdminOrderPdfActions order={o} compact />
                                   {o.customer_mobile && (
                                     <>
                                       <a

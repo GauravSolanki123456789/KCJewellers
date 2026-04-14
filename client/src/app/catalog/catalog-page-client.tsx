@@ -396,15 +396,16 @@ export default function CatalogPageClient() {
       const stored = typeof window !== 'undefined' ? sessionStorage.getItem(CATALOG_STATE_KEY) : null
       const pathFromUrl = pathSegmentsFromPathname(pathname)
 
-      if (stored && fromProduct) {
+      // Deep-linked path always wins over session snapshot (avoids URL vs grid mismatch / replace loops).
+      if (pathFromUrl) {
+        if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
+        sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
+        applyPathSegments(pathFromUrl, cats)
+      } else if (stored && fromProduct) {
         const parsed = JSON.parse(stored) as CatalogSessionState
         applyParsedSession(parsed)
         sessionStorage.removeItem(CATALOG_STATE_KEY)
         sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
-      } else if (pathFromUrl) {
-        if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
-        sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)
-        applyPathSegments(pathFromUrl, cats)
       } else if (hasUrlParams) {
         if (stored) sessionStorage.removeItem(CATALOG_STATE_KEY)
         sessionStorage.removeItem(CATALOG_FROM_PRODUCT_KEY)

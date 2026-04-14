@@ -14,6 +14,18 @@ function triggerDownload(blob: Blob, filename: string) {
   }
 }
 
+/** Save a PDF blob to the user’s device (desktop save-as / mobile Downloads). */
+export function downloadPdfBlob(blob: Blob, filename: string): void {
+  triggerDownload(blob, filename)
+}
+
+export type SharePdfBlobOptions = {
+  title: string
+  text: string
+  /** If Web Share API cannot send the file, open WhatsApp with this message (user attaches the saved file). */
+  fallbackWhatsAppText: string
+}
+
 /**
  * 1) Save the PDF to the device.
  * 2) After a short delay (lets mobile browsers finish the download), open the system share sheet
@@ -21,10 +33,9 @@ function triggerDownload(blob: Blob, filename: string) {
  *    when sharing works — we still call `navigator.share({ files })` and rely on try/catch.
  * 3) If file sharing isn’t supported or fails, open WhatsApp with a short text (user attaches the file).
  */
-export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise<void> {
+export async function sharePdfBlob(blob: Blob, filename: string, opts: SharePdfBlobOptions): Promise<void> {
   triggerDownload(blob, filename)
 
-  /* Brief yield so the download can start; keeps closer to the user gesture for `navigator.share` on mobile. */
   await new Promise<void>((resolve) => {
     setTimeout(() => resolve(), 200)
   })
@@ -34,8 +45,8 @@ export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise
   if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
     const payload: ShareData = {
       files: [file],
-      title: 'KC Jewellers catalogue',
-      text: 'KC Jewellers — catalogue PDF',
+      title: opts.title,
+      text: opts.text,
     }
 
     try {
@@ -52,6 +63,13 @@ export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise
     }
   }
 
-  const msg = `KC Jewellers — catalogue PDF (${filename}). Attach the file you just saved.`
-  window.open(buildWhatsAppShareLink(msg), '_blank', 'noopener,noreferrer')
+  window.open(buildWhatsAppShareLink(opts.fallbackWhatsAppText), '_blank', 'noopener,noreferrer')
+}
+
+export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise<void> {
+  return sharePdfBlob(blob, filename, {
+    title: 'KC Jewellers catalogue',
+    text: 'KC Jewellers — catalogue PDF',
+    fallbackWhatsAppText: `KC Jewellers — catalogue PDF (${filename}). Attach the file you just saved.`,
+  })
 }
