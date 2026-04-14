@@ -9,7 +9,7 @@ import {
   useTransition,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ChevronRight, LayoutGrid, Package, Search } from "lucide-react";
 import {
   normalizeSearchQuery,
@@ -26,6 +26,12 @@ import {
 
 const DEBOUNCE_MS = 300;
 const FUSE_LIMIT = 8;
+
+function pathsMatch(a: string, b: string): boolean {
+  const x = (a || "").replace(/\/$/, "") || "/";
+  const y = (b || "").replace(/\/$/, "") || "/";
+  return x === y;
+}
 
 function useDebouncedValue<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -46,6 +52,7 @@ export default function SmartSearch({
   className = "",
 }: SmartSearchProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState("");
@@ -104,6 +111,12 @@ export default function SmartSearch({
       if (!shouldSkipSearchSynonym(n)) {
         const syn = resolveSearchSynonym(t);
         if (syn) {
+          if (pathsMatch(pathname, syn.href)) {
+            setOpen(false);
+            setRaw("");
+            inputRef.current?.blur();
+            return;
+          }
           startTransition(() => {
             router.replace(syn.href);
           });
@@ -120,7 +133,7 @@ export default function SmartSearch({
       setRaw("");
       inputRef.current?.blur();
     },
-    [router, startTransition]
+    [pathname, router, startTransition]
   );
 
   const onSubmit = (e: React.FormEvent) => {
@@ -184,7 +197,10 @@ export default function SmartSearch({
               href={synonymMatch.href}
               replace
               scroll={false}
-              onClick={() => {
+              onClick={(e) => {
+                if (pathsMatch(pathname, synonymMatch.href)) {
+                  e.preventDefault();
+                }
                 setOpen(false);
                 setRaw("");
               }}

@@ -1,11 +1,7 @@
 'use client'
 
 import { pdf } from '@react-pdf/renderer'
-import {
-  AdminOrderPdfDocument,
-  formatDeliveryStatusForPdf,
-  type AdminOrderPdfLine,
-} from '@/lib/admin-order-pdf-document'
+import { AdminOrderPdfDocument, type AdminOrderPdfLine } from '@/lib/admin-order-pdf-document'
 import { parseOrderItemsSnapshot, type OrderSnapshotLine } from '@/lib/order-snapshot'
 import { fetchCatalogImageAsDataUrl } from '@/lib/pdf-embed-images'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
@@ -49,20 +45,6 @@ export function orderPdfCacheKey(o: AdminOrderPdfSource): string {
   })
 }
 
-function fmtDate(d: string) {
-  try {
-    return new Date(d).toLocaleString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return d
-  }
-}
-
 async function attachLineImages(lines: OrderSnapshotLine[]): Promise<AdminOrderPdfLine[]> {
   if (lines.length === 0) return []
   const concurrency = 5
@@ -93,8 +75,6 @@ async function attachLineImages(lines: OrderSnapshotLine[]): Promise<AdminOrderP
 export async function buildAdminOrderPdfBlob(order: AdminOrderPdfSource): Promise<Blob> {
   const rawLines = parseOrderItemsSnapshot(order.items_snapshot_json)
   const lines = await attachLineImages(rawLines)
-  const grandTotal = Number(order.total_amount || 0)
-  const createdAtLabel = fmtDate(order.created_at)
   const generatedAtLabel = new Date().toLocaleString('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -103,19 +83,7 @@ export async function buildAdminOrderPdfBlob(order: AdminOrderPdfSource): Promis
     minute: '2-digit',
   })
   const doc = (
-    <AdminOrderPdfDocument
-      orderId={order.id}
-      createdAtLabel={createdAtLabel}
-      displayStatus={formatDeliveryStatusForPdf(order.delivery_status)}
-      orderChannelLabel={order.order_channel === 'B2B_WHOLESALE' ? 'B2B wholesale' : 'Retail'}
-      paymentLabel={String(order.payment_method || order.payment_status || '—')}
-      customerName={order.customer_name?.trim() || '—'}
-      customerEmail={order.customer_email?.trim() || ''}
-      customerMobile={order.customer_mobile?.trim() || ''}
-      lines={lines}
-      grandTotal={grandTotal}
-      generatedAtLabel={generatedAtLabel}
-    />
+    <AdminOrderPdfDocument orderId={order.id} lines={lines} generatedAtLabel={generatedAtLabel} />
   )
   return pdf(doc).toBlob()
 }

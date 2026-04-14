@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { usePathname, useRouter } from 'next/navigation'
 import ProductCard from '@/components/ProductCard'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
@@ -437,8 +438,12 @@ export default function CatalogPageClient() {
 
   const prevPathnameRef = useRef<string | null>(null)
 
-  /** Browser back/forward or deep link: pathname changed while shell stayed mounted (skip first paint). */
-  useEffect(() => {
+  /**
+   * Pathname → selection sync must run in the same frame before URL canonicalization.
+   * Otherwise `router.replace` briefly sees stale style/sku and overwrites a good deep link
+   * (e.g. search → pitara-tops reverts to pitara-bangle).
+   */
+  useLayoutEffect(() => {
     if (categories.length === 0 || !hasRestoredFromStorage.current) return
     if (prevPathnameRef.current === null) {
       prevPathnameRef.current = pathname
@@ -459,7 +464,9 @@ export default function CatalogPageClient() {
     ) {
       return
     }
-    applyPathSegments(pathFromUrl, categories)
+    flushSync(() => {
+      applyPathSegments(pathFromUrl, categories)
+    })
   }, [pathname, categories, applyPathSegments])
 
   const { pullY, isRefreshing: pullRefreshing, handleTouchStart, handleTouchMove, handleTouchEnd } =
@@ -703,7 +710,7 @@ export default function CatalogPageClient() {
     .join(' \u203A ')
 
   /** Canonical path /catalog/{metal}/{category_slug}/{subcategory_slug} */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!catalogHydrated || !pathname.startsWith(CATALOG_PATH)) return
     if (filteredCategories.length === 0) return
     const style = filteredCategories.find((c) => c.id === activeStyleId)
