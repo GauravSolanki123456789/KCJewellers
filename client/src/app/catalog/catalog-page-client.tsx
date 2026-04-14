@@ -199,6 +199,19 @@ function pathSegmentsFromPathname(pathname: string): ParsedCatalogPath | null {
   return parseCatalogSlugSegments(parts)
 }
 
+/**
+ * URL segment may be a shorthand (e.g. `pitara-bangle`) while DB slug is suffixed (`pitara-bangle-37`).
+ * Only allow prefix extension when the path segment looks like a full slug (contains a hyphen).
+ */
+function subSlugMatchesPathSegment(subSlug: string, pathSkuSegment: string): boolean {
+  const s = (subSlug || '').toLowerCase()
+  const w = (pathSkuSegment || '').toLowerCase().trim()
+  if (!w) return false
+  if (s === w) return true
+  if (w.includes('-') && s.startsWith(`${w}-`)) return true
+  return false
+}
+
 /** True when URL path already matches current style/sku/metal (skip re-apply → fewer renders / no loops). */
 function selectionMatchesPath(
   cats: Category[],
@@ -210,9 +223,7 @@ function selectionMatchesPath(
   if (parsed.metal !== selectedMetal) return false
   const cat = cats.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
   if (!cat || cat.id !== activeStyleId) return false
-  const sub = cat.subcategories.find(
-    (s) => (s.slug || '').toLowerCase() === parsed.skuSlug.toLowerCase(),
-  )
+  const sub = cat.subcategories.find((s) => subSlugMatchesPathSegment(s.slug || '', parsed.skuSlug))
   return !!sub && sub.id === activeSkuId
 }
 
@@ -300,12 +311,12 @@ export default function CatalogPageClient() {
     const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
     if (cat) {
       setActiveStyleId(cat.id)
-      const sub = cat.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
+      const sub = cat.subcategories.find((s) => subSlugMatchesPathSegment(s.slug || '', skuSlug))
       if (sub) setActiveSkuId(sub.id)
       else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
     } else {
       for (const c of cats) {
-        const sub = c.subcategories.find((s) => (s.slug || '').toLowerCase() === skuSlug)
+        const sub = c.subcategories.find((s) => subSlugMatchesPathSegment(s.slug || '', skuSlug))
         if (sub) {
           setActiveStyleId(c.id)
           setActiveSkuId(sub.id)
@@ -437,6 +448,8 @@ export default function CatalogPageClient() {
   }, [categories, applyPathSegments, pathname])
 
   const prevPathnameRef = useRef<string | null>(null)
+  /** Skip canonical `router.replace` once: the next layout effect can run with stale closures right after `flushSync` from pathname sync (search / SmartSearch). */
+  const suppressCanonicalAfterPathSyncRef = useRef(false)
 
   /**
    * Pathname → selection sync must run in the same frame before URL canonicalization.
@@ -464,6 +477,7 @@ export default function CatalogPageClient() {
     ) {
       return
     }
+    suppressCanonicalAfterPathSyncRef.current = true
     flushSync(() => {
       applyPathSegments(pathFromUrl, categories)
     })
@@ -522,8 +536,8 @@ export default function CatalogPageClient() {
     const parsed = pathSegmentsFromPathname(pathname)
     if (parsed) {
       const cat = categories.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
-      const sub = cat?.subcategories.find(
-        (s) => (s.slug || '').toLowerCase() === parsed.skuSlug.toLowerCase(),
+      const sub = cat?.subcategories.find((s) =>
+        subSlugMatchesPathSegment(s.slug || '', parsed.skuSlug),
       )
       if (cat && sub) {
         const aligned = selectionMatchesPath(
@@ -737,6 +751,10 @@ export default function CatalogPageClient() {
   /** Canonical path /catalog/{metal}/{category_slug}/{subcategory_slug} */
   useLayoutEffect(() => {
     if (!catalogHydrated || !pathname.startsWith(CATALOG_PATH)) return
+    if (suppressCanonicalAfterPathSyncRef.current) {
+      suppressCanonicalAfterPathSyncRef.current = false
+      return
+    }
     if (filteredCategories.length === 0) return
     const style = filteredCategories.find((c) => c.id === activeStyleId)
     const sub = style?.subcategories.find((s) => s.id === activeSkuId)
