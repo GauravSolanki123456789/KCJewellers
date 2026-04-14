@@ -118,7 +118,7 @@ export default function SmartSearch({
             return;
           }
           startTransition(() => {
-            router.replace(syn.href);
+            router.replace(syn.href, { scroll: false });
           });
           setOpen(false);
           setRaw("");
@@ -192,19 +192,26 @@ export default function SmartSearch({
           className="absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(65vh,20rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/12 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl"
         >
           {synonymMatch ? (
-            <Link
+            <button
+              type="button"
               role="option"
-              href={synonymMatch.href}
-              replace
-              scroll={false}
               onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 if (pathsMatch(pathname, synonymMatch.href)) {
-                  e.preventDefault();
+                  setOpen(false);
+                  setRaw("");
+                  inputRef.current?.blur();
+                  return;
                 }
+                startTransition(() => {
+                  router.replace(synonymMatch.href, { scroll: false });
+                });
                 setOpen(false);
                 setRaw("");
+                inputRef.current?.blur();
               }}
-              className="group mx-1.5 mb-1 flex items-center gap-3 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/12 to-amber-600/5 px-3 py-2.5 transition-colors hover:from-amber-500/16 hover:to-amber-600/10"
+              className="group mx-1.5 mb-1 flex w-[calc(100%-12px)] items-center gap-3 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/12 to-amber-600/5 px-3 py-2.5 text-left transition-colors hover:from-amber-500/16 hover:to-amber-600/10"
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
                 <LayoutGrid className="size-4" aria-hidden />
@@ -220,7 +227,7 @@ export default function SmartSearch({
                 ) : null}
               </span>
               <ChevronRight className="size-4 shrink-0 text-amber-500/70 transition group-hover:translate-x-0.5" />
-            </Link>
+            </button>
           ) : null}
 
           {fuseHits.length > 0 ? (
