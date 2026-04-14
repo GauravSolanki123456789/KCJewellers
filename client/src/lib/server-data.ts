@@ -17,6 +17,7 @@ export type ApiProductRow = {
   metal_type?: string;
   style_code?: string;
   category_slug?: string;
+  /** `web_subcategories.slug` from GET /api/products join. */
   subcategory_slug?: string;
   fixed_price?: number;
   mc_rate?: number;
@@ -95,6 +96,42 @@ export const fetchDisplayRates = cache(async function fetchDisplayRates(): Promi
     return [];
   }
 });
+
+/** Global search results — case-insensitive match on name, sku, barcode, category & subcategory names (see GET /api/products). */
+export async function fetchProductsSearch(
+  query: string,
+  limit = 80
+): Promise<{ products: ApiProductRow[]; total: number | null }> {
+  const q = String(query || "")
+    .trim()
+    .slice(0, 160);
+  if (!q) return { products: [], total: null };
+  const api = getApiUrlForServer();
+  const url = `${api}/api/products?search=${encodeURIComponent(q)}&limit=${limit}`;
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return { products: [], total: null };
+    const data = (await res.json()) as {
+      products?: ApiProductRow[];
+      items?: ApiProductRow[];
+      total?: number | null;
+    };
+    const products = Array.isArray(data.products)
+      ? data.products
+      : Array.isArray(data.items)
+        ? data.items
+        : [];
+    return {
+      products,
+      total: data.total != null ? Number(data.total) : null,
+    };
+  } catch {
+    return { products: [], total: null };
+  }
+}
 
 export function resolveCatalogView(
   categories: ApiCatalogCategory[],

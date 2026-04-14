@@ -1547,7 +1547,7 @@ app.get('/api/products', async (req, res) => {
             }
         }
         if (search) {
-            whereClauses.push(`(wp.name ILIKE $${p} OR wp.sku ILIKE $${p} OR wp.barcode ILIKE $${p} OR wc.name ILIKE $${p++})`);
+            whereClauses.push(`(wp.name ILIKE $${p} OR wp.sku ILIKE $${p} OR wp.barcode ILIKE $${p} OR wc.name ILIKE $${p} OR ws.name ILIKE $${p++})`);
             params.push(`%${search}%`);
         }
         if (req.query.metal_type) {

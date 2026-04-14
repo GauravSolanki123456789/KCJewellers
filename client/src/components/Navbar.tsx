@@ -26,6 +26,7 @@ import {
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import SmartSearch from '@/components/SmartSearch'
 
 type UserType = { email?: string; name?: string; role?: string; mobile_number?: string }
 
@@ -117,13 +118,16 @@ export default function Navbar() {
     <>
       {/* Mobile: top bar — brand + cart (cart not in bottom nav) */}
       <header className="safe-area-pt fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-slate-950/90 backdrop-blur-md md:hidden">
-        <div className="flex h-12 items-center justify-between px-3">
+        <div className="flex h-12 items-center gap-2 px-2 sm:px-3">
           <Link
             href={CATALOG_PATH}
-            className="text-base font-bold tracking-tight text-yellow-500"
+            className="shrink-0 text-base font-bold tracking-tight text-yellow-500"
           >
             KC Jewellers
           </Link>
+          <div className="min-w-0 flex-1">
+            <SmartSearch compact />
+          </div>
           <CartButton />
         </div>
       </header>
@@ -166,6 +170,9 @@ export default function Navbar() {
                 </Link>
               </>
             )}
+          </div>
+          <div className="hidden min-w-0 max-w-[min(22rem,28vw)] shrink md:block">
+            <SmartSearch />
           </div>
           <div className="flex shrink-0 items-center gap-2 lg:gap-3">
             {!auth.isAuthenticated && (

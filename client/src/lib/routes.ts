@@ -3,6 +3,8 @@
  * Use these across the frontend and backend for consistency.
  */
 export const CATALOG_PATH = '/catalog'
+/** Global search results page (`?q=`). */
+export const SEARCH_PATH = '/search'
 /** Live bullion rates + book-rate flow (single “Live Rates” destination). */
 export const RATES_PATH = '/rates'
 /** Alias for clarity in UI copy and analytics. */
