@@ -118,7 +118,7 @@ export default function SmartSearch({
             return;
           }
           startTransition(() => {
-            router.replace(syn.href, { scroll: false });
+            router.replace(syn.href);
           });
           setOpen(false);
           setRaw("");
@@ -195,6 +195,7 @@ export default function SmartSearch({
             <button
               type="button"
               role="option"
+              className="group mx-1.5 mb-1 flex w-[calc(100%-12px)] items-center gap-3 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/12 to-amber-600/5 px-3 py-2.5 text-left transition-colors hover:from-amber-500/16 hover:to-amber-600/10"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -205,18 +206,17 @@ export default function SmartSearch({
                   return;
                 }
                 startTransition(() => {
-                  router.replace(synonymMatch.href, { scroll: false });
+                  router.replace(synonymMatch.href);
                 });
                 setOpen(false);
                 setRaw("");
                 inputRef.current?.blur();
               }}
-              className="group mx-1.5 mb-1 flex w-[calc(100%-12px)] items-center gap-3 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/12 to-amber-600/5 px-3 py-2.5 text-left transition-colors hover:from-amber-500/16 hover:to-amber-600/10"
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
                 <LayoutGrid className="size-4" aria-hidden />
               </span>
-              <span className="min-w-0 flex-1 text-left">
+              <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-semibold leading-snug text-amber-50">
                   {synonymMatch.label}
                 </span>

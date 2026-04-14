@@ -4413,6 +4413,7 @@ const STATUS_TO_DB = { New: ['PENDING', 'NEW'], Accepted: 'ACCEPTED', Ready: 'RE
 async function enrichManyOrderRows(rows) {
     if (!Array.isArray(rows) || rows.length === 0) return rows;
     const allKeys = new Set();
+    const allProductIds = new Set();
     for (const row of rows) {
         let arr = row.items_snapshot_json;
         if (typeof arr === 'string') {
@@ -4425,23 +4426,35 @@ async function enrichManyOrderRows(rows) {
             const sk = line.sku != null ? String(line.sku).trim() : '';
             if (bc) allKeys.add(bc);
             if (sk && sk !== bc) allKeys.add(sk);
+            const pidRaw = line.product_id != null ? parseInt(String(line.product_id), 10) : NaN;
+            if (!Number.isNaN(pidRaw) && pidRaw > 0) allProductIds.add(pidRaw);
         }
     }
     const barcodes = Array.from(allKeys).filter(Boolean).slice(0, 500);
-    if (barcodes.length === 0) return rows;
+    const productIds = Array.from(allProductIds).slice(0, 500);
+    if (barcodes.length === 0 && productIds.length === 0) return rows;
 
     let products = [];
     try {
+        const whereParts = [];
+        const params = [];
+        if (barcodes.length > 0) {
+            params.push(barcodes);
+            whereParts.push(`(wp.barcode::text = ANY($${params.length}::text[]) OR wp.sku::text = ANY($${params.length}::text[]))`);
+        }
+        if (productIds.length > 0) {
+            params.push(productIds);
+            whereParts.push(`wp.id = ANY($${params.length}::int[])`);
+        }
         products = await query(`
-            SELECT wp.barcode, wp.sku, wp.name, wp.image_url, wp.net_weight::float AS net_weight,
+            SELECT wp.id, wp.barcode, wp.sku, wp.name, wp.image_url, wp.net_weight::float AS net_weight,
                    COALESCE(wp.metal_type, 'silver') AS metal_type,
                    wc.name AS style_name
             FROM web_products wp
             LEFT JOIN web_subcategories ws ON ws.id = wp.subcategory_id
             LEFT JOIN web_categories wc ON wc.id = ws.category_id
-            WHERE wp.barcode::text = ANY($1::text[])
-               OR wp.sku::text = ANY($1::text[])
-        `, [barcodes]);
+            WHERE ${whereParts.join(' OR ')}
+        `, params);
     } catch (e) {
         console.warn('[enrichManyOrderRows] catalog lookup failed:', e.message);
         return rows;
@@ -4449,21 +4462,33 @@ async function enrichManyOrderRows(rows) {
 
     const byBarcode = {};
     const bySku = {};
+    const byId = {};
     for (const p of products) {
         if (p.barcode != null) byBarcode[String(p.barcode).trim()] = p;
         if (p.sku != null) bySku[String(p.sku).trim()] = p;
+        if (p.id != null) byId[Number(p.id)] = p;
     }
 
     const mergeLine = (line) => {
         if (!line || typeof line !== 'object') return line;
         const bc = line.barcode != null ? String(line.barcode).trim() : '';
         const sk = line.sku != null ? String(line.sku).trim() : '';
-        const p = (bc && byBarcode[bc]) || (sk && bySku[sk]) || (bc && bySku[bc]) || null;
+        const pid = line.product_id != null ? parseInt(String(line.product_id), 10) : NaN;
+        const p =
+            (bc && byBarcode[bc]) ||
+            (sk && bySku[sk]) ||
+            (bc && bySku[bc]) ||
+            (!Number.isNaN(pid) && pid > 0 ? byId[pid] : null) ||
+            null;
         if (!p) return line;
         const out = { ...line };
         const currentName = String(out.item_name || line.name || '').trim();
         if (!currentName || currentName === 'Item') {
             if (p.name) out.item_name = p.name;
+        }
+        /** Packing PDFs need a scannable barcode column — fill from catalogue when snapshot omitted it. */
+        if (!bc && p.barcode != null && String(p.barcode).trim() !== '') {
+            out.barcode = String(p.barcode).trim();
         }
         if (!out.image_url && p.image_url) out.image_url = p.image_url;
         /** Prefer ERP `web_products.sku` — cart snapshots often copy barcode into `sku`. */
@@ -5265,6 +5290,10 @@ function buildCatalogOrderSnapshotLine(ci) {
     const line = { barcode, sku, item_name, style_code, image_url, metal_type, qty, price, breakdown };
     const nwg = net_wt_g;
     if (nwg != null) line.net_wt_g = nwg;
+    if (it.id != null) {
+        const pid = parseInt(String(it.id), 10);
+        if (!Number.isNaN(pid) && pid > 0) line.product_id = pid;
+    }
     return line;
 }
 

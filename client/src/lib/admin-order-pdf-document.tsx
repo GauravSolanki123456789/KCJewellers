@@ -80,13 +80,13 @@ export function AdminOrderPdfDocument({
             const qty = Math.max(1, Math.floor(Number(line.qty) || 1))
             const meta = lineMeta(line)
             const title = snapshotLineTitle(line)
-            const displayTitle = title && title.trim() !== '' ? title : '—'
+            const displayTitle = title && title.trim() !== '' ? title : '-'
             const bc =
               line.barcode != null && String(line.barcode).trim() !== ''
                 ? String(line.barcode).trim()
                 : line.sku != null && String(line.sku).trim() !== ''
                   ? String(line.sku).trim()
-                  : '—'
+                  : '-'
             return (
               <View key={`${line.barcode || line.sku || 'row'}-${i}`} style={styles.tr} wrap={false}>
                 <View style={styles.thumbBox}>
@@ -97,20 +97,12 @@ export function AdminOrderPdfDocument({
                   )}
                 </View>
                 <View style={styles.colMain}>
-                  <Text style={[styles.td, { paddingRight: 0 }]} hyphenationCallback={() => []}>
-                    {displayTitle}
-                  </Text>
-                  {meta ? (
-                    <Text style={styles.subItem} hyphenationCallback={() => []}>
-                      {meta}
-                    </Text>
-                  ) : null}
+                  <Text style={[styles.td, { paddingRight: 0 }]}>{displayTitle}</Text>
+                  {meta ? <Text style={styles.subItem}>{meta}</Text> : null}
                 </View>
-                <Text style={[styles.td, styles.colBc]} hyphenationCallback={() => []}>
-                  {bc}
-                </Text>
+                <Text style={[styles.td, styles.colBc]}>{bc}</Text>
                 <Text style={[styles.td, styles.colWt]}>
-                  {line.net_wt_g != null ? Number(line.net_wt_g).toFixed(2) : '—'}
+                  {line.net_wt_g != null ? Number(line.net_wt_g).toFixed(2) : '-'}
                 </Text>
                 <Text style={[styles.td, styles.colQty]}>{qty}</Text>
               </View>

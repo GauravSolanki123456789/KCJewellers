@@ -85,21 +85,17 @@ export function B2bProformaPdfDocument({
         </View>
         {lines.map((line, i) => (
           <View key={`${line.barcode}-${i}`} style={styles.tr} wrap={false}>
-            <Text style={[styles.td, styles.col1]} hyphenationCallback={() => []}>
-              {String(line.barcode || '—')}
-            </Text>
+            <Text style={[styles.td, styles.col1]}>{String(line.barcode || '-')}</Text>
             <View style={styles.col2}>
-              <Text style={[styles.td, { paddingRight: 0 }]} hyphenationCallback={() => []}>
-                {String(line.item_name || '—')}
-              </Text>
+              <Text style={[styles.td, { paddingRight: 0 }]}>{String(line.item_name || '-')}</Text>
               {(line.style_code || line.sku) ? (
-                <Text style={styles.subItem} hyphenationCallback={() => []}>
+                <Text style={styles.subItem}>
                   {[line.style_code, line.sku ? `SKU ${line.sku}` : ''].filter(Boolean).join(' · ')}
                 </Text>
               ) : null}
             </View>
             <Text style={[styles.td, styles.col3]}>
-              {line.net_wt_g != null ? Number(line.net_wt_g).toFixed(2) : '—'}
+              {line.net_wt_g != null ? Number(line.net_wt_g).toFixed(2) : '-'}
             </Text>
             <Text style={[styles.td, styles.col4]}>{line.qty}</Text>
             <Text style={[styles.td, styles.col5]}>₹{Math.round(line.line_total).toLocaleString('en-IN')}</Text>

@@ -5,6 +5,8 @@
  */
 
 export type OrderSnapshotLine = {
+  /** `web_products.id` when present — used to enrich legacy snapshots server-side */
+  product_id?: number
   barcode?: string
   sku?: string | null
   item_name?: string
@@ -67,7 +69,14 @@ export function parseOrderItemsSnapshot(raw: unknown): OrderSnapshotLine[] {
       const n = Number(nwRaw)
       if (!Number.isNaN(n)) net_wt_g = n
     }
+    const productIdRaw = r.product_id
+    let product_id: number | undefined
+    if (productIdRaw != null && productIdRaw !== '') {
+      const pi = Number(productIdRaw)
+      if (!Number.isNaN(pi) && pi > 0) product_id = pi
+    }
     return {
+      ...(product_id != null ? { product_id } : {}),
       barcode,
       sku: r.sku != null ? String(r.sku) : null,
       item_name: title,

@@ -512,85 +512,58 @@ export default function CatalogPageClient() {
   }, [categories, selectedMetal])
 
   /**
-   * Keep selection aligned with metal + catalogue data without fighting deep links.
-   * `filteredCategories` drops subs with zero products for the current metal — using it alone
-   * for "validity" caused bogus resets (e.g. search → pitara-tops) and router.replace loops.
+   * When metal changes or data loads, snap to a valid style/sku if the current IDs are invalid.
+   * Use full `categories` for existence checks — NOT `filteredCategories` alone — otherwise
+   * client navigations (search / deep link) briefly look "invalid" before pathname sync runs,
+   * and we reset to the first style (e.g. ER SET) while the URL still says Pitara → route fight / flicker.
    */
   useEffect(() => {
-    if (categories.length === 0 || !catalogHydrated) return
-
-    const structurallyValid =
+    if (categories.length === 0) return
+    const parsed = pathSegmentsFromPathname(pathname)
+    if (parsed) {
+      const cat = categories.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
+      const sub = cat?.subcategories.find(
+        (s) => (s.slug || '').toLowerCase() === parsed.skuSlug.toLowerCase(),
+      )
+      if (cat && sub) {
+        const aligned = selectionMatchesPath(
+          categories,
+          parsed,
+          selectedMetal,
+          activeStyleId,
+          activeSkuId,
+        )
+        if (!aligned) {
+          return
+        }
+      }
+    }
+    const stillValid =
       activeStyleId != null &&
       categories.some((c) => c.id === activeStyleId) &&
       (activeSkuId == null ||
         categories
           .find((c) => c.id === activeStyleId)
           ?.subcategories.some((s) => s.id === activeSkuId))
-
-    const inFilteredView =
-      activeStyleId != null &&
-      filteredCategories.length > 0 &&
-      filteredCategories.some((c) => c.id === activeStyleId) &&
-      (activeSkuId == null ||
-        filteredCategories
-          .find((c) => c.id === activeStyleId)
-          ?.subcategories.some((s) => s.id === activeSkuId))
-
-    if (!structurallyValid) {
-      const first = filteredCategories[0] ?? categories[0]
-      if (!first?.subcategories?.length) return
-      setActiveStyleId(first.id)
-      setActiveSkuId(first.subcategories[0].id)
-      return
-    }
-
-    if (!inFilteredView) {
-      const parsed = pathSegmentsFromPathname(pathname)
-      if (
-        parsed &&
-        parsed.metal === selectedMetal &&
-        selectionMatchesPath(categories, parsed, selectedMetal, activeStyleId, activeSkuId)
-      ) {
-        return
-      }
+    if (!stillValid) {
       if (filteredCategories.length === 0) return
       const first = filteredCategories[0]
-      if (!first?.subcategories?.length) return
       setActiveStyleId(first.id)
-      setActiveSkuId(first.subcategories[0].id)
+      setActiveSkuId(first.subcategories[0]?.id ?? null)
     }
-  }, [
-    categories,
-    filteredCategories,
-    activeStyleId,
-    activeSkuId,
-    pathname,
-    selectedMetal,
-    catalogHydrated,
-  ])
+  }, [categories, filteredCategories, activeStyleId, activeSkuId, selectedMetal, pathname])
 
   const activeStyle = useMemo(
-    () =>
-      filteredCategories.find((c) => c.id === activeStyleId) ??
-      categories.find((c) => c.id === activeStyleId) ??
-      null,
-    [filteredCategories, categories, activeStyleId],
+    () => filteredCategories.find((c) => c.id === activeStyleId) ?? null,
+    [filteredCategories, activeStyleId],
   )
 
-  const activeSku = useMemo(() => {
-    const fromFiltered = filteredCategories.find((c) => c.id === activeStyleId)
-    const sub = fromFiltered?.subcategories.find((s) => s.id === activeSkuId)
-    if (sub) return sub
-    return (
-      categories.find((c) => c.id === activeStyleId)?.subcategories.find((s) => s.id === activeSkuId) ??
-      null
-    )
-  }, [filteredCategories, categories, activeStyleId, activeSkuId])
+  const activeSku = useMemo(
+    () => activeStyle?.subcategories.find((s) => s.id === activeSkuId) ?? null,
+    [activeStyle, activeSkuId],
+  )
 
-  const rawProducts = useMemo(() => {
-    const list = activeSku?.products ?? []
-    return list.filter((p) => productMatchesMetal(p, selectedMetal))
-  }, [activeSku, selectedMetal])
+  const rawProducts = activeSku?.products ?? []
 
   // Compute min/max from current products for slider bounds
   const { weightBounds, priceBounds } = useMemo(() => {
@@ -761,18 +734,26 @@ export default function CatalogPageClient() {
     .filter(Boolean)
     .join(' \u203A ')
 
-  /** Canonical path — slugs come from full `categories` so URL stays stable when a sub is missing from metal-filtered view. */
+  /** Canonical path /catalog/{metal}/{category_slug}/{subcategory_slug} */
   useLayoutEffect(() => {
     if (!catalogHydrated || !pathname.startsWith(CATALOG_PATH)) return
-    if (categories.length === 0) return
-    const style = categories.find((c) => c.id === activeStyleId)
+    if (filteredCategories.length === 0) return
+    const style = filteredCategories.find((c) => c.id === activeStyleId)
     const sub = style?.subcategories.find((s) => s.id === activeSkuId)
     if (!style?.slug || !sub?.slug) return
     const nextPath = buildCatalogSegmentPath(selectedMetal, style.slug, sub.slug)
     if (pathname !== nextPath) {
       router.replace(nextPath, { scroll: false })
     }
-  }, [catalogHydrated, activeStyleId, activeSkuId, selectedMetal, categories, pathname, router])
+  }, [
+    catalogHydrated,
+    activeStyleId,
+    activeSkuId,
+    selectedMetal,
+    filteredCategories,
+    pathname,
+    router,
+  ])
 
   const catalogShareText = useMemo(() => {
     const shareUrl = buildCatalogShareUrl({
