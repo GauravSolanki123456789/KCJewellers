@@ -19,6 +19,7 @@ export type Item = {
   mc_rate?: number
   mc_value?: number
   stone_charges?: number
+  design_group?: string | null
   gst_rate?: number
   image_url?: string
   pcs?: number

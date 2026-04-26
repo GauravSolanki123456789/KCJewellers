@@ -9,8 +9,9 @@ command to access database
 sudo -u postgres psql -d kcjewellers
 DELETE FROM web_products WHERE barcode = '100001';
 ssh root@159.65.145.51
-
-
+DELETE FROM web_products 
+WHERE subcategory_id = 262;
+SELECT * FROM web_subcategories;SELECT * FROM web_categories;
 1. Force Git to overwrite everything with your perfect GitHub code:
 
 Bash

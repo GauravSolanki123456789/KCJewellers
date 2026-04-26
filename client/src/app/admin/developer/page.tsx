@@ -293,6 +293,7 @@ export default function DeveloperApiPage() {
                     ['netWeight',   'No',  'Net weight in grams'],
                     ['grossWeight', 'No',  'Gross weight in grams'],
                     ['purity',      'No',  'e.g. 22K, 18K, 925'],
+                    ['itemCode',    'No',  'Optional design-group key for SKU-level filtering (stored as design_group)'],
                     ['imageUrl',    'No',  'Full HTTPS URL to product image'],
                     ['imageBase64', 'No',  'Base64 image data. Use Content-Type: application/json. Prefer Base64url (+→-, /→_) to avoid corruption'],
                     ['metalType',   'No',  'gold / silver / diamond / platinum'],

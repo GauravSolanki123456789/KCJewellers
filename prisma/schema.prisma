@@ -41,3 +41,27 @@ model B2bClientLedgerEntry {
   @@index([userId, createdAt(sort: Desc)], map: "idx_b2b_ledger_user_created")
   @@map("b2b_client_ledger_entries")
 }
+
+model WebProduct {
+  id           Int      @id @default(autoincrement())
+  subcategoryId Int     @map("subcategory_id")
+  sku          String   @unique @db.VarChar(255)
+  barcode      String?  @db.VarChar(255)
+  name         String   @db.VarChar(255)
+  grossWeight  Decimal? @map("gross_weight") @db.Decimal(10, 3)
+  netWeight    Decimal? @map("net_weight") @db.Decimal(10, 3)
+  purity       String?  @db.VarChar(50)
+  imageUrl     String?  @map("image_url")
+  isActive     Boolean? @default(true) @map("is_active")
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamp(6)
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  mcRate       Decimal? @map("mc_rate") @db.Decimal(12, 2)
+  metalType    String?  @map("metal_type") @db.VarChar(50)
+  fixedPrice   Decimal? @map("fixed_price") @db.Decimal(12, 2)
+  stoneCharges Decimal? @map("stone_charges") @db.Decimal(12, 2)
+  designGroup  String?  @map("design_group") @db.VarChar(255)
+
+  @@index([designGroup], map: "idx_web_products_design_group")
+  @@map("web_products")
+}

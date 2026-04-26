@@ -255,6 +255,7 @@ export default function CatalogPageClient() {
   const [weightHigh, setWeightHigh] = useState(100)
   const [priceLow, setPriceLow] = useState(0)
   const [priceHigh, setPriceHigh] = useState(100000)
+  const [activeDesignGroup, setActiveDesignGroup] = useState<'all' | string>('all')
   const hasRestoredFromStorage = useRef(false)
   const skipNextBoundsSync = useRef(false)
   const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
@@ -578,6 +579,15 @@ export default function CatalogPageClient() {
   )
 
   const rawProducts = activeSku?.products ?? []
+  const designGroups = useMemo(() => {
+    const seen = new Set<string>()
+    for (const p of rawProducts) {
+      const group = String((p as { design_group?: string | null }).design_group ?? '').trim()
+      if (group) seen.add(group)
+    }
+    return [...seen]
+  }, [rawProducts])
+  const hasDesignGroupFilter = designGroups.length > 0
 
   // Compute min/max from current products for slider bounds
   const { weightBounds, priceBounds } = useMemo(() => {
@@ -616,7 +626,7 @@ export default function CatalogPageClient() {
     setPriceHigh(priceBounds[1])
   }, [weightBounds[0], weightBounds[1], priceBounds[0], priceBounds[1]])
 
-  const products = useMemo(() => {
+  const sliderFilteredProducts = useMemo(() => {
     let list = rawProducts
     list = list.filter((p) => {
       const w = p.net_weight ?? p.net_wt ?? p.weight ?? 0
@@ -633,6 +643,25 @@ export default function CatalogPageClient() {
     })
     return list
   }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing])
+
+  const products = useMemo(() => {
+    if (!hasDesignGroupFilter || activeDesignGroup === 'all') return sliderFilteredProducts
+    return sliderFilteredProducts.filter((p) => {
+      const group = String((p as { design_group?: string | null }).design_group ?? '').trim()
+      return group === activeDesignGroup
+    })
+  }, [sliderFilteredProducts, hasDesignGroupFilter, activeDesignGroup])
+
+  useEffect(() => {
+    if (!hasDesignGroupFilter) {
+      if (activeDesignGroup !== 'all') setActiveDesignGroup('all')
+      return
+    }
+    if (activeDesignGroup === 'all') return
+    if (!designGroups.includes(activeDesignGroup)) {
+      setActiveDesignGroup('all')
+    }
+  }, [hasDesignGroupFilter, designGroups, activeDesignGroup])
 
   useEffect(() => {
     if (!scrollToBarcode || products.length === 0 || typeof window === 'undefined') return
@@ -1278,6 +1307,46 @@ export default function CatalogPageClient() {
               )}
             </div>
             {/* Breadcrumb + count */}
+            {hasDesignGroupFilter && (
+              <div className="mb-4 rounded-xl border border-slate-800/80 bg-slate-900/45 p-2.5 sm:p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Design Group
+                  </p>
+                  <span className="text-[11px] text-slate-500">
+                    {products.length} visible
+                  </span>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                  <button
+                    type="button"
+                    onClick={() => setActiveDesignGroup('all')}
+                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                      activeDesignGroup === 'all'
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
+                    }`}
+                  >
+                    All
+                  </button>
+                  {designGroups.map((group) => (
+                    <button
+                      key={group}
+                      type="button"
+                      onClick={() => setActiveDesignGroup(group)}
+                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                        activeDesignGroup === group
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
+                      }`}
+                    >
+                      {group}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-4 gap-4">
               <p className="text-sm text-slate-400 truncate">
                 {breadcrumb || 'Select a collection'}

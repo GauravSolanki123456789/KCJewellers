@@ -21,6 +21,15 @@ BEGIN
         RAISE NOTICE 'Added orders.b2b_checkout_type';
     END IF;
 
+    -- Older local DBs may miss payment_status entirely
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'orders' AND column_name = 'payment_status'
+    ) THEN
+        ALTER TABLE orders ADD COLUMN payment_status VARCHAR(40) DEFAULT 'PENDING';
+        RAISE NOTICE 'Added orders.payment_status';
+    END IF;
+
     -- PENDING_APPROVAL is 17 chars — ensure column is wide enough
     IF EXISTS (
         SELECT 1 FROM information_schema.columns

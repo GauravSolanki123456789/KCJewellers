@@ -22,6 +22,7 @@ export type ApiProductRow = {
   fixed_price?: number;
   mc_rate?: number;
   stone_charges?: number;
+  design_group?: string | null;
   gst_rate?: number;
   discount_percentage?: number;
 };
