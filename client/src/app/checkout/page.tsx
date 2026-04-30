@@ -38,7 +38,7 @@ function CheckoutContent() {
   const router = useRouter()
   const { items, remove, ratesReady } = useCart()
   const auth = useAuth()
-  const { hasWholesaleAccess, tierReady } = useCustomerTier()
+  const { hasB2bPortalAccess, tierReady } = useCustomerTier()
   const { open: openLoginModal } = useLoginModal()
   const [loading, setLoading] = useState(false)
   const [scriptLoaded, setScriptLoaded] = useState(false)
@@ -56,7 +56,7 @@ function CheckoutContent() {
   } | null>(null)
 
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
-  const isWholesaleCheckout = Boolean(auth.isAuthenticated && hasWholesaleAccess && tierReady)
+  const isWholesaleCheckout = Boolean(auth.isAuthenticated && hasB2bPortalAccess && tierReady)
 
   const loadRedeemableSips = useCallback(async () => {
     if (!auth.isAuthenticated) {

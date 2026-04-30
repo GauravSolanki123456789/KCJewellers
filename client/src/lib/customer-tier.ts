@@ -1,4 +1,5 @@
 import type { WholesalePricingInput } from './pricing'
+import { SUPER_ADMIN_EMAIL } from '@/lib/is-catalog-admin'
 
 /**
  * Customer tier — consistent with PostgreSQL `users.customer_tier` and API `user.customer_tier`.
@@ -18,6 +19,8 @@ export type WholesaleUserFields = {
   wholesale_making_charge_discount_percent?: number
   wholesale_markup_percent?: number
   allowed_category_ids?: number[] | null
+  business_name?: string | null
+  custom_domain?: string | null
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {
@@ -32,14 +35,33 @@ export function normalizeCustomerTier(raw: string | undefined | null): CustomerT
   return CUSTOMER_TIER.B2C_CUSTOMER
 }
 
-export function hasWholesaleCatalogAccess(user: WholesaleUserFields | null | undefined): boolean {
+export function hasWholesaleCatalogAccess(
+  user: (WholesaleUserFields & { email?: string | null }) | null | undefined,
+): boolean {
   if (!user) return false
+  const email = String(user.email || '').toLowerCase().trim()
+  if (email === SUPER_ADMIN_EMAIL.toLowerCase()) return true
   const tier = normalizeCustomerTier(user.customer_tier)
   return (
     tier === CUSTOMER_TIER.B2B_WHOLESALE ||
     tier === CUSTOMER_TIER.ADMIN ||
     tier === CUSTOMER_TIER.RESELLER
   )
+}
+
+/**
+ * B2B wholesale portal: quick-order matrix, Khata ledger, NEFT / ledger checkout.
+ * `RESELLER` keeps catalogue wholesale *pricing* via {@link hasWholesaleCatalogAccess} but must not use B2B portal routes.
+ * Mirrors `services/authService.hasB2bWholesalePortalAccess` and `requireB2BWholesale`.
+ */
+export function hasB2bWholesalePortalAccess(
+  user: (WholesaleUserFields & { email?: string | null }) | null | undefined,
+): boolean {
+  if (!user) return false
+  const email = String(user.email || '').toLowerCase().trim()
+  if (email === SUPER_ADMIN_EMAIL.toLowerCase()) return true
+  const tier = normalizeCustomerTier(user.customer_tier)
+  return tier === CUSTOMER_TIER.B2B_WHOLESALE || tier === CUSTOMER_TIER.ADMIN
 }
 
 export function buildWholesalePricingInput(

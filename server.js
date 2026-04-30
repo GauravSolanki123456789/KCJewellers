@@ -47,7 +47,12 @@ const {
     getPool
 } = require('./config/database');
 const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict, requireB2BWholesale, requireSharedCatalogCreator } = require('./middleware/auth');
-const { resolveUserRole, hasWholesaleCatalogAccess } = require('./services/authService');
+const {
+    resolveUserRole,
+    hasWholesaleCatalogAccess,
+    hasB2bWholesalePortalAccess,
+    CUSTOMER_TIER,
+} = require('./services/authService');
 const { sanitizeMiddleware, validateNumbers } = require('./middleware/sanitize');
 const { globalLimiter, authLimiter, adminLimiter, requireJson } = require('./middleware/rateLimit');
 const { hasPermission, getPermissionContext } = require('./middleware/checkPermission');
@@ -194,7 +199,17 @@ const adminRequireJson = (req, res, next) => {
     if (pathOnly.includes('diamond-details') || pathOnly.includes('reseller-logo')) return next();
     return requireJson(req, res, next);
 };
-app.use('/api/admin', adminLimiter, adminRequireJson, strictAdminOrigin, isAdminStrict);
+
+/** Catalogue Builder shared-link is allowed for RESELLER (handled by route-level middleware); skip global super-admin-only gate. */
+function adminAccessGate(req, res, next) {
+    const pathFull = String(req.originalUrl || req.url || '').split('?')[0];
+    if (req.method === 'POST' && pathFull.includes('/api/admin/shared-catalog')) {
+        return next();
+    }
+    return isAdminStrict(req, res, next);
+}
+
+app.use('/api/admin', adminLimiter, adminRequireJson, strictAdminOrigin, adminAccessGate);
 
 // SECURITY: Apply security headers to all requests
 app.use(securityHeaders);
@@ -505,6 +520,7 @@ app.get('/api/auth/current_user', (req, res) => {
                 permissions: resolvedUser.permissions || {}
             },
             has_wholesale_access: hasWholesaleCatalogAccess(resolvedUser),
+            has_b2b_portal_access: hasB2bWholesalePortalAccess(resolvedUser),
             // Legacy format for backward compatibility
             permissions: legacyPermissions,
             // New granular permission context
@@ -514,6 +530,7 @@ app.get('/api/auth/current_user', (req, res) => {
         res.json({ 
             isAuthenticated: false,
             has_wholesale_access: false,
+            has_b2b_portal_access: false,
             permissions: getUserPermissions(null),
             permissionContext: getPermissionContext(null)
         });
@@ -600,8 +617,15 @@ app.post('/api/admin/b2b/ledger-entries', isAdminStrict, requireJson, async (req
         if (!validCat.includes(cat)) {
             return res.status(400).json({ error: 'txn_category must be PURCHASE, CASH_PAYMENT, or METAL_DEPOSIT' });
         }
-        const urows = await query('SELECT id FROM users WHERE id = $1', [uid]);
+        const urows = await query('SELECT id, customer_tier FROM users WHERE id = $1', [uid]);
         if (urows.length === 0) return res.status(404).json({ error: 'User not found' });
+        const tier = String(urows[0].customer_tier || '').toUpperCase();
+        if (tier === CUSTOMER_TIER.RESELLER) {
+            return res.status(400).json({
+                error: 'Khata ledger is not used for RESELLER accounts. Use B2B_WHOLESALE for wholesale + ledger.',
+                code: 'LEDGER_NOT_FOR_RESELLER',
+            });
+        }
         const ar = Number(amount_rupees);
         const fg = Number(fine_metal_grams);
         if (Number.isNaN(ar) || Number.isNaN(fg)) {
@@ -733,6 +757,7 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
             res.json({
                 success: true,
                 has_wholesale_access: hasWholesaleCatalogAccess(user),
+                has_b2b_portal_access: hasB2bWholesalePortalAccess(user),
                 user: {
                     id: user.id,
                     email: user.email,
@@ -4218,7 +4243,7 @@ app.post('/api/payment/razorpay/webhook', require('express').raw({ type: '*/*' }
         // Check for catalog order (orders table with PENDING + razorpay_order_id)
         const orderRows = await query(`SELECT * FROM orders WHERE razorpay_order_id = $1 AND payment_status = 'PENDING'`, [orderId]);
         if (orderRows.length > 0 && event === 'payment.captured') {
-            await query(`UPDATE orders SET payment_status = 'PAID', payment_method = 'RAZORPAY' WHERE razorpay_order_id = $1`, [orderId]);
+            await query(`UPDATE orders SET payment_status = 'PAID', payment_method = 'RAZORPAY', updated_at = NOW() WHERE razorpay_order_id = $1`, [orderId]);
             return res.json({ status: 'CONFIRMED', type: 'catalog' });
         }
 
@@ -4769,7 +4794,7 @@ app.patch('/api/admin/orders/:id/status', isAdminStrict, requireJson, async (req
         const map = { New: 'PENDING', Accepted: 'ACCEPTED', Ready: 'READY', Dispatched: 'DISPATCHED', Delivered: 'DELIVERED', Cancelled: 'CANCELLED' };
         const val = typeof delivery_status === 'string' ? map[delivery_status] || delivery_status : null;
         if (!val || !ORDER_STATUSES.includes(delivery_status)) return res.status(400).json({ error: 'Invalid status. Use: ' + ORDER_STATUSES.join(', ') });
-        await query(`UPDATE orders SET delivery_status = $1 WHERE id = $2`, [val, id]);
+        await query(`UPDATE orders SET delivery_status = $1, updated_at = NOW() WHERE id = $2`, [val, id]);
         res.json({ success: true, delivery_status: val });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -4789,6 +4814,30 @@ app.delete('/api/admin/orders/:id', isAdminStrict, async (req, res) => {
     }
 });
 
+/** Matches `attention_section_key` in admin_attention_section_seen (and client `attentionSectionKey`). */
+const KC_ADMIN_ATTENTION_SECTION_KEYS = new Set([
+    'retail_orders',
+    'b2b_purchase_orders',
+    'sip_payouts',
+    'rate_bookings',
+    'customer_insights',
+]);
+
+async function loadAdminAttentionLastSeenMap(userId) {
+    const rows = await query(
+        `SELECT attention_section_key, last_seen_at FROM admin_attention_section_seen WHERE user_id = $1`,
+        [userId]
+    );
+    const m = Object.create(null);
+    for (const r of rows) {
+        m[r.attention_section_key] = r.last_seen_at;
+    }
+    return m;
+}
+
+/** Orders “touched” time for unread badges (orders.updated_at from migration 034). */
+const KC_ORDER_TOUCH_SQL = `COALESCE(updated_at, created_at::timestamptz)`;
+
 // Admin: Customer Insights - activity feed from user_activity_logs
 app.get('/api/admin/insights', isAdminStrict, async (req, res) => {
     try {
@@ -4804,6 +4853,208 @@ app.get('/api/admin/insights', isAdminStrict, async (req, res) => {
         res.json({ success: true, data: rows });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin dashboard + nav: operational totals + unread badges (since last visit per attention section)
+app.get('/api/admin/inbox-summary', async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        let seenMap = Object.create(null);
+        if (userId != null) {
+            try {
+                seenMap = await loadAdminAttentionLastSeenMap(userId);
+            } catch (e) {
+                console.warn('inbox-summary: admin_attention_section_seen unavailable:', e.message);
+                seenMap = Object.create(null);
+            }
+        }
+
+        const seenRetail = seenMap.retail_orders || null;
+        const seenB2b = seenMap.b2b_purchase_orders || null;
+        const seenSip = seenMap.sip_payouts || null;
+        const seenBookings = seenMap.rate_bookings || null;
+        const seenInsights = seenMap.customer_insights || null;
+
+        const insightsUserExclusion = `LOWER(TRIM(COALESCE(email, ''))) <> 'jaigaurav56789@gmail.com' AND COALESCE(role, '') NOT IN ('admin', 'super_admin')`;
+
+        const [
+            b2bRows,
+            retailPendingRows,
+            retailFulfillRows,
+            sipRows,
+            bookingRows,
+            newUsersRows,
+            activityRows,
+        ] = await Promise.all([
+            query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'B2B_WHOLESALE' AND payment_status = 'PENDING_APPROVAL'`),
+            query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'RETAIL' AND payment_status = 'PENDING'`),
+            query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'RETAIL' AND payment_status = 'PAID' AND COALESCE(delivery_status, 'PENDING') NOT IN ('DELIVERED', 'CANCELLED') AND created_at >= NOW() - INTERVAL '3 days'`),
+            query(`SELECT COUNT(*)::int AS n FROM sip_payout_requests WHERE LOWER(TRIM(status)) IN ('pending', 'pending_admin_approval')`),
+            query(`SELECT COUNT(*)::int AS n FROM bookings WHERE status = 'booked' AND created_at >= NOW() - INTERVAL '7 days'`),
+            query(`SELECT COUNT(*)::int AS n FROM users WHERE created_at >= NOW() - INTERVAL '7 days' AND ${insightsUserExclusion}`),
+            query(`SELECT COUNT(*)::int AS n FROM user_activity_logs WHERE created_at >= NOW() - INTERVAL '24 hours'`),
+        ]);
+
+        const b2bOrdersPendingApproval = Number(b2bRows[0]?.n || 0);
+        const retailOrdersPaymentPending = Number(retailPendingRows[0]?.n || 0);
+        const retailOrdersRecentFulfillment = Number(retailFulfillRows[0]?.n || 0);
+        const sipPayoutsPending = Number(sipRows[0]?.n || 0);
+        const rateBookingsRecentBooked = Number(bookingRows[0]?.n || 0);
+        const newCustomersLast7Days = Number(newUsersRows[0]?.n || 0);
+        const customerActivityEvents24h = Number(activityRows[0]?.n || 0);
+
+        let insightsAttentionOperational = newCustomersLast7Days;
+        if (insightsAttentionOperational === 0 && customerActivityEvents24h > 0) {
+            insightsAttentionOperational = Math.min(customerActivityEvents24h, 99);
+        }
+
+        const retailOrderUnreadBase = `order_channel = 'RETAIL' AND (
+            payment_status = 'PENDING'
+            OR (
+                payment_status = 'PAID'
+                AND COALESCE(delivery_status, 'PENDING') NOT IN ('DELIVERED', 'CANCELLED')
+                AND created_at >= NOW() - INTERVAL '3 days'
+            )
+        )`;
+        const retailOrdersUnreadRows = seenRetail
+            ? await query(
+                `SELECT COUNT(*)::int AS n FROM orders WHERE ${retailOrderUnreadBase} AND ${KC_ORDER_TOUCH_SQL} > $1`,
+                [seenRetail]
+            )
+            : await query(`SELECT COUNT(*)::int AS n FROM orders WHERE ${retailOrderUnreadBase}`);
+        const retailOrdersUnread = Number(retailOrdersUnreadRows[0]?.n || 0);
+
+        const b2bUnreadRows = seenB2b
+            ? await query(
+                `SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'B2B_WHOLESALE' AND payment_status = 'PENDING_APPROVAL' AND ${KC_ORDER_TOUCH_SQL} > $1`,
+                [seenB2b]
+            )
+            : await query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'B2B_WHOLESALE' AND payment_status = 'PENDING_APPROVAL'`);
+        const b2bOrdersUnread = Number(b2bUnreadRows[0]?.n || 0);
+
+        const sipUnreadRows = seenSip
+            ? await query(
+                `SELECT COUNT(*)::int AS n FROM sip_payout_requests WHERE LOWER(TRIM(status)) IN ('pending', 'pending_admin_approval') AND COALESCE(created_at::timestamptz, request_date::timestamptz) > $1`,
+                [seenSip]
+            )
+            : await query(`SELECT COUNT(*)::int AS n FROM sip_payout_requests WHERE LOWER(TRIM(status)) IN ('pending', 'pending_admin_approval')`);
+        const sipPayoutsUnread = Number(sipUnreadRows[0]?.n || 0);
+
+        const bookingUnreadRows = seenBookings
+            ? await query(
+                `SELECT COUNT(*)::int AS n FROM bookings WHERE status = 'booked' AND created_at >= NOW() - INTERVAL '7 days' AND created_at::timestamptz > $1`,
+                [seenBookings]
+            )
+            : await query(`SELECT COUNT(*)::int AS n FROM bookings WHERE status = 'booked' AND created_at >= NOW() - INTERVAL '7 days'`);
+        const rateBookingsUnread = Number(bookingUnreadRows[0]?.n || 0);
+
+        let insightsUnread = insightsAttentionOperational;
+        if (seenInsights) {
+            const suRows = await query(
+                `SELECT COUNT(*)::int AS n FROM users WHERE created_at >= NOW() - INTERVAL '7 days' AND ${insightsUserExclusion} AND created_at::timestamptz > $1`,
+                [seenInsights]
+            );
+            const actRows = await query(
+                `SELECT COUNT(*)::int AS n FROM user_activity_logs WHERE created_at >= NOW() - INTERVAL '24 hours' AND created_at::timestamptz > $1`,
+                [seenInsights]
+            );
+            const suN = Number(suRows[0]?.n || 0);
+            const actN = Number(actRows[0]?.n || 0);
+            insightsUnread = suN;
+            if (insightsUnread === 0 && actN > 0) insightsUnread = Math.min(actN, 99);
+        }
+
+        const insights = {
+            newSignupsLast7Days: newCustomersLast7Days,
+            hasVisitorActivity24h: customerActivityEvents24h > 0,
+        };
+
+        const badgesByHref = {
+            '/admin/rates': 0,
+            '/admin/sip/plans': 0,
+            '/admin/sip/payouts': sipPayoutsUnread,
+            '/admin/liabilities': 0,
+            '/admin/transactions': 0,
+            '/admin/products': 0,
+            '/admin/bookings': rateBookingsUnread,
+            '/admin/orders': retailOrdersUnread,
+            '/admin/orders/b2b': b2bOrdersUnread,
+            '/admin/b2b-clients': 0,
+            '/admin/promos': 0,
+            '/admin/insights': insightsUnread,
+            '/admin/developer': 0,
+        };
+
+        const totalAttentionCount =
+            retailOrdersPaymentPending +
+            retailOrdersRecentFulfillment +
+            b2bOrdersPendingApproval +
+            sipPayoutsPending +
+            rateBookingsRecentBooked;
+
+        const unreadSum =
+            retailOrdersUnread +
+            b2bOrdersUnread +
+            sipPayoutsUnread +
+            rateBookingsUnread +
+            insightsUnread;
+        const navAttentionCount = Math.min(99, unreadSum);
+
+        res.json({
+            success: true,
+            data: {
+                counts: {
+                    retailOrdersPaymentPending,
+                    retailOrdersRecentFulfillment,
+                    b2bOrdersPendingApproval,
+                    sipPayoutsPending,
+                    rateBookingsRecentBooked,
+                    newCustomersLast7Days,
+                    customerActivityEvents24h,
+                },
+                insights,
+                badgesByHref,
+                totalAttentionCount,
+                navAttentionCount,
+                unreadCountsByAttentionSectionKey: {
+                    retail_orders: retailOrdersUnread,
+                    b2b_purchase_orders: b2bOrdersUnread,
+                    sip_payouts: sipPayoutsUnread,
+                    rate_bookings: rateBookingsUnread,
+                    customer_insights: insightsUnread,
+                },
+                generatedAt: new Date().toISOString(),
+            },
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/admin/attention/mark-seen', async (req, res) => {
+    try {
+        const key = String(req.body?.attentionSectionKey || '').trim();
+        if (!KC_ADMIN_ATTENTION_SECTION_KEYS.has(key)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid attentionSectionKey',
+            });
+        }
+        const userId = req.user?.id;
+        if (userId == null) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        await query(
+            `INSERT INTO admin_attention_section_seen (user_id, attention_section_key, last_seen_at, updated_at)
+             VALUES ($1, $2, NOW(), NOW())
+             ON CONFLICT (user_id, attention_section_key)
+             DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()`,
+            [userId, key]
+        );
+        res.json({ success: true, attentionSectionKey: key });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -5833,7 +6084,7 @@ app.post('/api/admin/orders/:id/b2b-approve', isAdminStrict, requireJson, async 
         }
 
         await query(
-            `UPDATE orders SET payment_status = 'PAID', delivery_status = 'ACCEPTED' WHERE id = $1`,
+            `UPDATE orders SET payment_status = 'PAID', delivery_status = 'ACCEPTED', updated_at = NOW() WHERE id = $1`,
             [id],
         );
         res.json({ success: true, order_id: id, payment_status: 'PAID', delivery_status: 'ACCEPTED' });

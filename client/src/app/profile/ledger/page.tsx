@@ -43,7 +43,7 @@ export default function LedgerPage() {
 function LedgerContent() {
   const auth = useAuth()
   const { open: openLogin } = useLoginModal()
-  const { hasWholesaleAccess, tierReady } = useCustomerTier()
+  const { hasB2bPortalAccess, tierReady } = useCustomerTier()
   const [data, setData] = useState<LedgerResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -71,12 +71,12 @@ function LedgerContent() {
       setLoading(false)
       return
     }
-    if (!hasWholesaleAccess) {
+    if (!hasB2bPortalAccess) {
       setLoading(false)
       return
     }
     load()
-  }, [tierReady, auth.isAuthenticated, hasWholesaleAccess, load])
+  }, [tierReady, auth.isAuthenticated, hasB2bPortalAccess, load])
 
   const user = auth.user as { name?: string; email?: string; mobile_number?: string } | undefined
 
@@ -134,12 +134,13 @@ function LedgerContent() {
     )
   }
 
-  if (!hasWholesaleAccess) {
+  if (!hasB2bPortalAccess) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-5 text-center">
         <div className="glass-card max-w-md rounded-2xl border border-white/10 p-8">
           <p className="text-sm leading-relaxed text-slate-400">
-            Your account does not have access to the wholesale ledger. Contact KC Jewellers to enable B2B access.
+            The B2B ledger (Khata) is only for wholesale accounts. Reseller logins use the catalogue with your
+            pricing; contact KC Jewellers if you need full B2B wholesale access.
           </p>
           <Link
             href={CATALOG_PATH}

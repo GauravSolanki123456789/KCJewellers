@@ -18,8 +18,9 @@ import Link from 'next/link'
 import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, FileText, ChevronRight, Package, BookMarked } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
-
-const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
+import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
+import { userHasAdminDashboardAccess, userCanCallStrictAdminApi } from '@/lib/admin-access'
+import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 
 const LEGAL_SUPPORT_LINKS = [
   { href: POLICY_TERMS_PATH, label: 'Terms & Conditions' },
@@ -40,11 +41,16 @@ export default function ProfilePage() {
 
 function ProfilePageContent() {
   const auth = useAuth()
-  const { hasWholesaleAccess } = useCustomerTier()
+  const { hasB2bPortalAccess } = useCustomerTier()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
-  const email = (user?.email || '').toLowerCase().trim()
-  const isAdmin = email === SUPER_ADMIN_EMAIL
+  const isAdmin = userHasAdminDashboardAccess(user)
+  const strictInbox = userCanCallStrictAdminApi(user)
+  const { data: adminInbox } = useAdminInboxSummary(!!auth.isAuthenticated && strictInbox)
+  const adminNavBadge =
+    adminInbox && adminInbox.navAttentionCount > 0
+      ? formatAdminInboxBadge(adminInbox.navAttentionCount)
+      : ''
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -128,7 +134,7 @@ function ProfilePageContent() {
         </section>
 
         {/* B2B wholesale — only approved wholesale accounts */}
-        {auth.isAuthenticated && hasWholesaleAccess && (
+        {auth.isAuthenticated && hasB2bPortalAccess && (
           <section className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Link
               href={WHOLESALE_ORDER_PATH}
@@ -209,19 +215,37 @@ function ProfilePageContent() {
           <section className="mb-6">
             <Link
               href="/admin"
-              className="block glass-card rounded-2xl overflow-hidden border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 transition-all group"
+              className="group relative block glass-card rounded-2xl overflow-hidden border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 transition-all"
             >
-              <div className="p-6 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/30 group-hover:bg-amber-500/30 transition-colors">
+              {adminNavBadge && (
+                <span
+                  className="absolute right-12 top-4 z-10 flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-bold tabular-nums text-white shadow-md sm:right-14 sm:top-5"
+                  aria-label={`${adminNavBadge} admin updates`}
+                >
+                  {adminNavBadge}
+                </span>
+              )}
+              <div className="p-6 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/30 group-hover:bg-amber-500/30 transition-colors shrink-0">
                     <LayoutDashboard className="size-8 text-amber-500" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h2 className="text-lg font-semibold text-amber-400">Admin Dashboard</h2>
-                    <p className="text-sm text-slate-500">Manage rates, margins, products, SIP plans & more</p>
+                    <p className="text-sm text-slate-500">
+                      {adminInbox && adminInbox.totalAttentionCount > 0
+                        ? `${adminInbox.totalAttentionCount} operational item${adminInbox.totalAttentionCount === 1 ? '' : 's'} need attention`
+                        : adminInbox &&
+                            (adminInbox.insights.newSignupsLast7Days > 0 ||
+                              adminInbox.insights.hasVisitorActivity24h)
+                          ? 'New customers or site activity — open the dashboard for details'
+                          : 'Manage rates, margins, products, SIP plans & more'}
+                    </p>
                   </div>
                 </div>
-                <span className="text-amber-500 group-hover:translate-x-1 transition-transform">→</span>
+                <span className="text-amber-500 group-hover:translate-x-1 transition-transform shrink-0" aria-hidden>
+                  →
+                </span>
               </div>
             </Link>
           </section>

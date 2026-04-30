@@ -5,6 +5,11 @@ import { X, Link2, FileText, Copy, Check, Share2 } from 'lucide-react'
 import { pdf } from '@react-pdf/renderer'
 import { useCatalogData } from '@/app/catalog/catalog-data-context'
 import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
+import { useAuth } from '@/hooks/useAuth'
+import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
+import type { WholesaleUserFields } from '@/lib/customer-tier'
+import { resolveCatalogShareBrand } from '@/lib/catalog-share'
 import { createSharedCatalog } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
 import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
@@ -52,6 +57,9 @@ function findProductsByBarcodes(
 export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const { categories } = useCatalogData()
   const { selectedProductIds, clearSelection } = useCatalogBuilder()
+  const auth = useAuth()
+  const { customerTier } = useCustomerTier()
+  const { active: brandingActive, businessName: brandingBusinessName } = useResellerBranding()
   const [outputFormat, setOutputFormat] = useState<'temporary_web_link' | 'pdf'>('temporary_web_link')
   const [markupPercentage, setMarkupPercentage] = useState(0)
   const [expiryHours, setExpiryHours] = useState<number>(24)
@@ -64,6 +72,16 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     const h = EXPIRY_OPTIONS.find((o) => o.hours === expiryHours)?.hours ?? 24
     return new Date(Date.now() + h * 60 * 60 * 1000).toISOString()
   }, [expiryHours])
+
+  const shareBrandLabel = useMemo(() => {
+    const user = auth.user as WholesaleUserFields | undefined
+    return resolveCatalogShareBrand({
+      brandingActive,
+      brandingBusinessName,
+      customerTier,
+      userBusinessName: user?.business_name,
+    })
+  }, [auth.user, brandingActive, brandingBusinessName, customerTier])
 
   const resetAndClose = useCallback(() => {
     setError(null)
@@ -101,7 +119,13 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         const blob = await pdf(
           <CatalogPdfDocument products={itemsForPdf} />,
         ).toBlob()
-        const filename = `kc-jewellers-catalog-${new Date().toISOString().slice(0, 10)}.pdf`
+        const slug =
+          shareBrandLabel
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 48) || 'catalog'
+        const filename = `${slug}-${new Date().toISOString().slice(0, 10)}.pdf`
         await shareCatalogPdfBlob(blob, filename)
         clearSelection()
         resetAndClose()
@@ -135,6 +159,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     categories,
     clearSelection,
     resetAndClose,
+    shareBrandLabel,
   ])
 
   const copyLink = useCallback(async () => {
@@ -150,9 +175,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
   const waShareHref = useMemo(() => {
     if (!shareUrl) return null
-    const text = `KC Jewellers — curated catalogue for you:\n${shareUrl}`
+    const text = `${shareBrandLabel} — curated catalogue for you:\n${shareUrl}`
     return buildWhatsAppShareLink(text)
-  }, [shareUrl])
+  }, [shareUrl, shareBrandLabel])
 
   if (!open) return null
 

@@ -19,7 +19,11 @@ import {
   Tag,
   Building2,
   ClipboardList,
+  Bell,
 } from 'lucide-react'
+import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
+import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
+import type { AdminInboxSummaryData } from '@/lib/admin-inbox-summary'
 
 const ADMIN_SECTIONS = [
   {
@@ -113,61 +117,141 @@ const ADMIN_SECTIONS = [
     icon: Code2,
     color: 'violet',
   },
-]
+] as const
+
+function InboxSummaryStrip({ inbox }: { inbox: AdminInboxSummaryData | null }) {
+  if (!inbox) return null
+  const c = inbox.counts
+  const hasOperationalQueue =
+    inbox.totalAttentionCount > 0 ||
+    c.newCustomersLast7Days > 0 ||
+    c.customerActivityEvents24h > 0
+  if (!hasOperationalQueue && inbox.navAttentionCount <= 0) return null
+
+  const parts: string[] = []
+  const ord = c.retailOrdersPaymentPending + c.retailOrdersRecentFulfillment
+  if (ord > 0) parts.push(`${ord} order${ord === 1 ? '' : 's'} in queue`)
+  if (c.b2bOrdersPendingApproval > 0)
+    parts.push(`${c.b2bOrdersPendingApproval} B2B PO${c.b2bOrdersPendingApproval === 1 ? '' : 's'}`)
+  if (c.sipPayoutsPending > 0)
+    parts.push(`${c.sipPayoutsPending} payout${c.sipPayoutsPending === 1 ? '' : 's'}`)
+  if (c.rateBookingsRecentBooked > 0)
+    parts.push(
+      `${c.rateBookingsRecentBooked} booking${c.rateBookingsRecentBooked === 1 ? '' : 's'} (7d)`
+    )
+  if (c.newCustomersLast7Days > 0) {
+    parts.push(
+      `${c.newCustomersLast7Days} new customer${c.newCustomersLast7Days === 1 ? '' : 's'} (7d)`
+    )
+  } else if (c.customerActivityEvents24h > 0) {
+    const ev = Math.min(c.customerActivityEvents24h, 99)
+    parts.push(`${ev} insight event${ev === 1 ? '' : 's'} (24h)`)
+  }
+
+  const sub =
+    parts.length > 0
+      ? parts.join(' · ')
+      : inbox.navAttentionCount > 0
+        ? 'New updates in some sections since you last opened them'
+        : ''
+  return (
+    <div className="mb-5 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2.5 sm:px-4 sm:py-3">
+      <div className="flex items-start gap-2.5 sm:items-center">
+        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 sm:mt-0">
+          <Bell className="size-4 text-amber-400" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-amber-200/95 sm:text-sm">Operations queue</p>
+          <p className="mt-0.5 text-[11px] leading-snug text-slate-400 sm:text-xs">{sub}</p>
+        </div>
+        {inbox.navAttentionCount > 0 ? (
+          <span className="shrink-0 rounded-full bg-rose-500/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-white sm:text-xs">
+            {formatAdminInboxBadge(inbox.navAttentionCount)}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function AdminDashboardInner() {
+  const { data: inbox } = useAdminInboxSummary(true)
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <main className="mx-auto max-w-4xl px-4 py-8 pb-24">
+        <div className="mb-8">
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-yellow-500">
+            <LayoutDashboard className="size-7" />
+            Admin Dashboard
+          </h1>
+          <p className="mt-2 text-sm text-slate-400">
+            Manage rates, margins, products, SIP plans, and all app settings.
+          </p>
+        </div>
+
+        <InboxSummaryStrip inbox={inbox} />
+
+        {ADMIN_SECTIONS && ADMIN_SECTIONS.length > 0 ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {ADMIN_SECTIONS.map((section) => {
+              const Icon = section.icon
+              const n = inbox?.badgesByHref[section.href] ?? 0
+              const label = formatAdminInboxBadge(n)
+
+              return (
+                <Link
+                  key={section.href}
+                  href={section.href}
+                  className="group relative block rounded-xl border border-white/10 p-5 transition-all glass-card hover:border-white/20"
+                >
+                  {n > 0 && (
+                    <span
+                      className="absolute right-10 top-3 z-10 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500/95 px-1.5 text-[10px] font-bold tabular-nums text-white shadow-md shadow-black/40 sm:right-11 sm:top-4"
+                      aria-label={`${label} updates for ${section.title}`}
+                    >
+                      {label}
+                    </span>
+                  )}
+                  <div className="flex items-start justify-between gap-2 pr-7 sm:pr-8">
+                    <div className="flex min-w-0 items-start gap-3 sm:gap-4">
+                      <div className="relative shrink-0 rounded-lg border border-white/10 bg-white/5 p-2.5 transition-colors group-hover:border-yellow-500/20 group-hover:bg-yellow-500/10">
+                        <Icon className="size-5 shrink-0 text-yellow-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <h2 className="font-semibold text-slate-200 transition-colors group-hover:text-yellow-400">
+                          {section.title}
+                        </h2>
+                        <p className="mt-0.5 text-sm text-slate-500">{section.description}</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="mt-1 size-4 shrink-0 text-slate-500 transition-all group-hover:translate-x-1 group-hover:text-yellow-500" />
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="glass-card p-8 text-center">
+            <p className="text-slate-400">No admin sections available.</p>
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
 
 export default function AdminDashboardPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading...</div></div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-950">
+          <div className="text-slate-400">Loading...</div>
+        </div>
+      }
+    >
       <AdminGuard>
-        <div className="min-h-screen bg-slate-950 text-slate-100">
-        <main className="max-w-4xl mx-auto px-4 py-8 pb-24">
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-yellow-500 flex items-center gap-2">
-              <LayoutDashboard className="size-7" />
-              Admin Dashboard
-            </h1>
-            <p className="mt-2 text-slate-400 text-sm">
-              Manage rates, margins, products, SIP plans, and all app settings.
-            </p>
-          </div>
-
-          {ADMIN_SECTIONS && ADMIN_SECTIONS.length > 0 ? (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {ADMIN_SECTIONS.map((section) => {
-                  const Icon = section.icon
-                  return (
-                    <Link
-                      key={section.href}
-                      href={section.href}
-                      className="group block glass-card rounded-xl border border-white/10 hover:border-white/20 transition-all p-5"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-4">
-                          <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 group-hover:bg-yellow-500/10 group-hover:border-yellow-500/20 transition-colors">
-                            <Icon className="size-5 text-yellow-500" />
-                          </div>
-                          <div>
-                            <h2 className="font-semibold text-slate-200 group-hover:text-yellow-400 transition-colors">
-                              {section.title}
-                            </h2>
-                            <p className="text-sm text-slate-500 mt-0.5">{section.description}</p>
-                          </div>
-                        </div>
-                        <ArrowRight className="size-4 text-slate-500 group-hover:text-yellow-500 group-hover:translate-x-1 transition-all shrink-0 mt-1" />
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="glass-card p-8 text-center">
-              <p className="text-slate-400">No admin sections available.</p>
-            </div>
-          )}
-        </main>
-      </div>
+        <AdminDashboardInner />
       </AdminGuard>
     </Suspense>
   )

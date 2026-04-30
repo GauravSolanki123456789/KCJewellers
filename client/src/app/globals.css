@@ -10,8 +10,8 @@
 }
 
 :root {
-  /* Fixed mobile bottom nav: user row + B2B strip (if any) + 4 tabs + home indicator */
-  --kc-mobile-nav-stack: calc(9.5rem + env(safe-area-inset-bottom, 0px));
+  /* Fixed mobile bottom nav: optional B2B strip + 4 tabs + home indicator (no duplicate user strip) */
+  --kc-mobile-nav-stack: calc(7.25rem + env(safe-area-inset-bottom, 0px));
   --glass-bg: rgba(13, 13, 13, 0.55);
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);

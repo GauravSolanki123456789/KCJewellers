@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import axios from '@/lib/axios'
+import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
 import { Loader2, ArrowLeft, Save, Store, Upload } from 'lucide-react'
@@ -126,6 +127,13 @@ function B2BAdminContent() {
       return em.includes(s) || mob.includes(s.replace(/\D/g, '')) || String(u.id) === s
     })
   }, [users, q])
+
+  useEffect(() => {
+    if (ledgerUserId == null) return
+    const row = users.find((x) => x.id === ledgerUserId)
+    const tier = String(row?.customer_tier || '').toUpperCase()
+    if (tier === CUSTOMER_TIER.RESELLER) setLedgerUserId(null)
+  }, [users, ledgerUserId])
 
   const saveUser = async (u: AdminUser) => {
     setSavingId(u.id)
@@ -256,7 +264,8 @@ function B2BAdminContent() {
             <p className="text-slate-500 text-sm mt-1 max-w-xl leading-relaxed">
               Set <code className="text-slate-400">customer_tier</code> for access: B2B wholesale,{' '}
               <strong className="text-slate-300 font-medium">RESELLER</strong> (white-label catalogue sharing), or ADMIN.
-              Resellers can use Catalogue Builder and optional custom domains.
+              Resellers can use Catalogue Builder and optional custom domains. They do not get Wholesale quick order or
+              client Khata (ledger); use <strong className="text-slate-300 font-medium">B2B_WHOLESALE</strong> for that.
             </p>
           </div>
         </div>
@@ -286,7 +295,7 @@ function B2BAdminContent() {
               <tbody>
                 {filtered.map((u) => {
                   const tierUp = (u.customer_tier || 'B2C_CUSTOMER').toUpperCase()
-                  const isReseller = tierUp === 'RESELLER'
+                  const isReseller = tierUp === CUSTOMER_TIER.RESELLER
                   return (
                     <tr key={u.id} className="border-b border-slate-800/80 align-top">
                       <td className="p-2 font-mono text-xs text-slate-500">{u.id}</td>
@@ -380,16 +389,25 @@ function B2BAdminContent() {
                           {savingId === u.id ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
                           Save
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLedgerUserId(u.id)
-                            setLedgerForm((f) => ({ ...f }))
-                          }}
-                          className="ml-2 text-xs text-emerald-400 hover:underline"
-                        >
-                          Ledger
-                        </button>
+                        {tierUp !== CUSTOMER_TIER.RESELLER ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLedgerUserId(u.id)
+                              setLedgerForm((f) => ({ ...f }))
+                            }}
+                            className="ml-2 text-xs text-emerald-400 hover:underline"
+                          >
+                            Ledger
+                          </button>
+                        ) : (
+                          <span
+                            className="ml-2 inline-block text-xs text-slate-600"
+                            title="Khata is for B2B wholesale accounts only, not resellers."
+                          >
+                            —
+                          </span>
+                        )}
                       </td>
                     </tr>
                   )

@@ -173,7 +173,7 @@ function WholesaleImageGalleryDialogBody({
 
 export default function WholesaleOrderClient() {
   const { categories, rates, isBootstrapping } = useCatalogData()
-  const { hasWholesaleAccess, tierReady, wholesalePricing } = useCustomerTier()
+  const { hasB2bPortalAccess, tierReady, wholesalePricing } = useCustomerTier()
   const cart = useCart()
   const [metal, setMetal] = useState<CatalogMetalKey>('gold')
   const [draftHydrated, setDraftHydrated] = useState(false)
@@ -214,7 +214,7 @@ export default function WholesaleOrderClient() {
 
   /** Restore draft from session (survives Ledger / other routes); pick metal with stock. */
   useEffect(() => {
-    if (categories.length === 0 || !tierReady || !hasWholesaleAccess || draftHydrated) return
+    if (categories.length === 0 || !tierReady || !hasB2bPortalAccess || draftHydrated) return
     const saved = readWholesaleQuickOrder()
     if (saved) {
       if (saved.qtyByKey && typeof saved.qtyByKey === 'object') setQtyByKey(saved.qtyByKey)
@@ -230,7 +230,7 @@ export default function WholesaleOrderClient() {
       setMetal(firstMetalWithProducts(categories))
     }
     setDraftHydrated(true)
-  }, [categories, tierReady, hasWholesaleAccess, draftHydrated])
+  }, [categories, tierReady, hasB2bPortalAccess, draftHydrated])
 
   /** When metal tab changes (not first paint): clear qty + search for that metal only. */
   useEffect(() => {
@@ -283,7 +283,7 @@ export default function WholesaleOrderClient() {
 
   /** Persist draft so navigating to Ledger and back keeps quantities and filters. */
   useEffect(() => {
-    if (!draftHydrated || !hasWholesaleAccess) return
+    if (!draftHydrated || !hasB2bPortalAccess) return
     writeWholesaleQuickOrder({
       v: 1,
       metal,
@@ -297,7 +297,7 @@ export default function WholesaleOrderClient() {
     })
   }, [
     draftHydrated,
-    hasWholesaleAccess,
+    hasB2bPortalAccess,
     metal,
     qtyByKey,
     searchQuery,
@@ -518,16 +518,17 @@ export default function WholesaleOrderClient() {
     )
   }
 
-  if (!hasWholesaleAccess) {
+  if (!hasB2bPortalAccess) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center gap-6 px-5 bg-slate-950 text-center">
         <div className="glass-card max-w-md rounded-2xl border border-white/10 p-8">
           <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-slate-800/80 ring-1 ring-white/10">
             <ShoppingCart className="size-7 text-slate-500" aria-hidden />
           </div>
-          <h1 className="text-lg font-semibold text-slate-100">Wholesale access only</h1>
+          <h1 className="text-lg font-semibold text-slate-100">B2B wholesale quick order</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-400">
-            Sign in with your registered email or mobile. Contact KC Jewellers to enable B2B wholesale on your account.
+            This area is for wholesale accounts. Catalogue and cart still use your agreed pricing; contact KC Jewellers if you
+            need purchase orders or ledger (Khata).
           </p>
           <Link
             href={CATALOG_PATH}

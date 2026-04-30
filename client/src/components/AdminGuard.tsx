@@ -5,8 +5,7 @@ import Link from 'next/link'
 import { ShieldX, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { CATALOG_PATH } from '@/lib/routes'
-
-const SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com'
+import { KC_SUPER_ADMIN_EMAIL } from '@/lib/admin-access'
 
 type UserType = { role?: string; email?: string; name?: string }
 
@@ -18,7 +17,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
   const role = user?.role || ''
   
   // Check both email and role for admin access
-  const isSuperAdmin = email === SUPER_ADMIN_EMAIL || role === 'super_admin' || role === 'admin'
+  const isSuperAdmin = email === KC_SUPER_ADMIN_EMAIL || role === 'super_admin' || role === 'admin'
 
   // Give auth time to load
   useEffect(() => {

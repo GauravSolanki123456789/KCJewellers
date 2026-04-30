@@ -4,7 +4,7 @@
 type AppRoutes = "/" | "/admin" | "/admin/b2b-clients" | "/admin/bookings" | "/admin/developer" | "/admin/insights" | "/admin/liabilities" | "/admin/orders" | "/admin/orders/[id]" | "/admin/orders/b2b" | "/admin/products" | "/admin/promos" | "/admin/rates" | "/admin/sip/movements" | "/admin/sip/payouts" | "/admin/sip/plans" | "/admin/transactions" | "/bullion/gold" | "/bullion/silver" | "/catalog/[[...slug]]" | "/category/[key]" | "/checkout" | "/checkout/b2b-success" | "/checkout/success" | "/orders/[id]" | "/policies/privacy" | "/policies/refunds" | "/policies/shipping" | "/policies/terms" | "/products/[id]" | "/profile" | "/profile/ledger" | "/profile/sips" | "/rates" | "/search" | "/shared/[uuid]" | "/sip" | "/wholesale-order"
 type AppRouteHandlerRoutes = "/api/catalog-pdf-image"
 type PageRoutes = never
-type LayoutRoutes = "/" | "/catalog" | "/policies" | "/rates" | "/shared"
+type LayoutRoutes = "/" | "/admin" | "/catalog" | "/policies" | "/rates" | "/shared"
 type RedirectRoutes = never
 type RewriteRoutes = never
 type Routes = AppRoutes | PageRoutes | LayoutRoutes | RedirectRoutes | RewriteRoutes | AppRouteHandlerRoutes
@@ -60,6 +60,7 @@ export type ParamsOf<Route extends Routes> = ParamMap[Route]
 
 interface LayoutSlotMap {
   "/": never
+  "/admin": never
   "/catalog": never
   "/policies": never
   "/rates": never

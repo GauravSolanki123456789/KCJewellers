@@ -32,8 +32,10 @@ import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
 import { useCatalogData } from './catalog-data-context'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
-import { CUSTOMER_TIER } from '@/lib/customer-tier'
+import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
+import { resolveCatalogShareBrand, resolveCatalogShareOrigin } from '@/lib/catalog-share'
 import { isCatalogAdminUser } from '@/lib/is-catalog-admin'
 import CatalogSelectionFab from '@/components/catalog/CatalogSelectionFab'
 import WhatsAppCatalogModal from '@/components/catalog/WhatsAppCatalogModal'
@@ -247,6 +249,7 @@ export default function CatalogPageClient() {
     useCatalogData()
   const auth = useAuth()
   const { wholesalePricing, customerTier } = useCustomerTier()
+  const { active: resellerBrandingActive, businessName: resellerBrandName } = useResellerBranding()
   const {
     catalogBuilderMode,
     setCatalogBuilderMode,
@@ -870,6 +873,15 @@ export default function CatalogPageClient() {
     [selectedMetal, activeStyleId, activeSkuId],
   )
 
+  /**
+   * Key for the animated product block: subcategory (sku id) + optional design_group filter.
+   * `design_group` aligns with the ERP/catalog field; `activeDesignGroup` is 'all' or that key.
+   */
+  const catalogGridSurfaceKey = useMemo(
+    () => `${catalogProductSurfaceKey}:${activeDesignGroup}`,
+    [catalogProductSurfaceKey, activeDesignGroup],
+  )
+
   /** Canonical path /catalog/{metal}/{category_slug}/{subcategory_slug} */
   useLayoutEffect(() => {
     if (!catalogHydrated || !pathname.startsWith(CATALOG_PATH)) return
@@ -896,19 +908,44 @@ export default function CatalogPageClient() {
   ])
 
   const catalogShareText = useMemo(() => {
-    const shareUrl = buildCatalogShareUrl({
-      style: activeStyle?.slug,
-      sku: activeSku?.slug,
-      metal: selectedMetal,
-    })
+    const user = auth.user as WholesaleUserFields | undefined
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : null
+    const ctx = {
+      browserHostname: hostname,
+      customerTier,
+      resellerCustomDomain: user?.custom_domain,
+      userBusinessName: user?.business_name,
+      brandingActive: resellerBrandingActive,
+      brandingBusinessName: resellerBrandName,
+    }
+    const origin = resolveCatalogShareOrigin(ctx)
+    const brand = resolveCatalogShareBrand(ctx)
+    const shareUrl = buildCatalogShareUrl(
+      {
+        style: activeStyle?.slug,
+        sku: activeSku?.slug,
+        metal: selectedMetal,
+      },
+      { origin },
+    )
     return catalogShareMessage({
       styleName: activeStyle?.name,
       skuName: activeSku?.name,
       metalLabel: METAL_TABS.find((t) => t.key === selectedMetal)?.label,
       itemCount: products.length,
       url: shareUrl,
+      brandName: brand,
     })
-  }, [activeStyle, activeSku, selectedMetal, products.length])
+  }, [
+    auth.user,
+    customerTier,
+    resellerBrandingActive,
+    resellerBrandName,
+    activeStyle,
+    activeSku,
+    selectedMetal,
+    products.length,
+  ])
 
   if (isBootstrapping) {
     return (
@@ -1411,107 +1448,104 @@ export default function CatalogPageClient() {
               )}
             </div>
 
-            <div
-              key={catalogProductSurfaceKey}
-              className="kc-catalog-surface-enter"
-            >
-              {hasDesignGroupFilter && (
-                <div className="mb-4 rounded-xl border border-slate-800/80 bg-slate-900/45 p-2.5 sm:p-3">
-                  <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                      Design Group
-                    </p>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <span className="text-[11px] text-slate-500 tabular-nums order-first sm:order-none">
-                        {products.length} visible
-                      </span>
-                      {designGroups.length > 0 && (
-                        <div className="flex items-center rounded-lg border border-slate-700/80 bg-slate-800/50 p-0.5">
-                          <button
-                            type="button"
-                            aria-label="Previous design theme"
-                            onClick={goPrevDesignGroup}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-700/90 hover:text-amber-400"
-                          >
-                            <ChevronLeft className="size-4" aria-hidden />
-                          </button>
-                          <span className="hidden px-1 text-[10px] font-medium uppercase tracking-wide text-slate-500 sm:inline">
-                            Theme
-                          </span>
-                          <button
-                            type="button"
-                            aria-label="Next design theme"
-                            onClick={goNextDesignGroup}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-700/90 hover:text-amber-400"
-                          >
-                            <ChevronRight className="size-4" aria-hidden />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-stretch gap-1.5">
-                    {designGroups.length > 3 && (
-                      <button
-                        type="button"
-                        aria-label="Scroll design groups left"
-                        onClick={() => scrollDesignStrip(-1)}
-                        className="hidden h-auto min-h-[2.25rem] w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-800/60 text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 sm:flex"
-                      >
-                        <ChevronLeft className="size-4" aria-hidden />
-                      </button>
+            {hasDesignGroupFilter && (
+              <div className="mb-4 rounded-xl border border-slate-800/80 bg-slate-900/45 p-2.5 sm:p-3">
+                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Design Group
+                  </p>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <span className="text-[11px] text-slate-500 tabular-nums order-first sm:order-none">
+                      {products.length} visible
+                    </span>
+                    {designGroups.length > 0 && (
+                      <div className="flex items-center rounded-lg border border-slate-700/80 bg-slate-800/50 p-0.5">
+                        <button
+                          type="button"
+                          aria-label="Previous design theme"
+                          onClick={goPrevDesignGroup}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-700/90 hover:text-amber-400"
+                        >
+                          <ChevronLeft className="size-4" aria-hidden />
+                        </button>
+                        <span className="hidden px-1 text-[10px] font-medium uppercase tracking-wide text-slate-500 sm:inline">
+                          Theme
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Next design theme"
+                          onClick={goNextDesignGroup}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-700/90 hover:text-amber-400"
+                        >
+                          <ChevronRight className="size-4" aria-hidden />
+                        </button>
+                      </div>
                     )}
-                    <div
-                      ref={designGroupStripRef}
-                      className="flex min-h-[2.25rem] flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide"
+                  </div>
+                </div>
+                <div className="flex items-stretch gap-1.5">
+                  {designGroups.length > 3 && (
+                    <button
+                      type="button"
+                      aria-label="Scroll design groups left"
+                      onClick={() => scrollDesignStrip(-1)}
+                      className="hidden h-auto min-h-[2.25rem] w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-800/60 text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 sm:flex"
                     >
+                      <ChevronLeft className="size-4" aria-hidden />
+                    </button>
+                  )}
+                  <div
+                    ref={designGroupStripRef}
+                    className="flex min-h-[2.25rem] flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide"
+                  >
+                    <button
+                      ref={(el) => registerDesignChipRef('__all__', el)}
+                      type="button"
+                      onClick={() => setActiveDesignGroup('all')}
+                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                        activeDesignGroup === 'all'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
+                      }`}
+                    >
+                      All
+                    </button>
+                    {designGroups.map((group) => (
                       <button
-                        ref={(el) => registerDesignChipRef('__all__', el)}
+                        key={group}
+                        ref={(el) => registerDesignChipRef(group, el)}
                         type="button"
-                        onClick={() => setActiveDesignGroup('all')}
+                        onClick={() => setActiveDesignGroup(group)}
                         className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                          activeDesignGroup === 'all'
+                          activeDesignGroup === group
                             ? 'bg-amber-500 text-slate-950 shadow-sm'
                             : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
                         }`}
                       >
-                        All
+                        {group}
                       </button>
-                      {designGroups.map((group) => (
-                        <button
-                          key={group}
-                          ref={(el) => registerDesignChipRef(group, el)}
-                          type="button"
-                          onClick={() => setActiveDesignGroup(group)}
-                          className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                            activeDesignGroup === group
-                              ? 'bg-amber-500 text-slate-950 shadow-sm'
-                              : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
-                          }`}
-                        >
-                          {group}
-                        </button>
-                      ))}
-                    </div>
-                    {designGroups.length > 3 && (
-                      <button
-                        type="button"
-                        aria-label="Scroll design groups right"
-                        onClick={() => scrollDesignStrip(1)}
-                        className="hidden h-auto min-h-[2.25rem] w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-800/60 text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 sm:flex"
-                      >
-                        <ChevronRight className="size-4" aria-hidden />
-                      </button>
-                    )}
+                    ))}
                   </div>
                   {designGroups.length > 3 && (
-                    <p className="mt-1.5 text-center text-[10px] text-slate-500 sm:hidden">
-                      Swipe the row for more groups, or use theme buttons above
-                    </p>
+                    <button
+                      type="button"
+                      aria-label="Scroll design groups right"
+                      onClick={() => scrollDesignStrip(1)}
+                      className="hidden h-auto min-h-[2.25rem] w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-800/60 text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 sm:flex"
+                    >
+                      <ChevronRight className="size-4" aria-hidden />
+                    </button>
                   )}
                 </div>
-              )}
+                {designGroups.length > 3 && (
+                  <p className="mt-1.5 text-center text-[10px] text-slate-500 sm:hidden">
+                    Swipe the row for more groups, or use theme buttons above
+                  </p>
+                )}
+              </div>
+            )}
 
+            <div key={catalogGridSurfaceKey} className="kc-catalog-surface-enter">
               <div className="flex items-center justify-between mb-4 gap-4">
                 <p className="text-sm text-slate-400 truncate">
                   {breadcrumb || 'Select a collection'}

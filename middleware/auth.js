@@ -229,7 +229,8 @@ const getUserPermissions = (user) => {
 const verifyTenantAccess = checkAuth;
 
 /**
- * API routes: B2B wholesale portal (catalog pricing, quick order, client ledger).
+ * API routes: B2B wholesale portal (quick order, client ledger, b2b checkout).
+ * Excludes `RESELLER` tier — use {@link hasWholesaleCatalogAccess} for catalogue pricing only.
  */
 const requireB2BWholesale = (req, res, next) => {
     if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -238,8 +239,8 @@ const requireB2BWholesale = (req, res, next) => {
     if (req.user.account_status && req.user.account_status !== 'active') {
         return res.status(403).json({ error: 'Account not active', code: 'ACCOUNT_INACTIVE' });
     }
-    const { hasWholesaleCatalogAccess } = require('../services/authService');
-    if (!hasWholesaleCatalogAccess(req.user)) {
+    const { hasB2bWholesalePortalAccess } = require('../services/authService');
+    if (!hasB2bWholesalePortalAccess(req.user)) {
         return res.status(403).json({
             error: 'B2B wholesale access required',
             code: 'B2B_REQUIRED',

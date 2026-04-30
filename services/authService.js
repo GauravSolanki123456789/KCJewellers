@@ -56,7 +56,7 @@ const CUSTOMER_TIER = {
 };
 
 /**
- * Wholesale catalogue, quick order, and ledger (Khata) — super admin or B2B / ADMIN tier.
+ * Catalogue wholesale pricing (product cards, cart, checkout UI) — B2B, ADMIN, RESELLER, or super-admin email.
  * @param {Object|null} user - user row or session user
  */
 function hasWholesaleCatalogAccess(user) {
@@ -71,10 +71,23 @@ function hasWholesaleCatalogAccess(user) {
     );
 }
 
+/**
+ * B2B portal only: client ledger, wholesale quick-order flows, `/api/checkout/b2b-create-order`.
+ * Excludes `RESELLER` (white-label catalogue / pricing only).
+ */
+function hasB2bWholesalePortalAccess(user) {
+    if (!user) return false;
+    const email = String(user.email || '').toLowerCase().trim();
+    if (email === SUPER_ADMIN_EMAIL.toLowerCase().trim()) return true;
+    const tier = String(user.customer_tier || CUSTOMER_TIER.B2C_CUSTOMER).toUpperCase();
+    return tier === CUSTOMER_TIER.B2B_WHOLESALE || tier === CUSTOMER_TIER.ADMIN;
+}
+
 module.exports = {
     SUPER_ADMIN_EMAIL,
     resolveUserRole,
     isSuperAdmin,
     CUSTOMER_TIER,
     hasWholesaleCatalogAccess,
+    hasB2bWholesalePortalAccess,
 };

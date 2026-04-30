@@ -14,8 +14,11 @@ export type CatalogShareQuery = {
 };
 
 /** Canonical SEO URL: /catalog/{metal}/{category_slug}/{subcategory_slug} */
-export function buildCatalogShareUrl(query: CatalogShareQuery): string {
-  const site = getSiteUrl();
+export function buildCatalogShareUrl(
+  query: CatalogShareQuery,
+  options?: { origin?: string },
+): string {
+  const site = (options?.origin ?? getSiteUrl()).replace(/\/$/, "");
   const metal = (query.metal || "gold").toLowerCase().trim();
   const style = (query.style || "").trim();
   const sku = (query.sku || "").trim();
@@ -109,7 +112,10 @@ export function catalogShareMessage(params: {
   metalLabel?: string;
   itemCount: number;
   url: string;
+  /** Reseller `business_name` or KC Jewellers */
+  brandName?: string;
 }): string {
+  const brand = params.brandName?.trim() || BRAND;
   const parts: string[] = [];
   if (params.styleName && params.skuName) {
     parts.push(`${params.styleName} › ${params.skuName}`);
@@ -125,5 +131,5 @@ export function catalogShareMessage(params: {
     count > 0
       ? `${count} piece${count !== 1 ? "s" : ""}`
       : "curated pieces";
-  return `Browse ${collection}${metal} on ${BRAND} — ${countPhrase}. See it here: ${params.url}`;
+  return `Browse ${collection}${metal} on ${brand} — ${countPhrase}. See it here: ${params.url}`;
 }

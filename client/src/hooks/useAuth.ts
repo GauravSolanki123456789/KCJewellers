@@ -9,6 +9,7 @@ export type AuthState = {
   /** True after first `/api/auth/current_user` response (success or failure) */
   hasChecked?: boolean
   has_wholesale_access?: boolean
+  has_b2b_portal_access?: boolean
 }
 
 export function useAuth() {
