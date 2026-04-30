@@ -24,6 +24,8 @@ type Category = {
     id: number;
     name: string;
     slug: string;
+    /** Admin-ordered list of `design_group` keys (ERP itemCode); merged with live product groups on the storefront. */
+    design_group_order?: string[] | null;
     products: Item[];
   }[];
 };

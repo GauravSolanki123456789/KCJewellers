@@ -7,6 +7,7 @@ import ProductCard from "@/components/ProductCard";
 import type { Item } from "@/lib/pricing";
 import type { ApiProductRow } from "@/lib/server-data";
 import { CATALOG_PATH } from "@/lib/routes";
+import { SEARCH_GRID_IMAGE_SIZES } from "@/lib/product-card-image-sizes";
 
 function rowToItem(p: ApiProductRow): Item {
   return p as Item;
@@ -67,7 +68,9 @@ export default function SearchResultsClient({
               <ProductCard
                 product={rowToItem(p)}
                 rates={rates}
-                priority={i < 4}
+                imageSizes={SEARCH_GRID_IMAGE_SIZES}
+                priority={i < 8}
+                imageFetchPriority={i < 4 ? "high" : "auto"}
                 subcategorySlug={
                   typeof p.subcategory_slug === "string" ? p.subcategory_slug : null
                 }

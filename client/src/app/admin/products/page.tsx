@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense, useCallback, useMemo } from 'react'
+import { useState, useEffect, Suspense, useCallback, useMemo, useRef } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
+import { mergeDesignGroupOrder } from '@/lib/design-group-order'
 
 /** Metal types — values match backend metal_type (lowercase) */
 const METAL_TABS = [
@@ -58,6 +59,23 @@ type Product = Item & {
   mc_rate?: number
   mc_value?: number
   gst_rate?: number
+  design_group?: string | null
+  subcategory_id?: number
+}
+
+function extractDesignGroupsFromProducts(
+  productRows: Product[],
+  subcategoryId: number,
+  metal: MetalKey,
+): string[] {
+  const seen = new Set<string>()
+  for (const p of productRows) {
+    if ((p as { subcategory_id?: number }).subcategory_id !== subcategoryId) continue
+    if (!productMatchesMetal(p, metal)) continue
+    const g = String((p as { design_group?: string | null }).design_group ?? '').trim()
+    if (g) seen.add(g)
+  }
+  return [...seen]
 }
 
 type GroupedCatalog = {
@@ -65,7 +83,12 @@ type GroupedCatalog = {
   skus: { sku: string; products: Product[] }[]
 }
 
-type SubcategoryInfo = { id: number; name: string; slug: string }
+type SubcategoryInfo = {
+  id: number
+  name: string
+  slug: string
+  design_group_order?: string[] | null
+}
 type WebCategory = {
   id: number
   name: string
@@ -104,6 +127,13 @@ export default function AdminProductsPage() {
   const [orderToast, setOrderToast] = useState<'success' | 'error' | null>(
     null,
   )
+  const [designGroupOrderDraft, setDesignGroupOrderDraft] = useState<
+    Record<number, string[]>
+  >({})
+  const [expandedDesignGroupSubs, setExpandedDesignGroupSubs] = useState<
+    Set<number>
+  >(() => new Set())
+  const designGroupCatalogVersionRef = useRef('')
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
@@ -268,6 +298,18 @@ export default function AdminProductsPage() {
         }
       }
 
+      for (const cat of orderedCategories) {
+        for (const sub of cat.subcategories || []) {
+          const order = designGroupOrderDraft[sub.id]
+          if (!order || order.length === 0) continue
+          await axios.put(
+            `${url}/api/admin/catalog/subcategory/${sub.id}/design-group-order`,
+            { orderedKeys: order },
+            { withCredentials: true },
+          )
+        }
+      }
+
       await loadCatalog()
       showOrderToast('success')
     } catch {
@@ -361,6 +403,87 @@ export default function AdminProductsPage() {
       return !!c.has_diamond
     })
   }, [orderedCategories, selectedMetal, products])
+
+  const designGroupCatalogVersion = useMemo(
+    () =>
+      JSON.stringify(
+        orderedCategories.map((c) => ({
+          id: c.id,
+          subs: (c.subcategories || []).map((s) => ({
+            id: s.id,
+            dg: s.design_group_order ?? null,
+          })),
+        })),
+      ),
+    [orderedCategories],
+  )
+
+  useEffect(() => {
+    const versionChanged =
+      designGroupCatalogVersionRef.current !== designGroupCatalogVersion
+    designGroupCatalogVersionRef.current = designGroupCatalogVersion
+
+    setDesignGroupOrderDraft((prev) => {
+      const next: Record<number, string[]> = {}
+      for (const cat of orderedCategories) {
+        for (const sub of cat.subcategories || []) {
+          const discovered = extractDesignGroupsFromProducts(
+            products,
+            sub.id,
+            selectedMetal,
+          )
+          const serverMerged = mergeDesignGroupOrder(
+            sub.design_group_order,
+            discovered,
+          )
+          if (versionChanged || prev[sub.id] == null) {
+            next[sub.id] = serverMerged
+          } else {
+            const have = new Set(prev[sub.id])
+            const missing = discovered.filter((g) => !have.has(g))
+            next[sub.id] =
+              missing.length > 0
+                ? [
+                    ...prev[sub.id],
+                    ...missing.sort((a, b) => a.localeCompare(b)),
+                  ]
+                : prev[sub.id]
+          }
+        }
+      }
+      return next
+    })
+  }, [designGroupCatalogVersion, orderedCategories, products, selectedMetal])
+
+  const moveDesignGroupUp = (subId: number, idx: number) => {
+    if (idx <= 0) return
+    setDesignGroupOrderDraft((prev) => {
+      const cur = prev[subId]
+      if (!cur || idx >= cur.length) return prev
+      const arr = [...cur]
+      ;[arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]
+      return { ...prev, [subId]: arr }
+    })
+  }
+
+  const moveDesignGroupDown = (subId: number, idx: number) => {
+    setDesignGroupOrderDraft((prev) => {
+      const cur = prev[subId]
+      if (!cur || idx >= cur.length - 1) return prev
+      const arr = [...cur]
+      ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
+      return { ...prev, [subId]: arr }
+    })
+  }
+
+  const toggleDesignGroupPanel = (subId: number) => {
+    setExpandedDesignGroupSubs((prev) => {
+      const n = new Set(prev)
+      if (n.has(subId)) n.delete(subId)
+      else n.add(subId)
+      return n
+    })
+  }
 
   const uniqueStyles = Array.from(
     new Set(
@@ -858,7 +981,10 @@ export default function AdminProductsPage() {
               <div className="p-4 sm:p-6">
                 <p className="text-slate-500 text-sm mb-4">
                   Rearrange styles and SKUs. The order here is reflected in
-                  the public Catalog page.
+                  the public Catalog page. Expand a SKU below to reorder design
+                  groups (same keys as ERP itemCode /{' '}
+                  <span className="font-mono text-slate-400">design_group</span>
+                  ).
                 </p>
                 {categoriesWithProducts.length === 0 ? (
                   <p className="text-slate-500 text-sm">
@@ -905,9 +1031,12 @@ export default function AdminProductsPage() {
                         {cat.subcategories &&
                           cat.subcategories.length > 0 && (
                             <div className="border-t border-white/5 bg-slate-900/30">
-                              {cat.subcategories.map((sub, subIdx) => (
+                              {cat.subcategories.map((sub, subIdx) => {
+                                const dgList = designGroupOrderDraft[sub.id] ?? []
+                                const dgOpen = expandedDesignGroupSubs.has(sub.id)
+                                return (
+                                  <div key={sub.id}>
                                 <div
-                                  key={sub.id}
                                   className="flex items-center gap-2 pl-8 sm:pl-12 pr-3 sm:pr-4 py-2.5 border-t border-white/5 first:border-t-0"
                                 >
                                   <GripVertical className="size-3.5 text-slate-700 shrink-0 hidden sm:block" />
@@ -940,11 +1069,71 @@ export default function AdminProductsPage() {
                                     </button>
                                   </div>
                                 </div>
-                              ))}
+                                {dgList.length > 0 && (
+                                  <div className="border-t border-white/5 bg-slate-950/40">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleDesignGroupPanel(sub.id)}
+                                      className="flex w-full items-center gap-2 pl-10 sm:pl-14 pr-4 py-2 text-left text-xs text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-colors"
+                                    >
+                                      {dgOpen ? (
+                                        <ChevronDown className="size-3.5 shrink-0 text-amber-500/80" />
+                                      ) : (
+                                        <ChevronRight className="size-3.5 shrink-0 text-amber-500/80" />
+                                      )}
+                                      Design groups
+                                      <span className="tabular-nums text-slate-600">
+                                        ({dgList.length})
+                                      </span>
+                                    </button>
+                                    {dgOpen && (
+                                      <div className="space-y-1 px-3 pb-3 sm:px-4 sm:pl-16">
+                                        {dgList.map((g, gi) => (
+                                          <div
+                                            key={`${sub.id}-${g}`}
+                                            className="flex items-center gap-2 rounded-lg border border-white/5 bg-slate-900/50 px-2.5 py-1.5"
+                                          >
+                                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-300 sm:text-sm">
+                                              {g}
+                                            </span>
+                                            <div className="flex shrink-0 items-center gap-0.5">
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  moveDesignGroupUp(sub.id, gi)
+                                                }
+                                                disabled={gi === 0}
+                                                className="rounded-md p-1 hover:bg-white/10 disabled:opacity-25"
+                                                title="Move up"
+                                              >
+                                                <ArrowUp className="size-3.5 text-slate-500" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  moveDesignGroupDown(sub.id, gi)
+                                                }
+                                                disabled={gi >= dgList.length - 1}
+                                                className="rounded-md p-1 hover:bg-white/10 disabled:opacity-25"
+                                                title="Move down"
+                                              >
+                                                <ArrowDown className="size-3.5 text-slate-500" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                  </div>
+                                )
+                              })}
                             </div>
                           )}
                       </div>
-                    )})}
+                      )
+                    })}
                   </div>
                 )}
               </div>

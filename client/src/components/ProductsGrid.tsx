@@ -2,6 +2,7 @@
 import axios from "axios"
 import { useEffect, useState } from "react"
 import ProductCard from "./ProductCard"
+import { TWO_THREE_GRID_IMAGE_SIZES } from "@/lib/product-card-image-sizes"
 
 export default function ProductsGrid() {
   const [products, setProducts] = useState<any[]>([])
@@ -19,7 +20,13 @@ export default function ProductsGrid() {
     <div className="glass-card p-4">
       <div className="text-lg font-semibold mb-3">Products</div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {products.map((p: any) => <ProductCard key={p.barcode || p.id} product={p} />)}
+        {products.map((p: any) => (
+          <ProductCard
+            key={p.barcode || p.id}
+            product={p}
+            imageSizes={TWO_THREE_GRID_IMAGE_SIZES}
+          />
+        ))}
       </div>
     </div>
   )

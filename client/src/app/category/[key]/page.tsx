@@ -2,6 +2,7 @@
 import axios from "axios"
 import React, { useEffect, useState } from "react"
 import ProductCard from "@/components/ProductCard"
+import { TWO_THREE_GRID_IMAGE_SIZES } from "@/lib/product-card-image-sizes"
 
 export default function CategoryPage({ params }: { params: Promise<{ key: string }> }) {
   const { key } = React.use(params)
@@ -27,7 +28,13 @@ export default function CategoryPage({ params }: { params: Promise<{ key: string
       <div className="glass-card p-4">
         <div className="text-lg font-semibold capitalize">{key} Collection</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
-          {products.map((p: any) => <ProductCard key={p.barcode || p.id} product={p} />)}
+          {products.map((p: any) => (
+            <ProductCard
+              key={p.barcode || p.id}
+              product={p}
+              imageSizes={TWO_THREE_GRID_IMAGE_SIZES}
+            />
+          ))}
         </div>
       </div>
     </div>

@@ -238,6 +238,29 @@ body {
     }
   }
 
+  /**
+   * Catalog product surface: remounted when metal / category (style) / subcategory (SKU) changes.
+   * Custom keyframes so transition is reliable and lightweight (no dependency on enter-animation wiring).
+   */
+  @keyframes kc-catalog-surface-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .kc-catalog-surface-enter {
+    animation: kc-catalog-surface-fade-in 380ms ease-in-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .kc-catalog-surface-enter {
+      animation: none;
+    }
+  }
+
   /* Dual range slider thumbs - luxury dark theme */
   .dual-range-thumb::-webkit-slider-thumb {
     appearance: none;

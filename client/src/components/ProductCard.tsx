@@ -13,13 +13,18 @@ import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
+import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
 
 type ProductCardProps = {
   product: Item
   rates?: unknown[]
   onBeforeNavigate?: (barcode: string) => void
+  /** Responsive `sizes` for `next/image` — should match the parent grid (see `product-card-image-sizes.ts`). */
+  imageSizes?: string
   /** First grid items: faster LCP */
   priority?: boolean
+  /** Hint for browser resource loading when `priority` is true (stagger grid downloads). */
+  imageFetchPriority?: 'high' | 'low' | 'auto'
   /** Web subcategory slug (e.g. `pitara-tops`) — optional framing tweak for known batches */
   subcategorySlug?: string | null
   /** Admin catalogue builder: selection checkbox on the card */
@@ -32,7 +37,9 @@ export default function ProductCard({
   product,
   rates = [],
   onBeforeNavigate,
+  imageSizes = CATALOG_GRID_IMAGE_SIZES,
   priority = false,
+  imageFetchPriority,
   subcategorySlug = null,
   catalogBuilderActive = false,
   selected = false,
@@ -64,6 +71,7 @@ export default function ProductCard({
   const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing)
   const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
+  const fetchPriority = imageFetchPriority ?? (priority ? 'high' : undefined)
   const showWholesale =
     hasWholesaleAccess &&
     is_wholesale_price &&
@@ -144,7 +152,8 @@ export default function ProductCard({
                 src={imageSrc}
                 alt={displayName}
                 fill
-                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                quality={72}
+                sizes={imageSizes}
                 className={cn(
                   catalogProductImageClass(subcategorySlug),
                   'transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]',
@@ -153,7 +162,7 @@ export default function ProductCard({
                 decoding="async"
                 loading={priority ? 'eager' : 'lazy'}
                 priority={priority}
-                fetchPriority={priority ? 'high' : undefined}
+                fetchPriority={fetchPriority}
                 onLoad={() => setImageLoaded(true)}
                 onError={() => {
                   if (!fallbackUnoptimized) {

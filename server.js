@@ -188,9 +188,10 @@ function strictAdminOrigin(req, res, next) {
     if (!ok) return res.status(403).json({ error: 'Forbidden origin' });
     next();
 }
-// Allow multipart for diamond-details upload; require JSON for other admin routes
+// Allow multipart for diamond-details + reseller logo uploads; require JSON for other admin writes
 const adminRequireJson = (req, res, next) => {
-    if (req.path.includes('diamond-details')) return next();
+    const pathOnly = String(req.path || req.url || '').split('?')[0];
+    if (pathOnly.includes('diamond-details') || pathOnly.includes('reseller-logo')) return next();
     return requireJson(req, res, next);
 };
 app.use('/api/admin', adminLimiter, adminRequireJson, strictAdminOrigin, isAdminStrict);
@@ -3153,8 +3154,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
 
 function resellerLogoUploadMiddleware(req, res, next) {
     uploadResellerLogo.single('logo')(req, res, (error) => {
-        if (error) return res.status(400).json({ error: error.message || 'Invalid logo file' });
-        next();
+        if (!error) return next();
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ error: 'Image too large. Maximum size is 5 MB.' });
+        }
+        return res.status(400).json({ error: error.message || 'Invalid logo file' });
     });
 }
 
@@ -4803,6 +4807,24 @@ app.get('/api/admin/insights', isAdminStrict, async (req, res) => {
     }
 });
 
+function normalizeDesignGroupOrder(raw) {
+    if (raw == null) return null;
+    if (Array.isArray(raw)) {
+        return raw.map((x) => String(x).trim()).filter(Boolean);
+    }
+    if (typeof raw === 'string') {
+        try {
+            const p = JSON.parse(raw);
+            if (Array.isArray(p)) {
+                return p.map((x) => String(x).trim()).filter(Boolean);
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+    return null;
+}
+
 // Public catalog - published categories only (Style → SKU → Products)
 // Reads from web_products (ERP-synced data) with image_url, mc_rate, etc.
 app.get('/api/catalog', async (req, res) => {
@@ -4816,7 +4838,7 @@ app.get('/api/catalog', async (req, res) => {
         const categories = [];
         for (const c of cats) {
             const subs = await query(`
-                SELECT id, name, slug FROM web_subcategories
+                SELECT id, name, slug, design_group_order FROM web_subcategories
                 WHERE category_id = $1 ORDER BY sort_order, name
             `, [c.id]);
             const subcategories = [];
@@ -4841,7 +4863,13 @@ app.get('/api/catalog', async (req, res) => {
                     ...p,
                     discount_percentage: c.discount_percentage ?? 0,
                 }));
-                subcategories.push({ id: s.id, name: s.name, slug: s.slug, products: productsWithDiscount });
+                subcategories.push({
+                    id: s.id,
+                    name: s.name,
+                    slug: s.slug,
+                    design_group_order: normalizeDesignGroupOrder(s.design_group_order),
+                    products: productsWithDiscount,
+                });
             }
             categories.push({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url, subcategories });
         }
@@ -5090,7 +5118,7 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
         const categories = [];
         for (const c of cats) {
             const subs = await query(`
-                SELECT id, name, slug FROM web_subcategories
+                SELECT id, name, slug, design_group_order FROM web_subcategories
                 WHERE category_id = $1 ORDER BY sort_order, name
             `, [c.id]);
             const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false };
@@ -5099,7 +5127,12 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                 has_gold: !!m.has_gold,
                 has_silver: !!m.has_silver,
                 has_diamond: !!m.has_diamond,
-                subcategories: subs,
+                subcategories: subs.map((s) => ({
+                    id: s.id,
+                    name: s.name,
+                    slug: s.slug,
+                    design_group_order: normalizeDesignGroupOrder(s.design_group_order),
+                })),
             });
         }
         res.json({ categories });
@@ -5169,6 +5202,35 @@ app.put('/api/admin/catalog/reorder-subcategories', requireJson, isAdminStrict, 
         }
         res.json({ success: true, updated: orderedIds.length });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: ordered design_group values for catalogue chips (matches web_products.design_group / ERP itemCode)
+app.put('/api/admin/catalog/subcategory/:subId/design-group-order', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const subId = parseInt(req.params.subId, 10);
+        if (Number.isNaN(subId)) {
+            return res.status(400).json({ error: 'Invalid subcategory id' });
+        }
+        const { orderedKeys } = req.body || {};
+        if (!Array.isArray(orderedKeys)) {
+            return res.status(400).json({ error: 'orderedKeys must be an array' });
+        }
+        const cleaned = orderedKeys
+            .map((k) => String(k).trim())
+            .filter(Boolean)
+            .slice(0, 200);
+        const rows = await query(
+            'UPDATE web_subcategories SET design_group_order = $1::jsonb WHERE id = $2 RETURNING id',
+            [JSON.stringify(cleaned), subId],
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Subcategory not found' });
+        res.json({ success: true, updated: cleaned.length });
+    } catch (error) {
+        if (typeof error.message === 'string' && error.message.includes('design_group_order')) {
+            console.warn('design_group_order column may be missing — run migrations/033_subcategory_design_group_order.sql');
+        }
         res.status(500).json({ error: error.message });
     }
 });
@@ -7719,7 +7781,14 @@ app.get('*', (req, res) => {
 
 const BASE_URL = getPublicApiBaseUrl();
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', async () => {
+    try {
+        await query(
+            'ALTER TABLE web_subcategories ADD COLUMN IF NOT EXISTS design_group_order JSONB DEFAULT NULL',
+        );
+    } catch (e) {
+        console.warn('⚠️  design_group_order column check failed:', e.message || e);
+    }
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`🌐 URL: ${BASE_URL}`);
     console.log(`📊 API available at ${BASE_URL}/api`);

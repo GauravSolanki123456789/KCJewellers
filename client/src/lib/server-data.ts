@@ -36,6 +36,7 @@ export type ApiCatalogCategory = {
     id: number;
     name: string;
     slug: string;
+    design_group_order?: string[] | null;
     products: unknown[];
   }[];
 };

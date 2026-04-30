@@ -6,7 +6,14 @@ import { usePathname, useRouter } from 'next/navigation'
 import ProductCard from '@/components/ProductCard'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
 import WhatsAppContactLink from '@/components/WhatsAppContactLink'
-import { LayoutGrid, ChevronRight, ChevronDown, Gem, Sparkles } from 'lucide-react'
+import {
+  LayoutGrid,
+  ChevronRight,
+  ChevronLeft,
+  ChevronDown,
+  Gem,
+  Sparkles,
+} from 'lucide-react'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
@@ -35,6 +42,7 @@ import {
   productPassesCatalogFilters,
   getProductSelectionKey,
 } from '@/lib/catalog-product-filters'
+import { mergeDesignGroupOrder } from '@/lib/design-group-order'
 
 type Product = Item
 
@@ -42,6 +50,7 @@ type Subcategory = {
   id: number
   name: string
   slug: string
+  design_group_order?: string[] | null
   products: Product[]
 }
 
@@ -52,6 +61,9 @@ type Category = {
   image_url?: string
   subcategories: Subcategory[]
 }
+
+/** Initial product cards before "Show more" — keeps long grids smooth on mobile. */
+const CATALOG_PRODUCTS_PAGE_SIZE = 36
 
 /** Metal types for catalog navigation — values match backend metal_type (lowercase) */
 const METAL_TABS = [
@@ -254,11 +266,14 @@ export default function CatalogPageClient() {
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
   const [activeSkuId, setActiveSkuId] = useState<number | null>(null)
+  /** When true, desktop sidebar (and mobile SKU row) hide subcategories for the active style — chevron toggles this. */
+  const [styleNavSubmenuCollapsed, setStyleNavSubmenuCollapsed] = useState(false)
   const [weightLow, setWeightLow] = useState(0)
   const [weightHigh, setWeightHigh] = useState(100)
   const [priceLow, setPriceLow] = useState(0)
   const [priceHigh, setPriceHigh] = useState(100000)
   const [activeDesignGroup, setActiveDesignGroup] = useState<'all' | string>('all')
+  const [gridShowCount, setGridShowCount] = useState(CATALOG_PRODUCTS_PAGE_SIZE)
   const hasRestoredFromStorage = useRef(false)
   const skipNextBoundsSync = useRef(false)
   const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
@@ -304,6 +319,10 @@ export default function CatalogPageClient() {
   useEffect(() => {
     activeSkuIdRef.current = activeSkuId
   }, [activeSkuId])
+
+  useEffect(() => {
+    setStyleNavSubmenuCollapsed(false)
+  }, [pathname, selectedMetal])
 
   const applyPathSegments = useCallback((parsed: ParsedCatalogPath, cats: Category[]) => {
     const metalParam = parsed.metal
@@ -582,15 +601,33 @@ export default function CatalogPageClient() {
   )
 
   const rawProducts = activeSku?.products ?? []
+  const savedDgOrderKey = useMemo(
+    () => JSON.stringify(activeSku?.design_group_order ?? null),
+    [activeSku?.design_group_order],
+  )
   const designGroups = useMemo(() => {
     const seen = new Set<string>()
     for (const p of rawProducts) {
       const group = String((p as { design_group?: string | null }).design_group ?? '').trim()
       if (group) seen.add(group)
     }
-    return [...seen]
-  }, [rawProducts])
+    const discovered = [...seen]
+    return mergeDesignGroupOrder(activeSku?.design_group_order, discovered)
+  }, [rawProducts, activeSku?.id, savedDgOrderKey])
   const hasDesignGroupFilter = designGroups.length > 0
+
+  useEffect(() => {
+    setGridShowCount(CATALOG_PRODUCTS_PAGE_SIZE)
+  }, [
+    activeSkuId,
+    activeStyleId,
+    activeDesignGroup,
+    weightLow,
+    weightHigh,
+    priceLow,
+    priceHigh,
+    selectedMetal,
+  ])
 
   // Compute min/max from current products for slider bounds
   const { weightBounds, priceBounds } = useMemo(() => {
@@ -679,6 +716,47 @@ export default function CatalogPageClient() {
     }
   }, [scrollToBarcode, products])
 
+  const designGroupStripRef = useRef<HTMLDivElement>(null)
+  const designChipRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+
+  const registerDesignChipRef = useCallback((key: string, el: HTMLButtonElement | null) => {
+    if (el) designChipRefs.current.set(key, el)
+    else designChipRefs.current.delete(key)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!hasDesignGroupFilter) return
+    const key = activeDesignGroup === 'all' ? '__all__' : activeDesignGroup
+    const el = designChipRefs.current.get(key)
+    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  }, [activeDesignGroup, hasDesignGroupFilter, designGroups])
+
+  const designGroupNavSequence = useMemo(() => ['all', ...designGroups], [designGroups])
+
+  const goPrevDesignGroup = useCallback(() => {
+    const seq = designGroupNavSequence
+    const i = seq.indexOf(activeDesignGroup)
+    const nextIdx = i <= 0 ? seq.length - 1 : i - 1
+    setActiveDesignGroup(seq[nextIdx] as 'all' | string)
+  }, [activeDesignGroup, designGroupNavSequence])
+
+  const goNextDesignGroup = useCallback(() => {
+    const seq = designGroupNavSequence
+    const i = seq.indexOf(activeDesignGroup)
+    const nextIdx = i < 0 ? 0 : (i + 1) % seq.length
+    setActiveDesignGroup(seq[nextIdx] as 'all' | string)
+  }, [activeDesignGroup, designGroupNavSequence])
+
+  const scrollDesignStrip = useCallback((dir: -1 | 1) => {
+    const el = designGroupStripRef.current
+    if (!el) return
+    const delta = Math.max(120, el.clientWidth * 0.72) * dir
+    el.scrollBy({ left: delta, behavior: 'smooth' })
+  }, [])
+
+  const gridProducts = useMemo(() => products.slice(0, gridShowCount), [products, gridShowCount])
+  const hasMoreGridProducts = products.length > gridShowCount
+
   const productGridSectionRef = useRef<HTMLElement | null>(null)
   const catalogSelectionSnapshotRef = useRef<{
     metal: MetalKey
@@ -726,6 +804,11 @@ export default function CatalogPageClient() {
     priceHigh < priceBounds[1]
 
   const handleStyleClick = (cat: Category) => {
+    if (cat.id === activeStyleId && cat.subcategories.length > 0) {
+      setStyleNavSubmenuCollapsed((c) => !c)
+      return
+    }
+    setStyleNavSubmenuCollapsed(false)
     setActiveStyleId(cat.id)
     if (cat.subcategories.length > 0) {
       setActiveSkuId(cat.subcategories[0].id)
@@ -735,6 +818,7 @@ export default function CatalogPageClient() {
   }
 
   const handleSkuClick = (sub: Subcategory, catId: number) => {
+    setStyleNavSubmenuCollapsed(false)
     setActiveStyleId(catId)
     setActiveSkuId(sub.id)
   }
@@ -779,6 +863,12 @@ export default function CatalogPageClient() {
   const breadcrumb = [activeStyle?.name, activeSku?.name]
     .filter(Boolean)
     .join(' \u203A ')
+
+  /** Remount surface when metal/style/SKU changes — matches URL + ERP category & subcategory ids */
+  const catalogProductSurfaceKey = useMemo(
+    () => `${selectedMetal}:${activeStyleId ?? 'none'}:${activeSkuId ?? 'none'}`,
+    [selectedMetal, activeStyleId, activeSkuId],
+  )
 
   /** Canonical path /catalog/{metal}/{category_slug}/{subcategory_slug} */
   useLayoutEffect(() => {
@@ -1028,7 +1118,9 @@ export default function CatalogPageClient() {
           </div>
 
           {/* SKU pills */}
-          {activeStyle && activeStyle.subcategories.length > 0 && (
+          {activeStyle &&
+            activeStyle.subcategories.length > 0 &&
+            !styleNavSubmenuCollapsed && (
             <div className="flex flex-col gap-1.5">
               {catalogBuilderMode && canUseCatalogBuilder && (
                 <div className="flex items-center justify-between px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -1140,7 +1232,9 @@ export default function CatalogPageClient() {
                 </p>
               ) : (
                 filteredCategories.map((cat) => {
-                  const isExpanded = activeStyleId === cat.id
+                  const isExpanded =
+                    activeStyleId === cat.id &&
+                    !(styleNavSubmenuCollapsed && cat.subcategories.length > 0)
                   const isActive = activeStyleId === cat.id
                   const styleScopeIds = collectFilteredIdsForStyle(
                     filteredCategories,
@@ -1174,6 +1268,13 @@ export default function CatalogPageClient() {
                         <button
                           type="button"
                           onClick={() => handleStyleClick(cat)}
+                          aria-expanded={
+                            cat.subcategories.length > 0
+                              ? activeStyleId === cat.id
+                                ? !styleNavSubmenuCollapsed
+                                : false
+                              : undefined
+                          }
                           className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-2 rounded-lg text-left transition-colors ${
                             isActive
                               ? 'text-amber-400'
@@ -1309,93 +1410,174 @@ export default function CatalogPageClient() {
                 </button>
               )}
             </div>
-            {/* Breadcrumb + count */}
-            {hasDesignGroupFilter && (
-              <div className="mb-4 rounded-xl border border-slate-800/80 bg-slate-900/45 p-2.5 sm:p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    Design Group
-                  </p>
-                  <span className="text-[11px] text-slate-500">
-                    {products.length} visible
-                  </span>
+
+            <div
+              key={catalogProductSurfaceKey}
+              className="kc-catalog-surface-enter"
+            >
+              {hasDesignGroupFilter && (
+                <div className="mb-4 rounded-xl border border-slate-800/80 bg-slate-900/45 p-2.5 sm:p-3">
+                  <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      Design Group
+                    </p>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <span className="text-[11px] text-slate-500 tabular-nums order-first sm:order-none">
+                        {products.length} visible
+                      </span>
+                      {designGroups.length > 0 && (
+                        <div className="flex items-center rounded-lg border border-slate-700/80 bg-slate-800/50 p-0.5">
+                          <button
+                            type="button"
+                            aria-label="Previous design theme"
+                            onClick={goPrevDesignGroup}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-700/90 hover:text-amber-400"
+                          >
+                            <ChevronLeft className="size-4" aria-hidden />
+                          </button>
+                          <span className="hidden px-1 text-[10px] font-medium uppercase tracking-wide text-slate-500 sm:inline">
+                            Theme
+                          </span>
+                          <button
+                            type="button"
+                            aria-label="Next design theme"
+                            onClick={goNextDesignGroup}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-700/90 hover:text-amber-400"
+                          >
+                            <ChevronRight className="size-4" aria-hidden />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-stretch gap-1.5">
+                    {designGroups.length > 3 && (
+                      <button
+                        type="button"
+                        aria-label="Scroll design groups left"
+                        onClick={() => scrollDesignStrip(-1)}
+                        className="hidden h-auto min-h-[2.25rem] w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-800/60 text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 sm:flex"
+                      >
+                        <ChevronLeft className="size-4" aria-hidden />
+                      </button>
+                    )}
+                    <div
+                      ref={designGroupStripRef}
+                      className="flex min-h-[2.25rem] flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide"
+                    >
+                      <button
+                        ref={(el) => registerDesignChipRef('__all__', el)}
+                        type="button"
+                        onClick={() => setActiveDesignGroup('all')}
+                        className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                          activeDesignGroup === 'all'
+                            ? 'bg-amber-500 text-slate-950 shadow-sm'
+                            : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
+                        }`}
+                      >
+                        All
+                      </button>
+                      {designGroups.map((group) => (
+                        <button
+                          key={group}
+                          ref={(el) => registerDesignChipRef(group, el)}
+                          type="button"
+                          onClick={() => setActiveDesignGroup(group)}
+                          className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                            activeDesignGroup === group
+                              ? 'bg-amber-500 text-slate-950 shadow-sm'
+                              : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
+                          }`}
+                        >
+                          {group}
+                        </button>
+                      ))}
+                    </div>
+                    {designGroups.length > 3 && (
+                      <button
+                        type="button"
+                        aria-label="Scroll design groups right"
+                        onClick={() => scrollDesignStrip(1)}
+                        className="hidden h-auto min-h-[2.25rem] w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-800/60 text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 sm:flex"
+                      >
+                        <ChevronRight className="size-4" aria-hidden />
+                      </button>
+                    )}
+                  </div>
+                  {designGroups.length > 3 && (
+                    <p className="mt-1.5 text-center text-[10px] text-slate-500 sm:hidden">
+                      Swipe the row for more groups, or use theme buttons above
+                    </p>
+                  )}
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              )}
+
+              <div className="flex items-center justify-between mb-4 gap-4">
+                <p className="text-sm text-slate-400 truncate">
+                  {breadcrumb || 'Select a collection'}
+                </p>
+                {products.length > 0 && (
+                  <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                    {products.length} item{products.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+
+              {products.length === 0 ? (
+                <div className="rounded-xl bg-slate-900/50 border border-slate-800 p-16 text-center">
+                  <p className="text-slate-500">
+                    {filteredCategories.length === 0
+                      ? `No ${METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} products in the catalogue`
+                      : 'No products in this collection'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+                  {gridProducts.map((p, i) => {
+                    const selectionKey = getProductSelectionKey(p as Product)
+                    return (
+                      <ProductCard
+                        key={p.barcode || p.id || p.sku}
+                        product={
+                          {
+                            ...p,
+                            style_code: activeStyle?.name,
+                          } as Product
+                        }
+                        rates={rates}
+                        priority={i < 8}
+                        imageFetchPriority={i < 4 ? "high" : "auto"}
+                        subcategorySlug={activeSku?.slug}
+                        onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
+                        catalogBuilderActive={catalogBuilderMode && canUseCatalogBuilder}
+                        selected={selectionKey ? isProductSelected(selectionKey) : false}
+                        onToggleSelect={
+                          selectionKey ? () => toggleProductId(selectionKey) : undefined
+                        }
+                      />
+                    )
+                  })}
+                </div>
+              )}
+              {hasMoreGridProducts && (
+                <div className="mt-8 flex flex-col items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setActiveDesignGroup('all')}
-                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                      activeDesignGroup === 'all'
-                        ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
-                    }`}
+                    onClick={() =>
+                      setGridShowCount((c) =>
+                        Math.min(c + CATALOG_PRODUCTS_PAGE_SIZE, products.length),
+                      )
+                    }
+                    className="rounded-full border border-slate-600 bg-slate-800/80 px-5 py-2.5 text-sm font-semibold text-slate-200 shadow-sm transition-colors hover:border-amber-500/50 hover:bg-slate-700/90 hover:text-amber-100 active:scale-[0.98]"
                   >
-                    All
+                    Show more jewellery
+                    <span className="ml-1.5 tabular-nums text-slate-400">
+                      ({products.length - gridShowCount} left)
+                    </span>
                   </button>
-                  {designGroups.map((group) => (
-                    <button
-                      key={group}
-                      type="button"
-                      onClick={() => setActiveDesignGroup(group)}
-                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                        activeDesignGroup === group
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
-                          : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
-                      }`}
-                    >
-                      {group}
-                    </button>
-                  ))}
                 </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between mb-4 gap-4">
-              <p className="text-sm text-slate-400 truncate">
-                {breadcrumb || 'Select a collection'}
-              </p>
-              {products.length > 0 && (
-                <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
-                  {products.length} item{products.length !== 1 ? 's' : ''}
-                </span>
               )}
             </div>
-
-            {products.length === 0 ? (
-              <div className="rounded-xl bg-slate-900/50 border border-slate-800 p-16 text-center">
-                <p className="text-slate-500">
-                  {filteredCategories.length === 0
-                    ? `No ${METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} products in the catalogue`
-                    : 'No products in this collection'}
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                {products.map((p, i) => {
-                  const selectionKey = getProductSelectionKey(p as Product)
-                  return (
-                    <ProductCard
-                      key={p.barcode || p.id || p.sku}
-                      product={
-                        {
-                          ...p,
-                          style_code: activeStyle?.name,
-                        } as Product
-                      }
-                      rates={rates}
-                      priority={i < 24}
-                      subcategorySlug={activeSku?.slug}
-                      onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
-                      catalogBuilderActive={catalogBuilderMode && canUseCatalogBuilder}
-                      selected={selectionKey ? isProductSelected(selectionKey) : false}
-                      onToggleSelect={
-                        selectionKey ? () => toggleProductId(selectionKey) : undefined
-                      }
-                    />
-                  )
-                })}
-              </div>
-            )}
           </section>
         </div>
       </main>

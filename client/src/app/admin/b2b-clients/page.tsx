@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
@@ -29,6 +29,12 @@ type CatalogCategoryRow = {
 }
 
 const TIERS = ['B2C_CUSTOMER', 'B2B_WHOLESALE', 'RESELLER', 'ADMIN'] as const
+
+/** Must match `uploadResellerLogo` limits in server.js */
+const RESELLER_LOGO_MAX_BYTES = 5 * 1024 * 1024
+const RESELLER_LOGO_MAX_LABEL = '5 MB'
+const RESELLER_LOGO_ACCEPT_ATTR =
+  'image/png,image/jpeg,image/jpg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif'
 
 export default function AdminB2BClientsPage() {
   return (
@@ -60,6 +66,8 @@ function B2BAdminContent() {
     allowed_category_ids: [] as number[],
   })
   const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoFileError, setLogoFileError] = useState<string | null>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null)
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategoryRow[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(false)
   const [resellerSaving, setResellerSaving] = useState(false)
@@ -104,6 +112,8 @@ function B2BAdminContent() {
         allowed_category_ids: Array.isArray(ids) ? [...ids] : [],
       })
       setLogoFile(null)
+      setLogoFileError(null)
+      if (logoInputRef.current) logoInputRef.current.value = ''
     }
   }, [resellerModalUser, loadCategories])
 
@@ -141,6 +151,11 @@ function B2BAdminContent() {
     try {
       let logoUrl = resellerForm.logo_url.trim() || null
       if (logoFile) {
+        if (logoFile.size > RESELLER_LOGO_MAX_BYTES) {
+          setLogoFileError(`Image is too large. Maximum file size is ${RESELLER_LOGO_MAX_LABEL}.`)
+          setResellerSaving(false)
+          return
+        }
         const fd = new FormData()
         fd.append('logo', logoFile)
         const up = await axios.post<{ logo_url?: string }>(
@@ -194,6 +209,30 @@ function B2BAdminContent() {
       else set.add(id)
       return { ...f, allowed_category_ids: [...set].sort((a, b) => a - b) }
     })
+  }
+
+  const onLogoSelected = (e: ChangeEvent<HTMLInputElement>) => {
+    setLogoFileError(null)
+    const f = e.target.files?.[0] ?? null
+    if (!f) {
+      setLogoFile(null)
+      return
+    }
+    if (f.size > RESELLER_LOGO_MAX_BYTES) {
+      setLogoFileError(`Image is too large. Maximum file size is ${RESELLER_LOGO_MAX_LABEL}.`)
+      setLogoFile(null)
+      e.target.value = ''
+      return
+    }
+    const mimeOk = /^image\/(png|jpe?g|gif|webp)$/i.test(f.type)
+    const extOk = /\.(png|jpe?g|gif|webp)$/i.test(f.name)
+    if (!mimeOk && !extOk) {
+      setLogoFileError('Use PNG, JPEG, JPG, GIF, or WebP only.')
+      setLogoFile(null)
+      e.target.value = ''
+      return
+    }
+    setLogoFile(f)
   }
 
   if (loading) {
@@ -395,16 +434,29 @@ function B2BAdminContent() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Logo</label>
+                  <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+                    Accepted formats: <span className="text-slate-400">PNG, JPEG, JPG, GIF, WebP</span>
+                    <span className="mx-1.5 text-slate-600">·</span>
+                    Max size: <span className="text-slate-400">{RESELLER_LOGO_MAX_LABEL}</span>
+                  </p>
                   <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-600 bg-slate-950/50 px-4 py-6 text-center text-xs text-slate-400 hover:border-amber-500/40 hover:bg-slate-900/80">
                     <Upload className="size-5 text-amber-500/80" aria-hidden />
-                    <span>{logoFile ? logoFile.name : 'Tap to choose image (PNG, JPG, WebP)'}</span>
+                    <span className="max-w-full break-all px-1">
+                      {logoFile ? logoFile.name : 'Tap to choose an image'}
+                    </span>
                     <input
+                      ref={logoInputRef}
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept={RESELLER_LOGO_ACCEPT_ATTR}
                       className="sr-only"
-                      onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                      onChange={onLogoSelected}
                     />
                   </label>
+                  {logoFileError ? (
+                    <p className="mt-2 text-xs font-medium text-rose-400" role="alert">
+                      {logoFileError}
+                    </p>
+                  ) : null}
                   {resellerForm.logo_url && !logoFile && (
                     <p className="mt-2 text-[11px] text-slate-500 truncate">Current: {resellerForm.logo_url}</p>
                   )}
