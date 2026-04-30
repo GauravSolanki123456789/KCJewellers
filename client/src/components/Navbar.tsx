@@ -105,15 +105,6 @@ export default function Navbar() {
     }
   }
 
-  const linkClass = (href: string, subtle?: boolean) =>
-    navIsActive(pathname, href)
-      ? subtle
-        ? 'text-amber-400'
-        : 'text-yellow-500'
-      : subtle
-        ? 'text-slate-400 hover:text-slate-200'
-        : 'text-slate-300 hover:text-yellow-500'
-
   if (isSharedBrochure) {
     return null
   }
@@ -122,7 +113,7 @@ export default function Navbar() {
     <button
       type="button"
       onClick={openCart}
-      className={`relative flex items-center justify-center rounded-lg p-2 text-slate-300 transition-colors hover:bg-white/10 hover:text-yellow-500 ${className}`}
+      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-white/10 hover:text-yellow-500 sm:h-10 sm:w-10 ${className}`}
       aria-label={`Cart${count > 0 ? `, ${count} items` : ''}`}
       title="Cart"
     >
@@ -138,38 +129,40 @@ export default function Navbar() {
   return (
     <>
       <header className="safe-area-pt fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-slate-950/95 backdrop-blur-md">
-        <div className="mx-auto max-w-6xl px-2 sm:px-3 md:px-5">
-          {/* Primary row: brand, search, account, cart */}
-          <div className="flex h-12 items-center gap-2 sm:gap-3 md:h-14 md:gap-4">
-            <Link
-              href={CATALOG_PATH}
-              className="flex min-w-0 max-w-[44%] shrink-0 items-center gap-1.5 text-sm font-bold tracking-tight text-yellow-500 sm:max-w-none sm:text-base md:gap-2 md:text-lg"
-            >
-              {resellerBrandingActive && logoUrl ? (
-                <span className="relative block size-8 shrink-0 overflow-hidden rounded-lg bg-white/5 md:size-9">
-                  <Image
-                    src={logoUrl}
-                    alt={businessName}
-                    fill
-                    className="object-contain p-0.5"
-                    sizes="36px"
-                    unoptimized
-                  />
-                </span>
-              ) : null}
-              <span className="truncate">{resellerBrandingActive ? businessName : 'KC Jewellers'}</span>
-            </Link>
-
-            <div className="min-w-0 flex-1 md:max-w-xl md:flex-none lg:max-w-2xl">
-              <SmartSearch compact={!isMdUp} />
+        <div className="mx-auto max-w-6xl px-3 sm:px-4 md:px-5">
+          {/* Primary row: grid keeps logo, search, and actions on one optical baseline */}
+          <div className="grid h-12 grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] items-center gap-2 sm:gap-3 md:h-[3.375rem] md:gap-4">
+            <div className="min-w-0 max-w-[42vw] sm:max-w-none">
+              <Link
+                href={CATALOG_PATH}
+                className="flex min-w-0 items-center gap-1.5 text-sm font-bold leading-none tracking-tight text-yellow-500 sm:text-base md:gap-2 md:text-lg"
+              >
+                {resellerBrandingActive && logoUrl ? (
+                  <span className="relative block size-8 shrink-0 overflow-hidden rounded-lg bg-white/5 md:size-9">
+                    <Image
+                      src={logoUrl}
+                      alt={businessName}
+                      fill
+                      className="object-contain p-0.5"
+                      sizes="36px"
+                      unoptimized
+                    />
+                  </span>
+                ) : null}
+                <span className="truncate py-0.5">{resellerBrandingActive ? businessName : 'KC Jewellers'}</span>
+              </Link>
             </div>
 
-            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1 md:gap-2">
+            <div className="min-w-0 justify-self-stretch md:max-w-xl md:justify-self-center lg:max-w-2xl">
+              <SmartSearch compact={!isMdUp} className="flex items-center" />
+            </div>
+
+            <div className="flex shrink-0 items-center justify-end gap-0.5 sm:gap-1 md:gap-2">
               {!auth.isAuthenticated && (
                 <button
                   type="button"
                   onClick={() => openLoginModal(returnTo)}
-                  className="inline-flex shrink-0 items-center rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] font-medium text-slate-200 transition-colors hover:border-amber-500/30 hover:bg-white/[0.07] sm:px-2.5 sm:text-xs md:text-sm"
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-2.5 text-[11px] font-medium text-slate-200 transition-colors hover:border-amber-500/30 hover:bg-white/[0.07] sm:h-10 sm:px-3 sm:text-xs md:text-sm"
                 >
                   Sign in
                 </button>
@@ -178,7 +171,7 @@ export default function Navbar() {
                 <>
                   <Link
                     href={PROFILE_PATH}
-                    className={`relative flex items-center justify-center rounded-lg p-2 md:hidden ${navIsActive(pathname, PROFILE_PATH) ? 'bg-amber-500/15 text-amber-400' : 'text-slate-400 hover:bg-white/10 hover:text-amber-300'}`}
+                    className={`relative flex size-9 items-center justify-center rounded-xl sm:size-10 md:hidden ${navIsActive(pathname, PROFILE_PATH) ? 'bg-amber-500/15 text-amber-400' : 'text-slate-400 hover:bg-white/10 hover:text-amber-300'}`}
                     aria-label={
                       adminAttention
                         ? `Profile, ${adminAttention} admin updates`
@@ -193,7 +186,7 @@ export default function Navbar() {
                       </span>
                     )}
                   </Link>
-                  <div className="relative hidden items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] pl-2 pr-1 py-1 md:flex">
+                  <div className="relative hidden h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] pl-2.5 pr-1 md:flex">
                     {strictAdminInbox && adminAttention && (
                       <span
                         className="absolute -right-1 -top-1 z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white shadow-md shadow-black/40"
@@ -228,42 +221,70 @@ export default function Navbar() {
             </div>
           </div>
 
-          {/* Secondary row (tablet+): main nav — avoids crowding the search bar */}
+          {/* Secondary row (tablet+): fixed-height pills + icon box kills SVG/text baseline drift */}
           <nav
-            className="hidden border-t border-white/5 py-2 md:block"
+            className="hidden border-t border-white/[0.06] md:block md:py-2"
             aria-label="Primary navigation"
           >
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 lg:gap-x-5">
-              {BOTTOM_NAV.map(({ href, icon: Icon, label }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-1.5 text-xs font-medium transition-colors lg:text-[13px] ${linkClass(href)}`}
-                >
-                  <Icon className="size-3.5 shrink-0 opacity-90 lg:size-4" aria-hidden />
-                  <span>{label}</span>
-                </Link>
-              ))}
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
+              {BOTTOM_NAV.map(({ href, icon: Icon, label }) => {
+                const active = navIsActive(pathname, href)
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium tracking-tight transition-colors ${
+                      active
+                        ? 'bg-amber-500/12 text-yellow-500 ring-1 ring-amber-500/25'
+                        : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-200'
+                    }`}
+                  >
+                    <span
+                      className="flex size-4 shrink-0 items-center justify-center text-current [&_svg]:block [&_svg]:size-[15px]"
+                      aria-hidden
+                    >
+                      <Icon strokeWidth={2} />
+                    </span>
+                    <span className="leading-none">{label}</span>
+                  </Link>
+                )
+              })}
               {auth.isAuthenticated && hasB2bPortalAccess && (
-                <span className="hidden h-4 w-px bg-white/15 sm:block lg:mx-0.5" aria-hidden />
-              )}
-              {auth.isAuthenticated && hasB2bPortalAccess && (
-                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <>
+                  <span className="mx-1 h-5 w-px shrink-0 bg-white/15" aria-hidden />
                   <Link
                     href={WHOLESALE_ORDER_PATH}
-                    className={`flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold transition-colors lg:text-[13px] ${linkClass(WHOLESALE_ORDER_PATH, true)}`}
+                    className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-semibold tracking-tight transition-colors ${
+                      navIsActive(pathname, WHOLESALE_ORDER_PATH)
+                        ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
+                        : 'text-emerald-400/90 hover:bg-emerald-500/10 hover:text-emerald-300'
+                    }`}
                   >
-                    <Package className="size-3.5 text-emerald-400/90 lg:size-4" aria-hidden />
-                    <span className="text-emerald-400/95">Wholesale</span>
+                    <span
+                      className="flex size-4 shrink-0 items-center justify-center text-current [&_svg]:block [&_svg]:size-[15px]"
+                      aria-hidden
+                    >
+                      <Package strokeWidth={2} />
+                    </span>
+                    <span className="leading-none">Wholesale</span>
                   </Link>
                   <Link
                     href={PROFILE_LEDGER_PATH}
-                    className={`flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold transition-colors lg:text-[13px] ${linkClass(PROFILE_LEDGER_PATH, true)}`}
+                    className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-semibold tracking-tight transition-colors ${
+                      navIsActive(pathname, PROFILE_LEDGER_PATH)
+                        ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
+                        : 'text-emerald-400/90 hover:bg-emerald-500/10 hover:text-emerald-300'
+                    }`}
                   >
-                    <BookMarked className="size-3.5 text-emerald-400/85 lg:size-4" aria-hidden />
-                    <span className="text-emerald-400/90">Ledger</span>
+                    <span
+                      className="flex size-4 shrink-0 items-center justify-center text-current [&_svg]:block [&_svg]:size-[15px]"
+                      aria-hidden
+                    >
+                      <BookMarked strokeWidth={2} />
+                    </span>
+                    <span className="leading-none">Ledger</span>
                   </Link>
-                </div>
+                </>
               )}
             </div>
           </nav>
@@ -318,8 +339,8 @@ export default function Navbar() {
                     : 'text-slate-400 hover:bg-white/[0.04] hover:text-amber-200/90'
                 }`}
               >
-                <span className="relative">
-                  <Icon className="size-5 shrink-0 opacity-90" aria-hidden />
+                <span className="relative flex size-5 shrink-0 items-center justify-center [&_svg]:block [&_svg]:size-5">
+                  <Icon strokeWidth={2} className="opacity-90" aria-hidden />
                   {profileAdminDot ? (
                     <span className="absolute -right-1.5 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-500 px-0.5 text-[8px] font-bold leading-none text-white">
                       {adminAttention}
@@ -336,7 +357,8 @@ export default function Navbar() {
       </nav>
 
       {/* Offset fixed header (bottom nav spacing is handled by .kc-pb-mobile-nav) */}
-      <div className="h-12 shrink-0 md:h-[6.125rem]" aria-hidden />
+      {/* md: primary row (3.375rem) + nav border + py-2 + h-9 pill row */}
+      <div className="h-12 shrink-0 md:h-[6.6875rem]" aria-hidden />
     </>
   )
 }

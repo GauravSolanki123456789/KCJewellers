@@ -144,8 +144,8 @@ export default function SmartSearch({
   };
 
   const inputCls = compact
-    ? "h-9 pl-9 pr-2.5 text-[13px] leading-tight"
-    : "h-10 pl-10 pr-3 text-sm md:text-[15px]";
+    ? "h-9 pl-9 pr-2.5 text-[13px] leading-none"
+    : "h-10 pl-10 pr-3 text-sm leading-normal md:text-[15px]";
 
   const placeholder = compact
     ? "Search jewellery, SKU…"
