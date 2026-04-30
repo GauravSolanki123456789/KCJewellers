@@ -11,6 +11,9 @@ import {
 } from "react";
 import axios from "@/lib/axios";
 import type { Item } from "@/lib/pricing";
+import { useAuth } from "@/hooks/useAuth";
+import { useCustomerTier } from "@/context/CustomerTierContext";
+import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
 
 type Category = {
   id: number;
@@ -25,6 +28,12 @@ type Category = {
   }[];
 };
 
+function filterCategoriesForReseller(cats: Category[], allowedIds: number[] | null | undefined): Category[] {
+  if (allowedIds === null || allowedIds === undefined || allowedIds.length === 0) return cats;
+  const set = new Set(allowedIds);
+  return cats.filter((c) => set.has(c.id));
+}
+
 type CatalogDataContextValue = {
   categories: Category[];
   rates: unknown[];
@@ -38,10 +47,19 @@ const CatalogDataContext = createContext<CatalogDataContextValue | null>(null);
 
 export function CatalogDataProvider({ children }: { children: ReactNode }) {
   const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [rawCategories, setRawCategories] = useState<Category[]>([]);
   const [rates, setRates] = useState<unknown[]>([]);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const auth = useAuth();
+  const { customerTier, tierReady } = useCustomerTier();
+  const wholesaleUser = auth.user as WholesaleUserFields | undefined;
+
+  const categories = useMemo(() => {
+    if (!tierReady) return rawCategories;
+    if (customerTier !== CUSTOMER_TIER.RESELLER) return rawCategories;
+    return filterCategoriesForReseller(rawCategories, wholesaleUser?.allowed_category_ids ?? null);
+  }, [tierReady, rawCategories, customerTier, wholesaleUser?.allowed_category_ids]);
 
   const bootstrap = useCallback(async () => {
     try {
@@ -49,10 +67,10 @@ export function CatalogDataProvider({ children }: { children: ReactNode }) {
         axios.get(`${url}/api/catalog`),
         axios.get(`${url}/api/rates/display`),
       ]);
-      setCategories(catalogRes.data?.categories ?? []);
+      setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);
     } catch {
-      setCategories([]);
+      setRawCategories([]);
       setRates([]);
     } finally {
       setIsBootstrapping(false);
@@ -70,7 +88,7 @@ export function CatalogDataProvider({ children }: { children: ReactNode }) {
         axios.get(`${url}/api/catalog`),
         axios.get(`${url}/api/rates/display`),
       ]);
-      setCategories(catalogRes.data?.categories ?? []);
+      setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);
     } finally {
       setIsRefreshing(false);

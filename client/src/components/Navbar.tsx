@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
@@ -26,6 +27,7 @@ import {
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import SmartSearch from '@/components/SmartSearch'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 
@@ -72,6 +74,7 @@ export default function Navbar() {
   const { items, openCart } = useCart()
   const auth = useAuth()
   const { hasWholesaleAccess } = useCustomerTier()
+  const { businessName, logoUrl, active: resellerBrandingActive } = useResellerBranding()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const count = items.reduce((sum, i) => sum + i.qty, 0)
@@ -123,9 +126,21 @@ export default function Navbar() {
         <div className="mx-auto flex h-12 max-w-6xl items-center gap-2 px-2 sm:px-3 md:h-auto md:min-h-[3.5rem] md:gap-4 md:px-6 md:py-3">
           <Link
             href={CATALOG_PATH}
-            className="shrink-0 text-base font-bold tracking-tight text-yellow-500 md:text-xl"
+            className="flex min-w-0 shrink-0 items-center gap-2 text-base font-bold tracking-tight text-yellow-500 md:text-xl"
           >
-            KC Jewellers
+            {resellerBrandingActive && logoUrl ? (
+              <span className="relative block size-8 shrink-0 overflow-hidden rounded-lg bg-white/5 md:size-9">
+                <Image
+                  src={logoUrl}
+                  alt={businessName}
+                  fill
+                  className="object-contain p-0.5"
+                  sizes="36px"
+                  unoptimized
+                />
+              </span>
+            ) : null}
+            <span className="truncate">{resellerBrandingActive ? businessName : 'KC Jewellers'}</span>
           </Link>
           <div className="hidden flex-1 flex-wrap items-center justify-center gap-4 lg:gap-6 md:flex">
             {BOTTOM_NAV.map(({ href, icon: Icon, label }) => (

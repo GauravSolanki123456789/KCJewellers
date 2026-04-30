@@ -46,7 +46,7 @@ const {
     query,
     getPool
 } = require('./config/database');
-const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict, requireB2BWholesale } = require('./middleware/auth');
+const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict, requireB2BWholesale, requireSharedCatalogCreator } = require('./middleware/auth');
 const { resolveUserRole, hasWholesaleCatalogAccess } = require('./services/authService');
 const { sanitizeMiddleware, validateNumbers } = require('./middleware/sanitize');
 const { globalLimiter, authLimiter, adminLimiter, requireJson } = require('./middleware/rateLimit');
@@ -86,6 +86,26 @@ const uploadCertificate = multer({
         const allowedExts = ['pdf', 'jpeg', 'jpg', 'png', 'webp', 'gif'];
         if (allowedMimes.includes(mime) || allowedExts.includes(ext)) return cb(null, true);
         cb(new Error('Certificate must be PDF or image (JPEG, PNG, WebP, GIF)'));
+    },
+});
+
+const uploadsResellerLogosDir = path.join(__dirname, 'public', 'uploads', 'reseller_logos');
+fs.mkdirSync(uploadsResellerLogosDir, { recursive: true });
+const uploadResellerLogo = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, uploadsResellerLogosDir),
+        filename: (req, file, cb) => {
+            const uid = parseInt(String(req.params.id || '0'), 10) || 0;
+            const ext = (file.originalname || '').split('.').pop()?.toLowerCase();
+            const safe = ['webp', 'jpg', 'jpeg', 'png', 'gif'].includes(ext || '') ? ext : 'png';
+            cb(null, `reseller-${uid}-${Date.now()}.${safe}`);
+        },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const mime = (file.mimetype || '').toLowerCase();
+        if (mime.startsWith('image/')) return cb(null, true);
+        cb(new Error('Logo must be an image file'));
     },
 });
 
@@ -459,6 +479,10 @@ app.get('/api/auth/current_user', (req, res) => {
         const permissionContext = getPermissionContext(resolvedUser);
         
         const tier = String(resolvedUser.customer_tier || 'B2C_CUSTOMER').toUpperCase();
+        const catIds = resolvedUser.allowed_category_ids;
+        const allowedCategoryIds = Array.isArray(catIds)
+            ? catIds.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n))
+            : null;
         res.json({ 
             isAuthenticated: true, 
             user: {
@@ -471,6 +495,10 @@ app.get('/api/auth/current_user', (req, res) => {
                 wholesale_making_charge_discount_percent: Number(resolvedUser.wholesale_making_charge_discount_percent ?? 0),
                 wholesale_markup_percent: Number(resolvedUser.wholesale_markup_percent ?? 0),
                 b2b_linked_customer_id: resolvedUser.b2b_linked_customer_id ?? null,
+                business_name: resolvedUser.business_name ?? null,
+                custom_domain: resolvedUser.custom_domain ?? null,
+                logo_url: resolvedUser.logo_url ?? null,
+                allowed_category_ids: allowedCategoryIds,
                 account_status: resolvedUser.account_status,
                 allowed_tabs: resolvedUser.allowed_tabs || [],
                 permissions: resolvedUser.permissions || {}
@@ -488,6 +516,37 @@ app.get('/api/auth/current_user', (req, res) => {
             permissions: getUserPermissions(null),
             permissionContext: getPermissionContext(null)
         });
+    }
+});
+
+/** Public: reseller storefront branding by custom domain host (Next.js middleware passes Host-derived domain). */
+app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
+    try {
+        const raw = String(req.query.domain || req.query.host || '').trim().toLowerCase();
+        const domain = raw
+            .replace(/^https?:\/\//, '')
+            .split(':')[0]
+            .split('/')[0];
+        if (!domain) {
+            return res.status(400).json({ error: 'domain query parameter required' });
+        }
+        const rows = await query(
+            `SELECT business_name, logo_url FROM users
+             WHERE customer_tier = 'RESELLER'
+             AND LOWER(TRIM(custom_domain)) = $1
+             LIMIT 1`,
+            [domain],
+        );
+        if (!rows.length) {
+            return res.json({ business_name: null, logo_url: null });
+        }
+        res.json({
+            business_name: rows[0].business_name || null,
+            logo_url: rows[0].logo_url || null,
+        });
+    } catch (error) {
+        console.error('reseller-branding:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -663,6 +722,13 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
             }
             await logUserActivity({ user_id: user.id, action_type: 'login' });
             const tier = String(user.customer_tier || 'B2C_CUSTOMER').toUpperCase();
+            const rawCatIds = user.allowed_category_ids;
+            let allowed_category_ids = null;
+            if (Array.isArray(rawCatIds)) {
+                allowed_category_ids = rawCatIds
+                    .map((x) => parseInt(String(x), 10))
+                    .filter((n) => !Number.isNaN(n));
+            }
             res.json({
                 success: true,
                 has_wholesale_access: hasWholesaleCatalogAccess(user),
@@ -675,6 +741,10 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
                     customer_tier: tier,
                     wholesale_making_charge_discount_percent: Number(user.wholesale_making_charge_discount_percent ?? 0),
                     wholesale_markup_percent: Number(user.wholesale_markup_percent ?? 0),
+                    business_name: user.business_name ?? null,
+                    custom_domain: user.custom_domain ?? null,
+                    logo_url: user.logo_url ?? null,
+                    allowed_category_ids,
                     account_status: user.account_status,
                     allowed_tabs: user.allowed_tabs || [],
                 },
@@ -1148,7 +1218,7 @@ async function checkAndMigrateB2BWholesale() {
                 ) THEN
                     ALTER TABLE users ADD COLUMN customer_tier VARCHAR(32) NOT NULL DEFAULT 'B2C_CUSTOMER';
                     ALTER TABLE users ADD CONSTRAINT users_customer_tier_check
-                        CHECK (customer_tier IN ('ADMIN', 'B2C_CUSTOMER', 'B2B_WHOLESALE'));
+                        CHECK (customer_tier IN ('ADMIN', 'B2C_CUSTOMER', 'B2B_WHOLESALE', 'RESELLER'));
                 END IF;
             END $$;
         `);
@@ -1212,6 +1282,32 @@ async function checkAndMigrateB2BWholesale() {
     }
 }
 
+/** Reseller white-label: widen tier CHECK + branding columns (idempotent). */
+async function checkAndMigrateResellerWhiteLabel() {
+    try {
+        const dbPool = getPool();
+        await dbPool.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_customer_tier_check');
+        await dbPool.query(`
+            ALTER TABLE users ADD CONSTRAINT users_customer_tier_check
+            CHECK (customer_tier IN ('ADMIN', 'B2C_CUSTOMER', 'B2B_WHOLESALE', 'RESELLER'))
+        `);
+        await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS business_name VARCHAR(255)');
+        await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255)');
+        await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS logo_url TEXT');
+        await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_category_ids INTEGER[]');
+        await dbPool.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_custom_domain_lower
+            ON users (LOWER(TRIM(custom_domain)))
+            WHERE custom_domain IS NOT NULL AND TRIM(custom_domain) <> ''
+        `);
+        console.log('✅ Reseller white-label schema verified');
+        return true;
+    } catch (error) {
+        console.error('❌ Reseller white-label migration failed:', error.message);
+        return false;
+    }
+}
+
 /** B2B wholesale purchase orders: orders.order_channel, b2b_checkout_type */
 async function checkAndMigrateB2BOrdersChannel() {
     try {
@@ -1271,6 +1367,7 @@ initDatabase().then(async success => {
         await checkAndCreateStylesTable();
         await checkAndMigrateUsersTable();
         await checkAndMigrateB2BWholesale();
+        await checkAndMigrateResellerWhiteLabel();
         await checkAndMigrateB2BOrdersChannel();
     } else {
         console.log('⚠️ Server started but database initialization failed.');
@@ -2612,6 +2709,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                 SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
                        account_status, phone_number, mobile_number,
                        customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
+                       business_name, custom_domain, logo_url, allowed_category_ids,
                        created_at, updated_at 
                 FROM users 
                 WHERE COALESCE(is_deleted, false) = false
@@ -2628,6 +2726,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                     SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
                            account_status, phone_number, mobile_number,
                            customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
+                           business_name, custom_domain, logo_url, allowed_category_ids,
                            created_at, updated_at 
                     FROM users 
                     ORDER BY 
@@ -2868,6 +2967,10 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             wholesale_making_charge_discount_percent,
             wholesale_markup_percent,
             mobile_number,
+            business_name,
+            custom_domain,
+            logo_url,
+            allowed_category_ids,
         } = req.body;
         
         // Check if user exists
@@ -2916,7 +3019,7 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         }
 
         if (customer_tier !== undefined) {
-            const validTiers = ['ADMIN', 'B2C_CUSTOMER', 'B2B_WHOLESALE'];
+            const validTiers = ['ADMIN', 'B2C_CUSTOMER', 'B2B_WHOLESALE', 'RESELLER'];
             const t = String(customer_tier).toUpperCase();
             if (validTiers.includes(t)) {
                 updates.push(`customer_tier = $${paramIndex++}`);
@@ -2943,6 +3046,54 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
                 updates.push(`mobile_number = $${paramIndex++}`);
                 params.push(digits);
             }
+        }
+
+        if (business_name !== undefined) {
+            const b =
+                business_name === null || business_name === ''
+                    ? null
+                    : String(business_name).trim().slice(0, 255);
+            updates.push(`business_name = $${paramIndex++}`);
+            params.push(b || null);
+        }
+        if (custom_domain !== undefined) {
+            const raw =
+                custom_domain === null || custom_domain === ''
+                    ? ''
+                    : String(custom_domain).trim();
+            const normalized = raw
+                ? raw
+                      .replace(/^https?:\/\//i, '')
+                      .split('/')[0]
+                      .split(':')[0]
+                      .toLowerCase()
+                : null;
+            if (normalized) {
+                const clash = await query(
+                    `SELECT id FROM users WHERE id <> $1 AND LOWER(TRIM(custom_domain)) = $2`,
+                    [parseInt(String(id), 10), normalized],
+                );
+                if (clash.length > 0) {
+                    return res.status(409).json({ error: 'custom_domain already in use' });
+                }
+            }
+            updates.push(`custom_domain = $${paramIndex++}`);
+            params.push(normalized);
+        }
+        if (logo_url !== undefined) {
+            const u =
+                logo_url === null || logo_url === ''
+                    ? null
+                    : String(logo_url).trim().slice(0, 2048);
+            updates.push(`logo_url = $${paramIndex++}`);
+            params.push(u);
+        }
+        if (allowed_category_ids !== undefined) {
+            let ids = allowed_category_ids;
+            if (!Array.isArray(ids)) ids = [];
+            const ints = [...new Set(ids.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n)))];
+            updates.push(`allowed_category_ids = $${paramIndex++}`);
+            params.push(ints.length ? ints : null);
         }
         
         // Handle permissions update - merge logic to avoid duplicate column assignment
@@ -2999,6 +3150,42 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+function resellerLogoUploadMiddleware(req, res, next) {
+    uploadResellerLogo.single('logo')(req, res, (error) => {
+        if (error) return res.status(400).json({ error: error.message || 'Invalid logo file' });
+        next();
+    });
+}
+
+app.post(
+    '/api/admin/users/:id/reseller-logo',
+    adminLimiter,
+    checkAuth,
+    isAdminStrict,
+    resellerLogoUploadMiddleware,
+    async (req, res) => {
+        try {
+            const userId = parseInt(String(req.params.id || ''), 10);
+            if (!userId || Number.isNaN(userId)) {
+                return res.status(400).json({ error: 'Invalid user id' });
+            }
+            if (!req.file?.filename) {
+                return res.status(400).json({ error: 'logo file required (field name: logo)' });
+            }
+            const baseUrl = getPublicApiBaseUrl();
+            const logoUrl = `${baseUrl}/uploads/reseller_logos/${req.file.filename}`;
+            await query(
+                'UPDATE users SET logo_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id',
+                [logoUrl, userId],
+            );
+            res.json({ success: true, logo_url: logoUrl });
+        } catch (error) {
+            console.error('reseller-logo upload:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+);
 
 // Remove user from whitelist (revoke access)
 app.delete('/api/admin/users/:id', isAdminStrict, async (req, res) => {
@@ -4665,16 +4852,48 @@ app.get('/api/catalog', async (req, res) => {
     }
 });
 
+/**
+ * RESELLER tier: shared links may only include SKUs/barcodes under allowed web_categories.
+ */
+async function validateResellerSharedProducts(userId, identifiers) {
+    const uid = parseInt(String(userId || ''), 10);
+    if (!uid || Number.isNaN(uid)) return;
+    const rows = await query(`SELECT customer_tier, allowed_category_ids FROM users WHERE id = $1`, [uid]);
+    if (!rows.length) return;
+    const tier = String(rows[0].customer_tier || '').toUpperCase();
+    if (tier !== 'RESELLER') return;
+    const allowed = rows[0].allowed_category_ids;
+    if (!allowed || !Array.isArray(allowed) || allowed.length === 0) return;
+    const distinct = [...new Set(identifiers.map(String))];
+    const r = await query(
+        `SELECT COUNT(*)::int AS n FROM unnest($1::text[]) AS bid(code)
+         WHERE EXISTS (
+            SELECT 1 FROM web_products wp
+            INNER JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+            WHERE (wp.barcode::text = bid.code OR wp.sku::text = bid.code)
+            AND ws.category_id = ANY($2::int[])
+            AND (wp.is_active IS NULL OR wp.is_active = true)
+         )`,
+        [distinct, allowed],
+    );
+    const cnt = Number(r[0]?.n || 0);
+    if (cnt !== distinct.length) {
+        const er = new Error('Selection includes items outside your allowed categories');
+        er.code = 'RESELLER_CATEGORY_DENIED';
+        throw er;
+    }
+}
+
 const { randomUUID } = require('crypto');
 const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Admin: create a time-limited shared catalogue link (WhatsApp-friendly).
+ * Catalogue Builder: super-admin OR authenticated RESELLER — shared catalogue link (WhatsApp-friendly).
  * Body: { selectedProductIds, markupPercentage, format: 'temporary_web_link'|'pdf', expiresAt?: ISO string }
  * PDF format is handled on the client; this endpoint only persists web links.
  */
-app.post('/api/admin/shared-catalog', adminLimiter, requireJson, isAdminStrict, async (req, res) => {
+app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
     try {
         const { selectedProductIds, markupPercentage, format, expiresAt } = req.body || {};
         const ids = Array.isArray(selectedProductIds)
@@ -4706,6 +4925,15 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, isAdminStrict, 
             return res.status(400).json({ error: 'expiresAt cannot be more than 30 days ahead' });
         }
 
+        try {
+            await validateResellerSharedProducts(req.user?.id, ids);
+        } catch (ve) {
+            if (ve.code === 'RESELLER_CATEGORY_DENIED') {
+                return res.status(403).json({ error: ve.message });
+            }
+            throw ve;
+        }
+
         const id = randomUUID();
         await query(
             `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at)
@@ -4713,9 +4941,23 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, isAdminStrict, 
             [id, ids, markup, exp],
         );
 
-        const clientSite =
+        const creator = resolveUserRole(req.user);
+        const tier = String(creator?.customer_tier || '').toUpperCase();
+        let clientSite =
             (process.env.NEXT_PUBLIC_SITE_URL || process.env.CLIENT_URL || '').trim().replace(/\/$/, '') ||
             'https://kcjewellers.co.in';
+        if (tier === 'RESELLER') {
+            const urows = await query(`SELECT custom_domain FROM users WHERE id = $1`, [req.user.id]);
+            const cd = String(urows[0]?.custom_domain || '')
+                .trim()
+                .replace(/^https?:\/\//i, '')
+                .split('/')[0]
+                .split(':')[0]
+                .toLowerCase();
+            if (cd) {
+                clientSite = `https://${cd}`;
+            }
+        }
         const shareUrl = `${clientSite}/shared/${id}`;
 
         res.json({

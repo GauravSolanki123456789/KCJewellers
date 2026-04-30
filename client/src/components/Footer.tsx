@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   POLICY_PRIVACY_PATH,
@@ -8,6 +9,7 @@ import {
   POLICY_SHIPPING_PATH,
   POLICY_TERMS_PATH,
 } from "@/lib/routes";
+import { useResellerBranding } from "@/context/ResellerBrandingContext";
 
 const YEAR = new Date().getFullYear();
 
@@ -20,6 +22,9 @@ const policyLinks = [
 
 export default function Footer() {
   const pathname = usePathname();
+  const { businessName, logoUrl, active: resellerActive } = useResellerBranding();
+  const displayName = resellerActive ? businessName : "KC Jewellers";
+
   if (pathname?.startsWith("/shared/")) {
     return null;
   }
@@ -38,12 +43,24 @@ export default function Footer() {
               </Link>
             ))}
           </nav>
-          <p className="shrink-0 text-slate-500">
-            © {YEAR} KC Jewellers
+          <p className="flex shrink-0 items-center gap-2 text-slate-500">
+            {resellerActive && logoUrl ? (
+              <span className="relative block size-6 shrink-0 overflow-hidden rounded bg-white/5">
+                <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
+              </span>
+            ) : null}
+            <span>© {YEAR} {displayName}</span>
           </p>
         </div>
-        <p className="text-center text-xs text-slate-500 md:hidden">
-          © {YEAR} KC Jewellers
+        <p className="flex items-center justify-center gap-2 text-center text-xs text-slate-500 md:hidden">
+          {resellerActive && logoUrl ? (
+            <span className="relative block size-5 shrink-0 overflow-hidden rounded bg-white/5">
+              <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
+            </span>
+          ) : null}
+          <span>
+            © {YEAR} {displayName}
+          </span>
         </p>
       </div>
     </footer>

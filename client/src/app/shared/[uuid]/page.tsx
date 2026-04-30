@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import SharedCatalogClient from "./shared-catalog-client";
 import { getSiteUrl } from "@/lib/site";
 import { getOgImagePath } from "@/lib/og-image";
+import { fetchPublicResellerBranding } from "@/lib/reseller-branding-server";
 
 export async function generateMetadata({
   params,
@@ -45,6 +47,9 @@ export async function generateMetadata({
   };
 }
 
-export default function SharedCatalogPage() {
-  return <SharedCatalogClient />;
+export default async function SharedCatalogPage() {
+  const h = await headers();
+  const domain = h.get("x-custom-domain")?.trim().toLowerCase();
+  const branding = domain ? await fetchPublicResellerBranding(domain) : null;
+  return <SharedCatalogClient initialBranding={branding} />;
 }

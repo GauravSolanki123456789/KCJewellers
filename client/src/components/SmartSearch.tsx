@@ -21,6 +21,7 @@ import {
   buildFuseForSearchRecords,
   flattenCatalogToSearchRecords,
   getCatalogForSearchIndex,
+  rankSearchRecords,
   type SearchIndexRecord,
 } from "@/lib/search-catalog-cache";
 
@@ -89,7 +90,8 @@ export default function SmartSearch({
 
   const fuseHits = useMemo(() => {
     if (!fuse || !normalized || normalized.length < 2) return [];
-    return fuse.search(debounced, { limit: FUSE_LIMIT }).map((r) => r.item);
+    const rawHits = fuse.search(debounced, { limit: FUSE_LIMIT * 2 }).map((r) => r.item);
+    return rankSearchRecords(rawHits, debounced, FUSE_LIMIT);
   }, [fuse, debounced, normalized]);
 
   const showPanel =
@@ -191,53 +193,8 @@ export default function SmartSearch({
           role="listbox"
           className="absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(65vh,20rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/12 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl"
         >
-          {synonymMatch ? (
-            <button
-              type="button"
-              role="option"
-              className="group mx-1.5 mb-1 flex w-[calc(100%-12px)] items-center gap-3 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/12 to-amber-600/5 px-3 py-2.5 text-left transition-colors hover:from-amber-500/16 hover:to-amber-600/10"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (pathsMatch(pathname, synonymMatch.href)) {
-                  setOpen(false);
-                  setRaw("");
-                  inputRef.current?.blur();
-                  return;
-                }
-                startTransition(() => {
-                  router.replace(synonymMatch.href);
-                });
-                setOpen(false);
-                setRaw("");
-                inputRef.current?.blur();
-              }}
-            >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
-                <LayoutGrid className="size-4" aria-hidden />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold leading-snug text-amber-50">
-                  {synonymMatch.label}
-                </span>
-                {synonymMatch.hint ? (
-                  <span className="mt-0.5 block text-xs text-slate-400">
-                    {synonymMatch.hint}
-                  </span>
-                ) : null}
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-amber-500/70 transition group-hover:translate-x-0.5" />
-            </button>
-          ) : null}
-
           {fuseHits.length > 0 ? (
-            <div
-              className={
-                synonymMatch
-                  ? "mt-1 border-t border-white/8 pt-1"
-                  : undefined
-              }
-            >
+            <div>
               <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Products
               </p>
@@ -279,6 +236,50 @@ export default function SmartSearch({
                   </li>
                 ))}
               </ul>
+            </div>
+          ) : null}
+
+          {synonymMatch ? (
+            <div className={fuseHits.length > 0 ? "mt-1 border-t border-white/8 pt-1" : undefined}>
+              <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Collection
+              </p>
+              <button
+                type="button"
+                role="option"
+                className="group mx-1.5 mb-1 flex w-[calc(100%-12px)] items-center gap-3 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/12 to-amber-600/5 px-3 py-2.5 text-left transition-colors hover:from-amber-500/16 hover:to-amber-600/10"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (pathsMatch(pathname, synonymMatch.href)) {
+                    setOpen(false);
+                    setRaw("");
+                    inputRef.current?.blur();
+                    return;
+                  }
+                  startTransition(() => {
+                    router.replace(synonymMatch.href);
+                  });
+                  setOpen(false);
+                  setRaw("");
+                  inputRef.current?.blur();
+                }}
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+                  <LayoutGrid className="size-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold leading-snug text-amber-50">
+                    {synonymMatch.label}
+                  </span>
+                  {synonymMatch.hint ? (
+                    <span className="mt-0.5 block text-xs text-slate-400">
+                      {synonymMatch.hint}
+                    </span>
+                  ) : null}
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-amber-500/70 transition group-hover:translate-x-0.5" />
+              </button>
             </div>
           ) : null}
         </div>

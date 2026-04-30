@@ -26,6 +26,7 @@ import { useCatalogData } from './catalog-data-context'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
+import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import { isCatalogAdminUser } from '@/lib/is-catalog-admin'
 import CatalogSelectionFab from '@/components/catalog/CatalogSelectionFab'
 import WhatsAppCatalogModal from '@/components/catalog/WhatsAppCatalogModal'
@@ -233,7 +234,7 @@ export default function CatalogPageClient() {
   const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing } =
     useCatalogData()
   const auth = useAuth()
-  const { wholesalePricing } = useCustomerTier()
+  const { wholesalePricing, customerTier } = useCustomerTier()
   const {
     catalogBuilderMode,
     setCatalogBuilderMode,
@@ -244,7 +245,9 @@ export default function CatalogPageClient() {
     isProductSelected,
     clearSelection,
   } = useCatalogBuilder()
-  const isAdmin = auth.isAuthenticated === true && isCatalogAdminUser(auth.user)
+  const canUseCatalogBuilder =
+    auth.isAuthenticated === true &&
+    (isCatalogAdminUser(auth.user) || customerTier === CUSTOMER_TIER.RESELLER)
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
 
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
@@ -923,7 +926,7 @@ export default function CatalogPageClient() {
           </div>
         </div>
 
-        {isAdmin && (
+        {canUseCatalogBuilder && (
           <div className="flex justify-center mb-4 px-1">
             <div className="flex w-full max-w-xl items-center justify-between gap-3 rounded-xl border border-slate-800/90 bg-slate-900/35 px-3 py-2 shadow-inner sm:justify-center sm:gap-6">
               <span className="text-xs font-medium text-slate-400 sm:text-sm">Catalog Builder</span>
@@ -973,7 +976,7 @@ export default function CatalogPageClient() {
         <div className="lg:hidden space-y-3 mb-5">
           {/* Style chips */}
           <div className="flex flex-col gap-1.5">
-            {catalogBuilderMode && isAdmin && (
+            {catalogBuilderMode && canUseCatalogBuilder && (
               <div className="flex items-center justify-between px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 <span>Style</span>
                 <span className="text-slate-600">Select</span>
@@ -999,7 +1002,7 @@ export default function CatalogPageClient() {
                 const someStyle = sn > 0 && sn < styleScopeIds.length
                 return (
                   <div key={cat.id} className="flex shrink-0 items-center gap-1.5">
-                    {catalogBuilderMode && isAdmin && (
+                    {catalogBuilderMode && canUseCatalogBuilder && (
                       <BulkSelectCheckbox
                         allSelected={allStyle}
                         someSelected={someStyle}
@@ -1027,7 +1030,7 @@ export default function CatalogPageClient() {
           {/* SKU pills */}
           {activeStyle && activeStyle.subcategories.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              {catalogBuilderMode && isAdmin && (
+              {catalogBuilderMode && canUseCatalogBuilder && (
                 <div className="flex items-center justify-between px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                   <span>SKU</span>
                   <span className="text-slate-600">Select</span>
@@ -1052,7 +1055,7 @@ export default function CatalogPageClient() {
                   const someSku = kn > 0 && kn < skuScopeIds.length
                   return (
                     <div key={sub.id} className="flex shrink-0 items-center gap-1.5">
-                      {catalogBuilderMode && isAdmin && (
+                      {catalogBuilderMode && canUseCatalogBuilder && (
                         <BulkSelectCheckbox
                           allSelected={allSku}
                           someSelected={someSku}
@@ -1123,7 +1126,7 @@ export default function CatalogPageClient() {
               )}
             </div>
             <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] min-h-[12rem] overflow-y-auto pr-2 scrollbar-hide">
-              {catalogBuilderMode && isAdmin && (
+              {catalogBuilderMode && canUseCatalogBuilder && (
                 <div className="flex items-center justify-between gap-2 px-2 pb-2 mb-1 border-b border-slate-800/60">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                     Style
@@ -1160,7 +1163,7 @@ export default function CatalogPageClient() {
                           isActive ? 'bg-slate-800/50' : ''
                         }`}
                       >
-                        {catalogBuilderMode && isAdmin && (
+                        {catalogBuilderMode && canUseCatalogBuilder && (
                           <BulkSelectCheckbox
                             allSelected={allStyle}
                             someSelected={someStyle}
@@ -1190,7 +1193,7 @@ export default function CatalogPageClient() {
 
                       {isExpanded && cat.subcategories.length > 0 && (
                         <>
-                          {catalogBuilderMode && isAdmin && (
+                          {catalogBuilderMode && canUseCatalogBuilder && (
                             <div className="ml-3 mt-1 flex items-center justify-between pl-3 border-l border-slate-800">
                               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
                                 SKU
@@ -1227,7 +1230,7 @@ export default function CatalogPageClient() {
                                     isSubActive ? 'bg-amber-500/5' : ''
                                   }`}
                                 >
-                                  {catalogBuilderMode && isAdmin && (
+                                  {catalogBuilderMode && canUseCatalogBuilder && (
                                     <BulkSelectCheckbox
                                       allSelected={allSku}
                                       someSelected={someSku}
@@ -1383,7 +1386,7 @@ export default function CatalogPageClient() {
                       priority={i < 24}
                       subcategorySlug={activeSku?.slug}
                       onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
-                      catalogBuilderActive={catalogBuilderMode && isAdmin}
+                      catalogBuilderActive={catalogBuilderMode && canUseCatalogBuilder}
                       selected={selectionKey ? isProductSelected(selectionKey) : false}
                       onToggleSelect={
                         selectionKey ? () => toggleProductId(selectionKey) : undefined

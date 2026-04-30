@@ -295,5 +295,36 @@ module.exports = {
             console.error('Error in isAdminStrict middleware:', error);
             return res.status(500).json({ error: 'Access check failed', details: error.message });
         }
-    }
+    },
+
+    /**
+     * Catalogue Builder shared-link creation: super-admin OR authenticated RESELLER tier.
+     */
+    requireSharedCatalogCreator: (req, res, next) => {
+        try {
+            if (!req.isAuthenticated || !req.isAuthenticated()) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+            if (req.user?.account_status && req.user.account_status !== 'active') {
+                return res.status(403).json({ error: 'Account not active' });
+            }
+            const tier = String(req.user?.customer_tier || '').toUpperCase();
+            if (tier === 'RESELLER') {
+                return next();
+            }
+            const email = String(req.user?.email || '').toLowerCase().trim();
+            if (email === 'jaigaurav56789@gmail.com') {
+                req.user.role = 'super_admin';
+                req.user.allowed_tabs = ['all'];
+                return next();
+            }
+            return res.status(403).json({
+                error: 'Catalog share requires reseller tier or admin access.',
+                code: 'SHARED_CATALOG_DENIED',
+            });
+        } catch (error) {
+            console.error('requireSharedCatalogCreator:', error);
+            return res.status(500).json({ error: 'Access check failed', details: error.message });
+        }
+    },
 };

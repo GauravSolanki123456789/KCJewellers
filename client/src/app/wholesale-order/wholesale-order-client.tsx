@@ -1,9 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Gem, LayoutGrid, Loader2, Search, ShoppingCart, SlidersHorizontal, Sparkles } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Gem,
+  LayoutGrid,
+  Loader2,
+  Search,
+  ShoppingCart,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { useCatalogData } from '@/app/catalog/catalog-data-context'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -22,6 +32,13 @@ import {
 import { writeWholesaleQuickOrder, readWholesaleQuickOrder } from '@/lib/wholesale-quick-order-storage'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { cn } from '@/lib/utils'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const METAL_TABS: { key: CatalogMetalKey; label: string; icon: typeof Sparkles }[] = [
   { key: 'gold', label: 'Gold', icon: Sparkles },
@@ -43,6 +60,117 @@ type PricedWholesaleRow = {
   subcategoryName: string
 }
 
+type WholesaleImagePreview = {
+  src: string
+  title: string
+  subtitle: string
+}
+
+type WholesaleImageGalleryState = {
+  slides: WholesaleImagePreview[]
+  index: number
+}
+
+const GALLERY_SWIPE_MIN_PX = 48
+
+function WholesaleImageGalleryDialogBody({
+  gallery,
+  onStep,
+}: {
+  gallery: WholesaleImageGalleryState
+  onStep: (delta: number) => void
+}) {
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const current = gallery.slides[gallery.index]
+  if (!current) return null
+  const { slides, index } = gallery
+  const multi = slides.length > 1
+
+  const onSwipeAreaTouchStart = (e: TouchEvent) => {
+    if (!multi || e.targetTouches.length !== 1) return
+    const t = e.targetTouches[0]
+    touchStartRef.current = { x: t.clientX, y: t.clientY }
+  }
+
+  const onSwipeAreaTouchEnd = (e: TouchEvent) => {
+    if (!multi || touchStartRef.current == null || e.changedTouches.length !== 1) {
+      touchStartRef.current = null
+      return
+    }
+    const start = touchStartRef.current
+    touchStartRef.current = null
+    const t = e.changedTouches[0]
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    if (Math.abs(dy) >= Math.abs(dx)) return
+    if (dx > GALLERY_SWIPE_MIN_PX) onStep(-1)
+    else if (dx < -GALLERY_SWIPE_MIN_PX) onStep(1)
+  }
+
+  return (
+    <>
+      <DialogHeader className="space-y-1 text-left">
+        <DialogTitle className="font-mono text-sm font-semibold text-emerald-400/95">{current.title}</DialogTitle>
+        {current.subtitle ? (
+          <DialogDescription className="text-xs leading-snug text-slate-500">{current.subtitle}</DialogDescription>
+        ) : null}
+        {multi ? (
+          <p className="text-[11px] tabular-nums text-slate-500">
+            {index + 1} of {slides.length}
+          </p>
+        ) : null}
+      </DialogHeader>
+      <div
+        className={cn(
+          'relative mx-auto h-[min(64dvh,480px)] w-full max-w-[18.5rem] sm:h-[min(68dvh,520px)] sm:max-w-md',
+          multi && 'touch-pan-y',
+        )}
+        onTouchStart={onSwipeAreaTouchStart}
+        onTouchEnd={onSwipeAreaTouchEnd}
+      >
+        {multi ? (
+          <>
+            <button
+              type="button"
+              onClick={() => onStep(-1)}
+              className={cn(
+                'absolute left-0 top-1/2 z-10 flex size-9 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full border border-white/10 bg-slate-900/90 text-slate-200 shadow-md backdrop-blur-sm transition',
+                'hover:border-emerald-500/35 hover:bg-slate-800/95 hover:text-white',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50',
+              )}
+              aria-label="Previous product image"
+            >
+              <ChevronLeft className="size-5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => onStep(1)}
+              className={cn(
+                'absolute right-0 top-1/2 z-10 flex size-9 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full border border-white/10 bg-slate-900/90 text-slate-200 shadow-md backdrop-blur-sm transition',
+                'hover:border-emerald-500/35 hover:bg-slate-800/95 hover:text-white',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50',
+              )}
+              aria-label="Next product image"
+            >
+              <ChevronRight className="size-5" aria-hidden />
+            </button>
+          </>
+        ) : null}
+        <Image
+          key={current.src}
+          src={current.src}
+          alt={current.title === '—' ? 'Product image' : `Product image, SKU ${current.title}`}
+          fill
+          className={cn('object-contain', multi && 'select-none')}
+          draggable={false}
+          sizes="(max-width: 640px) 88vw, 420px"
+          unoptimized
+        />
+      </div>
+    </>
+  )
+}
+
 export default function WholesaleOrderClient() {
   const { categories, rates, isBootstrapping } = useCatalogData()
   const { hasWholesaleAccess, tierReady, wholesalePricing } = useCustomerTier()
@@ -59,6 +187,7 @@ export default function WholesaleOrderClient() {
   const [priceLow, setPriceLow] = useState(0)
   const [priceHigh, setPriceHigh] = useState(100000)
   const [bulkQtyDraft, setBulkQtyDraft] = useState('')
+  const [imageGallery, setImageGallery] = useState<WholesaleImageGalleryState | null>(null)
 
   const rowsWithMeta = useMemo(() => flattenWholesaleRows(categories, metal), [categories, metal])
 
@@ -224,6 +353,49 @@ export default function WholesaleOrderClient() {
     wholesalePricing,
     searchQuery,
   ])
+
+  const openImageGalleryForRowKey = useCallback(
+    (rowKey: string) => {
+      const withImg = pricedVisible.filter((r) => normalizeCatalogImageSrc(r.product.image_url))
+      const idx = withImg.findIndex((r) => r.key === rowKey)
+      if (withImg.length === 0 || idx < 0) return
+      const slides: WholesaleImagePreview[] = withImg.map((row) => {
+        const src = normalizeCatalogImageSrc(row.product.image_url)
+        const sku = row.product.barcode || row.product.sku || '—'
+        return {
+          src,
+          title: String(sku),
+          subtitle: [row.styleName, row.subcategoryName].filter(Boolean).join(' · '),
+        }
+      })
+      setImageGallery({ slides, index: idx })
+    },
+    [pricedVisible],
+  )
+
+  const galleryStep = useCallback((delta: number) => {
+    setImageGallery((g) => {
+      if (!g || g.slides.length <= 1) return g
+      const len = g.slides.length
+      const next = (g.index + delta + len) % len
+      return { ...g, index: next }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!imageGallery || imageGallery.slides.length <= 1) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        galleryStep(-1)
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        galleryStep(1)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [imageGallery, galleryStep])
 
   const hasActiveFilters =
     searchQuery.trim().length > 0 ||
@@ -524,15 +696,29 @@ export default function WholesaleOrderClient() {
                       className="rounded-2xl border border-slate-800/90 bg-slate-900/40 p-3 shadow-sm shadow-black/15"
                     >
                       <div className="flex gap-2.5">
-                        <div className="relative size-14 shrink-0 overflow-hidden rounded-lg border border-slate-700/80 bg-slate-800">
-                          {src ? (
-                            <Image src={src} alt="" fill className="object-contain" sizes="56px" unoptimized />
-                          ) : (
+                        {src ? (
+                          <button
+                            type="button"
+                            onClick={() => openImageGalleryForRowKey(key)}
+                            className="relative size-14 shrink-0 cursor-zoom-in touch-manipulation overflow-hidden rounded-lg border border-slate-700/80 bg-slate-800 ring-offset-2 ring-offset-slate-950 transition hover:border-emerald-500/40 hover:bg-slate-800/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                            aria-label={`View larger product image, SKU ${sku}`}
+                          >
+                            <Image
+                              src={src}
+                              alt=""
+                              fill
+                              className="pointer-events-none object-contain"
+                              sizes="56px"
+                              unoptimized
+                            />
+                          </button>
+                        ) : (
+                          <div className="relative size-14 shrink-0 overflow-hidden rounded-lg border border-slate-700/80 bg-slate-800">
                             <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-slate-600">
                               {String(sku).charAt(0)}
                             </span>
-                          )}
-                        </div>
+                          </div>
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="font-mono text-[11px] text-emerald-400/90">{sku}</p>
                           <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">
@@ -638,15 +824,29 @@ export default function WholesaleOrderClient() {
                         return (
                           <tr key={key} className="border-b border-slate-800/60 transition-colors hover:bg-slate-800/40">
                             <td className="w-14 p-2">
-                              <div className="relative size-12 overflow-hidden rounded-lg border border-slate-700/80 bg-slate-800">
-                                {src ? (
-                                  <Image src={src} alt="" fill className="object-contain" sizes="48px" unoptimized />
-                                ) : (
+                              {src ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openImageGalleryForRowKey(key)}
+                                  className="relative size-12 cursor-zoom-in touch-manipulation overflow-hidden rounded-lg border border-slate-700/80 bg-slate-800 ring-offset-2 ring-offset-slate-900 transition hover:border-emerald-500/40 hover:bg-slate-800/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                                  aria-label={`View larger product image, SKU ${product.barcode || product.sku || 'item'}`}
+                                >
+                                  <Image
+                                    src={src}
+                                    alt=""
+                                    fill
+                                    className="pointer-events-none object-contain"
+                                    sizes="48px"
+                                    unoptimized
+                                  />
+                                </button>
+                              ) : (
+                                <div className="relative size-12 overflow-hidden rounded-lg border border-slate-700/80 bg-slate-800">
                                   <span className="absolute inset-0 flex items-center justify-center text-xs text-slate-600">
                                     {(product.sku || '?').toString().charAt(0)}
                                   </span>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </td>
                             <td className="px-3 py-2.5 font-mono text-xs text-slate-200">
                               {product.barcode || product.sku || '—'}
@@ -744,6 +944,22 @@ export default function WholesaleOrderClient() {
           </button>
         </div>
       </div>
+
+      <Dialog
+        open={imageGallery != null}
+        onOpenChange={(open) => {
+          if (!open) setImageGallery(null)
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className="max-h-[min(92dvh,640px)] max-w-[min(92vw,24rem)] gap-3 overflow-hidden border border-white/10 bg-slate-950 p-4 text-slate-100 shadow-2xl shadow-black/60 sm:max-w-lg sm:p-5"
+        >
+          {imageGallery && imageGallery.slides.length > 0 ? (
+            <WholesaleImageGalleryDialogBody gallery={imageGallery} onStep={galleryStep} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

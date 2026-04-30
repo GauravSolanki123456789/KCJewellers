@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { catalogProductImageClass } from '@/lib/product-image-classes'
 import { productImageViewportWrapperClass } from '@/lib/flat-product-image'
 import { productImageWellClass } from '@/lib/product-image-theme'
+import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
 
 function toItem(p: SharedCatalogPublicProduct): Item {
   return {
@@ -35,7 +36,11 @@ function metalIcon(metal: string) {
   return Sparkles
 }
 
-export default function SharedCatalogClient() {
+export default function SharedCatalogClient({
+  initialBranding,
+}: {
+  initialBranding: PublicResellerBranding | null
+}) {
   const params = useParams()
   const uuid = typeof params?.uuid === 'string' ? params.uuid : ''
   const [loading, setLoading] = useState(true)
@@ -76,6 +81,8 @@ export default function SharedCatalogClient() {
   }, [uuid])
 
   const site = getSiteUrl()
+  const brandLabel = initialBranding?.businessName?.trim() || 'KC Jewellers'
+  const brandLogo = initialBranding?.logoUrl?.trim() || null
 
   const rows = useMemo(() => {
     if (!payload || (payload as { expired?: boolean }).expired || !('products' in payload)) return []
@@ -119,7 +126,7 @@ export default function SharedCatalogClient() {
           <Clock className="mx-auto size-12 text-amber-500/80" aria-hidden />
           <h1 className="mt-4 text-xl font-semibold text-slate-100">This catalogue link has expired</h1>
           <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-            Ask KC Jewellers for a fresh link, or explore the live catalogue on our website.
+            Ask {brandLabel} for a fresh link, or explore the live catalogue on our website.
           </p>
           <Link
             href={CATALOG_PATH}
@@ -143,9 +150,21 @@ export default function SharedCatalogClient() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#020617] via-[#0f172a] to-[#020617] text-slate-100 pb-16 pt-10 md:pt-14">
       <header className="mx-auto max-w-6xl px-4 text-center md:px-8">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-500/90">
-          KC Jewellers
-        </p>
+        <div className="flex flex-col items-center gap-2">
+          {brandLogo ? (
+            <span className="relative block size-14 overflow-hidden rounded-xl bg-white/5 md:size-16">
+              <Image
+                src={brandLogo}
+                alt={brandLabel}
+                fill
+                className="object-contain p-1"
+                sizes="64px"
+                unoptimized
+              />
+            </span>
+          ) : null}
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-500/90">{brandLabel}</p>
+        </div>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">
           Shared catalogue
         </h1>

@@ -7,6 +7,7 @@ export const CUSTOMER_TIER = {
   ADMIN: 'ADMIN',
   B2C_CUSTOMER: 'B2C_CUSTOMER',
   B2B_WHOLESALE: 'B2B_WHOLESALE',
+  RESELLER: 'RESELLER',
 } as const
 
 export type CustomerTier = (typeof CUSTOMER_TIER)[keyof typeof CUSTOMER_TIER]
@@ -16,18 +17,29 @@ export type WholesaleUserFields = {
   customer_tier?: string
   wholesale_making_charge_discount_percent?: number
   wholesale_markup_percent?: number
+  allowed_category_ids?: number[] | null
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {
   const u = String(raw || CUSTOMER_TIER.B2C_CUSTOMER).toUpperCase()
-  if (u === CUSTOMER_TIER.ADMIN || u === CUSTOMER_TIER.B2B_WHOLESALE) return u as CustomerTier
+  if (
+    u === CUSTOMER_TIER.ADMIN ||
+    u === CUSTOMER_TIER.B2B_WHOLESALE ||
+    u === CUSTOMER_TIER.RESELLER
+  ) {
+    return u as CustomerTier
+  }
   return CUSTOMER_TIER.B2C_CUSTOMER
 }
 
 export function hasWholesaleCatalogAccess(user: WholesaleUserFields | null | undefined): boolean {
   if (!user) return false
   const tier = normalizeCustomerTier(user.customer_tier)
-  return tier === CUSTOMER_TIER.B2B_WHOLESALE || tier === CUSTOMER_TIER.ADMIN
+  return (
+    tier === CUSTOMER_TIER.B2B_WHOLESALE ||
+    tier === CUSTOMER_TIER.ADMIN ||
+    tier === CUSTOMER_TIER.RESELLER
+  )
 }
 
 export function buildWholesalePricingInput(

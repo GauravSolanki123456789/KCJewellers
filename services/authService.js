@@ -52,6 +52,7 @@ const CUSTOMER_TIER = {
     ADMIN: 'ADMIN',
     B2C_CUSTOMER: 'B2C_CUSTOMER',
     B2B_WHOLESALE: 'B2B_WHOLESALE',
+    RESELLER: 'RESELLER',
 };
 
 /**
@@ -63,7 +64,11 @@ function hasWholesaleCatalogAccess(user) {
     const email = String(user.email || '').toLowerCase().trim();
     if (email === SUPER_ADMIN_EMAIL.toLowerCase().trim()) return true;
     const tier = String(user.customer_tier || CUSTOMER_TIER.B2C_CUSTOMER).toUpperCase();
-    return tier === CUSTOMER_TIER.B2B_WHOLESALE || tier === CUSTOMER_TIER.ADMIN;
+    return (
+        tier === CUSTOMER_TIER.B2B_WHOLESALE ||
+        tier === CUSTOMER_TIER.ADMIN ||
+        tier === CUSTOMER_TIER.RESELLER
+    );
 }
 
 module.exports = {

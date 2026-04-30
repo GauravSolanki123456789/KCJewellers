@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
 import { CustomerTierProvider } from "@/context/CustomerTierContext";
+import { ResellerBrandingProvider } from "@/context/ResellerBrandingContext";
+import { getBrandingFromMiddlewareHeader } from "@/lib/reseller-branding-server";
 import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
@@ -109,12 +111,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const imageHost = apiOriginForPreconnect();
+  const resellerHostBranding = await getBrandingFromMiddlewareHeader();
   return (
     <html lang="en" className="bg-slate-950">
       <head>
@@ -130,6 +133,7 @@ export default function RootLayout({
       >
         <GoogleAnalytics />
         <CustomerTierProvider>
+        <ResellerBrandingProvider initialFromHost={resellerHostBranding}>
         <CartProvider>
           <BookRateProvider>
             <LoginModalProvider>
@@ -153,6 +157,7 @@ export default function RootLayout({
             </LoginModalProvider>
           </BookRateProvider>
         </CartProvider>
+        </ResellerBrandingProvider>
         </CustomerTierProvider>
       </body>
     </html>

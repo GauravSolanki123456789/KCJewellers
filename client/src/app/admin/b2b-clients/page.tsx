@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { Loader2, ArrowLeft, Save } from 'lucide-react'
+import { Loader2, ArrowLeft, Save, Store, Upload } from 'lucide-react'
 
 type AdminUser = {
   id: number
@@ -15,9 +15,20 @@ type AdminUser = {
   wholesale_making_charge_discount_percent?: number | string | null
   wholesale_markup_percent?: number | string | null
   account_status?: string | null
+  business_name?: string | null
+  custom_domain?: string | null
+  logo_url?: string | null
+  allowed_category_ids?: number[] | null
 }
 
-const TIERS = ['B2C_CUSTOMER', 'B2B_WHOLESALE', 'ADMIN'] as const
+type CatalogCategoryRow = {
+  id: number
+  name: string
+  slug?: string
+  is_published?: boolean
+}
+
+const TIERS = ['B2C_CUSTOMER', 'B2B_WHOLESALE', 'RESELLER', 'ADMIN'] as const
 
 export default function AdminB2BClientsPage() {
   return (
@@ -41,6 +52,18 @@ function B2BAdminContent() {
     description: '',
   })
 
+  const [resellerModalUser, setResellerModalUser] = useState<AdminUser | null>(null)
+  const [resellerForm, setResellerForm] = useState({
+    business_name: '',
+    custom_domain: '',
+    logo_url: '',
+    allowed_category_ids: [] as number[],
+  })
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [catalogCategories, setCatalogCategories] = useState<CatalogCategoryRow[]>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(false)
+  const [resellerSaving, setResellerSaving] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -56,6 +79,33 @@ function B2BAdminContent() {
   useEffect(() => {
     load()
   }, [load])
+
+  const loadCategories = useCallback(async () => {
+    setCategoriesLoading(true)
+    try {
+      const res = await axios.get<{ categories?: CatalogCategoryRow[] }>('/api/admin/catalog')
+      const cats = res.data?.categories ?? []
+      setCatalogCategories(cats.filter((c) => c.is_published !== false))
+    } catch {
+      setCatalogCategories([])
+    } finally {
+      setCategoriesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (resellerModalUser) {
+      loadCategories()
+      const ids = resellerModalUser.allowed_category_ids
+      setResellerForm({
+        business_name: resellerModalUser.business_name ?? '',
+        custom_domain: resellerModalUser.custom_domain ?? '',
+        logo_url: resellerModalUser.logo_url ?? '',
+        allowed_category_ids: Array.isArray(ids) ? [...ids] : [],
+      })
+      setLogoFile(null)
+    }
+  }, [resellerModalUser, loadCategories])
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -85,6 +135,39 @@ function B2BAdminContent() {
     }
   }
 
+  const saveResellerProfile = async () => {
+    if (!resellerModalUser) return
+    setResellerSaving(true)
+    try {
+      let logoUrl = resellerForm.logo_url.trim() || null
+      if (logoFile) {
+        const fd = new FormData()
+        fd.append('logo', logoFile)
+        const up = await axios.post<{ logo_url?: string }>(
+          `/api/admin/users/${resellerModalUser.id}/reseller-logo`,
+          fd,
+        )
+        if (up.data?.logo_url) logoUrl = up.data.logo_url
+      }
+      await axios.put(`/api/admin/users/${resellerModalUser.id}`, {
+        business_name: resellerForm.business_name.trim() || null,
+        custom_domain: resellerForm.custom_domain.trim() || null,
+        logo_url: logoUrl,
+        allowed_category_ids: resellerForm.allowed_category_ids,
+      })
+      await load()
+      setResellerModalUser(null)
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null
+      alert(msg || 'Could not save reseller settings')
+    } finally {
+      setResellerSaving(false)
+    }
+  }
+
   const postLedger = async () => {
     if (!ledgerUserId) return
     try {
@@ -102,6 +185,15 @@ function B2BAdminContent() {
       console.error(e)
       alert('Ledger post failed')
     }
+  }
+
+  const toggleCategoryId = (id: number) => {
+    setResellerForm((f) => {
+      const set = new Set(f.allowed_category_ids)
+      if (set.has(id)) set.delete(id)
+      else set.add(id)
+      return { ...f, allowed_category_ids: [...set].sort((a, b) => a - b) }
+    })
   }
 
   if (loading) {
@@ -122,9 +214,10 @@ function B2BAdminContent() {
               Admin
             </Link>
             <h1 className="text-2xl font-bold text-amber-400">B2B wholesale clients</h1>
-            <p className="text-slate-500 text-sm mt-1">
-              Set <code className="text-slate-400">customer_tier</code> to B2B_WHOLESALE (or ADMIN), adjust making-charge
-              discount % and markup %, and optionally add ledger lines.
+            <p className="text-slate-500 text-sm mt-1 max-w-xl leading-relaxed">
+              Set <code className="text-slate-400">customer_tier</code> for access: B2B wholesale,{' '}
+              <strong className="text-slate-300 font-medium">RESELLER</strong> (white-label catalogue sharing), or ADMIN.
+              Resellers can use Catalogue Builder and optional custom domains.
             </p>
           </div>
         </div>
@@ -139,11 +232,11 @@ function B2BAdminContent() {
 
         <div className="rounded-2xl border border-slate-800/90 bg-slate-900/30 shadow-xl shadow-black/25 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[900px]">
+            <table className="w-full text-sm min-w-[920px]">
               <thead>
                 <tr className="border-b border-slate-800 bg-slate-900/80 text-left text-[11px] uppercase text-slate-500">
                   <th className="p-2">ID</th>
-                  <th className="p-2">Email / Mobile</th>
+                  <th className="p-2">Client</th>
                   <th className="p-2">Tier</th>
                   <th className="p-2">MC disc %</th>
                   <th className="p-2">Markup %</th>
@@ -152,100 +245,236 @@ function B2BAdminContent() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((u) => (
-                  <tr key={u.id} className="border-b border-slate-800/80 align-top">
-                    <td className="p-2 font-mono text-xs text-slate-500">{u.id}</td>
-                    <td className="p-2">
-                      <div className="text-slate-200">{u.email || '—'}</div>
-                      <div className="text-xs text-slate-500">{u.mobile_number ? `+91 ${u.mobile_number}` : ''}</div>
-                    </td>
-                    <td className="p-2">
-                      <select
-                        className="w-full min-w-[140px] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"
-                        value={(u.customer_tier || 'B2C_CUSTOMER').toUpperCase()}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, customer_tier: v } : x)))
-                        }}
-                      >
-                        {TIERS.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
-                        value={u.wholesale_making_charge_discount_percent ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setUsers((prev) =>
-                            prev.map((x) =>
-                              x.id === u.id ? { ...x, wholesale_making_charge_discount_percent: v as unknown as number } : x,
-                            ),
-                          )
-                        }}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
-                        value={u.wholesale_markup_percent ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setUsers((prev) =>
-                            prev.map((x) =>
-                              x.id === u.id ? { ...x, wholesale_markup_percent: v as unknown as number } : x,
-                            ),
-                          )
-                        }}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="tel"
-                        placeholder="10-digit"
-                        className="w-28 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
-                        value={u.mobile_number ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value.replace(/\D/g, '').slice(-10)
-                          setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, mobile_number: v } : x)))
-                        }}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <button
-                        type="button"
-                        disabled={savingId === u.id}
-                        onClick={() => saveUser(u)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-amber-500/20 px-2 py-1 text-xs font-medium text-amber-400 hover:bg-amber-500/30"
-                      >
-                        {savingId === u.id ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLedgerUserId(u.id)
-                          setLedgerForm((f) => ({ ...f }))
-                        }}
-                        className="ml-2 text-xs text-emerald-400 hover:underline"
-                      >
-                        Ledger
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((u) => {
+                  const tierUp = (u.customer_tier || 'B2C_CUSTOMER').toUpperCase()
+                  const isReseller = tierUp === 'RESELLER'
+                  return (
+                    <tr key={u.id} className="border-b border-slate-800/80 align-top">
+                      <td className="p-2 font-mono text-xs text-slate-500">{u.id}</td>
+                      <td className="p-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="min-w-0">
+                            <div className="text-slate-200">{u.email || '—'}</div>
+                            <div className="text-xs text-slate-500">
+                              {u.mobile_number ? `+91 ${u.mobile_number}` : ''}
+                            </div>
+                          </div>
+                          {isReseller && (
+                            <button
+                              type="button"
+                              onClick={() => setResellerModalUser(u)}
+                              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-violet-500/35 bg-violet-500/10 px-2 py-1 text-[11px] font-semibold text-violet-300 hover:bg-violet-500/20 md:text-xs"
+                            >
+                              <Store className="size-3.5 opacity-90" aria-hidden />
+                              Edit reseller
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-2">
+                        <select
+                          className="w-full min-w-[140px] max-w-[180px] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"
+                          value={tierUp}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, customer_tier: v } : x)))
+                          }}
+                        >
+                          {TIERS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+                          value={u.wholesale_making_charge_discount_percent ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setUsers((prev) =>
+                              prev.map((x) =>
+                                x.id === u.id ? { ...x, wholesale_making_charge_discount_percent: v as unknown as number } : x,
+                              ),
+                            )
+                          }}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+                          value={u.wholesale_markup_percent ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setUsers((prev) =>
+                              prev.map((x) =>
+                                x.id === u.id ? { ...x, wholesale_markup_percent: v as unknown as number } : x,
+                              ),
+                            )
+                          }}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="tel"
+                          placeholder="10-digit"
+                          className="w-28 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+                          value={u.mobile_number ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, '').slice(-10)
+                            setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, mobile_number: v } : x)))
+                          }}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <button
+                          type="button"
+                          disabled={savingId === u.id}
+                          onClick={() => saveUser(u)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-amber-500/20 px-2 py-1 text-xs font-medium text-amber-400 hover:bg-amber-500/30"
+                        >
+                          {savingId === u.id ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLedgerUserId(u.id)
+                            setLedgerForm((f) => ({ ...f }))
+                          }}
+                          className="ml-2 text-xs text-emerald-400 hover:underline"
+                        >
+                          Ledger
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         </div>
+
+        {resellerModalUser && (
+          <div
+            className="fixed inset-0 z-[60] flex items-end justify-center bg-black/75 p-0 backdrop-blur-md sm:items-center sm:p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reseller-modal-title"
+          >
+            <div className="max-h-[92vh] w-full max-w-lg overflow-hidden rounded-t-2xl border border-slate-700 border-b-0 bg-slate-900 shadow-2xl sm:rounded-2xl sm:border-b flex flex-col">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-4 py-4 sm:px-5">
+                <div>
+                  <h2 id="reseller-modal-title" className="text-lg font-semibold text-slate-50">
+                    Reseller profile
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500 line-clamp-2">{resellerModalUser.email}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResellerModalUser(null)}
+                  className="rounded-lg px-2 py-1 text-sm text-slate-400 hover:bg-white/10 hover:text-slate-200"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5 space-y-4 safe-area-pb">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Business name</label>
+                  <input
+                    className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    value={resellerForm.business_name}
+                    onChange={(e) => setResellerForm((f) => ({ ...f, business_name: e.target.value }))}
+                    placeholder="Shown on navbar & shared links"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Logo</label>
+                  <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-600 bg-slate-950/50 px-4 py-6 text-center text-xs text-slate-400 hover:border-amber-500/40 hover:bg-slate-900/80">
+                    <Upload className="size-5 text-amber-500/80" aria-hidden />
+                    <span>{logoFile ? logoFile.name : 'Tap to choose image (PNG, JPG, WebP)'}</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  {resellerForm.logo_url && !logoFile && (
+                    <p className="mt-2 text-[11px] text-slate-500 truncate">Current: {resellerForm.logo_url}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Custom domain</label>
+                  <input
+                    className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    value={resellerForm.custom_domain}
+                    onChange={(e) => setResellerForm((f) => ({ ...f, custom_domain: e.target.value }))}
+                    placeholder="e.g. boutique.example.com"
+                  />
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    Point your domain&apos;s <strong className="text-slate-400">A record</strong> to your Next.js server IP
+                    (same host as KC Jewellers web). Share links will use https://your-domain when set.
+                  </p>
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-slate-400">Allowed catalogue categories</label>
+                    {categoriesLoading && <Loader2 className="size-4 animate-spin text-slate-500" />}
+                  </div>
+                  <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                    {catalogCategories.length === 0 && !categoriesLoading ? (
+                      <p className="text-xs text-slate-500">No published categories found.</p>
+                    ) : (
+                      catalogCategories.map((c) => (
+                        <label
+                          key={c.id}
+                          className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.04]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={resellerForm.allowed_category_ids.includes(c.id)}
+                            onChange={() => toggleCategoryId(c.id)}
+                            className="mt-0.5 size-4 rounded border-slate-600"
+                          />
+                          <span className="text-sm text-slate-200">
+                            {c.name}{' '}
+                            <span className="font-mono text-[11px] text-slate-500">#{c.id}</span>
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Leave none checked to allow all categories. Select specific styles to restrict the reseller catalogue.
+                  </p>
+                </div>
+              </div>
+              <div className="border-t border-slate-800 p-4 sm:px-5 flex gap-3 safe-area-pb">
+                <button
+                  type="button"
+                  onClick={() => setResellerModalUser(null)}
+                  className="flex-1 min-h-[48px] rounded-xl border border-slate-600 py-3 text-sm font-medium touch-manipulation"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={resellerSaving}
+                  onClick={() => void saveResellerProfile()}
+                  className="flex-1 min-h-[48px] rounded-xl bg-gradient-to-r from-violet-600 to-amber-600 py-3 text-sm font-semibold text-white shadow-lg touch-manipulation disabled:opacity-60"
+                >
+                  {resellerSaving ? <Loader2 className="mx-auto size-5 animate-spin" /> : 'Save reseller settings'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {ledgerUserId != null && (
           <div

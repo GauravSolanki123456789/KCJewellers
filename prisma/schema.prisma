@@ -10,11 +10,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Values stored in `users.customer_tier` — ADMIN, B2C_CUSTOMER, B2B_WHOLESALE
+/// Values stored in `users.customer_tier` — aligned with PostgreSQL `users.customer_tier`
 enum CustomerTier {
   ADMIN
   B2C_CUSTOMER
   B2B_WHOLESALE
+  RESELLER
 }
 
 model SharedCatalog {

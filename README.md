@@ -80,3 +80,15 @@ You get ₹750 in hard cash today. You can immediately use that capital to buy r
 
 **Version:** 2.5.0 (Gold Master)  
 **Last Updated:** January 2025
+# 1. Clean up npm's hidden cache (this can eat gigabytes over time)
+npm cache clean --force
+
+# 2. Clear out old PM2 logs
+pm2 flush
+
+# 3. Clean up old system journals (keeps only the last 2 days of server logs)
+sudo journalctl --vacuum-time=2d
+
+# 4. Remove unused Ubuntu packages
+sudo apt-get autoremove -y
+sudo apt-get clean

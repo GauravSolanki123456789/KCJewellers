@@ -92,6 +92,92 @@ export function flattenCatalogToSearchRecords(
   return rows;
 }
 
+function normalizeSearchText(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function tokenizeSearchText(value: string): string[] {
+  return normalizeSearchText(value)
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function countMatchingTokens(tokens: string[], haystack: string): number {
+  if (!tokens.length || !haystack) return 0;
+  let count = 0;
+  for (const token of tokens) {
+    if (haystack.includes(token)) count += 1;
+  }
+  return count;
+}
+
+function scoreRecordForQuery(record: SearchIndexRecord, rawQuery: string): number {
+  const query = normalizeSearchText(rawQuery);
+  if (!query) return 0;
+
+  const tokens = tokenizeSearchText(query);
+  const name = normalizeSearchText(record.name);
+  const style = normalizeSearchText(record.styleName);
+  const subcategory = normalizeSearchText(record.subcategoryName);
+  const sku = normalizeSearchText(record.sku);
+  const barcode = normalizeSearchText(record.barcode);
+  const blob = normalizeSearchText(record.searchBlob);
+
+  let score = 0;
+
+  if (name === query) score += 1200;
+  else if (name.startsWith(query)) score += 800;
+  else if (name.includes(query)) score += 500;
+
+  if (sku === query || barcode === query) score += 1400;
+  else if (sku.startsWith(query) || barcode.startsWith(query)) score += 900;
+
+  if (style === query || subcategory === query) score += 700;
+  if (style.startsWith(query) || subcategory.startsWith(query)) score += 400;
+
+  const nameTokenMatches = countMatchingTokens(tokens, name);
+  const styleTokenMatches = countMatchingTokens(tokens, style);
+  const subTokenMatches = countMatchingTokens(tokens, subcategory);
+  const blobTokenMatches = countMatchingTokens(tokens, blob);
+
+  score += nameTokenMatches * 220;
+  score += styleTokenMatches * 90;
+  score += subTokenMatches * 90;
+  score += blobTokenMatches * 40;
+
+  if (tokens.length > 1 && nameTokenMatches === tokens.length) score += 550;
+  if (
+    tokens.length > 1 &&
+    nameTokenMatches + styleTokenMatches + subTokenMatches >= tokens.length
+  ) {
+    score += 260;
+  }
+
+  return score;
+}
+
+export function rankSearchRecords(
+  records: SearchIndexRecord[],
+  rawQuery: string,
+  limit = records.length
+): SearchIndexRecord[] {
+  return [...records]
+    .sort((a, b) => {
+      const delta = scoreRecordForQuery(b, rawQuery) - scoreRecordForQuery(a, rawQuery);
+      if (delta !== 0) return delta;
+
+      const nameDelta = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      if (nameDelta !== 0) return nameDelta;
+
+      return a.key.localeCompare(b.key, undefined, { sensitivity: "base" });
+    })
+    .slice(0, limit);
+}
+
 export function buildFuseForSearchRecords(records: SearchIndexRecord[]): Fuse<SearchIndexRecord> {
   return new Fuse(records, {
     keys: [
