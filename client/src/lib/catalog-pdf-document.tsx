@@ -3,6 +3,7 @@ import {
   calculateBreakdown,
   getItemWeightWithGrossFallback,
   type Item,
+  type WholesalePricingInput,
 } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
@@ -79,7 +80,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: 2,
   },
-  priceMuted: { fontSize: 6, color: '#64748b', marginBottom: 2 },
+  priceGst: {
+    fontSize: 8,
+    color: '#94a3b8',
+    marginBottom: 3,
+  },
   footer: {
     position: 'absolute',
     bottom: 20,
@@ -104,19 +109,14 @@ function displayName(p: Item) {
 export type CatalogPdfResellerPricing = {
   rates: unknown
   markupPercentage: number
+  /** Mirrors logged-in reseller catalogue pricing before brochure markup. */
+  wholesale?: WholesalePricingInput | null
 }
 
 export type CatalogPdfDocumentProps = {
   products: ItemWithPdfImage[]
   brandName?: string
   resellerPdfPricing?: CatalogPdfResellerPricing | null
-}
-
-function formatMarkedUpInclGst(item: Item, rates: unknown, markupPct: number): string {
-  const gst = Number((item as { gst_rate?: number }).gst_rate ?? 3) || 3
-  const b = calculateBreakdown(item, rates, gst)
-  const total = b.total * (1 + Math.max(0, markupPct) / 100)
-  return `₹${Math.round(total).toLocaleString('en-IN')} incl. GST`
 }
 
 const PER_PAGE = 9
@@ -163,17 +163,19 @@ export function CatalogPdfDocument({
               const showPrices =
                 resellerPdfPricing &&
                 resellerPdfPricing.rates != null
-              const priceLabel =
-                showPrices
-                  ? formatMarkedUpInclGst(
-                      p,
-                      resellerPdfPricing.rates,
-                      resellerPdfPricing.markupPercentage,
-                    )
-                  : null
-              const markupPct = showPrices
-                ? Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0)
-                : 0
+              let amountStr: string | null = null
+              if (showPrices) {
+                const gst = Number((p as { gst_rate?: number }).gst_rate ?? 3) || 3
+                const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0)
+                const b = calculateBreakdown(
+                  p,
+                  resellerPdfPricing.rates,
+                  gst,
+                  resellerPdfPricing.wholesale ?? undefined,
+                )
+                const total = b.total * (1 + mk / 100)
+                amountStr = Math.round(total).toLocaleString('en-IN')
+              }
               return (
                 <View key={key} style={styles.card}>
                   <View style={styles.thumbWrap}>
@@ -188,14 +190,10 @@ export function CatalogPdfDocument({
                   <Text style={styles.weightLine}>
                     Weight · {weightText}
                   </Text>
-                  {priceLabel ? (
+                  {amountStr ? (
                     <>
-                      <Text style={styles.priceLine}>{priceLabel}</Text>
-                      {markupPct > 0 ? (
-                        <Text style={styles.priceMuted}>
-                          +{markupPct}% vs storefront incl. GST
-                        </Text>
-                      ) : null}
+                      <Text style={styles.priceLine}>Rs. {amountStr}</Text>
+                      <Text style={styles.priceGst}>incl. GST</Text>
                     </>
                   ) : null}
                   <Text style={styles.title}>{name}</Text>

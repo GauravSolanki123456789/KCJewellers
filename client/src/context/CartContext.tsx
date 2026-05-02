@@ -21,13 +21,15 @@ const CartCtx = createContext<{
   addWithQty: (p: ProductLite, qty: number) => void
   remove: (id: string) => void
   setQty: (id: string, qty: number) => void
+  /** Clear all lines (e.g. after WhatsApp order handoff). */
+  clearAll: () => void
   isCartOpen: boolean
   openCart: () => void
   closeCart: () => void
   lastAdded: ProductLite | null
   clearLastAdded: () => void
   ratesReady: boolean
-}>({ items: [], add: () => {}, addWithQty: () => {}, remove: () => {}, setQty: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, ratesReady: false })
+}>({ items: [], add: () => {}, addWithQty: () => {}, remove: () => {}, setQty: () => {}, clearAll: () => {}, isCartOpen: false, openCart: () => {}, closeCart: () => {}, lastAdded: null, clearLastAdded: () => {}, ratesReady: false })
 
 function loadCartFromStorage(): CartItem[] {
   if (typeof window === 'undefined') return []
@@ -138,6 +140,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     })
   }, [lastRates, wholesalePricing])
   const remove = useCallback((id: string) => setItems(prev => prev.filter(x => x.id !== id)), [])
+  const clearAll = useCallback(() => setItems([]), [])
   /** qty below 1 removes the line (minus at quantity 1 matches Remove). */
   const setQty = useCallback((id: string, qty: number) => {
     if (qty < 1) {
@@ -149,7 +152,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const openCart = useCallback(() => setIsCartOpen(true), [])
   const closeCart = useCallback(() => setIsCartOpen(false), [])
   const clearLastAdded = useCallback(() => setLastAdded(null), [])
-  const value = useMemo(() => ({ items, add, addWithQty, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady }), [items, add, addWithQty, remove, setQty, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady])
+  const value = useMemo(() => ({ items, add, addWithQty, remove, setQty, clearAll, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady }), [items, add, addWithQty, remove, setQty, clearAll, isCartOpen, openCart, closeCart, lastAdded, clearLastAdded, ratesReady])
   return <CartCtx.Provider value={value}>{children}</CartCtx.Provider>
 }
 

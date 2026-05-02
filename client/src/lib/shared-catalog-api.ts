@@ -51,11 +51,17 @@ export type SharedCatalogPublicProduct = {
   [key: string]: unknown
 }
 
+export type SharedCatalogCreatorWholesale = {
+  wholesale_markup_percent: number
+  wholesale_making_charge_discount_percent: number
+}
+
 export type SharedCatalogPublicResponse =
   | {
       expired: true
       expiresAt: string
       markupPercentage: number
+      creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
       products: SharedCatalogPublicProduct[]
     }
   | {
@@ -63,6 +69,11 @@ export type SharedCatalogPublicResponse =
       expiresAt: string
       createdAt?: string
       markupPercentage: number
+      creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
+      /** RESELLER creator mobile (10 digits) when set — share selection targets this WhatsApp. */
+      selectionWhatsAppDigits?: string | null
+      /** `users.customer_tier` of brochure creator (e.g. RESELLER); used for WhatsApp fallback messaging. */
+      creatorCustomerTier?: string | null
       products: SharedCatalogPublicProduct[]
       rates: unknown[]
     }

@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, Wallet, Sparkles, Info, Tag, X, CheckCircle2, Landmark, BookMarked } from 'lucide-react'
+import { ChevronLeft, Wallet, Sparkles, Info, Tag, X, CheckCircle2, Landmark, BookMarked, MessageCircle } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { isDiamondItem } from '@/lib/pricing'
@@ -15,6 +15,13 @@ import { toPaise } from '@/lib/utils'
 import { getItemWeight } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { productImageWellClass } from '@/lib/product-image-theme'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
+import {
+  buildCartWhatsAppMessage,
+  getDefaultStoreWhatsAppDigits,
+  openWhatsAppOrder,
+  toWhatsAppWaMeDigits,
+} from '@/lib/cart-order-whatsapp'
 
 declare global {
   interface Window {
@@ -36,9 +43,11 @@ type RedeemableSip = {
 
 function CheckoutContent() {
   const router = useRouter()
-  const { items, remove, ratesReady } = useCart()
+  const { items, remove, ratesReady, clearAll } = useCart()
   const auth = useAuth()
   const { hasB2bPortalAccess, tierReady } = useCustomerTier()
+  const rb = useResellerBranding()
+  const isResellerStorefront = rb.customDomainHost && rb.active
   const { open: openLoginModal } = useLoginModal()
   const [loading, setLoading] = useState(false)
   const [scriptLoaded, setScriptLoaded] = useState(false)
@@ -266,6 +275,47 @@ function CheckoutContent() {
       setLoading(false)
     }
   }
+
+  const handleWhatsAppOrder = useCallback(() => {
+    if (items.length === 0) return
+    if (payDisabledRates && items.some((ci) => !isDiamondItem(ci.item))) {
+      alert('Prices are still loading or unavailable for some items. Wait and try again.')
+      return
+    }
+    const digits10 = isResellerStorefront ? rb.contactPhoneDigits : getDefaultStoreWhatsAppDigits()
+    const wa = digits10 ? toWhatsAppWaMeDigits(digits10) : ''
+    if (!wa) {
+      alert(
+        isResellerStorefront
+          ? 'Add a 10-digit WhatsApp number for this reseller in Admin → B2B Clients (mobile field), save the row, then try again.'
+          : 'Configure NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER for WhatsApp orders.',
+      )
+      return
+    }
+    const brandLabel = rb.active ? rb.businessName : 'KC Jewellers'
+    const totalOrder = Math.round(finalPayableAmount)
+    const lines = items.map((ci) => ({
+      name: String(ci.item.item_name || ci.item.short_name || 'Item'),
+      skuOrBarcode: String(ci.item.barcode || ci.item.sku || ci.id),
+      qty: ci.qty,
+      lineTotalInr: ci.price * ci.qty,
+    }))
+    const msg = buildCartWhatsAppMessage({
+      brandLabel,
+      lines,
+      orderTotalInr: totalOrder,
+    })
+    if (openWhatsAppOrder(wa, msg)) clearAll()
+  }, [
+    items,
+    payDisabledRates,
+    isResellerStorefront,
+    rb.active,
+    rb.businessName,
+    rb.contactPhoneDigits,
+    finalPayableAmount,
+    clearAll,
+  ])
 
   if (!auth.hasChecked) {
     return (
@@ -532,26 +582,44 @@ function CheckoutContent() {
             </button>
           </div>
         ) : (
-          <button
-            onClick={handlePay}
-            disabled={loading || payDisabledRates || (applySipId !== null && !canApplySip)}
-            className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>Processing…</>
-            ) : payDisabledRates && hasMetalItems ? (
-              <>Loading prices…</>
-            ) : isFullSipRedemption ? (
-              <>
-                <Sparkles className="size-5" />
-                Complete with SIP
-              </>
-            ) : finalPayableAmount > 0 ? (
-              <>Pay ₹{Math.round(finalPayableAmount).toLocaleString('en-IN')} with Razorpay</>
-            ) : (
-              <>Pay with Razorpay</>
+          <div className="flex flex-col gap-3">
+            {!isResellerStorefront && (
+              <button
+                type="button"
+                onClick={handlePay}
+                disabled={loading || payDisabledRates || (applySipId !== null && !canApplySip)}
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>Processing…</>
+                ) : payDisabledRates && hasMetalItems ? (
+                  <>Loading prices…</>
+                ) : isFullSipRedemption ? (
+                  <>
+                    <Sparkles className="size-5" />
+                    Complete with SIP
+                  </>
+                ) : finalPayableAmount > 0 ? (
+                  <>Pay ₹{Math.round(finalPayableAmount).toLocaleString('en-IN')} with Razorpay</>
+                ) : (
+                  <>Pay with Razorpay</>
+                )}
+              </button>
             )}
-          </button>
+            <button
+              type="button"
+              onClick={handleWhatsAppOrder}
+              disabled={loading}
+              className={`w-full py-3.5 rounded-xl font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2 ${
+                isResellerStorefront
+                  ? 'bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-lg shadow-emerald-950/30'
+                  : 'border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-100'
+              }`}
+            >
+              <MessageCircle className="size-5 shrink-0" aria-hidden />
+              Send Order via WhatsApp
+            </button>
+          </div>
         )}
       </div>
     </div>

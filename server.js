@@ -590,18 +590,23 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             return res.status(400).json({ error: 'domain query parameter required' });
         }
         const rows = await query(
-            `SELECT business_name, logo_url FROM users
+            `SELECT business_name, logo_url, mobile_number FROM users
              WHERE customer_tier = 'RESELLER'
-             AND LOWER(TRIM(custom_domain)) = $1
+             AND NULLIF(TRIM(custom_domain), '') IS NOT NULL
+             AND LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(custom_domain), '^https?://', '', 'i'), '/.*$', ''), '^www\.', '', 'i'))) = $1
              LIMIT 1`,
             [domain],
         );
         if (!rows.length) {
-            return res.json({ business_name: null, logo_url: null });
+            return res.json({ business_name: null, logo_url: null, contact_phone: null });
         }
+        const rawDigits = String(rows[0].mobile_number || '').replace(/\D/g, '');
+        const contact_phone =
+            rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits.length > 0 ? rawDigits : null;
         res.json({
             business_name: rows[0].business_name || null,
             logo_url: rows[0].logo_url || null,
+            contact_phone,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -5208,6 +5213,38 @@ const { randomUUID } = require('crypto');
 const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Persist & retrieve brochure markup % reliably (handles numeric strings from JSON/forms). */
+function parseSharedMarkupPct(raw) {
+    if (raw == null || raw === '') return 0;
+    const n =
+        typeof raw === 'number' && Number.isFinite(raw)
+            ? raw
+            : parseFloat(String(raw).replace(/,/g, '').trim());
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1000, n));
+}
+
+/** When brochure creator is RESELLER, mirror catalogue wholesale pricing before link markup. */
+function creatorWholesaleForBrochure(row) {
+    if (!row || !row.created_by_user_id) return null;
+    const tier = String(row.creator_customer_tier || '').toUpperCase();
+    if (tier !== 'RESELLER') return null;
+    return {
+        wholesale_markup_percent: Number(row.creator_wholesale_markup_pct ?? 0) || 0,
+        wholesale_making_charge_discount_percent: Number(row.creator_wholesale_mc_disc ?? 0) || 0,
+    };
+}
+
+/** 10-digit Indian mobile for brochure “share my picks” WhatsApp when creator is RESELLER. */
+function selectionWhatsAppDigitsFromBrochureRow(row) {
+    if (!row || !row.created_by_user_id) return null;
+    const tier = String(row.creator_customer_tier || '').toUpperCase();
+    if (tier !== 'RESELLER') return null;
+    const raw = String(row.creator_mobile_number || '').replace(/\D/g, '');
+    if (raw.length >= 10) return raw.slice(-10);
+    return raw.length > 0 ? raw : null;
+}
+
 /**
  * Catalogue Builder: super-admin OR authenticated RESELLER — shared catalogue link (WhatsApp-friendly).
  * Body: { selectedProductIds, markupPercentage, format: 'temporary_web_link'|'pdf', expiresAt?: ISO string }
@@ -5225,7 +5262,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         if (ids.length > 500) {
             return res.status(400).json({ error: 'Too many products (max 500)' });
         }
-        const markup = Math.max(0, Math.min(1000, Number(markupPercentage) || 0));
+        const markup = parseSharedMarkupPct(markupPercentage);
         const fmt = format === 'pdf' ? 'pdf' : 'temporary_web_link';
 
         if (fmt === 'pdf') {
@@ -5255,10 +5292,11 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         }
 
         const id = randomUUID();
+        const creatorUid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
         await query(
-            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at)
-             VALUES ($1::uuid, $2::text[], $3, $4)`,
-            [id, ids, markup, exp],
+            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at, created_by_user_id)
+             VALUES ($1::uuid, $2::text[], $3::float8, $4, $5)`,
+            [id, ids, markup, exp, Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null],
         );
 
         const creator = resolveUserRole(req.user);
@@ -5300,25 +5338,40 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
  */
 app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
     try {
+        res.setHeader('Cache-Control', 'private, no-store');
         const uuid = String(req.params.uuid || '').trim();
         if (!UUID_RE.test(uuid)) {
             return res.status(400).json({ error: 'Invalid catalog id' });
         }
         const rows = await query(
-            `SELECT id, product_ids, markup_percentage, expires_at, created_at
-             FROM shared_catalogs WHERE id = $1::uuid`,
+            `SELECT sc.id, sc.product_ids, sc.markup_percentage, sc.expires_at, sc.created_at,
+                    sc.created_by_user_id,
+                    u.customer_tier AS creator_customer_tier,
+                    u.mobile_number AS creator_mobile_number,
+                    u.wholesale_markup_percent AS creator_wholesale_markup_pct,
+                    u.wholesale_making_charge_discount_percent AS creator_wholesale_mc_disc
+             FROM shared_catalogs sc
+             LEFT JOIN users u ON u.id = sc.created_by_user_id
+             WHERE sc.id = $1::uuid`,
             [uuid],
         );
         if (rows.length === 0) {
             return res.status(404).json({ error: 'Catalog not found' });
         }
         const row = rows[0];
+        const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
+        const cwPricing = creatorWholesaleForBrochure(row);
+        const selectionWhatsAppDigits = selectionWhatsAppDigitsFromBrochureRow(row);
+        const creatorCustomerTier = row.created_by_user_id
+            ? String(row.creator_customer_tier || '').trim().toUpperCase() || null
+            : null;
         const expiresAt = new Date(row.expires_at);
         if (expiresAt.getTime() <= Date.now()) {
             return res.json({
                 expired: true,
                 expiresAt: expiresAt.toISOString(),
-                markupPercentage: Number(row.markup_percentage) || 0,
+                markupPercentage: markupPctJson,
+                creatorWholesalePricing: cwPricing,
                 products: [],
             });
         }
@@ -5330,7 +5383,10 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 expired: false,
                 expiresAt: expiresAt.toISOString(),
                 createdAt: new Date(row.created_at).toISOString(),
-                markupPercentage: Number(row.markup_percentage) || 0,
+                markupPercentage: markupPctJson,
+                creatorWholesalePricing: cwPricing,
+                selectionWhatsAppDigits,
+                creatorCustomerTier,
                 products: [],
                 rates: payload?.rates ?? [],
             });
@@ -5364,7 +5420,10 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             expired: false,
             expiresAt: expiresAt.toISOString(),
             createdAt: new Date(row.created_at).toISOString(),
-            markupPercentage: Number(row.markup_percentage) || 0,
+            markupPercentage: markupPctJson,
+            creatorWholesalePricing: cwPricing,
+            selectionWhatsAppDigits,
+            creatorCustomerTier,
             products,
             rates: payload?.rates ?? [],
         });

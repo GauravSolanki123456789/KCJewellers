@@ -21,6 +21,8 @@ export type WholesaleUserFields = {
   allowed_category_ids?: number[] | null
   business_name?: string | null
   custom_domain?: string | null
+  /** Saved from Admin B2B row — used for reseller storefront WhatsApp orders when set. */
+  mobile_number?: string | null
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

@@ -146,12 +146,15 @@ function collectFilteredIdsForSku(
   priceHigh: number,
   rates: unknown,
   wholesale: import('@/lib/pricing').WholesalePricingInput | null,
+  /** When set, only products with this `design_group` (same as grid chips) — must match active SKU row only. */
+  restrictDesignGroup?: string,
 ): string[] {
   const cat = filteredCategories.find((c) => c.id === styleId)
   if (!cat) return []
   const sub = cat.subcategories.find((s) => s.id === skuId)
   if (!sub) return []
   const out: string[] = []
+  const dg = restrictDesignGroup ? String(restrictDesignGroup).trim() : ''
   for (const p of sub.products) {
     if (
       productPassesCatalogFilters(
@@ -165,11 +168,30 @@ function collectFilteredIdsForSku(
         wholesale,
       )
     ) {
+      if (dg) {
+        const g = String((p as { design_group?: string | null }).design_group ?? '').trim()
+        if (g !== dg) continue
+      }
       const k = getProductSelectionKey(p)
       if (k) out.push(k)
     }
   }
   return [...new Set(out)]
+}
+
+/**
+ * SKU bulk-select must match what the grid shows: when a design-group chip is active for the
+ * current subcategory, narrow bulk scope to that group only (fixes “header checked, cards empty”).
+ */
+function skuBulkDesignGroupForRow(
+  skuId: number,
+  activeSkuId: number | null,
+  hasDesignGroupFilter: boolean,
+  activeDesignGroup: 'all' | string,
+): string | undefined {
+  if (!hasDesignGroupFilter || activeDesignGroup === 'all') return undefined
+  if (skuId !== activeSkuId) return undefined
+  return activeDesignGroup
 }
 
 function BulkSelectCheckbox({
@@ -188,18 +210,20 @@ function BulkSelectCheckbox({
     if (ref.current) ref.current.indeterminate = someSelected && !allSelected
   }, [someSelected, allSelected])
   return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={allSelected}
-      onChange={(e) => {
-        e.stopPropagation()
-        onToggle()
-      }}
-      onClick={(e) => e.stopPropagation()}
-      aria-label={ariaLabel}
-      className="size-4 shrink-0 cursor-pointer rounded border-slate-600 bg-slate-900 accent-amber-500"
-    />
+    <span className="inline-flex shrink-0 items-center justify-center p-1.5 -m-1 sm:p-0 sm:m-0 touch-manipulation">
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={allSelected}
+        onChange={(e) => {
+          e.stopPropagation()
+          onToggle()
+        }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={ariaLabel}
+        className="h-5 w-5 shrink-0 cursor-pointer rounded border-slate-600 bg-slate-900 accent-amber-500 sm:h-4 sm:w-4"
+      />
+    </span>
   )
 }
 
@@ -845,6 +869,12 @@ export default function CatalogPageClient() {
   }
 
   const toggleSkuSelectAll = (styleId: number, skuId: number) => {
+    const dg = skuBulkDesignGroupForRow(
+      skuId,
+      activeSkuId,
+      hasDesignGroupFilter,
+      activeDesignGroup,
+    )
     const ids = collectFilteredIdsForSku(
       filteredCategories,
       styleId,
@@ -856,6 +886,7 @@ export default function CatalogPageClient() {
       priceHigh,
       rates,
       wholesalePricing,
+      dg,
     )
     if (ids.length === 0) return
     const allOn = ids.every((id) => selectedProductIds.includes(id))
@@ -1167,6 +1198,12 @@ export default function CatalogPageClient() {
               )}
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                 {activeStyle.subcategories.map((sub) => {
+                  const skuDg = skuBulkDesignGroupForRow(
+                    sub.id,
+                    activeSkuId,
+                    hasDesignGroupFilter,
+                    activeDesignGroup,
+                  )
                   const skuScopeIds = collectFilteredIdsForSku(
                     filteredCategories,
                     activeStyle.id,
@@ -1178,10 +1215,15 @@ export default function CatalogPageClient() {
                     priceHigh,
                     rates,
                     wholesalePricing,
+                    skuDg,
                   )
                   const kn = skuScopeIds.filter((id) => selectedProductIds.includes(id)).length
                   const allSku = skuScopeIds.length > 0 && kn === skuScopeIds.length
                   const someSku = kn > 0 && kn < skuScopeIds.length
+                  const skuBulkAria =
+                    skuDg != null
+                      ? `Select all visible (${skuDg}) items in ${sub.name}`
+                      : `Select all filtered items in SKU ${sub.name}`
                   return (
                     <div key={sub.id} className="flex shrink-0 items-center gap-1.5">
                       {catalogBuilderMode && canUseCatalogBuilder && (
@@ -1189,7 +1231,7 @@ export default function CatalogPageClient() {
                           allSelected={allSku}
                           someSelected={someSku}
                           onToggle={() => toggleSkuSelectAll(activeStyle.id, sub.id)}
-                          ariaLabel={`Select all filtered items in SKU ${sub.name}`}
+                          ariaLabel={skuBulkAria}
                         />
                       )}
                       <button
@@ -1344,6 +1386,12 @@ export default function CatalogPageClient() {
                           <div className="ml-3 mt-0.5 mb-1 space-y-0.5 border-l border-slate-800 pl-3">
                             {cat.subcategories.map((sub) => {
                               const isSubActive = activeSkuId === sub.id
+                              const skuDg = skuBulkDesignGroupForRow(
+                                sub.id,
+                                activeSkuId,
+                                hasDesignGroupFilter,
+                                activeDesignGroup,
+                              )
                               const skuScopeIds = collectFilteredIdsForSku(
                                 filteredCategories,
                                 cat.id,
@@ -1355,12 +1403,17 @@ export default function CatalogPageClient() {
                                 priceHigh,
                                 rates,
                                 wholesalePricing,
+                                skuDg,
                               )
                               const kn = skuScopeIds.filter((id) =>
                                 selectedProductIds.includes(id),
                               ).length
                               const allSku = skuScopeIds.length > 0 && kn === skuScopeIds.length
                               const someSku = kn > 0 && kn < skuScopeIds.length
+                              const skuBulkAria =
+                                skuDg != null
+                                  ? `Select all visible (${skuDg}) items in ${sub.name}`
+                                  : `Select all filtered items in SKU ${sub.name}`
                               return (
                                 <div
                                   key={sub.id}
@@ -1373,7 +1426,7 @@ export default function CatalogPageClient() {
                                       allSelected={allSku}
                                       someSelected={someSku}
                                       onToggle={() => toggleSkuSelectAll(cat.id, sub.id)}
-                                      ariaLabel={`Select all filtered items in SKU ${sub.name}`}
+                                      ariaLabel={skuBulkAria}
                                     />
                                   )}
                                   <button
@@ -1569,9 +1622,13 @@ export default function CatalogPageClient() {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                   {gridProducts.map((p, i) => {
                     const selectionKey = getProductSelectionKey(p as Product)
+                    const cardKey =
+                      selectionKey !== ''
+                        ? selectionKey
+                        : `sku-${activeSkuId ?? 'x'}-${i}-${catalogGridSurfaceKey}`
                     return (
                       <ProductCard
-                        key={p.barcode || p.id || p.sku}
+                        key={cardKey}
                         product={
                           {
                             ...p,

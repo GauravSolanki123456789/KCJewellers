@@ -65,6 +65,7 @@ function B2BAdminContent() {
     custom_domain: '',
     logo_url: '',
     allowed_category_ids: [] as number[],
+    contact_mobile: '',
   })
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoFileError, setLogoFileError] = useState<string | null>(null)
@@ -111,6 +112,7 @@ function B2BAdminContent() {
         custom_domain: resellerModalUser.custom_domain ?? '',
         logo_url: resellerModalUser.logo_url ?? '',
         allowed_category_ids: Array.isArray(ids) ? [...ids] : [],
+        contact_mobile: resellerModalUser.mobile_number ?? '',
       })
       setLogoFile(null)
       setLogoFileError(null)
@@ -172,11 +174,19 @@ function B2BAdminContent() {
         )
         if (up.data?.logo_url) logoUrl = up.data.logo_url
       }
+      const rawMob = resellerForm.contact_mobile.trim()
+      const mobDigits = rawMob.replace(/\D/g, '').slice(-10)
+      if (rawMob && mobDigits.length !== 10) {
+        alert('WhatsApp / orders: enter exactly 10 digits, or leave blank.')
+        setResellerSaving(false)
+        return
+      }
       await axios.put(`/api/admin/users/${resellerModalUser.id}`, {
         business_name: resellerForm.business_name.trim() || null,
         custom_domain: resellerForm.custom_domain.trim() || null,
         logo_url: logoUrl,
         allowed_category_ids: resellerForm.allowed_category_ids,
+        mobile_number: rawMob ? mobDigits : null,
       })
       await load()
       setResellerModalUser(null)
@@ -449,6 +459,26 @@ function B2BAdminContent() {
                     onChange={(e) => setResellerForm((f) => ({ ...f, business_name: e.target.value }))}
                     placeholder="Shown on navbar & shared links"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    WhatsApp / orders (10-digit)
+                  </label>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    maxLength={14}
+                    className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    value={resellerForm.contact_mobile}
+                    onChange={(e) =>
+                      setResellerForm((f) => ({ ...f, contact_mobile: e.target.value }))
+                    }
+                    placeholder="Customer orders via WhatsApp checkout"
+                  />
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                    Saved as your account mobile — used for &quot;Send Order via WhatsApp&quot; on your custom domain storefront.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Logo</label>

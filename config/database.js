@@ -594,6 +594,10 @@ async function initSchema() {
         await pool.query(`
             CREATE INDEX IF NOT EXISTS idx_shared_catalogs_expires_at ON shared_catalogs(expires_at)
         `);
+        await pool.query(`
+            ALTER TABLE shared_catalogs
+            ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+        `);
     } catch (error) {
         console.warn('shared_catalogs init:', error.message);
     }

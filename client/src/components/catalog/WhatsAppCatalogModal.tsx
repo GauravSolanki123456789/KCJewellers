@@ -11,6 +11,7 @@ import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import {
   CUSTOMER_TIER,
   normalizeCustomerTier,
+  buildWholesalePricingInput,
   type WholesaleUserFields,
 } from '@/lib/customer-tier'
 import { resolveCatalogShareBrand } from '@/lib/catalog-share'
@@ -132,6 +133,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           return
         }
         const itemsForPdf = await resolveItemsForPdf(items)
+        const wholesalePdf = isReseller
+          ? buildWholesalePricingInput(auth.user as WholesaleUserFields)
+          : null
         const blob = await pdf(
           <CatalogPdfDocument
             products={itemsForPdf}
@@ -141,6 +145,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   resellerPdfPricing: {
                     rates,
                     markupPercentage: clampedMarkup,
+                    wholesale: wholesalePdf,
                   },
                 }
               : {})}
@@ -191,6 +196,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     isReseller,
     clampedMarkup,
     isBootstrapping,
+    auth.user,
   ])
 
   const copyLink = useCallback(async () => {

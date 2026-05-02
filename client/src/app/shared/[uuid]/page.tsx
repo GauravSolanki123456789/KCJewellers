@@ -20,6 +20,25 @@ export async function generateMetadata({
   const pageUrl = `${site}/shared/${encodeURIComponent(uuid)}`;
   const ogImage = getOgImagePath();
 
+  const ogImages =
+    branding?.logoUrl?.trim().startsWith("http")
+      ? [
+          {
+            url: branding.logoUrl.trim(),
+            width: 800,
+            height: 800,
+            alt: brandLabel,
+          },
+        ]
+      : [
+          {
+            url: ogImage,
+            width: 2048,
+            height: 2048,
+            alt: brandLabel,
+          },
+        ];
+
   return {
     metadataBase: new URL(site),
     title: `Shared catalogue · ${brandLabel}`,
@@ -33,20 +52,13 @@ export async function generateMetadata({
       title: `${brandLabel} — Shared catalogue`,
       description:
         "Curated jewellery selection — transparent live pricing incl. GST.",
-      images: [
-        {
-          url: ogImage,
-          width: 2048,
-          height: 2048,
-          alt: brandLabel,
-        },
-      ],
+      images: ogImages,
     },
     twitter: {
       card: "summary_large_image",
       title: `${brandLabel} — Shared catalogue`,
       description: "Curated jewellery selection — live pricing incl. GST.",
-      images: [ogImage],
+      images: ogImages.map((i) => i.url),
     },
   };
 }

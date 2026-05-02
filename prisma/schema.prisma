@@ -24,6 +24,8 @@ model SharedCatalog {
   markupPercentage Float    @map("markup_percentage")
   expiresAt        DateTime @map("expires_at") @db.Timestamptz(6)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Snapshot creator — applies reseller wholesale pricing on public brochure (+ link markup).
+  createdByUserId  Int?     @map("created_by_user_id")
 
   @@map("shared_catalogs")
 }

@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { CustomerTierProvider } from "@/context/CustomerTierContext";
 import { ResellerBrandingProvider } from "@/context/ResellerBrandingContext";
-import { getBrandingFromMiddlewareHeader } from "@/lib/reseller-branding-server";
+import { getStorefrontTenantFromHeaders } from "@/lib/reseller-branding-server";
 import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
@@ -117,7 +117,8 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const imageHost = apiOriginForPreconnect();
-  const resellerHostBranding = await getBrandingFromMiddlewareHeader();
+  const { branding: resellerHostBranding, customDomainHost } =
+    await getStorefrontTenantFromHeaders();
   return (
     <html lang="en" className="bg-slate-950">
       <head>
@@ -133,7 +134,10 @@ export default async function RootLayout({
       >
         <GoogleAnalytics />
         <CustomerTierProvider>
-        <ResellerBrandingProvider initialFromHost={resellerHostBranding}>
+        <ResellerBrandingProvider
+          initialFromHost={resellerHostBranding}
+          customDomainHost={customDomainHost}
+        >
         <CartProvider>
           <BookRateProvider>
             <LoginModalProvider>
