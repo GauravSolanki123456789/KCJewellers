@@ -1,5 +1,9 @@
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
-import { getItemWeightWithGrossFallback, type Item } from '@/lib/pricing'
+import {
+  calculateBreakdown,
+  getItemWeightWithGrossFallback,
+  type Item,
+} from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 
@@ -67,6 +71,15 @@ const styles = StyleSheet.create({
   },
   weightLine: { fontSize: 8, color: '#94a3b8', marginBottom: 2 },
   weightMuted: { fontSize: 8, color: '#475569' },
+  priceLine: {
+    fontSize: 11,
+    color: '#fbbf24',
+    fontFamily: 'Helvetica',
+    fontWeight: 'bold',
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  priceMuted: { fontSize: 6, color: '#64748b', marginBottom: 2 },
   footer: {
     position: 'absolute',
     bottom: 20,
@@ -87,9 +100,23 @@ function displayName(p: Item) {
   )
 }
 
+/** RESELLER brochure PDF: show marked-up prices (same basis as shared web catalogue). */
+export type CatalogPdfResellerPricing = {
+  rates: unknown
+  markupPercentage: number
+}
+
 export type CatalogPdfDocumentProps = {
   products: ItemWithPdfImage[]
   brandName?: string
+  resellerPdfPricing?: CatalogPdfResellerPricing | null
+}
+
+function formatMarkedUpInclGst(item: Item, rates: unknown, markupPct: number): string {
+  const gst = Number((item as { gst_rate?: number }).gst_rate ?? 3) || 3
+  const b = calculateBreakdown(item, rates, gst)
+  const total = b.total * (1 + Math.max(0, markupPct) / 100)
+  return `₹${Math.round(total).toLocaleString('en-IN')} incl. GST`
 }
 
 const PER_PAGE = 9
@@ -97,6 +124,7 @@ const PER_PAGE = 9
 export function CatalogPdfDocument({
   products,
   brandName = 'KC Jewellers',
+  resellerPdfPricing = null,
 }: CatalogPdfDocumentProps) {
   const chunks: ItemWithPdfImage[][] = []
   for (let i = 0; i < products.length; i += PER_PAGE) {
@@ -132,6 +160,20 @@ export function CatalogPdfDocument({
                 weight != null && !Number.isNaN(Number(weight))
                   ? `${Number(weight).toFixed(2)} gm`
                   : '-'
+              const showPrices =
+                resellerPdfPricing &&
+                resellerPdfPricing.rates != null
+              const priceLabel =
+                showPrices
+                  ? formatMarkedUpInclGst(
+                      p,
+                      resellerPdfPricing.rates,
+                      resellerPdfPricing.markupPercentage,
+                    )
+                  : null
+              const markupPct = showPrices
+                ? Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0)
+                : 0
               return (
                 <View key={key} style={styles.card}>
                   <View style={styles.thumbWrap}>
@@ -146,6 +188,16 @@ export function CatalogPdfDocument({
                   <Text style={styles.weightLine}>
                     Weight · {weightText}
                   </Text>
+                  {priceLabel ? (
+                    <>
+                      <Text style={styles.priceLine}>{priceLabel}</Text>
+                      {markupPct > 0 ? (
+                        <Text style={styles.priceMuted}>
+                          +{markupPct}% vs storefront incl. GST
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : null}
                   <Text style={styles.title}>{name}</Text>
                 </View>
               )

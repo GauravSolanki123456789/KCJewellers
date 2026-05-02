@@ -122,13 +122,59 @@ const allowedOrigins = buildAllowedCorsOrigins();
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
     console.error('❌ Production CORS: set CLIENT_URL and/or CORS_ORIGINS (e.g. https://kcjewellers.co.in,https://www.kcjewellers.co.in).');
 }
+
+/** Apex hostname for matching `users.custom_domain` (RESELLER storefront hosts). */
+function normalizeStorefrontHostname(hostname) {
+    const h = String(hostname || '').split(':')[0].trim().toLowerCase();
+    return h.replace(/^www\./, '');
+}
+
+const resellerOriginCache = new Map();
+const RESELLER_ORIGIN_CACHE_MS = 120000;
+
+async function originMatchesResellerCustomDomain(originHeader) {
+    let hostname;
+    try {
+        hostname = normalizeStorefrontHostname(new URL(originHeader).hostname);
+    } catch {
+        return false;
+    }
+    if (!hostname) return false;
+    const now = Date.now();
+    const cached = resellerOriginCache.get(hostname);
+    if (cached && now - cached.at < RESELLER_ORIGIN_CACHE_MS) return cached.ok;
+    let ok = false;
+    try {
+        const rows = await query(
+            `SELECT 1 FROM users
+             WHERE UPPER(TRIM(COALESCE(customer_tier::text, ''))) = 'RESELLER'
+               AND NULLIF(TRIM(custom_domain), '') IS NOT NULL
+               AND LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(custom_domain), '^https?://', '', 'i'), '/.*$', ''), '^www\.', '', 'i'))) = $1
+             LIMIT 1`,
+            [hostname],
+        );
+        ok = rows.length > 0;
+    } catch {
+        ok = false;
+    }
+    resellerOriginCache.set(hostname, { ok, at: now });
+    return ok;
+}
+
+function corsOriginCallback(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    originMatchesResellerCustomDomain(origin)
+        .then((allow) => {
+            if (allow) callback(null, true);
+            else callback(new Error(`CORS: origin ${origin} not allowed`));
+        })
+        .catch(() => callback(new Error(`CORS: origin ${origin} not allowed`)));
+}
+
 const io = new Server(server, {
     cors: {
-        origin: (origin, callback) => {
-            if (!origin) return callback(null, true);
-            if (allowedOrigins.includes(origin)) return callback(null, true);
-            callback(new Error(`CORS: origin ${origin} not allowed`));
-        },
+        origin: corsOriginCallback,
         methods: ["GET", "POST"],
         credentials: true
     }
@@ -137,12 +183,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware - CORS must allow credentials for cross-subdomain cookie sharing
 app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (curl, server-to-server)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) return callback(null, true);
-        callback(new Error(`CORS: origin ${origin} not allowed`));
-    },
+    origin: corsOriginCallback,
     credentials: true,
 }));
 app.use(express.json({ limit: '100mb' }));

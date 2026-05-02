@@ -8,7 +8,11 @@ import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
-import type { WholesaleUserFields } from '@/lib/customer-tier'
+import {
+  CUSTOMER_TIER,
+  normalizeCustomerTier,
+  type WholesaleUserFields,
+} from '@/lib/customer-tier'
 import { resolveCatalogShareBrand } from '@/lib/catalog-share'
 import { createSharedCatalog } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
@@ -55,7 +59,7 @@ function findProductsByBarcodes(
 }
 
 export default function WhatsAppCatalogModal({ open, onClose }: Props) {
-  const { categories } = useCatalogData()
+  const { categories, rates, isBootstrapping } = useCatalogData()
   const { selectedProductIds, clearSelection } = useCatalogBuilder()
   const auth = useAuth()
   const { customerTier } = useCustomerTier()
@@ -82,6 +86,13 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
       userBusinessName: user?.business_name,
     })
   }, [auth.user, brandingActive, brandingBusinessName, customerTier])
+
+  const isReseller = normalizeCustomerTier(customerTier) === CUSTOMER_TIER.RESELLER
+
+  const clampedMarkup = useMemo(
+    () => Math.max(0, Math.min(1000, Number(markupPercentage) || 0)),
+    [markupPercentage],
+  )
 
   const resetAndClose = useCallback(() => {
     setError(null)
@@ -115,9 +126,25 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           setBusy(false)
           return
         }
+        if (isReseller && isBootstrapping) {
+          setError('Prices are still loading. Wait a moment and try again.')
+          setBusy(false)
+          return
+        }
         const itemsForPdf = await resolveItemsForPdf(items)
         const blob = await pdf(
-          <CatalogPdfDocument products={itemsForPdf} />,
+          <CatalogPdfDocument
+            products={itemsForPdf}
+            {...(isReseller
+              ? {
+                  brandName: shareBrandLabel,
+                  resellerPdfPricing: {
+                    rates,
+                    markupPercentage: clampedMarkup,
+                  },
+                }
+              : {})}
+          />,
         ).toBlob()
         const slug =
           shareBrandLabel
@@ -134,7 +161,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
       const res = await createSharedCatalog({
         selectedProductIds,
-        markupPercentage,
+        markupPercentage: clampedMarkup,
         format: 'temporary_web_link',
         expiresAt: expiresAtIso,
       })
@@ -157,9 +184,13 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     markupPercentage,
     expiresAtIso,
     categories,
+    rates,
     clearSelection,
     resetAndClose,
     shareBrandLabel,
+    isReseller,
+    clampedMarkup,
+    isBootstrapping,
   ])
 
   const copyLink = useCallback(async () => {
@@ -242,12 +273,19 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             </div>
             {outputFormat === 'pdf' && (
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                PDF includes product image, name, barcode, and net weight — prices are not shown.
+                {isReseller ? (
+                  <>
+                    Uses your business name on the PDF. Prices use live rates incl.&nbsp;GST plus your global markup
+                    ({clampedMarkup}%).
+                  </>
+                ) : (
+                  <>PDF includes product image, name, barcode, and net weight — prices are not shown.</>
+                )}
               </p>
             )}
           </div>
 
-          {outputFormat === 'temporary_web_link' && (
+          {(outputFormat === 'temporary_web_link' || isReseller) && (
             <div className="space-y-5">
               <div>
                 <label htmlFor="markup-pct" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -264,26 +302,30 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none ring-amber-500/0 transition focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Applied on top of the live price incl. GST on the shared link (e.g. 10 = +10%).
+                  {outputFormat === 'temporary_web_link'
+                    ? 'Applied on top of the live price incl. GST on the shared link (e.g. 10 = +10%).'
+                    : 'Applied on top of the live price incl. GST on each line in the PDF (same basis as the shared link).'}
                 </p>
               </div>
-              <div>
-                <label htmlFor="expiry" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Link expires in
-                </label>
-                <select
-                  id="expiry"
-                  value={expiryHours}
-                  onChange={(e) => setExpiryHours(Number(e.target.value))}
-                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
-                >
-                  {EXPIRY_OPTIONS.map((o) => (
-                    <option key={o.hours} value={o.hours}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {outputFormat === 'temporary_web_link' ? (
+                <div>
+                  <label htmlFor="expiry" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Link expires in
+                  </label>
+                  <select
+                    id="expiry"
+                    value={expiryHours}
+                    onChange={(e) => setExpiryHours(Number(e.target.value))}
+                    className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                  >
+                    {EXPIRY_OPTIONS.map((o) => (
+                      <option key={o.hours} value={o.hours}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
             </div>
           )}
 
