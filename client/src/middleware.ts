@@ -1,23 +1,17 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-function defaultHostnames(): Set<string> {
-  const s = new Set([
-    "kcjewellers.co.in",
-    "www.kcjewellers.co.in",
-    "localhost",
-    "127.0.0.1",
-  ]);
-  const site = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (site) {
-    try {
-      const u = new URL(site.startsWith("http") ? site : `https://${site}`);
-      s.add(u.hostname.toLowerCase());
-    } catch {
-      /* ignore */
-    }
-  }
-  return s;
+/**
+ * Hosts where we do NOT treat the request as a reseller vanity domain.
+ * (Do not add NEXT_PUBLIC_SITE_URL here — if it ever equals a reseller domain,
+ * branding + OG previews on that host would break.)
+ */
+function isCanonicalPlatformHost(host: string): boolean {
+  const h = host.trim().toLowerCase().split(":")[0];
+  if (!h) return true;
+  if (h === "localhost" || h === "127.0.0.1") return true;
+  if (h === "kcjewellers.co.in" || h === "www.kcjewellers.co.in") return true;
+  return false;
 }
 
 function hostname(hostHeader: string | null): string {
@@ -28,10 +22,9 @@ function hostname(hostHeader: string | null): string {
 /** Legacy catalogue query URLs → path-based SEO URLs; custom domains → `x-custom-domain` for branding. */
 export function middleware(request: NextRequest) {
   const host = hostname(request.headers.get("host"));
-  const defaults = defaultHostnames();
 
   const requestHeaders = new Headers(request.headers);
-  if (host && !defaults.has(host)) {
+  if (host && !isCanonicalPlatformHost(host)) {
     requestHeaders.set("x-custom-domain", host);
   }
 
@@ -51,7 +44,7 @@ export function middleware(request: NextRequest) {
       url.pathname = `/catalog/${encodeURIComponent(metalRaw)}/${encodeURIComponent(style)}/${encodeURIComponent(sku)}`;
       url.search = "";
       const res = NextResponse.redirect(url, 308);
-      if (host && !defaults.has(host)) {
+      if (host && !isCanonicalPlatformHost(host)) {
         res.headers.set("x-custom-domain", host);
       }
       return res;

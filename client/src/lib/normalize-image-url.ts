@@ -34,3 +34,11 @@ export function resolveCatalogImageUrlForMeta(
   if (n) return n;
   return absoluteImageUrl(raw);
 }
+
+/** Reseller `users.logo_url` — same `/uploads/` rules as catalogue photos; WhatsApp/OG need absolute https. */
+export function normalizeResellerLogoUrl(
+  raw: string | null | undefined,
+): string | null {
+  const n = normalizeCatalogImageSrc(raw);
+  return n.length > 0 ? n : null;
+}

@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
 
 export type PublicResellerBranding = {
   businessName: string | null;
@@ -34,7 +35,7 @@ export async function fetchPublicResellerBranding(
     if (!data?.business_name && !data?.logo_url && !contactPhoneDigits) return null;
     return {
       businessName: data.business_name || null,
-      logoUrl: data.logo_url || null,
+      logoUrl: normalizeResellerLogoUrl(data.logo_url ?? null),
       contactPhoneDigits,
     };
   } catch {

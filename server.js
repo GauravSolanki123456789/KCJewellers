@@ -5334,6 +5334,45 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
 });
 
 /**
+ * Public: minimal brochure metadata for Open Graph / WhatsApp (no product payload).
+ */
+app.get('/api/public/shared-catalog-meta/:uuid', globalLimiter, async (req, res) => {
+    try {
+        const uuid = String(req.params.uuid || '').trim();
+        if (!UUID_RE.test(uuid)) {
+            return res.status(400).json({ error: 'Invalid catalog id' });
+        }
+        const rows = await query(
+            `SELECT sc.expires_at, sc.created_by_user_id,
+                    u.customer_tier AS creator_customer_tier,
+                    u.business_name AS creator_business_name,
+                    u.logo_url AS creator_logo_url
+             FROM shared_catalogs sc
+             LEFT JOIN users u ON u.id = sc.created_by_user_id
+             WHERE sc.id = $1::uuid`,
+            [uuid],
+        );
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Catalog not found' });
+        }
+        const row = rows[0];
+        const expiresAt = new Date(row.expires_at);
+        const expired = expiresAt.getTime() <= Date.now();
+        const tier = String(row.creator_customer_tier || '').toUpperCase();
+        const isResellerCreator = tier === 'RESELLER' && row.created_by_user_id;
+        res.setHeader('Cache-Control', 'public, max-age=120, s-maxage=120');
+        return res.json({
+            expired,
+            creatorBusinessName: isResellerCreator ? row.creator_business_name || null : null,
+            creatorLogoUrl: isResellerCreator ? row.creator_logo_url || null : null,
+        });
+    } catch (error) {
+        console.error('shared-catalog-meta:', error);
+        return res.status(500).json({ error: error.message || 'Failed to load catalog meta' });
+    }
+});
+
+/**
  * Public: load a shared catalogue by UUID (for /shared/[uuid] brochure page).
  */
 app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
