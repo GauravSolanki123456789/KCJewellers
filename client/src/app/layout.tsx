@@ -1,10 +1,16 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
+import { headers } from "next/headers";
 import "./globals.css";
 import { CustomerTierProvider } from "@/context/CustomerTierContext";
 import { ResellerBrandingProvider } from "@/context/ResellerBrandingContext";
+import { KcThemeProvider } from "@/context/KcThemeContext";
 import { getStorefrontTenantFromHeaders } from "@/lib/reseller-branding-server";
+import {
+  fetchPublicKcAppThemeId,
+  fetchSharedCatalogKcThemeId,
+} from "@/lib/kc-theme-server";
 import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
@@ -117,10 +123,27 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const imageHost = apiOriginForPreconnect();
+  const h = await headers();
+  const pathname = h.get("x-pathname") || "";
   const { branding: resellerHostBranding, customDomainHost } =
     await getStorefrontTenantFromHeaders();
+
+  let initialKcThemeId = await fetchPublicKcAppThemeId();
+  if (resellerHostBranding?.kcThemeId) {
+    initialKcThemeId = resellerHostBranding.kcThemeId;
+  } else if (pathname.startsWith("/shared/")) {
+    const uuid = pathname.slice("/shared/".length).split("/")[0]?.trim() || "";
+    if (uuid) {
+      initialKcThemeId = await fetchSharedCatalogKcThemeId(uuid);
+    }
+  }
+
   return (
-    <html lang="en" className="bg-slate-950">
+    <html
+      lang="en"
+      data-kc-theme={initialKcThemeId}
+      className="min-h-screen bg-slate-950"
+    >
       <head>
         {imageHost ? (
           <>
@@ -132,6 +155,7 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >
+        <KcThemeProvider initialKcThemeId={initialKcThemeId}>
         <GoogleAnalytics />
         <CustomerTierProvider>
         <ResellerBrandingProvider
@@ -163,6 +187,7 @@ export default async function RootLayout({
         </CartProvider>
         </ResellerBrandingProvider>
         </CustomerTierProvider>
+        </KcThemeProvider>
       </body>
     </html>
   );

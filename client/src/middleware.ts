@@ -29,6 +29,7 @@ export function middleware(request: NextRequest) {
   }
 
   const { pathname, searchParams } = request.nextUrl;
+  requestHeaders.set("x-pathname", pathname);
 
   if (pathname === "/catalog") {
     const style = searchParams.get("style")?.trim();

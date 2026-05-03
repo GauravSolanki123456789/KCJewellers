@@ -8,6 +8,7 @@ import {
   type PublicResellerBranding,
 } from "@/lib/reseller-branding-server";
 import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
+import { normalizeKcThemeId } from "@/lib/kc-theme-ids";
 
 /** Canonical URL for this response — preserves reseller vanity host for OG `url`. */
 function canonicalRequestOrigin(headersList: Headers): string {
@@ -23,6 +24,7 @@ function canonicalRequestOrigin(headersList: Headers): string {
 async function fetchBrochureOgHints(uuid: string): Promise<{
   creatorBusinessName: string | null;
   creatorLogoUrl: string | null;
+  kc_theme_id: string | null;
 } | null> {
   try {
     const api = getApiUrlForServer();
@@ -34,6 +36,7 @@ async function fetchBrochureOgHints(uuid: string): Promise<{
     const data = (await res.json()) as {
       creatorBusinessName?: string | null;
       creatorLogoUrl?: string | null;
+      kc_theme_id?: string | null;
     };
     const cn =
       typeof data.creatorBusinessName === "string"
@@ -41,9 +44,14 @@ async function fetchBrochureOgHints(uuid: string): Promise<{
         : "";
     const cl =
       typeof data.creatorLogoUrl === "string" ? data.creatorLogoUrl.trim() : "";
+    const kt =
+      typeof data.kc_theme_id === "string" && data.kc_theme_id.trim()
+        ? data.kc_theme_id.trim()
+        : null;
     return {
       creatorBusinessName: cn || null,
       creatorLogoUrl: cl || null,
+      kc_theme_id: kt,
     };
   } catch {
     return null;
@@ -52,7 +60,11 @@ async function fetchBrochureOgHints(uuid: string): Promise<{
 
 function mergeSharedBranding(
   domainBranding: PublicResellerBranding | null,
-  hints: { creatorBusinessName: string | null; creatorLogoUrl: string | null } | null,
+  hints: {
+    creatorBusinessName: string | null;
+    creatorLogoUrl: string | null;
+    kc_theme_id: string | null;
+  } | null,
 ): PublicResellerBranding | null {
   const domainName = domainBranding?.businessName?.trim() || null;
   const creatorName = hints?.creatorBusinessName?.trim() || null;
@@ -64,11 +76,16 @@ function mergeSharedBranding(
 
   const digits = domainBranding?.contactPhoneDigits ?? null;
 
+  const kcThemeId = normalizeKcThemeId(
+    domainBranding?.kcThemeId ?? hints?.kc_theme_id ?? null,
+  );
+
   if (!name && !logo && !digits) return null;
   return {
     businessName: name,
     logoUrl: logo,
     contactPhoneDigits: digits,
+    kcThemeId,
   };
 }
 

@@ -40,6 +40,16 @@ export async function generateMetadata({
         "GST",
         "live rates",
       ],
+      robots: {
+        index: true,
+        follow: true,
+        googleBot: {
+          index: true,
+          follow: true,
+          "max-image-preview": "large",
+          "max-snippet": -1,
+        },
+      },
       alternates: { canonical: `${site}/catalog` },
       openGraph: {
         type: "website",
@@ -85,6 +95,16 @@ export async function generateMetadata({
     title: { absolute: titleBase },
     description,
     keywords: metadataKeywordsForPillar(cat?.name, sub?.name, metalLabel),
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+      },
+    },
     alternates: { canonical },
     openGraph: {
       type: "website",

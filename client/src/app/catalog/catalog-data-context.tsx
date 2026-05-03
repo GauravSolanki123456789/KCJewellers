@@ -15,7 +15,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCustomerTier } from "@/context/CustomerTierContext";
 import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
 
-type Category = {
+export type CatalogTreeCategory = {
   id: number;
   name: string;
   slug: string;
@@ -30,16 +30,19 @@ type Category = {
   }[];
 };
 
-function filterCategoriesForReseller(cats: Category[], allowedIds: number[] | null | undefined): Category[] {
+function filterCategoriesForReseller(
+  cats: CatalogTreeCategory[],
+  allowedIds: number[] | null | undefined,
+): CatalogTreeCategory[] {
   if (allowedIds === null || allowedIds === undefined || allowedIds.length === 0) return cats;
   const set = new Set(allowedIds);
   return cats.filter((c) => set.has(c.id));
 }
 
 type CatalogDataContextValue = {
-  categories: Category[];
+  categories: CatalogTreeCategory[];
   rates: unknown[];
-  /** True only until the first catalogue + rates fetch completes. */
+  /** True only until the first catalogue + rates fetch completes (skipped when SSR snapshot exists). */
   isBootstrapping: boolean;
   isRefreshing: boolean;
   refresh: () => Promise<void>;
@@ -47,11 +50,25 @@ type CatalogDataContextValue = {
 
 const CatalogDataContext = createContext<CatalogDataContextValue | null>(null);
 
-export function CatalogDataProvider({ children }: { children: ReactNode }) {
+export function CatalogDataProvider({
+  children,
+  /** Snapshot from GET /api/catalog + /api/rates/display — SSR HTML matches what crawlers index. */
+  initialCategories,
+  initialRates,
+}: {
+  children: ReactNode;
+  initialCategories?: CatalogTreeCategory[];
+  initialRates?: unknown[];
+}) {
   const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-  const [rawCategories, setRawCategories] = useState<Category[]>([]);
-  const [rates, setRates] = useState<unknown[]>([]);
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const serverSeeded = initialCategories !== undefined;
+  const [rawCategories, setRawCategories] = useState<CatalogTreeCategory[]>(
+    () => initialCategories ?? [],
+  );
+  const [rates, setRates] = useState<unknown[]>(() =>
+    Array.isArray(initialRates) ? initialRates : [],
+  );
+  const [isBootstrapping, setIsBootstrapping] = useState(!serverSeeded);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const auth = useAuth();
   const { customerTier, tierReady } = useCustomerTier();
@@ -80,8 +97,9 @@ export function CatalogDataProvider({ children }: { children: ReactNode }) {
   }, [url]);
 
   useEffect(() => {
+    if (serverSeeded) return;
     bootstrap();
-  }, [bootstrap]);
+  }, [bootstrap, serverSeeded]);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);

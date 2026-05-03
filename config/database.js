@@ -617,6 +617,17 @@ async function initSchema() {
             VALUES ('booking_advance_amount', '5000', CURRENT_TIMESTAMP)
             ON CONFLICT (key) DO NOTHING
         `);
+        await pool.query(`
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ('kc_theme_id', 'kci_royal_gold', CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO NOTHING
+        `);
+        await pool.query(`
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ('kc_reseller_theme_id', 'kci_royal_gold', CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO NOTHING
+        `);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS kc_theme_id VARCHAR(64)`);
     } catch (error) {
         console.warn('App settings init:', error.message);
     }

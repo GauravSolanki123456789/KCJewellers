@@ -1,11 +1,17 @@
 import { headers } from "next/headers";
 import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
+import {
+  DEFAULT_KC_THEME_ID,
+  normalizeKcThemeId,
+} from "@/lib/kc-theme-ids";
 
 export type PublicResellerBranding = {
   businessName: string | null;
   logoUrl: string | null;
   /** 10-digit mobile saved on the reseller user — used for storefront order WhatsApp. */
   contactPhoneDigits: string | null;
+  /** Resolved palette id for this reseller host (`kc_theme_id`). */
+  kcThemeId: string;
 };
 
 function apiBase(): string {
@@ -28,6 +34,7 @@ export async function fetchPublicResellerBranding(
       business_name?: string | null;
       logo_url?: string | null;
       contact_phone?: string | null;
+      kc_theme_id?: string | null;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -37,6 +44,7 @@ export async function fetchPublicResellerBranding(
       businessName: data.business_name || null,
       logoUrl: normalizeResellerLogoUrl(data.logo_url ?? null),
       contactPhoneDigits,
+      kcThemeId: normalizeKcThemeId(data?.kc_theme_id, DEFAULT_KC_THEME_ID),
     };
   } catch {
     return null;

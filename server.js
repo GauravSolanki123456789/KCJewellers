@@ -60,6 +60,12 @@ const TallyIntegration = require('./config/tally-integration');
 const TallySyncService = require('./config/tally-sync-service');
 const { calculateBillTotals, calculatePurchaseCost } = require('./services/pricingService');
 const liveRateService = require('./services/liveRateService');
+const { getThemeCatalog, normalizeKcThemeId, VALID_KC_THEME_IDS } = require('./services/kcThemeCatalog');
+const {
+    getAppKcThemeId,
+    getResellerDefaultKcThemeId,
+    resolveUserKcThemeId,
+} = require('./services/kcThemeSettings');
 
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
 const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
@@ -525,7 +531,8 @@ app.get('/auth/google/callback', authLimiter,
 );  
 
 // Current user endpoint - include full permissions context
-app.get('/api/auth/current_user', (req, res) => {
+app.get('/api/auth/current_user', async (req, res) => {
+    const appTheme = await getAppKcThemeId();
     if (req.isAuthenticated()) {
         // CRITICAL: Always resolve role to ensure super_admin gets correct role
         const { resolveUserRole } = require('./services/authService');
@@ -540,8 +547,10 @@ app.get('/api/auth/current_user', (req, res) => {
         const allowedCategoryIds = Array.isArray(catIds)
             ? catIds.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n))
             : null;
+        const kc_theme_id = await resolveUserKcThemeId(resolvedUser);
         res.json({ 
-            isAuthenticated: true, 
+            isAuthenticated: true,
+            kc_theme_id,
             user: {
                 id: resolvedUser.id,
                 email: resolvedUser.email,
@@ -556,6 +565,9 @@ app.get('/api/auth/current_user', (req, res) => {
                 custom_domain: resolvedUser.custom_domain ?? null,
                 logo_url: resolvedUser.logo_url ?? null,
                 allowed_category_ids: allowedCategoryIds,
+                kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
+                    ? String(resolvedUser.kc_theme_id).trim()
+                    : null,
                 account_status: resolvedUser.account_status,
                 allowed_tabs: resolvedUser.allowed_tabs || [],
                 permissions: resolvedUser.permissions || {}
@@ -570,11 +582,64 @@ app.get('/api/auth/current_user', (req, res) => {
     } else {
         res.json({ 
             isAuthenticated: false,
+            kc_theme_id: appTheme,
             has_wholesale_access: false,
             has_b2b_portal_access: false,
             permissions: getUserPermissions(null),
             permissionContext: getPermissionContext(null)
         });
+    }
+});
+
+/** Public: active colour theme for main storefront (app_settings.kc_theme_id). */
+app.get('/api/public/kc-theme', globalLimiter, async (req, res) => {
+    try {
+        const kc_theme_id = await getAppKcThemeId();
+        res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=120');
+        res.json({ kc_theme_id });
+    } catch (error) {
+        console.error('public kc-theme:', error);
+        res.json({ kc_theme_id: normalizeKcThemeId(null) });
+    }
+});
+
+/** Admin: theme catalogue + current app / reseller defaults. */
+app.get('/api/admin/settings/kc-theme', isAdminStrict, async (req, res) => {
+    try {
+        const kc_theme_id = await getAppKcThemeId();
+        const kc_reseller_theme_id = await getResellerDefaultKcThemeId();
+        res.json({
+            ...getThemeCatalog(),
+            kc_theme_id,
+            kc_reseller_theme_id,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to load theme settings' });
+    }
+});
+
+app.put('/api/admin/settings/kc-theme', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { kc_theme_id, kc_reseller_theme_id } = req.body || {};
+        const upsert = async (key, val) => {
+            await query(`
+                INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+            `, [key, String(val)]);
+        };
+        if (kc_theme_id !== undefined) {
+            await upsert('kc_theme_id', normalizeKcThemeId(kc_theme_id, await getAppKcThemeId()));
+        }
+        if (kc_reseller_theme_id !== undefined) {
+            await upsert('kc_reseller_theme_id', normalizeKcThemeId(kc_reseller_theme_id, await getResellerDefaultKcThemeId()));
+        }
+        res.json({
+            success: true,
+            kc_theme_id: await getAppKcThemeId(),
+            kc_reseller_theme_id: await getResellerDefaultKcThemeId(),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to save theme settings' });
     }
 });
 
@@ -590,7 +655,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             return res.status(400).json({ error: 'domain query parameter required' });
         }
         const rows = await query(
-            `SELECT business_name, logo_url, mobile_number FROM users
+            `SELECT business_name, logo_url, mobile_number, kc_theme_id FROM users
              WHERE customer_tier = 'RESELLER'
              AND NULLIF(TRIM(custom_domain), '') IS NOT NULL
              AND LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(custom_domain), '^https?://', '', 'i'), '/.*$', ''), '^www\.', '', 'i'))) = $1
@@ -598,15 +663,23 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             [domain],
         );
         if (!rows.length) {
-            return res.json({ business_name: null, logo_url: null, contact_phone: null });
+            return res.json({
+                business_name: null,
+                logo_url: null,
+                contact_phone: null,
+                kc_theme_id: null,
+            });
         }
         const rawDigits = String(rows[0].mobile_number || '').replace(/\D/g, '');
         const contact_phone =
             rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits.length > 0 ? rawDigits : null;
+        const resellerDef = await getResellerDefaultKcThemeId();
+        const kc_theme_id = normalizeKcThemeId(rows[0].kc_theme_id, resellerDef);
         res.json({
             business_name: rows[0].business_name || null,
             logo_url: rows[0].logo_url || null,
             contact_phone,
+            kc_theme_id,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -2781,7 +2854,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                 SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
                        account_status, phone_number, mobile_number,
                        customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
-                       business_name, custom_domain, logo_url, allowed_category_ids,
+                       business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
                        created_at, updated_at 
                 FROM users 
                 WHERE COALESCE(is_deleted, false) = false
@@ -2798,7 +2871,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                     SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
                            account_status, phone_number, mobile_number,
                            customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
-                           business_name, custom_domain, logo_url, allowed_category_ids,
+                           business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
                            created_at, updated_at 
                     FROM users 
                     ORDER BY 
@@ -3043,6 +3116,7 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             custom_domain,
             logo_url,
             allowed_category_ids,
+            kc_theme_id,
         } = req.body;
         
         // Check if user exists
@@ -3166,6 +3240,23 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             const ints = [...new Set(ids.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n)))];
             updates.push(`allowed_category_ids = $${paramIndex++}`);
             params.push(ints.length ? ints : null);
+        }
+
+        if (kc_theme_id !== undefined) {
+            const tierNow = String(user.customer_tier || '').toUpperCase();
+            if (tierNow === 'RESELLER') {
+                if (kc_theme_id === null || kc_theme_id === '') {
+                    updates.push(`kc_theme_id = $${paramIndex++}`);
+                    params.push(null);
+                } else {
+                    const tid = String(kc_theme_id).trim();
+                    if (!VALID_KC_THEME_IDS.has(tid)) {
+                        return res.status(400).json({ error: 'Invalid kc_theme_id' });
+                    }
+                    updates.push(`kc_theme_id = $${paramIndex++}`);
+                    params.push(tid);
+                }
+            }
         }
         
         // Handle permissions update - merge logic to avoid duplicate column assignment
@@ -5346,7 +5437,8 @@ app.get('/api/public/shared-catalog-meta/:uuid', globalLimiter, async (req, res)
             `SELECT sc.expires_at, sc.created_by_user_id,
                     u.customer_tier AS creator_customer_tier,
                     u.business_name AS creator_business_name,
-                    u.logo_url AS creator_logo_url
+                    u.logo_url AS creator_logo_url,
+                    u.kc_theme_id AS creator_kc_theme_id
              FROM shared_catalogs sc
              LEFT JOIN users u ON u.id = sc.created_by_user_id
              WHERE sc.id = $1::uuid`,
@@ -5360,11 +5452,18 @@ app.get('/api/public/shared-catalog-meta/:uuid', globalLimiter, async (req, res)
         const expired = expiresAt.getTime() <= Date.now();
         const tier = String(row.creator_customer_tier || '').toUpperCase();
         const isResellerCreator = tier === 'RESELLER' && row.created_by_user_id;
+        const appTheme = await getAppKcThemeId();
+        const resellerDefault = await getResellerDefaultKcThemeId();
+        let kc_theme_id = appTheme;
+        if (isResellerCreator) {
+            kc_theme_id = normalizeKcThemeId(row.creator_kc_theme_id, resellerDefault);
+        }
         res.setHeader('Cache-Control', 'public, max-age=120, s-maxage=120');
         return res.json({
             expired,
             creatorBusinessName: isResellerCreator ? row.creator_business_name || null : null,
             creatorLogoUrl: isResellerCreator ? row.creator_logo_url || null : null,
+            kc_theme_id,
         });
     } catch (error) {
         console.error('shared-catalog-meta:', error);
@@ -5388,7 +5487,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                     u.customer_tier AS creator_customer_tier,
                     u.mobile_number AS creator_mobile_number,
                     u.wholesale_markup_percent AS creator_wholesale_markup_pct,
-                    u.wholesale_making_charge_discount_percent AS creator_wholesale_mc_disc
+                    u.wholesale_making_charge_discount_percent AS creator_wholesale_mc_disc,
+                    u.kc_theme_id AS creator_kc_theme_id
              FROM shared_catalogs sc
              LEFT JOIN users u ON u.id = sc.created_by_user_id
              WHERE sc.id = $1::uuid`,
@@ -5404,6 +5504,14 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         const creatorCustomerTier = row.created_by_user_id
             ? String(row.creator_customer_tier || '').trim().toUpperCase() || null
             : null;
+        const creatorTierUp = String(row.creator_customer_tier || '').toUpperCase();
+        const isResellerCreator = creatorTierUp === 'RESELLER' && row.created_by_user_id;
+        const appThemeBrochure = await getAppKcThemeId();
+        const resellerDefaultBrochure = await getResellerDefaultKcThemeId();
+        let kc_theme_id = appThemeBrochure;
+        if (isResellerCreator) {
+            kc_theme_id = normalizeKcThemeId(row.creator_kc_theme_id, resellerDefaultBrochure);
+        }
         const expiresAt = new Date(row.expires_at);
         if (expiresAt.getTime() <= Date.now()) {
             return res.json({
@@ -5412,6 +5520,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 markupPercentage: markupPctJson,
                 creatorWholesalePricing: cwPricing,
                 products: [],
+                kc_theme_id,
             });
         }
 
@@ -5428,6 +5537,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 creatorCustomerTier,
                 products: [],
                 rates: payload?.rates ?? [],
+                kc_theme_id,
             });
         }
 
@@ -5465,6 +5575,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             creatorCustomerTier,
             products,
             rates: payload?.rates ?? [],
+            kc_theme_id,
         });
     } catch (error) {
         console.error('shared-catalog get:', error);

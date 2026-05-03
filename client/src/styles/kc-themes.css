@@ -1,0 +1,161 @@
+/**
+ * Per-theme Tailwind palette overrides (v4 uses --color-* on :root).
+ * Attribute: html[data-kc-theme="..."]  — set from SSR + KcThemeProvider.
+ * Consistent keyword: kc_theme_id (values like kci_royal_gold).
+ */
+
+/* Royal Gold: keep Tailwind defaults — only align jewellery token */
+html[data-kc-theme="kci_royal_gold"] {
+  --color-jewelry-gold: #d4af37;
+  --color-jewelry-black: #0a0a0a;
+}
+
+html[data-kc-theme="kci_midnight_rose"] {
+  --color-jewelry-gold: #f472b6;
+  --color-jewelry-black: #1a0a0f;
+  --color-slate-50: #fdf2f4;
+  --color-slate-100: #fce7ec;
+  --color-slate-200: #f9d0dc;
+  --color-slate-300: #f4a4b9;
+  --color-slate-400: #e8799a;
+  --color-slate-500: #be185d;
+  --color-slate-600: #9f1239;
+  --color-slate-700: #831843;
+  --color-slate-800: #3b0a1a;
+  --color-slate-900: #2a0b16;
+  --color-slate-950: #1a0b12;
+  --color-amber-200: #fecdd3;
+  --color-amber-300: #fda4af;
+  --color-amber-400: #fb7185;
+  --color-amber-500: #f43f5e;
+  --color-amber-600: #e11d48;
+  --color-yellow-400: #fda4af;
+  --color-yellow-500: #f472b6;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-emerald-950: #022c22;
+  --color-cyan-400: #22d3ee;
+  --color-cyan-500: #06b6d4;
+}
+
+html[data-kc-theme="kci_ocean_cyan"] {
+  --color-jewelry-gold: #38bdf8;
+  --color-jewelry-black: #042f2e;
+  --color-slate-50: #ecfeff;
+  --color-slate-100: #cffafe;
+  --color-slate-200: #a5f3fc;
+  --color-slate-300: #67e8f9;
+  --color-slate-400: #22d3ee;
+  --color-slate-500: #06b6d4;
+  --color-slate-600: #0e7490;
+  --color-slate-700: #155e75;
+  --color-slate-800: #164e63;
+  --color-slate-900: #0c4a6e;
+  --color-slate-950: #071826;
+  --color-amber-200: #bae6fd;
+  --color-amber-300: #7dd3fc;
+  --color-amber-400: #38bdf8;
+  --color-amber-500: #0ea5e9;
+  --color-amber-600: #0284c7;
+  --color-yellow-400: #7dd3fc;
+  --color-yellow-500: #38bdf8;
+  --color-emerald-300: #5eead4;
+  --color-emerald-400: #2dd4bf;
+  --color-emerald-500: #14b8a6;
+  --color-emerald-600: #0d9488;
+  --color-emerald-950: #042f2e;
+  --color-cyan-400: #67e8f9;
+  --color-cyan-500: #22d3ee;
+}
+
+html[data-kc-theme="kci_amethyst_luxe"] {
+  --color-jewelry-gold: #c084fc;
+  --color-jewelry-black: #0b0616;
+  --color-slate-50: #faf5ff;
+  --color-slate-100: #f3e8ff;
+  --color-slate-200: #e9d5ff;
+  --color-slate-300: #d8b4fe;
+  --color-slate-400: #c084fc;
+  --color-slate-500: #a855f7;
+  --color-slate-600: #9333ea;
+  --color-slate-700: #7e22ce;
+  --color-slate-800: #3b0764;
+  --color-slate-900: #2e1065;
+  --color-slate-950: #120822;
+  --color-amber-200: #e9d5ff;
+  --color-amber-300: #d8b4fe;
+  --color-amber-400: #c084fc;
+  --color-amber-500: #a855f7;
+  --color-amber-600: #9333ea;
+  --color-yellow-400: #d8b4fe;
+  --color-yellow-500: #c084fc;
+  --color-emerald-300: #a7f3d0;
+  --color-emerald-400: #6ee7b7;
+  --color-emerald-500: #34d399;
+  --color-emerald-600: #10b981;
+  --color-emerald-950: #022c22;
+  --color-cyan-400: #67e8f9;
+  --color-cyan-500: #22d3ee;
+}
+
+html[data-kc-theme="kci_obsidian_pearl"] {
+  --color-jewelry-gold: #e5e7eb;
+  --color-jewelry-black: #09090b;
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f4f4f5;
+  --color-slate-200: #e4e4e7;
+  --color-slate-300: #d4d4d8;
+  --color-slate-400: #a1a1aa;
+  --color-slate-500: #71717a;
+  --color-slate-600: #52525b;
+  --color-slate-700: #3f3f46;
+  --color-slate-800: #27272a;
+  --color-slate-900: #18181b;
+  --color-slate-950: #0c0c0f;
+  --color-amber-200: #e7e5e4;
+  --color-amber-300: #d6d3d1;
+  --color-amber-400: #d6d3d1;
+  --color-amber-500: #a8a29e;
+  --color-amber-600: #78716c;
+  --color-yellow-400: #e7e5e4;
+  --color-yellow-500: #d4d4d8;
+  --color-emerald-300: #86efac;
+  --color-emerald-400: #4ade80;
+  --color-emerald-500: #22c55e;
+  --color-emerald-600: #16a34a;
+  --color-emerald-950: #052e16;
+  --color-cyan-400: #94a3b8;
+  --color-cyan-500: #64748b;
+}
+
+html[data-kc-theme="kci_sunset_forge"] {
+  --color-jewelry-gold: #fb923c;
+  --color-jewelry-black: #1c0a06;
+  --color-slate-50: #fff7ed;
+  --color-slate-100: #ffedd5;
+  --color-slate-200: #fed7aa;
+  --color-slate-300: #fdba74;
+  --color-slate-400: #fb923c;
+  --color-slate-500: #f97316;
+  --color-slate-600: #ea580c;
+  --color-slate-700: #c2410c;
+  --color-slate-800: #431407;
+  --color-slate-900: #291010;
+  --color-slate-950: #1c0a06;
+  --color-amber-200: #fed7aa;
+  --color-amber-300: #fdba74;
+  --color-amber-400: #fb923c;
+  --color-amber-500: #f97316;
+  --color-amber-600: #ea580c;
+  --color-yellow-400: #fbbf24;
+  --color-yellow-500: #f59e0b;
+  --color-emerald-300: #86efac;
+  --color-emerald-400: #4ade80;
+  --color-emerald-500: #22c55e;
+  --color-emerald-600: #16a34a;
+  --color-emerald-950: #052e16;
+  --color-cyan-400: #2dd4bf;
+  --color-cyan-500: #14b8a6;
+}

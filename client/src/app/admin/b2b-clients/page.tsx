@@ -20,6 +20,14 @@ type AdminUser = {
   custom_domain?: string | null
   logo_url?: string | null
   allowed_category_ids?: number[] | null
+  kc_theme_id?: string | null
+}
+
+type ThemePick = {
+  id: string
+  label: string
+  description: string
+  swatches: [string, string, string]
 }
 
 type CatalogCategoryRow = {
@@ -66,7 +74,9 @@ function B2BAdminContent() {
     logo_url: '',
     allowed_category_ids: [] as number[],
     contact_mobile: '',
+    kc_theme_id: '',
   })
+  const [themeCatalog, setThemeCatalog] = useState<ThemePick[]>([])
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoFileError, setLogoFileError] = useState<string | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -113,12 +123,32 @@ function B2BAdminContent() {
         logo_url: resellerModalUser.logo_url ?? '',
         allowed_category_ids: Array.isArray(ids) ? [...ids] : [],
         contact_mobile: resellerModalUser.mobile_number ?? '',
+        kc_theme_id:
+          resellerModalUser.kc_theme_id != null && String(resellerModalUser.kc_theme_id).trim()
+            ? String(resellerModalUser.kc_theme_id).trim()
+            : '',
       })
       setLogoFile(null)
       setLogoFileError(null)
       if (logoInputRef.current) logoInputRef.current.value = ''
     }
   }, [resellerModalUser, loadCategories])
+
+  useEffect(() => {
+    if (!resellerModalUser) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data } = await axios.get<{ themes?: ThemePick[] }>('/api/admin/settings/kc-theme')
+        if (!cancelled) setThemeCatalog(Array.isArray(data.themes) ? data.themes : [])
+      } catch {
+        if (!cancelled) setThemeCatalog([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [resellerModalUser])
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -187,6 +217,7 @@ function B2BAdminContent() {
         logo_url: logoUrl,
         allowed_category_ids: resellerForm.allowed_category_ids,
         mobile_number: rawMob ? mobDigits : null,
+        kc_theme_id: resellerForm.kc_theme_id.trim() ? resellerForm.kc_theme_id.trim() : null,
       })
       await load()
       setResellerModalUser(null)
@@ -520,6 +551,29 @@ function B2BAdminContent() {
                   <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
                     Point your domain&apos;s <strong className="text-slate-400">A record</strong> to your Next.js server IP
                     (same host as KC Jewellers web). Share links will use https://your-domain when set.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    Storefront colour theme
+                  </label>
+                  <select
+                    className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                    value={resellerForm.kc_theme_id}
+                    onChange={(e) =>
+                      setResellerForm((f) => ({ ...f, kc_theme_id: e.target.value }))
+                    }
+                  >
+                    <option value="">Use admin default (resellers &amp; shared links)</option>
+                    {themeCatalog.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    Keyword stored as <code className="text-slate-400">kc_theme_id</code> — applies on this
+                    reseller&apos;s custom domain and their temporary shared catalogue pages.
                   </p>
                 </div>
                 <div>

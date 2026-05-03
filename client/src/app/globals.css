@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "../styles/kc-themes.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -49,12 +50,12 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* Legacy fallback — prefer @layer base body + layout font-sans */
+/* Themed page chrome — palette driven by html[data-kc-theme] + shadcn tokens */
 body {
-  background-color: #020617;
-  color: #f1f5f9;
+  background-color: var(--color-slate-950);
+  color: var(--color-slate-100);
   text-rendering: optimizeLegibility;
-  -webkit-tap-highlight-color: rgba(245, 158, 11, 0.12);
+  -webkit-tap-highlight-color: color-mix(in oklab, var(--color-amber-500) 22%, transparent);
 }
 
 .glass-card {
@@ -109,8 +110,8 @@ body {
   .print-only { display: none; }
 }
 :root {
-  --background: #020617;
-  --foreground: #f1f5f9;
+  --background: var(--color-slate-950);
+  --foreground: var(--color-slate-100);
 }
 
 @theme inline {
@@ -270,7 +271,7 @@ body {
     background: white;
     cursor: pointer;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-    border: 2px solid rgba(245, 158, 11, 0.5);
+    border: 2px solid color-mix(in oklab, var(--color-amber-500) 55%, transparent);
   }
   .dual-range-thumb::-moz-range-thumb {
     width: 1rem;
@@ -278,7 +279,7 @@ body {
     border-radius: 50%;
     background: white;
     cursor: pointer;
-    border: 2px solid rgba(245, 158, 11, 0.5);
+    border: 2px solid color-mix(in oklab, var(--color-amber-500) 55%, transparent);
   }
   .dual-range-thumb {
     pointer-events: none;

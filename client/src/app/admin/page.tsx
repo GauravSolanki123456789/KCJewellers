@@ -20,12 +20,20 @@ import {
   Building2,
   ClipboardList,
   Bell,
+  Palette,
 } from 'lucide-react'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 import type { AdminInboxSummaryData } from '@/lib/admin-inbox-summary'
 
 const ADMIN_SECTIONS = [
+  {
+    title: 'Colour themes',
+    description: 'Global app palette + default for resellers & shared catalogues (kc_theme_id)',
+    href: '/admin/theme',
+    icon: Palette,
+    color: 'rose',
+  },
   {
     title: 'Live Rates & Margins',
     description: 'Set gold/silver rates, admin margins, making charges',

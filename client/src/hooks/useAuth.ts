@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation"
 export type AuthState = {
   isAuthenticated: boolean
   user?: unknown
+  /** Effective palette for this session (`kc_theme_id`). */
+  kc_theme_id?: string
   /** True after first `/api/auth/current_user` response (success or failure) */
   hasChecked?: boolean
   has_wholesale_access?: boolean

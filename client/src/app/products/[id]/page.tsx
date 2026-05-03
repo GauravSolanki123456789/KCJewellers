@@ -56,6 +56,16 @@ export async function generateMetadata({
     title: { absolute: absTitle },
     description,
     keywords: buildProductMetadataKeywords(item),
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+      },
+    },
     alternates: {
       canonical: `${site}${productPath}`,
     },

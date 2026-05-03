@@ -1056,8 +1056,10 @@ export default function CatalogPageClient() {
         </div>
       )}
       <main
-        className={`max-w-[1400px] mx-auto px-4 py-6 ${
-          catalogBuilderMode && selectedProductIds.length > 0 ? 'pb-40 sm:pb-36' : 'pb-28'
+        className={`max-w-[1400px] mx-auto px-4 py-6 max-[480px]:px-3 ${
+          catalogBuilderMode && selectedProductIds.length > 0
+            ? 'pb-[calc(10rem+env(safe-area-inset-bottom,0px))] sm:pb-36'
+            : 'pb-[calc(7rem+env(safe-area-inset-bottom,0px))]'
         }`}
       >
         {/* Metal Type Tabs — touch-friendly; labels must not truncate (was blocking Diamond taps on narrow screens). */}
