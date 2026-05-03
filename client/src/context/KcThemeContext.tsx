@@ -10,7 +10,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { normalizeKcThemeId, isKcLightThemeId } from "@/lib/kc-theme-ids";
+import { isLightKcThemeId, normalizeKcThemeId } from "@/lib/kc-theme-ids";
 
 type KcThemeContextValue = Record<string, never>;
 
@@ -94,10 +94,9 @@ export function KcThemeProvider({
   ]);
 
   useEffect(() => {
-    document.documentElement.dataset.kcTheme = effectiveKcThemeId;
-    document.documentElement.dataset.kcThemeMode = isKcLightThemeId(
-      effectiveKcThemeId,
-    )
+    const el = document.documentElement;
+    el.dataset.kcTheme = effectiveKcThemeId;
+    el.dataset.kcLuminosity = isLightKcThemeId(effectiveKcThemeId)
       ? "light"
       : "dark";
   }, [effectiveKcThemeId]);

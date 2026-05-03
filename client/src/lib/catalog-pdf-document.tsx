@@ -1,136 +1,151 @@
-import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
+import { useMemo } from "react";
+import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import {
   calculateBreakdown,
   getItemWeightWithGrossFallback,
   type Item,
   type WholesalePricingInput,
-} from '@/lib/pricing'
-import { getProductSelectionKey } from '@/lib/catalog-product-filters'
-import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
+} from "@/lib/pricing";
+import { getProductSelectionKey } from "@/lib/catalog-product-filters";
+import type { ItemWithPdfImage } from "@/lib/pdf-embed-images";
+import { getKcPdfPalette, type KcPdfPalette } from "@/lib/kc-pdf-palette";
 
-const styles = StyleSheet.create({
-  page: {
-    padding: 28,
-    backgroundColor: '#020617',
-    fontFamily: 'Helvetica',
-  },
-  header: {
-    marginBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
-    paddingBottom: 12,
-  },
-  brand: { fontSize: 18, color: '#fbbf24', fontWeight: 'bold' },
-  sub: { fontSize: 9, color: '#94a3b8', marginTop: 4 },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    /* `gap` is not reliably supported in all @react-pdf layout builds */
-  },
-  card: {
-    width: '31%',
-    minWidth: 118,
-    marginBottom: 8,
-    backgroundColor: '#0f172a',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#1e293b',
-    padding: 8,
-  },
-  thumbWrap: {
-    width: '100%',
-    height: 100,
-    backgroundColor: '#1e293b',
-    borderRadius: 6,
-    marginBottom: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  thumb: {
-    width: '100%',
-    height: 100,
-    objectFit: 'cover',
-    borderRadius: 6,
-  },
-  thumbPlaceholder: {
-    fontSize: 28,
-    color: '#475569',
-    fontWeight: 'bold',
-  },
-  title: { fontSize: 8, color: '#e2e8f0', marginBottom: 2, marginTop: 2 },
-  metaLabel: { fontSize: 6, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 },
-  /**
-   * Use Helvetica + fontWeight — `fontFamily: "Helvetica-Bold"` is invalid in react-pdf
-   * and can render blank glyphs in the PDF (label inherited Helvetica and still showed).
-   */
-  barcodeValue: {
-    fontSize: 11,
-    color: '#fbbf24',
-    fontFamily: 'Helvetica',
-    fontWeight: 'bold',
-    marginBottom: 3,
-  },
-  weightLine: { fontSize: 8, color: '#94a3b8', marginBottom: 2 },
-  weightMuted: { fontSize: 8, color: '#475569' },
-  priceLine: {
-    fontSize: 11,
-    color: '#fbbf24',
-    fontFamily: 'Helvetica',
-    fontWeight: 'bold',
-    marginTop: 2,
-    marginBottom: 2,
-  },
-  priceGst: {
-    fontSize: 8,
-    color: '#94a3b8',
-    marginBottom: 3,
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 20,
-    left: 28,
-    right: 28,
-    fontSize: 7,
-    color: '#475569',
-    textAlign: 'center',
-  },
-})
+function buildCatalogPdfStyles(p: KcPdfPalette) {
+  return StyleSheet.create({
+    page: {
+      padding: 28,
+      backgroundColor: p.pageBg,
+      fontFamily: "Helvetica",
+    },
+    header: {
+      marginBottom: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: p.headerRule,
+      paddingBottom: 12,
+    },
+    brand: { fontSize: 18, color: p.brand, fontWeight: "bold" },
+    sub: { fontSize: 9, color: p.subMuted, marginTop: 4 },
+    grid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+    },
+    card: {
+      width: "31%",
+      minWidth: 118,
+      marginBottom: 8,
+      backgroundColor: p.cardBg,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: p.cardBorder,
+      padding: 8,
+    },
+    thumbWrap: {
+      width: "100%",
+      height: 100,
+      backgroundColor: p.thumbBg,
+      borderRadius: 6,
+      marginBottom: 6,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    thumb: {
+      width: "100%",
+      height: 100,
+      objectFit: "cover",
+      borderRadius: 6,
+    },
+    thumbPlaceholder: {
+      fontSize: 28,
+      color: p.metaLabel,
+      fontWeight: "bold",
+    },
+    title: {
+      fontSize: 8,
+      color: p.textPrimary,
+      marginBottom: 2,
+      marginTop: 2,
+    },
+    metaLabel: {
+      fontSize: 6,
+      color: p.metaLabel,
+      textTransform: "uppercase",
+      marginBottom: 2,
+    },
+    barcodeValue: {
+      fontSize: 11,
+      color: p.accent,
+      fontFamily: "Helvetica",
+      fontWeight: "bold",
+      marginBottom: 3,
+    },
+    weightLine: { fontSize: 8, color: p.textSecondary, marginBottom: 2 },
+    weightMuted: { fontSize: 8, color: p.metaLabel },
+    priceLine: {
+      fontSize: 11,
+      color: p.accent,
+      fontFamily: "Helvetica",
+      fontWeight: "bold",
+      marginTop: 2,
+      marginBottom: 2,
+    },
+    priceGst: {
+      fontSize: 8,
+      color: p.textSecondary,
+      marginBottom: 3,
+    },
+    footer: {
+      position: "absolute",
+      bottom: 20,
+      left: 28,
+      right: 28,
+      fontSize: 7,
+      color: p.footer,
+      textAlign: "center",
+    },
+  });
+}
 
 function displayName(p: Item) {
   return (
     (p as { name?: string }).name ||
     p.item_name ||
     p.short_name ||
-    String(p.barcode || p.sku || '')
-  )
+    String(p.barcode || p.sku || "")
+  );
 }
 
 /** RESELLER brochure PDF: show marked-up prices (same basis as shared web catalogue). */
 export type CatalogPdfResellerPricing = {
-  rates: unknown
-  markupPercentage: number
+  rates: unknown;
+  markupPercentage: number;
   /** Mirrors logged-in reseller catalogue pricing before brochure markup. */
-  wholesale?: WholesalePricingInput | null
-}
+  wholesale?: WholesalePricingInput | null;
+};
 
 export type CatalogPdfDocumentProps = {
-  products: ItemWithPdfImage[]
-  brandName?: string
-  resellerPdfPricing?: CatalogPdfResellerPricing | null
-}
+  products: ItemWithPdfImage[];
+  brandName?: string;
+  resellerPdfPricing?: CatalogPdfResellerPricing | null;
+  /** Matches `document.documentElement.dataset.kcTheme` / `kc_theme_id`. */
+  kcThemeId?: string | null;
+};
 
-const PER_PAGE = 9
+const PER_PAGE = 9;
 
 export function CatalogPdfDocument({
   products,
-  brandName = 'KC Jewellers',
+  brandName = "KC Jewellers",
   resellerPdfPricing = null,
+  kcThemeId = null,
 }: CatalogPdfDocumentProps) {
-  const chunks: ItemWithPdfImage[][] = []
+  const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId]);
+  const styles = useMemo(() => buildCatalogPdfStyles(palette), [palette]);
+
+  const chunks: ItemWithPdfImage[][] = [];
   for (let i = 0; i < products.length; i += PER_PAGE) {
-    chunks.push(products.slice(i, i + PER_PAGE))
+    chunks.push(products.slice(i, i + PER_PAGE));
   }
-  if (chunks.length === 0) chunks.push([])
+  if (chunks.length === 0) chunks.push([]);
 
   return (
     <Document>
@@ -140,41 +155,38 @@ export function CatalogPdfDocument({
             <View style={styles.header}>
               <Text style={styles.brand}>{brandName}</Text>
               <Text style={styles.sub}>
-                Catalogue · {products.length} item{products.length !== 1 ? 's' : ''}
+                Catalogue · {products.length} item{products.length !== 1 ? "s" : ""}
               </Text>
             </View>
           )}
           <View style={styles.grid}>
             {chunk.map((raw, i) => {
-              const p = raw as ItemWithPdfImage
-              const name = displayName(p)
-              /** Only embedded PNG data URLs — remote URLs fail silently in react-pdf. */
-              const img = p.pdfImageSrc
-              /** Same key as ProductCard / catalogue selection (`barcode ?? sku ?? id`). */
-              const barcode = getProductSelectionKey(p)
-              const weight = getItemWeightWithGrossFallback(p)
-              const key = `${barcode || String(p.id ?? i)}-${pageIndex}-${i}`
+              const p = raw as ItemWithPdfImage;
+              const name = displayName(p);
+              const img = p.pdfImageSrc;
+              const barcode = getProductSelectionKey(p);
+              const weight = getItemWeightWithGrossFallback(p);
+              const key = `${barcode || String(p.id ?? i)}-${pageIndex}-${i}`;
               const barcodeText =
-                barcode && String(barcode).trim() !== '' ? String(barcode) : '-'
+                barcode && String(barcode).trim() !== "" ? String(barcode) : "-";
               const weightText =
                 weight != null && !Number.isNaN(Number(weight))
                   ? `${Number(weight).toFixed(2)} gm`
-                  : '-'
+                  : "-";
               const showPrices =
-                resellerPdfPricing &&
-                resellerPdfPricing.rates != null
-              let amountStr: string | null = null
+                resellerPdfPricing && resellerPdfPricing.rates != null;
+              let amountStr: string | null = null;
               if (showPrices) {
-                const gst = Number((p as { gst_rate?: number }).gst_rate ?? 3) || 3
-                const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0)
+                const gst = Number((p as { gst_rate?: number }).gst_rate ?? 3) || 3;
+                const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
                 const b = calculateBreakdown(
                   p,
                   resellerPdfPricing.rates,
                   gst,
                   resellerPdfPricing.wholesale ?? undefined,
-                )
-                const total = b.total * (1 + mk / 100)
-                amountStr = Math.round(total).toLocaleString('en-IN')
+                );
+                const total = b.total * (1 + mk / 100);
+                amountStr = Math.round(total).toLocaleString("en-IN");
               }
               return (
                 <View key={key} style={styles.card}>
@@ -187,9 +199,7 @@ export function CatalogPdfDocument({
                   </View>
                   <Text style={styles.metaLabel}>Barcode</Text>
                   <Text style={styles.barcodeValue}>{barcodeText}</Text>
-                  <Text style={styles.weightLine}>
-                    Weight · {weightText}
-                  </Text>
+                  <Text style={styles.weightLine}>Weight · {weightText}</Text>
                   {amountStr ? (
                     <>
                       <Text style={styles.priceLine}>Rs. {amountStr}</Text>
@@ -198,7 +208,7 @@ export function CatalogPdfDocument({
                   ) : null}
                   <Text style={styles.title}>{name}</Text>
                 </View>
-              )
+              );
             })}
           </View>
           <Text style={styles.footer} fixed>
@@ -207,5 +217,5 @@ export function CatalogPdfDocument({
         </Page>
       ))}
     </Document>
-  )
+  );
 }

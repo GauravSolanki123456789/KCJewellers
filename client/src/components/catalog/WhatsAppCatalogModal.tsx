@@ -21,6 +21,7 @@ import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
 import { shareCatalogPdfBlob } from '@/lib/pdf-share'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
+import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 
 const EXPIRY_OPTIONS = [
   { label: '1 hour', hours: 1 },
@@ -136,9 +137,14 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         const wholesalePdf = isReseller
           ? buildWholesalePricingInput(auth.user as WholesaleUserFields)
           : null
+        const kcThemeId =
+          typeof document !== 'undefined'
+            ? normalizeKcThemeId(document.documentElement.dataset.kcTheme)
+            : undefined
         const blob = await pdf(
           <CatalogPdfDocument
             products={itemsForPdf}
+            kcThemeId={kcThemeId}
             {...(isReseller
               ? {
                   brandName: shareBrandLabel,
@@ -255,26 +261,26 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 onClick={() => setOutputFormat('temporary_web_link')}
                 className={`flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
                   outputFormat === 'temporary_web_link'
-                    ? 'border-amber-500/60 bg-amber-500/10 text-amber-200'
+                    ? 'border-amber-500/65 bg-amber-500/12 text-slate-100 [&_svg]:text-amber-600'
                     : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
                 }`}
               >
                 <Link2 className="size-4" />
                 <span className="font-medium">Temporary web link</span>
-                <span className="text-[11px] opacity-80">Share a brochure URL</span>
+                <span className="text-[11px] text-slate-500">Share a brochure URL</span>
               </button>
               <button
                 type="button"
                 onClick={() => setOutputFormat('pdf')}
                 className={`flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
                   outputFormat === 'pdf'
-                    ? 'border-amber-500/60 bg-amber-500/10 text-amber-200'
+                    ? 'border-amber-500/65 bg-amber-500/12 text-slate-100 [&_svg]:text-amber-600'
                     : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
                 }`}
               >
                 <FileText className="size-4" />
                 <span className="font-medium">PDF document</span>
-                <span className="text-[11px] opacity-80">Download a printable PDF</span>
+                <span className="text-[11px] text-slate-500">Download a printable PDF</span>
               </button>
             </div>
             {outputFormat === 'pdf' && (
@@ -343,7 +349,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
           {shareUrl && (
             <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3">
-              <p className="text-sm text-emerald-100/90">Your link is ready — share it on WhatsApp or copy it.</p>
+              <p className="text-sm text-slate-700">Your link is ready — share it on WhatsApp or copy it.</p>
               <p className="break-all rounded-lg bg-slate-900/80 px-2 py-1.5 font-mono text-[11px] text-slate-300">
                 {shareUrl}
               </p>

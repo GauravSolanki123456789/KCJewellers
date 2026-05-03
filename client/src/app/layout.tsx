@@ -11,7 +11,7 @@ import {
   fetchPublicKcAppThemeId,
   fetchSharedCatalogKcThemeId,
 } from "@/lib/kc-theme-server";
-import { isKcLightThemeId } from "@/lib/kc-theme-ids";
+import { isLightKcThemeId, normalizeKcThemeId } from "@/lib/kc-theme-ids";
 import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
@@ -139,13 +139,15 @@ export default async function RootLayout({
     }
   }
 
-  const themeMode = isKcLightThemeId(initialKcThemeId) ? "light" : "dark";
+  const resolvedKcThemeId = normalizeKcThemeId(initialKcThemeId);
 
   return (
     <html
       lang="en"
-      data-kc-theme={initialKcThemeId}
-      data-kc-theme-mode={themeMode}
+      data-kc-theme={resolvedKcThemeId}
+      data-kc-luminosity={
+        isLightKcThemeId(resolvedKcThemeId) ? "light" : "dark"
+      }
       className="min-h-screen bg-slate-950"
     >
       <head>
@@ -159,7 +161,7 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >
-        <KcThemeProvider initialKcThemeId={initialKcThemeId}>
+        <KcThemeProvider initialKcThemeId={resolvedKcThemeId}>
         <GoogleAnalytics />
         <CustomerTierProvider>
         <ResellerBrandingProvider

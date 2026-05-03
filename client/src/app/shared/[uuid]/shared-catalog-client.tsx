@@ -244,7 +244,7 @@ export default function SharedCatalogClient({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#020617] text-slate-100 flex flex-col items-center justify-center px-6">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center px-6">
         <div className="h-12 w-12 rounded-full border-2 border-amber-500/30 border-t-amber-500 animate-spin" />
         <p className="mt-6 text-sm text-slate-400">Opening catalogue…</p>
       </div>
@@ -253,7 +253,7 @@ export default function SharedCatalogClient({
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[#020617] text-slate-100 flex flex-col items-center justify-center px-6 text-center">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center px-6 text-center">
         <p className="text-lg font-medium text-slate-200">{error}</p>
         <Link
           href={CATALOG_PATH}
@@ -267,9 +267,9 @@ export default function SharedCatalogClient({
 
   if (payload && 'expired' in payload && payload.expired) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#020617] via-[#0f172a] to-[#020617] text-slate-100 flex flex-col items-center justify-center px-6 text-center">
-        <div className="max-w-md rounded-2xl border border-slate-700/60 bg-slate-900/40 p-8 shadow-2xl backdrop-blur-sm">
-          <Clock className="mx-auto size-12 text-amber-500/80" aria-hidden />
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 flex flex-col items-center justify-center px-6 text-center">
+        <div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-2xl backdrop-blur-sm">
+          <Clock className="mx-auto size-12 text-amber-600" aria-hidden />
           <h1 className="mt-4 text-xl font-semibold text-slate-100">This catalogue link has expired</h1>
           <p className="mt-2 text-sm text-slate-400 leading-relaxed">
             Ask {brandLabel} for a fresh link, or explore the live catalogue on our website.
@@ -280,7 +280,7 @@ export default function SharedCatalogClient({
           >
             View catalogue
           </Link>
-          <p className="mt-6 text-xs text-slate-600">{site}</p>
+          <p className="mt-6 text-xs text-slate-500">{site}</p>
         </div>
       </div>
     )
@@ -298,7 +298,7 @@ export default function SharedCatalogClient({
   return (
     <div
       className={cn(
-        'min-h-screen bg-gradient-to-b from-[#020617] via-[#0f172a] to-[#020617] text-slate-100 pt-10 md:pt-14',
+        'min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 pt-10 md:pt-14',
         showPickerChrome ? 'pb-32 sm:pb-28' : 'pb-16',
       )}
     >
@@ -316,7 +316,7 @@ export default function SharedCatalogClient({
               />
             </span>
           ) : null}
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-500/90">{brandLabel}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-600">{brandLabel}</p>
         </div>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">
           Shared catalogue
@@ -389,10 +389,10 @@ export default function SharedCatalogClient({
                       }
                     }}
                     className={cn(
-                      'flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-slate-950/50 shadow-lg shadow-black/20 outline-none transition',
+                      'flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-slate-900/90 shadow-lg shadow-black/10 outline-none transition',
                       selected
-                        ? 'border-amber-400/70 ring-2 ring-amber-400/25'
-                        : 'border-slate-800/90 hover:border-slate-700',
+                        ? 'border-amber-500/70 ring-2 ring-amber-400/30'
+                        : 'border-slate-800 hover:border-slate-700',
                     )}
                   >
                     <div
@@ -413,7 +413,7 @@ export default function SharedCatalogClient({
                           'absolute left-2 top-2 z-10 flex size-11 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition md:size-10',
                           selected
                             ? 'border-emerald-300 bg-emerald-600 text-white'
-                            : 'border-white/50 bg-slate-950/75 text-slate-200 backdrop-blur-sm hover:bg-slate-900/90',
+                            : 'border-slate-500/70 bg-white/92 text-slate-700 backdrop-blur-sm hover:bg-white',
                         )}
                       >
                         {selected ? <Check className="size-5 shrink-0 stroke-[2.5]" aria-hidden /> : null}
@@ -430,8 +430,8 @@ export default function SharedCatalogClient({
                           />
                         </div>
                       ) : (
-                        <div className="flex h-full items-center justify-center bg-slate-900">
-                          <MetalIc className="size-14 text-slate-700" aria-hidden />
+                        <div className="flex h-full items-center justify-center bg-slate-800/50">
+                          <MetalIc className="size-14 text-slate-500" aria-hidden />
                         </div>
                       )}
                     </div>
@@ -464,7 +464,7 @@ export default function SharedCatalogClient({
       </main>
 
       {showPickerChrome ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800/90 bg-slate-950/95 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] shadow-[0_-12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md">
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/98 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] shadow-[0_-12px_40px_rgba(15,23,42,0.08)] backdrop-blur-md">
           <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between md:px-8">
             <p className="text-center text-sm text-slate-400 sm:text-left">
               {selectedCount === 0 ? (

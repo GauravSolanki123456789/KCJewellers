@@ -1,114 +1,129 @@
 /**
- * Single source of theme IDs for KC Jewellers (app + reseller storefronts + shared catalog).
- * DB keys: app_settings.kc_theme_id, app_settings.kc_reseller_theme_id, users.kc_theme_id
- * HTML: document.documentElement.dataset.kcTheme
+ * Theme catalogue — ids stored as kc_theme_id (app_settings, users, API).
+ * All current presets are light / high-readability for storefront + shared links.
  */
 'use strict';
 
 const DEFAULT_KC_THEME_ID = 'kci_royal_gold';
 
-/** @type {ReadonlyArray<{ id: string; label: string; description: string; swatches: [string, string, string] }>} */
+/** Every listed id uses light shells (html[data-kc-luminosity="light"]). */
+const LIGHT_KC_THEME_IDS = [
+    'kci_royal_gold',
+    'kci_porcelain_blue',
+    'kci_horizon_mist',
+    'kci_champagne_light',
+    'kci_cardinal_red',
+    'kci_sapphire_class',
+    'kci_seaglass',
+    'kci_pearl_slate',
+];
+
+/** @type {ReadonlyArray<{ id: string; label: string; description: string; swatches: [string, string, string]; luminosity: 'light' }>} */
 const THEMES = [
     {
         id: 'kci_royal_gold',
         label: 'Royal Gold',
-        description: 'Warm gold and emerald accents on deep navy — classic KC Jewellers.',
-        swatches: ['#020617', '#EAB308', '#10B981'],
+        description:
+            'Warm ivory backdrop, rich gold accents, emerald CTAs — flagship KC Jewellers light experience.',
+        swatches: ['#faf8f5', '#d97706', '#059669'],
+        luminosity: 'light',
     },
     {
-        id: 'kci_midnight_rose',
-        label: 'Midnight Rose',
-        description: 'Rose-copper highlights with plum undertones.',
-        swatches: ['#1a0b12', '#F472B6', '#34D399'],
+        id: 'kci_porcelain_blue',
+        label: 'Porcelain Blue',
+        description: 'Crisp cool white with confident sky-blue highlights and teal WhatsApp accents.',
+        swatches: ['#f8fafc', '#0284c7', '#0d9488'],
+        luminosity: 'light',
     },
     {
-        id: 'kci_ocean_cyan',
-        label: 'Ocean Cyan',
-        description: 'Cool cyan brand accents; silver rows feel cohesive.',
-        swatches: ['#071826', '#22D3EE', '#2DD4BF'],
+        id: 'kci_horizon_mist',
+        label: 'Horizon Mist',
+        description: 'Soft misty blue page tint with sapphire brand colour — calm and premium.',
+        swatches: ['#eff6ff', '#1d4ed8', '#0ea5e9'],
+        luminosity: 'light',
     },
     {
-        id: 'kci_amethyst_luxe',
-        label: 'Amethyst Luxe',
-        description: 'Violet–gold luxury; editorial jewellery feel.',
-        swatches: ['#120822', '#C084FC', '#A78BFA'],
+        id: 'kci_champagne_light',
+        label: 'Champagne Light',
+        description: 'Champagne cream background with antique gold and forest green actions.',
+        swatches: ['#fffbf3', '#b45309', '#047857'],
+        luminosity: 'light',
     },
     {
-        id: 'kci_obsidian_pearl',
-        label: 'Obsidian Pearl',
-        description: 'Neutral silver–champagne metal on charcoal.',
-        swatches: ['#0c0c0f', '#E5E7EB', '#94A3B8'],
+        id: 'kci_cardinal_red',
+        label: 'Cardinal Red',
+        description: 'Neutral white-grey with a refined ruby accent — high energy, still easy on the eyes.',
+        swatches: ['#fafafa', '#b91c1c', '#15803d'],
+        luminosity: 'light',
     },
     {
-        id: 'kci_sunset_forge',
-        label: 'Sunset Forge',
-        description: 'Copper and amber glow — bold, high contrast.',
-        swatches: ['#1c0a06', '#FB923C', '#4ADE80'],
+        id: 'kci_sapphire_class',
+        label: 'Sapphire Class',
+        description: 'Bright white with deep sapphire blue for jewellery luxury branding.',
+        swatches: ['#ffffff', '#1e3a8a', '#0369a1'],
+        luminosity: 'light',
     },
     {
-        id: 'kci_ivory_gold',
-        label: 'Ivory & Gold',
-        description: 'Bright showroom white with classic gold — trusted jewellery look.',
-        swatches: ['#FAFAF9', '#CA8A04', '#0F766E'],
+        id: 'kci_seaglass',
+        label: 'Seaglass',
+        description: 'Fresh sea-glass tint with teal highlights — modern and airy on mobile.',
+        swatches: ['#f0fdfa', '#0f766e', '#0ea5e9'],
+        luminosity: 'light',
     },
     {
-        id: 'kci_pearl_crimson',
-        label: 'Pearl & Ruby',
-        description: 'Clean pearl ground with ruby-red highlights; festive and premium.',
-        swatches: ['#FFFBFB', '#B91C1C', '#BE123C'],
-    },
-    {
-        id: 'kci_porcelain_sapphire',
-        label: 'Porcelain & Sapphire',
-        description: 'Cool white with deep sapphire blue — crisp, modern trust.',
-        swatches: ['#F8FAFC', '#1D4ED8', '#0EA5E9'],
-    },
-    {
-        id: 'kci_linen_azure',
-        label: 'Linen & Azure',
-        description: 'Soft linen white with vivid azure accents; airy and approachable.',
-        swatches: ['#F5F5F0', '#0369A1', '#0284C7'],
-    },
-    {
-        id: 'kci_snow_orchid',
-        label: 'Snow & Orchid',
-        description: 'Bright white with rich violet notes; editorial boutique feel.',
-        swatches: ['#FFFFFF', '#7C3AED', '#A855F7'],
-    },
-    {
-        id: 'kci_cream_terracotta',
-        label: 'Cream & Terracotta',
-        description: 'Warm cream with terracotta and copper warmth — handcrafted luxury.',
-        swatches: ['#FAF7F2', '#C2410C', '#B45309'],
-    },
-    {
-        id: 'kci_frost_jade',
-        label: 'Frost & Jade',
-        description: 'Ice-bright surfaces with jade/teal accents; fresh and upmarket.',
-        swatches: ['#F0FDFA', '#0F766E', '#14B8A6'],
+        id: 'kci_pearl_slate',
+        label: 'Pearl Slate',
+        description: 'Pearl white with blue-slate accents — corporate clean for catalogue + checkout.',
+        swatches: ['#f8fafc', '#334155', '#64748b'],
+        luminosity: 'light',
     },
 ];
 
 const VALID = new Set(THEMES.map((t) => t.id));
+const LEGACY_RETIRED = new Set([
+    'kci_midnight_rose',
+    'kci_ocean_cyan',
+    'kci_amethyst_luxe',
+    'kci_obsidian_pearl',
+    'kci_sunset_forge',
+]);
 
 function normalizeKcThemeId(raw, fallback = DEFAULT_KC_THEME_ID) {
     if (raw === null || raw === undefined) return fallback;
-    const s = String(raw).trim();
+    let s = String(raw).trim();
     if (!s) return fallback;
-    return VALID.has(s) ? s : fallback;
+    if (s.startsWith('kcj_')) {
+        s = `kci_${s.slice(4)}`;
+    }
+    if (VALID.has(s)) return s;
+    if (LEGACY_RETIRED.has(s)) return fallback;
+    return fallback;
 }
 
 function getThemeCatalog() {
     return {
         defaultKcThemeId: DEFAULT_KC_THEME_ID,
-        themes: THEMES.map((t) => ({ ...t })),
+        themes: THEMES.map((t) => ({
+            id: t.id,
+            label: t.label,
+            description: t.description,
+            swatches: [...t.swatches],
+            luminosity: t.luminosity,
+        })),
     };
+}
+
+function isLightKcThemeId(id) {
+    return LIGHT_KC_THEME_IDS.includes(String(id || '').trim());
 }
 
 module.exports = {
     DEFAULT_KC_THEME_ID,
     THEMES,
     VALID_KC_THEME_IDS: VALID,
+    LEGACY_RETIRED_KC_THEME_IDS: LEGACY_RETIRED,
     normalizeKcThemeId,
     getThemeCatalog,
+    isLightKcThemeId,
+    LIGHT_KC_THEME_IDS,
 };

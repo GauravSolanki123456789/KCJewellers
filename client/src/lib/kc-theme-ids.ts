@@ -1,39 +1,15 @@
-/** Must match `services/kcThemeCatalog.js` ids (keyword: kc_theme_id). */
+/** Must match `services/kcThemeCatalog.js` (keyword: `kc_theme_id`). */
 
 export const KC_THEME_IDS = [
   "kci_royal_gold",
-  "kci_midnight_rose",
-  "kci_ocean_cyan",
-  "kci_amethyst_luxe",
-  "kci_obsidian_pearl",
-  "kci_sunset_forge",
-  /* Light storefront — inverted slate scale in `kc-themes.css` */
-  "kci_ivory_gold",
-  "kci_pearl_crimson",
-  "kci_porcelain_sapphire",
-  "kci_linen_azure",
-  "kci_snow_orchid",
-  "kci_cream_terracotta",
-  "kci_frost_jade",
+  "kci_porcelain_blue",
+  "kci_horizon_mist",
+  "kci_champagne_light",
+  "kci_cardinal_red",
+  "kci_sapphire_class",
+  "kci_seaglass",
+  "kci_pearl_slate",
 ] as const;
-
-/** Themes that use light page chrome (white / soft grey surfaces). */
-export const KC_LIGHT_THEME_IDS: readonly string[] = [
-  "kci_ivory_gold",
-  "kci_pearl_crimson",
-  "kci_porcelain_sapphire",
-  "kci_linen_azure",
-  "kci_snow_orchid",
-  "kci_cream_terracotta",
-  "kci_frost_jade",
-];
-
-const LIGHT_SET = new Set(KC_LIGHT_THEME_IDS);
-
-export function isKcLightThemeId(id: string | null | undefined): boolean {
-  if (!id) return false;
-  return LIGHT_SET.has(String(id).trim());
-}
 
 export type KcThemeId = (typeof KC_THEME_IDS)[number];
 
@@ -41,12 +17,31 @@ export const DEFAULT_KC_THEME_ID: KcThemeId = "kci_royal_gold";
 
 const VALID = new Set<string>(KC_THEME_IDS);
 
+/** Retired dark presets — normalize to default on the client too. */
+const RETIRED = new Set([
+  "kci_midnight_rose",
+  "kci_ocean_cyan",
+  "kci_amethyst_luxe",
+  "kci_obsidian_pearl",
+  "kci_sunset_forge",
+]);
+
 export function normalizeKcThemeId(
   raw: string | null | undefined,
   fallback: string = DEFAULT_KC_THEME_ID,
 ): string {
   if (raw === null || raw === undefined) return fallback;
-  const s = String(raw).trim();
+  let s = String(raw).trim();
   if (!s) return fallback;
-  return VALID.has(s) ? s : fallback;
+  /** Legacy UI typo / older prefix: `kcj_*` → `kci_*` */
+  if (s.startsWith("kcj_")) {
+    s = `kci_${s.slice(4)}`;
+  }
+  if (VALID.has(s)) return s;
+  if (RETIRED.has(s)) return fallback;
+  return fallback;
+}
+
+export function isLightKcThemeId(id: string | null | undefined): boolean {
+  return VALID.has(String(id || "").trim());
 }
