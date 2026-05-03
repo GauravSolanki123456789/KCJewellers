@@ -16,20 +16,22 @@ import {
   ArrowDown,
   GripVertical,
   ListOrdered,
-  Sparkles,
-  LayoutGrid,
-  Gem,
   X,
 } from 'lucide-react'
+import {
+  GoldJewelleryRingIcon,
+  SilverMoonMetalIcon,
+  DiamondJewelleryIcon,
+} from '@/components/icons/metal-tab-icons'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
 import { mergeDesignGroupOrder } from '@/lib/design-group-order'
 
 /** Metal types — values match backend metal_type (lowercase) */
 const METAL_TABS = [
-  { key: 'gold', label: 'Gold', icon: Sparkles },
-  { key: 'silver', label: 'Silver', icon: LayoutGrid },
-  { key: 'diamond', label: 'Diamond', icon: Gem },
+  { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
+  { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
+  { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']

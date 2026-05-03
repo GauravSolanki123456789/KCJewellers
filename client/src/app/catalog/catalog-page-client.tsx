@@ -11,9 +11,12 @@ import {
   ChevronRight,
   ChevronLeft,
   ChevronDown,
-  Gem,
-  Sparkles,
 } from 'lucide-react'
+import {
+  GoldJewelleryRingIcon,
+  SilverMoonMetalIcon,
+  DiamondJewelleryIcon,
+} from '@/components/icons/metal-tab-icons'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
@@ -69,9 +72,9 @@ const CATALOG_PRODUCTS_PAGE_SIZE = 36
 
 /** Metal types for catalog navigation — values match backend metal_type (lowercase) */
 const METAL_TABS = [
-  { key: 'gold', label: 'Gold', icon: Sparkles },
-  { key: 'silver', label: 'Silver', icon: LayoutGrid },
-  { key: 'diamond', label: 'Diamond', icon: Gem },
+  { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
+  { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
+  { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']
@@ -1078,7 +1081,7 @@ export default function CatalogPageClient() {
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                   }`}
                 >
-                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <Icon className="size-5 shrink-0 sm:size-4" aria-hidden />
                   <span>{label}</span>
                 </button>
               )

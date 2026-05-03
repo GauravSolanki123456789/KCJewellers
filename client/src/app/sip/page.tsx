@@ -9,8 +9,6 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Sparkles,
-  Gem,
-  LayoutGrid,
   TrendingUp,
   Shield,
   ArrowRight,
@@ -19,6 +17,11 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react'
+import {
+  GoldJewelleryRingIcon,
+  SilverMoonMetalIcon,
+  DiamondJewelleryIcon,
+} from '@/components/icons/metal-tab-icons'
 
 type SipPlan = {
   id: number
@@ -32,9 +35,9 @@ type SipPlan = {
 }
 
 const METAL_TABS = [
-  { key: 'gold', label: 'Gold', icon: Sparkles },
-  { key: 'silver', label: 'Silver', icon: LayoutGrid },
-  { key: 'diamond', label: 'Diamond', icon: Gem },
+  { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
+  { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
+  { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']

@@ -6,14 +6,16 @@ import Image from 'next/image'
 import {
   ChevronLeft,
   ChevronRight,
-  Gem,
-  LayoutGrid,
   Loader2,
   Search,
   ShoppingCart,
   SlidersHorizontal,
-  Sparkles,
 } from 'lucide-react'
+import {
+  GoldJewelleryRingIcon,
+  SilverMoonMetalIcon,
+  DiamondJewelleryIcon,
+} from '@/components/icons/metal-tab-icons'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { useCatalogData } from '@/app/catalog/catalog-data-context'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -40,10 +42,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-const METAL_TABS: { key: CatalogMetalKey; label: string; icon: typeof Sparkles }[] = [
-  { key: 'gold', label: 'Gold', icon: Sparkles },
-  { key: 'silver', label: 'Silver', icon: LayoutGrid },
-  { key: 'diamond', label: 'Diamond', icon: Gem },
+const METAL_TABS: {
+  key: CatalogMetalKey
+  label: string
+  icon: typeof GoldJewelleryRingIcon
+}[] = [
+  { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
+  { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
+  { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
 ]
 
 function rowKey(p: Item): string {

@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { Check, Clock, Gem, MessageCircle, Sparkles } from 'lucide-react'
+import { Check, Clock, MessageCircle } from 'lucide-react'
+import {
+  GoldJewelleryRingIcon,
+  SilverMoonMetalIcon,
+  DiamondJewelleryIcon,
+} from '@/components/icons/metal-tab-icons'
 import {
   fetchSharedCatalogByUuid,
   type SharedCatalogCreatorWholesale,
@@ -86,9 +91,9 @@ function markedUpTotal(
 
 function metalIcon(metal: string) {
   const m = (metal || '').toLowerCase()
-  if (m.includes('diamond')) return Gem
-  if (m.includes('gold')) return Sparkles
-  return Sparkles
+  if (m.includes('diamond')) return DiamondJewelleryIcon
+  if (m.includes('silver')) return SilverMoonMetalIcon
+  return GoldJewelleryRingIcon
 }
 
 function isLoadedBrochure(

@@ -1,10 +1,14 @@
 'use client'
-import { Gift, Diamond, Gem } from 'lucide-react'
+import { Gift } from 'lucide-react'
 import Link from 'next/link'
+import {
+  GoldJewelleryRingIcon,
+  SilverMoonMetalIcon,
+} from '@/components/icons/metal-tab-icons'
 
 const cats = [
-  { key: 'gold', label: 'Gold', icon: Diamond },
-  { key: 'silver', label: 'Silver', icon: Gem },
+  { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
+  { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
   { key: 'gifts', label: 'Gifts', icon: Gift }
 ]
 
