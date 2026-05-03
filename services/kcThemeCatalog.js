@@ -45,6 +45,48 @@ const THEMES = [
         description: 'Copper and amber glow — bold, high contrast.',
         swatches: ['#1c0a06', '#FB923C', '#4ADE80'],
     },
+    {
+        id: 'kci_ivory_gold',
+        label: 'Ivory & Gold',
+        description: 'Bright showroom white with classic gold — trusted jewellery look.',
+        swatches: ['#FAFAF9', '#CA8A04', '#0F766E'],
+    },
+    {
+        id: 'kci_pearl_crimson',
+        label: 'Pearl & Ruby',
+        description: 'Clean pearl ground with ruby-red highlights; festive and premium.',
+        swatches: ['#FFFBFB', '#B91C1C', '#BE123C'],
+    },
+    {
+        id: 'kci_porcelain_sapphire',
+        label: 'Porcelain & Sapphire',
+        description: 'Cool white with deep sapphire blue — crisp, modern trust.',
+        swatches: ['#F8FAFC', '#1D4ED8', '#0EA5E9'],
+    },
+    {
+        id: 'kci_linen_azure',
+        label: 'Linen & Azure',
+        description: 'Soft linen white with vivid azure accents; airy and approachable.',
+        swatches: ['#F5F5F0', '#0369A1', '#0284C7'],
+    },
+    {
+        id: 'kci_snow_orchid',
+        label: 'Snow & Orchid',
+        description: 'Bright white with rich violet notes; editorial boutique feel.',
+        swatches: ['#FFFFFF', '#7C3AED', '#A855F7'],
+    },
+    {
+        id: 'kci_cream_terracotta',
+        label: 'Cream & Terracotta',
+        description: 'Warm cream with terracotta and copper warmth — handcrafted luxury.',
+        swatches: ['#FAF7F2', '#C2410C', '#B45309'],
+    },
+    {
+        id: 'kci_frost_jade',
+        label: 'Frost & Jade',
+        description: 'Ice-bright surfaces with jade/teal accents; fresh and upmarket.',
+        swatches: ['#F0FDFA', '#0F766E', '#14B8A6'],
+    },
 ];
 
 const VALID = new Set(THEMES.map((t) => t.id));

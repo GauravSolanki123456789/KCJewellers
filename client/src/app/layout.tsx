@@ -11,6 +11,7 @@ import {
   fetchPublicKcAppThemeId,
   fetchSharedCatalogKcThemeId,
 } from "@/lib/kc-theme-server";
+import { isKcLightThemeId } from "@/lib/kc-theme-ids";
 import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
@@ -138,10 +139,13 @@ export default async function RootLayout({
     }
   }
 
+  const themeMode = isKcLightThemeId(initialKcThemeId) ? "light" : "dark";
+
   return (
     <html
       lang="en"
       data-kc-theme={initialKcThemeId}
+      data-kc-theme-mode={themeMode}
       className="min-h-screen bg-slate-950"
     >
       <head>

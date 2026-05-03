@@ -179,7 +179,7 @@ export default function SmartSearch({
               inputRef.current?.blur();
             }
           }}
-          className={`w-full rounded-xl border border-white/10 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color,opacity] placeholder:text-slate-500 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 disabled:opacity-60 ${inputCls}`}
+          className={`w-full rounded-xl border border-slate-300/25 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color,opacity] placeholder:text-slate-500 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 disabled:opacity-60 ${inputCls}`}
           aria-label="Search catalogue"
           aria-expanded={showPanel}
           aria-controls="smart-search-results"
@@ -191,7 +191,7 @@ export default function SmartSearch({
         <div
           id="smart-search-results"
           role="listbox"
-          className="absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(65vh,20rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/12 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl"
+          className="kc-smart-search-panel absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(65vh,20rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-300/25 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl"
         >
           {fuseHits.length > 0 ? (
             <div>
@@ -209,7 +209,7 @@ export default function SmartSearch({
                         setOpen(false);
                         setRaw("");
                       }}
-                      className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-white/[0.06]"
+                      className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-slate-300/12"
                     >
                       <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-slate-800/90 text-slate-400">
                         <Package className="size-3.5" aria-hidden />
@@ -240,7 +240,7 @@ export default function SmartSearch({
           ) : null}
 
           {synonymMatch ? (
-            <div className={fuseHits.length > 0 ? "mt-1 border-t border-white/8 pt-1" : undefined}>
+            <div className={fuseHits.length > 0 ? "mt-1 border-t border-slate-300/15 pt-1" : undefined}>
               <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Collection
               </p>

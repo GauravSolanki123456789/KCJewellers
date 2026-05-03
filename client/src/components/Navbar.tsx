@@ -113,7 +113,7 @@ export default function Navbar() {
     <button
       type="button"
       onClick={openCart}
-      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-white/10 hover:text-yellow-500 sm:h-10 sm:w-10 ${className}`}
+      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-slate-300/15 hover:text-yellow-500 sm:h-10 sm:w-10 ${className}`}
       aria-label={`Cart${count > 0 ? `, ${count} items` : ''}`}
       title="Cart"
     >
@@ -128,7 +128,7 @@ export default function Navbar() {
 
   return (
     <>
-      <header className="safe-area-pt fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-slate-950/95 backdrop-blur-md">
+      <header className="safe-area-pt fixed left-0 right-0 top-0 z-50 border-b border-slate-300/20 bg-slate-950/95 backdrop-blur-md">
         <div className="mx-auto max-w-6xl px-3 sm:px-4 md:px-5">
           {/* Primary row: grid keeps logo, search, and actions on one optical baseline */}
           <div className="grid h-12 grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] items-center gap-2 sm:gap-3 md:h-[3.375rem] md:gap-4">
@@ -138,7 +138,7 @@ export default function Navbar() {
                 className="flex min-w-0 items-center gap-1.5 text-sm font-bold leading-none tracking-tight text-yellow-500 sm:text-base md:gap-2 md:text-lg"
               >
                 {resellerBrandingActive && logoUrl ? (
-                  <span className="relative block size-8 shrink-0 overflow-hidden rounded-lg bg-white/5 md:size-9">
+                  <span className="relative block size-8 shrink-0 overflow-hidden rounded-lg bg-slate-800/40 md:size-9">
                     <Image
                       src={logoUrl}
                       alt={businessName}
@@ -162,7 +162,7 @@ export default function Navbar() {
                 <button
                   type="button"
                   onClick={() => openLoginModal(returnTo)}
-                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-2.5 text-[11px] font-medium text-slate-200 transition-colors hover:border-amber-500/30 hover:bg-white/[0.07] sm:h-10 sm:px-3 sm:text-xs md:text-sm"
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-slate-300/25 bg-slate-800/35 px-2.5 text-[11px] font-medium text-slate-200 transition-colors hover:border-amber-500/30 hover:bg-slate-800/50 sm:h-10 sm:px-3 sm:text-xs md:text-sm"
                 >
                   Sign in
                 </button>
@@ -171,7 +171,7 @@ export default function Navbar() {
                 <>
                   <Link
                     href={PROFILE_PATH}
-                    className={`relative flex size-9 items-center justify-center rounded-xl sm:size-10 md:hidden ${navIsActive(pathname, PROFILE_PATH) ? 'bg-amber-500/15 text-amber-400' : 'text-slate-400 hover:bg-white/10 hover:text-amber-300'}`}
+                    className={`relative flex size-9 items-center justify-center rounded-xl sm:size-10 md:hidden ${navIsActive(pathname, PROFILE_PATH) ? 'bg-amber-500/15 text-amber-400' : 'text-slate-400 hover:bg-slate-300/15 hover:text-amber-300'}`}
                     aria-label={
                       adminAttention
                         ? `Profile, ${adminAttention} admin updates`
@@ -186,7 +186,7 @@ export default function Navbar() {
                       </span>
                     )}
                   </Link>
-                  <div className="relative hidden h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] pl-2.5 pr-1 md:flex">
+                  <div className="relative hidden h-10 items-center gap-2 rounded-xl border border-slate-300/25 bg-slate-800/35 pl-2.5 pr-1 md:flex">
                     {strictAdminInbox && adminAttention && (
                       <span
                         className="absolute -right-1 -top-1 z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white shadow-md shadow-black/40"
@@ -208,7 +208,7 @@ export default function Navbar() {
                     </div>
                     <button
                       onClick={handleLogout}
-                      className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-red-400"
+                      className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-slate-300/15 hover:text-red-400"
                       title="Logout"
                       type="button"
                     >
@@ -223,7 +223,7 @@ export default function Navbar() {
 
           {/* Secondary row (tablet+): fixed-height pills + icon box kills SVG/text baseline drift */}
           <nav
-            className="hidden border-t border-white/[0.06] md:block md:py-2"
+            className="hidden border-t border-slate-300/15 md:block md:py-2"
             aria-label="Primary navigation"
           >
             <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
@@ -236,7 +236,7 @@ export default function Navbar() {
                     className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium tracking-tight transition-colors ${
                       active
                         ? 'bg-amber-500/12 text-yellow-500 ring-1 ring-amber-500/25'
-                        : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-200'
+                        : 'text-slate-400 hover:bg-slate-300/12 hover:text-slate-200'
                     }`}
                   >
                     <span
@@ -251,7 +251,7 @@ export default function Navbar() {
               })}
               {auth.isAuthenticated && hasB2bPortalAccess && (
                 <>
-                  <span className="mx-1 h-5 w-px shrink-0 bg-white/15" aria-hidden />
+                  <span className="mx-1 h-5 w-px shrink-0 bg-slate-300/35" aria-hidden />
                   <Link
                     href={WHOLESALE_ORDER_PATH}
                     className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-semibold tracking-tight transition-colors ${
@@ -293,7 +293,7 @@ export default function Navbar() {
 
       {/* Mobile bottom navigation */}
       <nav
-        className="safe-area-pb fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-slate-950/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.42)] md:hidden"
+        className="kc-mobile-nav-dock safe-area-pb fixed bottom-0 left-0 right-0 z-50 border-t border-slate-300/20 bg-slate-950/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.42)] md:hidden"
         aria-label="Mobile navigation"
       >
         {auth.isAuthenticated && hasB2bPortalAccess && (
@@ -303,7 +303,7 @@ export default function Navbar() {
               className={`flex min-h-[38px] flex-1 touch-manipulation items-center justify-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors ${
                 navIsActive(pathname, WHOLESALE_ORDER_PATH)
                   ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
-                  : 'border-white/10 bg-white/5 text-emerald-400/95 active:bg-white/10'
+                  : 'border-slate-300/25 bg-slate-800/40 text-emerald-400/95 active:bg-slate-300/15'
               }`}
             >
               <Package className="size-3.5 shrink-0 opacity-90" aria-hidden />
@@ -314,7 +314,7 @@ export default function Navbar() {
               className={`flex min-h-[38px] flex-1 touch-manipulation items-center justify-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors ${
                 navIsActive(pathname, PROFILE_LEDGER_PATH)
                   ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
-                  : 'border-white/10 bg-white/5 text-emerald-400/95 active:bg-white/10'
+                  : 'border-slate-300/25 bg-slate-800/40 text-emerald-400/95 active:bg-slate-300/15'
               }`}
             >
               <BookMarked className="size-3.5 shrink-0 opacity-90" aria-hidden />
@@ -336,7 +336,7 @@ export default function Navbar() {
                 className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 transition-colors active:scale-[0.98] ${
                   active
                     ? 'bg-amber-500/12 text-amber-400 ring-1 ring-amber-500/20'
-                    : 'text-slate-400 hover:bg-white/[0.04] hover:text-amber-200/90'
+                    : 'text-slate-400 hover:bg-slate-300/12 hover:text-amber-200/90'
                 }`}
               >
                 <span className="relative flex size-5 shrink-0 items-center justify-center [&_svg]:block [&_svg]:size-5">

@@ -7,7 +7,33 @@ export const KC_THEME_IDS = [
   "kci_amethyst_luxe",
   "kci_obsidian_pearl",
   "kci_sunset_forge",
+  /* Light storefront — inverted slate scale in `kc-themes.css` */
+  "kci_ivory_gold",
+  "kci_pearl_crimson",
+  "kci_porcelain_sapphire",
+  "kci_linen_azure",
+  "kci_snow_orchid",
+  "kci_cream_terracotta",
+  "kci_frost_jade",
 ] as const;
+
+/** Themes that use light page chrome (white / soft grey surfaces). */
+export const KC_LIGHT_THEME_IDS: readonly string[] = [
+  "kci_ivory_gold",
+  "kci_pearl_crimson",
+  "kci_porcelain_sapphire",
+  "kci_linen_azure",
+  "kci_snow_orchid",
+  "kci_cream_terracotta",
+  "kci_frost_jade",
+];
+
+const LIGHT_SET = new Set(KC_LIGHT_THEME_IDS);
+
+export function isKcLightThemeId(id: string | null | undefined): boolean {
+  if (!id) return false;
+  return LIGHT_SET.has(String(id).trim());
+}
 
 export type KcThemeId = (typeof KC_THEME_IDS)[number];
 
