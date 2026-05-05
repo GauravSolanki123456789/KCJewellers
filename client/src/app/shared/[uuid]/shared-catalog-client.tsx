@@ -413,7 +413,7 @@ export default function SharedCatalogClient({
                           'absolute left-2 top-2 z-10 flex size-11 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition md:size-10',
                           selected
                             ? 'border-emerald-300 bg-emerald-600 text-white'
-                            : 'border-slate-500/70 bg-white/92 text-slate-700 backdrop-blur-sm hover:bg-white',
+                            : 'border-slate-500/70 bg-white/92 text-neutral-600 backdrop-blur-sm hover:bg-white',
                         )}
                       >
                         {selected ? <Check className="size-5 shrink-0 stroke-[2.5]" aria-hidden /> : null}
@@ -437,7 +437,7 @@ export default function SharedCatalogClient({
                     </div>
                     <div className="flex flex-1 flex-col gap-1 p-3">
                       {product.style_name && (
-                        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-600">
                           {String(product.style_name)}
                         </span>
                       )}

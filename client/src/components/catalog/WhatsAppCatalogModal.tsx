@@ -349,7 +349,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
           {shareUrl && (
             <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3">
-              <p className="text-sm text-slate-700">Your link is ready — share it on WhatsApp or copy it.</p>
+              <p className="text-sm text-slate-100">Your link is ready — share it on WhatsApp or copy it.</p>
               <p className="break-all rounded-lg bg-slate-900/80 px-2 py-1.5 font-mono text-[11px] text-slate-300">
                 {shareUrl}
               </p>

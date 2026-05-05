@@ -147,9 +147,7 @@ export default function SmartSearch({
     ? "h-9 pl-9 pr-2.5 text-[13px] leading-none"
     : "h-10 pl-10 pr-3 text-sm leading-normal md:text-[15px]";
 
-  const placeholder = compact
-    ? "Search jewellery, SKU…"
-    : "Search jewellery, SKU, or barcode";
+  const placeholder = 'Search jewellery, SKU, or barcode'
 
   return (
     <div ref={rootRef} className={`relative min-w-0 ${className}`}>
@@ -179,7 +177,7 @@ export default function SmartSearch({
               inputRef.current?.blur();
             }
           }}
-          className={`w-full rounded-xl border border-slate-300/25 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color,opacity] placeholder:text-slate-500 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 disabled:opacity-60 ${inputCls}`}
+          className={`w-full rounded-xl border border-slate-300/25 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color,opacity] placeholder:text-slate-600 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 disabled:opacity-60 ${inputCls}`}
           aria-label="Search catalogue"
           aria-expanded={showPanel}
           aria-controls="smart-search-results"
@@ -269,7 +267,7 @@ export default function SmartSearch({
                   <LayoutGrid className="size-4" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold leading-snug text-amber-50">
+                  <span className="block text-[13px] font-semibold leading-snug text-slate-100">
                     {synonymMatch.label}
                   </span>
                   {synonymMatch.hint ? (

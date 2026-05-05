@@ -203,7 +203,7 @@ export default function Navbar() {
                           (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
                       </span>
                       {user.role === 'super_admin' && (
-                        <span className="text-[10px] text-amber-400/90">Admin</span>
+                        <span className="text-[10px] text-slate-500">Admin</span>
                       )}
                     </div>
                     <button
@@ -236,7 +236,7 @@ export default function Navbar() {
                     className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium tracking-tight transition-colors ${
                       active
                         ? 'bg-amber-500/12 text-yellow-500 ring-1 ring-amber-500/25'
-                        : 'text-slate-400 hover:bg-slate-300/12 hover:text-slate-200'
+                        : 'text-slate-600 hover:bg-slate-300/12 hover:text-slate-100'
                     }`}
                   >
                     <span
@@ -335,8 +335,8 @@ export default function Navbar() {
                 }
                 className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 transition-colors active:scale-[0.98] ${
                   active
-                    ? 'bg-amber-500/12 text-amber-400 ring-1 ring-amber-500/20'
-                    : 'text-slate-400 hover:bg-slate-300/12 hover:text-amber-200/90'
+                    ? 'bg-amber-500/12 text-amber-500 ring-1 ring-amber-500/20'
+                    : 'text-slate-600 hover:bg-slate-300/12 hover:text-amber-500/95'
                 }`}
               >
                 <span className="relative flex size-5 shrink-0 items-center justify-center [&_svg]:block [&_svg]:size-5">

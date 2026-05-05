@@ -185,7 +185,7 @@ export default function ProductCard({
 
       <div className="flex flex-col gap-0.5 p-3 flex-1">
         {styleCode && (
-          <span className="text-[11px] text-slate-500 uppercase tracking-wider">
+          <span className="text-[11px] text-slate-600 uppercase tracking-wider font-medium">
             {styleCode}
           </span>
         )}
@@ -224,7 +224,7 @@ export default function ProductCard({
             >
               ₹{Math.round(total).toLocaleString('en-IN')}
             </span>
-            <span className="text-xs text-slate-500 font-normal shrink-0">
+            <span className="text-xs text-slate-600 font-normal shrink-0">
               incl. GST
             </span>
           </div>
