@@ -1077,7 +1077,7 @@ export default function CatalogPageClient() {
                   onClick={() => setSelectedMetal(key)}
                   className={`relative z-10 flex-1 sm:flex-initial flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-2 sm:px-5 py-2.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 whitespace-nowrap ${
                     isActive
-                      ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400/30'
+                      ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                   }`}
                 >
@@ -1178,7 +1178,7 @@ export default function CatalogPageClient() {
                       onClick={() => handleStyleClick(cat)}
                       className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
                         activeStyleId === cat.id
-                          ? 'bg-amber-500 text-slate-950'
+                          ? 'bg-amber-500 text-white'
                           : 'bg-slate-800 text-slate-300 border border-slate-700'
                       }`}
                     >
@@ -1562,7 +1562,7 @@ export default function CatalogPageClient() {
                       onClick={() => setActiveDesignGroup('all')}
                       className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
                         activeDesignGroup === 'all'
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          ? 'bg-amber-500 text-white shadow-sm'
                           : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
                       }`}
                     >
@@ -1576,7 +1576,7 @@ export default function CatalogPageClient() {
                         onClick={() => setActiveDesignGroup(group)}
                         className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
                           activeDesignGroup === group
-                            ? 'bg-amber-500 text-slate-950 shadow-sm'
+                            ? 'bg-amber-500 text-white shadow-sm'
                             : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
                         }`}
                       >

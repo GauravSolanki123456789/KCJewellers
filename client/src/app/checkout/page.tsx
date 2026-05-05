@@ -330,7 +330,7 @@ function CheckoutContent() {
         <p className="text-slate-400 mb-6">Sign in to proceed to checkout</p>
         <button
           onClick={() => openLoginModal('/checkout')}
-          className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold"
+          className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold"
         >
           Sign In
         </button>
@@ -346,7 +346,7 @@ function CheckoutContent() {
         </Link>
         <div className="max-w-md mx-auto text-center py-16">
           <p className="text-slate-300 text-lg">Your cart is empty</p>
-          <Link href={CATALOG_PATH} className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400">
+          <Link href={CATALOG_PATH} className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-400">
             Browse Catalog
           </Link>
         </div>
@@ -363,7 +363,7 @@ function CheckoutContent() {
         </Link>
         <div className="max-w-md mx-auto text-center py-16">
           <p className="text-slate-300 text-lg">Your cart is empty</p>
-          <Link href={CATALOG_PATH} className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400">
+          <Link href={CATALOG_PATH} className="mt-4 inline-block px-6 py-3 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-400">
             Browse Catalog
           </Link>
         </div>
@@ -403,7 +403,7 @@ function CheckoutContent() {
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-white truncate">{name}</div>
+                  <div className="font-medium text-slate-100 truncate">{name}</div>
                   {getItemWeight(ci.item) != null && (
                     <div className="text-sm text-slate-400 mt-0.5">
                       Weight: {Number(getItemWeight(ci.item)).toFixed(2)} gm
@@ -451,7 +451,7 @@ function CheckoutContent() {
                         className={`shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                           canApply
                             ? isSelected
-                              ? 'bg-amber-500 text-slate-950'
+                              ? 'bg-amber-500 text-white'
                               : 'bg-slate-700 text-slate-200 hover:bg-slate-600 border border-slate-600'
                             : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                         }`}
@@ -495,7 +495,7 @@ function CheckoutContent() {
               <button
                 type="button"
                 onClick={handleRemovePromo}
-                className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors"
                 aria-label="Remove promo"
               >
                 <X className="size-4" />
@@ -548,7 +548,7 @@ function CheckoutContent() {
                 <span className="tabular-nums">-₹{Math.round(appliedPromo.discount_amount).toLocaleString('en-IN')}</span>
               </div>
             )}
-            <div className="flex justify-between text-lg font-semibold pt-2 border-t border-white/10">
+            <div className="flex justify-between text-lg font-semibold pt-2 border-t border-white/10 text-slate-100">
               <span>{isWholesaleCheckout ? 'Order total (est.)' : 'Final Payable'}</span>
               <span className="text-amber-400 tabular-nums">
                 ₹{Math.round(isWholesaleCheckout ? grandTotal : finalPayableAmount).toLocaleString('en-IN')}
@@ -566,7 +566,7 @@ function CheckoutContent() {
               type="button"
               onClick={() => handleB2bPlace('NEFT')}
               disabled={loading || payDisabledRates}
-              className="w-full py-3.5 rounded-xl border border-emerald-500/40 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-100 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+              className="w-full py-3.5 min-h-[48px] rounded-xl border border-emerald-700/55 bg-emerald-500/30 hover:bg-emerald-500/40 text-neutral-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
             >
               <Landmark className="size-5 shrink-0" aria-hidden />
               {loading ? 'Submitting…' : 'Place purchase order (Pay via NEFT / RTGS)'}
@@ -575,7 +575,7 @@ function CheckoutContent() {
               type="button"
               onClick={() => handleB2bPlace('LEDGER')}
               disabled={loading || payDisabledRates}
-              className="w-full py-3.5 rounded-xl border border-amber-500/35 bg-amber-500/10 hover:bg-amber-500/15 text-amber-100 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+              className="w-full py-3.5 min-h-[48px] rounded-xl border border-amber-700/50 bg-amber-500/30 hover:bg-amber-500/40 text-neutral-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
             >
               <BookMarked className="size-5 shrink-0" aria-hidden />
               {loading ? 'Submitting…' : 'Deduct from ledger / Khata'}
@@ -588,7 +588,7 @@ function CheckoutContent() {
                 type="button"
                 onClick={handlePay}
                 disabled={loading || payDisabledRates || (applySipId !== null && !canApplySip)}
-                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>Processing…</>

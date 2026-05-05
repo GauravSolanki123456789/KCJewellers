@@ -199,7 +199,7 @@ export default function BreakdownModal({ open, onClose, breakdown, productName, 
               </button>
               <button
                 onClick={onClose}
-                className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors"
+                className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors"
               >
                 Close
               </button>

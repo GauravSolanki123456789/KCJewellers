@@ -14,7 +14,7 @@ export default function NotFound() {
           </p>
           <Link
             href={CATALOG_PATH}
-            className="inline-block px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold rounded-lg transition-colors"
+            className="inline-block px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-white font-semibold rounded-lg transition-colors"
           >
             Back to catalogue
           </Link>

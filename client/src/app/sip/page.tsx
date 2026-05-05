@@ -241,7 +241,7 @@ export default function SipMarketingPage() {
                   onClick={() => setSelectedMetal(key)}
                   className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 min-w-0 ${
                     isActive
-                      ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400/30'
+                      ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                   }`}
                 >
@@ -295,7 +295,7 @@ export default function SipMarketingPage() {
                   </div>
                   <button
                     onClick={() => handleStartInvesting(plan)}
-                    className="mt-6 w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors flex items-center justify-center gap-2 group/btn"
+                    className="mt-6 w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors flex items-center justify-center gap-2 group/btn"
                   >
                     Start Investing
                     <ArrowRight className="size-4 group-hover/btn:translate-x-0.5 transition-transform" />
@@ -369,7 +369,7 @@ export default function SipMarketingPage() {
                   <button
                     onClick={handleConfirmSubscribe}
                     disabled={submitting}
-                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                   >
                     {submitting ? <Loader2 className="size-5 animate-spin" /> : <CheckCircle2 className="size-5" />}
                     Confirm

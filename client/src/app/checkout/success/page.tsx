@@ -27,7 +27,7 @@ function CheckoutSuccessInner() {
         <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-6">
           <CheckCircle2 className="size-10 text-green-500" />
         </div>
-        <h1 className="text-2xl font-semibold text-white mb-2">Order placed successfully</h1>
+        <h1 className="text-2xl font-semibold text-slate-100 mb-2">Order placed successfully</h1>
         <p className="text-slate-400 mb-6 text-sm leading-relaxed">
           {hasOrder ? (
             <>
@@ -63,7 +63,7 @@ function CheckoutSuccessInner() {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
             href={CATALOG_PATH}
-            className="px-6 py-3 rounded-lg bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400 transition-colors"
+            className="px-6 py-3 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-400 transition-colors"
           >
             Continue shopping
           </Link>

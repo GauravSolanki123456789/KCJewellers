@@ -580,7 +580,7 @@ export default function AdminProductsPage() {
                       onClick={() => setSelectedMetal(key)}
                       className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 min-w-0 ${
                         isActive
-                          ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-400/30'
+                          ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                       }`}
                     >
@@ -975,7 +975,7 @@ export default function AdminProductsPage() {
                 <button
                   onClick={handleSaveOrder}
                   disabled={savingOrder || orderedCategories.length === 0}
-                  className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm disabled:opacity-60 transition-colors"
+                  className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm disabled:opacity-60 transition-colors"
                 >
                   {savingOrder ? 'Saving…' : 'Save Order'}
                 </button>
@@ -1155,7 +1155,7 @@ export default function AdminProductsPage() {
                   disabled={
                     savingPublish || catalogCategories.length === 0
                   }
-                  className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-sm disabled:opacity-60"
+                  className="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-white font-semibold text-sm disabled:opacity-60"
                 >
                   {savingPublish ? 'Saving…' : 'Save Publish Settings'}
                 </button>

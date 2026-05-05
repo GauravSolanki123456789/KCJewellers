@@ -131,7 +131,7 @@ export default function ProfileSipsPage() {
             <p className="text-slate-500 text-sm mb-6">Track your investments and manage your SIP plans</p>
             <button
               onClick={() => openLoginModal(PROFILE_SIPS_PATH)}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors"
             >
               Sign In
             </button>
@@ -176,7 +176,7 @@ export default function ProfileSipsPage() {
               <p className="text-slate-500 text-sm mt-1">Start investing with our Gold, Silver or Diamond plans</p>
               <Link
                 href="/sip"
-                className="mt-6 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors"
+                className="mt-6 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors"
               >
                 Browse Plans
               </Link>
@@ -303,7 +303,7 @@ export default function ProfileSipsPage() {
                   <button
                     onClick={handleCancelConfirm}
                     disabled={cancelling}
-                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                   >
                     {cancelling ? <Loader2 className="size-5 animate-spin" /> : <XCircle className="size-5" />}
                     Yes, Cancel

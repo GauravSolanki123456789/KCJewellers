@@ -147,7 +147,7 @@ function B2bSuccessInner() {
       <div className="max-w-md mx-auto space-y-6">
         <div className="flex flex-col items-center text-center gap-2">
           <CheckCircle2 className="size-12 text-emerald-500/90" aria-hidden />
-          <h1 className="text-lg font-semibold text-white">Purchase order submitted</h1>
+          <h1 className="text-lg font-semibold text-slate-100">Purchase order submitted</h1>
           <p className="text-xs text-slate-500 leading-relaxed">
             PO #{order.id} · {checkoutLabel} · Pending approval
           </p>
@@ -254,7 +254,7 @@ function B2bSuccessInner() {
 
         <Link
           href={CATALOG_PATH}
-          className="flex w-full items-center justify-center gap-2 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold"
+          className="flex w-full items-center justify-center gap-2 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold"
         >
           <Package className="size-4" aria-hidden />
           Back to catalogue

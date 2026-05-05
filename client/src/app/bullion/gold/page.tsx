@@ -48,7 +48,7 @@ export default function BuyGoldPage() {
         </div>
         <div className="mt-2">Est. Amount: ₹{Math.round(rate * grams)}</div>
         <div className="mt-4">
-          <button className="px-4 py-2 gold-bg text-black rounded" onClick={lockAndPay}>Lock & Pay</button>
+          <button className="px-4 py-2 gold-bg text-white rounded" onClick={lockAndPay}>Lock & Pay</button>
         </div>
       </div>
     </div>

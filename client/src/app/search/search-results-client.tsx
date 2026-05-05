@@ -86,7 +86,7 @@ export default function SearchResultsClient({
           </p>
           <Link
             href={CATALOG_PATH}
-            className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-400"
+            className="mt-6 inline-flex min-h-[44px] w-full max-w-xs items-center justify-center rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-400"
           >
             Browse full catalogue
           </Link>

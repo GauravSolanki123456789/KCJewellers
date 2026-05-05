@@ -125,7 +125,7 @@ function LedgerContent() {
           <button
             type="button"
             onClick={() => openLogin(PROFILE_PATH + '/ledger')}
-            className="mt-6 inline-flex min-h-[48px] w-full touch-manipulation items-center justify-center rounded-xl bg-amber-500 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-950/30 hover:bg-amber-400"
+            className="mt-6 inline-flex min-h-[48px] w-full touch-manipulation items-center justify-center rounded-xl bg-amber-500 px-5 text-sm font-semibold text-white shadow-lg shadow-amber-950/30 hover:bg-amber-400"
           >
             Sign in
           </button>
@@ -183,13 +183,13 @@ function LedgerContent() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-400/80">Khata</p>
-              <h1 className="mt-1 text-2xl font-bold tracking-tight text-white md:text-3xl">Account ledger</h1>
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-100 md:text-3xl">Account ledger</h1>
               <p className="mt-2 text-sm text-slate-400">Rupee and fine-metal balances — export for your records.</p>
             </div>
             <button
               type="button"
               onClick={downloadPdf}
-              className="inline-flex min-h-[48px] w-full touch-manipulation items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-600/20 px-5 text-sm font-semibold text-emerald-200 shadow-inner transition hover:bg-emerald-600/30 sm:w-auto sm:shrink-0"
+              className="inline-flex min-h-[48px] w-full touch-manipulation items-center justify-center gap-2 rounded-xl border border-emerald-600/60 bg-emerald-500/25 px-5 text-sm font-semibold text-neutral-950 shadow-inner transition hover:bg-emerald-500/35 sm:w-auto sm:shrink-0"
             >
               <Download className="size-4 shrink-0" />
               Download PDF
@@ -205,7 +205,7 @@ function LedgerContent() {
               </div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Rupee balance</p>
             </div>
-            <p className="text-2xl font-bold tabular-nums text-white md:text-3xl">
+            <p className="text-2xl font-bold tabular-nums text-slate-100 md:text-3xl">
               ₹{data.rupee_balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">Per posted entries — positive typically means amount owed.</p>

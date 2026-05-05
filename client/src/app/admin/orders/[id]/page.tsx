@@ -132,7 +132,7 @@ export default function AdminOrderDetailPage() {
             <div className="p-5 sm:p-6 border-b border-white/10">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <h1 className="text-xl font-bold text-white font-mono">Order #{order.id}</h1>
+                  <h1 className="text-xl font-bold text-slate-100 font-mono">Order #{order.id}</h1>
                   <p className="text-xs text-slate-500 mt-1">
                     {order.order_channel === 'B2B_WHOLESALE' ? 'B2B wholesale' : 'Retail'} · {qtySum} pc{qtySum !== 1 ? 's' : ''}
                   </p>

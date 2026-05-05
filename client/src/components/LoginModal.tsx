@@ -133,7 +133,7 @@ export default function LoginModal() {
                 <button
                   type="button"
                   onClick={() => setStep('mobile')}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors"
+                  className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors"
                 >
                   <Smartphone className="size-5" />
                   Sign in with Mobile OTP
@@ -151,7 +151,7 @@ export default function LoginModal() {
                   placeholder="10-digit mobile number"
                   value={mobile_number}
                   onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-600 text-white placeholder-slate-500 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none text-base"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-600 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none text-base"
                   maxLength={10}
                   autoFocus
                 />
@@ -172,7 +172,7 @@ export default function LoginModal() {
                 <Button
                   onClick={handleSendOtp}
                   disabled={loading || mobile_number.replace(/\D/g, '').length !== 10}
-                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold"
+                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-white font-semibold"
                 >
                   {loading ? 'Sending…' : 'Get OTP'}
                 </Button>
@@ -193,7 +193,7 @@ export default function LoginModal() {
                   placeholder="000000"
                   value={otp_code}
                   onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-600 text-white placeholder-slate-500 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none text-center text-xl tracking-[0.5em] font-mono"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-600 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none text-center text-xl tracking-[0.5em] font-mono"
                   maxLength={6}
                   autoFocus
                 />
@@ -214,7 +214,7 @@ export default function LoginModal() {
                 <Button
                   onClick={handleVerifyOtp}
                   disabled={loading || otp_code.length < 4}
-                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold"
+                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-white font-semibold"
                 >
                   {loading ? 'Verifying…' : 'Verify & Login'}
                 </Button>

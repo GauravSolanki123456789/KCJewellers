@@ -23,8 +23,8 @@ export default function WhatsAppShareButton({
   const href = buildWhatsAppShareLink(message);
   const styles =
     variant === "muted"
-      ? "border border-white/15 bg-slate-800/50 text-slate-300 hover:bg-slate-800 hover:text-white hover:border-white/25"
-      : "border border-emerald-500/50 bg-emerald-950/60 text-emerald-100 hover:bg-emerald-900/70 hover:border-emerald-400/60";
+      ? "border border-white/15 bg-slate-800/50 text-slate-300 hover:bg-slate-800 hover:text-slate-100 hover:border-white/25"
+      : "border border-emerald-500/45 bg-emerald-500/15 text-neutral-950 hover:bg-emerald-500/25 hover:border-emerald-500/60";
 
   return (
     <a

@@ -187,7 +187,7 @@ export default function AdminSipPlansPage() {
                 </div>
                 <button
                   onClick={openCreateModal}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
                 >
                   <Plus className="size-5" /> Create New Plan
                 </button>
@@ -207,7 +207,7 @@ export default function AdminSipPlansPage() {
                   <p className="text-slate-500 text-sm mt-1">Create your first plan to get started</p>
                   <button
                     onClick={openCreateModal}
-                    className="mt-6 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm"
+                    className="mt-6 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm"
                   >
                     <Plus className="size-5" /> Create Plan
                   </button>
@@ -452,7 +452,7 @@ export default function AdminSipPlansPage() {
                     <button
                       type="submit"
                       disabled={saving}
-                      className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                      className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                       {saving ? <Loader2 className="size-5 animate-spin" /> : null}
                       {editingPlan ? 'Update' : 'Create'}

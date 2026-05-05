@@ -241,7 +241,7 @@ export default function AdminSipPayoutsPage() {
                             {isPending && (
                               <button
                                 onClick={() => openPayoutModal(p)}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-colors"
                               >
                                 <CheckCircle2 className="size-4" /> Process Payout
                               </button>
@@ -301,7 +301,7 @@ export default function AdminSipPayoutsPage() {
                                 {isPending ? (
                                   <button
                                     onClick={() => openPayoutModal(p)}
-                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors"
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-colors"
                                   >
                                     <CheckCircle2 className="size-4" /> Process Payout
                                   </button>
@@ -391,7 +391,7 @@ export default function AdminSipPayoutsPage() {
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                      className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                       {submitting ? <Loader2 className="size-5 animate-spin" /> : <CheckCircle2 className="size-5" />}
                       Mark as Paid

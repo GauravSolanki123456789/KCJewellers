@@ -118,7 +118,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
         }`}
       >
         <div className="flex items-center justify-between p-4 border-b border-slate-800 safe-area-pt">
-          <h2 className="text-lg font-semibold text-slate-200">Your Cart</h2>
+          <h2 className="text-lg font-semibold text-slate-100">Your Cart</h2>
           <button
             onClick={onClose}
             className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
@@ -171,7 +171,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                       )}
                       <div className="flex-1 min-w-0 flex flex-col gap-3">
                         <div>
-                          <div className="font-semibold text-white truncate">
+                          <div className="font-semibold text-slate-100 truncate">
                             {displayName}
                           </div>
                           {getItemWeight(ci.item) != null && (
@@ -209,15 +209,15 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                         <div className="flex items-center gap-2 flex-wrap">
                         <button
                           type="button"
-                          className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-white"
+                          className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-slate-100"
                           onClick={() => setQty(ci.id, ci.qty - 1)}
                           aria-label={ci.qty <= 1 ? 'Remove from cart' : 'Decrease quantity'}
                         >
                           −
                         </button>
-                        <span className="w-8 text-center font-medium tabular-nums text-white">{ci.qty}</span>
+                        <span className="w-8 text-center font-medium tabular-nums text-slate-100">{ci.qty}</span>
                         <button
-                          className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-white"
+                          className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-slate-100"
                           onClick={() => setQty(ci.id, ci.qty + 1)}
                         >
                           +
@@ -233,7 +233,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                     </div>
                     <button
                       onClick={() => setExpandedId(isExpanded ? null : ci.id)}
-                      className="w-full px-4 py-2 flex items-center justify-between text-sm text-slate-300 hover:text-white hover:bg-white/5 border-t border-white/5"
+                      className="w-full px-4 py-2 flex items-center justify-between text-sm text-slate-400 hover:text-slate-100 hover:bg-white/5 border-t border-white/5 min-h-[44px]"
                     >
                       <span>View breakdown (Metal, MC, GST)</span>
                       {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
@@ -286,7 +286,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                           <span>SGST</span>
                           <span className="tabular-nums">₹{Math.round((b.sgst || 0) * ci.qty).toLocaleString('en-IN')}</span>
                         </div>
-                        <div className="flex justify-between font-medium text-white pt-2 border-t border-white/5">
+                        <div className="flex justify-between font-medium text-slate-100 pt-2 border-t border-white/5">
                           <span>Line Total</span>
                           <span className="tabular-nums text-amber-400">₹{Math.round(lineTotal).toLocaleString('en-IN')}</span>
                         </div>
@@ -301,7 +301,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
 
         {items.length > 0 && (
           <div className="p-4 border-t border-slate-800 space-y-3 safe-area-pb">
-            <div className="flex justify-between text-lg font-semibold text-white">
+            <div className="flex justify-between gap-4 text-lg font-semibold text-slate-100">
               <span>Grand Total</span>
               <span className="text-amber-400 tabular-nums">
                 {checkoutDisabled && hasMetalItems ? (
@@ -314,7 +314,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
             <button
               onClick={handleCheckout}
               disabled={checkoutDisabled}
-              className="w-full py-3 gold-bg text-slate-950 font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
+              className="w-full min-h-[48px] py-3.5 md:py-3 gold-bg text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50 active:opacity-95"
             >
               {checkoutDisabled && hasMetalItems
                 ? 'Loading prices…'

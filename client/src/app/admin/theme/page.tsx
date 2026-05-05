@@ -155,7 +155,7 @@ function AdminThemeContent() {
             type="button"
             disabled={saving}
             onClick={save}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-amber-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-black/30 hover:opacity-95 disabled:opacity-50 sm:shrink-0"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-amber-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-black/30 hover:opacity-95 disabled:opacity-50 sm:shrink-0"
           >
             {saving ? (
               <Loader2 className="size-4 animate-spin" />

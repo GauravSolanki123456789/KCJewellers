@@ -141,7 +141,7 @@ function WholesaleImageGalleryDialogBody({
               onClick={() => onStep(-1)}
               className={cn(
                 'absolute left-0 top-1/2 z-10 flex size-9 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full border border-white/10 bg-slate-900/90 text-slate-200 shadow-md backdrop-blur-sm transition',
-                'hover:border-emerald-500/35 hover:bg-slate-800/95 hover:text-white',
+                'hover:border-emerald-500/35 hover:bg-slate-800/95 hover:text-slate-100',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50',
               )}
               aria-label="Previous product image"
@@ -153,7 +153,7 @@ function WholesaleImageGalleryDialogBody({
               onClick={() => onStep(1)}
               className={cn(
                 'absolute right-0 top-1/2 z-10 flex size-9 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full border border-white/10 bg-slate-900/90 text-slate-200 shadow-md backdrop-blur-sm transition',
-                'hover:border-emerald-500/35 hover:bg-slate-800/95 hover:text-white',
+                'hover:border-emerald-500/35 hover:bg-slate-800/95 hover:text-slate-100',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50',
               )}
               aria-label="Next product image"
@@ -538,7 +538,7 @@ export default function WholesaleOrderClient() {
           </p>
           <Link
             href={CATALOG_PATH}
-            className="mt-6 inline-flex min-h-[48px] w-full touch-manipulation items-center justify-center rounded-xl bg-amber-500 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-950/30 transition hover:bg-amber-400"
+            className="mt-6 inline-flex min-h-[48px] w-full touch-manipulation items-center justify-center rounded-xl bg-amber-500 px-5 text-sm font-semibold text-white shadow-lg shadow-amber-950/30 transition hover:bg-amber-400"
           >
             Back to catalogue
           </Link>
@@ -556,7 +556,7 @@ export default function WholesaleOrderClient() {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-400/85">B2B</p>
-            <h1 className="mt-0.5 text-xl font-bold tracking-tight text-white md:text-2xl">Wholesale quick order</h1>
+            <h1 className="mt-0.5 text-xl font-bold tracking-tight text-slate-100 md:text-2xl">Wholesale quick order</h1>
           </div>
           <Link
             href={CATALOG_PATH}
@@ -935,7 +935,7 @@ export default function WholesaleOrderClient() {
             type="button"
             disabled={adding || footerTotals.price <= 0}
             onClick={handleBulkAdd}
-            className="flex min-h-[48px] w-full touch-manipulation items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 px-5 text-sm font-bold text-white shadow-lg shadow-emerald-950/45 transition hover:from-emerald-500 hover:to-emerald-400 disabled:pointer-events-none disabled:opacity-35 sm:min-h-11 sm:w-auto sm:shrink-0 sm:rounded-2xl sm:px-8"
+            className="flex min-h-[48px] w-full touch-manipulation items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-600 px-5 text-sm font-bold text-white shadow-lg shadow-emerald-950/45 transition hover:from-emerald-700 hover:to-emerald-600 disabled:pointer-events-none disabled:opacity-35 sm:min-h-11 sm:w-auto sm:shrink-0 sm:rounded-2xl sm:px-8"
           >
             {adding ? (
               <>

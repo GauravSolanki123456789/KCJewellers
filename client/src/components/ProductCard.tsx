@@ -97,7 +97,7 @@ export default function ProductCard({
             className={cn(
               'flex size-5 items-center justify-center rounded border-2 transition-colors',
               selected
-                ? 'border-amber-400 bg-amber-500 text-slate-950'
+                ? 'border-amber-400 bg-amber-500 text-white'
                 : 'border-slate-500 bg-slate-900/80',
             )}
           >
@@ -120,7 +120,7 @@ export default function ProductCard({
           </span>
         )}
         {hasDiscount && (
-          <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 text-xs font-bold">
+          <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-amber-500 text-white text-xs font-bold">
             {Math.round(discountPercent ?? 0)}% OFF
           </span>
         )}
@@ -238,7 +238,7 @@ export default function ProductCard({
               cart.add(product)
             }}
           >
-            <span className="block w-full rounded-lg bg-amber-500 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-amber-400">
+            <span className="block w-full rounded-lg bg-amber-500 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400">
               Add to Cart
             </span>
           </button>

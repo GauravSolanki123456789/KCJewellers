@@ -383,7 +383,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             type="button"
             disabled={busy || !!shareUrl}
             onClick={handleSubmit}
-            className="min-h-[48px] w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-900/20 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
+            className="min-h-[48px] w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-900/20 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
           >
             {busy
               ? 'Working…'

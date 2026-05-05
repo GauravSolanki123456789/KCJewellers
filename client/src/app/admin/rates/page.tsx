@@ -6,7 +6,8 @@ import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
 import { TrendingUp, ArrowLeft, BookMarked, Settings, Save } from 'lucide-react'
 
-const INPUT_CLASS = 'bg-slate-800 text-white placeholder-slate-400 border border-slate-600 p-3 rounded-lg w-full focus:ring-2 focus:ring-yellow-500/50 outline-none'
+const INPUT_CLASS =
+  'bg-slate-800 text-slate-100 placeholder-slate-400 border border-slate-600 p-3 rounded-lg w-full focus:ring-2 focus:ring-yellow-500/50 outline-none'
 
 export default function AdminRatesPage() {
   const [goldImportDutyPercent, setGoldImportDutyPercent] = useState(15)
@@ -225,7 +226,7 @@ export default function AdminRatesPage() {
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold disabled:opacity-60 transition-colors"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-white font-semibold disabled:opacity-60 transition-colors"
                   >
                     <Save className="size-4" />
                     {saving ? 'Saving…' : saved ? 'Saved' : 'Save Settings'}

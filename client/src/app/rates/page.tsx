@@ -157,7 +157,7 @@ export default function RatesPage() {
                             <Button
                               size="sm"
                               onClick={openBookRate}
-                              className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
+                              className="w-full bg-yellow-500 hover:bg-yellow-400 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
                             >
                               <BookMarked className="size-3.5 sm:size-4 sm:mr-1 shrink-0" />
                               <span className="hidden sm:inline">Book</span>
@@ -200,7 +200,7 @@ export default function RatesPage() {
                             <Button
                               size="sm"
                               onClick={openBookRate}
-                              className="w-full bg-cyan-500/80 hover:bg-cyan-500 text-slate-950 font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
+                              className="w-full bg-cyan-500/80 hover:bg-cyan-500 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
                             >
                               <BookMarked className="size-3.5 sm:size-4 sm:mr-1 shrink-0" />
                               <span className="hidden sm:inline">Book</span>
@@ -227,7 +227,7 @@ export default function RatesPage() {
                   <Button
                     type="button"
                     onClick={openBookRate}
-                    className="mt-4 w-full bg-amber-500 font-semibold text-slate-950 hover:bg-amber-400 sm:w-auto sm:px-8"
+                    className="mt-4 w-full bg-amber-500 font-semibold text-white hover:bg-amber-400 sm:w-auto sm:px-8"
                   >
                     <BookMarked className="mr-2 size-4" />
                     Open book rate form

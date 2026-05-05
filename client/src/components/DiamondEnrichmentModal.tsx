@@ -190,7 +190,7 @@ export default function DiamondEnrichmentModal({
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-60 transition-colors"
+              className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold disabled:opacity-60 transition-colors"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>

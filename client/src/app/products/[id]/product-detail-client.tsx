@@ -322,7 +322,7 @@ export default function ProductDetailClient({
                 </button>
               )}
               {hasDiscount && (
-                <span className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg bg-amber-500 text-slate-950 text-sm font-bold">
+                <span className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg bg-amber-500 text-white text-sm font-bold">
                   {Math.round(b?.discountPercent ?? 0)}% OFF
                 </span>
               )}
@@ -545,7 +545,7 @@ export default function ProductDetailClient({
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors order-2 sm:order-1"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors order-2 sm:order-1"
                   onClick={handleAddToCart}
                 >
                   Add to Cart
@@ -569,7 +569,7 @@ export default function ProductDetailClient({
         <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 p-4 pb-6 pt-3 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 safe-area-pb">
           <button
             type="button"
-            className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-base transition-colors shadow-lg"
+            className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-base transition-colors shadow-lg"
             onClick={handleAddToCart}
           >
             Add to Cart — ₹

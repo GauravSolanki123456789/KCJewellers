@@ -257,7 +257,7 @@ export default function SharedCatalogClient({
         <p className="text-lg font-medium text-slate-200">{error}</p>
         <Link
           href={CATALOG_PATH}
-          className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-slate-950"
+          className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white"
         >
           Browse full catalogue
         </Link>
@@ -276,7 +276,7 @@ export default function SharedCatalogClient({
           </p>
           <Link
             href={CATALOG_PATH}
-            className="mt-8 inline-flex rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-400"
+            className="mt-8 inline-flex rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-400"
           >
             View catalogue
           </Link>

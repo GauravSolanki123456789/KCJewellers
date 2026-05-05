@@ -117,7 +117,7 @@ export default function AdminB2bPurchaseOrdersPage() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <span className="font-mono font-semibold text-white">#{o.id}</span>
+                          <span className="font-mono font-semibold text-slate-100">#{o.id}</span>
                           <span
                             className={`ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded ${
                               type === 'LEDGER' ? 'bg-amber-500/20 text-amber-300' : 'bg-sky-500/20 text-sky-300'
