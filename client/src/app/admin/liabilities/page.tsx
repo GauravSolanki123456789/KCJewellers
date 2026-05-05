@@ -98,14 +98,14 @@ export default function AdminLiabilitiesPage() {
           <main className="max-w-6xl mx-auto px-4 py-6 sm:py-8 pb-24">
             <Link
               href="/admin"
-              className="inline-flex items-center gap-2 text-slate-400 hover:text-yellow-500 mb-6 transition-colors"
+              className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
             >
               <ArrowLeft className="size-4" /> Back to Dashboard
             </Link>
 
             <div className="mb-6 sm:mb-8">
               <div className="flex items-center gap-2 mb-1">
-                <Scale className="size-6 sm:size-7 text-yellow-500" />
+                <Scale className="size-6 sm:size-7 text-amber-500" />
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-200">Metal Liabilities Ledger</h1>
               </div>
               <p className="text-slate-400 text-sm">
@@ -158,7 +158,7 @@ export default function AdminLiabilitiesPage() {
                       <select
                         value={metalFilter}
                         onChange={(e) => setMetalFilter(e.target.value)}
-                        className="px-3 py-2 rounded-lg bg-slate-800/80 border border-white/10 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500/50 min-w-[120px]"
+                        className="px-3 py-2 rounded-lg bg-slate-800/80 border border-white/10 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 min-w-[120px]"
                       >
                         <option value="">All</option>
                         <option value="gold">Gold</option>
@@ -171,7 +171,7 @@ export default function AdminLiabilitiesPage() {
                       <select
                         value={originFilter}
                         onChange={(e) => setOriginFilter(e.target.value)}
-                        className="px-3 py-2 rounded-lg bg-slate-800/80 border border-white/10 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500/50 min-w-[120px]"
+                        className="px-3 py-2 rounded-lg bg-slate-800/80 border border-white/10 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 min-w-[120px]"
                       >
                         <option value="">All</option>
                         <option value="sips">SIPs</option>
@@ -228,7 +228,7 @@ export default function AdminLiabilitiesPage() {
                             {item.mobile_number || item.email || `User #${item.user_id || '—'}`}
                           </td>
                           <td className="py-3 px-3 sm:px-4 text-right font-medium tabular-nums text-sm">
-                            <span className={(item.metal_type || '').toLowerCase() === 'diamond' ? 'text-cyan-400' : 'text-yellow-500/90'}>
+                            <span className={(item.metal_type || '').toLowerCase() === 'diamond' ? 'text-cyan-400' : 'text-amber-500/90'}>
                               {formatValue(item)}
                             </span>
                           </td>

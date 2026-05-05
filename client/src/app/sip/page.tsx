@@ -206,7 +206,7 @@ export default function SipMarketingPage() {
           </div>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-100 mb-4">
             Invest Monthly,{' '}
-            <span className="bg-gradient-to-r from-amber-400 to-yellow-500 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-amber-400 to-amber-500 bg-clip-text text-transparent">
               Secure Your Future
             </span>
           </h1>

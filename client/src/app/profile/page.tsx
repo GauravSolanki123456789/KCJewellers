@@ -68,8 +68,8 @@ function ProfilePageContent() {
       <main className="max-w-4xl mx-auto px-4 py-8 kc-pb-mobile-nav md:pb-12">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 bg-clip-text text-transparent flex items-center gap-2">
-            <Sparkles className="size-6 text-yellow-500" />
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 bg-clip-text text-transparent flex items-center gap-2">
+            <Sparkles className="size-6 text-amber-500" />
             Profile
           </h1>
           {auth.isAuthenticated && user && (
@@ -117,15 +117,15 @@ function ProfilePageContent() {
           <div className="glass-card rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl">
             <div className="p-6">
               <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-xl bg-yellow-500/20 border border-yellow-500/30">
-                  <Wallet className="size-6 text-yellow-500" />
+                <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/30">
+                  <Wallet className="size-6 text-amber-500" />
                 </div>
                 <div>
                   <h2 className="text-lg font-semibold text-slate-200">Wallet Balance</h2>
                   <p className="text-xs text-slate-500">Available for purchases & bookings</p>
                 </div>
               </div>
-              <div className="text-3xl font-bold text-yellow-500 tabular-nums">
+              <div className="text-3xl font-bold text-amber-500 tabular-nums">
                 ₹0
               </div>
               <p className="text-xs text-slate-500 mt-1">Add funds to get started</p>
@@ -283,7 +283,7 @@ function ProfilePageContent() {
             <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={() => openLoginModal('/profile')}
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-white font-semibold rounded-lg transition-colors"
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-lg transition-colors"
               >
                 Sign In
               </button>

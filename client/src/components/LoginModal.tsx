@@ -104,7 +104,7 @@ export default function LoginModal() {
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="bg-slate-900/95 backdrop-blur-xl border border-white/10 text-slate-100 max-w-sm sm:max-w-md w-[calc(100vw-2rem)] sm:w-auto">
         <DialogHeader>
-          <DialogTitle className="text-yellow-500 text-lg">Sign In</DialogTitle>
+          <DialogTitle className="text-amber-500 text-lg">Sign In</DialogTitle>
           <DialogDescription className="text-slate-400 text-sm">
             Sign in to access cart, checkout, and Book Rate
           </DialogDescription>

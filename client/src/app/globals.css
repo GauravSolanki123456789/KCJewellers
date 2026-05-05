@@ -70,6 +70,11 @@ body {
   color: var(--color-jewelry-gold);
 }
 
+/* Use on links where Tailwind has no `hover:gold-text` variant. */
+.hover-gold-text:hover {
+  color: var(--color-jewelry-gold);
+}
+
 .gold-bg {
   background-color: var(--color-jewelry-gold);
 }

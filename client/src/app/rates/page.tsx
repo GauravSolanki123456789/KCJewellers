@@ -99,7 +99,7 @@ export default function RatesPage() {
         </div>
       )}
       {isRefreshing && (
-        <div className="absolute top-0 left-0 right-0 w-full text-center transition-all z-50 py-3 text-sm text-yellow-500 bg-slate-900/90 backdrop-blur">
+        <div className="absolute top-0 left-0 right-0 w-full text-center transition-all z-50 py-3 text-sm text-amber-600 bg-slate-900/90 backdrop-blur">
           Refreshing…
         </div>
       )}
@@ -109,13 +109,13 @@ export default function RatesPage() {
             <div className="px-3 sm:px-6 py-4 sm:py-5 border-b border-white/10">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-yellow-500">Live Rates</h1>
+                  <h1 className="text-xl sm:text-2xl font-bold text-amber-600">Live Rates</h1>
                   <p className="mt-1 text-xs text-slate-500 sm:text-sm">
                     Gold & silver prices — book your rate below or from any row
                   </p>
                 </div>
                 {isEstimated && (
-                  <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-yellow-500/20 border border-yellow-500/30 text-yellow-500 text-xs sm:text-sm">
+                  <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-600 text-xs sm:text-sm">
                     <AlertTriangle className="size-3.5 sm:size-4 shrink-0" />
                     <span>Market closed — estimated</span>
                   </div>
@@ -144,7 +144,7 @@ export default function RatesPage() {
                             <span className="text-slate-300 font-medium text-xs sm:text-base">{p.label}</span>
                           </td>
                           <td className="py-2.5 sm:py-4 px-2 sm:px-6 text-right">
-                            <span className="text-yellow-500 font-semibold tabular-nums text-xs sm:text-base">
+                            <span className="text-amber-600 font-semibold tabular-nums text-xs sm:text-base">
                               {formatPrice(p.get1g(rates))}
                             </span>
                           </td>
@@ -157,7 +157,7 @@ export default function RatesPage() {
                             <Button
                               size="sm"
                               onClick={openBookRate}
-                              className="w-full bg-yellow-500 hover:bg-yellow-400 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
+                              className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
                             >
                               <BookMarked className="size-3.5 sm:size-4 sm:mr-1 shrink-0" />
                               <span className="hidden sm:inline">Book</span>
@@ -217,7 +217,7 @@ export default function RatesPage() {
             {!loading && (
               <div className="border-t border-white/10 bg-gradient-to-b from-amber-500/10 to-transparent px-3 py-5 sm:px-6 sm:py-6">
                 <div className="rounded-xl border border-amber-500/25 bg-slate-900/60 p-4 sm:p-5">
-                  <h2 className="text-base font-semibold text-amber-400 sm:text-lg">
+                  <h2 className="text-base font-semibold text-amber-500 sm:text-lg">
                     Book your rate
                   </h2>
                   <p className="mt-1 text-xs text-slate-400 sm:text-sm">

@@ -113,13 +113,13 @@ export default function Navbar() {
     <button
       type="button"
       onClick={openCart}
-      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-300 transition-colors hover:bg-slate-300/15 hover:text-yellow-500 sm:h-10 sm:w-10 ${className}`}
+      className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-300/15 hover:text-amber-500 sm:h-10 sm:w-10 ${className}`}
       aria-label={`Cart${count > 0 ? `, ${count} items` : ''}`}
       title="Cart"
     >
       <ShoppingCart className="size-5" />
       {count > 0 && (
-        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-500 px-1 text-[10px] font-bold text-white">
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
           {count > 99 ? '99+' : count}
         </span>
       )}
@@ -135,7 +135,7 @@ export default function Navbar() {
             <div className="min-w-0 max-w-[42vw] sm:max-w-none">
               <Link
                 href={CATALOG_PATH}
-                className="flex min-w-0 items-center gap-1.5 text-sm font-bold leading-none tracking-tight text-yellow-500 sm:text-base md:gap-2 md:text-lg"
+                className="flex min-w-0 items-center gap-1.5 text-sm font-bold leading-none tracking-tight text-amber-500 sm:text-base md:gap-2 md:text-lg"
               >
                 {resellerBrandingActive && logoUrl ? (
                   <span className="relative block size-8 shrink-0 overflow-hidden rounded-lg bg-slate-800/40 md:size-9">
@@ -197,13 +197,13 @@ export default function Navbar() {
                       </span>
                     )}
                     <div className="min-w-0 max-w-[7.5rem] lg:max-w-[11rem]">
-                      <span className="block truncate text-xs font-medium text-yellow-500">
+                      <span className="block truncate text-xs font-medium text-amber-500">
                         {user.name ||
                           user.email ||
                           (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}
                       </span>
                       {user.role === 'super_admin' && (
-                        <span className="text-[10px] text-slate-500">Admin</span>
+                        <span className="text-[10px] text-amber-400/90">Admin</span>
                       )}
                     </div>
                     <button
@@ -235,8 +235,8 @@ export default function Navbar() {
                     href={href}
                     className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium tracking-tight transition-colors ${
                       active
-                        ? 'bg-amber-500/12 text-yellow-500 ring-1 ring-amber-500/25'
-                        : 'text-slate-600 hover:bg-slate-300/12 hover:text-slate-100'
+                        ? 'bg-amber-500/12 text-amber-600 ring-1 ring-amber-500/25'
+                        : 'text-slate-400 hover:bg-slate-300/12 hover:text-slate-200'
                     }`}
                   >
                     <span
@@ -335,8 +335,8 @@ export default function Navbar() {
                 }
                 className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 transition-colors active:scale-[0.98] ${
                   active
-                    ? 'bg-amber-500/12 text-amber-500 ring-1 ring-amber-500/20'
-                    : 'text-slate-600 hover:bg-slate-300/12 hover:text-amber-500/95'
+                    ? 'bg-amber-500/12 text-amber-600 ring-1 ring-amber-500/20'
+                    : 'text-slate-400 hover:bg-slate-300/12 hover:text-amber-200/90'
                 }`}
               >
                 <span className="relative flex size-5 shrink-0 items-center justify-center [&_svg]:block [&_svg]:size-5">

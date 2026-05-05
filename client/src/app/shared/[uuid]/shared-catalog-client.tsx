@@ -316,9 +316,9 @@ export default function SharedCatalogClient({
               />
             </span>
           ) : null}
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-600">{brandLabel}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-500">{brandLabel}</p>
         </div>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">
+        <h1 className="mt-2 font-serif text-2xl font-semibold tracking-tight text-slate-100 md:text-3xl">
           Shared catalogue
         </h1>
         {showPickerChrome ? (
@@ -413,7 +413,7 @@ export default function SharedCatalogClient({
                           'absolute left-2 top-2 z-10 flex size-11 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition md:size-10',
                           selected
                             ? 'border-emerald-300 bg-emerald-600 text-white'
-                            : 'border-slate-500/70 bg-white/92 text-neutral-600 backdrop-blur-sm hover:bg-white',
+                            : 'border-slate-500/70 bg-white/92 text-neutral-800 backdrop-blur-sm hover:bg-white',
                         )}
                       >
                         {selected ? <Check className="size-5 shrink-0 stroke-[2.5]" aria-hidden /> : null}
@@ -437,7 +437,7 @@ export default function SharedCatalogClient({
                     </div>
                     <div className="flex flex-1 flex-col gap-1 p-3">
                       {product.style_name && (
-                        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-600">
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
                           {String(product.style_name)}
                         </span>
                       )}
@@ -449,7 +449,7 @@ export default function SharedCatalogClient({
                         <span className="text-xs text-slate-400">Weight · {wtLabel}</span>
                       ) : null}
                       <div className="mt-auto pt-2">
-                        <div className="text-lg font-semibold tabular-nums text-amber-400">
+                        <div className="text-lg font-semibold tabular-nums text-amber-600">
                           ₹{Math.round(total).toLocaleString('en-IN')}
                           <span className="text-[11px] font-normal text-slate-500"> incl. GST</span>
                         </div>

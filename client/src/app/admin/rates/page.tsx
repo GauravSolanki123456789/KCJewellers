@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { TrendingUp, ArrowLeft, BookMarked, Settings, Save } from 'lucide-react'
 
 const INPUT_CLASS =
-  'bg-slate-800 text-slate-100 placeholder-slate-400 border border-slate-600 p-3 rounded-lg w-full focus:ring-2 focus:ring-yellow-500/50 outline-none'
+  'bg-slate-800 text-slate-100 placeholder-slate-400 border border-slate-600 p-3 rounded-lg w-full focus:ring-2 focus:ring-amber-500/50 outline-none'
 
 export default function AdminRatesPage() {
   const [goldImportDutyPercent, setGoldImportDutyPercent] = useState(15)
@@ -78,14 +78,14 @@ export default function AdminRatesPage() {
       <AdminGuard>
         <div className="min-h-screen bg-slate-950 text-slate-100">
           <main className="max-w-4xl mx-auto px-4 py-8 pb-24">
-            <Link href="/admin" className="inline-flex items-center gap-2 text-slate-400 hover:text-yellow-500 mb-6 transition-colors">
+            <Link href="/admin" className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors">
             <ArrowLeft className="size-4" /> Back to Dashboard
           </Link>
 
           <div className="bg-slate-900/50 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden">
             <div className="p-4 sm:p-6 border-b border-white/10">
               <div className="flex items-center gap-2">
-                <TrendingUp className="size-6 text-yellow-500" />
+                <TrendingUp className="size-6 text-amber-500" />
                 <h1 className="text-xl font-semibold text-slate-200">Live Rates & Margins</h1>
               </div>
               <p className="text-slate-500 text-sm mt-1">
@@ -100,7 +100,7 @@ export default function AdminRatesPage() {
                 {/* Section 1: Global Settings */}
                 <section className="rounded-xl bg-slate-800/30 border border-white/10 p-5">
                   <div className="flex items-center gap-2 mb-4">
-                    <Settings className="size-5 text-yellow-500" />
+                    <Settings className="size-5 text-amber-500" />
                     <h2 className="text-lg font-semibold text-slate-200">Global Settings</h2>
                   </div>
                   <div className="grid sm:grid-cols-2 gap-4">
@@ -200,9 +200,9 @@ export default function AdminRatesPage() {
                 </section>
 
                 {/* Section 4: Rate Booking Advance */}
-                <section className="rounded-xl bg-slate-800/30 border border-yellow-500/20 p-5">
+                <section className="rounded-xl bg-slate-800/30 border border-amber-500/20 p-5">
                   <div className="flex items-center gap-2 mb-4">
-                    <BookMarked className="size-5 text-yellow-500" />
+                    <BookMarked className="size-5 text-amber-500" />
                     <h2 className="text-lg font-semibold text-slate-200">Rate Booking Advance Amount</h2>
                   </div>
                   <p className="text-slate-500 text-sm mb-4">
@@ -226,7 +226,7 @@ export default function AdminRatesPage() {
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-white font-semibold disabled:opacity-60 transition-colors"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold disabled:opacity-60 transition-colors"
                   >
                     <Save className="size-4" />
                     {saving ? 'Saving…' : saved ? 'Saved' : 'Save Settings'}

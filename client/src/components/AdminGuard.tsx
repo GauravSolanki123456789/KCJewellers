@@ -43,7 +43,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <div className="glass-card p-8 max-w-md text-center">
-          <Loader2 className="size-16 text-yellow-500 mx-auto mb-4 animate-spin" />
+          <Loader2 className="size-16 text-amber-500 mx-auto mb-4 animate-spin" />
           <h1 className="text-xl font-semibold text-slate-200">Checking authentication...</h1>
         </div>
       </div>
@@ -59,7 +59,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
           <p className="text-slate-500 mt-2">Sign in to access the admin dashboard.</p>
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google`}
-            className="mt-6 inline-block px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-white font-semibold rounded-lg"
+            className="mt-6 inline-block px-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-lg"
           >
             Sign In with Google
           </a>

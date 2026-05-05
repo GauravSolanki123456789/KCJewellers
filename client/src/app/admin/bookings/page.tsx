@@ -86,7 +86,7 @@ export default function AdminBookingsPage() {
         <main className="max-w-6xl mx-auto px-4 py-8 pb-24">
           <Link
             href="/admin"
-            className="inline-flex items-center gap-2 text-slate-400 hover:text-yellow-500 mb-6"
+            className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6"
           >
             <ArrowLeft className="size-4" /> Back to Dashboard
           </Link>
@@ -94,7 +94,7 @@ export default function AdminBookingsPage() {
           <div className="bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
             <div className="p-4 sm:p-6 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-2">
-                <BookMarked className="size-6 text-yellow-500" />
+                <BookMarked className="size-6 text-amber-500" />
                 <h1 className="text-xl font-semibold text-slate-200">Rate Bookings</h1>
               </div>
               <div className="flex items-center gap-2">
@@ -102,7 +102,7 @@ export default function AdminBookingsPage() {
                 <select
                   value={metalFilter}
                   onChange={(e) => setMetalFilter(e.target.value)}
-                  className="px-3 py-2 rounded-lg bg-slate-800/80 border border-white/10 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500/50"
+                  className="px-3 py-2 rounded-lg bg-slate-800/80 border border-white/10 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                 >
                   {METAL_OPTIONS.map((o) => (
                     <option key={o.value || 'all'} value={o.value}>
@@ -153,7 +153,7 @@ export default function AdminBookingsPage() {
                         <td className="py-3 px-4 text-right text-slate-300 tabular-nums">
                           {b.locked_gold_rate != null ? `₹${Number(b.locked_gold_rate).toLocaleString('en-IN')}/g` : '—'}
                         </td>
-                        <td className="py-3 px-4 text-right text-yellow-500/90 font-medium tabular-nums">
+                        <td className="py-3 px-4 text-right text-amber-500/90 font-medium tabular-nums">
                           {b.advance_amount != null ? `₹${Number(b.advance_amount).toLocaleString('en-IN')}` : '—'}
                         </td>
                         <td className="py-3 px-4">
@@ -162,7 +162,7 @@ export default function AdminBookingsPage() {
                               b.status === 'completed'
                                 ? 'bg-emerald-500/20 text-emerald-400'
                                 : b.status === 'booked'
-                                  ? 'bg-yellow-500/20 text-yellow-400'
+                                  ? 'bg-amber-500/20 text-amber-400'
                                   : 'bg-slate-500/20 text-slate-400'
                             }`}
                           >

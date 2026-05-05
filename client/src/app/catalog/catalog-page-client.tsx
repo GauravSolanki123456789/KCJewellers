@@ -1025,7 +1025,7 @@ export default function CatalogPageClient() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <main className="max-w-5xl mx-auto px-4 py-16 text-center">
-          <LayoutGrid className="size-16 text-amber-500/80 mx-auto mb-4" />
+          <LayoutGrid className="mx-auto mb-4 size-16 text-amber-600/90" />
           <p className="text-slate-400 text-lg">No catalogues published yet</p>
           <p className="text-slate-500 text-sm mt-1">
             Admin can sync from ERP and publish catalogues from the dashboard.
@@ -1078,7 +1078,7 @@ export default function CatalogPageClient() {
                   className={`relative z-10 flex-1 sm:flex-initial flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-2 sm:px-5 py-2.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 whitespace-nowrap ${
                     isActive
                       ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
-                      : 'text-slate-600 hover:text-slate-100 hover:bg-slate-800/50 active:bg-slate-800'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                   }`}
                 >
                   <Icon className="size-5 shrink-0 sm:size-4" aria-hidden />
@@ -1118,7 +1118,7 @@ export default function CatalogPageClient() {
         <div className="flex items-center justify-between gap-2 mb-4">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <LayoutGrid className="size-5 shrink-0 text-amber-500" />
-            <h1 className="truncate text-base font-semibold text-slate-100 sm:text-lg">
+            <h1 className="truncate text-base font-semibold text-slate-200 sm:text-lg">
               Catalogue
             </h1>
           </div>
@@ -1179,7 +1179,7 @@ export default function CatalogPageClient() {
                       className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
                         activeStyleId === cat.id
                           ? 'bg-amber-500 text-white'
-                          : 'bg-slate-800 text-slate-600 border border-slate-700'
+                          : 'bg-slate-800 text-slate-300 border border-slate-700'
                       }`}
                     >
                       {cat.name}
@@ -1244,8 +1244,8 @@ export default function CatalogPageClient() {
                         onClick={() => handleSkuClick(sub, activeStyle.id)}
                         className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           activeSkuId === sub.id
-                            ? 'bg-amber-500/20 text-amber-500 border border-amber-500/40'
-                            : 'bg-slate-800/60 text-slate-600 border border-slate-700/60'
+                            ? 'border border-amber-500/45 bg-amber-500/20 text-amber-600 font-semibold'
+                            : 'bg-slate-800/60 text-slate-400 border border-slate-700/60'
                         }`}
                       >
                         {sub.name}
@@ -1264,7 +1264,7 @@ export default function CatalogPageClient() {
           <aside className="hidden lg:block w-64 shrink-0 lg:min-h-[min(100vh,920px)]">
             {/* Filters — min height reduces layout jump when collection changes */}
             <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-5 min-h-[260px]">
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">Filters</h3>
+              <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Filters</h3>
               <DualRangeSlider
                 min={weightBounds[0]}
                 max={weightBounds[1]}
@@ -1361,8 +1361,8 @@ export default function CatalogPageClient() {
                           }
                           className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-2 rounded-lg text-left transition-colors ${
                             isActive
-                              ? 'text-amber-500'
-                              : 'text-slate-600 hover:bg-slate-800/40'
+                              ? 'font-semibold text-amber-600'
+                              : 'text-slate-300 hover:bg-slate-800/40'
                           }`}
                         >
                           <span className="font-semibold text-sm tracking-wide uppercase truncate">
@@ -1439,8 +1439,8 @@ export default function CatalogPageClient() {
                                     onClick={() => handleSkuClick(sub, cat.id)}
                                     className={`min-w-0 flex-1 text-left px-2 py-1.5 rounded-md text-sm transition-colors ${
                                       isSubActive
-                                        ? 'bg-amber-500/10 text-amber-500 font-semibold'
-                                        : 'text-slate-600 hover:text-slate-100 hover:bg-slate-800/30'
+                                        ? 'bg-amber-500/10 text-amber-600 font-semibold'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
                                     }`}
                                   >
                                     {sub.name}
@@ -1563,7 +1563,7 @@ export default function CatalogPageClient() {
                       className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
                         activeDesignGroup === 'all'
                           ? 'bg-amber-500 text-white shadow-sm'
-                          : 'border border-slate-700 bg-slate-800/70 text-slate-600 hover:bg-slate-700/80'
+                          : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
                       }`}
                     >
                       All
@@ -1577,7 +1577,7 @@ export default function CatalogPageClient() {
                         className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
                           activeDesignGroup === group
                             ? 'bg-amber-500 text-white shadow-sm'
-                            : 'border border-slate-700 bg-slate-800/70 text-slate-600 hover:bg-slate-700/80'
+                            : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
                         }`}
                       >
                         {group}
@@ -1605,7 +1605,7 @@ export default function CatalogPageClient() {
 
             <div key={catalogGridSurfaceKey} className="kc-catalog-surface-enter">
               <div className="flex items-center justify-between mb-4 gap-4">
-                <p className="text-sm text-slate-500 truncate">
+                <p className="text-sm text-slate-400 truncate">
                   {breadcrumb || 'Select a collection'}
                 </p>
                 {products.length > 0 && (

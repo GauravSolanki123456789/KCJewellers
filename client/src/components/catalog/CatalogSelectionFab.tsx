@@ -21,7 +21,7 @@ export default function CatalogSelectionFab({ onGenerateClick }: Props) {
       <div className="pointer-events-auto flex max-w-lg flex-1 items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/95 px-4 py-2.5 shadow-2xl shadow-black/40 backdrop-blur-md md:gap-4 md:px-5">
         <MessageCircle className="size-4 shrink-0 text-emerald-400/90 md:size-5" aria-hidden />
         <p className="min-w-0 flex-1 text-center text-xs text-slate-200 md:text-sm">
-          <span className="font-semibold tabular-nums text-amber-400">{n}</span>
+          <span className="font-semibold tabular-nums gold-text">{n}</span>
           <span className="text-slate-400"> item{n !== 1 ? 's' : ''} selected</span>
         </p>
         <button

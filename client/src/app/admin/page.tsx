@@ -39,7 +39,7 @@ const ADMIN_SECTIONS = [
     description: 'Set gold/silver rates, admin margins, making charges',
     href: '/admin/rates',
     icon: TrendingUp,
-    color: 'yellow',
+    color: 'amber',
   },
   {
     title: 'SIP Plans Manager',
@@ -189,7 +189,7 @@ function AdminDashboardInner() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <main className="mx-auto max-w-4xl px-4 py-8 pb-24">
         <div className="mb-8">
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-yellow-500">
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-amber-500">
             <LayoutDashboard className="size-7" />
             Admin Dashboard
           </h1>
@@ -223,17 +223,17 @@ function AdminDashboardInner() {
                   )}
                   <div className="flex items-start justify-between gap-2 pr-7 sm:pr-8">
                     <div className="flex min-w-0 items-start gap-3 sm:gap-4">
-                      <div className="relative shrink-0 rounded-lg border border-white/10 bg-white/5 p-2.5 transition-colors group-hover:border-yellow-500/20 group-hover:bg-yellow-500/10">
-                        <Icon className="size-5 shrink-0 text-yellow-500" />
+                      <div className="relative shrink-0 rounded-lg border border-white/10 bg-white/5 p-2.5 transition-colors group-hover:border-amber-500/20 group-hover:bg-amber-500/10">
+                        <Icon className="size-5 shrink-0 text-amber-500" />
                       </div>
                       <div className="min-w-0">
-                        <h2 className="font-semibold text-slate-200 transition-colors group-hover:text-yellow-400">
+                        <h2 className="font-semibold text-slate-200 transition-colors group-hover:text-amber-400">
                           {section.title}
                         </h2>
                         <p className="mt-0.5 text-sm text-slate-500">{section.description}</p>
                       </div>
                     </div>
-                    <ArrowRight className="mt-1 size-4 shrink-0 text-slate-500 transition-all group-hover:translate-x-1 group-hover:text-yellow-500" />
+                    <ArrowRight className="mt-1 size-4 shrink-0 text-slate-500 transition-all group-hover:translate-x-1 group-hover:text-amber-500" />
                   </div>
                 </Link>
               )

@@ -185,7 +185,7 @@ export default function ProductCard({
 
       <div className="flex flex-col gap-0.5 p-3 flex-1">
         {styleCode && (
-          <span className="text-[11px] text-slate-600 uppercase tracking-wider font-medium">
+          <span className="text-[11px] text-slate-500 uppercase tracking-wider">
             {styleCode}
           </span>
         )}
@@ -218,13 +218,13 @@ export default function ProductCard({
           )}
           <div className="flex items-baseline gap-1.5 flex-wrap">
             <span
-              className={`font-medium tabular-nums text-base sm:text-lg ${
+              className={`font-semibold tabular-nums text-base sm:text-lg ${
                 showWholesale ? 'text-emerald-400' : 'text-amber-500'
               }`}
             >
               ₹{Math.round(total).toLocaleString('en-IN')}
             </span>
-            <span className="text-xs text-slate-600 font-normal shrink-0">
+            <span className="text-xs text-slate-500 font-normal shrink-0">
               incl. GST
             </span>
           </div>

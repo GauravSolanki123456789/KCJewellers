@@ -153,7 +153,7 @@ export default function SmartSearch({
     <div ref={rootRef} className={`relative min-w-0 ${className}`}>
       <form onSubmit={onSubmit} className="relative" noValidate>
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-600"
           aria-hidden
         />
         <input
@@ -177,7 +177,7 @@ export default function SmartSearch({
               inputRef.current?.blur();
             }
           }}
-          className={`w-full rounded-xl border border-slate-300/25 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color,opacity] placeholder:text-slate-600 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 disabled:opacity-60 ${inputCls}`}
+          className={`w-full rounded-xl border border-slate-300/25 bg-slate-900/90 text-slate-100 shadow-inner outline-none ring-amber-500/0 transition-[box-shadow,border-color,opacity] placeholder:text-slate-500 focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/25 disabled:opacity-60 ${inputCls}`}
           aria-label="Search catalogue"
           aria-expanded={showPanel}
           aria-controls="smart-search-results"
@@ -193,7 +193,7 @@ export default function SmartSearch({
         >
           {fuseHits.length > 0 ? (
             <div>
-              <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
                 Products
               </p>
               <ul className="space-y-0.5 px-1">
@@ -216,14 +216,14 @@ export default function SmartSearch({
                         <span className="line-clamp-2 text-[13px] font-medium leading-snug text-slate-100">
                           {row.name}
                         </span>
-                        <span className="mt-0.5 block truncate text-[11px] text-slate-500">
-                          <span className="text-slate-400">{row.styleName}</span>
+                        <span className="mt-0.5 block truncate text-[11px] text-slate-600">
+                          <span className="text-slate-600">{row.styleName}</span>
                           <span className="mx-1 text-slate-600">·</span>
                           <span>{row.subcategoryName}</span>
                           {row.sku ? (
                             <>
                               <span className="mx-1 text-slate-600">·</span>
-                              <span className="font-mono text-slate-500">
+                              <span className="font-mono text-slate-600">
                                 {row.sku}
                               </span>
                             </>
@@ -239,7 +239,7 @@ export default function SmartSearch({
 
           {synonymMatch ? (
             <div className={fuseHits.length > 0 ? "mt-1 border-t border-slate-300/15 pt-1" : undefined}>
-              <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
                 Collection
               </p>
               <button

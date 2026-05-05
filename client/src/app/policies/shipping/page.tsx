@@ -18,7 +18,7 @@ export default function ShippingPolicyPage() {
   const body = getPolicyPlainText("shipping");
   return (
     <>
-      <h1 className="text-2xl font-bold tracking-tight text-amber-400 md:text-3xl">
+      <h1 className="text-2xl font-bold tracking-tight gold-text md:text-3xl">
         Shipping & Delivery Policy
       </h1>
       <article className="mt-8 whitespace-pre-wrap text-sm leading-relaxed text-slate-300 md:text-base">

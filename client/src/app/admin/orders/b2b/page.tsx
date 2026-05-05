@@ -88,7 +88,7 @@ export default function AdminB2bPurchaseOrdersPage() {
 
           <div className="flex items-center gap-2 mb-2">
             <Building2 className="size-7 text-emerald-400" aria-hidden />
-            <h1 className="text-xl font-bold text-yellow-500">B2B purchase orders</h1>
+            <h1 className="text-xl font-bold text-amber-500">B2B purchase orders</h1>
           </div>
           <p className="text-sm text-slate-500 mb-6">Pending approval · wholesale POs (NEFT or ledger)</p>
 

@@ -89,7 +89,7 @@ export default function DeveloperApiPage() {
           {/* Back */}
           <Link
             href="/admin"
-            className="inline-flex items-center gap-2 text-slate-400 hover:text-yellow-500 transition-colors mb-6"
+            className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 transition-colors mb-6"
           >
             <ArrowLeft className="size-4" /> Back to Dashboard
           </Link>
@@ -110,7 +110,7 @@ export default function DeveloperApiPage() {
           {/* How it works */}
           <div className="mb-6 grid sm:grid-cols-3 gap-3">
             {[
-              { icon: KeyRound,    color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20', title: 'Authenticate', desc: 'Send your key via x-api-key header' },
+              { icon: KeyRound,    color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', title: 'Authenticate', desc: 'Send your key via x-api-key header' },
               { icon: Zap,         color: 'text-cyan-400',   bg: 'bg-cyan-500/10 border-cyan-500/20',     title: 'Push Products', desc: 'POST /api/sync/receive with your payload' },
               { icon: ShieldCheck, color: 'text-emerald-400',bg: 'bg-emerald-500/10 border-emerald-500/20',title: 'Secure',       desc: 'Key is hashed and never exposed in logs' },
             ].map(({ icon: Icon, color, bg, title, desc }) => (
@@ -196,8 +196,8 @@ export default function DeveloperApiPage() {
                 <div className="rounded-xl bg-slate-800/50 border border-white/5 p-4 text-xs font-mono text-slate-400 space-y-1 leading-relaxed">
                   <p className="text-slate-500 font-sans font-medium mb-2 text-xs not-italic">Example ERP request (strict format):</p>
                   <p><span className="text-violet-400">POST</span> {API}/api/sync/receive</p>
-                  <p><span className="text-yellow-400">x-api-key:</span> <span className="text-slate-300">{revealed && apiKey ? apiKey : '••••••••••••••••••••••••••••••••'}</span></p>
-                  <p><span className="text-yellow-400">Content-Type:</span> application/json</p>
+                  <p><span className="text-amber-400">x-api-key:</span> <span className="text-slate-300">{revealed && apiKey ? apiKey : '••••••••••••••••••••••••••••••••'}</span></p>
+                  <p><span className="text-amber-400">Content-Type:</span> application/json</p>
                   <p className="text-slate-500 pt-1">{"{ \"products\": [ { \"styleCode\": \"RING01\", \"sku\": \"R001\", ... } ] }"}</p>
                   <p className="text-amber-400/90 mt-2 text-[11px]">For imageBase64: send raw JSON only. Avoid form-urlencoded — it corrupts + chars. Use Base64url (-/_) if needed.</p>
                 </div>
@@ -307,7 +307,7 @@ export default function DeveloperApiPage() {
                           req === 'Yes'
                             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
                             : req === 'Yes*'
-                            ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20'
+                            ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
                             : 'bg-slate-700/50 text-slate-400 border border-white/10'
                         }`}>{req}</span>
                       </td>

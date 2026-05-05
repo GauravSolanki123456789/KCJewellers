@@ -312,7 +312,7 @@ export default function BookRateModal() {
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
       <DialogContent className="bg-slate-900/95 backdrop-blur-xl border border-white/10 text-slate-100 max-w-sm sm:max-w-md max-h-[90svh] overflow-hidden grid-rows-[auto_1fr_auto] w-[calc(100vw-2rem)] sm:w-auto">
         <DialogHeader className="px-1">
-          <DialogTitle className="text-yellow-500 text-lg">Book Rate</DialogTitle>
+          <DialogTitle className="text-amber-500 text-lg">Book Rate</DialogTitle>
           <DialogDescription className="text-slate-400 text-xs leading-snug">
             Freeze the current market rate for your selected metal. Pay the advance amount to lock your rate for 24 hours.
           </DialogDescription>
@@ -329,7 +329,7 @@ export default function BookRateModal() {
                   onClick={() => setSelectedMetal(m.key)}
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                     selectedMetal === m.key
-                      ? 'bg-yellow-500 text-neutral-950'
+                      ? 'bg-amber-500 text-white'
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-600'
                   }`}
                 >
@@ -346,7 +346,7 @@ export default function BookRateModal() {
               min={1}
               value={quantity}
               onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="bg-slate-800 text-slate-100 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-yellow-500 outline-none text-sm"
+              className="bg-slate-800 text-slate-100 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-amber-500 outline-none text-sm"
             />
           </div>
 
@@ -358,7 +358,7 @@ export default function BookRateModal() {
                 onClick={() => setWeightMode('preset')}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                   weightMode === 'preset'
-                    ? 'bg-yellow-500 text-neutral-950'
+                    ? 'bg-amber-500 text-white'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-600'
                 }`}
               >
@@ -369,7 +369,7 @@ export default function BookRateModal() {
                 onClick={() => setWeightMode('custom')}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                   weightMode === 'custom'
-                    ? 'bg-yellow-500 text-neutral-950'
+                    ? 'bg-amber-500 text-white'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-600'
                 }`}
               >
@@ -380,7 +380,7 @@ export default function BookRateModal() {
               <select
                 value={selectedWeight}
                 onChange={(e) => setSelectedWeight(Number(e.target.value))}
-                className="bg-slate-800 text-slate-100 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-yellow-500 outline-none text-sm"
+                className="bg-slate-800 text-slate-100 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-amber-500 outline-none text-sm"
               >
                 {weightOptions.map((w) => (
                   <option key={w} value={w}>
@@ -394,7 +394,7 @@ export default function BookRateModal() {
                 value={customWeightInput}
                 onChange={(e) => setCustomWeightInput(e.target.value)}
                 placeholder="e.g. 25 g, 1.5 kg"
-                className="bg-slate-800 text-slate-100 placeholder-slate-400 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-yellow-500 outline-none text-sm"
+                className="bg-slate-800 text-slate-100 placeholder-slate-400 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-amber-500 outline-none text-sm"
               />
             )}
             {weightMode === 'custom' && effectiveWeight > 0 && (
@@ -404,7 +404,7 @@ export default function BookRateModal() {
 
           <div className="rounded-lg bg-slate-800/80 border border-slate-600 p-2.5 flex items-center justify-between">
             <p className="text-xs text-slate-400">Current rate (per gram)</p>
-            <p className="text-base font-semibold text-yellow-500 tabular-nums">
+            <p className="text-base font-semibold text-amber-500 tabular-nums">
               ₹{Math.round(lockedRate).toLocaleString('en-IN')}
             </p>
           </div>
@@ -428,13 +428,13 @@ export default function BookRateModal() {
               placeholder="10-digit mobile number"
               value={mobile}
               onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
-              className="bg-slate-800 text-slate-100 placeholder-slate-400 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-yellow-500 outline-none text-sm"
+              className="bg-slate-800 text-slate-100 placeholder-slate-400 border border-slate-600 p-2.5 rounded-lg w-full focus:ring-2 focus:ring-amber-500 outline-none text-sm"
             />
           </div>
 
-          <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3">
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
             <p className="text-sm text-slate-300">
-              Pay <span className="text-yellow-500 font-semibold">₹{Math.round(payableAdvance).toLocaleString('en-IN')}</span> advance to freeze your rate.
+              Pay <span className="text-amber-500 font-semibold">₹{Math.round(payableAdvance).toLocaleString('en-IN')}</span> advance to freeze your rate.
             </p>
             <p className="text-xs text-slate-400 mt-0.5">
               {totalValue > 0 && totalValue < advanceAmount
@@ -453,7 +453,7 @@ export default function BookRateModal() {
             Cancel
           </Button>
           <Button
-            className="w-full sm:w-auto order-1 sm:order-2 bg-yellow-500 hover:bg-yellow-400 text-neutral-950 font-semibold"
+            className="w-full sm:w-auto order-1 sm:order-2 bg-amber-500 hover:bg-amber-400 text-white font-semibold"
             disabled={mobile.length !== 10 || submitting || effectiveWeight <= 0 || quantity < 1 || payableAdvance <= 0}
             onClick={handleSubmit}
           >
@@ -465,7 +465,7 @@ export default function BookRateModal() {
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-300 ease-out">
-          <div className="bg-yellow-500 text-neutral-950 px-6 py-3 rounded-lg shadow-xl font-medium text-sm flex items-center gap-2 border-2 border-yellow-400 min-w-[200px] max-w-[90vw]">
+          <div className="bg-amber-500 text-white px-6 py-3 rounded-lg shadow-xl font-medium text-sm flex items-center gap-2 border-2 border-amber-400 min-w-[200px] max-w-[90vw]">
             <svg
               className="w-5 h-5 flex-shrink-0"
               fill="none"

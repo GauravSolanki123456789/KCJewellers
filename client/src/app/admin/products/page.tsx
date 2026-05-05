@@ -564,7 +564,7 @@ export default function AdminProductsPage() {
           <main className="max-w-6xl mx-auto px-4 py-8 pb-24">
             <Link
               href="/admin"
-              className="inline-flex items-center gap-2 text-slate-400 hover:text-yellow-500 mb-6"
+              className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6"
             >
               <ArrowLeft className="size-4" /> Back to Dashboard
             </Link>
@@ -596,7 +596,7 @@ export default function AdminProductsPage() {
             <div className="bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
               <div className="p-4 sm:p-6 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center gap-2">
-                  <Package className="size-6 text-yellow-500" />
+                  <Package className="size-6 text-amber-500" />
                   <h1 className="text-xl font-semibold text-slate-200">
                     Products & Catalogue
                   </h1>
@@ -642,7 +642,7 @@ export default function AdminProductsPage() {
                           setFilterStyle(e.target.value)
                           setFilterSku('')
                         }}
-                        className="bg-slate-800 text-slate-200 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500/50 transition-colors min-w-[140px]"
+                        className="bg-slate-800 text-slate-200 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-colors min-w-[140px]"
                       >
                         <option value="">All Styles</option>
                         {uniqueStyles.map((s) => (
@@ -660,7 +660,7 @@ export default function AdminProductsPage() {
                         value={filterSku}
                         onChange={(e) => setFilterSku(e.target.value)}
                         disabled={!filterStyle}
-                        className="bg-slate-800 text-slate-200 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500/50 transition-colors min-w-[140px] disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="bg-slate-800 text-slate-200 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-colors min-w-[140px] disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <option value="">All SKUs</option>
                         {skusForStyle.map((s) => (
@@ -676,7 +676,7 @@ export default function AdminProductsPage() {
                           setFilterStyle('')
                           setFilterSku('')
                         }}
-                        className="text-xs text-slate-400 hover:text-yellow-500 transition-colors underline underline-offset-2"
+                        className="text-xs text-slate-400 hover:text-amber-500 transition-colors underline underline-offset-2"
                       >
                         Clear filters
                       </button>
@@ -773,7 +773,7 @@ export default function AdminProductsPage() {
                               <td className="py-3 px-4 text-right text-slate-300 tabular-nums">
                                 {p.pcs ?? 1}
                               </td>
-                              <td className="py-3 px-4 text-right text-yellow-500/90 font-medium tabular-nums">
+                              <td className="py-3 px-4 text-right text-amber-500/90 font-medium tabular-nums">
                                 ₹
                                 {Math.round(getProductPrice(p)).toLocaleString(
                                   'en-IN',
@@ -817,9 +817,9 @@ export default function AdminProductsPage() {
                               className="flex items-center gap-2 text-left hover:bg-white/5 rounded-lg -m-2 p-2 transition-colors flex-1 min-w-0"
                             >
                               {isStyleOpen ? (
-                                <ChevronDown className="size-4 text-yellow-500 shrink-0" />
+                                <ChevronDown className="size-4 text-amber-500 shrink-0" />
                               ) : (
-                                <ChevronRight className="size-4 text-yellow-500 shrink-0" />
+                                <ChevronRight className="size-4 text-amber-500 shrink-0" />
                               )}
                               <span className="font-semibold text-slate-200 shrink-0">
                                 {styleCode}
@@ -935,7 +935,7 @@ export default function AdminProductsPage() {
                                                 </button>
                                               )}
                                               <div className="text-right">
-                                                <div className="text-sm font-medium text-yellow-500/90 font-mono">
+                                                <div className="text-sm font-medium text-amber-500/90 font-mono">
                                                   ₹
                                                   {Math.round(
                                                     getProductPrice(p),
