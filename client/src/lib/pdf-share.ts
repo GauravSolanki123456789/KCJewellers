@@ -1,5 +1,13 @@
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 
+function openWhatsAppFallback(text: string, explicitHref?: string | null) {
+  const href =
+    typeof explicitHref === 'string' && explicitHref.trim().length > 0
+      ? explicitHref.trim()
+      : buildWhatsAppShareLink(text)
+  window.open(href, '_blank', 'noopener,noreferrer')
+}
+
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   try {
@@ -24,6 +32,11 @@ export type SharePdfBlobOptions = {
   text: string
   /** If Web Share API cannot send the file, open WhatsApp with this message (user attaches the saved file). */
   fallbackWhatsAppText: string
+  /**
+   * When file share is unavailable, open this URL instead of `wa.me/?text=` (e.g. reseller orders mobile
+   * from `buildWhatsAppOrderUrl`).
+   */
+  fallbackWhatsAppHref?: string | null
 }
 
 /**
@@ -63,7 +76,7 @@ export async function sharePdfBlob(blob: Blob, filename: string, opts: SharePdfB
     }
   }
 
-  window.open(buildWhatsAppShareLink(opts.fallbackWhatsAppText), '_blank', 'noopener,noreferrer')
+  openWhatsAppFallback(opts.fallbackWhatsAppText, opts.fallbackWhatsAppHref)
 }
 
 export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise<void> {

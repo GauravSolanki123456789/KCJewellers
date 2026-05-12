@@ -45,10 +45,15 @@ export function buildCartWhatsAppMessage(params: {
   return `${header}${body}${footer}`;
 }
 
-export function openWhatsAppOrder(digitsForWaMe: string, message: string): boolean {
+export function buildWhatsAppOrderUrl(digitsForWaMe: string, message: string): string | null {
   const d = digitsForWaMe.replace(/\D/g, "");
-  if (!d) return false;
-  const url = `https://wa.me/${d}?text=${encodeURIComponent(message)}`;
+  if (!d) return null;
+  return `https://wa.me/${d}?text=${encodeURIComponent(message)}`;
+}
+
+export function openWhatsAppOrder(digitsForWaMe: string, message: string): boolean {
+  const url = buildWhatsAppOrderUrl(digitsForWaMe, message);
+  if (!url) return false;
   window.open(url, "_blank", "noopener,noreferrer");
   return true;
 }

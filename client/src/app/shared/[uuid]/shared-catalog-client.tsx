@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { Check, Clock, Gem, MessageCircle, Sparkles } from 'lucide-react'
+import { pdf } from '@react-pdf/renderer'
+import { Check, Clock, FileText, Gem, Loader2, MessageCircle, Sparkles } from 'lucide-react'
 import {
   fetchSharedCatalogByUuid,
   type SharedCatalogCreatorWholesale,
@@ -21,18 +22,22 @@ import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
 import { cn } from '@/lib/utils'
-import { catalogProductImageClass } from '@/lib/product-image-classes'
-import { productImageViewportWrapperClass } from '@/lib/flat-product-image'
+import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
+import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
+import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
 import {
   buildSharedCatalogSelectionWhatsAppMessage,
+  buildWhatsAppOrderUrl,
   getDefaultStoreWhatsAppDigits,
   normalizeIndianMobileDigits,
   openWhatsAppOrder,
   toWhatsAppWaMeDigits,
   type SharedCatalogPickLineForWhatsApp,
 } from '@/lib/cart-order-whatsapp'
+import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
+import { sharePdfBlob } from '@/lib/pdf-share'
 
 function toItem(p: SharedCatalogPublicProduct): Item {
   return {
@@ -114,6 +119,7 @@ export default function SharedCatalogClient({
   const [error, setError] = useState<string | null>(null)
   const [payload, setPayload] = useState<SharedCatalogPublicResponse | null>(null)
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set())
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   useEffect(() => {
     setSelectedKeys(new Set())
@@ -190,6 +196,84 @@ export default function SharedCatalogClient({
   const clearSelection = useCallback(() => {
     setSelectedKeys(new Set())
   }, [])
+
+  const handleSharePicksPdf = useCallback(async () => {
+    if (!isLoadedBrochure(payload)) return
+    if (selectedKeys.size === 0) return
+
+    const fromApi = normalizeIndianMobileDigits(payload.selectionWhatsAppDigits ?? undefined)
+    const fromBranding = normalizeIndianMobileDigits(initialBranding?.contactPhoneDigits ?? undefined)
+    const digits10 = fromApi ?? fromBranding ?? getDefaultStoreWhatsAppDigits()
+    const wa = digits10 ? toWhatsAppWaMeDigits(digits10) : ''
+
+    const pickedItems: Item[] = []
+    rows.forEach((row, i) => {
+      const key = rowKeys[i]
+      if (!selectedKeys.has(key)) return
+      pickedItems.push(toItem(row.product))
+    })
+    if (pickedItems.length === 0) return
+
+    const rawMk = payload.markupPercentage
+    const markup =
+      typeof rawMk === 'number' && Number.isFinite(rawMk)
+        ? rawMk
+        : Number.parseFloat(String(rawMk ?? '').replace(/,/g, '').trim()) || 0
+    const wholesale = wholesaleInputFromBrochure(payload.creatorWholesalePricing ?? null)
+    const catalogueUrl = typeof window !== 'undefined' ? window.location.href : ''
+    const kcThemeId = normalizeKcThemeId(
+      payload.kc_theme_id ?? initialBranding?.kcThemeId ?? null,
+    )
+
+    setPdfBusy(true)
+    try {
+      const itemsForPdf = await resolveItemsForPdf(pickedItems)
+      const blob = await pdf(
+        <CatalogPdfDocument
+          products={itemsForPdf}
+          brandName={brandLabel}
+          kcThemeId={kcThemeId}
+          itemsLabel="Shared catalogue shortlist"
+          resellerPdfPricing={{
+            rates: payload.rates,
+            markupPercentage: markup,
+            wholesale,
+          }}
+        />,
+      ).toBlob()
+
+      const slug =
+        brandLabel
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 40) || 'catalogue'
+      const filename = `${slug}-shortlist-${new Date().toISOString().slice(0, 10)}.pdf`
+
+      const fallbackText = `Hi ${brandLabel},\nI'm sharing my shortlist from your shared catalogue as PDF (${filename}). Please see the attachment.\n\nCatalogue link:\n${catalogueUrl}`
+      const fallbackHref = wa ? buildWhatsAppOrderUrl(wa, fallbackText) : null
+
+      await sharePdfBlob(blob, filename, {
+        title: `${brandLabel} — shortlist PDF`,
+        text: fallbackText,
+        fallbackWhatsAppText: fallbackText,
+        fallbackWhatsAppHref: fallbackHref,
+      })
+    } catch (e) {
+      console.error(e)
+      alert('Could not create the PDF. Check your connection and try again.')
+    } finally {
+      setPdfBusy(false)
+    }
+  }, [
+    payload,
+    selectedKeys,
+    rows,
+    rowKeys,
+    brandLabel,
+    initialBranding?.contactPhoneDigits,
+    initialBranding?.kcThemeId,
+  ])
 
   const handleSharePicks = useCallback(() => {
     if (!isLoadedBrochure(payload)) return
@@ -299,7 +383,7 @@ export default function SharedCatalogClient({
     <div
       className={cn(
         'min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 pt-10 md:pt-14',
-        showPickerChrome ? 'pb-32 sm:pb-28' : 'pb-16',
+        showPickerChrome ? 'pb-[9.5rem] sm:pb-36' : 'pb-16',
       )}
     >
       <header className="mx-auto max-w-6xl px-4 text-center md:px-8">
@@ -323,7 +407,8 @@ export default function SharedCatalogClient({
         </h1>
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
-            Tap items to shortlist what you like, then send your picks to {brandLabel} on WhatsApp in one tap.
+            Shortlist pieces with the checkmarks, then send your picks on WhatsApp or export a{' '}
+            <span className="text-slate-300">PDF</span> with photos and pricing to {brandLabel}.
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
@@ -397,7 +482,7 @@ export default function SharedCatalogClient({
                   >
                     <div
                       className={cn(
-                        'relative isolate aspect-[4/5] overflow-hidden',
+                        'group relative isolate aspect-[4/5] overflow-hidden',
                         productImageWellClass,
                       )}
                     >
@@ -410,7 +495,7 @@ export default function SharedCatalogClient({
                         aria-pressed={selected}
                         aria-label={selected ? 'Remove from shortlist' : 'Add to shortlist'}
                         className={cn(
-                          'absolute left-2 top-2 z-10 flex size-11 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition md:size-10',
+                          'absolute left-2 top-2 z-40 flex size-11 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition md:size-10',
                           selected
                             ? 'border-emerald-300 bg-emerald-600 text-white'
                             : 'border-slate-500/70 bg-white/92 text-neutral-800 backdrop-blur-sm hover:bg-white',
@@ -419,16 +504,14 @@ export default function SharedCatalogClient({
                         {selected ? <Check className="size-5 shrink-0 stroke-[2.5]" aria-hidden /> : null}
                       </button>
                       {img ? (
-                        <div className={productImageViewportWrapperClass()}>
-                          <Image
-                            src={img}
-                            alt={name}
-                            fill
-                            sizes="(max-width: 640px) 50vw, 25vw"
-                            className={cn(catalogProductImageClass(null), 'object-cover')}
-                            unoptimized
-                          />
-                        </div>
+                        <DualJewelleryProductImage
+                          primarySrc={img}
+                          secondary_image_url={product.secondary_image_url}
+                          alt={name}
+                          sizes="(max-width: 640px) 50vw, 25vw"
+                          imageClassName="object-cover"
+                          unoptimized
+                        />
                       ) : (
                         <div className="flex h-full items-center justify-center bg-slate-800/50">
                           <MetalIc className="size-14 text-slate-500" aria-hidden />
@@ -465,30 +548,50 @@ export default function SharedCatalogClient({
 
       {showPickerChrome ? (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/98 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] shadow-[0_-12px_40px_rgba(15,23,42,0.08)] backdrop-blur-md">
-          <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between md:px-8">
+          <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 md:px-8">
             <p className="text-center text-sm text-slate-400 sm:text-left">
               {selectedCount === 0 ? (
-                <>Tap checkmarks or cards to shortlist — then share your picks.</>
+                <>Tap checkmarks or cards to shortlist — then share via WhatsApp or PDF.</>
               ) : (
                 <span className="font-medium text-slate-100">
                   {selectedCount} {selectedCount === 1 ? 'piece' : 'pieces'} picked
                 </span>
               )}
             </p>
-            <button
-              type="button"
-              disabled={selectedCount === 0}
-              onClick={handleSharePicks}
-              className={cn(
-                'inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition sm:min-h-0 sm:shrink-0',
-                selectedCount === 0
-                  ? 'cursor-not-allowed bg-slate-800 text-slate-500'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-[0.99]',
-              )}
-            >
-              <MessageCircle className="size-5 shrink-0" aria-hidden />
-              Share picks on WhatsApp
-            </button>
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-stretch sm:justify-end">
+              <button
+                type="button"
+                disabled={selectedCount === 0}
+                onClick={handleSharePicks}
+                className={cn(
+                  'inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition sm:order-2 sm:min-h-[44px] sm:max-w-[min(100%,280px)]',
+                  selectedCount === 0
+                    ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-[0.99]',
+                )}
+              >
+                <MessageCircle className="size-5 shrink-0" aria-hidden />
+                WhatsApp (text)
+              </button>
+              <button
+                type="button"
+                disabled={selectedCount === 0 || pdfBusy}
+                onClick={handleSharePicksPdf}
+                className={cn(
+                  'inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition sm:order-1 sm:min-h-[44px] sm:max-w-[min(100%,260px)]',
+                  selectedCount === 0 || pdfBusy
+                    ? 'cursor-not-allowed border-slate-800 bg-slate-900/80 text-slate-500'
+                    : 'border-amber-500/55 bg-slate-900/40 text-amber-100 hover:border-amber-400/80 hover:bg-slate-800/90 active:scale-[0.99]',
+                )}
+              >
+                {pdfBusy ? (
+                  <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
+                ) : (
+                  <FileText className="size-5 shrink-0" aria-hidden />
+                )}
+                {pdfBusy ? 'Building PDF…' : 'PDF with photos'}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

@@ -1,8 +1,8 @@
 import { absoluteImageUrl } from "@/lib/site";
 
 /**
- * Canonical resolver for product photos. The API / DB field is always `image_url`
- * (see `web_products`, cart `Item`, catalog rows). Rewrites any `…/uploads/…` URL
+ * Canonical resolver for product photos. The API / DB fields include `image_url` and
+ * optional `secondary_image_url` (see `web_products`, cart `Item`, catalog rows).
  * to `NEXT_PUBLIC_API_URL` so Next/Image `remotePatterns` match legacy hosts.
  */
 export function normalizeCatalogImageSrc(

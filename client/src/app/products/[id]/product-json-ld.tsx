@@ -28,6 +28,11 @@ export default function ProductJsonLd({
   const img = resolveCatalogImageUrlForMeta(
     (product as { image_url?: string }).image_url,
   );
+  const img2 = resolveCatalogImageUrlForMeta(
+    (product as { secondary_image_url?: string | null }).secondary_image_url ??
+      undefined,
+  );
+  const schemaImages = [img, img2].filter(Boolean) as string[];
   const gst = Number((product as { gst_rate?: number }).gst_rate ?? 3) || 3;
   const b = calculateBreakdown(product as Item, liveRates, gst);
   const weight = getItemWeight(product as Item);
@@ -41,7 +46,7 @@ export default function ProductJsonLd({
     "@type": "Product",
     name,
     sku: sku || undefined,
-    image: img ? [img] : undefined,
+    image: schemaImages.length ? schemaImages : undefined,
     ...(weight != null
       ? {
           additionalProperty: [

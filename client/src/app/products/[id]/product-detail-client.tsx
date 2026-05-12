@@ -38,6 +38,7 @@ import { getSocket } from "@/lib/socket";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type SyntheticEvent,
@@ -86,7 +87,7 @@ export default function ProductDetailClient({
     setImageAnalysis(null);
     setPdpImageUnoptimized(false);
     setPdpImageLoaded(false);
-  }, [id, product?.image_url]);
+  }, [id, product?.image_url, product?.secondary_image_url]);
 
   useEffect(() => {
     const load = async () => {
@@ -237,6 +238,27 @@ export default function ProductDetailClient({
     [],
   );
 
+  const gallerySlides = useMemo(() => {
+    if (!product) return [] as string[];
+    const primary = product.image_url
+      ? normalizeCatalogImageSrc(product.image_url)
+      : undefined;
+    const sec =
+      product.secondary_image_url != null
+        ? normalizeCatalogImageSrc(product.secondary_image_url)
+        : undefined;
+    const out: string[] = [];
+    if (primary) out.push(primary);
+    if (sec) out.push(sec);
+    return out;
+  }, [product]);
+
+  const [galleryIdx, setGalleryIdx] = useState(0);
+
+  useEffect(() => {
+    setGalleryIdx(0);
+  }, [id, product?.image_url, product?.secondary_image_url]);
+
   if (!product)
     return (
       <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center">
@@ -245,9 +267,6 @@ export default function ProductDetailClient({
     );
 
   const displayName = productDisplayName(product);
-  const imageUrl = product.image_url
-    ? normalizeCatalogImageSrc(product.image_url)
-    : undefined;
   const styleCode = product.style_code || "";
   const sku = product.sku || product.barcode || "";
   const netWeight = getItemWeight(product);
@@ -261,13 +280,13 @@ export default function ProductDetailClient({
     b?.is_wholesale_price &&
     b.wholesale_retail_total != null &&
     b.wholesale_retail_total > (b?.total ?? 0) + 0.5;
-  const thumbnails = imageUrl ? [imageUrl] : [];
   const subcategorySlug =
     (product as { subcategory_slug?: string }).subcategory_slug ?? null;
   const isFlatBg = isFlatProductImageTone(imageAnalysis?.tone);
   const detailImgClass = detailProductImageClass(subcategorySlug, {
     flatTone: isFlatBg,
   });
+  const activeGallerySrc = gallerySlides[galleryIdx] ?? gallerySlides[0];
 
   const handleAddToCart = () => {
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode });
@@ -326,7 +345,7 @@ export default function ProductDetailClient({
                   {Math.round(b?.discountPercent ?? 0)}% OFF
                 </span>
               )}
-              {imageUrl ? (
+              {activeGallerySrc ? (
                 <>
                   <div
                     aria-hidden
@@ -340,9 +359,9 @@ export default function ProductDetailClient({
                   <div className={productImageViewportWrapperClass()}>
                     <HoverZoomImage>
                       <Image
-                        key={`${imageUrl}-${pdpImageUnoptimized ? "u" : "o"}`}
-                        src={imageUrl}
-                        alt={displayName}
+                        key={`${activeGallerySrc}-${galleryIdx}-${pdpImageUnoptimized ? "u" : "o"}`}
+                        src={activeGallerySrc}
+                        alt={galleryIdx === 0 ? displayName : `${displayName} — alternate view`}
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
                         className={detailImgClass}
@@ -369,17 +388,26 @@ export default function ProductDetailClient({
                 </div>
               )}
             </div>
-            {thumbnails.length > 1 && (
+            {gallerySlides.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {thumbnails.map((src, i) => (
+                {gallerySlides.map((src, i) => (
                   <button
-                    key={i}
+                    key={`${src}-${i}`}
                     type="button"
-                    className={`relative shrink-0 h-16 w-16 rounded-lg overflow-hidden border border-slate-700 hover:border-amber-500/50 transition-colors ${productImageWellClass}`}
+                    aria-label={i === 0 ? "Show front photo" : "Show alternate photo"}
+                    aria-current={galleryIdx === i}
+                    onClick={() => setGalleryIdx(i)}
+                    className={cn(
+                      "relative shrink-0 h-16 w-16 rounded-lg overflow-hidden border transition-colors",
+                      galleryIdx === i
+                        ? "border-amber-500 ring-2 ring-amber-500/40 ring-offset-2 ring-offset-slate-950"
+                        : "border-slate-700 hover:border-amber-500/50",
+                      productImageWellClass,
+                    )}
                   >
                     <div className={productImageViewportWrapperClass()}>
                       <Image
-                        src={normalizeCatalogImageSrc(src)}
+                        src={src}
                         alt=""
                         fill
                         sizes="64px"

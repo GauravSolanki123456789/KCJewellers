@@ -1,12 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { catalogProductImageClass } from '@/lib/product-image-classes'
-import { productImageViewportWrapperClass } from '@/lib/flat-product-image'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
@@ -14,6 +10,7 @@ import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
+import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 
 type ProductCardProps = {
   product: Item
@@ -47,9 +44,6 @@ export default function ProductCard({
 }: ProductCardProps) {
   const cart = useCart()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
-  const [imgError, setImgError] = useState(false)
-  const [imageLoaded, setImageLoaded] = useState(false)
-  const [fallbackUnoptimized, setFallbackUnoptimized] = useState(false)
 
   const displayName =
     (product as { name?: string }).name ||
@@ -61,24 +55,19 @@ export default function ProductCard({
 
   const imageSrc = normalizeCatalogImageSrc(product.image_url)
 
-  useEffect(() => {
-    setImageLoaded(false)
-    setImgError(false)
-    setFallbackUnoptimized(false)
-  }, [product.image_url, barcode, imageSrc])
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
   const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing)
   const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
-  const fetchPriority = imageFetchPriority ?? (priority ? 'high' : undefined)
   const showWholesale =
     hasWholesaleAccess &&
     is_wholesale_price &&
     wholesale_retail_total != null &&
     wholesale_retail_total > total + 0.5
+  const fetchPriority = imageFetchPriority ?? (priority ? 'high' : undefined)
 
-  const showImage = !!imageSrc && !imgError
+  const showImage = !!imageSrc
   return (
     <div className="relative">
       {catalogBuilderActive && (
@@ -91,7 +80,7 @@ export default function ProductCard({
             e.stopPropagation()
             onToggleSelect?.()
           }}
-          className="absolute left-2 top-2 z-30 flex size-9 items-center justify-center rounded-lg border border-slate-600/90 bg-slate-950/90 shadow-md backdrop-blur-sm transition hover:border-amber-500/50 md:left-2.5 md:top-2.5"
+          className="absolute left-2 top-2 z-40 flex size-9 items-center justify-center rounded-lg border border-slate-600/90 bg-slate-950/90 shadow-md backdrop-blur-sm transition hover:border-amber-500/50 md:left-2.5 md:top-2.5"
         >
           <span
             className={cn(
@@ -125,55 +114,15 @@ export default function ProductCard({
           </span>
         )}
         {showImage ? (
-          <>
-            <div
-              aria-hidden
-              className={cn(
-                'absolute inset-0 bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950',
-                imageLoaded ? 'opacity-0' : 'opacity-100',
-                'transition-opacity duration-200',
-                !imageLoaded && 'animate-pulse',
-              )}
-            />
-            <div
-              className={cn(
-                'absolute inset-0 flex items-center justify-center bg-[#0B1120]',
-                imageLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100',
-                'transition-opacity duration-150',
-              )}
-            >
-              <span className="text-5xl font-bold text-slate-600/60 select-none">
-                {displayName.charAt(0)}
-              </span>
-            </div>
-            <div className={productImageViewportWrapperClass()}>
-              <Image
-                key={`${imageSrc}-${fallbackUnoptimized ? 'u' : 'o'}`}
-                src={imageSrc}
-                alt={displayName}
-                fill
-                quality={72}
-                sizes={imageSizes}
-                className={cn(
-                  catalogProductImageClass(subcategorySlug),
-                  'transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]',
-                )}
-                unoptimized={fallbackUnoptimized}
-                decoding="async"
-                loading={priority ? 'eager' : 'lazy'}
-                priority={priority}
-                fetchPriority={fetchPriority}
-                onLoad={() => setImageLoaded(true)}
-                onError={() => {
-                  if (!fallbackUnoptimized) {
-                    setFallbackUnoptimized(true)
-                    return
-                  }
-                  setImgError(true)
-                }}
-              />
-            </div>
-          </>
+          <DualJewelleryProductImage
+            primarySrc={imageSrc}
+            secondary_image_url={(product as { secondary_image_url?: string | null }).secondary_image_url}
+            alt={displayName}
+            sizes={imageSizes}
+            subcategorySlug={subcategorySlug}
+            priority={priority}
+            fetchPriority={fetchPriority}
+          />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">
             <span className="text-5xl font-bold text-slate-600 select-none">

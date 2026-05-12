@@ -25,6 +25,7 @@ export type ApiProductRow = {
   design_group?: string | null;
   gst_rate?: number;
   discount_percentage?: number;
+  secondary_image_url?: string | null;
 };
 
 export type ApiCatalogCategory = {

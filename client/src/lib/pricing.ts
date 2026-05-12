@@ -22,6 +22,7 @@ export type Item = {
   design_group?: string | null
   gst_rate?: number
   image_url?: string
+  secondary_image_url?: string | null
   pcs?: number
   discount_percentage?: number
   [key: string]: unknown

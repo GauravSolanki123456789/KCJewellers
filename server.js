@@ -1732,6 +1732,7 @@ app.get('/api/products', async (req, res) => {
                 COALESCE(wp.stone_charges, 0)::float AS stone_charges,
                 wp.design_group,
                 wp.image_url,
+                wp.secondary_image_url,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
                 wp.diamond_carat,
                 wp.diamond_cut,
@@ -4801,7 +4802,7 @@ async function enrichManyOrderRows(rows) {
             whereParts.push(`wp.id = ANY($${params.length}::int[])`);
         }
         products = await query(`
-            SELECT wp.id, wp.barcode, wp.sku, wp.name, wp.image_url, wp.net_weight::float AS net_weight,
+            SELECT wp.id, wp.barcode, wp.sku, wp.name, wp.image_url, wp.secondary_image_url, wp.net_weight::float AS net_weight,
                    COALESCE(wp.metal_type, 'silver') AS metal_type,
                    wc.name AS style_name
             FROM web_products wp
@@ -5233,7 +5234,7 @@ app.get('/api/catalog', async (req, res) => {
             for (const s of subs) {
                 const products = await query(`
                     SELECT
-                        id, sku, barcode, name, image_url, subcategory_id,
+                        id, sku, barcode, name, image_url, secondary_image_url, subcategory_id,
                         gross_weight::float AS gross_weight,
                         net_weight::float   AS net_weight,
                         purity::float       AS purity,
@@ -5543,7 +5544,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
 
         const products = await query(
             `SELECT
-                wp.id, wp.sku, wp.barcode, wp.name AS name, wp.image_url,
+                wp.id, wp.sku, wp.barcode, wp.name AS name, wp.image_url, wp.secondary_image_url,
                 wp.gross_weight::float AS gross_weight,
                 wp.net_weight::float AS net_weight,
                 wp.purity::float AS purity,
@@ -8098,7 +8099,9 @@ async function validateApiKey(req, res, next) {
         "itemCode": "LAKSHMI-PCPHS00142", // optional; maps to web_products.design_group
         "metalType": "gold",
         "fixedPrice": 25000,
-        "stoneCharges": 500
+        "stoneCharges": 500,
+        "secondaryImageUrl": "https://...",  // optional; or omit and set hasSecondaryImage
+        "hasSecondaryImage": true              // optional; when true without URL uses {barcode}_secondary.webp
       }
     ]
   }
@@ -8180,13 +8183,38 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
 
                 const imageUrl = `${getPublicApiBaseUrl()}/uploads/web_products/${prodSku}.webp`;
 
-                // Explicit barcode value (may equal prodSku when barcode was the unique key source)
                 const barcode = String(item.barcode || '').trim() || null;
+
+                const hasSecFalse =
+                    item.hasSecondaryImage === false ||
+                    item.has_secondary_image === false;
+                const hasSecTrue =
+                    item.hasSecondaryImage === true ||
+                    item.has_secondary_image === true;
+                const rawSec =
+                    item.secondaryImageUrl != null
+                        ? String(item.secondaryImageUrl)
+                        : item.secondary_image_url != null
+                          ? String(item.secondary_image_url)
+                          : '';
+
+                let secondaryTouch = false;
+                let secondaryVal = null;
+                if (hasSecFalse) {
+                    secondaryTouch = true;
+                    secondaryVal = null;
+                } else if (rawSec.trim() !== '') {
+                    secondaryTouch = true;
+                    secondaryVal = rawSec.trim();
+                } else if (hasSecTrue) {
+                    secondaryTouch = true;
+                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${prodSku}_secondary.webp`;
+                }
 
                 const upsertSql = `
                     INSERT INTO web_products
-                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, metal_type, fixed_price, stone_charges, design_group, image_url, is_active, last_synced_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, metal_type, fixed_price, stone_charges, design_group, image_url, secondary_image_url, is_active, last_synced_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $14::boolean THEN $15::text ELSE NULL END, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (sku) DO UPDATE SET
                         subcategory_id  = EXCLUDED.subcategory_id,
                         barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -8200,11 +8228,12 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
                         stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
                         design_group    = EXCLUDED.design_group,
                         image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
+                        secondary_image_url = CASE WHEN $14::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
                         is_active       = true,
                         last_synced_at  = CURRENT_TIMESTAMP,
                         updated_at      = CURRENT_TIMESTAMP
                 `;
-                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, metalType, fixedPrice ?? 0, stoneCharges ?? 0, designGroup, imageUrl];
+                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, metalType, fixedPrice ?? 0, stoneCharges ?? 0, designGroup, imageUrl, secondaryTouch, secondaryVal];
 
                 try {
                     await query(upsertSql, upsertParams);
@@ -8227,6 +8256,9 @@ app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async 
                         await query(upsertSql, upsertParams);
                     } else if (msg.includes('column "design_group" does not exist')) {
                         await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS design_group VARCHAR(255)');
+                        await query(upsertSql, upsertParams);
+                    } else if (msg.includes('secondary_image_url')) {
+                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS secondary_image_url TEXT');
                         await query(upsertSql, upsertParams);
                     } else {
                         throw upsertErr;

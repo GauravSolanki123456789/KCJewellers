@@ -39,6 +39,7 @@ export type SharedCatalogPublicProduct = {
   barcode?: string
   name?: string
   image_url?: string
+  secondary_image_url?: string | null
   net_weight?: number
   gross_weight?: number
   purity?: number
@@ -76,6 +77,8 @@ export type SharedCatalogPublicResponse =
       creatorCustomerTier?: string | null
       products: SharedCatalogPublicProduct[]
       rates: unknown[]
+      /** Palette for PDF / UX — stored as app_settings `kc_theme_id` or reseller profile. */
+      kc_theme_id?: string | null
     }
   | { error?: string }
 

@@ -128,6 +128,8 @@ export type CatalogPdfDocumentProps = {
   resellerPdfPricing?: CatalogPdfResellerPricing | null;
   /** Matches `document.documentElement.dataset.kcTheme` / `kc_theme_id`. */
   kcThemeId?: string | null;
+  /** First line under brand, before item count — default `Catalogue` (keyword: shared shortlist PDF). */
+  itemsLabel?: string;
 };
 
 const PER_PAGE = 9;
@@ -137,6 +139,7 @@ export function CatalogPdfDocument({
   brandName = "KC Jewellers",
   resellerPdfPricing = null,
   kcThemeId = null,
+  itemsLabel = "Catalogue",
 }: CatalogPdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId]);
   const styles = useMemo(() => buildCatalogPdfStyles(palette), [palette]);
@@ -155,7 +158,7 @@ export function CatalogPdfDocument({
             <View style={styles.header}>
               <Text style={styles.brand}>{brandName}</Text>
               <Text style={styles.sub}>
-                Catalogue · {products.length} item{products.length !== 1 ? "s" : ""}
+                {itemsLabel} · {products.length} item{products.length !== 1 ? "s" : ""}
               </Text>
             </View>
           )}
