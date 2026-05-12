@@ -1,6 +1,7 @@
 ssh root@159.65.145.51
 
 cd /var/www/kcjewellers
+npm run migrate
 git fetch --all
 git reset --hard origin/master
 cd client

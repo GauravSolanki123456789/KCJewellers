@@ -70,12 +70,17 @@ const {
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
 const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
 fs.mkdirSync(uploadsWebProductsDir, { recursive: true });
-const upload = multer({
+/** Multipart file fields accepted on POST /api/sync/receive (Jewellery ERP sends primary + optional secondary). */
+const SYNC_RECEIVE_UPLOAD = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, uploadsWebProductsDir),
         filename: (req, file, cb) => cb(null, file.originalname || `upload-${Date.now()}.jpg`),
     }),
-});
+}).fields([
+    { name: 'images', maxCount: 150 },
+    { name: 'secondaryImages', maxCount: 150 },
+    { name: 'secondary_images', maxCount: 150 },
+]);
 
 // Multer for diamond certificates: public/uploads/certificates/
 const uploadsCertificatesDir = path.join(__dirname, 'public', 'uploads', 'certificates');
@@ -8083,31 +8088,35 @@ async function validateApiKey(req, res, next) {
 }
 
 /*
-  Multipart/form-data: field "payload" = JSON.stringify({ products: [...] }), field "images" = image files (originalname = barcode, e.g. BAR123.jpg).
-  Expected payload structure:
+  Multipart/form-data:
+    - "payload" = JSON.stringify({ products: [...] })
+    - "images" = primary image file(s), originalname e.g. BAR123.webp
+    - "secondaryImages" or "secondary_images" = optional second photo(s), e.g. BAR123_secondary.webp
+      (Jewellery ERP often sends secondary under a separate field — all names above are accepted.)
+  Expected payload JSON shape:
   {
     "products": [
       {
-        "styleCode": "RING01",          // maps to web_categories.name / slug
-        "sku": "RING01-001",             // maps to web_subcategories.name / slug
-        "barcode": "BAR123456",          // maps to web_products.sku (unique key for UPSERT)
+        "styleCode": "RING01",
+        "sku": "RING01-001",
+        "barcode": "BAR123456",
         "name": "22K Gold Ring",
         "netWeight": 5.5,
         "grossWeight": 6.0,
         "purity": "22K",
         "imageUrl": "https://...",
-        "itemCode": "LAKSHMI-PCPHS00142", // optional; maps to web_products.design_group
+        "itemCode": "LAKSHMI-PCPHS00142",
         "metalType": "gold",
         "fixedPrice": 25000,
         "stoneCharges": 500,
-        "secondaryImageUrl": "https://...",  // optional; or omit and set hasSecondaryImage
-        "hasSecondaryImage": true              // optional; when true without URL uses {barcode}_secondary.webp
+        "secondaryImageUrl": "https://...",
+        "hasSecondaryImage": true
       }
     ]
   }
   If barcode is omitted, sku is used as the product's unique identifier.
 */
-app.post('/api/sync/receive', upload.array('images', 50), validateApiKey, async (req, res) => {
+app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, res) => {
     try {
         if (!req.body?.payload) {
             return res.status(400).json({ error: 'Missing payload field in form data' });
