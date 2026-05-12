@@ -74,13 +74,38 @@ fs.mkdirSync(uploadsWebProductsDir, { recursive: true });
 const SYNC_RECEIVE_UPLOAD = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, uploadsWebProductsDir),
-        filename: (req, file, cb) => cb(null, file.originalname || `upload-${Date.now()}.jpg`),
+        /** Safe basename — must match filenames used in ERP (`{barcode}.webp`). */
+        filename: (req, file, cb) => {
+            const raw = path.basename(String(file.originalname || '').trim()) || `upload-${Date.now()}.webp`;
+            cb(null, raw);
+        },
     }),
 }).fields([
     { name: 'images', maxCount: 150 },
     { name: 'secondaryImages', maxCount: 150 },
     { name: 'secondary_images', maxCount: 150 },
 ]);
+
+/**
+ * Map barcode stem → exact secondary filename Multer wrote (Jewellery ERP: `{barcode}_secondary.webp`).
+ * Keys use lowercase barcode so we match payloads even when DB casing differs.
+ */
+function indexSyncedWebProductSecondaryUploads(files) {
+    const map = Object.create(null);
+    if (!files || typeof files !== 'object') return map;
+    const list = [
+        ...(Array.isArray(files.secondaryImages) ? files.secondaryImages : []),
+        ...(Array.isArray(files.secondary_images) ? files.secondary_images : []),
+    ];
+    for (const f of list) {
+        const disk = String((f && f.filename) || '').trim();
+        if (!disk) continue;
+        const m = disk.toLowerCase().match(/^(.+)_secondary\.webp$/);
+        if (!m) continue;
+        map[m[1]] = disk;
+    }
+    return map;
+}
 
 // Multer for diamond certificates: public/uploads/certificates/
 const uploadsCertificatesDir = path.join(__dirname, 'public', 'uploads', 'certificates');
@@ -8124,8 +8149,11 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
         const products = JSON.parse(req.body.payload);
         const items = Array.isArray(products?.products) ? products.products : (Array.isArray(products) ? products : []);
         if (items.length === 0) {
-            return res.status(400).json({ error: 'No products provided. Expected payload with products array' });
+            return res.status(400).json({ error: 'No products provided. Expected products array (top-level array or `{ "products": [...] }`).' });
         }
+
+        /** Exact `{barcode}_secondary.webp` names from multipart → stored URL always matches disk (fixes broken 2nd image). */
+        const secondaryUploadMap = indexSyncedWebProductSecondaryUploads(req.files);
 
         let categoriesUpserted = 0;
         let subcategoriesUpserted = 0;
@@ -8207,6 +8235,10 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
                           ? String(item.secondary_image_url)
                           : '';
 
+                const barcodeStemLc = prodSku.trim().toLowerCase();
+                /** Multer basename for this barcode's secondary file — must match filesystem. */
+                const uploadedSecondaryDisk = secondaryUploadMap[barcodeStemLc];
+
                 let secondaryTouch = false;
                 let secondaryVal = null;
                 if (hasSecFalse) {
@@ -8215,9 +8247,12 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
                 } else if (rawSec.trim() !== '') {
                     secondaryTouch = true;
                     secondaryVal = rawSec.trim();
+                } else if (uploadedSecondaryDisk) {
+                    secondaryTouch = true;
+                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${uploadedSecondaryDisk}`;
                 } else if (hasSecTrue) {
                     secondaryTouch = true;
-                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${prodSku}_secondary.webp`;
+                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${barcodeStemLc}_secondary.webp`;
                 }
 
                 const upsertSql = `

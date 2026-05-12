@@ -259,6 +259,18 @@ export default function ProductDetailClient({
     setGalleryIdx(0);
   }, [id, product?.image_url, product?.secondary_image_url]);
 
+  const galleryLen = gallerySlides.length;
+
+  const galleryPrev = useCallback(() => {
+    if (galleryLen <= 1) return;
+    setGalleryIdx((i) => (i <= 0 ? galleryLen - 1 : i - 1));
+  }, [galleryLen]);
+
+  const galleryNext = useCallback(() => {
+    if (galleryLen <= 1) return;
+    setGalleryIdx((i) => (i >= galleryLen - 1 ? 0 : i + 1));
+  }, [galleryLen]);
+
   if (!product)
     return (
       <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center">
@@ -287,6 +299,7 @@ export default function ProductDetailClient({
     flatTone: isFlatBg,
   });
   const activeGallerySrc = gallerySlides[galleryIdx] ?? gallerySlides[0];
+  const multiGallery = gallerySlides.length > 1;
 
   const handleAddToCart = () => {
     cart.add({ ...product, id: product.id ? String(product.id) : product.barcode });
@@ -305,43 +318,50 @@ export default function ProductDetailClient({
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="p-4 max-w-6xl mx-auto mt-8 pb-28 md:pb-8">
+      <div className="mx-auto max-w-6xl px-4 pb-28 pt-4 md:mt-8 md:pb-10 md:pt-6">
         <button
           type="button"
           onClick={handleBackToCatalog}
-          className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6 transition-colors"
+          className="mb-4 inline-flex items-center gap-2 text-slate-400 transition-colors hover:text-amber-500 md:mb-6"
         >
           <ChevronLeft className="size-4" />
           Back to Catalogue
         </button>
 
-        <div className="grid md:grid-cols-2 gap-12">
-          <div className="space-y-3">
+        <div className="grid gap-6 md:grid-cols-2 md:gap-10 lg:gap-12">
+          <div className="flex min-w-0 flex-col gap-3">
             <div
-              className={`relative isolate w-full aspect-square md:aspect-[4/5] rounded-2xl overflow-hidden shadow-2xl border border-white/5 ${productImageWellClass}`}
+              className={cn(
+                "relative isolate w-full overflow-hidden rounded-2xl border border-white/5 shadow-2xl",
+                /** Viewport-capped stage so tall studio shots fit without forcing long scroll (especially mobile). */
+                "min-h-[200px] h-[min(52dvh,420px)] sm:h-[min(58dvh,480px)] md:min-h-[320px] md:h-[min(64dvh,640px)] lg:h-[min(68dvh,700px)]",
+                productImageWellClass,
+              )}
             >
               {neighbors.prev && (
                 <button
                   type="button"
-                  aria-label="Previous product in collection"
+                  aria-label="Previous product in catalogue"
+                  title="Previous product in this style"
                   onClick={() => goToProduct(neighbors.prev!)}
-                  className="absolute left-2 top-1/2 z-20 -translate-y-1/2 flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-full border border-white/20 bg-slate-950/75 text-amber-400 shadow-lg backdrop-blur-sm transition-opacity hover:bg-slate-900/90 hover:border-amber-500/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 touch-manipulation"
+                  className="absolute left-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full border border-white/20 bg-slate-950/80 text-amber-400 shadow-lg backdrop-blur-sm transition-opacity hover:border-amber-500/40 hover:bg-slate-900/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 md:h-12 md:w-12"
                 >
-                  <ChevronLeft className="size-6 md:size-7" strokeWidth={2.5} />
+                  <ChevronLeft className="size-5 md:size-7" strokeWidth={2.5} />
                 </button>
               )}
               {neighbors.next && (
                 <button
                   type="button"
-                  aria-label="Next product in collection"
+                  aria-label="Next product in catalogue"
+                  title="Next product in this style"
                   onClick={() => goToProduct(neighbors.next!)}
-                  className="absolute right-2 top-1/2 z-20 -translate-y-1/2 flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-full border border-white/20 bg-slate-950/75 text-amber-400 shadow-lg backdrop-blur-sm transition-opacity hover:bg-slate-900/90 hover:border-amber-500/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 touch-manipulation"
+                  className="absolute right-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 touch-manipulation items-center justify-center rounded-full border border-white/20 bg-slate-950/80 text-amber-400 shadow-lg backdrop-blur-sm transition-opacity hover:border-amber-500/40 hover:bg-slate-900/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 md:h-12 md:w-12"
                 >
-                  <ChevronRight className="size-6 md:size-7" strokeWidth={2.5} />
+                  <ChevronRight className="size-5 md:size-7" strokeWidth={2.5} />
                 </button>
               )}
               {hasDiscount && (
-                <span className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg bg-amber-500 text-white text-sm font-bold">
+                <span className="absolute right-3 top-3 z-10 rounded-lg bg-amber-500 px-3 py-1 text-sm font-bold text-white">
                   {Math.round(b?.discountPercent ?? 0)}% OFF
                 </span>
               )}
@@ -350,9 +370,8 @@ export default function ProductDetailClient({
                   <div
                     aria-hidden
                     className={cn(
-                      "absolute inset-0 bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950",
+                      "pointer-events-none absolute inset-0 z-[1] bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950 transition-opacity duration-200",
                       pdpImageLoaded ? "opacity-0" : "opacity-100",
-                      "transition-opacity duration-200 pointer-events-none z-[1]",
                       !pdpImageLoaded && "animate-pulse",
                     )}
                   />
@@ -376,32 +395,62 @@ export default function ProductDetailClient({
                       />
                     </HoverZoomImage>
                   </div>
-                  <span className="hidden md:block absolute bottom-3 left-3 z-10 text-[10px] text-slate-500 uppercase tracking-wider pointer-events-none">
+                  {multiGallery && (
+                    <div className="pointer-events-none absolute bottom-3 left-0 right-0 z-[12] flex justify-center px-10 md:bottom-4">
+                      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-slate-950/90 px-1 py-1 shadow-lg backdrop-blur-md">
+                        <button
+                          type="button"
+                          onClick={galleryPrev}
+                          aria-label="Previous product photo"
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-amber-400 transition hover:bg-white/10"
+                        >
+                          <ChevronLeft className="size-5" strokeWidth={2.5} />
+                        </button>
+                        <span className="min-w-[3.25rem] select-none text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400 tabular-nums">
+                          {galleryIdx + 1}/{gallerySlides.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={galleryNext}
+                          aria-label="Next product photo"
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-amber-400 transition hover:bg-white/10"
+                        >
+                          <ChevronRight className="size-5" strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <span className="pointer-events-none absolute bottom-3 left-3 z-10 hidden text-[10px] uppercase tracking-wider text-slate-500 md:block">
                     Hover to zoom
                   </span>
                 </>
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-6xl font-bold text-slate-600 select-none">
+                  <span className="select-none text-6xl font-bold text-slate-600">
                     {displayName.charAt(0)}
                   </span>
                 </div>
               )}
             </div>
-            {gallerySlides.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto pb-1">
+            {multiGallery && (
+              <div
+                className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                role="tablist"
+                aria-label="Product photos"
+              >
                 {gallerySlides.map((src, i) => (
                   <button
                     key={`${src}-${i}`}
                     type="button"
-                    aria-label={i === 0 ? "Show front photo" : "Show alternate photo"}
-                    aria-current={galleryIdx === i}
+                    role="tab"
+                    aria-selected={galleryIdx === i}
+                    aria-label={i === 0 ? "Front photo" : "Alternate photo"}
                     onClick={() => setGalleryIdx(i)}
                     className={cn(
-                      "relative shrink-0 h-16 w-16 rounded-lg overflow-hidden border transition-colors",
+                      "relative h-[4.75rem] w-[4.75rem] shrink-0 snap-center overflow-hidden rounded-xl border transition-all sm:h-20 sm:w-20",
                       galleryIdx === i
-                        ? "border-amber-500 ring-2 ring-amber-500/40 ring-offset-2 ring-offset-slate-950"
-                        : "border-slate-700 hover:border-amber-500/50",
+                        ? "border-amber-500 shadow-md shadow-amber-500/20 ring-2 ring-amber-500/35 ring-offset-2 ring-offset-slate-950"
+                        : "border-slate-700 opacity-90 hover:border-amber-500/55 hover:opacity-100",
                       productImageWellClass,
                     )}
                   >
@@ -410,7 +459,7 @@ export default function ProductDetailClient({
                         src={src}
                         alt=""
                         fill
-                        sizes="64px"
+                        sizes="96px"
                         className={detailImgClass}
                         unoptimized={pdpImageUnoptimized}
                       />
@@ -421,7 +470,7 @@ export default function ProductDetailClient({
             )}
           </div>
 
-          <div className="flex flex-col">
+          <div className="flex min-w-0 flex-col pb-4 md:pb-0">
             {barcode && (
               <span className="text-xs font-mono text-slate-500 uppercase tracking-wider">
                 {barcode}
