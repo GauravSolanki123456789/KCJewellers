@@ -3,7 +3,7 @@
 import axios from "@/lib/axios";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import {
   CATALOG_PATH,
   CATALOG_SCROLL_TO_KEY,
@@ -31,7 +31,11 @@ import {
   isFlatProductImageTone,
   productImageViewportWrapperClass,
 } from "@/lib/flat-product-image";
-import { productImageWellClass } from "@/lib/product-image-theme";
+import {
+  productImageEmptyWellClass,
+  productImageLoadingShimmerClass,
+  productImageWellClass,
+} from "@/lib/product-image-theme";
 import { productShareMessage } from "@/lib/whatsapp";
 import { trackProductView, trackAddToCart } from "@/components/GoogleAnalytics";
 import { getSocket } from "@/lib/socket";
@@ -370,11 +374,19 @@ export default function ProductDetailClient({
                   <div
                     aria-hidden
                     className={cn(
-                      "pointer-events-none absolute inset-0 z-[1] bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950 transition-opacity duration-200",
+                      "pointer-events-none absolute inset-0 z-[1] transition-opacity duration-300",
+                      productImageLoadingShimmerClass,
                       pdpImageLoaded ? "opacity-0" : "opacity-100",
-                      !pdpImageLoaded && "animate-pulse",
                     )}
                   />
+                  {!pdpImageLoaded && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
+                    >
+                      <Loader2 className="size-9 animate-spin text-slate-400/90" />
+                    </div>
+                  )}
                   <div className={productImageViewportWrapperClass()}>
                     <HoverZoomImage>
                       <Image
@@ -425,10 +437,14 @@ export default function ProductDetailClient({
                   </span>
                 </>
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="select-none text-6xl font-bold text-slate-600">
-                    {displayName.charAt(0)}
-                  </span>
+                <div
+                  className={cn(
+                    "absolute inset-0 flex flex-col items-center justify-center gap-3",
+                    productImageEmptyWellClass,
+                  )}
+                >
+                  <Loader2 className="size-8 text-slate-400" aria-hidden />
+                  <span className="sr-only">{displayName} — awaiting photo</span>
                 </div>
               )}
             </div>

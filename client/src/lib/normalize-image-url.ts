@@ -16,13 +16,27 @@ export function normalizeCatalogImageSrc(
   if (!api) return t;
 
   const lower = t.toLowerCase();
-  const uploadsIdx = lower.indexOf("/uploads/");
+  /** Match `/uploads/...`, `uploads/...`, or `\uploads\...` after normalizing. */
+  const slashUploadsIdx = lower.indexOf("/uploads/");
+  const bareUploadsIdx = lower.indexOf("uploads/");
+  const uploadsIdx =
+    slashUploadsIdx >= 0 ? slashUploadsIdx : bareUploadsIdx;
   if (uploadsIdx >= 0) {
-    const pathAndQuery = t.slice(uploadsIdx);
-    return `${api}${pathAndQuery}`;
+    const pathAndQuery = t
+      .slice(uploadsIdx)
+      .replace(/\\/g, "/")
+      .replace(/^uploads/i, "/uploads");
+    return `${api}${pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`}`;
   }
 
   if (/^https?:\/\//i.test(t)) return t;
+  /** Basename-only secondary filename from ERP/DB (`{barcode}_secondary.webp`, no folder). */
+  if (
+    !/[\\/]/.test(t) &&
+    /_secondary\.(webp|jpe?g|png)$/i.test(t)
+  ) {
+    return `${api}/uploads/web_products/${t}`;
+  }
   return `${api}${t.startsWith("/") ? "" : "/"}${t}`;
 }
 

@@ -84,27 +84,79 @@ const SYNC_RECEIVE_UPLOAD = multer({
     { name: 'images', maxCount: 150 },
     { name: 'secondaryImages', maxCount: 150 },
     { name: 'secondary_images', maxCount: 150 },
+    { name: 'secondaryImage', maxCount: 150 },
+    { name: 'secondary_image', maxCount: 150 },
 ]);
 
 /**
- * Map barcode stem → exact secondary filename Multer wrote (Jewellery ERP: `{barcode}_secondary.webp`).
- * Keys use lowercase barcode so we match payloads even when DB casing differs.
+ * Barcode keys for matching multipart secondary files (ERP may use spaces; filenames use hyphens or compact).
+ */
+function registerSecondaryUploadStem(map, stemFromFilename, diskName) {
+    const s = String(stemFromFilename || '').trim().toLowerCase();
+    if (!s || !diskName) return;
+    const compact = s.replace(/\s+/g, '');
+    const hyphen = s.replace(/\s+/g, '-');
+    /** @type {string[]} */
+    const keys = [];
+    keys.push(s, compact);
+    if (hyphen !== s) keys.push(hyphen);
+    for (const k of keys) if (k) map[k] = diskName;
+}
+
+function lookUpSecondaryDisk(map, prodSku) {
+    const lc = String(prodSku || '').trim().toLowerCase();
+    if (!lc) return '';
+    const compact = lc.replace(/\s+/g, '');
+    const hyphen = lc.replace(/\s+/g, '-');
+    return map[lc] || map[compact] || map[hyphen] || '';
+}
+
+/**
+ * Map barcode stem → exact secondary filename on disk (e.g. `{barcode}_secondary.webp`).
+ * Scans all multipart file fields except `images` / `payload` so alternate ERP field names still work.
  */
 function indexSyncedWebProductSecondaryUploads(files) {
     const map = Object.create(null);
     if (!files || typeof files !== 'object') return map;
-    const list = [
-        ...(Array.isArray(files.secondaryImages) ? files.secondaryImages : []),
-        ...(Array.isArray(files.secondary_images) ? files.secondary_images : []),
-    ];
-    for (const f of list) {
-        const disk = String((f && f.filename) || '').trim();
-        if (!disk) continue;
-        const m = disk.toLowerCase().match(/^(.+)_secondary\.webp$/);
-        if (!m) continue;
-        map[m[1]] = disk;
+    const seen = new Set();
+    for (const [fieldName, val] of Object.entries(files)) {
+        if (fieldName === 'images' || fieldName === 'payload') continue;
+        const arr = Array.isArray(val) ? val : val ? [val] : [];
+        for (const f of arr) {
+            if (!f || seen.has(f)) continue;
+            seen.add(f);
+            const disk = String((f && f.filename) || '').trim();
+            if (!disk) continue;
+            const m = disk.toLowerCase().match(/^(.+)_secondary\.(webp|jpe?g|png)$/);
+            if (!m) continue;
+            registerSecondaryUploadStem(map, m[1], disk);
+        }
     }
     return map;
+}
+
+/** Turn ERP `secondaryImageUrl` / `secondary_image_url` into an absolute app URL for web_products. */
+function resolveSecondaryUrlFromPayload(rawStr, apiBase) {
+    let s = String(rawStr || '').trim();
+    if (!s) return '';
+    s = s.replace(/\\/g, '/');
+    if (/^https?:\/\//i.test(s)) return s;
+    const low = s.toLowerCase();
+    const slashIx = low.indexOf('/uploads/');
+    const bareIx = low.indexOf('uploads/');
+    const ix = slashIx >= 0 ? slashIx : bareIx;
+    if (ix >= 0) {
+        let tail = s.slice(ix).replace(/\\/g, '/');
+        if (!tail.startsWith('/')) tail = `/${tail.replace(/^uploads\/?/i, 'uploads/')}`;
+        if (!tail.toLowerCase().startsWith('/uploads/')) tail = `/uploads/${tail.replace(/^\/+/, '')}`;
+        return `${apiBase}${tail}`;
+    }
+    const baseOnly = path.basename(s);
+    if (/_secondary\.(webp|jpe?g|png)$/i.test(baseOnly)) {
+        return `${apiBase}/uploads/web_products/${baseOnly}`;
+    }
+    if (s.startsWith('/')) return `${apiBase}${s}`;
+    return `${apiBase}/uploads/web_products/${baseOnly}`;
 }
 
 // Multer for diamond certificates: public/uploads/certificates/
@@ -8116,8 +8168,8 @@ async function validateApiKey(req, res, next) {
   Multipart/form-data:
     - "payload" = JSON.stringify({ products: [...] })
     - "images" = primary image file(s), originalname e.g. BAR123.webp
-    - "secondaryImages" or "secondary_images" = optional second photo(s), e.g. BAR123_secondary.webp
-      (Jewellery ERP often sends secondary under a separate field — all names above are accepted.)
+    - "secondaryImages", "secondary_images", "secondaryImage", "secondary_image" = optional second photo(s), e.g. BAR123_secondary.webp ( .jpg/.png OK )
+      Secondary files in any multipart field besides images/payload are detected by filename *_secondary.*
   Expected payload JSON shape:
   {
     "products": [
@@ -8236,23 +8288,27 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
                           : '';
 
                 const barcodeStemLc = prodSku.trim().toLowerCase();
-                /** Multer basename for this barcode's secondary file — must match filesystem. */
-                const uploadedSecondaryDisk = secondaryUploadMap[barcodeStemLc];
+                /** Prefer exact multipart filename match (fixes casing / ERP vs barcode spacing mismatches). */
+                const uploadedSecondaryDisk = lookUpSecondaryDisk(
+                    secondaryUploadMap,
+                    prodSku.trim(),
+                );
 
                 let secondaryTouch = false;
                 let secondaryVal = null;
                 if (hasSecFalse) {
                     secondaryTouch = true;
                     secondaryVal = null;
-                } else if (rawSec.trim() !== '') {
-                    secondaryTouch = true;
-                    secondaryVal = rawSec.trim();
                 } else if (uploadedSecondaryDisk) {
                     secondaryTouch = true;
                     secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${uploadedSecondaryDisk}`;
-                } else if (hasSecTrue) {
+                } else if (rawSec.trim() !== '') {
                     secondaryTouch = true;
-                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${barcodeStemLc}_secondary.webp`;
+                    secondaryVal = resolveSecondaryUrlFromPayload(rawSec.trim(), getPublicApiBaseUrl());
+                } else if (hasSecTrue) {
+                    const fileStemCompact = barcodeStemLc.replace(/\s+/g, '');
+                    secondaryTouch = true;
+                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${fileStemCompact}_secondary.webp`;
                 }
 
                 const upsertSql = `

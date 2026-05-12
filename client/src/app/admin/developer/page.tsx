@@ -201,8 +201,10 @@ export default function DeveloperApiPage() {
                   <p className="text-slate-500 pt-1">JSON body: {"{ \"products\": [ { \"styleCode\": \"RING01\", \"sku\": \"R001\", ... } ] }"}</p>
                   <p className="text-slate-500 text-[11px] mt-2 leading-relaxed">
                     <span className="text-slate-400">Multipart (recommended with files):</span> form field <span className="text-cyan-300">payload</span> (same JSON string) +{' '}
-                    <span className="text-cyan-300">images</span> (primary) + optional <span className="text-cyan-300">secondaryImages</span> or{' '}
-                    <span className="text-cyan-300">secondary_images</span> (second angle).
+                    <span className="text-cyan-300">images</span> (primary) + optional second-angle files in any of:{' '}
+                    <span className="text-cyan-300">secondaryImages</span>, <span className="text-cyan-300">secondary_images</span>,{' '}
+                    <span className="text-cyan-300">secondaryImage</span>, <span className="text-cyan-300">secondary_image</span>{' '}
+                    ( filenames like <code className="text-violet-400">BARCODE_secondary.webp</code> ). Also accepts <code className="text-violet-400">.jpg</code>/<code className="text-violet-400">.png</code>.
                   </p>
                   <p className="text-amber-400/90 mt-2 text-[11px]">For imageBase64 in JSON-only requests: prefer Base64url (-/_) to avoid corrupting plus signs.</p>
                 </div>

@@ -5,7 +5,7 @@
  * in grid + PDP — no crop, so jewellery matches your studio shots (including label strip).
  *
  * **Other catalog rows:** `object-cover` fills the card; optional focal nudges below.
- * Wells use `bg-[#0B1120]` on parents (`product-image-theme`) so letterboxing blends in.
+ * Wells use a light surface (`product-image-theme`) so portrait letterboxing stays neutral.
  */
 const CATALOG_CONTAIN_AS_SHOT = new Set(["pitara-tops", "pitara-ring"]);
 

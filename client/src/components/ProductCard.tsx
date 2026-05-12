@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { Check } from 'lucide-react'
+import { Check, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { productImageWellClass } from '@/lib/product-image-theme'
+import { productImageEmptyWellClass, productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
@@ -124,10 +124,14 @@ export default function ProductCard({
             fetchPriority={fetchPriority}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">
-            <span className="text-5xl font-bold text-slate-600 select-none">
-              {displayName.charAt(0)}
-            </span>
+          <div
+            className={cn(
+              'absolute inset-0 flex flex-col items-center justify-center gap-2',
+              productImageEmptyWellClass,
+            )}
+          >
+            <Loader2 className="size-8 animate-spin text-slate-400" aria-hidden />
+            <span className="sr-only">{displayName} — awaiting photo</span>
           </div>
         )}
       </div>

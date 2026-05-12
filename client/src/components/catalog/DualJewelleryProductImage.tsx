@@ -2,10 +2,40 @@
 
 import Image from "next/image";
 import { useEffect, useState, type MouseEvent } from "react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 import { catalogProductImageClass } from "@/lib/product-image-classes";
 import { productImageViewportWrapperClass } from "@/lib/flat-product-image";
+import {
+  productImageEmptyWellClass,
+  productImageLoadingShimmerClass,
+} from "@/lib/product-image-theme";
+
+function ProductImageSkeleton({ label }: { label?: string }) {
+  return (
+    <>
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-0 transition-opacity duration-200",
+          productImageLoadingShimmerClass,
+        )}
+      />
+      <div
+        className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 transition-opacity duration-200"
+        aria-hidden
+      >
+        <Loader2 className="size-7 animate-spin text-slate-400/80" />
+        {label ? (
+          <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            {label}
+          </span>
+        ) : null}
+      </div>
+    </>
+  );
+}
 
 type DualJewelleryProductImageProps = {
   primarySrc: string;
@@ -71,8 +101,14 @@ export default function DualJewelleryProductImage({
 
   if (primErr) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center bg-[#0B1120]">
-        <span className="text-5xl font-bold text-slate-600 select-none">{alt.charAt(0)}</span>
+      <div
+        className={cn(
+          "absolute inset-0 flex flex-col items-center justify-center gap-2",
+          productImageEmptyWellClass,
+        )}
+      >
+        <Loader2 className="size-6 text-slate-400 opacity-70" aria-hidden />
+        <span className="px-4 text-center text-xs text-slate-500">Photo unavailable</span>
       </div>
     );
   }
@@ -81,22 +117,12 @@ export default function DualJewelleryProductImage({
     return (
       <>
         <div
-          aria-hidden
           className={cn(
-            "absolute inset-0 bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950",
+            "pointer-events-none absolute inset-0 z-[2] transition-opacity duration-300",
             primLoaded ? "opacity-0" : "opacity-100",
-            "transition-opacity duration-200",
-            !primLoaded && "animate-pulse",
-          )}
-        />
-        <div
-          className={cn(
-            "absolute inset-0 flex items-center justify-center bg-[#0B1120]",
-            primLoaded ? "opacity-0 pointer-events-none" : "opacity-100",
-            "transition-opacity duration-150",
           )}
         >
-          <span className="text-5xl font-bold text-slate-600/60 select-none">{alt.charAt(0)}</span>
+          <ProductImageSkeleton label="Loading" />
         </div>
         <div className={productImageViewportWrapperClass()}>
           <Image
@@ -133,14 +159,13 @@ export default function DualJewelleryProductImage({
   return (
     <>
       <div
-        aria-hidden
         className={cn(
-          "absolute inset-0 bg-gradient-to-br from-slate-800/30 via-[#0B1120] to-slate-950",
+          "pointer-events-none absolute inset-0 z-[5] transition-opacity duration-300",
           (showBackMobile ? secLoaded : primLoaded) ? "opacity-0" : "opacity-100",
-          "transition-opacity duration-200",
-          !(showBackMobile ? secLoaded : primLoaded) && "animate-pulse",
         )}
-      />
+      >
+        <ProductImageSkeleton label="Loading" />
+      </div>
 
       {/* Primary */}
       <div
@@ -228,7 +253,7 @@ export default function DualJewelleryProductImage({
             "pointer-events-auto h-2.5 min-w-[2.5rem] rounded-full border transition md:opacity-90 md:hover:border-amber-400/70",
             !showBackMobile
               ? "border-amber-400/70 bg-amber-500 shadow-[0_0_16px_-2px_rgba(251,191,36,0.5)]"
-              : "border-slate-500/70 bg-slate-950/80 backdrop-blur-sm",
+              : "border-slate-300/90 bg-white/95 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-sm",
           )}
         />
         <button
@@ -241,7 +266,7 @@ export default function DualJewelleryProductImage({
             "pointer-events-auto h-2.5 min-w-[2.5rem] rounded-full border transition md:opacity-90 md:hover:border-amber-400/70",
             showBackMobile
               ? "border-amber-400/70 bg-amber-500 shadow-[0_0_16px_-2px_rgba(251,191,36,0.5)]"
-              : "border-slate-500/70 bg-slate-950/80 backdrop-blur-sm",
+              : "border-slate-300/90 bg-white/95 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-sm",
           )}
         />
       </div>

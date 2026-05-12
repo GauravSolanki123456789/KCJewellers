@@ -1,4 +1,5 @@
 import type { ImageSurfaceTone } from "./detect-image-surface";
+import { productImageSurfaceClass } from "./product-image-theme";
 
 /** True for pure white / black ERP frames (used on PDP for framing hints only). */
 export function isFlatProductImageTone(
@@ -13,5 +14,6 @@ export function isFlatProductImageTone(
  * cropping instead.
  */
 export function productImageViewportWrapperClass(): string {
-  return "absolute inset-0 overflow-hidden";
+  /** Explicit light surface behind `object-contain` letterboxing. */
+  return `absolute inset-0 overflow-hidden ${productImageSurfaceClass}`;
 }

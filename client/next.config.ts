@@ -21,6 +21,8 @@ function uploadsRemotePatterns(): NonNullable<NextConfig["images"]>["remotePatte
   };
   push(process.env.NEXT_PUBLIC_API_URL);
   push("https://api.kcjewellers.co.in");
+  push("https://kcjewellers.co.in");
+  push("https://www.kcjewellers.co.in");
   push("http://localhost:4000");
   legacyApiOrigins.forEach((o) => push(o));
 
