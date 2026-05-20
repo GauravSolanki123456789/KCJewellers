@@ -59,25 +59,34 @@ export function openWhatsAppOrder(digitsForWaMe: string, message: string): boole
 }
 
 export type SharedCatalogPickLineForWhatsApp = {
-  name: string;
-  skuOrBarcode: string;
-  priceInr: number;
-  weightLabel?: string | null;
-};
+  name: string
+  skuOrBarcode: string
+  priceInr: number
+  qty?: number
+  weightLabel?: string | null
+}
 
 export function buildSharedCatalogSelectionWhatsAppMessage(params: {
-  brandLabel: string;
-  lines: SharedCatalogPickLineForWhatsApp[];
-  catalogueUrl?: string;
+  brandLabel: string
+  lines: SharedCatalogPickLineForWhatsApp[]
+  catalogueUrl?: string
 }): string {
-  const { brandLabel, lines, catalogueUrl } = params;
-  const header = `Hi ${brandLabel},\n\nI'd love to know more about these pieces from your shared catalogue:\n\n`;
+  const { brandLabel, lines, catalogueUrl } = params
+  const header = `Hi ${brandLabel},\n\nI'd love to know more about these pieces from your shared catalogue:\n\n`
   const body = lines
     .map((l, i) => {
-      const wt = l.weightLabel ? ` · ${l.weightLabel}` : "";
-      return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}\n   ₹${Math.round(l.priceInr).toLocaleString("en-IN")} incl. GST${wt}\n`;
+      const wt = l.weightLabel ? ` · ${l.weightLabel}` : ''
+      const qty = Math.max(1, Number(l.qty) || 1)
+      const qtyLine = qty > 1 ? `\n   Qty: ${qty}` : ''
+      const unit = Math.round(l.priceInr)
+      const lineTotal = unit * qty
+      const priceLine =
+        qty > 1
+          ? `₹${unit.toLocaleString('en-IN')} each · line ₹${lineTotal.toLocaleString('en-IN')} incl. GST`
+          : `₹${unit.toLocaleString('en-IN')} incl. GST`
+      return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}\n   ${priceLine}${wt}\n`
     })
-    .join("\n");
+    .join('\n')
   const link = catalogueUrl ? `\n—\nFor reference — catalogue link:\n${catalogueUrl}\n` : "";
   const footer = `\nWhenever it's convenient, could you confirm availability and suggest next steps?\n\nThank you.`;
   return `${header}${body}${link}${footer}`;

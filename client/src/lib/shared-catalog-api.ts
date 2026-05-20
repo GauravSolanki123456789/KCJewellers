@@ -49,6 +49,7 @@ export type SharedCatalogPublicProduct = {
   metal_type?: string
   discount_percentage?: number
   style_name?: string
+  gst_rate?: number
   [key: string]: unknown
 }
 
@@ -77,9 +78,11 @@ export type SharedCatalogPublicResponse =
       creatorCustomerTier?: string | null
       products: SharedCatalogPublicProduct[]
       rates: unknown[]
-      /** Palette for PDF / UX — stored as app_settings `kc_theme_id` or reseller profile. */
-      kc_theme_id?: string | null
-    }
+  /** Palette for PDF / UX — stored as app_settings `kc_theme_id` or reseller profile. */
+  kc_theme_id?: string | null
+  /** True when prices use live rates frozen at link creation (not current ticker). */
+  ratesFrozenAtShare?: boolean
+}
   | { error?: string }
 
 export async function fetchSharedCatalogByUuid(

@@ -5,19 +5,19 @@ import Image from 'next/image'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { pdf } from '@react-pdf/renderer'
-import { Check, Clock, FileText, Gem, Loader2, MessageCircle, Sparkles } from 'lucide-react'
+import { Check, Clock, FileText, Gem, Loader2, MessageCircle, Minus, Plus, Sparkles } from 'lucide-react'
 import {
   fetchSharedCatalogByUuid,
-  type SharedCatalogCreatorWholesale,
   type SharedCatalogPublicProduct,
   type SharedCatalogPublicResponse,
 } from '@/lib/shared-catalog-api'
 import {
-  calculateBreakdown,
-  getItemWeightWithGrossFallback,
-  type Item,
-  type WholesalePricingInput,
-} from '@/lib/pricing'
+  buildSharedCatalogPricingRows,
+  parseMarkupPercentage,
+  sharedCatalogProductToItem,
+  wholesaleInputFromBrochure,
+} from '@/lib/shared-catalog-pricing'
+import { getItemWeightWithGrossFallback } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
@@ -38,14 +38,12 @@ import {
 } from '@/lib/cart-order-whatsapp'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
 import { sharePdfBlob } from '@/lib/pdf-share'
+import SharedCatalogImageLightbox, {
+  SharedCatalogZoomHint,
+  type SharedCatalogLightboxSlide,
+} from '@/components/shared-catalog/SharedCatalogImageLightbox'
 
-function toItem(p: SharedCatalogPublicProduct): Item {
-  return {
-    ...p,
-    item_name: (p.name as string) || undefined,
-    gst_rate: 3,
-  }
-}
+const MAX_PIECE_QTY = 99
 
 function stableProductKey(p: SharedCatalogPublicProduct, index: number): string {
   const b = String(p.barcode ?? '').trim()
@@ -54,39 +52,6 @@ function stableProductKey(p: SharedCatalogPublicProduct, index: number): string 
   if (s) return `s:${s}`
   if (p.id != null && String(p.id).trim()) return `id:${String(p.id)}`
   return `i:${index}`
-}
-
-function wholesaleInputFromBrochure(
-  cp: SharedCatalogCreatorWholesale | null | undefined,
-): WholesalePricingInput | null {
-  if (!cp) return null
-  const w: WholesalePricingInput = {
-    wholesale_making_charge_discount_percent:
-      Number(cp.wholesale_making_charge_discount_percent) || 0,
-    wholesale_markup_percent: Number(cp.wholesale_markup_percent) || 0,
-  }
-  if (
-    Math.abs(w.wholesale_making_charge_discount_percent) <= 1e-9 &&
-    Math.abs(w.wholesale_markup_percent) <= 1e-9
-  ) {
-    return null
-  }
-  return w
-}
-
-function markedUpTotal(
-  item: Item,
-  rates: unknown,
-  markupPct: number,
-  wholesale: WholesalePricingInput | null,
-) {
-  const b = calculateBreakdown(
-    item,
-    rates,
-    (item as { gst_rate?: number }).gst_rate ?? 3,
-    wholesale ?? undefined,
-  )
-  return b.total * (1 + Math.max(0, markupPct) / 100)
 }
 
 function metalIcon(metal: string) {
@@ -108,6 +73,12 @@ function isLoadedBrochure(
   )
 }
 
+function totalSelectedPieces(selections: Map<string, number>): number {
+  let n = 0
+  for (const q of selections.values()) n += q
+  return n
+}
+
 export default function SharedCatalogClient({
   initialBranding,
 }: {
@@ -118,11 +89,14 @@ export default function SharedCatalogClient({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [payload, setPayload] = useState<SharedCatalogPublicResponse | null>(null)
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set())
+  /** key → quantity (only keys present are shortlisted) */
+  const [selections, setSelections] = useState<Map<string, number>>(() => new Map())
   const [pdfBusy, setPdfBusy] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
 
   useEffect(() => {
-    setSelectedKeys(new Set())
+    setSelections(new Map())
   }, [uuid])
 
   useEffect(() => {
@@ -162,63 +136,103 @@ export default function SharedCatalogClient({
 
   const rows = useMemo(() => {
     if (!isLoadedBrochure(payload)) return []
-    const rawMk = payload.markupPercentage
-    const markup =
-      typeof rawMk === 'number' && Number.isFinite(rawMk)
-        ? rawMk
-        : Number.parseFloat(String(rawMk ?? '').replace(/,/g, '').trim()) || 0
-    const rates = payload.rates ?? []
-    const products = payload.products ?? []
-    const cw = payload.creatorWholesalePricing
-    const wholesale = wholesaleInputFromBrochure(cw ?? null)
-    return products.map((p) => {
-      const item = toItem(p)
-      const total = markedUpTotal(item, rates, markup, wholesale)
-      return { item, product: p, total, markup }
-    })
+    return buildSharedCatalogPricingRows(
+      payload.products ?? [],
+      payload.rates ?? [],
+      parseMarkupPercentage(payload.markupPercentage),
+      payload.creatorWholesalePricing ?? null,
+    )
   }, [payload])
 
   const rowKeys = useMemo(() => rows.map((r, i) => stableProductKey(r.product, i)), [rows])
 
+  const lightboxSlides = useMemo((): SharedCatalogLightboxSlide[] => {
+    return rows
+      .map((row) => {
+        const primary = normalizeCatalogImageSrc(row.product.image_url)
+        if (!primary) return null
+        const name =
+          (row.product.name as string) ||
+          row.item.item_name ||
+          String(row.product.barcode || row.product.sku || '')
+        const code = String(row.product.barcode || row.product.sku || '')
+        return {
+          primarySrc: primary,
+          secondarySrc: row.product.secondary_image_url,
+          title: name,
+          subtitle: code || null,
+        }
+      })
+      .filter(Boolean) as SharedCatalogLightboxSlide[]
+  }, [rows])
+
+  const openLightboxForKey = useCallback(
+    (key: string) => {
+      const rowIdx = rowKeys.indexOf(key)
+      if (rowIdx < 0) return
+      const productIdx = rows
+        .slice(0, rowIdx + 1)
+        .filter((r) => normalizeCatalogImageSrc(r.product.image_url)).length - 1
+      if (productIdx < 0) return
+      setLightboxIndex(productIdx)
+      setLightboxOpen(true)
+    },
+    [rowKeys, rows],
+  )
+
   const toggleKey = useCallback((key: string) => {
-    setSelectedKeys((prev) => {
-      const next = new Set(prev)
+    setSelections((prev) => {
+      const next = new Map(prev)
       if (next.has(key)) next.delete(key)
-      else next.add(key)
+      else next.set(key, 1)
+      return next
+    })
+  }, [])
+
+  const setQty = useCallback((key: string, qty: number) => {
+    const q = Math.max(1, Math.min(MAX_PIECE_QTY, Math.floor(qty)))
+    setSelections((prev) => {
+      if (!prev.has(key)) return prev
+      const next = new Map(prev)
+      next.set(key, q)
       return next
     })
   }, [])
 
   const selectAll = useCallback(() => {
-    setSelectedKeys(new Set(rowKeys))
+    setSelections(new Map(rowKeys.map((k) => [k, 1])))
   }, [rowKeys])
 
   const clearSelection = useCallback(() => {
-    setSelectedKeys(new Set())
+    setSelections(new Map())
   }, [])
+
+  const selectedCount = selections.size
+  const totalPieces = totalSelectedPieces(selections)
 
   const handleSharePicksPdf = useCallback(async () => {
     if (!isLoadedBrochure(payload)) return
-    if (selectedKeys.size === 0) return
+    if (selectedCount === 0) return
 
     const fromApi = normalizeIndianMobileDigits(payload.selectionWhatsAppDigits ?? undefined)
     const fromBranding = normalizeIndianMobileDigits(initialBranding?.contactPhoneDigits ?? undefined)
     const digits10 = fromApi ?? fromBranding ?? getDefaultStoreWhatsAppDigits()
     const wa = digits10 ? toWhatsAppWaMeDigits(digits10) : ''
 
-    const pickedItems: Item[] = []
+    const pickedItems: Array<ReturnType<typeof sharedCatalogProductToItem> & { shareCatalogQty?: number }> =
+      []
     rows.forEach((row, i) => {
       const key = rowKeys[i]
-      if (!selectedKeys.has(key)) return
-      pickedItems.push(toItem(row.product))
+      const qty = selections.get(key)
+      if (!qty) return
+      pickedItems.push({
+        ...sharedCatalogProductToItem(row.product),
+        shareCatalogQty: qty,
+      })
     })
     if (pickedItems.length === 0) return
 
-    const rawMk = payload.markupPercentage
-    const markup =
-      typeof rawMk === 'number' && Number.isFinite(rawMk)
-        ? rawMk
-        : Number.parseFloat(String(rawMk ?? '').replace(/,/g, '').trim()) || 0
+    const markup = parseMarkupPercentage(payload.markupPercentage)
     const wholesale = wholesaleInputFromBrochure(payload.creatorWholesalePricing ?? null)
     const catalogueUrl = typeof window !== 'undefined' ? window.location.href : ''
     const kcThemeId = normalizeKcThemeId(
@@ -267,7 +281,8 @@ export default function SharedCatalogClient({
     }
   }, [
     payload,
-    selectedKeys,
+    selections,
+    selectedCount,
     rows,
     rowKeys,
     brandLabel,
@@ -277,7 +292,7 @@ export default function SharedCatalogClient({
 
   const handleSharePicks = useCallback(() => {
     if (!isLoadedBrochure(payload)) return
-    if (selectedKeys.size === 0) return
+    if (selectedCount === 0) return
 
     const fromApi = normalizeIndianMobileDigits(payload.selectionWhatsAppDigits ?? undefined)
     const fromBranding = normalizeIndianMobileDigits(initialBranding?.contactPhoneDigits ?? undefined)
@@ -301,19 +316,21 @@ export default function SharedCatalogClient({
     const lines: SharedCatalogPickLineForWhatsApp[] = []
     rows.forEach((row, i) => {
       const key = rowKeys[i]
-      if (!selectedKeys.has(key)) return
+      const qty = selections.get(key)
+      if (!qty) return
       const name =
         (row.product.name as string) ||
         row.item.item_name ||
         String(row.product.barcode || row.product.sku || '')
       const code = String(row.product.barcode || row.product.sku || '')
-      const wt = getItemWeightWithGrossFallback(toItem(row.product))
+      const wt = getItemWeightWithGrossFallback(sharedCatalogProductToItem(row.product))
       const weightLabel =
         wt != null && !Number.isNaN(Number(wt)) ? `Weight ${Number(wt).toFixed(2)} gm` : null
       lines.push({
         name,
         skuOrBarcode: code || key,
-        priceInr: row.total,
+        priceInr: row.unitTotalInr,
+        qty,
         weightLabel,
       })
     })
@@ -324,12 +341,12 @@ export default function SharedCatalogClient({
       catalogueUrl: typeof window !== 'undefined' ? window.location.href : undefined,
     })
     openWhatsAppOrder(wa, msg)
-  }, [payload, selectedKeys, rows, rowKeys, brandLabel, initialBranding?.contactPhoneDigits])
+  }, [payload, selections, selectedCount, rows, rowKeys, brandLabel, initialBranding?.contactPhoneDigits])
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center px-6">
-        <div className="h-12 w-12 rounded-full border-2 border-amber-500/30 border-t-amber-500 animate-spin" />
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-6 text-slate-100">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-amber-500/30 border-t-amber-500" />
         <p className="mt-6 text-sm text-slate-400">Opening catalogue…</p>
       </div>
     )
@@ -337,7 +354,7 @@ export default function SharedCatalogClient({
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center px-6 text-center">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-6 text-center text-slate-100">
         <p className="text-lg font-medium text-slate-200">{error}</p>
         <Link
           href={CATALOG_PATH}
@@ -351,11 +368,11 @@ export default function SharedCatalogClient({
 
   if (payload && 'expired' in payload && payload.expired) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 flex flex-col items-center justify-center px-6 text-center">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 text-center text-slate-100">
         <div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-2xl backdrop-blur-sm">
           <Clock className="mx-auto size-12 text-amber-600" aria-hidden />
           <h1 className="mt-4 text-xl font-semibold text-slate-100">This catalogue link has expired</h1>
-          <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+          <p className="mt-2 text-sm leading-relaxed text-slate-400">
             Ask {brandLabel} for a fresh link, or explore the live catalogue on our website.
           </p>
           <Link
@@ -376,43 +393,50 @@ export default function SharedCatalogClient({
 
   const expiresAt = payload.expiresAt
   const expDate = expiresAt ? new Date(expiresAt) : null
-  const selectedCount = selectedKeys.size
   const showPickerChrome = rows.length > 0
+  const markupPct = parseMarkupPercentage(payload.markupPercentage)
 
   return (
     <div
       className={cn(
-        'min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 pt-10 md:pt-14',
-        showPickerChrome ? 'pb-[9.5rem] sm:pb-36' : 'pb-16',
+        'min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100',
+        showPickerChrome ? 'pb-[calc(8.5rem+env(safe-area-inset-bottom,0px))] sm:pb-32' : 'pb-16',
       )}
     >
-      <header className="mx-auto max-w-6xl px-4 text-center md:px-8">
+      <header className="mx-auto max-w-6xl px-4 pt-8 text-center sm:px-6 md:pt-12">
         <div className="flex flex-col items-center gap-2">
           {brandLogo ? (
-            <span className="relative block size-14 overflow-hidden rounded-xl bg-white/5 md:size-16">
+            <span className="relative block size-14 overflow-hidden rounded-xl border border-slate-700/60 bg-white shadow-sm md:size-16">
               <Image
                 src={brandLogo}
                 alt={brandLabel}
                 fill
-                className="object-contain p-1"
+                className="object-contain p-1.5"
                 sizes="64px"
                 unoptimized
               />
             </span>
           ) : null}
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-500">{brandLabel}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-600">
+            {brandLabel}
+          </p>
         </div>
-        <h1 className="mt-2 font-serif text-2xl font-semibold tracking-tight text-slate-100 md:text-3xl">
+        <h1 className="mt-2 font-serif text-2xl font-semibold tracking-tight text-slate-100 sm:text-3xl">
           Shared catalogue
         </h1>
         {showPickerChrome ? (
-          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
-            Shortlist pieces with the checkmarks, then send your picks on WhatsApp or export a{' '}
-            <span className="text-slate-300">PDF</span> with photos and pricing to {brandLabel}.
+          <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
+            Tap to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
+            {markupPct > 0 ? (
+              <span className="mt-1 block text-xs text-slate-500">
+                Prices incl. GST with {markupPct}% partner markup
+                {payload.ratesFrozenAtShare ? ' (locked at link creation)' : ''}.
+              </span>
+            ) : null}
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
-          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-slate-700/80 bg-slate-900/50 px-3 py-1 text-xs text-slate-500">
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-slate-700/80 bg-slate-900/40 px-3 py-1 text-xs text-slate-500">
             <Clock className="size-3.5 shrink-0" aria-hidden />
             Valid until {expDate.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
           </p>
@@ -422,7 +446,7 @@ export default function SharedCatalogClient({
             <button
               type="button"
               onClick={selectAll}
-              className="rounded-full border border-slate-600/80 bg-slate-900/60 px-4 py-1.5 text-xs font-medium text-slate-200 transition hover:border-amber-500/40 hover:bg-slate-800/80"
+              className="min-h-[40px] rounded-full border border-slate-600/80 bg-slate-900/50 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-amber-500/45 hover:bg-slate-800/80"
             >
               Select all
             </button>
@@ -431,10 +455,10 @@ export default function SharedCatalogClient({
               disabled={selectedCount === 0}
               onClick={clearSelection}
               className={cn(
-                'rounded-full border px-4 py-1.5 text-xs font-medium transition',
+                'min-h-[40px] rounded-full border px-4 py-2 text-xs font-semibold transition',
                 selectedCount === 0
                   ? 'cursor-not-allowed border-slate-800 text-slate-600'
-                  : 'border-slate-600/80 bg-slate-900/60 text-slate-200 hover:border-slate-500',
+                  : 'border-slate-600/80 bg-slate-900/50 text-slate-200 hover:border-slate-500',
               )}
             >
               Clear
@@ -443,14 +467,15 @@ export default function SharedCatalogClient({
         ) : null}
       </header>
 
-      <main className="mx-auto mt-10 max-w-6xl px-4 md:px-8">
+      <main className="mx-auto mt-8 max-w-6xl px-4 sm:mt-10 sm:px-6">
         {rows.length === 0 ? (
           <p className="text-center text-slate-500">No products in this share.</p>
         ) : (
-          <ul className="grid grid-cols-2 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 md:gap-6">
-            {rows.map(({ item, product, total }, i) => {
+          <ul className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+            {rows.map(({ item, product, unitTotalInr }, i) => {
               const key = rowKeys[i]
-              const selected = selectedKeys.has(key)
+              const qty = selections.get(key) ?? 0
+              const selected = qty > 0
               const name =
                 (product.name as string) ||
                 item.item_name ||
@@ -458,31 +483,31 @@ export default function SharedCatalogClient({
               const img = normalizeCatalogImageSrc(product.image_url)
               const MetalIc = metalIcon(String(product.metal_type || ''))
               const code = String(product.barcode || product.sku || '')
-              const wt = getItemWeightWithGrossFallback(toItem(product))
+              const wt = getItemWeightWithGrossFallback(sharedCatalogProductToItem(product))
               const wtLabel =
                 wt != null && !Number.isNaN(Number(wt)) ? `${Number(wt).toFixed(2)} gm` : null
               return (
                 <li key={key}>
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => toggleKey(key)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        toggleKey(key)
-                      }
-                    }}
+                  <article
                     className={cn(
-                      'flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-slate-900/90 shadow-lg shadow-black/10 outline-none transition',
+                      'flex h-full flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition',
                       selected
-                        ? 'border-amber-500/70 ring-2 ring-amber-400/30'
-                        : 'border-slate-800 hover:border-slate-700',
+                        ? 'border-amber-500/70 ring-2 ring-amber-500/25'
+                        : 'border-slate-700/80 hover:border-slate-600',
                     )}
                   >
                     <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleKey(key)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          toggleKey(key)
+                        }
+                      }}
                       className={cn(
-                        'group relative isolate aspect-[4/5] overflow-hidden',
+                        'group relative isolate aspect-[4/5] cursor-pointer overflow-hidden outline-none',
                         productImageWellClass,
                       )}
                     >
@@ -495,50 +520,90 @@ export default function SharedCatalogClient({
                         aria-pressed={selected}
                         aria-label={selected ? 'Remove from shortlist' : 'Add to shortlist'}
                         className={cn(
-                          'absolute left-2 top-2 z-40 flex size-11 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition md:size-10',
+                          'absolute left-2 top-2 z-40 flex size-10 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition',
                           selected
                             ? 'border-emerald-300 bg-emerald-600 text-white'
-                            : 'border-slate-500/70 bg-white/92 text-neutral-800 backdrop-blur-sm hover:bg-white',
+                            : 'border-slate-400/80 bg-white text-slate-800 hover:bg-slate-50',
                         )}
                       >
-                        {selected ? <Check className="size-5 shrink-0 stroke-[2.5]" aria-hidden /> : null}
+                        {selected ? <Check className="size-4 shrink-0 stroke-[2.5]" aria-hidden /> : null}
                       </button>
                       {img ? (
-                        <DualJewelleryProductImage
-                          primarySrc={img}
-                          secondary_image_url={product.secondary_image_url}
-                          alt={name}
-                          sizes="(max-width: 640px) 50vw, 25vw"
-                          imageClassName="object-cover"
-                          unoptimized
-                        />
+                        <>
+                          <DualJewelleryProductImage
+                            primarySrc={img}
+                            secondary_image_url={product.secondary_image_url}
+                            alt={name}
+                            sizes="(max-width: 640px) 50vw, 25vw"
+                            imageClassName="object-cover"
+                            unoptimized
+                          />
+                          <SharedCatalogZoomHint onZoom={() => openLightboxForKey(key)} />
+                        </>
                       ) : (
                         <div className="flex h-full items-center justify-center bg-slate-800/50">
                           <MetalIc className="size-14 text-slate-500" aria-hidden />
                         </div>
                       )}
                     </div>
-                    <div className="flex flex-1 flex-col gap-1 p-3">
-                      {product.style_name && (
+
+                    <div className="flex flex-1 flex-col gap-1 p-2.5 sm:p-3">
+                      {product.style_name ? (
                         <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
                           {String(product.style_name)}
                         </span>
-                      )}
-                      <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-100">
-                        {name}
-                      </span>
-                      <span className="font-mono text-xs text-slate-500">{code}</span>
-                      {wtLabel ? (
-                        <span className="text-xs text-slate-400">Weight · {wtLabel}</span>
                       ) : null}
-                      <div className="mt-auto pt-2">
-                        <div className="text-lg font-semibold tabular-nums text-amber-600">
-                          ₹{Math.round(total).toLocaleString('en-IN')}
-                          <span className="text-[11px] font-normal text-slate-500"> incl. GST</span>
-                        </div>
+                      <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-slate-100">
+                        {name}
+                      </h2>
+                      <p className="truncate font-mono text-[11px] text-slate-500">{code}</p>
+                      {wtLabel ? (
+                        <p className="text-[11px] text-slate-500 sm:text-xs">Weight · {wtLabel}</p>
+                      ) : null}
+                      <div className="mt-auto space-y-2 pt-1.5">
+                        <p className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
+                          ₹{unitTotalInr.toLocaleString('en-IN')}
+                          <span className="ml-1 text-[10px] font-normal text-slate-500 sm:text-[11px]">
+                            incl. GST
+                          </span>
+                        </p>
+                        {selected ? (
+                          <div
+                            className="flex items-center justify-between gap-2 rounded-xl border border-slate-700/80 bg-slate-950/60 px-2 py-1.5"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                              Qty
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                aria-label="Decrease quantity"
+                                disabled={qty <= 1}
+                                onClick={() => setQty(key, qty - 1)}
+                                className="flex size-8 items-center justify-center rounded-lg border border-slate-600 bg-slate-900 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+                              >
+                                <Minus className="size-3.5" aria-hidden />
+                              </button>
+                              <span className="min-w-[1.75rem] text-center text-sm font-semibold tabular-nums text-slate-100">
+                                {qty}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="Increase quantity"
+                                disabled={qty >= MAX_PIECE_QTY}
+                                onClick={() => setQty(key, qty + 1)}
+                                className="flex size-8 items-center justify-center rounded-lg border border-slate-600 bg-slate-900 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+                              >
+                                <Plus className="size-3.5" aria-hidden />
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
-                  </div>
+                  </article>
                 </li>
               )
             })}
@@ -547,54 +612,62 @@ export default function SharedCatalogClient({
       </main>
 
       {showPickerChrome ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/98 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] shadow-[0_-12px_40px_rgba(15,23,42,0.08)] backdrop-blur-md">
-          <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 md:px-8">
-            <p className="text-center text-sm text-slate-400 sm:text-left">
+        <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-700/90 bg-slate-950/98 shadow-[0_-8px_32px_rgba(0,0,0,0.35)] backdrop-blur-md">
+          <div className="mx-auto max-w-6xl px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 sm:px-6">
+            <p className="mb-2.5 text-center text-xs text-slate-400 sm:text-left sm:text-sm">
               {selectedCount === 0 ? (
-                <>Tap checkmarks or cards to shortlist — then share via WhatsApp or PDF.</>
+                <>Shortlist items to enable sharing</>
               ) : (
                 <span className="font-medium text-slate-100">
-                  {selectedCount} {selectedCount === 1 ? 'piece' : 'pieces'} picked
+                  {totalPieces} {totalPieces === 1 ? 'piece' : 'pieces'} · {selectedCount}{' '}
+                  {selectedCount === 1 ? 'design' : 'designs'}
                 </span>
               )}
             </p>
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-stretch sm:justify-end">
-              <button
-                type="button"
-                disabled={selectedCount === 0}
-                onClick={handleSharePicks}
-                className={cn(
-                  'inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition sm:order-2 sm:min-h-[44px] sm:max-w-[min(100%,280px)]',
-                  selectedCount === 0
-                    ? 'cursor-not-allowed bg-slate-800 text-slate-500'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-[0.99]',
-                )}
-              >
-                <MessageCircle className="size-5 shrink-0" aria-hidden />
-                WhatsApp (text)
-              </button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
               <button
                 type="button"
                 disabled={selectedCount === 0 || pdfBusy}
                 onClick={handleSharePicksPdf}
                 className={cn(
-                  'inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition sm:order-1 sm:min-h-[44px] sm:max-w-[min(100%,260px)]',
+                  'inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-semibold shadow-sm transition active:scale-[0.99]',
                   selectedCount === 0 || pdfBusy
-                    ? 'cursor-not-allowed border-slate-800 bg-slate-900/80 text-slate-500'
-                    : 'border-amber-500/55 bg-slate-900/40 text-amber-100 hover:border-amber-400/80 hover:bg-slate-800/90 active:scale-[0.99]',
+                    ? 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
+                    : 'border-slate-700 bg-white text-slate-900 hover:border-amber-500 hover:bg-amber-50',
                 )}
               >
                 {pdfBusy ? (
-                  <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
+                  <Loader2 className="size-5 shrink-0 animate-spin text-slate-700" aria-hidden />
                 ) : (
-                  <FileText className="size-5 shrink-0" aria-hidden />
+                  <FileText className="size-5 shrink-0 text-slate-800" aria-hidden />
                 )}
-                {pdfBusy ? 'Building PDF…' : 'PDF with photos'}
+                <span>{pdfBusy ? 'Building PDF…' : 'PDF with photos'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={selectedCount === 0}
+                onClick={handleSharePicks}
+                className={cn(
+                  'inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold shadow-md transition active:scale-[0.99]',
+                  selectedCount === 0
+                    ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-500',
+                )}
+              >
+                <MessageCircle className="size-5 shrink-0" aria-hidden />
+                WhatsApp (text)
               </button>
             </div>
           </div>
-        </div>
+        </footer>
       ) : null}
+
+      <SharedCatalogImageLightbox
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+        slides={lightboxSlides}
+        initialIndex={lightboxIndex}
+      />
     </div>
   )
 }

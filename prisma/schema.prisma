@@ -26,6 +26,8 @@ model SharedCatalog {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   /// Snapshot creator — applies reseller wholesale pricing on public brochure (+ link markup).
   createdByUserId  Int?     @map("created_by_user_id")
+  /// Live rates JSON frozen when the share link was created (markupPercentage applied on top).
+  ratesSnapshot    Json?    @map("rates_snapshot")
 
   @@map("shared_catalogs")
 }

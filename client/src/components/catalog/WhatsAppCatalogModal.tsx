@@ -381,8 +381,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         <div className="border-t border-slate-800 p-4 sm:px-5">
           <button
             type="button"
-            disabled={busy || !!shareUrl}
-            onClick={handleSubmit}
+            disabled={busy}
+            onClick={shareUrl ? resetAndClose : handleSubmit}
             className="min-h-[48px] w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-900/20 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
           >
             {busy

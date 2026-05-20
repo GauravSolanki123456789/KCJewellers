@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import {
-  calculateBreakdown,
   getItemWeightWithGrossFallback,
   type Item,
   type WholesalePricingInput,
 } from "@/lib/pricing";
+import { sharedCatalogMarkedUpTotalInr } from "@/lib/shared-catalog-pricing";
 import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 import type { ItemWithPdfImage } from "@/lib/pdf-embed-images";
 import { getKcPdfPalette, type KcPdfPalette } from "@/lib/kc-pdf-palette";
@@ -179,17 +179,24 @@ export function CatalogPdfDocument({
               const showPrices =
                 resellerPdfPricing && resellerPdfPricing.rates != null;
               let amountStr: string | null = null;
+              let qtyLabel: string | null = null;
               if (showPrices) {
-                const gst = Number((p as { gst_rate?: number }).gst_rate ?? 3) || 3;
                 const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
-                const b = calculateBreakdown(
+                const unitInr = sharedCatalogMarkedUpTotalInr(
                   p,
                   resellerPdfPricing.rates,
-                  gst,
+                  mk,
                   resellerPdfPricing.wholesale ?? undefined,
                 );
-                const total = b.total * (1 + mk / 100);
-                amountStr = Math.round(total).toLocaleString("en-IN");
+                const shareQty = Math.max(
+                  1,
+                  Math.floor(Number((p as { shareCatalogQty?: number }).shareCatalogQty) || 1),
+                );
+                const lineInr = unitInr * shareQty;
+                amountStr = lineInr.toLocaleString("en-IN");
+                if (shareQty > 1) {
+                  qtyLabel = `Qty · ${shareQty} · ₹${unitInr.toLocaleString("en-IN")} each`;
+                }
               }
               return (
                 <View key={key} style={styles.card}>
@@ -205,6 +212,9 @@ export function CatalogPdfDocument({
                   <Text style={styles.weightLine}>Weight · {weightText}</Text>
                   {amountStr ? (
                     <>
+                      {qtyLabel ? (
+                        <Text style={styles.weightLine}>{qtyLabel}</Text>
+                      ) : null}
                       <Text style={styles.priceLine}>Rs. {amountStr}</Text>
                       <Text style={styles.priceGst}>incl. GST</Text>
                     </>

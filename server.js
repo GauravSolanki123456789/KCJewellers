@@ -5398,6 +5398,21 @@ function parseSharedMarkupPct(raw) {
     return Math.max(0, Math.min(1000, n));
 }
 
+/** Parse frozen live rates from shared_catalogs.rates_snapshot (JSONB). */
+function parseSharedCatalogRatesSnapshot(raw) {
+    if (raw == null) return null;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+}
+
 /** When brochure creator is RESELLER, mirror catalogue wholesale pricing before link markup. */
 function creatorWholesaleForBrochure(row) {
     if (!row || !row.created_by_user_id) return null;
@@ -5467,10 +5482,19 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
 
         const id = randomUUID();
         const creatorUid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        const ratePayload = await liveRateService.getCurrentPayload();
+        const ratesSnapshot = ratePayload?.rates ?? [];
         await query(
-            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at, created_by_user_id)
-             VALUES ($1::uuid, $2::text[], $3::float8, $4, $5)`,
-            [id, ids, markup, exp, Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null],
+            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at, created_by_user_id, rates_snapshot)
+             VALUES ($1::uuid, $2::text[], $3::float8, $4, $5, $6::jsonb)`,
+            [
+                id,
+                ids,
+                markup,
+                exp,
+                Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
+                JSON.stringify(ratesSnapshot),
+            ],
         );
 
         const creator = resolveUserRole(req.user);
@@ -5566,7 +5590,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         }
         const rows = await query(
             `SELECT sc.id, sc.product_ids, sc.markup_percentage, sc.expires_at, sc.created_at,
-                    sc.created_by_user_id,
+                    sc.created_by_user_id, sc.rates_snapshot,
                     u.customer_tier AS creator_customer_tier,
                     u.mobile_number AS creator_mobile_number,
                     u.wholesale_markup_percent AS creator_wholesale_markup_pct,
@@ -5608,8 +5632,13 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         }
 
         const barcodes = Array.isArray(row.product_ids) ? row.product_ids.map(String) : [];
+        const payload = await liveRateService.getCurrentPayload();
+        const frozenRates = parseSharedCatalogRatesSnapshot(row.rates_snapshot);
+        const ratesForBrochure =
+            frozenRates && frozenRates.length > 0 ? frozenRates : payload?.rates ?? [];
+        const ratesFrozenAtShare = !!(frozenRates && frozenRates.length > 0);
+
         if (barcodes.length === 0) {
-            const payload = await liveRateService.getCurrentPayload();
             return res.json({
                 expired: false,
                 expiresAt: expiresAt.toISOString(),
@@ -5619,7 +5648,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 selectionWhatsAppDigits,
                 creatorCustomerTier,
                 products: [],
-                rates: payload?.rates ?? [],
+                rates: ratesForBrochure,
+                ratesFrozenAtShare,
                 kc_theme_id,
             });
         }
@@ -5646,8 +5676,6 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             [barcodes],
         );
 
-        const payload = await liveRateService.getCurrentPayload();
-
         res.json({
             expired: false,
             expiresAt: expiresAt.toISOString(),
@@ -5657,7 +5685,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             selectionWhatsAppDigits,
             creatorCustomerTier,
             products,
-            rates: payload?.rates ?? [],
+            rates: ratesForBrochure,
+            ratesFrozenAtShare,
             kc_theme_id,
         });
     } catch (error) {
