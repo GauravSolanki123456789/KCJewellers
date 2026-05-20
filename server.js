@@ -1848,14 +1848,18 @@ app.get('/api/products', async (req, res) => {
         const params = [];
         let p = 1;
 
-        // Active-only filter (mirror of old includeDeleted logic)
+        // Active-only filter — mirror public /api/catalog (NULL treated as active)
         if (includeDeleted !== 'true') {
-            whereClauses.push(`wp.is_active = true`);
+            whereClauses.push(`(wp.is_active IS NULL OR wp.is_active = true)`);
         }
 
         if (barcode) {
-            whereClauses.push(`wp.barcode = $${p++}`);
-            params.push(barcode);
+            const key = String(barcode).trim().slice(0, 64);
+            whereClauses.push(
+                `(TRIM(COALESCE(wp.barcode, '')) = $${p} OR TRIM(COALESCE(wp.sku, '')) = $${p} OR CAST(wp.id AS TEXT) = $${p})`,
+            );
+            params.push(key);
+            p++;
         }
         if (styleCode) {
             whereClauses.push(`wc.name ILIKE $${p++}`);
@@ -1988,7 +1992,11 @@ app.get('/api/products/neighbors', async (req, res) => {
         }
         const rows = await query(
             `SELECT id, barcode, sku, subcategory_id FROM web_products
-             WHERE (barcode = $1 OR sku = $1 OR CAST(id AS TEXT) = $1)
+             WHERE (
+                TRIM(COALESCE(barcode, '')) = $1
+                OR TRIM(COALESCE(sku, '')) = $1
+                OR CAST(id AS TEXT) = $1
+             )
              AND (is_active IS NULL OR is_active = true)
              LIMIT 1`,
             [raw]

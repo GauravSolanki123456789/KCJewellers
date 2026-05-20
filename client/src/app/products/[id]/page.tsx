@@ -13,6 +13,7 @@ import {
   buildProductMetadataKeywords,
   buildProductSeoTitle,
 } from "@/lib/seo-product";
+import { normalizeStorefrontProductId } from "@/lib/catalog-product-filters";
 import type { Item } from "@/lib/pricing";
 
 const BRAND = "KC Jewellers";
@@ -23,9 +24,7 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const safeId = String(id || "")
-    .trim()
-    .slice(0, 64);
+  const safeId = normalizeStorefrontProductId(id);
   const site = getSiteUrl();
   const productPath = `/products/${encodeURIComponent(safeId)}`;
   const [product, liveRates] = await Promise.all([
@@ -102,9 +101,7 @@ export default async function ProductPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const safeId = String(id || "")
-    .trim()
-    .slice(0, 64);
+  const safeId = normalizeStorefrontProductId(id);
   const [product, liveRates] = await Promise.all([
     fetchProductByBarcode(safeId),
     fetchDisplayRates(),

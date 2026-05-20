@@ -394,7 +394,6 @@ export default function SharedCatalogClient({
   const expiresAt = payload.expiresAt
   const expDate = expiresAt ? new Date(expiresAt) : null
   const showPickerChrome = rows.length > 0
-  const markupPct = parseMarkupPercentage(payload.markupPercentage)
 
   return (
     <div
@@ -427,12 +426,6 @@ export default function SharedCatalogClient({
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
             Tap to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
-            {markupPct > 0 ? (
-              <span className="mt-1 block text-xs text-slate-500">
-                Prices incl. GST with {markupPct}% partner markup
-                {payload.ratesFrozenAtShare ? ' (locked at link creation)' : ''}.
-              </span>
-            ) : null}
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
@@ -612,34 +605,34 @@ export default function SharedCatalogClient({
       </main>
 
       {showPickerChrome ? (
-        <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-700/90 bg-slate-950/98 shadow-[0_-8px_32px_rgba(0,0,0,0.35)] backdrop-blur-md">
+        <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-300/90 bg-white/98 shadow-[0_-8px_32px_rgba(15,23,42,0.12)] backdrop-blur-md">
           <div className="mx-auto max-w-6xl px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 sm:px-6">
-            <p className="mb-2.5 text-center text-xs text-slate-400 sm:text-left sm:text-sm">
+            <p className="mb-2.5 text-center text-xs text-neutral-600 sm:text-left sm:text-sm">
               {selectedCount === 0 ? (
                 <>Shortlist items to enable sharing</>
               ) : (
-                <span className="font-medium text-slate-100">
+                <span className="font-semibold text-neutral-900">
                   {totalPieces} {totalPieces === 1 ? 'piece' : 'pieces'} · {selectedCount}{' '}
                   {selectedCount === 1 ? 'design' : 'designs'}
                 </span>
               )}
             </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
               <button
                 type="button"
                 disabled={selectedCount === 0 || pdfBusy}
                 onClick={handleSharePicksPdf}
                 className={cn(
-                  'inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-semibold shadow-sm transition active:scale-[0.99]',
+                  'inline-flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-bold shadow-sm transition active:scale-[0.99]',
                   selectedCount === 0 || pdfBusy
-                    ? 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
-                    : 'border-slate-700 bg-white text-slate-900 hover:border-amber-500 hover:bg-amber-50',
+                    ? 'cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400'
+                    : 'border-neutral-800 bg-neutral-900 text-white hover:bg-neutral-800',
                 )}
               >
                 {pdfBusy ? (
-                  <Loader2 className="size-5 shrink-0 animate-spin text-slate-700" aria-hidden />
+                  <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
                 ) : (
-                  <FileText className="size-5 shrink-0 text-slate-800" aria-hidden />
+                  <FileText className="size-5 shrink-0" aria-hidden />
                 )}
                 <span>{pdfBusy ? 'Building PDF…' : 'PDF with photos'}</span>
               </button>
@@ -648,9 +641,9 @@ export default function SharedCatalogClient({
                 disabled={selectedCount === 0}
                 onClick={handleSharePicks}
                 className={cn(
-                  'inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold shadow-md transition active:scale-[0.99]',
+                  'inline-flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold shadow-md transition active:scale-[0.99]',
                   selectedCount === 0
-                    ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                    ? 'cursor-not-allowed bg-neutral-200 text-neutral-400'
                     : 'bg-emerald-600 text-white hover:bg-emerald-500',
                 )}
               >

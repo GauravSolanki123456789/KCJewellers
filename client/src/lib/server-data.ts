@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { normalizeStorefrontProductId } from "@/lib/catalog-product-filters";
 import { getApiUrlForServer } from "@/lib/site";
 
 /** Mirrors public GET /api/products row (web_products + joins). */
@@ -50,9 +51,7 @@ const FETCH_OPTS: RequestInit = {
 export const fetchProductByBarcode = cache(async function fetchProductByBarcode(
   barcode: string
 ): Promise<ApiProductRow | null> {
-  const id = String(barcode || "")
-    .trim()
-    .slice(0, 64);
+  const id = normalizeStorefrontProductId(barcode);
   if (!id) return null;
   const api = getApiUrlForServer();
   const url = `${api}/api/products?barcode=${encodeURIComponent(id)}&limit=1`;

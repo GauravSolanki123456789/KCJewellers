@@ -97,6 +97,25 @@ export function getProductSelectionKey(product: Item): string {
   return String(product.barcode ?? product.sku ?? product.id ?? '').trim()
 }
 
+/** Decode `/products/[id]` route param — same cap as API (64 chars). */
+export function normalizeStorefrontProductId(raw: string): string {
+  try {
+    return decodeURIComponent(String(raw || '').trim()).slice(0, 64)
+  } catch {
+    return String(raw || '').trim().slice(0, 64)
+  }
+}
+
+/** True when row matches the storefront URL key (barcode, sku, or id). */
+export function productMatchesStorefrontId(product: Item, routeId: string): boolean {
+  const key = normalizeStorefrontProductId(routeId).toLowerCase()
+  if (!key) return false
+  const candidates = [product.barcode, product.sku, product.id != null ? String(product.id) : '']
+    .map((x) => String(x ?? '').trim().toLowerCase())
+    .filter(Boolean)
+  return candidates.includes(key)
+}
+
 /**
  * Same weight + price bounds as the catalogue grid (dual sliders), for a single product row.
  */

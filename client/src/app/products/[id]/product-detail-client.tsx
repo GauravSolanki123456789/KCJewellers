@@ -49,6 +49,10 @@ import {
 } from "react";
 import { useCart } from "@/context/CartContext";
 import { useCustomerTier } from "@/context/CustomerTierContext";
+import {
+  normalizeStorefrontProductId,
+  productMatchesStorefrontId,
+} from "@/lib/catalog-product-filters";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 
@@ -74,6 +78,9 @@ export default function ProductDetailClient({
 }) {
   const router = useRouter();
   const [product, setProduct] = useState<Item | null>(initialProduct ?? null);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "not_found">(
+    initialProduct ? "ready" : "loading",
+  );
   const [open, setOpen] = useState(false);
   const [b, setB] = useState<ReturnType<typeof calculateBreakdown> | null>(null);
   const [neighbors, setNeighbors] = useState<ProductNeighbors>({
@@ -94,47 +101,77 @@ export default function ProductDetailClient({
   }, [id, product?.image_url, product?.secondary_image_url]);
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
-      const safeId = String(id || "").slice(0, 64);
-      const initialKey =
-        initialProduct?.barcode ||
-        initialProduct?.sku ||
-        String(initialProduct?.id ?? "");
+      const safeId = normalizeStorefrontProductId(id);
+      if (!safeId) {
+        if (!cancelled) {
+          setProduct(null);
+          setLoadState("not_found");
+        }
+        return;
+      }
+
       const useInitial =
-        initialProduct &&
-        initialKey &&
-        String(initialKey).toLowerCase() === safeId.toLowerCase();
+        initialProduct && productMatchesStorefrontId(initialProduct, safeId);
+
+      if (useInitial && initialProduct) {
+        if (!cancelled) {
+          setProduct(initialProduct);
+          productRef.current = initialProduct;
+          setLoadState("ready");
+        }
+      } else if (!cancelled) {
+        setLoadState("loading");
+      }
 
       let item: Item | null = useInitial ? initialProduct : null;
-      if (!item) {
-        const res = await axios.get("/api/products", {
-          params: { barcode: safeId, limit: 1 },
-        });
-        item = Array.isArray(res.data?.items)
-          ? res.data.items[0]
-          : res.data?.[0] || null;
-      }
-      setProduct(item);
-      productRef.current = item;
-      const dr = await axios.get("/api/rates/display");
-      if (item) {
-        setB(
-          calculateBreakdown(
-            item,
-            dr.data?.rates || [],
-            item.gst_rate ?? 3,
-            wholesalePricing,
-          ),
-        );
-        const dn = productDisplayName(item);
-        trackProductView(item.barcode || String(item.id || ""), dn);
-        axios
-          .post("/api/analytics/track", {
-            action_type: "view_product",
-            target_id: item.barcode || item.sku || String(item.id || ""),
-            metadata: { product_name: dn },
-          })
-          .catch(() => {});
+      try {
+        if (!item) {
+          const res = await axios.get("/api/products", {
+            params: { barcode: safeId, limit: 1 },
+          });
+          item = Array.isArray(res.data?.items)
+            ? res.data.items[0]
+            : res.data?.products?.[0] || res.data?.[0] || null;
+        }
+        if (cancelled) return;
+
+        setProduct(item);
+        productRef.current = item;
+        setLoadState(item ? "ready" : "not_found");
+
+        const dr = await axios.get("/api/rates/display");
+        if (cancelled) return;
+
+        if (item) {
+          setB(
+            calculateBreakdown(
+              item,
+              dr.data?.rates || [],
+              item.gst_rate ?? 3,
+              wholesalePricing,
+            ),
+          );
+          const dn = productDisplayName(item);
+          trackProductView(item.barcode || String(item.id || ""), dn);
+          axios
+            .post("/api/analytics/track", {
+              action_type: "view_product",
+              target_id: item.barcode || item.sku || String(item.id || ""),
+              metadata: { product_name: dn },
+            })
+            .catch(() => {});
+        } else {
+          setB(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setProduct(null);
+          productRef.current = null;
+          setB(null);
+          setLoadState("not_found");
+        }
       }
     };
     load();
@@ -153,12 +190,13 @@ export default function ProductDetailClient({
     };
     s.on("live-rate", on);
     return () => {
+      cancelled = true;
       s.off("live-rate", on);
     };
   }, [id, initialProduct, wholesalePricing]);
 
   useEffect(() => {
-    const safeId = String(id || "").slice(0, 64);
+    const safeId = normalizeStorefrontProductId(id);
     if (!safeId) return;
     let cancelled = false;
     axios
@@ -275,10 +313,32 @@ export default function ProductDetailClient({
     setGalleryIdx((i) => (i >= galleryLen - 1 ? 0 : i + 1));
   }, [galleryLen]);
 
-  if (!product)
+  if (loadState === "loading")
     return (
-      <div className="min-h-screen bg-slate-950 p-4 flex items-center justify-center">
-        <div className="text-slate-400 animate-pulse">Loading…</div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="size-10 animate-spin text-amber-500" aria-hidden />
+          <p className="text-sm text-slate-400">Loading product…</p>
+        </div>
+      </div>
+    );
+
+  if (loadState === "not_found" || !product)
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-6 text-center">
+        <p className="text-lg font-semibold text-slate-100">Product not found</p>
+        <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-400">
+          This piece may have been removed or the link is outdated. Browse the live catalogue to
+          find similar jewellery.
+        </p>
+        <button
+          type="button"
+          onClick={() => router.push(CATALOG_PATH)}
+          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-400"
+        >
+          <ChevronLeft className="size-4" aria-hidden />
+          Back to catalogue
+        </button>
       </div>
     );
 
