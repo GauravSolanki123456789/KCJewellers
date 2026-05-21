@@ -327,8 +327,8 @@ export function isSelectionValidInRetailTree<
 }
 
 /**
- * Pick style + SKU that match retail filters. Prefers URL path when valid, then current
- * selection, then first row matching product_type, then first row in tree.
+ * Pick style + SKU that match retail filters. Prefers current selection (sidebar clicks)
+ * when valid, then URL path, then first row matching product_type, then first row in tree.
  */
 export function resolveRetailCatalogSelection<
   T extends CatalogRetailSubcategory & { id: number; slug?: string; name?: string },
@@ -342,6 +342,10 @@ export function resolveRetailCatalogSelection<
 ): { styleId: number; skuId: number | null } | null {
   if (tree.length === 0) return null;
 
+  if (isSelectionValidInRetailTree(tree, currentStyleId, currentSkuId)) {
+    return { styleId: currentStyleId!, skuId: currentSkuId };
+  }
+
   const styleSlug = path?.styleSlug?.toLowerCase().trim();
   const skuSlug = path?.skuSlug?.toLowerCase().trim();
   if (styleSlug && skuSlug) {
@@ -350,12 +354,6 @@ export function resolveRetailCatalogSelection<
       subSlugMatchesRetailPath(s.slug || "", skuSlug),
     );
     if (cat && sub) return { styleId: cat.id, skuId: sub.id };
-  }
-
-  if (
-    isSelectionValidInRetailTree(tree, currentStyleId, currentSkuId)
-  ) {
-    return { styleId: currentStyleId!, skuId: currentSkuId };
   }
 
   if (currentStyleId != null) {
