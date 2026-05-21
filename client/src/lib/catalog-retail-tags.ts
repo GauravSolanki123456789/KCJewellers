@@ -1,211 +1,272 @@
+import { CATALOG_PATH } from "@/lib/routes";
+
 /**
- * Retail presentation tags on `web_subcategories` — consistent keys across admin, API, and storefront.
- * ERP Style Code / SKU Code sync is unchanged; these fields are admin-managed only.
+ * Retail presentation tags on `web_subcategories` — must match server.js
+ * (`CATALOG_AUDIENCE_VALUES`, `CATALOG_PRODUCT_TYPE_VALUES`).
+ *
+ * ERP sync (style code → web_categories, SKU → web_subcategories) is unchanged.
+ * Metals (gold / silver / diamond / future gift) are a separate axis from audience.
  */
 
-/** `web_subcategories.audience` — lowercase snake-free single words */
-export const CATALOG_AUDIENCE = {
-  WOMEN: 'women',
-  MEN: 'men',
-  KIDS: 'kids',
-  UNISEX: 'unisex',
-} as const
+/** Catalogue metal tab keys — extend here when adding e.g. gift items. */
+export const CATALOG_METAL_KEYS = ["gold", "silver", "diamond"] as const;
+export type CatalogMetalKey = (typeof CATALOG_METAL_KEYS)[number];
 
-export type CatalogAudience = (typeof CATALOG_AUDIENCE)[keyof typeof CATALOG_AUDIENCE]
+export const CATALOG_AUDIENCE_VALUES = [
+  "women",
+  "men",
+  "kids",
+  "unisex",
+] as const;
+export type CatalogAudience = (typeof CATALOG_AUDIENCE_VALUES)[number];
 
-/** `web_subcategories.product_type` */
-export const CATALOG_PRODUCT_TYPE = {
-  NECKLACE: 'necklace',
-  BANGLE: 'bangle',
-  BRACELET: 'bracelet',
-  RING: 'ring',
-  PENDANT: 'pendant',
-  PENDANT_SET: 'pendant_set',
-  EARRING: 'earring',
-  CHAIN: 'chain',
-  SET: 'set',
-  KADA: 'kada',
-  OTHER: 'other',
-} as const
+export const CATALOG_PRODUCT_TYPE_VALUES = [
+  "necklace",
+  "bangle",
+  "bracelet",
+  "ring",
+  "pendant",
+  "pendant_set",
+  "earring",
+  "chain",
+  "set",
+  "kada",
+  "other",
+] as const;
+export type CatalogProductType = (typeof CATALOG_PRODUCT_TYPE_VALUES)[number];
 
-export type CatalogProductType =
-  (typeof CATALOG_PRODUCT_TYPE)[keyof typeof CATALOG_PRODUCT_TYPE]
+/** Shop-for filter including “show everything” (regular catalogue). */
+export type CatalogShopFor = "all" | CatalogAudience;
 
-/** Shop-for pill on the catalogue — `all` is UI-only (not stored in DB). */
-export type CatalogShopForKey = 'all' | CatalogAudience
+export type CatalogRetailSubcategory = {
+  audience?: string | null;
+  product_type?: string | null;
+};
 
-export const CATALOG_SHOP_FOR_TABS: {
-  key: CatalogShopForKey
-  label: string
-  shortLabel: string
+export const CATALOG_AUDIENCE_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Any" },
+  { value: "women", label: "Women" },
+  { value: "men", label: "Men" },
+  { value: "kids", label: "Kids" },
+  { value: "unisex", label: "Unisex" },
+];
+
+export const CATALOG_PRODUCT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Any type" },
+  { value: "necklace", label: "Necklace" },
+  { value: "bangle", label: "Bangle" },
+  { value: "bracelet", label: "Bracelet" },
+  { value: "ring", label: "Ring" },
+  { value: "pendant", label: "Pendant" },
+  { value: "pendant_set", label: "Pendant set" },
+  { value: "earring", label: "Earring" },
+  { value: "chain", label: "Chain" },
+  { value: "set", label: "Set" },
+  { value: "kada", label: "Kada" },
+  { value: "other", label: "Other" },
+];
+
+export const CATALOG_SHOP_FOR_TABS: { key: CatalogShopFor; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "women", label: "Women" },
+  { key: "men", label: "Men" },
+  { key: "kids", label: "Kids" },
+];
+
+const AUDIENCE_LABELS: Record<CatalogAudience, string> = {
+  women: "Women",
+  men: "Men",
+  kids: "Kids",
+  unisex: "Unisex",
+};
+
+const PRODUCT_TYPE_LABELS: Record<CatalogProductType, string> = {
+  necklace: "Necklace",
+  bangle: "Bangle",
+  bracelet: "Bracelet",
+  ring: "Ring",
+  pendant: "Pendant",
+  pendant_set: "Pendant set",
+  earring: "Earring",
+  chain: "Chain",
+  set: "Set",
+  kada: "Kada",
+  other: "Other",
+};
+
+/** Quick links in SmartSearch when the field is focused (before typing). */
+export const CATALOG_DISCOVERY_CHIPS: {
+  shopFor: CatalogAudience;
+  productType: CatalogProductType;
+  label: string;
 }[] = [
-  { key: 'all', label: 'All', shortLabel: 'All' },
-  { key: CATALOG_AUDIENCE.WOMEN, label: 'Women', shortLabel: 'Women' },
-  { key: CATALOG_AUDIENCE.MEN, label: 'Men', shortLabel: 'Men' },
-  { key: CATALOG_AUDIENCE.KIDS, label: 'Kids', shortLabel: 'Kids' },
-]
-
-export const CATALOG_AUDIENCE_OPTIONS: { value: CatalogAudience | ''; label: string }[] = [
-  { value: '', label: 'Not set' },
-  { value: CATALOG_AUDIENCE.WOMEN, label: 'Women' },
-  { value: CATALOG_AUDIENCE.MEN, label: 'Men' },
-  { value: CATALOG_AUDIENCE.KIDS, label: 'Kids' },
-  { value: CATALOG_AUDIENCE.UNISEX, label: 'Unisex' },
-]
-
-export const CATALOG_PRODUCT_TYPE_OPTIONS: { value: CatalogProductType | ''; label: string }[] = [
-  { value: '', label: 'Not set' },
-  { value: CATALOG_PRODUCT_TYPE.NECKLACE, label: 'Necklace' },
-  { value: CATALOG_PRODUCT_TYPE.BANGLE, label: 'Bangle' },
-  { value: CATALOG_PRODUCT_TYPE.BRACELET, label: 'Bracelet' },
-  { value: CATALOG_PRODUCT_TYPE.RING, label: 'Ring' },
-  { value: CATALOG_PRODUCT_TYPE.PENDANT, label: 'Pendant' },
-  { value: CATALOG_PRODUCT_TYPE.PENDANT_SET, label: 'Pendant set' },
-  { value: CATALOG_PRODUCT_TYPE.EARRING, label: 'Earring / Tops' },
-  { value: CATALOG_PRODUCT_TYPE.CHAIN, label: 'Chain' },
-  { value: CATALOG_PRODUCT_TYPE.KADA, label: 'Kada / Flexi' },
-  { value: CATALOG_PRODUCT_TYPE.SET, label: 'Set' },
-  { value: CATALOG_PRODUCT_TYPE.OTHER, label: 'Other' },
-]
-
-const VALID_AUDIENCES = new Set<string>(Object.values(CATALOG_AUDIENCE))
-const VALID_PRODUCT_TYPES = new Set<string>(Object.values(CATALOG_PRODUCT_TYPE))
+  { shopFor: "women", productType: "necklace", label: "Women · Necklaces" },
+  { shopFor: "women", productType: "bangle", label: "Women · Bangles" },
+  { shopFor: "women", productType: "earring", label: "Women · Earrings" },
+  { shopFor: "women", productType: "pendant", label: "Women · Pendants" },
+  { shopFor: "men", productType: "chain", label: "Men · Chains" },
+  { shopFor: "men", productType: "bracelet", label: "Men · Bracelets" },
+  { shopFor: "kids", productType: "pendant", label: "Kids · Pendants" },
+  { shopFor: "kids", productType: "earring", label: "Kids · Earrings" },
+];
 
 export function normalizeCatalogAudience(raw: unknown): CatalogAudience | null {
-  const v = String(raw ?? '')
+  const v = String(raw ?? "")
     .trim()
-    .toLowerCase()
-  if (!v || !VALID_AUDIENCES.has(v)) return null
-  return v as CatalogAudience
+    .toLowerCase();
+  if (!v) return null;
+  return (CATALOG_AUDIENCE_VALUES as readonly string[]).includes(v)
+    ? (v as CatalogAudience)
+    : null;
 }
 
 export function normalizeCatalogProductType(raw: unknown): CatalogProductType | null {
-  const v = String(raw ?? '')
+  const v = String(raw ?? "")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, '_')
-  if (!v || !VALID_PRODUCT_TYPES.has(v)) return null
-  return v as CatalogProductType
+    .replace(/\s+/g, "_");
+  if (!v) return null;
+  return (CATALOG_PRODUCT_TYPE_VALUES as readonly string[]).includes(v)
+    ? (v as CatalogProductType)
+    : null;
 }
 
-export function catalogAudienceLabel(audience: CatalogAudience | null | undefined): string {
-  if (!audience) return ''
-  const row = CATALOG_AUDIENCE_OPTIONS.find((o) => o.value === audience)
-  return row?.label ?? audience
+export function normalizeCatalogShopFor(raw: unknown): CatalogShopFor {
+  if (raw === "all" || raw === null || raw === undefined || raw === "") return "all";
+  const aud = normalizeCatalogAudience(raw);
+  return aud ?? "all";
 }
 
-export function catalogProductTypeLabel(type: CatalogProductType | null | undefined): string {
-  if (!type) return ''
-  const row = CATALOG_PRODUCT_TYPE_OPTIONS.find((o) => o.value === type)
-  return row?.label ?? type.replace(/_/g, ' ')
-}
-
-export type CatalogTaggedSubcategory = {
-  audience?: string | null
-  product_type?: string | null
-}
-
-/** Whether a subcategory row passes the active shop-for filter. */
-export function subcategoryMatchesShopFor(
-  sub: CatalogTaggedSubcategory,
-  shopFor: CatalogShopForKey,
-): boolean {
-  if (shopFor === 'all') return true
-  const aud = normalizeCatalogAudience(sub.audience)
-  if (!aud) return true
-  if (aud === CATALOG_AUDIENCE.UNISEX) return true
-  return aud === shopFor
-}
-
-export function subcategoryMatchesProductType(
-  sub: CatalogTaggedSubcategory,
-  productType: CatalogProductType | null | undefined,
-): boolean {
-  if (!productType) return true
-  const pt = normalizeCatalogProductType(sub.product_type)
-  return pt === productType
-}
-
-export function parseShopForParam(raw: string | null | undefined): CatalogShopForKey {
-  const v = String(raw ?? '')
+export function normalizeCatalogMetalKey(raw: unknown): CatalogMetalKey {
+  const v = String(raw ?? "")
     .trim()
-    .toLowerCase()
-  if (v === CATALOG_AUDIENCE.WOMEN) return CATALOG_AUDIENCE.WOMEN
-  if (v === CATALOG_AUDIENCE.MEN) return CATALOG_AUDIENCE.MEN
-  if (v === CATALOG_AUDIENCE.KIDS) return CATALOG_AUDIENCE.KIDS
-  return 'all'
+    .toLowerCase();
+  return (CATALOG_METAL_KEYS as readonly string[]).includes(v)
+    ? (v as CatalogMetalKey)
+    : "silver";
 }
 
-export function parseProductTypeParam(raw: string | null | undefined): CatalogProductType | null {
-  return normalizeCatalogProductType(raw)
+export function catalogAudienceLabel(audience: CatalogAudience): string {
+  return AUDIENCE_LABELS[audience];
 }
 
-/** Quick discovery links in SmartSearch — href uses catalog query params. */
-export const CATALOG_DISCOVERY_CHIPS: {
-  shopFor: CatalogShopForKey
-  productType: CatalogProductType
-  label: string
-  hint: string
-}[] = [
-  {
-    shopFor: CATALOG_AUDIENCE.WOMEN,
-    productType: CATALOG_PRODUCT_TYPE.NECKLACE,
-    label: 'Women · Necklaces',
-    hint: 'All collections',
-  },
-  {
-    shopFor: CATALOG_AUDIENCE.WOMEN,
-    productType: CATALOG_PRODUCT_TYPE.BANGLE,
-    label: 'Women · Bangles',
-    hint: 'All collections',
-  },
-  {
-    shopFor: CATALOG_AUDIENCE.WOMEN,
-    productType: CATALOG_PRODUCT_TYPE.EARRING,
-    label: 'Women · Earrings',
-    hint: 'Tops & studs',
-  },
-  {
-    shopFor: CATALOG_AUDIENCE.MEN,
-    productType: CATALOG_PRODUCT_TYPE.CHAIN,
-    label: 'Men · Chains',
-    hint: 'Bracelets & chains',
-  },
-  {
-    shopFor: CATALOG_AUDIENCE.KIDS,
-    productType: CATALOG_PRODUCT_TYPE.PENDANT,
-    label: 'Kids · Pendants',
-    hint: 'Lightweight pieces',
-  },
-]
-
-export function buildCatalogShopHref(
-  shopFor: CatalogShopForKey,
-  productType?: CatalogProductType | null,
-  metal?: 'gold' | 'silver' | 'diamond',
-): string {
-  const params = new URLSearchParams()
-  if (shopFor !== 'all') params.set('shop_for', shopFor)
-  if (productType) params.set('product_type', productType)
-  if (metal) params.set('metal', metal)
-  const q = params.toString()
-  return q ? `/catalog?${q}` : '/catalog'
+export function catalogProductTypeLabel(productType: CatalogProductType): string {
+  return PRODUCT_TYPE_LABELS[productType];
 }
 
-/** Filter catalogue tree by shop-for + optional product type (after metal filter). */
-export function filterCatalogTreeByRetailTags<
-  T extends {
-    subcategories: (CatalogTaggedSubcategory & { products: unknown[] })[]
-  },
->(categories: T[], shopFor: CatalogShopForKey, productType?: CatalogProductType | null): T[] {
+/** Whether a subcategory matches the active shop-for + optional product-type filter. */
+export function subcategoryMatchesRetailFilter(
+  sub: CatalogRetailSubcategory,
+  shopFor: CatalogShopFor,
+  productType: CatalogProductType | "all",
+): boolean {
+  const aud = normalizeCatalogAudience(sub.audience);
+  const pt = normalizeCatalogProductType(sub.product_type);
+
+  if (shopFor !== "all") {
+    if (!aud) return false;
+    if (shopFor === "kids") {
+      if (aud !== "kids") return false;
+    } else if (shopFor === "women") {
+      if (aud !== "women" && aud !== "unisex") return false;
+    } else if (shopFor === "men") {
+      if (aud !== "men" && aud !== "unisex") return false;
+    } else if (aud !== shopFor) {
+      return false;
+    }
+  }
+
+  if (productType !== "all") {
+    if (!pt || pt !== productType) return false;
+  }
+
+  return true;
+}
+
+export type CatalogTreeWithRetail<T extends CatalogRetailSubcategory> = {
+  subcategories: (T & { products?: unknown[] })[];
+};
+
+/** Filter category tree by retail tags (metal filtering applied separately). Preserves category fields. */
+export function filterCatalogTreeByRetail<
+  T extends CatalogTreeWithRetail<CatalogRetailSubcategory>,
+>(categories: T[], shopFor: CatalogShopFor, productType: CatalogProductType | "all"): T[] {
+  if (shopFor === "all" && productType === "all") return categories;
   return categories
     .map((cat) => ({
       ...cat,
-      subcategories: cat.subcategories.filter(
-        (sub) =>
-          subcategoryMatchesShopFor(sub, shopFor) &&
-          subcategoryMatchesProductType(sub, productType),
+      subcategories: cat.subcategories.filter((sub) =>
+        subcategoryMatchesRetailFilter(sub, shopFor, productType),
       ),
     }))
-    .filter((cat) => cat.subcategories.length > 0)
+    .filter((cat) => cat.subcategories.length > 0) as T[];
+}
+
+export function parseCatalogRetailSearchParams(
+  search: string | URLSearchParams,
+): {
+  shopFor: CatalogShopFor;
+  productType: CatalogProductType | "all";
+} {
+  const params =
+    typeof search === "string"
+      ? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
+      : search;
+  const shopFor = normalizeCatalogShopFor(params.get("shop_for"));
+  const ptRaw = params.get("product_type");
+  const pt = ptRaw ? normalizeCatalogProductType(ptRaw) : null;
+  return {
+    shopFor,
+    productType: pt ?? "all",
+  };
+}
+
+export function buildCatalogRetailQueryString(
+  shopFor: CatalogShopFor,
+  productType: CatalogProductType | "all",
+): string {
+  if (shopFor === "all" && productType === "all") return "";
+  const params = new URLSearchParams();
+  if (shopFor !== "all") params.set("shop_for", shopFor);
+  if (productType !== "all") params.set("product_type", productType);
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
+
+/** Deep link from search discovery chips — metal + retail filters, no style path yet. */
+export function buildCatalogShopHref(
+  shopFor: CatalogAudience,
+  productType: CatalogProductType,
+  metal: string = "silver",
+): string {
+  const m = normalizeCatalogMetalKey(metal);
+  const q = buildCatalogRetailQueryString(shopFor, productType);
+  return `${CATALOG_PATH}/${m}${q}`;
+}
+
+/** Preserve retail query string when updating catalogue pathname. */
+export function catalogPathWithRetailQuery(
+  pathname: string,
+  shopFor: CatalogShopFor,
+  productType: CatalogProductType | "all",
+): string {
+  const q = buildCatalogRetailQueryString(shopFor, productType);
+  return `${pathname.replace(/\/$/, "")}${q}`;
+}
+
+/** Product types available for the current metal + shop-for (for type chip row). */
+export function collectAvailableProductTypes(
+  categories: CatalogTreeWithRetail<CatalogRetailSubcategory>[],
+  shopFor: CatalogShopFor,
+): CatalogProductType[] {
+  if (shopFor === "all") return [];
+  const seen = new Set<CatalogProductType>();
+  for (const cat of categories) {
+    for (const sub of cat.subcategories) {
+      if (!subcategoryMatchesRetailFilter(sub, shopFor, "all")) continue;
+      const pt = normalizeCatalogProductType(sub.product_type);
+      if (pt) seen.add(pt);
+    }
+  }
+  return CATALOG_PRODUCT_TYPE_VALUES.filter((k) => seen.has(k));
 }

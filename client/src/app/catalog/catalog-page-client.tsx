@@ -11,10 +11,6 @@ import {
   ChevronRight,
   ChevronLeft,
   ChevronDown,
-  User,
-  Users,
-  Baby,
-  X,
 } from 'lucide-react'
 import {
   GoldJewelleryRingIcon,
@@ -55,11 +51,12 @@ import { mergeDesignGroupOrder } from '@/lib/design-group-order'
 import {
   CATALOG_SHOP_FOR_TABS,
   catalogProductTypeLabel,
-  filterCatalogTreeByRetailTags,
-  parseProductTypeParam,
-  parseShopForParam,
+  catalogPathWithRetailQuery,
+  collectAvailableProductTypes,
+  filterCatalogTreeByRetail,
+  parseCatalogRetailSearchParams,
   type CatalogProductType,
-  type CatalogShopForKey,
+  type CatalogShopFor,
 } from '@/lib/catalog-retail-tags'
 
 type Product = Item
@@ -104,8 +101,6 @@ type CatalogSessionState = {
   priceLow?: number
   priceHigh?: number
   scrollToBarcode?: string
-  shopFor?: CatalogShopForKey
-  productTypeFilter?: CatalogProductType | null
 }
 
 /** First metal that has products; used for smart default */
@@ -289,7 +284,7 @@ function selectionMatchesPath(
 export default function CatalogPageClient() {
   const pathname = usePathname()
   const router = useRouter()
-  const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing } =
+  const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing, retailBrowseEnabled } =
     useCatalogData()
   const auth = useAuth()
   const { wholesalePricing, customerTier } = useCustomerTier()
@@ -307,11 +302,12 @@ export default function CatalogPageClient() {
   const canUseCatalogBuilder =
     auth.isAuthenticated === true &&
     (isCatalogAdminUser(auth.user) || customerTier === CUSTOMER_TIER.RESELLER)
+  /** Resellers order by collection (PITARA, UTSAV); retail shop-for is B2C only. */
+  const showRetailBrowse =
+    retailBrowseEnabled && customerTier !== CUSTOMER_TIER.RESELLER
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
 
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
-  const [shopFor, setShopFor] = useState<CatalogShopForKey>('all')
-  const [productTypeFilter, setProductTypeFilter] = useState<CatalogProductType | null>(null)
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
   const [activeSkuId, setActiveSkuId] = useState<number | null>(null)
@@ -326,6 +322,9 @@ export default function CatalogPageClient() {
   const hasRestoredFromStorage = useRef(false)
   const skipNextBoundsSync = useRef(false)
   const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
+  /** Retail browse: Women / Men / Kids — only when admin enables + not B2B reseller view. */
+  const [selectedShopFor, setSelectedShopFor] = useState<CatalogShopFor>('all')
+  const [selectedProductType, setSelectedProductType] = useState<CatalogProductType | 'all'>('all')
   /** False until initial load finishes — blocks URL bar sync from forcing ?metal=gold before session/URL apply. */
   const [catalogHydrated, setCatalogHydrated] = useState(false)
 
@@ -341,8 +340,6 @@ export default function CatalogPageClient() {
         priceLow,
         priceHigh,
         scrollToBarcode,
-        shopFor,
-        productTypeFilter,
       }
       sessionStorage.setItem(CATALOG_STATE_KEY, JSON.stringify(state))
       sessionStorage.setItem(CATALOG_FROM_PRODUCT_KEY, '1')
@@ -352,7 +349,7 @@ export default function CatalogPageClient() {
     } catch {
       /* ignore */
     }
-  }, [selectedMetal, activeStyleId, activeSkuId, weightLow, weightHigh, priceLow, priceHigh, shopFor, productTypeFilter])
+  }, [selectedMetal, activeStyleId, activeSkuId, weightLow, weightHigh, priceLow, priceHigh])
 
   const selectedMetalRef = useRef(selectedMetal)
   const activeStyleIdRef = useRef(activeStyleId)
@@ -440,10 +437,6 @@ export default function CatalogPageClient() {
       if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
       skipNextBoundsSync.current = true
       if (parsed.scrollToBarcode) setScrollToBarcode(parsed.scrollToBarcode)
-      if (parsed.shopFor) setShopFor(parseShopForParam(parsed.shopFor))
-      if (parsed.productTypeFilter) {
-        setProductTypeFilter(parseProductTypeParam(parsed.productTypeFilter))
-      }
     }
 
     const applyUrlQuery = () => {
@@ -452,6 +445,9 @@ export default function CatalogPageClient() {
       if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
         setSelectedMetal(metalParam)
       }
+      const { shopFor, productType } = parseCatalogRetailSearchParams(u)
+      setSelectedShopFor(shopFor)
+      setSelectedProductType(productType)
       const styleSlug = u.get('style')?.toLowerCase()?.trim() || ''
       const skuSlug = u.get('sku')?.toLowerCase()?.trim() || ''
       if (styleSlug) {
@@ -485,18 +481,6 @@ export default function CatalogPageClient() {
     try {
       const stored = typeof window !== 'undefined' ? sessionStorage.getItem(CATALOG_STATE_KEY) : null
       const pathFromUrl = pathSegmentsFromPathname(pathname)
-      const urlParams =
-        typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
-      if (urlParams?.get('shop_for')) {
-        setShopFor(parseShopForParam(urlParams.get('shop_for')))
-      }
-      if (urlParams?.get('product_type')) {
-        setProductTypeFilter(parseProductTypeParam(urlParams.get('product_type')))
-      }
-      const metalParam = urlParams?.get('metal')?.toLowerCase()?.trim()
-      if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
-        setSelectedMetal(metalParam)
-      }
 
       // Deep-linked path always wins over session snapshot (avoids URL vs grid mismatch / replace loops).
       if (pathFromUrl) {
@@ -529,6 +513,9 @@ export default function CatalogPageClient() {
     setCatalogHydrated(true)
 
     if (typeof window !== 'undefined') {
+      const { shopFor, productType } = parseCatalogRetailSearchParams(window.location.search)
+      setSelectedShopFor(shopFor)
+      setSelectedProductType(productType)
       const scrollTarget = sessionStorage.getItem(CATALOG_SCROLL_TO_KEY)
       if (scrollTarget) {
         setScrollToBarcode(scrollTarget)
@@ -615,26 +602,79 @@ export default function CatalogPageClient() {
       .filter((cat) => cat.subcategories.length > 0)
   }, [categories, selectedMetal])
 
-  /** Shop-for + product type — retail presentation layer on top of ERP tree */
+  /** Apply Shop for + product type when admin enables retail browse. */
   const filteredCategories = useMemo(() => {
-    return filterCatalogTreeByRetailTags(metalFilteredCategories, shopFor, productTypeFilter)
-  }, [metalFilteredCategories, shopFor, productTypeFilter])
+    if (
+      !showRetailBrowse ||
+      (selectedShopFor === 'all' && selectedProductType === 'all')
+    ) {
+      return metalFilteredCategories
+    }
+    return filterCatalogTreeByRetail(
+      metalFilteredCategories,
+      selectedShopFor,
+      selectedProductType,
+    )
+  }, [
+    metalFilteredCategories,
+    showRetailBrowse,
+    selectedShopFor,
+    selectedProductType,
+  ])
 
-  /** Keep shop-for / product_type in the URL for shareable filtered views */
+  const availableProductTypes = useMemo(() => {
+    if (!showRetailBrowse || selectedShopFor === 'all') return []
+    return collectAvailableProductTypes(metalFilteredCategories, selectedShopFor)
+  }, [metalFilteredCategories, showRetailBrowse, selectedShopFor])
+
+  /** Reset retail filters when admin disables browse or user is B2B reseller. */
+  useEffect(() => {
+    if (!showRetailBrowse) {
+      setSelectedShopFor('all')
+      setSelectedProductType('all')
+    }
+  }, [showRetailBrowse])
+
+  /** Drop product-type chip when it no longer applies to the current shop-for + metal. */
+  useEffect(() => {
+    if (selectedProductType === 'all') return
+    if (!availableProductTypes.includes(selectedProductType)) {
+      setSelectedProductType('all')
+    }
+  }, [availableProductTypes, selectedProductType])
+
+  /** Sync ?shop_for= & ?product_type= in the URL (no page scroll). */
   useLayoutEffect(() => {
     if (!catalogHydrated || typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    if (shopFor === 'all') params.delete('shop_for')
-    else params.set('shop_for', shopFor)
-    if (!productTypeFilter) params.delete('product_type')
-    else params.set('product_type', productTypeFilter)
-    const qs = params.toString()
-    const target = qs ? `${pathname}?${qs}` : pathname
-    const current = pathname + window.location.search
-    if (current !== target) {
-      router.replace(target, { scroll: false })
+    if (!showRetailBrowse) {
+      const u = new URL(window.location.href)
+      if (u.searchParams.has('shop_for') || u.searchParams.has('product_type')) {
+        u.searchParams.delete('shop_for')
+        u.searchParams.delete('product_type')
+        const next = u.pathname + (u.search || '')
+        router.replace(next, { scroll: false })
+      }
+      return
     }
-  }, [catalogHydrated, shopFor, productTypeFilter, pathname, router])
+    const u = new URL(window.location.href)
+    const prevShop = u.searchParams.get('shop_for') || 'all'
+    const prevType = u.searchParams.get('product_type') || 'all'
+    const nextShop = selectedShopFor === 'all' ? 'all' : selectedShopFor
+    const nextType = selectedProductType === 'all' ? 'all' : selectedProductType
+    if (prevShop === nextShop && prevType === nextType) return
+    if (nextShop === 'all') u.searchParams.delete('shop_for')
+    else u.searchParams.set('shop_for', nextShop)
+    if (nextType === 'all') u.searchParams.delete('product_type')
+    else u.searchParams.set('product_type', nextType)
+    const next = u.pathname + (u.search || '')
+    router.replace(next, { scroll: false })
+  }, [
+    catalogHydrated,
+    showRetailBrowse,
+    selectedShopFor,
+    selectedProductType,
+    router,
+  ])
 
   /**
    * When metal changes or data loads, snap to a valid style/sku if the current IDs are invalid.
@@ -715,6 +755,8 @@ export default function CatalogPageClient() {
     priceLow,
     priceHigh,
     selectedMetal,
+    selectedShopFor,
+    selectedProductType,
   ])
 
   // Compute min/max from current products for slider bounds
@@ -991,8 +1033,16 @@ export default function CatalogPageClient() {
     const sub = style?.subcategories.find((s) => s.id === activeSkuId)
     if (!style?.slug || !sub?.slug) return
     const nextPath = buildCatalogSegmentPath(selectedMetal, style.slug, sub.slug)
-    if (pathname !== nextPath) {
-      router.replace(nextPath, { scroll: false })
+    const next = catalogPathWithRetailQuery(
+      nextPath,
+      showRetailBrowse ? selectedShopFor : 'all',
+      showRetailBrowse ? selectedProductType : 'all',
+    )
+    const current = typeof window !== 'undefined'
+      ? window.location.pathname + window.location.search
+      : pathname
+    if (current !== next) {
+      router.replace(next, { scroll: false })
     }
   }, [
     catalogHydrated,
@@ -1002,6 +1052,9 @@ export default function CatalogPageClient() {
     filteredCategories,
     pathname,
     router,
+    showRetailBrowse,
+    selectedShopFor,
+    selectedProductType,
   ])
 
   const catalogShareText = useMemo(() => {
@@ -1129,7 +1182,7 @@ export default function CatalogPageClient() {
         }`}
       >
         {/* Metal Type Tabs — touch-friendly; labels must not truncate (was blocking Diamond taps on narrow screens). */}
-        <div className="flex justify-center mb-3 px-1">
+        <div className="flex justify-center mb-4 px-1">
           <div className="inline-flex w-full max-w-xl sm:max-w-none sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
             {METAL_TABS.map(({ key, label, icon: Icon }) => {
               const isActive = selectedMetal === key
@@ -1152,48 +1205,75 @@ export default function CatalogPageClient() {
           </div>
         </div>
 
-        {/* Shop for — retail audience filter (tags on web_subcategories) */}
-        <div className="flex flex-col items-center gap-2 mb-4 px-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">
-            Shop for
-          </p>
-          <div className="inline-flex w-full max-w-md sm:max-w-none sm:w-auto p-0.5 rounded-full bg-slate-900/60 border border-slate-800/80">
-            {CATALOG_SHOP_FOR_TABS.map(({ key, label, shortLabel }) => {
-              const isActive = shopFor === key
-              const Icon =
-                key === 'all' ? Users : key === 'women' ? User : key === 'men' ? User : Baby
-              return (
+        {/* Shop for — retail browse (admin toggle); separate from metal tabs for future gift etc. */}
+        {showRetailBrowse ? (
+          <div className="mb-4 space-y-2.5 px-1">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">
+                Shop for
+              </p>
+              {selectedShopFor !== 'all' && availableProductTypes.length > 0 ? (
+                <p className="text-[10px] text-slate-600 sm:text-xs">
+                  Then pick a product type
+                </p>
+              ) : null}
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain sm:flex-wrap sm:overflow-visible">
+              {CATALOG_SHOP_FOR_TABS.map(({ key, label }) => {
+                const isActive = selectedShopFor === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setSelectedShopFor(key)
+                      if (key === 'all') setSelectedProductType('all')
+                    }}
+                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors sm:px-4 sm:py-2 sm:text-sm ${
+                      isActive
+                        ? 'bg-violet-600 text-white shadow-sm ring-2 ring-violet-400/25'
+                        : 'border border-slate-700/80 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800/80'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+            {selectedShopFor !== 'all' && availableProductTypes.length > 0 ? (
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5 scrollbar-hide kc-scroll-contain">
                 <button
-                  key={key}
                   type="button"
-                  onClick={() => setShopFor(key)}
-                  className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
-                    isActive
-                      ? 'bg-slate-100 text-slate-900 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  onClick={() => setSelectedProductType('all')}
+                  className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition-colors sm:text-xs ${
+                    selectedProductType === 'all'
+                      ? 'bg-amber-500/20 text-amber-600 border border-amber-500/40 font-semibold'
+                      : 'border border-slate-800 bg-slate-900/40 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {key !== 'all' ? (
-                    <Icon className="size-3.5 shrink-0 opacity-80" aria-hidden />
-                  ) : null}
-                  <span className="sm:hidden">{shortLabel}</span>
-                  <span className="hidden sm:inline">{label}</span>
+                  All types
                 </button>
-              )
-            })}
+                {availableProductTypes.map((pt) => {
+                  const isActive = selectedProductType === pt
+                  return (
+                    <button
+                      key={pt}
+                      type="button"
+                      onClick={() => setSelectedProductType(pt)}
+                      className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition-colors sm:text-xs ${
+                        isActive
+                          ? 'bg-amber-500/20 text-amber-600 border border-amber-500/40 font-semibold'
+                          : 'border border-slate-800 bg-slate-900/40 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {catalogProductTypeLabel(pt)}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
-          {productTypeFilter ? (
-            <button
-              type="button"
-              onClick={() => setProductTypeFilter(null)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/15"
-            >
-              {catalogProductTypeLabel(productTypeFilter)}
-              <X className="size-3.5" aria-hidden />
-              <span className="sr-only">Clear product type filter</span>
-            </button>
-          ) : null}
-        </div>
+        ) : null}
 
         {canUseCatalogBuilder && (
           <div className="flex justify-center mb-4 px-1">
@@ -1429,7 +1509,9 @@ export default function CatalogPageClient() {
               )}
               {filteredCategories.length === 0 ? (
                 <p className="text-slate-500 text-sm px-2 py-4">
-                  No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles
+                  {showRetailBrowse && selectedShopFor !== 'all'
+                    ? 'No collections match this shop-for filter. Try All, another type, or ask admin to tag SKUs in Retail tags.'
+                    : `No ${METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles`}
                 </p>
               ) : (
                 filteredCategories.map((cat) => {
@@ -1739,23 +1821,11 @@ export default function CatalogPageClient() {
                 <div className="rounded-xl bg-slate-900/50 border border-slate-800 p-16 text-center">
                   <p className="text-slate-500">
                     {filteredCategories.length === 0
-                      ? shopFor !== 'all' || productTypeFilter
-                        ? 'No items match this shop filter. Try All or clear the product type chip above.'
+                      ? showRetailBrowse && selectedShopFor !== 'all'
+                        ? 'Nothing here for this shop-for filter on this metal tab. Try All types, another tab, or switch Shop for to All.'
                         : `No ${METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} products in the catalogue`
                       : 'No products in this collection'}
                   </p>
-                  {(shopFor !== 'all' || productTypeFilter) && metalFilteredCategories.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShopFor('all')
-                        setProductTypeFilter(null)
-                      }}
-                      className="mt-4 text-sm font-medium text-amber-500 hover:text-amber-400"
-                    >
-                      Show all collections
-                    </button>
-                  ) : null}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">

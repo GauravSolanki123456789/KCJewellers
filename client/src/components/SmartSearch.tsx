@@ -23,6 +23,7 @@ import {
   catalogProductTypeLabel,
   CATALOG_DISCOVERY_CHIPS,
 } from "@/lib/catalog-retail-tags";
+import axios from "@/lib/axios";
 import {
   buildFuseForSearchRecords,
   flattenCatalogToBrowseRecords,
@@ -61,6 +62,14 @@ function browseHint(row: SearchBrowseRecord): string {
   return parts.join(" · ");
 }
 
+function inferMetalFromPathname(pathname: string): "gold" | "silver" | "diamond" {
+  const parts = pathname.replace(/\/$/, "").split("/");
+  const idx = parts.indexOf("catalog");
+  const m = idx >= 0 ? parts[idx + 1]?.toLowerCase() : "";
+  if (m === "gold" || m === "silver" || m === "diamond") return m;
+  return "silver";
+}
+
 type SmartSearchProps = {
   compact?: boolean;
   className?: string;
@@ -78,6 +87,7 @@ export default function SmartSearch({
   const debounced = useDebouncedValue(raw, DEBOUNCE_MS);
   const [records, setRecords] = useState<SearchIndexRecord[]>([]);
   const [browseRecords, setBrowseRecords] = useState<SearchBrowseRecord[]>([]);
+  const [retailBrowseEnabled, setRetailBrowseEnabled] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -88,6 +98,14 @@ export default function SmartSearch({
       setRecords(flattenCatalogToSearchRecords(cats));
       setBrowseRecords(flattenCatalogToBrowseRecords(cats));
     });
+    axios
+      .get("/api/public/catalog-retail-settings")
+      .then((res) => {
+        if (!cancelled) setRetailBrowseEnabled(!!res.data?.retail_browse_enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setRetailBrowseEnabled(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -119,7 +137,7 @@ export default function SmartSearch({
     return rankBrowseRecords(browseRecords, debounced, BROWSE_LIMIT);
   }, [browseRecords, debounced, normalized]);
 
-  const showDiscovery = open && normalized.length < 2;
+  const showDiscovery = open && normalized.length < 2 && retailBrowseEnabled;
   const showResults =
     open &&
     normalized.length >= 2 &&
@@ -149,7 +167,7 @@ export default function SmartSearch({
             return;
           }
           startTransition(() => {
-            router.replace(syn.href);
+            router.replace(syn.href, { scroll: false });
           });
           setOpen(false);
           setRaw("");
@@ -176,7 +194,7 @@ export default function SmartSearch({
         return;
       }
       startTransition(() => {
-        router.replace(href);
+        router.replace(href, { scroll: false });
       });
       setOpen(false);
       setRaw("");
@@ -252,7 +270,11 @@ export default function SmartSearch({
                     role="option"
                     onClick={() =>
                       goCatalogHref(
-                        buildCatalogShopHref(chip.shopFor, chip.productType, "silver")
+                        buildCatalogShopHref(
+                          chip.shopFor,
+                          chip.productType,
+                          inferMetalFromPathname(pathname)
+                        )
                       )
                     }
                     className="rounded-full border border-slate-700/80 bg-slate-900/80 px-3 py-1.5 text-left text-xs font-medium text-slate-200 transition-colors hover:border-amber-500/35 hover:bg-amber-500/10 hover:text-amber-100"

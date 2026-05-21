@@ -153,8 +153,21 @@ export default function AdminProductsPage() {
   const [savingRetailTags, setSavingRetailTags] = useState(false)
   const [retailTagsToast, setRetailTagsToast] = useState<'success' | 'error' | null>(null)
   const [expandedRetailStyles, setExpandedRetailStyles] = useState<Set<number>>(() => new Set())
+  const [retailBrowseEnabled, setRetailBrowseEnabled] = useState(false)
+  const [savingRetailBrowse, setSavingRetailBrowse] = useState(false)
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+
+  const loadRetailBrowseSetting = useCallback(async () => {
+    try {
+      const res = await axios.get(`${url}/api/admin/settings/catalog-retail`, {
+        withCredentials: true,
+      })
+      setRetailBrowseEnabled(!!res.data?.retail_browse_enabled)
+    } catch {
+      setRetailBrowseEnabled(false)
+    }
+  }, [url])
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -210,6 +223,9 @@ export default function AdminProductsPage() {
   useEffect(() => {
     loadCatalog()
   }, [loadCatalog])
+  useEffect(() => {
+    loadRetailBrowseSetting()
+  }, [loadRetailBrowseSetting])
 
   const togglePublish = (id: number) => {
     setPublishedIds((prev) => {
@@ -234,6 +250,24 @@ export default function AdminProductsPage() {
     setRetailTagsToast(type)
     setTimeout(() => setRetailTagsToast(null), 4000)
   }, [])
+
+  const handleToggleRetailBrowse = async () => {
+    setSavingRetailBrowse(true)
+    try {
+      const next = !retailBrowseEnabled
+      await axios.put(
+        `${url}/api/admin/settings/catalog-retail`,
+        { retail_browse_enabled: next },
+        { withCredentials: true },
+      )
+      setRetailBrowseEnabled(next)
+      showRetailTagsToast('success')
+    } catch {
+      showRetailTagsToast('error')
+    } finally {
+      setSavingRetailBrowse(false)
+    }
+  }
 
   const updateRetailTagDraft = (
     subId: number,
@@ -1074,16 +1108,44 @@ export default function AdminProductsPage() {
 
             {/* ─── Retail tags (Shop for) ─── */}
             <div className="mt-8 bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
-              <div className="p-4 sm:p-6 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Tags className="size-6 shrink-0 text-violet-400" />
-                  <div className="min-w-0">
-                    <h2 className="text-lg font-semibold text-slate-200">
-                      Retail tags
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Shop for & product type — one row per SKU (subcategory). ERP sync unchanged.
-                    </p>
+              <div className="p-4 sm:p-6 border-b border-white/10 flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Tags className="size-6 shrink-0 text-violet-400" />
+                    <div className="min-w-0">
+                      <h2 className="text-lg font-semibold text-slate-200">
+                        Retail tags
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Shop for & product type — one row per SKU (subcategory). ERP sync unchanged.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2.5 sm:min-w-[16rem]">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-300">Shop for on website</p>
+                      <p className="text-[10px] text-slate-600 mt-0.5">
+                        {retailBrowseEnabled ? 'Customers see Women / Men / Kids' : 'Regular catalogue only'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={retailBrowseEnabled}
+                      disabled={savingRetailBrowse}
+                      onClick={handleToggleRetailBrowse}
+                      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 disabled:opacity-60 ${
+                        retailBrowseEnabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          retailBrowseEnabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0">

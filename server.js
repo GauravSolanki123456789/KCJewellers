@@ -685,7 +685,62 @@ app.get('/api/public/kc-theme', globalLimiter, async (req, res) => {
     }
 });
 
-/** Admin: theme catalogue + current app / reseller defaults. */
+async function getCatalogRetailBrowseEnabled() {
+    try {
+        const rows = await query(
+            `SELECT value FROM app_settings WHERE key = 'catalog_retail_browse_enabled' LIMIT 1`,
+        );
+        const v = String(rows[0]?.value ?? '').trim().toLowerCase();
+        return v === 'true' || v === '1' || v === 'yes';
+    } catch {
+        return false;
+    }
+}
+
+/** Public: whether storefront shows Shop for (Women / Men / Kids) browse UI. */
+app.get('/api/public/catalog-retail-settings', globalLimiter, async (req, res) => {
+    try {
+        const retail_browse_enabled = await getCatalogRetailBrowseEnabled();
+        res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60');
+        res.json({ retail_browse_enabled });
+    } catch (error) {
+        res.json({ retail_browse_enabled: false });
+    }
+});
+
+/** Admin: retail browse toggle + tag vocabulary (matches catalog-retail-tags.ts). */
+app.get('/api/admin/settings/catalog-retail', isAdminStrict, async (req, res) => {
+    try {
+        res.json({
+            retail_browse_enabled: await getCatalogRetailBrowseEnabled(),
+            audience_values: Array.from(CATALOG_AUDIENCE_VALUES),
+            product_type_values: Array.from(CATALOG_PRODUCT_TYPE_VALUES),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to load catalog retail settings' });
+    }
+});
+
+app.put('/api/admin/settings/catalog-retail', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { retail_browse_enabled } = req.body || {};
+        if (retail_browse_enabled !== undefined) {
+            const enabled = !!retail_browse_enabled;
+            await query(`
+                INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+            `, ['catalog_retail_browse_enabled', enabled ? 'true' : 'false']);
+        }
+        res.json({
+            success: true,
+            retail_browse_enabled: await getCatalogRetailBrowseEnabled(),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to save catalog retail settings' });
+    }
+});
+
+/** Public: reseller storefront branding by custom domain host (Next.js middleware passes Host-derived domain). */
 app.get('/api/admin/settings/kc-theme', isAdminStrict, async (req, res) => {
     try {
         const kc_theme_id = await getAppKcThemeId();
@@ -8558,8 +8613,13 @@ server.listen(PORT, '0.0.0.0', async () => {
         await query(
             'ALTER TABLE web_subcategories ADD COLUMN IF NOT EXISTS product_type VARCHAR(40) DEFAULT NULL',
         );
+        await query(`
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ('catalog_retail_browse_enabled', 'false', CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO NOTHING
+        `);
     } catch (e) {
-        console.warn('⚠️  design_group_order column check failed:', e.message || e);
+        console.warn('⚠️  retail tag columns check failed:', e.message || e);
     }
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`🌐 URL: ${BASE_URL}`);

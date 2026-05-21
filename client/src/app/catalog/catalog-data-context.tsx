@@ -50,6 +50,8 @@ type CatalogDataContextValue = {
   isBootstrapping: boolean;
   isRefreshing: boolean;
   refresh: () => Promise<void>;
+  /** Admin toggle — Shop for UI on storefront (`app_settings.catalog_retail_browse_enabled`). */
+  retailBrowseEnabled: boolean;
 };
 
 const CatalogDataContext = createContext<CatalogDataContextValue | null>(null);
@@ -74,6 +76,7 @@ export function CatalogDataProvider({
   );
   const [isBootstrapping, setIsBootstrapping] = useState(!serverSeeded);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [retailBrowseEnabled, setRetailBrowseEnabled] = useState(false);
   const auth = useAuth();
   const { customerTier, tierReady } = useCustomerTier();
   const wholesaleUser = auth.user as WholesaleUserFields | undefined;
@@ -86,19 +89,31 @@ export function CatalogDataProvider({
 
   const bootstrap = useCallback(async () => {
     try {
-      const [catalogRes, ratesRes] = await Promise.all([
+      const [catalogRes, ratesRes, retailRes] = await Promise.all([
         axios.get(`${url}/api/catalog`),
         axios.get(`${url}/api/rates/display`),
+        axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);
+      setRetailBrowseEnabled(!!retailRes.data?.retail_browse_enabled);
     } catch {
       setRawCategories([]);
       setRates([]);
+      setRetailBrowseEnabled(false);
     } finally {
       setIsBootstrapping(false);
     }
   }, [url]);
+
+  useEffect(() => {
+    if (serverSeeded) {
+      axios
+        .get(`${url}/api/public/catalog-retail-settings`)
+        .then((res) => setRetailBrowseEnabled(!!res.data?.retail_browse_enabled))
+        .catch(() => setRetailBrowseEnabled(false));
+    }
+  }, [url, serverSeeded]);
 
   useEffect(() => {
     if (serverSeeded) return;
@@ -108,12 +123,14 @@ export function CatalogDataProvider({
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const [catalogRes, ratesRes] = await Promise.all([
+      const [catalogRes, ratesRes, retailRes] = await Promise.all([
         axios.get(`${url}/api/catalog`),
         axios.get(`${url}/api/rates/display`),
+        axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);
+      setRetailBrowseEnabled(!!retailRes.data?.retail_browse_enabled);
     } finally {
       setIsRefreshing(false);
     }
@@ -126,8 +143,9 @@ export function CatalogDataProvider({
       isBootstrapping,
       isRefreshing,
       refresh,
+      retailBrowseEnabled,
     }),
-    [categories, rates, isBootstrapping, isRefreshing, refresh]
+    [categories, rates, isBootstrapping, isRefreshing, refresh, retailBrowseEnabled]
   );
 
   return (
