@@ -41,6 +41,8 @@ export type CatalogShopFor = "all" | CatalogAudience;
 export type CatalogRetailSubcategory = {
   audience?: string | null;
   product_type?: string | null;
+  name?: string;
+  slug?: string;
 };
 
 export const CATALOG_AUDIENCE_OPTIONS: { value: string; label: string }[] = [
@@ -154,6 +156,36 @@ export function catalogProductTypeLabel(productType: CatalogProductType): string
   return PRODUCT_TYPE_LABELS[productType];
 }
 
+/** Infer product type from SKU name/slug when admin tag is not set yet (e.g. PITARA / BANGLE). */
+export function inferCatalogProductTypeFromSubcategory(sub: {
+  name?: string;
+  slug?: string | null;
+}): CatalogProductType | null {
+  const blob = `${sub.name ?? ""} ${sub.slug ?? ""}`
+    .toLowerCase()
+    .replace(/[-_]/g, " ");
+  if (/\bpendant\s*set\b/.test(blob)) return "pendant_set";
+  if (/\bbangle\b|\bchuri\b|\bchooda\b/.test(blob)) return "bangle";
+  if (/\bbracelet\b/.test(blob)) return "bracelet";
+  if (/\bkada\b|\bflexi\b/.test(blob)) return "kada";
+  if (/\bnecklace\b|\bhaar\b|\bmala\b/.test(blob)) return "necklace";
+  if (/\bearring\b|\btops\b|\bjhumka\b|\bbali\b/.test(blob)) return "earring";
+  if (/\bring\b/.test(blob)) return "ring";
+  if (/\bpendant\b|\blocket\b|\bkanti\b/.test(blob)) return "pendant";
+  if (/\bchain\b/.test(blob)) return "chain";
+  if (/\ber set\b|\bset\b/.test(blob)) return "set";
+  return null;
+}
+
+export function resolveCatalogProductType(
+  sub: CatalogRetailSubcategory,
+): CatalogProductType | null {
+  return (
+    normalizeCatalogProductType(sub.product_type) ??
+    inferCatalogProductTypeFromSubcategory(sub)
+  );
+}
+
 /** Whether a subcategory matches the active shop-for + optional product-type filter. */
 export function subcategoryMatchesRetailFilter(
   sub: CatalogRetailSubcategory,
@@ -161,7 +193,7 @@ export function subcategoryMatchesRetailFilter(
   productType: CatalogProductType | "all",
 ): boolean {
   const aud = normalizeCatalogAudience(sub.audience);
-  const pt = normalizeCatalogProductType(sub.product_type);
+  const pt = resolveCatalogProductType(sub);
 
   if (shopFor !== "all") {
     if (!aud) return false;
@@ -264,7 +296,7 @@ export function collectAvailableProductTypes(
   for (const cat of categories) {
     for (const sub of cat.subcategories) {
       if (!subcategoryMatchesRetailFilter(sub, shopFor, "all")) continue;
-      const pt = normalizeCatalogProductType(sub.product_type);
+      const pt = resolveCatalogProductType(sub);
       if (pt) seen.add(pt);
     }
   }

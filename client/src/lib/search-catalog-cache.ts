@@ -10,6 +10,7 @@ import {
   catalogProductTypeLabel,
   normalizeCatalogAudience,
   normalizeCatalogProductType,
+  resolveCatalogProductType,
   type CatalogAudience,
   type CatalogProductType,
 } from "@/lib/catalog-retail-tags";
@@ -73,7 +74,7 @@ export function flattenCatalogToSearchRecords(
       const subSlug = String(s.slug || "").trim();
       const subName = String(s.name || "").trim();
       const audience = normalizeCatalogAudience(s.audience);
-      const productType = normalizeCatalogProductType(s.product_type);
+      const productType = resolveCatalogProductType(s);
       for (const raw of s.products || []) {
         const p = raw as Item & { name?: string };
         const key = getProductSelectionKey(p);
@@ -133,7 +134,7 @@ export function flattenCatalogToBrowseRecords(
       const subSlug = String(s.slug || "").trim();
       const subName = String(s.name || "").trim();
       const audience = normalizeCatalogAudience(s.audience);
-      const productType = normalizeCatalogProductType(s.product_type);
+      const productType = resolveCatalogProductType(s);
       const products = (s.products || []) as Item[];
       if (products.length === 0) continue;
       const metalCounts = { gold: 0, silver: 0, diamond: 0 } as Record<

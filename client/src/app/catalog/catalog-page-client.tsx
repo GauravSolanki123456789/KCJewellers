@@ -677,13 +677,62 @@ export default function CatalogPageClient() {
   ])
 
   /**
-   * When metal changes or data loads, snap to a valid style/sku if the current IDs are invalid.
-   * Use full `categories` for existence checks — NOT `filteredCategories` alone — otherwise
-   * client navigations (search / deep link) briefly look "invalid" before pathname sync runs,
-   * and we reset to the first style (e.g. ER SET) while the URL still says Pitara → route fight / flicker.
+   * When metal or retail filters change, snap to a valid style/sku in the *visible* tree.
+   * Deep links use full `categories` only when retail filters are off — otherwise pathname
+   * must match a row that survives shop-for / product-type filtering.
    */
   useEffect(() => {
     if (categories.length === 0) return
+
+    const retailFilterActive =
+      showRetailBrowse &&
+      (selectedShopFor !== 'all' || selectedProductType !== 'all')
+
+    const validInTree = (
+      tree: Category[],
+      styleId: number | null,
+      skuId: number | null,
+    ) => {
+      if (styleId == null) return false
+      const cat = tree.find((c) => c.id === styleId)
+      if (!cat) return false
+      if (skuId == null) return cat.subcategories.length > 0
+      return cat.subcategories.some((s) => s.id === skuId)
+    }
+
+    const snapToFirst = (tree: Category[]) => {
+      if (tree.length === 0) return
+      const first = tree[0]
+      setActiveStyleId(first.id)
+      setActiveSkuId(first.subcategories[0]?.id ?? null)
+    }
+
+    if (retailFilterActive) {
+      if (filteredCategories.length === 0) return
+
+      const parsed = pathSegmentsFromPathname(pathname)
+      if (parsed) {
+        const cat = filteredCategories.find(
+          (c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase(),
+        )
+        const sub = cat?.subcategories.find((s) =>
+          subSlugMatchesPathSegment(s.slug || '', parsed.skuSlug),
+        )
+        if (cat && sub) {
+          if (activeStyleId !== cat.id || activeSkuId !== sub.id) {
+            setActiveStyleId(cat.id)
+            setActiveSkuId(sub.id)
+          }
+          return
+        }
+      }
+
+      if (!validInTree(filteredCategories, activeStyleId, activeSkuId)) {
+        snapToFirst(filteredCategories)
+      }
+      return
+    }
+
     const parsed = pathSegmentsFromPathname(pathname)
     if (parsed) {
       const cat = categories.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
@@ -712,11 +761,19 @@ export default function CatalogPageClient() {
           ?.subcategories.some((s) => s.id === activeSkuId))
     if (!stillValid) {
       if (filteredCategories.length === 0) return
-      const first = filteredCategories[0]
-      setActiveStyleId(first.id)
-      setActiveSkuId(first.subcategories[0]?.id ?? null)
+      snapToFirst(filteredCategories)
     }
-  }, [categories, filteredCategories, activeStyleId, activeSkuId, selectedMetal, pathname])
+  }, [
+    categories,
+    filteredCategories,
+    activeStyleId,
+    activeSkuId,
+    selectedMetal,
+    pathname,
+    showRetailBrowse,
+    selectedShopFor,
+    selectedProductType,
+  ])
 
   const activeStyle = useMemo(
     () => filteredCategories.find((c) => c.id === activeStyleId) ?? null,
