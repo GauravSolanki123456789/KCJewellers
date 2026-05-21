@@ -55,6 +55,8 @@ import {
   collectAvailableProductTypes,
   filterCatalogTreeByRetail,
   parseCatalogRetailSearchParams,
+  resolveRetailCatalogSelection,
+  isSelectionValidInRetailTree,
   type CatalogProductType,
   type CatalogShopFor,
 } from '@/lib/catalog-retail-tags'
@@ -527,38 +529,12 @@ export default function CatalogPageClient() {
   const prevPathnameRef = useRef<string | null>(null)
   /** Skip canonical `router.replace` once: the next layout effect can run with stale closures right after `flushSync` from pathname sync (search / SmartSearch). */
   const suppressCanonicalAfterPathSyncRef = useRef(false)
-
-  /**
-   * Pathname → selection sync must run in the same frame before URL canonicalization.
-   * Otherwise `router.replace` briefly sees stale style/sku and overwrites a good deep link
-   * (e.g. search → pitara-tops reverts to pitara-bangle).
-   */
-  useLayoutEffect(() => {
-    if (categories.length === 0 || !hasRestoredFromStorage.current) return
-    if (prevPathnameRef.current === null) {
-      prevPathnameRef.current = pathname
-      return
-    }
-    if (prevPathnameRef.current === pathname) return
-    prevPathnameRef.current = pathname
-    const pathFromUrl = pathSegmentsFromPathname(pathname)
-    if (!pathFromUrl) return
-    if (
-      selectionMatchesPath(
-        categories,
-        pathFromUrl,
-        selectedMetalRef.current,
-        activeStyleIdRef.current,
-        activeSkuIdRef.current,
-      )
-    ) {
-      return
-    }
-    suppressCanonicalAfterPathSyncRef.current = true
-    flushSync(() => {
-      applyPathSegments(pathFromUrl, categories)
-    })
-  }, [pathname, categories, applyPathSegments])
+  const retailSyncCtxRef = useRef({
+    showRetailBrowse: false,
+    filteredCategories: [] as Category[],
+    selectedShopFor: 'all' as CatalogShopFor,
+    selectedProductType: 'all' as CatalogProductType | 'all',
+  })
 
   const { pullY, isRefreshing: pullRefreshing, handleTouchStart, handleTouchMove, handleTouchEnd } =
     usePullToRefresh(refresh)
@@ -622,6 +598,64 @@ export default function CatalogPageClient() {
     selectedProductType,
   ])
 
+  retailSyncCtxRef.current = {
+    showRetailBrowse,
+    filteredCategories,
+    selectedShopFor,
+    selectedProductType,
+  }
+
+  /**
+   * Pathname → selection sync. When retail filters are on, ignore paths outside the
+   * filtered tree (URL may still say utsav-necklace while Women + Bangle is selected).
+   */
+  useLayoutEffect(() => {
+    if (categories.length === 0 || !hasRestoredFromStorage.current) return
+    if (prevPathnameRef.current === null) {
+      prevPathnameRef.current = pathname
+      return
+    }
+    if (prevPathnameRef.current === pathname) return
+    prevPathnameRef.current = pathname
+    const pathFromUrl = pathSegmentsFromPathname(pathname)
+    if (!pathFromUrl) return
+
+    const {
+      showRetailBrowse: retailOn,
+      filteredCategories: tree,
+      selectedShopFor: shopFor,
+      selectedProductType: productType,
+    } = retailSyncCtxRef.current
+    const retailActive =
+      retailOn && (shopFor !== 'all' || productType !== 'all')
+
+    if (retailActive) {
+      const cat = tree.find(
+        (c) => (c.slug || '').toLowerCase() === pathFromUrl.styleSlug.toLowerCase(),
+      )
+      const sub = cat?.subcategories.find((s) =>
+        subSlugMatchesPathSegment(s.slug || '', pathFromUrl.skuSlug),
+      )
+      if (!cat || !sub) return
+    }
+
+    if (
+      selectionMatchesPath(
+        categories,
+        pathFromUrl,
+        selectedMetalRef.current,
+        activeStyleIdRef.current,
+        activeSkuIdRef.current,
+      )
+    ) {
+      return
+    }
+    suppressCanonicalAfterPathSyncRef.current = true
+    flushSync(() => {
+      applyPathSegments(pathFromUrl, categories)
+    })
+  }, [pathname, categories, applyPathSegments])
+
   const availableProductTypes = useMemo(() => {
     if (!showRetailBrowse || selectedShopFor === 'all') return []
     return collectAvailableProductTypes(metalFilteredCategories, selectedShopFor)
@@ -642,138 +676,6 @@ export default function CatalogPageClient() {
       setSelectedProductType('all')
     }
   }, [availableProductTypes, selectedProductType])
-
-  /** Sync ?shop_for= & ?product_type= in the URL (no page scroll). */
-  useLayoutEffect(() => {
-    if (!catalogHydrated || typeof window === 'undefined') return
-    if (!showRetailBrowse) {
-      const u = new URL(window.location.href)
-      if (u.searchParams.has('shop_for') || u.searchParams.has('product_type')) {
-        u.searchParams.delete('shop_for')
-        u.searchParams.delete('product_type')
-        const next = u.pathname + (u.search || '')
-        router.replace(next, { scroll: false })
-      }
-      return
-    }
-    const u = new URL(window.location.href)
-    const prevShop = u.searchParams.get('shop_for') || 'all'
-    const prevType = u.searchParams.get('product_type') || 'all'
-    const nextShop = selectedShopFor === 'all' ? 'all' : selectedShopFor
-    const nextType = selectedProductType === 'all' ? 'all' : selectedProductType
-    if (prevShop === nextShop && prevType === nextType) return
-    if (nextShop === 'all') u.searchParams.delete('shop_for')
-    else u.searchParams.set('shop_for', nextShop)
-    if (nextType === 'all') u.searchParams.delete('product_type')
-    else u.searchParams.set('product_type', nextType)
-    const next = u.pathname + (u.search || '')
-    router.replace(next, { scroll: false })
-  }, [
-    catalogHydrated,
-    showRetailBrowse,
-    selectedShopFor,
-    selectedProductType,
-    router,
-  ])
-
-  /**
-   * When metal or retail filters change, snap to a valid style/sku in the *visible* tree.
-   * Deep links use full `categories` only when retail filters are off — otherwise pathname
-   * must match a row that survives shop-for / product-type filtering.
-   */
-  useEffect(() => {
-    if (categories.length === 0) return
-
-    const retailFilterActive =
-      showRetailBrowse &&
-      (selectedShopFor !== 'all' || selectedProductType !== 'all')
-
-    const validInTree = (
-      tree: Category[],
-      styleId: number | null,
-      skuId: number | null,
-    ) => {
-      if (styleId == null) return false
-      const cat = tree.find((c) => c.id === styleId)
-      if (!cat) return false
-      if (skuId == null) return cat.subcategories.length > 0
-      return cat.subcategories.some((s) => s.id === skuId)
-    }
-
-    const snapToFirst = (tree: Category[]) => {
-      if (tree.length === 0) return
-      const first = tree[0]
-      setActiveStyleId(first.id)
-      setActiveSkuId(first.subcategories[0]?.id ?? null)
-    }
-
-    if (retailFilterActive) {
-      if (filteredCategories.length === 0) return
-
-      const parsed = pathSegmentsFromPathname(pathname)
-      if (parsed) {
-        const cat = filteredCategories.find(
-          (c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase(),
-        )
-        const sub = cat?.subcategories.find((s) =>
-          subSlugMatchesPathSegment(s.slug || '', parsed.skuSlug),
-        )
-        if (cat && sub) {
-          if (activeStyleId !== cat.id || activeSkuId !== sub.id) {
-            setActiveStyleId(cat.id)
-            setActiveSkuId(sub.id)
-          }
-          return
-        }
-      }
-
-      if (!validInTree(filteredCategories, activeStyleId, activeSkuId)) {
-        snapToFirst(filteredCategories)
-      }
-      return
-    }
-
-    const parsed = pathSegmentsFromPathname(pathname)
-    if (parsed) {
-      const cat = categories.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
-      const sub = cat?.subcategories.find((s) =>
-        subSlugMatchesPathSegment(s.slug || '', parsed.skuSlug),
-      )
-      if (cat && sub) {
-        const aligned = selectionMatchesPath(
-          categories,
-          parsed,
-          selectedMetal,
-          activeStyleId,
-          activeSkuId,
-        )
-        if (!aligned) {
-          return
-        }
-      }
-    }
-    const stillValid =
-      activeStyleId != null &&
-      categories.some((c) => c.id === activeStyleId) &&
-      (activeSkuId == null ||
-        categories
-          .find((c) => c.id === activeStyleId)
-          ?.subcategories.some((s) => s.id === activeSkuId))
-    if (!stillValid) {
-      if (filteredCategories.length === 0) return
-      snapToFirst(filteredCategories)
-    }
-  }, [
-    categories,
-    filteredCategories,
-    activeStyleId,
-    activeSkuId,
-    selectedMetal,
-    pathname,
-    showRetailBrowse,
-    selectedShopFor,
-    selectedProductType,
-  ])
 
   const activeStyle = useMemo(
     () => filteredCategories.find((c) => c.id === activeStyleId) ?? null,
@@ -1078,26 +980,72 @@ export default function CatalogPageClient() {
     [catalogProductSurfaceKey, activeDesignGroup],
   )
 
-  /** Canonical path /catalog/{metal}/{category_slug}/{subcategory_slug} */
+  /** Resolve selection + sync URL (path + ?shop_for= / ?product_type=) without page scroll. */
   useLayoutEffect(() => {
     if (!catalogHydrated || !pathname.startsWith(CATALOG_PATH)) return
     if (suppressCanonicalAfterPathSyncRef.current) {
       suppressCanonicalAfterPathSyncRef.current = false
       return
     }
+    if (typeof window === 'undefined') return
+
+    if (!showRetailBrowse) {
+      const u = new URL(window.location.href)
+      if (u.searchParams.has('shop_for') || u.searchParams.has('product_type')) {
+        u.searchParams.delete('shop_for')
+        u.searchParams.delete('product_type')
+        const stripped = u.pathname + (u.search || '')
+        if (window.location.pathname + window.location.search !== stripped) {
+          router.replace(stripped, { scroll: false })
+        }
+      }
+    }
+
     if (filteredCategories.length === 0) return
-    const style = filteredCategories.find((c) => c.id === activeStyleId)
-    const sub = style?.subcategories.find((s) => s.id === activeSkuId)
+
+    const retailActive =
+      showRetailBrowse &&
+      (selectedShopFor !== 'all' || selectedProductType !== 'all')
+
+    let styleId = activeStyleId
+    let skuId = activeSkuId
+
+    if (retailActive) {
+      const parsed = pathSegmentsFromPathname(pathname)
+      const picked = resolveRetailCatalogSelection(
+        filteredCategories,
+        activeStyleId,
+        activeSkuId,
+        selectedProductType,
+        parsed ? { styleSlug: parsed.styleSlug, skuSlug: parsed.skuSlug } : null,
+      )
+      if (!picked) return
+      styleId = picked.styleId
+      skuId = picked.skuId
+    } else if (
+      !isSelectionValidInRetailTree(filteredCategories, activeStyleId, activeSkuId)
+    ) {
+      const first = filteredCategories[0]
+      styleId = first.id
+      skuId = first.subcategories[0]?.id ?? null
+    }
+
+    if (styleId !== activeStyleId || skuId !== activeSkuId) {
+      setActiveStyleId(styleId)
+      setActiveSkuId(skuId)
+    }
+
+    const style = filteredCategories.find((c) => c.id === styleId)
+    const sub = style?.subcategories.find((s) => s.id === skuId)
     if (!style?.slug || !sub?.slug) return
+
     const nextPath = buildCatalogSegmentPath(selectedMetal, style.slug, sub.slug)
     const next = catalogPathWithRetailQuery(
       nextPath,
       showRetailBrowse ? selectedShopFor : 'all',
       showRetailBrowse ? selectedProductType : 'all',
     )
-    const current = typeof window !== 'undefined'
-      ? window.location.pathname + window.location.search
-      : pathname
+    const current = window.location.pathname + window.location.search
     if (current !== next) {
       router.replace(next, { scroll: false })
     }

@@ -302,3 +302,79 @@ export function collectAvailableProductTypes(
   }
   return CATALOG_PRODUCT_TYPE_VALUES.filter((k) => seen.has(k));
 }
+
+export function subSlugMatchesRetailPath(
+  subSlug: string,
+  pathSkuSegment: string,
+): boolean {
+  const s = (subSlug || "").toLowerCase();
+  const w = (pathSkuSegment || "").toLowerCase().trim();
+  if (!w) return false;
+  if (s === w) return true;
+  if (w.includes("-") && s.startsWith(`${w}-`)) return true;
+  return false;
+}
+
+export function isSelectionValidInRetailTree<
+  T extends CatalogRetailSubcategory & { id: number },
+  C extends { id: number; subcategories: T[] },
+>(tree: C[], styleId: number | null, skuId: number | null): boolean {
+  if (styleId == null) return false;
+  const cat = tree.find((c) => c.id === styleId);
+  if (!cat) return false;
+  if (skuId == null) return cat.subcategories.length > 0;
+  return cat.subcategories.some((s) => s.id === skuId);
+}
+
+/**
+ * Pick style + SKU that match retail filters. Prefers URL path when valid, then current
+ * selection, then first row matching product_type, then first row in tree.
+ */
+export function resolveRetailCatalogSelection<
+  T extends CatalogRetailSubcategory & { id: number; slug?: string; name?: string },
+  C extends { id: number; slug?: string; subcategories: T[] },
+>(
+  tree: C[],
+  currentStyleId: number | null,
+  currentSkuId: number | null,
+  productType: CatalogProductType | "all",
+  path?: { styleSlug?: string | null; skuSlug?: string | null } | null,
+): { styleId: number; skuId: number | null } | null {
+  if (tree.length === 0) return null;
+
+  const styleSlug = path?.styleSlug?.toLowerCase().trim();
+  const skuSlug = path?.skuSlug?.toLowerCase().trim();
+  if (styleSlug && skuSlug) {
+    const cat = tree.find((c) => (c.slug || "").toLowerCase() === styleSlug);
+    const sub = cat?.subcategories.find((s) =>
+      subSlugMatchesRetailPath(s.slug || "", skuSlug),
+    );
+    if (cat && sub) return { styleId: cat.id, skuId: sub.id };
+  }
+
+  if (
+    isSelectionValidInRetailTree(tree, currentStyleId, currentSkuId)
+  ) {
+    return { styleId: currentStyleId!, skuId: currentSkuId };
+  }
+
+  if (currentStyleId != null) {
+    const cat = tree.find((c) => c.id === currentStyleId);
+    if (cat && cat.subcategories.length > 0) {
+      return { styleId: cat.id, skuId: cat.subcategories[0].id };
+    }
+  }
+
+  if (productType !== "all") {
+    for (const cat of tree) {
+      for (const sub of cat.subcategories) {
+        if (resolveCatalogProductType(sub) === productType) {
+          return { styleId: cat.id, skuId: sub.id };
+        }
+      }
+    }
+  }
+
+  const first = tree[0];
+  return { styleId: first.id, skuId: first.subcategories[0]?.id ?? null };
+}
