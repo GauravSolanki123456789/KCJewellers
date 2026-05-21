@@ -39,6 +39,10 @@ export type ApiCatalogCategory = {
     name: string;
     slug: string;
     design_group_order?: string[] | null;
+    /** Admin retail tag — `web_subcategories.audience` */
+    audience?: string | null;
+    /** Admin retail tag — `web_subcategories.product_type` */
+    product_type?: string | null;
     products: unknown[];
   }[];
 };

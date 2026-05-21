@@ -5304,6 +5304,36 @@ function normalizeDesignGroupOrder(raw) {
     return null;
 }
 
+/** Retail tags on web_subcategories — must match client/src/lib/catalog-retail-tags.ts */
+const CATALOG_AUDIENCE_VALUES = new Set(['women', 'men', 'kids', 'unisex']);
+const CATALOG_PRODUCT_TYPE_VALUES = new Set([
+    'necklace', 'bangle', 'bracelet', 'ring', 'pendant', 'pendant_set',
+    'earring', 'chain', 'set', 'kada', 'other',
+]);
+
+function normalizeCatalogAudienceDb(raw) {
+    const v = String(raw ?? '').trim().toLowerCase();
+    if (!v) return null;
+    return CATALOG_AUDIENCE_VALUES.has(v) ? v : null;
+}
+
+function normalizeCatalogProductTypeDb(raw) {
+    const v = String(raw ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (!v) return null;
+    return CATALOG_PRODUCT_TYPE_VALUES.has(v) ? v : null;
+}
+
+function mapSubcategoryRetailTags(s) {
+    return {
+        id: s.id,
+        name: s.name,
+        slug: s.slug,
+        design_group_order: normalizeDesignGroupOrder(s.design_group_order),
+        audience: normalizeCatalogAudienceDb(s.audience),
+        product_type: normalizeCatalogProductTypeDb(s.product_type),
+    };
+}
+
 // Public catalog - published categories only (Style → SKU → Products)
 // Reads from web_products (ERP-synced data) with image_url, mc_rate, etc.
 app.get('/api/catalog', async (req, res) => {
@@ -5317,7 +5347,7 @@ app.get('/api/catalog', async (req, res) => {
         const categories = [];
         for (const c of cats) {
             const subs = await query(`
-                SELECT id, name, slug, design_group_order FROM web_subcategories
+                SELECT id, name, slug, design_group_order, audience, product_type FROM web_subcategories
                 WHERE category_id = $1 ORDER BY sort_order, name
             `, [c.id]);
             const subcategories = [];
@@ -5342,13 +5372,9 @@ app.get('/api/catalog', async (req, res) => {
                     ...p,
                     discount_percentage: c.discount_percentage ?? 0,
                 }));
-                subcategories.push({
-                    id: s.id,
-                    name: s.name,
-                    slug: s.slug,
-                    design_group_order: normalizeDesignGroupOrder(s.design_group_order),
-                    products: productsWithDiscount,
-                });
+                const mapped = mapSubcategoryRetailTags(s);
+                mapped.products = productsWithDiscount;
+                subcategories.push(mapped);
             }
             categories.push({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url, subcategories });
         }
@@ -5739,7 +5765,7 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
         const categories = [];
         for (const c of cats) {
             const subs = await query(`
-                SELECT id, name, slug, design_group_order FROM web_subcategories
+                SELECT id, name, slug, design_group_order, audience, product_type FROM web_subcategories
                 WHERE category_id = $1 ORDER BY sort_order, name
             `, [c.id]);
             const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false };
@@ -5748,12 +5774,7 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                 has_gold: !!m.has_gold,
                 has_silver: !!m.has_silver,
                 has_diamond: !!m.has_diamond,
-                subcategories: subs.map((s) => ({
-                    id: s.id,
-                    name: s.name,
-                    slug: s.slug,
-                    design_group_order: normalizeDesignGroupOrder(s.design_group_order),
-                })),
+                subcategories: subs.map((s) => mapSubcategoryRetailTags(s)),
             });
         }
         res.json({ categories });
@@ -5852,6 +5873,81 @@ app.put('/api/admin/catalog/subcategory/:subId/design-group-order', requireJson,
         if (typeof error.message === 'string' && error.message.includes('design_group_order')) {
             console.warn('design_group_order column may be missing — run migrations/033_subcategory_design_group_order.sql');
         }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: retail presentation tags on subcategory (audience + product_type)
+app.put('/api/admin/catalog/subcategory/:subId/retail-tags', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const subId = parseInt(req.params.subId, 10);
+        if (Number.isNaN(subId)) {
+            return res.status(400).json({ error: 'Invalid subcategory id' });
+        }
+        const { audience, product_type } = req.body || {};
+        const audNorm = audience === null || audience === '' ? null : normalizeCatalogAudienceDb(audience);
+        const ptNorm = product_type === null || product_type === '' ? null : normalizeCatalogProductTypeDb(product_type);
+        if (audience != null && audience !== '' && audNorm === null) {
+            return res.status(400).json({ error: 'Invalid audience' });
+        }
+        if (product_type != null && product_type !== '' && ptNorm === null) {
+            return res.status(400).json({ error: 'Invalid product_type' });
+        }
+        const rows = await query(
+            `UPDATE web_subcategories
+             SET audience = $1, product_type = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3
+             RETURNING id, name, slug, audience, product_type, design_group_order`,
+            [audNorm, ptNorm, subId],
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Subcategory not found' });
+        res.json({
+            success: true,
+            subcategory: mapSubcategoryRetailTags(rows[0]),
+        });
+    } catch (error) {
+        if (typeof error.message === 'string' && (error.message.includes('audience') || error.message.includes('product_type'))) {
+            console.warn('retail tag columns may be missing — run migrations/037_subcategory_retail_tags.sql');
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: bulk retail tags — body: { tags: [{ subcategoryId, audience?, product_type? }] }
+app.put('/api/admin/catalog/subcategory/bulk-retail-tags', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { tags } = req.body || {};
+        if (!Array.isArray(tags) || tags.length === 0) {
+            return res.json({ success: true, updated: 0 });
+        }
+        if (tags.length > 500) {
+            return res.status(400).json({ error: 'Too many rows (max 500)' });
+        }
+        let updated = 0;
+        for (const row of tags) {
+            const subId = parseInt(row.subcategoryId ?? row.subcategory_id ?? row.id, 10);
+            if (Number.isNaN(subId)) continue;
+            const audRaw = row.audience;
+            const ptRaw = row.product_type;
+            const audNorm = audRaw === null || audRaw === '' || audRaw === undefined
+                ? null
+                : normalizeCatalogAudienceDb(audRaw);
+            const ptNorm = ptRaw === null || ptRaw === '' || ptRaw === undefined
+                ? null
+                : normalizeCatalogProductTypeDb(ptRaw);
+            if (audRaw != null && audRaw !== '' && audNorm === null) continue;
+            if (ptRaw != null && ptRaw !== '' && ptNorm === null) continue;
+            const r = await query(
+                `UPDATE web_subcategories
+                 SET audience = $1, product_type = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3
+                 RETURNING id`,
+                [audNorm, ptNorm, subId],
+            );
+            if (r.length) updated += 1;
+        }
+        res.json({ success: true, updated });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
@@ -8455,6 +8551,12 @@ server.listen(PORT, '0.0.0.0', async () => {
     try {
         await query(
             'ALTER TABLE web_subcategories ADD COLUMN IF NOT EXISTS design_group_order JSONB DEFAULT NULL',
+        );
+        await query(
+            'ALTER TABLE web_subcategories ADD COLUMN IF NOT EXISTS audience VARCHAR(20) DEFAULT NULL',
+        );
+        await query(
+            'ALTER TABLE web_subcategories ADD COLUMN IF NOT EXISTS product_type VARCHAR(40) DEFAULT NULL',
         );
     } catch (e) {
         console.warn('⚠️  design_group_order column check failed:', e.message || e);

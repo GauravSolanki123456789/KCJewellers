@@ -202,6 +202,10 @@ body {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    /* Avoid global smooth-scroll — individual surfaces opt in where it helps UX. */
+    scroll-behavior: auto;
+  }
   body {
     @apply bg-background text-foreground antialiased font-sans;
     @apply selection:bg-amber-500/25 selection:text-amber-50;
@@ -223,6 +227,11 @@ body {
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /** Prevent nested scroll areas (catalog nav, chip strips) from chaining to the page. */
+  .kc-scroll-contain {
+    overscroll-behavior: contain;
   }
 
   /** Scrollable content clears fixed mobile tab bar (+ optional B2B row). Max-md only — avoids fighting md:pb-*. */

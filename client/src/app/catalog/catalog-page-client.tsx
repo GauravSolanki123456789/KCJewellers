@@ -11,6 +11,10 @@ import {
   ChevronRight,
   ChevronLeft,
   ChevronDown,
+  User,
+  Users,
+  Baby,
+  X,
 } from 'lucide-react'
 import {
   GoldJewelleryRingIcon,
@@ -48,6 +52,15 @@ import {
   getProductSelectionKey,
 } from '@/lib/catalog-product-filters'
 import { mergeDesignGroupOrder } from '@/lib/design-group-order'
+import {
+  CATALOG_SHOP_FOR_TABS,
+  catalogProductTypeLabel,
+  filterCatalogTreeByRetailTags,
+  parseProductTypeParam,
+  parseShopForParam,
+  type CatalogProductType,
+  type CatalogShopForKey,
+} from '@/lib/catalog-retail-tags'
 
 type Product = Item
 
@@ -56,6 +69,8 @@ type Subcategory = {
   name: string
   slug: string
   design_group_order?: string[] | null
+  audience?: string | null
+  product_type?: string | null
   products: Product[]
 }
 
@@ -89,6 +104,8 @@ type CatalogSessionState = {
   priceLow?: number
   priceHigh?: number
   scrollToBarcode?: string
+  shopFor?: CatalogShopForKey
+  productTypeFilter?: CatalogProductType | null
 }
 
 /** First metal that has products; used for smart default */
@@ -293,6 +310,8 @@ export default function CatalogPageClient() {
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
 
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
+  const [shopFor, setShopFor] = useState<CatalogShopForKey>('all')
+  const [productTypeFilter, setProductTypeFilter] = useState<CatalogProductType | null>(null)
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
   const [activeSkuId, setActiveSkuId] = useState<number | null>(null)
@@ -322,6 +341,8 @@ export default function CatalogPageClient() {
         priceLow,
         priceHigh,
         scrollToBarcode,
+        shopFor,
+        productTypeFilter,
       }
       sessionStorage.setItem(CATALOG_STATE_KEY, JSON.stringify(state))
       sessionStorage.setItem(CATALOG_FROM_PRODUCT_KEY, '1')
@@ -331,7 +352,7 @@ export default function CatalogPageClient() {
     } catch {
       /* ignore */
     }
-  }, [selectedMetal, activeStyleId, activeSkuId, weightLow, weightHigh, priceLow, priceHigh])
+  }, [selectedMetal, activeStyleId, activeSkuId, weightLow, weightHigh, priceLow, priceHigh, shopFor, productTypeFilter])
 
   const selectedMetalRef = useRef(selectedMetal)
   const activeStyleIdRef = useRef(activeStyleId)
@@ -419,6 +440,10 @@ export default function CatalogPageClient() {
       if (parsed.priceHigh != null) setPriceHigh(parsed.priceHigh)
       skipNextBoundsSync.current = true
       if (parsed.scrollToBarcode) setScrollToBarcode(parsed.scrollToBarcode)
+      if (parsed.shopFor) setShopFor(parseShopForParam(parsed.shopFor))
+      if (parsed.productTypeFilter) {
+        setProductTypeFilter(parseProductTypeParam(parsed.productTypeFilter))
+      }
     }
 
     const applyUrlQuery = () => {
@@ -460,6 +485,18 @@ export default function CatalogPageClient() {
     try {
       const stored = typeof window !== 'undefined' ? sessionStorage.getItem(CATALOG_STATE_KEY) : null
       const pathFromUrl = pathSegmentsFromPathname(pathname)
+      const urlParams =
+        typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+      if (urlParams?.get('shop_for')) {
+        setShopFor(parseShopForParam(urlParams.get('shop_for')))
+      }
+      if (urlParams?.get('product_type')) {
+        setProductTypeFilter(parseProductTypeParam(urlParams.get('product_type')))
+      }
+      const metalParam = urlParams?.get('metal')?.toLowerCase()?.trim()
+      if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
+        setSelectedMetal(metalParam)
+      }
 
       // Deep-linked path always wins over session snapshot (avoids URL vs grid mismatch / replace loops).
       if (pathFromUrl) {
@@ -564,7 +601,7 @@ export default function CatalogPageClient() {
   }, [categories])
 
   /** Filter categories/subcategories/products by selected metal type */
-  const filteredCategories = useMemo(() => {
+  const metalFilteredCategories = useMemo(() => {
     return categories
       .map((cat) => ({
         ...cat,
@@ -577,6 +614,27 @@ export default function CatalogPageClient() {
       }))
       .filter((cat) => cat.subcategories.length > 0)
   }, [categories, selectedMetal])
+
+  /** Shop-for + product type — retail presentation layer on top of ERP tree */
+  const filteredCategories = useMemo(() => {
+    return filterCatalogTreeByRetailTags(metalFilteredCategories, shopFor, productTypeFilter)
+  }, [metalFilteredCategories, shopFor, productTypeFilter])
+
+  /** Keep shop-for / product_type in the URL for shareable filtered views */
+  useLayoutEffect(() => {
+    if (!catalogHydrated || typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (shopFor === 'all') params.delete('shop_for')
+    else params.set('shop_for', shopFor)
+    if (!productTypeFilter) params.delete('product_type')
+    else params.set('product_type', productTypeFilter)
+    const qs = params.toString()
+    const target = qs ? `${pathname}?${qs}` : pathname
+    const current = pathname + window.location.search
+    if (current !== target) {
+      router.replace(target, { scroll: false })
+    }
+  }, [catalogHydrated, shopFor, productTypeFilter, pathname, router])
 
   /**
    * When metal changes or data loads, snap to a valid style/sku if the current IDs are invalid.
@@ -787,45 +845,50 @@ export default function CatalogPageClient() {
   const gridProducts = useMemo(() => products.slice(0, gridShowCount), [products, gridShowCount])
   const hasMoreGridProducts = products.length > gridShowCount
 
-  const productGridSectionRef = useRef<HTMLElement | null>(null)
-  const catalogSelectionSnapshotRef = useRef<{
-    metal: MetalKey
-    styleId: number | null
-    skuId: number | null
-  } | null>(null)
+  const sidebarNavRef = useRef<HTMLElement | null>(null)
 
-  useEffect(() => {
-    if (!catalogHydrated || typeof window === 'undefined') return
-
-    const next = {
-      metal: selectedMetal,
-      styleId: activeStyleId,
-      skuId: activeSkuId,
-    }
-    if (scrollToBarcode) {
-      catalogSelectionSnapshotRef.current = next
-      return
-    }
-    const prev = catalogSelectionSnapshotRef.current
-    catalogSelectionSnapshotRef.current = next
-    if (prev === null) return
-    if (
-      prev.metal === next.metal &&
-      prev.styleId === next.styleId &&
-      prev.skuId === next.skuId
-    ) {
-      return
-    }
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        productGridSectionRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        })
+  /** Keep the active style/SKU visible inside scrollable nav strips — never scroll the page. */
+  const scrollCatalogNavActiveIntoView = useCallback(
+    (root: HTMLElement | null, inline: ScrollLogicalPosition = 'nearest') => {
+      if (!root || typeof window === 'undefined') return
+      const active = root.querySelector<HTMLElement>('[data-catalog-nav-active="true"]')
+      if (!active) return
+      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      active.scrollIntoView({
+        block: 'nearest',
+        inline,
+        behavior: prefersReduced ? 'auto' : 'smooth',
       })
-    })
-  }, [catalogHydrated, selectedMetal, activeStyleId, activeSkuId, scrollToBarcode])
+    },
+    [],
+  )
+
+  useLayoutEffect(() => {
+    if (!catalogHydrated) return
+    scrollCatalogNavActiveIntoView(sidebarNavRef.current)
+  }, [
+    catalogHydrated,
+    activeStyleId,
+    activeSkuId,
+    styleNavSubmenuCollapsed,
+    scrollCatalogNavActiveIntoView,
+  ])
+
+  const mobileStyleStripRef = useRef<HTMLDivElement | null>(null)
+  const mobileSkuStripRef = useRef<HTMLDivElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (!catalogHydrated || typeof window === 'undefined') return
+    if (window.matchMedia('(min-width: 1024px)').matches) return
+    scrollCatalogNavActiveIntoView(mobileStyleStripRef.current, 'center')
+    scrollCatalogNavActiveIntoView(mobileSkuStripRef.current, 'center')
+  }, [
+    catalogHydrated,
+    activeStyleId,
+    activeSkuId,
+    styleNavSubmenuCollapsed,
+    scrollCatalogNavActiveIntoView,
+  ])
 
   const hasActiveFilters =
     weightLow > weightBounds[0] ||
@@ -1066,7 +1129,7 @@ export default function CatalogPageClient() {
         }`}
       >
         {/* Metal Type Tabs — touch-friendly; labels must not truncate (was blocking Diamond taps on narrow screens). */}
-        <div className="flex justify-center mb-4 px-1">
+        <div className="flex justify-center mb-3 px-1">
           <div className="inline-flex w-full max-w-xl sm:max-w-none sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
             {METAL_TABS.map(({ key, label, icon: Icon }) => {
               const isActive = selectedMetal === key
@@ -1087,6 +1150,49 @@ export default function CatalogPageClient() {
               )
             })}
           </div>
+        </div>
+
+        {/* Shop for — retail audience filter (tags on web_subcategories) */}
+        <div className="flex flex-col items-center gap-2 mb-4 px-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">
+            Shop for
+          </p>
+          <div className="inline-flex w-full max-w-md sm:max-w-none sm:w-auto p-0.5 rounded-full bg-slate-900/60 border border-slate-800/80">
+            {CATALOG_SHOP_FOR_TABS.map(({ key, label, shortLabel }) => {
+              const isActive = shopFor === key
+              const Icon =
+                key === 'all' ? Users : key === 'women' ? User : key === 'men' ? User : Baby
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setShopFor(key)}
+                  className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
+                    isActive
+                      ? 'bg-slate-100 text-slate-900 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  }`}
+                >
+                  {key !== 'all' ? (
+                    <Icon className="size-3.5 shrink-0 opacity-80" aria-hidden />
+                  ) : null}
+                  <span className="sm:hidden">{shortLabel}</span>
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              )
+            })}
+          </div>
+          {productTypeFilter ? (
+            <button
+              type="button"
+              onClick={() => setProductTypeFilter(null)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/15"
+            >
+              {catalogProductTypeLabel(productTypeFilter)}
+              <X className="size-3.5" aria-hidden />
+              <span className="sr-only">Clear product type filter</span>
+            </button>
+          ) : null}
         </div>
 
         {canUseCatalogBuilder && (
@@ -1145,7 +1251,10 @@ export default function CatalogPageClient() {
                 <span className="text-slate-600">Select</span>
               </div>
             )}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            <div
+              ref={mobileStyleStripRef}
+              className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide kc-scroll-contain"
+            >
               {filteredCategories.length === 0 ? (
                 <p className="text-slate-500 text-sm py-2">No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles</p>
               ) : filteredCategories.map((cat) => {
@@ -1176,6 +1285,7 @@ export default function CatalogPageClient() {
                     <button
                       type="button"
                       onClick={() => handleStyleClick(cat)}
+                      data-catalog-nav-active={activeStyleId === cat.id ? 'true' : undefined}
                       className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
                         activeStyleId === cat.id
                           ? 'bg-amber-500 text-white'
@@ -1201,7 +1311,10 @@ export default function CatalogPageClient() {
                   <span className="text-slate-600">Select</span>
                 </div>
               )}
-              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              <div
+                ref={mobileSkuStripRef}
+                className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide kc-scroll-contain"
+              >
                 {activeStyle.subcategories.map((sub) => {
                   const skuDg = skuBulkDesignGroupForRow(
                     sub.id,
@@ -1242,6 +1355,7 @@ export default function CatalogPageClient() {
                       <button
                         type="button"
                         onClick={() => handleSkuClick(sub, activeStyle.id)}
+                        data-catalog-nav-active={activeSkuId === sub.id ? 'true' : undefined}
                         className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           activeSkuId === sub.id
                             ? 'border border-amber-500/45 bg-amber-500/20 text-amber-600 font-semibold'
@@ -1301,7 +1415,10 @@ export default function CatalogPageClient() {
                 </button>
               )}
             </div>
-            <nav className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] min-h-[12rem] overflow-y-auto pr-2 scrollbar-hide">
+            <nav
+              ref={sidebarNavRef}
+              className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] min-h-[12rem] overflow-y-auto pr-2 scrollbar-hide kc-scroll-contain"
+            >
               {catalogBuilderMode && canUseCatalogBuilder && (
                 <div className="flex items-center justify-between gap-2 px-2 pb-2 mb-1 border-b border-slate-800/60">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -1352,6 +1469,9 @@ export default function CatalogPageClient() {
                         <button
                           type="button"
                           onClick={() => handleStyleClick(cat)}
+                          data-catalog-nav-active={
+                            isActive && cat.subcategories.length === 0 ? 'true' : undefined
+                          }
                           aria-expanded={
                             cat.subcategories.length > 0
                               ? activeStyleId === cat.id
@@ -1437,6 +1557,7 @@ export default function CatalogPageClient() {
                                   <button
                                     type="button"
                                     onClick={() => handleSkuClick(sub, cat.id)}
+                                    data-catalog-nav-active={isSubActive ? 'true' : undefined}
                                     className={`min-w-0 flex-1 text-left px-2 py-1.5 rounded-md text-sm transition-colors ${
                                       isSubActive
                                         ? 'bg-amber-500/10 text-amber-600 font-semibold'
@@ -1463,7 +1584,6 @@ export default function CatalogPageClient() {
 
           {/* ── Right: product grid (75 %) ── */}
           <section
-            ref={productGridSectionRef}
             id="catalog-product-grid"
             className="flex-1 min-w-0 scroll-mt-12 md:scroll-mt-14"
           >
@@ -1554,7 +1674,7 @@ export default function CatalogPageClient() {
                   )}
                   <div
                     ref={designGroupStripRef}
-                    className="flex min-h-[2.25rem] flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide"
+                    className="flex min-h-[2.25rem] flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide kc-scroll-contain"
                   >
                     <button
                       ref={(el) => registerDesignChipRef('__all__', el)}
@@ -1619,9 +1739,23 @@ export default function CatalogPageClient() {
                 <div className="rounded-xl bg-slate-900/50 border border-slate-800 p-16 text-center">
                   <p className="text-slate-500">
                     {filteredCategories.length === 0
-                      ? `No ${METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} products in the catalogue`
+                      ? shopFor !== 'all' || productTypeFilter
+                        ? 'No items match this shop filter. Try All or clear the product type chip above.'
+                        : `No ${METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} products in the catalogue`
                       : 'No products in this collection'}
                   </p>
+                  {(shopFor !== 'all' || productTypeFilter) && metalFilteredCategories.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShopFor('all')
+                        setProductTypeFilter(null)
+                      }}
+                      className="mt-4 text-sm font-medium text-amber-500 hover:text-amber-400"
+                    >
+                      Show all collections
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">

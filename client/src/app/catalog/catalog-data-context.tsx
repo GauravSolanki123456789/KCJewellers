@@ -26,6 +26,10 @@ export type CatalogTreeCategory = {
     slug: string;
     /** Admin-ordered list of `design_group` keys (ERP itemCode); merged with live product groups on the storefront. */
     design_group_order?: string[] | null;
+    /** Retail tag — `web_subcategories.audience` (women, men, kids, unisex) */
+    audience?: string | null;
+    /** Retail tag — `web_subcategories.product_type` */
+    product_type?: string | null;
     products: Item[];
   }[];
 };

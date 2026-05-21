@@ -17,6 +17,7 @@ import {
   GripVertical,
   ListOrdered,
   X,
+  Tags,
 } from 'lucide-react'
 import {
   GoldJewelleryRingIcon,
@@ -26,6 +27,12 @@ import {
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
 import { mergeDesignGroupOrder } from '@/lib/design-group-order'
+import {
+  CATALOG_AUDIENCE_OPTIONS,
+  CATALOG_PRODUCT_TYPE_OPTIONS,
+  normalizeCatalogAudience,
+  normalizeCatalogProductType,
+} from '@/lib/catalog-retail-tags'
 
 /** Metal types — values match backend metal_type (lowercase) */
 const METAL_TABS = [
@@ -90,6 +97,8 @@ type SubcategoryInfo = {
   name: string
   slug: string
   design_group_order?: string[] | null
+  audience?: string | null
+  product_type?: string | null
 }
 type WebCategory = {
   id: number
@@ -137,6 +146,14 @@ export default function AdminProductsPage() {
   >(() => new Set())
   const designGroupCatalogVersionRef = useRef('')
 
+  const [retailTagsDraft, setRetailTagsDraft] = useState<
+    Record<number, { audience: string; product_type: string }>
+  >({})
+  const [retailTagsFilter, setRetailTagsFilter] = useState<'all' | 'unclassified'>('all')
+  const [savingRetailTags, setSavingRetailTags] = useState(false)
+  const [retailTagsToast, setRetailTagsToast] = useState<'success' | 'error' | null>(null)
+  const [expandedRetailStyles, setExpandedRetailStyles] = useState<Set<number>>(() => new Set())
+
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
   const loadCatalog = useCallback(async () => {
@@ -147,6 +164,16 @@ export default function AdminProductsPage() {
       const cats: WebCategory[] = res.data?.categories || []
       setCatalogCategories(cats)
       setOrderedCategories(cats)
+      const tagDraft: Record<number, { audience: string; product_type: string }> = {}
+      for (const c of cats) {
+        for (const s of c.subcategories || []) {
+          tagDraft[s.id] = {
+            audience: normalizeCatalogAudience(s.audience) ?? '',
+            product_type: normalizeCatalogProductType(s.product_type) ?? '',
+          }
+        }
+      }
+      setRetailTagsDraft(tagDraft)
       setPublishedIds(
         new Set(
           cats
@@ -202,6 +229,88 @@ export default function AdminProductsPage() {
     setOrderToast(type)
     setTimeout(() => setOrderToast(null), 4000)
   }, [])
+
+  const showRetailTagsToast = useCallback((type: 'success' | 'error') => {
+    setRetailTagsToast(type)
+    setTimeout(() => setRetailTagsToast(null), 4000)
+  }, [])
+
+  const updateRetailTagDraft = (
+    subId: number,
+    field: 'audience' | 'product_type',
+    value: string,
+  ) => {
+    setRetailTagsDraft((prev) => ({
+      ...prev,
+      [subId]: {
+        audience: field === 'audience' ? value : (prev[subId]?.audience ?? ''),
+        product_type:
+          field === 'product_type' ? value : (prev[subId]?.product_type ?? ''),
+      },
+    }))
+  }
+
+  const applyRetailTagsToStyle = (
+    cat: WebCategory,
+    audience: string,
+    productType: string,
+  ) => {
+    setRetailTagsDraft((prev) => {
+      const next = { ...prev }
+      for (const s of cat.subcategories || []) {
+        next[s.id] = { audience, product_type: productType }
+      }
+      return next
+    })
+  }
+
+  const handleSaveRetailTags = async () => {
+    setSavingRetailTags(true)
+    try {
+      const tags = Object.entries(retailTagsDraft).map(([id, row]) => ({
+        subcategoryId: parseInt(id, 10),
+        audience: row.audience || null,
+        product_type: row.product_type || null,
+      }))
+      await axios.put(
+        `${url}/api/admin/catalog/subcategory/bulk-retail-tags`,
+        { tags },
+        { withCredentials: true },
+      )
+      await loadCatalog()
+      showRetailTagsToast('success')
+    } catch {
+      showRetailTagsToast('error')
+    } finally {
+      setSavingRetailTags(false)
+    }
+  }
+
+  const toggleRetailStyle = (id: number) => {
+    setExpandedRetailStyles((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const retailTagRows = useMemo(() => {
+    const rows: { cat: WebCategory; sub: SubcategoryInfo }[] = []
+    for (const cat of catalogCategories) {
+      for (const sub of cat.subcategories || []) {
+        rows.push({ cat, sub })
+      }
+    }
+    return rows
+  }, [catalogCategories])
+
+  const unclassifiedRetailCount = useMemo(() => {
+    return retailTagRows.filter(({ sub }) => {
+      const d = retailTagsDraft[sub.id]
+      return !d?.audience && !d?.product_type
+    }).length
+  }, [retailTagRows, retailTagsDraft])
 
   const handleSavePublish = async () => {
     setSavingPublish(true)
@@ -961,6 +1070,235 @@ export default function AdminProductsPage() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ─── Retail tags (Shop for) ─── */}
+            <div className="mt-8 bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
+              <div className="p-4 sm:p-6 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Tags className="size-6 shrink-0 text-violet-400" />
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-semibold text-slate-200">
+                      Retail tags
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Shop for & product type — one row per SKU (subcategory). ERP sync unchanged.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRetailTagsFilter((f) =>
+                        f === 'unclassified' ? 'all' : 'unclassified',
+                      )
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      retailTagsFilter === 'unclassified'
+                        ? 'border-violet-500/50 bg-violet-500/15 text-violet-300'
+                        : 'border-white/10 text-slate-400 hover:bg-white/5'
+                    }`}
+                  >
+                    Unclassified
+                    {unclassifiedRetailCount > 0 ? (
+                      <span className="ml-1.5 tabular-nums text-slate-500">
+                        ({unclassifiedRetailCount})
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveRetailTags}
+                    disabled={savingRetailTags || catalogCategories.length === 0}
+                    className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm disabled:opacity-60 transition-colors"
+                  >
+                    {savingRetailTags ? 'Saving…' : 'Save tags'}
+                  </button>
+                </div>
+              </div>
+              {retailTagsToast === 'success' && (
+                <div className="mx-4 sm:mx-6 mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
+                  <CheckCircle2 className="size-4 shrink-0" />
+                  Retail tags saved
+                </div>
+              )}
+              {retailTagsToast === 'error' && (
+                <div className="mx-4 sm:mx-6 mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+                  Failed to save retail tags
+                </div>
+              )}
+              <div className="p-4 sm:p-6">
+                {catalogCategories.length === 0 ? (
+                  <p className="text-slate-500 text-sm">Sync catalogues from ERP first.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {catalogCategories.map((cat) => {
+                      const subs = (cat.subcategories || []).filter((sub) => {
+                        if (retailTagsFilter !== 'unclassified') return true
+                        const d = retailTagsDraft[sub.id]
+                        return !d?.audience && !d?.product_type
+                      })
+                      if (subs.length === 0) return null
+                      const open = expandedRetailStyles.has(cat.id)
+                      return (
+                        <div
+                          key={cat.id}
+                          className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
+                        >
+                          <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
+                            <button
+                              type="button"
+                              onClick={() => toggleRetailStyle(cat.id)}
+                              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                            >
+                              {open ? (
+                                <ChevronDown className="size-4 shrink-0 text-slate-500" />
+                              ) : (
+                                <ChevronRight className="size-4 shrink-0 text-slate-500" />
+                              )}
+                              <span className="font-semibold text-slate-200 truncate">
+                                {cat.name}
+                              </span>
+                              <span className="text-xs text-slate-600 tabular-nums">
+                                {subs.length} SKU{subs.length !== 1 ? 's' : ''}
+                              </span>
+                            </button>
+                            {open ? (
+                              <div className="flex flex-wrap items-center gap-2 pl-6 sm:pl-0">
+                                <span className="text-[10px] uppercase tracking-wider text-slate-600">
+                                  Apply all:
+                                </span>
+                                <select
+                                  aria-label={`Audience for all SKUs in ${cat.name}`}
+                                  className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 text-xs text-slate-200"
+                                  defaultValue=""
+                                  onChange={(e) => {
+                                    const v = e.target.value
+                                    if (!v) return
+                                    applyRetailTagsToStyle(
+                                      cat,
+                                      v,
+                                      retailTagsDraft[cat.subcategories?.[0]?.id ?? 0]
+                                        ?.product_type ?? '',
+                                    )
+                                    e.target.value = ''
+                                  }}
+                                >
+                                  <option value="">Audience…</option>
+                                  {CATALOG_AUDIENCE_OPTIONS.filter((o) => o.value).map(
+                                    (o) => (
+                                      <option key={o.value} value={o.value}>
+                                        {o.label}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                                <select
+                                  aria-label={`Product type for all SKUs in ${cat.name}`}
+                                  className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 text-xs text-slate-200"
+                                  defaultValue=""
+                                  onChange={(e) => {
+                                    const v = e.target.value
+                                    if (!v) return
+                                    setRetailTagsDraft((prev) => {
+                                      const next = { ...prev }
+                                      for (const s of cat.subcategories || []) {
+                                        next[s.id] = {
+                                          audience: prev[s.id]?.audience ?? '',
+                                          product_type: v,
+                                        }
+                                      }
+                                      return next
+                                    })
+                                    e.target.value = ''
+                                  }}
+                                >
+                                  <option value="">Type…</option>
+                                  {CATALOG_PRODUCT_TYPE_OPTIONS.filter((o) => o.value).map(
+                                    (o) => (
+                                      <option key={o.value} value={o.value}>
+                                        {o.label}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                              </div>
+                            ) : null}
+                          </div>
+                          {open ? (
+                            <div className="border-t border-white/5">
+                              {subs.map((sub) => {
+                                const draft = retailTagsDraft[sub.id] ?? {
+                                  audience: '',
+                                  product_type: '',
+                                }
+                                const unclassified =
+                                  !draft.audience && !draft.product_type
+                                return (
+                                  <div
+                                    key={sub.id}
+                                    className={`flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:gap-3 sm:pl-10 sm:pr-4 border-t border-white/5 first:border-t-0 ${
+                                      unclassified ? 'bg-amber-500/[0.03]' : ''
+                                    }`}
+                                  >
+                                    <span className="min-w-0 flex-1 text-sm text-slate-300 truncate">
+                                      {sub.name}
+                                      {unclassified ? (
+                                        <span className="ml-2 text-[10px] font-medium uppercase text-amber-500/80">
+                                          Unclassified
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                    <div className="flex flex-wrap gap-2 sm:shrink-0">
+                                      <select
+                                        aria-label={`Audience for ${sub.name}`}
+                                        value={draft.audience}
+                                        onChange={(e) =>
+                                          updateRetailTagDraft(
+                                            sub.id,
+                                            'audience',
+                                            e.target.value,
+                                          )
+                                        }
+                                        className="min-w-[7rem] rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 text-xs text-slate-200"
+                                      >
+                                        {CATALOG_AUDIENCE_OPTIONS.map((o) => (
+                                          <option key={o.label} value={o.value}>
+                                            {o.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <select
+                                        aria-label={`Product type for ${sub.name}`}
+                                        value={draft.product_type}
+                                        onChange={(e) =>
+                                          updateRetailTagDraft(
+                                            sub.id,
+                                            'product_type',
+                                            e.target.value,
+                                          )
+                                        }
+                                        className="min-w-[8rem] rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 text-xs text-slate-200"
+                                      >
+                                        {CATALOG_PRODUCT_TYPE_OPTIONS.map((o) => (
+                                          <option key={o.label} value={o.value}>
+                                            {o.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* ─── Catalogue Order ─── */}

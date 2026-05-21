@@ -5,6 +5,14 @@ import { inferCatalogMetalParam } from "@/lib/catalog-navigation";
 import type { Item } from "@/lib/pricing";
 import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 import type { ApiCatalogCategory } from "@/lib/server-data";
+import {
+  catalogAudienceLabel,
+  catalogProductTypeLabel,
+  normalizeCatalogAudience,
+  normalizeCatalogProductType,
+  type CatalogAudience,
+  type CatalogProductType,
+} from "@/lib/catalog-retail-tags";
 
 export type SearchIndexRecord = {
   key: string;
@@ -15,10 +23,26 @@ export type SearchIndexRecord = {
   subcategoryName: string;
   styleSlug: string;
   subSlug: string;
+  audience: CatalogAudience | null;
+  productType: CatalogProductType | null;
   /** Inferred metal tab for catalogue deep link. */
   metal: "gold" | "silver" | "diamond";
   productHref: string;
   catalogHref: string;
+  searchBlob: string;
+};
+
+/** One row per subcategory (SKU) for grouped collection browse in search. */
+export type SearchBrowseRecord = {
+  styleName: string;
+  subcategoryName: string;
+  styleSlug: string;
+  subSlug: string;
+  audience: CatalogAudience | null;
+  productType: CatalogProductType | null;
+  metal: "gold" | "silver" | "diamond";
+  catalogHref: string;
+  productCount: number;
   searchBlob: string;
 };
 
@@ -48,6 +72,8 @@ export function flattenCatalogToSearchRecords(
     for (const s of c.subcategories || []) {
       const subSlug = String(s.slug || "").trim();
       const subName = String(s.name || "").trim();
+      const audience = normalizeCatalogAudience(s.audience);
+      const productType = normalizeCatalogProductType(s.product_type);
       for (const raw of s.products || []) {
         const p = raw as Item & { name?: string };
         const key = getProductSelectionKey(p);
@@ -67,6 +93,8 @@ export function flattenCatalogToSearchRecords(
           name,
           barcode,
           sku,
+          audience ? catalogAudienceLabel(audience) : "",
+          productType ? catalogProductTypeLabel(productType) : "",
           (p.style_code as string | undefined) || "",
           (p.metal_type as string | undefined) || "",
         ]
@@ -81,6 +109,8 @@ export function flattenCatalogToSearchRecords(
           subcategoryName: subName,
           styleSlug,
           subSlug,
+          audience,
+          productType,
           metal,
           productHref,
           catalogHref,
@@ -90,6 +120,101 @@ export function flattenCatalogToSearchRecords(
     }
   }
   return rows;
+}
+
+export function flattenCatalogToBrowseRecords(
+  categories: ApiCatalogCategory[]
+): SearchBrowseRecord[] {
+  const rows: SearchBrowseRecord[] = [];
+  for (const c of categories) {
+    const styleSlug = String(c.slug || "").trim();
+    const styleName = String(c.name || "").trim();
+    for (const s of c.subcategories || []) {
+      const subSlug = String(s.slug || "").trim();
+      const subName = String(s.name || "").trim();
+      const audience = normalizeCatalogAudience(s.audience);
+      const productType = normalizeCatalogProductType(s.product_type);
+      const products = (s.products || []) as Item[];
+      if (products.length === 0) continue;
+      const metalCounts = { gold: 0, silver: 0, diamond: 0 } as Record<
+        "gold" | "silver" | "diamond",
+        number
+      >;
+      for (const p of products) {
+        const m = inferCatalogMetalParam(p);
+        metalCounts[m] += 1;
+      }
+      const metal =
+        metalCounts.silver >= metalCounts.gold && metalCounts.silver >= metalCounts.diamond
+          ? "silver"
+          : metalCounts.gold >= metalCounts.diamond
+            ? "gold"
+            : "diamond";
+      const searchBlob = [
+        styleName,
+        styleSlug,
+        subName,
+        subSlug,
+        audience ? catalogAudienceLabel(audience) : "",
+        productType ? catalogProductTypeLabel(productType) : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      rows.push({
+        styleName,
+        subcategoryName: subName,
+        styleSlug,
+        subSlug,
+        audience,
+        productType,
+        metal,
+        catalogHref: buildCatalogSegmentPath(metal, styleSlug, subSlug),
+        productCount: products.length,
+        searchBlob,
+      });
+    }
+  }
+  return rows;
+}
+
+function scoreBrowseRecordForQuery(record: SearchBrowseRecord, rawQuery: string): number {
+  const query = normalizeSearchText(rawQuery);
+  if (!query) return 0;
+  const tokens = tokenizeSearchText(query);
+  const style = normalizeSearchText(record.styleName);
+  const sub = normalizeSearchText(record.subcategoryName);
+  const pt = normalizeSearchText(
+    record.productType ? catalogProductTypeLabel(record.productType) : ""
+  );
+  const aud = normalizeSearchText(
+    record.audience ? catalogAudienceLabel(record.audience) : ""
+  );
+  const blob = normalizeSearchText(record.searchBlob);
+
+  let score = 0;
+  if (sub === query || pt === query) score += 900;
+  if (sub.includes(query) || pt.includes(query)) score += 500;
+  if (style.includes(query)) score += 200;
+  score += countMatchingTokens(tokens, sub) * 180;
+  score += countMatchingTokens(tokens, pt) * 220;
+  score += countMatchingTokens(tokens, aud) * 120;
+  score += countMatchingTokens(tokens, blob) * 40;
+  return score;
+}
+
+export function rankBrowseRecords(
+  records: SearchBrowseRecord[],
+  rawQuery: string,
+  limit = 6
+): SearchBrowseRecord[] {
+  return [...records]
+    .sort((a, b) => {
+      const delta = scoreBrowseRecordForQuery(b, rawQuery) - scoreBrowseRecordForQuery(a, rawQuery);
+      if (delta !== 0) return delta;
+      return a.styleName.localeCompare(b.styleName);
+    })
+    .filter((r) => scoreBrowseRecordForQuery(r, rawQuery) > 0)
+    .slice(0, limit);
 }
 
 function normalizeSearchText(value: string): string {

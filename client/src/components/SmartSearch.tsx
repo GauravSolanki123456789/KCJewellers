@@ -10,7 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronRight, LayoutGrid, Package, Search } from "lucide-react";
+import { ChevronRight, LayoutGrid, Package, Search, Sparkles } from "lucide-react";
 import {
   normalizeSearchQuery,
   resolveSearchSynonym,
@@ -18,15 +18,25 @@ import {
 } from "@/lib/searchSynonyms";
 import { SEARCH_PATH } from "@/lib/routes";
 import {
+  buildCatalogShopHref,
+  catalogAudienceLabel,
+  catalogProductTypeLabel,
+  CATALOG_DISCOVERY_CHIPS,
+} from "@/lib/catalog-retail-tags";
+import {
   buildFuseForSearchRecords,
+  flattenCatalogToBrowseRecords,
   flattenCatalogToSearchRecords,
   getCatalogForSearchIndex,
+  rankBrowseRecords,
   rankSearchRecords,
+  type SearchBrowseRecord,
   type SearchIndexRecord,
 } from "@/lib/search-catalog-cache";
 
 const DEBOUNCE_MS = 300;
 const FUSE_LIMIT = 8;
+const BROWSE_LIMIT = 6;
 
 function pathsMatch(a: string, b: string): boolean {
   const x = (a || "").replace(/\/$/, "") || "/";
@@ -41,6 +51,14 @@ function useDebouncedValue<T>(value: T, delay: number): T {
     return () => window.clearTimeout(id);
   }, [value, delay]);
   return debounced;
+}
+
+function browseHint(row: SearchBrowseRecord): string {
+  const parts: string[] = [row.styleName];
+  if (row.audience) parts.push(catalogAudienceLabel(row.audience));
+  if (row.productType) parts.push(catalogProductTypeLabel(row.productType));
+  parts.push(`${row.productCount} items`);
+  return parts.join(" · ");
 }
 
 type SmartSearchProps = {
@@ -59,6 +77,7 @@ export default function SmartSearch({
   const [raw, setRaw] = useState("");
   const debounced = useDebouncedValue(raw, DEBOUNCE_MS);
   const [records, setRecords] = useState<SearchIndexRecord[]>([]);
+  const [browseRecords, setBrowseRecords] = useState<SearchBrowseRecord[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -67,6 +86,7 @@ export default function SmartSearch({
     getCatalogForSearchIndex().then((cats) => {
       if (cancelled) return;
       setRecords(flattenCatalogToSearchRecords(cats));
+      setBrowseRecords(flattenCatalogToBrowseRecords(cats));
     });
     return () => {
       cancelled = true;
@@ -94,8 +114,17 @@ export default function SmartSearch({
     return rankSearchRecords(rawHits, debounced, FUSE_LIMIT);
   }, [fuse, debounced, normalized]);
 
-  const showPanel =
-    open && (synonymMatch || fuseHits.length > 0) && normalized.length >= 2;
+  const browseHits = useMemo(() => {
+    if (!normalized || normalized.length < 2 || browseRecords.length === 0) return [];
+    return rankBrowseRecords(browseRecords, debounced, BROWSE_LIMIT);
+  }, [browseRecords, debounced, normalized]);
+
+  const showDiscovery = open && normalized.length < 2;
+  const showResults =
+    open &&
+    normalized.length >= 2 &&
+    !!(synonymMatch || fuseHits.length > 0 || browseHits.length > 0);
+  const showPanel = showDiscovery || showResults;
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -138,6 +167,24 @@ export default function SmartSearch({
     [pathname, router, startTransition]
   );
 
+  const goCatalogHref = useCallback(
+    (href: string) => {
+      if (pathsMatch(pathname, href)) {
+        setOpen(false);
+        setRaw("");
+        inputRef.current?.blur();
+        return;
+      }
+      startTransition(() => {
+        router.replace(href);
+      });
+      setOpen(false);
+      setRaw("");
+      inputRef.current?.blur();
+    },
+    [pathname, router, startTransition]
+  );
+
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     navigateSearch(raw);
@@ -147,7 +194,7 @@ export default function SmartSearch({
     ? "h-9 pl-9 pr-2.5 text-[13px] leading-none"
     : "h-10 pl-10 pr-3 text-sm leading-normal md:text-[15px]";
 
-  const placeholder = 'Search jewellery, SKU, or barcode'
+  const placeholder = "Search jewellery, SKU, or barcode";
 
   return (
     <div ref={rootRef} className={`relative min-w-0 ${className}`}>
@@ -189,10 +236,75 @@ export default function SmartSearch({
         <div
           id="smart-search-results"
           role="listbox"
-          className="kc-smart-search-panel absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(65vh,20rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-300/25 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl"
+          className="kc-smart-search-panel absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(70vh,22rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-300/25 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl kc-scroll-contain"
         >
+          {showDiscovery ? (
+            <div className="px-2 pb-1">
+              <p className="flex items-center gap-1.5 px-1 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                <Sparkles className="size-3 text-amber-500/80" aria-hidden />
+                Quick shop
+              </p>
+              <div className="flex flex-wrap gap-1.5 px-0.5">
+                {CATALOG_DISCOVERY_CHIPS.map((chip) => (
+                  <button
+                    key={`${chip.shopFor}-${chip.productType}`}
+                    type="button"
+                    role="option"
+                    onClick={() =>
+                      goCatalogHref(
+                        buildCatalogShopHref(chip.shopFor, chip.productType, "silver")
+                      )
+                    }
+                    className="rounded-full border border-slate-700/80 bg-slate-900/80 px-3 py-1.5 text-left text-xs font-medium text-slate-200 transition-colors hover:border-amber-500/35 hover:bg-amber-500/10 hover:text-amber-100"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {browseHits.length > 0 ? (
+            <div className={showDiscovery ? "mt-1 border-t border-slate-300/15 pt-1" : undefined}>
+              <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                Collections
+              </p>
+              <ul className="space-y-0.5 px-1">
+                {browseHits.map((row) => (
+                  <li key={`${row.styleSlug}-${row.subSlug}`}>
+                    <button
+                      type="button"
+                      role="option"
+                      onClick={() => goCatalogHref(row.catalogHref)}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-300/12"
+                    >
+                      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-500/90">
+                        <LayoutGrid className="size-3.5" aria-hidden />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="line-clamp-1 text-[13px] font-semibold leading-snug text-slate-100">
+                          {row.styleName} · {row.subcategoryName}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                          {browseHint(row)}
+                        </span>
+                      </span>
+                      <ChevronRight className="mt-1 size-4 shrink-0 text-slate-600" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {fuseHits.length > 0 ? (
-            <div>
+            <div
+              className={
+                browseHits.length > 0 || synonymMatch
+                  ? "mt-1 border-t border-slate-300/15 pt-1"
+                  : undefined
+              }
+            >
               <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
                 Products
               </p>
@@ -220,12 +332,16 @@ export default function SmartSearch({
                           <span className="text-slate-600">{row.styleName}</span>
                           <span className="mx-1 text-slate-600">·</span>
                           <span>{row.subcategoryName}</span>
+                          {row.audience ? (
+                            <>
+                              <span className="mx-1 text-slate-600">·</span>
+                              <span>{catalogAudienceLabel(row.audience)}</span>
+                            </>
+                          ) : null}
                           {row.sku ? (
                             <>
                               <span className="mx-1 text-slate-600">·</span>
-                              <span className="font-mono text-slate-600">
-                                {row.sku}
-                              </span>
+                              <span className="font-mono text-slate-600">{row.sku}</span>
                             </>
                           ) : null}
                         </span>
@@ -238,9 +354,15 @@ export default function SmartSearch({
           ) : null}
 
           {synonymMatch ? (
-            <div className={fuseHits.length > 0 ? "mt-1 border-t border-slate-300/15 pt-1" : undefined}>
+            <div
+              className={
+                fuseHits.length > 0 || browseHits.length > 0
+                  ? "mt-1 border-t border-slate-300/15 pt-1"
+                  : undefined
+              }
+            >
               <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                Collection
+                Suggested
               </p>
               <button
                 type="button"
@@ -249,18 +371,7 @@ export default function SmartSearch({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (pathsMatch(pathname, synonymMatch.href)) {
-                    setOpen(false);
-                    setRaw("");
-                    inputRef.current?.blur();
-                    return;
-                  }
-                  startTransition(() => {
-                    router.replace(synonymMatch.href);
-                  });
-                  setOpen(false);
-                  setRaw("");
-                  inputRef.current?.blur();
+                  goCatalogHref(synonymMatch.href);
                 }}
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
