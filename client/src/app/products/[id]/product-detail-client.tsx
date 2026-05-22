@@ -19,6 +19,7 @@ import {
   calculateBreakdown,
   getItemWeight,
   isDiamondItem,
+  isFixedPriceCatalogItem,
   type Item,
 } from "@/lib/pricing";
 import { detailProductImageClass } from "@/lib/product-image-classes";
@@ -349,6 +350,7 @@ export default function ProductDetailClient({
   const purity = product.purity ?? null;
   const metalType = product.metal_type ?? null;
   const isDiamond = isDiamondItem(product);
+  const isFixedPrice = isFixedPriceCatalogItem(product);
   const barcode = product.barcode || product.sku || String(product.id || "");
   const hasDiscount = (b?.discountPercent ?? 0) > 0;
   const showWholesale =
@@ -735,7 +737,7 @@ export default function ProductDetailClient({
             onClose={() => setOpen(false)}
             breakdown={b}
             productName={displayName}
-            isDiamond={isDiamond}
+            isFixedPrice={isFixedPrice}
           />
         )}
       </div>

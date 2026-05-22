@@ -15,6 +15,7 @@ import {
   GoldJewelleryRingIcon,
   SilverMoonMetalIcon,
   DiamondJewelleryIcon,
+  GiftingJewelleryIcon,
 } from '@/components/icons/metal-tab-icons'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { useCatalogData } from '@/app/catalog/catalog-data-context'
@@ -50,6 +51,7 @@ const METAL_TABS: {
   { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
   { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
   { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
+  { key: 'gifting', label: 'Gifting', icon: GiftingJewelleryIcon },
 ]
 
 function rowKey(p: Item): string {

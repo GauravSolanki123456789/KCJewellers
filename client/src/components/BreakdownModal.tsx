@@ -22,10 +22,21 @@ type BreakdownModalProps = {
   onClose: () => void
   breakdown: Breakdown | null
   productName?: string
+  /** Diamond or gifting — fixed price, no metal/MC breakdown */
+  isFixedPrice?: boolean
+  /** @deprecated use isFixedPrice */
   isDiamond?: boolean
 }
 
-export default function BreakdownModal({ open, onClose, breakdown, productName, isDiamond }: BreakdownModalProps) {
+export default function BreakdownModal({
+  open,
+  onClose,
+  breakdown,
+  productName,
+  isFixedPrice,
+  isDiamond,
+}: BreakdownModalProps) {
+  const showFixedPrice = isFixedPrice ?? isDiamond ?? false
   const [customerName, setCustomerName] = useState('')
   const [customerMobile, setCustomerMobile] = useState('')
   const [quotationNo, setQuotationNo] = useState<string | null>(null)
@@ -143,7 +154,7 @@ export default function BreakdownModal({ open, onClose, breakdown, productName, 
             {/* Breakdown table — diamond: Price, CGST, SGST, Line Total only */}
             <div className="rounded-xl bg-slate-800/50 border border-slate-700/60 overflow-hidden">
               <div className="divide-y divide-slate-700/60">
-                {!isDiamond && (
+                {!showFixedPrice && (
                   <>
                     <div className="flex justify-between items-center px-4 py-3">
                       <span className="text-slate-300">Metal Cost</span>
@@ -161,7 +172,7 @@ export default function BreakdownModal({ open, onClose, breakdown, productName, 
                     )}
                   </>
                 )}
-                {isDiamond && (
+                {showFixedPrice && (
                   <div className="flex justify-between items-center px-4 py-3">
                     <span className="text-slate-300">Price</span>
                     <span className="font-medium tabular-nums text-slate-100">₹{Math.round(breakdown.taxable ?? 0).toLocaleString('en-IN')}</span>
@@ -221,7 +232,7 @@ export default function BreakdownModal({ open, onClose, breakdown, productName, 
           </div>
         )}
         {productName && <div style={{ fontSize: 12, marginBottom: 6 }}>Product: {productName}</div>}
-        {!isDiamond && (
+        {!showFixedPrice && (
           <>
             <div className="row">
               <span>Metal Cost</span>
@@ -239,7 +250,7 @@ export default function BreakdownModal({ open, onClose, breakdown, productName, 
             )}
           </>
         )}
-        {isDiamond && (
+        {showFixedPrice && (
           <div className="row">
             <span>Price</span>
             <span>₹{Math.round(breakdown.taxable ?? 0).toLocaleString('en-IN')}</span>

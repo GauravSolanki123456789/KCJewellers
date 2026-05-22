@@ -69,7 +69,7 @@ export const metadata: Metadata = {
     template: "%s · KC Jewellers",
   },
   description:
-    "KC Jewellers — curated gold, silver, and diamond jewellery with transparent live pricing incl. GST. Book rates, SIP plans, and shop the catalogue online.",
+    "KC Jewellers — curated gold, silver, diamond and gifting jewellery with transparent live pricing incl. GST. Book rates, SIP plans, and shop the catalogue online.",
   keywords: [
     "KC Jewellers",
     "jewellery",

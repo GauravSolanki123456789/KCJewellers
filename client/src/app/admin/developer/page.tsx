@@ -305,8 +305,8 @@ export default function DeveloperApiPage() {
                     ['secondaryImageUrl','No','Second photo URL → DB secondary_image_url (e.g. {barcode}_secondary.webp)'],
                     ['hasSecondaryImage','No','true without URL: default second upload path; false: clear secondary; omit: unchanged'],
                     ['imageBase64', 'No',  'Base64 image data. Use Content-Type: application/json. Prefer Base64url (+→-, /→_) to avoid corruption'],
-                    ['metalType',   'No',  'gold / silver / diamond / platinum'],
-                    ['fixedPrice',  'No*', 'Fixed price (₹). For diamond: bypasses live rate (*or fixed_price)'],
+                    ['metalType',   'No',  'gold / silver / diamond / gifting / platinum'],
+                    ['fixedPrice',  'No*', 'Fixed price (₹). For diamond & gifting: bypasses live rate (*or fixed_price)'],
                     ['stoneCharges','No',  'Stone charges (₹). For diamond: used with mc_rate when fixedPrice not set'],
                   ].map(([field, req, desc]) => (
                     <tr key={field} className="hover:bg-white/5 transition-colors">

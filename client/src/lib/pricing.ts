@@ -115,6 +115,17 @@ export function isDiamondItem(item: Item | null | undefined): boolean {
   return mt.startsWith('diamond') || mt.includes('diamond')
 }
 
+/** Returns true if item metal_type is gifting (fixed-price catalogue, no live metal rate). */
+export function isGiftingItem(item: Item | null | undefined): boolean {
+  const mt = (item?.metal_type ?? '').toString().toLowerCase()
+  return mt.startsWith('gifting') || mt.includes('gifting')
+}
+
+/** Diamond or gifting — uses `fixed_price` instead of live rates (cart, checkout, filters). */
+export function isFixedPriceCatalogItem(item: Item | null | undefined): boolean {
+  return isDiamondItem(item) || isGiftingItem(item)
+}
+
 function purityPct(item: Item): number {
   const p = Number(item.purity || 0)
   if (!p || p <= 0) return 0
@@ -160,7 +171,7 @@ type BreakdownResult = {
  *
  * B2B wholesale: optional `wholesale` applies making-charge discount and/or markup on the metal+MC line.
  *
- * DIAMOND: metal_type 'diamond' or 'diamonds' → use fixed_price only, ignore live rates.
+ * DIAMOND / GIFTING: use fixed_price only, ignore live rates (ERP `fixedPrice` → DB fixed_price).
  * Legacy (non-web) products fall through to the classic formula.
  */
 export function calculateBreakdown(
@@ -172,8 +183,8 @@ export function calculateBreakdown(
   const metal = (item.metal_type || 'silver').toLowerCase()
   const wIn = wholesale && wholesaleIsActive(wholesale) ? wholesale : null
 
-  // Diamond products: bypass live rate/weight. Use fixed_price if set, else mc_rate + stone_charges
-  if (metal.startsWith('diamond')) {
+  // Fixed-price catalogue (diamond, gifting): bypass live rate/weight. Use fixed_price if set, else mc_rate + stone_charges
+  if (metal.startsWith('diamond') || metal.startsWith('gifting')) {
     const fixedPrice = Number(item.fixed_price ?? 0) || 0
     const mcRate = Number(item.mc_rate ?? 0) || 0
     const stoneAmt = Number(item.stone_charges ?? 0) || 0

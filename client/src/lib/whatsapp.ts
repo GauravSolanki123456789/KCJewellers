@@ -1,5 +1,6 @@
 import { getSiteUrl } from "@/lib/site";
 import { buildCatalogSegmentPath } from "@/lib/catalog-paths";
+import { isCatalogMetalKey } from "@/lib/catalog-retail-tags";
 
 const BRAND = "KC Jewellers";
 
@@ -25,7 +26,7 @@ export function buildCatalogShareUrl(
   if (
     style &&
     sku &&
-    (metal === "gold" || metal === "silver" || metal === "diamond")
+    (isCatalogMetalKey(metal))
   ) {
     return `${site}${buildCatalogSegmentPath(metal, style, sku)}`;
   }

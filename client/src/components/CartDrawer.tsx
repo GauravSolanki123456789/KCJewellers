@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { getItemWeight, isDiamondItem } from '@/lib/pricing'
+import { getItemWeight, isFixedPriceCatalogItem } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { productImageSurfaceClass, productImageWellClass } from '@/lib/product-image-theme'
@@ -77,10 +77,10 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const { open: openLoginModal } = useLoginModal()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const hasMetalItems = items.some((ci) => !isDiamondItem(ci.item))
+  const hasMetalItems = items.some((ci) => !isFixedPriceCatalogItem(ci.item))
   const canProceed = !hasMetalItems || ratesReady
   const hasZeroMetalCost = hasMetalItems && items.some((ci) => {
-    if (isDiamondItem(ci.item)) return false
+    if (isFixedPriceCatalogItem(ci.item)) return false
     const b = (ci.breakdown || {}) as Breakdown
     return (b.metal || 0) <= 0
   })
@@ -184,7 +184,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                               showCartWholesale ? 'text-emerald-400' : 'text-amber-400'
                             }`}
                           >
-                            {ratesReady || isDiamondItem(ci.item) ? (
+                            {ratesReady || isFixedPriceCatalogItem(ci.item) ? (
                               <>
                                 {showCartWholesale && (
                                   <span className="line-through text-slate-500 mr-2 text-xs tabular-nums">
@@ -240,7 +240,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                     </button>
                     {isExpanded && (
                       <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-2 text-sm">
-                        {!isDiamondItem(ci.item) && (
+                        {!isFixedPriceCatalogItem(ci.item) && (
                           <>
                             <div className="flex justify-between text-slate-200">
                               <span>
@@ -272,7 +272,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                             )}
                           </>
                         )}
-                        {isDiamondItem(ci.item) && (
+                        {isFixedPriceCatalogItem(ci.item) && (
                           <div className="flex justify-between text-slate-200">
                             <span>Price</span>
                             <span className="tabular-nums">₹{Math.round((b.taxable || 0) * ci.qty).toLocaleString('en-IN')}</span>

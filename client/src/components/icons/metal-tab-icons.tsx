@@ -165,3 +165,73 @@ export const DiamondJewelleryIcon = forwardRef<
     </svg>
   );
 });
+
+/** Gift box with bow — fixed-price gifting catalogue tab. */
+export const GiftingJewelleryIcon = forwardRef<
+  SVGSVGElement,
+  MetalTabIconProps
+>(function GiftingJewelleryIcon({ className, ...props }, ref) {
+  const id = useId().replace(/:/g, "");
+  const gg = `${id}-gift`;
+
+  return (
+    <svg
+      ref={ref}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("overflow-visible", className)}
+      aria-hidden
+      {...props}
+    >
+      <defs>
+        <linearGradient id={gg} x1="4" y1="5" x2="20" y2="20" gradientUnits="userSpaceOnUse">
+          <stop stopColor="currentColor" stopOpacity="0.28" />
+          <stop offset="0.45" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.55" />
+        </linearGradient>
+      </defs>
+      <rect
+        x="4.5"
+        y="11"
+        width="15"
+        height="9.5"
+        rx="1.2"
+        fill={`url(#${gg})`}
+        stroke="currentColor"
+        strokeWidth="0.55"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 11V20.5"
+        stroke="currentColor"
+        strokeWidth="0.85"
+        strokeLinecap="round"
+        opacity={0.55}
+      />
+      <path
+        d="M4.5 11h15"
+        stroke="currentColor"
+        strokeWidth="0.55"
+        strokeLinecap="round"
+        opacity={0.4}
+      />
+      <path
+        d="M12 11c-2.2-2.8-4.8-3.2-6.2-1.8S6.2 12.2 12 11c5.8-1.2 7.5-3.4 6.2-1.8S14.2 8.2 12 11Z"
+        fill="currentColor"
+        opacity={0.35}
+        stroke="currentColor"
+        strokeWidth="0.45"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.2 5.8c.6-1.1 1.6-1.7 2.5-1.5.6.1 1 .6 1.3 1.2.3-.6.7-1.1 1.3-1.2.9-.2 1.9.4 2.5 1.5.8 1.5-.2 3.2-2.5 3.8-2.3-.6-3.3-2.3-2.5-3.8Z"
+        fill="currentColor"
+        opacity={0.72}
+        stroke="currentColor"
+        strokeWidth="0.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+});

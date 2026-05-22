@@ -12,6 +12,7 @@ import {
   normalizeCatalogProductType,
   resolveCatalogProductType,
   type CatalogAudience,
+  type CatalogMetalKey,
   type CatalogProductType,
 } from "@/lib/catalog-retail-tags";
 
@@ -27,7 +28,7 @@ export type SearchIndexRecord = {
   audience: CatalogAudience | null;
   productType: CatalogProductType | null;
   /** Inferred metal tab for catalogue deep link. */
-  metal: "gold" | "silver" | "diamond";
+  metal: CatalogMetalKey;
   productHref: string;
   catalogHref: string;
   searchBlob: string;
@@ -41,7 +42,7 @@ export type SearchBrowseRecord = {
   subSlug: string;
   audience: CatalogAudience | null;
   productType: CatalogProductType | null;
-  metal: "gold" | "silver" | "diamond";
+  metal: CatalogMetalKey;
   catalogHref: string;
   productCount: number;
   searchBlob: string;
@@ -137,20 +138,18 @@ export function flattenCatalogToBrowseRecords(
       const productType = resolveCatalogProductType(s);
       const products = (s.products || []) as Item[];
       if (products.length === 0) continue;
-      const metalCounts = { gold: 0, silver: 0, diamond: 0 } as Record<
-        "gold" | "silver" | "diamond",
+      const metalCounts = { gold: 0, silver: 0, diamond: 0, gifting: 0 } as Record<
+        CatalogMetalKey,
         number
       >;
       for (const p of products) {
         const m = inferCatalogMetalParam(p);
         metalCounts[m] += 1;
       }
-      const metal =
-        metalCounts.silver >= metalCounts.gold && metalCounts.silver >= metalCounts.diamond
-          ? "silver"
-          : metalCounts.gold >= metalCounts.diamond
-            ? "gold"
-            : "diamond";
+      const entries = (Object.entries(metalCounts) as [CatalogMetalKey, number][]).sort(
+        (a, b) => b[1] - a[1],
+      );
+      const metal = entries[0]?.[1] ? entries[0][0] : "silver";
       const searchBlob = [
         styleName,
         styleSlug,

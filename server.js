@@ -1939,6 +1939,8 @@ app.get('/api/products', async (req, res) => {
             const mt = String(req.query.metal_type).toLowerCase();
             if (mt === 'diamond') {
                 whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')`);
+            } else if (mt === 'gifting') {
+                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%')`);
             } else if (mt === 'gold') {
                 whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%' OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%')`);
             } else if (mt === 'silver') {
@@ -5809,7 +5811,10 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                 ), false) AS has_silver,
                 COALESCE(BOOL_OR(
                     wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')
-                ), false) AS has_diamond
+                ), false) AS has_diamond,
+                COALESCE(BOOL_OR(
+                    wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%')
+                ), false) AS has_gifting
             FROM web_categories wc
             LEFT JOIN web_subcategories ws ON ws.category_id = wc.id
             LEFT JOIN web_products wp ON wp.subcategory_id = ws.id
@@ -5823,12 +5828,13 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                 SELECT id, name, slug, design_group_order, audience, product_type FROM web_subcategories
                 WHERE category_id = $1 ORDER BY sort_order, name
             `, [c.id]);
-            const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false };
+            const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false, has_gifting: false };
             categories.push({
                 ...c,
                 has_gold: !!m.has_gold,
                 has_silver: !!m.has_silver,
                 has_diamond: !!m.has_diamond,
+                has_gifting: !!m.has_gifting,
                 subcategories: subs.map((s) => mapSubcategoryRetailTags(s)),
             });
         }

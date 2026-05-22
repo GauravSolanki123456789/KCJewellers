@@ -23,6 +23,7 @@ import {
   GoldJewelleryRingIcon,
   SilverMoonMetalIcon,
   DiamondJewelleryIcon,
+  GiftingJewelleryIcon,
 } from '@/components/icons/metal-tab-icons'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
@@ -39,6 +40,7 @@ const METAL_TABS = [
   { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
   { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
   { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
+  { key: 'gifting', label: 'Gifting', icon: GiftingJewelleryIcon },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']
@@ -47,7 +49,8 @@ function productMatchesMetal(p: { metal_type?: string }, metal: MetalKey): boole
   const m = (p.metal_type || '').toLowerCase()
   if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
   if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
-  if (metal === 'diamond') return m.startsWith('diamond')
+  if (metal === 'diamond') return m.startsWith('diamond') || m.includes('diamond')
+  if (metal === 'gifting') return m.startsWith('gifting') || m.includes('gifting')
   return false
 }
 
@@ -111,6 +114,7 @@ type WebCategory = {
   has_gold?: boolean
   has_silver?: boolean
   has_diamond?: boolean
+  has_gifting?: boolean
 }
 
 export default function AdminProductsPage() {
@@ -541,11 +545,14 @@ export default function AdminProductsPage() {
       const hasMeta =
         c.has_gold !== undefined ||
         c.has_silver !== undefined ||
-        c.has_diamond !== undefined
+        c.has_diamond !== undefined ||
+        c.has_gifting !== undefined
       if (!hasMeta) return styleSet.has(c.name)
       if (selectedMetal === 'gold') return !!c.has_gold
       if (selectedMetal === 'silver') return !!c.has_silver
-      return !!c.has_diamond
+      if (selectedMetal === 'diamond') return !!c.has_diamond
+      if (selectedMetal === 'gifting') return !!c.has_gifting
+      return false
     })
   }, [orderedCategories, selectedMetal, products])
 
@@ -714,21 +721,21 @@ export default function AdminProductsPage() {
 
             {/* Metal Type Tabs — same as public catalog */}
             <div className="flex justify-center mb-6 px-1">
-              <div className="inline-flex w-full sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
+              <div className="inline-flex w-full max-w-2xl sm:max-w-none sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg overflow-x-auto scrollbar-hide kc-scroll-contain">
                 {METAL_TABS.map(({ key, label, icon: Icon }) => {
                   const isActive = selectedMetal === key
                   return (
                     <button
                       key={key}
                       onClick={() => setSelectedMetal(key)}
-                      className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 min-w-0 ${
+                      className={`flex-none flex items-center justify-center gap-2 min-w-[4.25rem] px-3 sm:px-4 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 whitespace-nowrap snap-center ${
                         isActive
                           ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                       }`}
                     >
                       <Icon className="size-4 shrink-0" />
-                      <span className="truncate">{label}</span>
+                      <span>{label}</span>
                     </button>
                   )
                 })}

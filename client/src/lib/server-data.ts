@@ -161,6 +161,8 @@ export function resolveCatalogView(
       return mt.startsWith("silver") || mt.includes("silver");
     if (m === "diamond")
       return mt.startsWith("diamond") || mt.includes("diamond");
+    if (m === "gifting")
+      return mt.startsWith("gifting") || mt.includes("gifting");
     return true;
   }
 
@@ -198,7 +200,7 @@ export function resolveCatalogView(
     );
   }
 
-  if (metal && ["gold", "silver", "diamond"].includes(metal)) {
+  if (metal && ["gold", "silver", "diamond", "gifting"].includes(metal)) {
     products = products.filter((p) =>
       matchesMetal(p as { metal_type?: string }, metal)
     );
@@ -213,7 +215,9 @@ export function resolveCatalogView(
         ? "Silver"
         : metal === "diamond"
           ? "Diamond"
-          : undefined;
+          : metal === "gifting"
+            ? "Gifting"
+            : undefined;
 
   return { style, sub, itemCount, metalLabel, products };
 }

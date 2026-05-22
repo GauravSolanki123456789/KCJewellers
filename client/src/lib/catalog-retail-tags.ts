@@ -8,9 +8,20 @@ import { CATALOG_PATH } from "@/lib/routes";
  * Metals (gold / silver / diamond / future gift) are a separate axis from audience.
  */
 
-/** Catalogue metal tab keys — extend here when adding e.g. gift items. */
-export const CATALOG_METAL_KEYS = ["gold", "silver", "diamond"] as const;
+/** Catalogue metal tab keys — synced with ERP `metalType` (lowercase). */
+export const CATALOG_METAL_KEYS = ["gold", "silver", "diamond", "gifting"] as const;
 export type CatalogMetalKey = (typeof CATALOG_METAL_KEYS)[number];
+
+export const CATALOG_METAL_LABELS: Record<CatalogMetalKey, string> = {
+  gold: "Gold",
+  silver: "Silver",
+  diamond: "Diamond",
+  gifting: "Gifting",
+};
+
+export function isCatalogMetalKey(raw: string): raw is CatalogMetalKey {
+  return (CATALOG_METAL_KEYS as readonly string[]).includes(raw);
+}
 
 export const CATALOG_AUDIENCE_VALUES = [
   "women",
@@ -251,6 +262,38 @@ export function parseCatalogRetailSearchParams(
     shopFor,
     productType: pt ?? "all",
   };
+}
+
+/**
+ * Clamp retail filters to tags that exist on the current metal tree.
+ * Prevents URL ↔ state sync loops when `?product_type=` is invalid for `?shop_for=`.
+ */
+export function clampCatalogRetailFilters<
+  T extends CatalogRetailSubcategory & { id: number },
+>(
+  categories: CatalogTreeWithRetail<T>[],
+  shopFor: CatalogShopFor,
+  productType: CatalogProductType | "all",
+): { shopFor: CatalogShopFor; productType: CatalogProductType | "all" } {
+  if (shopFor === "all") {
+    return { shopFor: "all", productType: "all" };
+  }
+  const hasAudience = categories.some((cat) =>
+    cat.subcategories.some((sub) =>
+      subcategoryMatchesRetailFilter(sub, shopFor, "all"),
+    ),
+  );
+  if (!hasAudience) {
+    return { shopFor: "all", productType: "all" };
+  }
+  if (productType === "all") {
+    return { shopFor, productType: "all" };
+  }
+  const allowed = collectAvailableProductTypes(categories, shopFor);
+  if (!allowed.includes(productType)) {
+    return { shopFor, productType: "all" };
+  }
+  return { shopFor, productType };
 }
 
 export function buildCatalogRetailQueryString(

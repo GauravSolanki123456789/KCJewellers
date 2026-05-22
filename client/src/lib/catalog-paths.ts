@@ -1,6 +1,6 @@
 import { CATALOG_PATH } from "@/lib/routes";
 
-const METALS = new Set(["gold", "silver", "diamond"]);
+const METALS = new Set(["gold", "silver", "diamond", "gifting"]);
 
 /** Canonical catalogue path: /catalog/{metal}/{category_slug}/{subcategory_slug} */
 export function buildCatalogSegmentPath(

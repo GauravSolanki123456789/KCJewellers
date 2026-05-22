@@ -7,7 +7,7 @@ export function buildCatalogPillarTitle(
   metalLabel: string | undefined
 ): string {
   const parts = [catName, subName].filter(Boolean);
-  if (parts.length === 0) return `Shop Gold, Silver & Diamond Jewellery · ${BRAND}`;
+  if (parts.length === 0) return `Shop Gold, Silver, Diamond & Gifting · ${BRAND}`;
   const metalPrefix = metalLabel ? `${metalLabel} ` : "";
   return `${metalPrefix}${parts.join(" › ")} · ${BRAND}`;
 }
@@ -21,16 +21,24 @@ export function buildCatalogPillarDescription(
   const parts = [catName, subName].filter(Boolean).join(" › ");
   const scope = parts || "our catalogue";
   const metalLine = metalLabel
-    ? `Browse ${metalLabel.toLowerCase()} jewellery online.`
+    ? metalLabel === "Gifting"
+      ? "Browse gifting items with fixed prices online."
+      : metalLabel === "Diamond"
+        ? `Browse ${metalLabel.toLowerCase()} jewellery online.`
+        : `Browse ${metalLabel.toLowerCase()} jewellery online.`
     : "Browse curated jewellery online.";
-  const raw = `${metalLine} ${itemCount} piece${itemCount !== 1 ? "s" : ""} in ${scope}. Transparent live pricing incl. GST at ${BRAND}.`;
+  const pricingLine =
+    metalLabel === "Gifting" || metalLabel === "Diamond"
+      ? "Transparent GST-inclusive pricing"
+      : "Transparent live pricing incl. GST";
+  const raw = `${metalLine} ${itemCount} piece${itemCount !== 1 ? "s" : ""} in ${scope}. ${pricingLine} at ${BRAND}.`;
   const cleaned = raw.replace(/\s+/g, " ").trim();
   if (cleaned.length <= 165) return cleaned;
   return `${cleaned.slice(0, 162)}…`;
 }
 
 export function buildCatalogBaseDescription(): string {
-  return `Buy gold, silver and diamond jewellery with live rates and GST-inclusive prices. ${BRAND} — online catalogue India.`;
+  return `Buy gold, silver, diamond and gifting items with transparent GST-inclusive prices. ${BRAND} — online catalogue India.`;
 }
 
 export function metadataKeywordsForPillar(
@@ -45,7 +53,9 @@ export function metadataKeywordsForPillar(
         ? ["silver jewellery", "925 silver", "sterling silver jewellery India"]
         : metalLabel === "Diamond"
           ? ["diamond jewellery", "diamond jewellery online"]
-          : [];
+          : metalLabel === "Gifting"
+            ? ["gifting", "gift jewellery", "fixed price gifts"]
+            : [];
   const names = [catName, subName].filter(Boolean) as string[];
   return [...new Set([...metalKw, ...names, BRAND, "GST inclusive", "live rates"])];
 }

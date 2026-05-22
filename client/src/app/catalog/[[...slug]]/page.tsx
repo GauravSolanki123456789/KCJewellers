@@ -35,6 +35,7 @@ export async function generateMetadata({
         "gold jewellery",
         "silver jewellery",
         "diamond jewellery",
+        "gifting",
         BRAND,
         "India",
         "GST",

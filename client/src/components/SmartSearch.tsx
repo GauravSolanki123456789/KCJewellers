@@ -22,6 +22,8 @@ import {
   catalogAudienceLabel,
   catalogProductTypeLabel,
   CATALOG_DISCOVERY_CHIPS,
+  isCatalogMetalKey,
+  type CatalogMetalKey,
 } from "@/lib/catalog-retail-tags";
 import axios from "@/lib/axios";
 import {
@@ -71,11 +73,11 @@ function browseHint(row: SearchBrowseRecord): string {
   return parts.join(" · ");
 }
 
-function inferMetalFromPathname(pathname: string): "gold" | "silver" | "diamond" {
+function inferMetalFromPathname(pathname: string): CatalogMetalKey {
   const parts = pathname.replace(/\/$/, "").split("/");
   const idx = parts.indexOf("catalog");
   const m = idx >= 0 ? parts[idx + 1]?.toLowerCase() : "";
-  if (m === "gold" || m === "silver" || m === "diamond") return m;
+  if (m && isCatalogMetalKey(m)) return m;
   return "silver";
 }
 

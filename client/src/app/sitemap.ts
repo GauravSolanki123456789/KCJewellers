@@ -20,6 +20,7 @@ function matchesMetalForSitemap(
   if (m === "gold") return mt.startsWith("gold") || mt.includes("gold");
   if (m === "silver") return mt.startsWith("silver") || mt.includes("silver");
   if (m === "diamond") return mt.startsWith("diamond") || mt.includes("diamond");
+  if (m === "gifting") return mt.startsWith("gifting") || mt.includes("gifting");
   return false;
 }
 
@@ -28,7 +29,7 @@ async function catalogPillarEntries(
 ): Promise<MetadataRoute.Sitemap> {
   const categories = await fetchCatalogJson();
   const now = new Date();
-  const metals = ["gold", "silver", "diamond"] as const;
+  const metals = ["gold", "silver", "diamond", "gifting"] as const;
   const out: MetadataRoute.Sitemap = [];
   const seen = new Set<string>();
   for (const cat of categories) {

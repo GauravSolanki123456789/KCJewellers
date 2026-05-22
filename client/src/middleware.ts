@@ -39,7 +39,7 @@ export function middleware(request: NextRequest) {
     if (
       style &&
       sku &&
-      (metalRaw === "gold" || metalRaw === "silver" || metalRaw === "diamond")
+      (metalRaw === "gold" || metalRaw === "silver" || metalRaw === "diamond" || metalRaw === "gifting")
     ) {
       const url = request.nextUrl.clone();
       url.pathname = `/catalog/${encodeURIComponent(metalRaw)}/${encodeURIComponent(style)}/${encodeURIComponent(sku)}`;

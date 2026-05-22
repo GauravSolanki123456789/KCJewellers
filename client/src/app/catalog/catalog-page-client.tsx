@@ -16,9 +16,10 @@ import {
   GoldJewelleryRingIcon,
   SilverMoonMetalIcon,
   DiamondJewelleryIcon,
+  GiftingJewelleryIcon,
 } from '@/components/icons/metal-tab-icons'
 import DualRangeSlider from '@/components/DualRangeSlider'
-import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { calculateBreakdown, isFixedPriceCatalogItem, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import {
   CATALOG_PATH,
@@ -52,8 +53,10 @@ import {
   CATALOG_SHOP_FOR_TABS,
   catalogProductTypeLabel,
   catalogPathWithRetailQuery,
+  clampCatalogRetailFilters,
   collectAvailableProductTypes,
   filterCatalogTreeByRetail,
+  isCatalogMetalKey,
   parseCatalogRetailSearchParams,
   resolveRetailCatalogSelection,
   isSelectionValidInRetailTree,
@@ -89,6 +92,7 @@ const METAL_TABS = [
   { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
   { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
   { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
+  { key: 'gifting', label: 'Gifting', icon: GiftingJewelleryIcon },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']
@@ -252,7 +256,7 @@ function metalKeyFromCatalogPathname(pathname: string): MetalKey | null {
       : pathname.slice(CATALOG_PATH.length).replace(/^\//, '')
   if (!rest) return null
   const seg = rest.split('/').filter(Boolean)[0]?.toLowerCase()
-  if (seg === 'gold' || seg === 'silver' || seg === 'diamond') return seg
+  if (seg && isCatalogMetalKey(seg)) return seg
   return null
 }
 
@@ -299,6 +303,8 @@ export default function CatalogPageClient() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const urlShopForParam = searchParams.get('shop_for')
+  const urlProductTypeParam = searchParams.get('product_type')
   const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing, retailBrowseEnabled } =
     useCatalogData()
   const auth = useAuth()
@@ -391,7 +397,7 @@ export default function CatalogPageClient() {
 
   const applyPathSegments = useCallback((parsed: ParsedCatalogPath, cats: Category[]) => {
     const metalParam = parsed.metal
-    if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
+    if (isCatalogMetalKey(metalParam)) {
       setSelectedMetal(metalParam)
     }
     const styleSlug = parsed.styleSlug.toLowerCase()
@@ -459,7 +465,7 @@ export default function CatalogPageClient() {
     const applyUrlQuery = () => {
       const u = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
       const metalParam = u.get('metal')?.toLowerCase()?.trim() || ''
-      if (metalParam === 'gold' || metalParam === 'silver' || metalParam === 'diamond') {
+      if (isCatalogMetalKey(metalParam)) {
         setSelectedMetal(metalParam)
       }
       const { shopFor, productType } = parseCatalogRetailSearchParams(u)
@@ -684,13 +690,25 @@ export default function CatalogPageClient() {
     }
   }, [showRetailBrowse])
 
-  /** Drop product-type chip when it no longer applies to the current shop-for + metal. */
+  /** Drop product-type chip when it no longer applies (UI shop-for change — URL sync handles deep links). */
   useEffect(() => {
-    if (selectedProductType === 'all') return
-    if (!availableProductTypes.includes(selectedProductType)) {
-      setSelectedProductType('all')
+    if (!catalogHydrated || selectedProductType === 'all') return
+    if (!showRetailBrowse || selectedShopFor === 'all') return
+    const clamped = clampCatalogRetailFilters(
+      metalFilteredCategories,
+      selectedShopFor,
+      selectedProductType,
+    )
+    if (clamped.productType !== selectedProductType) {
+      setSelectedProductType(clamped.productType)
     }
-  }, [availableProductTypes, selectedProductType])
+  }, [
+    catalogHydrated,
+    showRetailBrowse,
+    selectedShopFor,
+    selectedProductType,
+    metalFilteredCategories,
+  ])
 
   const activeStyle = useMemo(
     () => filteredCategories.find((c) => c.id === activeStyleId) ?? null,
@@ -772,10 +790,14 @@ export default function CatalogPageClient() {
 
   const sliderFilteredProducts = useMemo(() => {
     let list = rawProducts
-    list = list.filter((p) => {
-      const w = p.net_weight ?? p.net_wt ?? p.weight ?? 0
-      return w >= weightLow && w <= weightHigh
-    })
+    const skipWeightFilter = selectedMetal === 'gifting'
+    if (!skipWeightFilter) {
+      list = list.filter((p) => {
+        if (isFixedPriceCatalogItem(p)) return true
+        const w = p.net_weight ?? p.net_wt ?? p.weight ?? 0
+        return w >= weightLow && w <= weightHigh
+      })
+    }
     list = list.filter((p) => {
       const b = calculateBreakdown(
         p,
@@ -786,7 +808,7 @@ export default function CatalogPageClient() {
       return b.total >= priceLow && b.total <= priceHigh
     })
     return list
-  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing])
+  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing, selectedMetal])
 
   const products = useMemo(() => {
     if (!hasDesignGroupFilter || activeDesignGroup === 'all') return sliderFilteredProducts
@@ -906,9 +928,11 @@ export default function CatalogPageClient() {
     scrollCatalogNavActiveIntoView,
   ])
 
+  const isGiftingCatalog = selectedMetal === 'gifting'
+
   const hasActiveFilters =
-    weightLow > weightBounds[0] ||
-    weightHigh < weightBounds[1] ||
+    (!isGiftingCatalog &&
+      (weightLow > weightBounds[0] || weightHigh < weightBounds[1])) ||
     priceLow > priceBounds[0] ||
     priceHigh < priceBounds[1]
 
@@ -1025,14 +1049,25 @@ export default function CatalogPageClient() {
 
     if (retailFiltersFromUiRef.current) {
       retailFiltersFromUiRef.current = false
-      shopFor = selectedShopFor
-      productType = selectedProductType
+      const clamped = clampCatalogRetailFilters(
+        metalFilteredCategories,
+        selectedShopFor,
+        selectedProductType,
+      )
+      shopFor = clamped.shopFor
+      productType = clamped.productType
     } else if (urlHasRetail) {
-      shopFor = urlRetail.shopFor
-      productType = urlRetail.productType
-      if (shopFor !== selectedShopFor) setSelectedShopFor(shopFor)
-      if (productType !== selectedProductType) setSelectedProductType(productType)
+      const clamped = clampCatalogRetailFilters(
+        metalFilteredCategories,
+        urlRetail.shopFor,
+        urlRetail.productType,
+      )
+      shopFor = clamped.shopFor
+      productType = clamped.productType
     }
+
+    if (shopFor !== selectedShopFor) setSelectedShopFor(shopFor)
+    if (productType !== selectedProductType) setSelectedProductType(productType)
 
     const pathMetal = metalKeyFromCatalogPathname(pathname)
     const effectiveMetal = pathMetal ?? selectedMetal
@@ -1103,7 +1138,8 @@ export default function CatalogPageClient() {
     showRetailBrowse,
     selectedShopFor,
     selectedProductType,
-    searchParams,
+    urlShopForParam,
+    urlProductTypeParam,
     metalFilteredCategories,
   ])
 
@@ -1231,9 +1267,9 @@ export default function CatalogPageClient() {
             : 'pb-[calc(7rem+env(safe-area-inset-bottom,0px))]'
         }`}
       >
-        {/* Metal Type Tabs — touch-friendly; labels must not truncate (was blocking Diamond taps on narrow screens). */}
+        {/* Metal Type Tabs — scroll on narrow screens so all four tabs stay tappable */}
         <div className="flex justify-center mb-4 px-1">
-          <div className="inline-flex w-full max-w-xl sm:max-w-none sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg">
+          <div className="inline-flex w-full max-w-2xl p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg overflow-x-auto scrollbar-hide kc-scroll-contain sm:max-w-none sm:w-auto">
             {METAL_TABS.map(({ key, label, icon: Icon }) => {
               const isActive = selectedMetal === key
               return (
@@ -1241,7 +1277,7 @@ export default function CatalogPageClient() {
                   key={key}
                   type="button"
                   onClick={() => setSelectedMetal(key)}
-                  className={`relative z-10 flex-1 sm:flex-initial flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-2 sm:px-5 py-2.5 sm:py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 whitespace-nowrap ${
+                  className={`relative z-10 flex-none flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-w-[4.25rem] sm:min-w-0 px-2.5 sm:px-4 py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 whitespace-nowrap snap-center ${
                     isActive
                       ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
@@ -1522,17 +1558,23 @@ export default function CatalogPageClient() {
             {/* Filters — min height reduces layout jump when collection changes */}
             <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-5 min-h-[260px]">
               <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Filters</h3>
-              <DualRangeSlider
-                min={weightBounds[0]}
-                max={weightBounds[1]}
-                low={weightLow}
-                high={weightHigh}
-                onLowChange={setWeightLow}
-                onHighChange={setWeightHigh}
-                step={0.5}
-                label="Weight (gm)"
-                formatValue={(v) => `${v} gm`}
-              />
+              {!isGiftingCatalog ? (
+                <DualRangeSlider
+                  min={weightBounds[0]}
+                  max={weightBounds[1]}
+                  low={weightLow}
+                  high={weightHigh}
+                  onLowChange={setWeightLow}
+                  onHighChange={setWeightHigh}
+                  step={0.5}
+                  label="Weight (gm)"
+                  formatValue={(v) => `${v} gm`}
+                />
+              ) : (
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Gifting items use fixed prices — filter by price only.
+                </p>
+              )}
               <DualRangeSlider
                 min={priceBounds[0]}
                 max={priceBounds[1]}
@@ -1734,17 +1776,23 @@ export default function CatalogPageClient() {
           >
             {/* Mobile filters */}
             <div className="lg:hidden mb-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-4">
-              <DualRangeSlider
-                min={weightBounds[0]}
-                max={weightBounds[1]}
-                low={weightLow}
-                high={weightHigh}
-                onLowChange={setWeightLow}
-                onHighChange={setWeightHigh}
-                step={0.5}
-                label="Weight (gm)"
-                formatValue={(v) => `${v} gm`}
-              />
+              {!isGiftingCatalog ? (
+                <DualRangeSlider
+                  min={weightBounds[0]}
+                  max={weightBounds[1]}
+                  low={weightLow}
+                  high={weightHigh}
+                  onLowChange={setWeightLow}
+                  onHighChange={setWeightHigh}
+                  step={0.5}
+                  label="Weight (gm)"
+                  formatValue={(v) => `${v} gm`}
+                />
+              ) : (
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Gifting items use fixed prices — filter by price only.
+                </p>
+              )}
               <DualRangeSlider
                 min={priceBounds[0]}
                 max={priceBounds[1]}

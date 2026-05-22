@@ -1,9 +1,17 @@
-import { calculateBreakdown, type Item, type WholesalePricingInput } from '@/lib/pricing'
+import {
+  CATALOG_METAL_KEYS,
+  type CatalogMetalKey,
+} from '@/lib/catalog-retail-tags'
+import {
+  calculateBreakdown,
+  isFixedPriceCatalogItem,
+  type Item,
+  type WholesalePricingInput,
+} from '@/lib/pricing'
 
-/** Metal tab keys — match `metal_type` filtering on the catalogue (see METAL_TABS in catalog-page-client). */
-export type CatalogMetalKey = 'gold' | 'silver' | 'diamond'
+export type { CatalogMetalKey }
 
-const METAL_ORDER: CatalogMetalKey[] = ['gold', 'silver', 'diamond']
+const METAL_ORDER: CatalogMetalKey[] = [...CATALOG_METAL_KEYS]
 
 /**
  * First metal tab that has at least one product (e.g. skip empty Gold → land on Silver).
@@ -89,6 +97,7 @@ export function productMatchesMetal(product: Item, metal: CatalogMetalKey): bool
   if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
   if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
   if (metal === 'diamond') return m.startsWith('diamond') || m.includes('diamond')
+  if (metal === 'gifting') return m.startsWith('gifting') || m.includes('gifting')
   return false
 }
 
@@ -130,9 +139,11 @@ export function productPassesCatalogFilters(
   wholesale?: WholesalePricingInput | null,
 ): boolean {
   if (!productMatchesMetal(product, metal)) return false
-  const w = product.net_weight ?? product.net_wt ?? product.weight ?? 0
-  const wt = Number(w) || 0
-  if (wt < weightLow || wt > weightHigh) return false
+  if (!isFixedPriceCatalogItem(product)) {
+    const w = product.net_weight ?? product.net_wt ?? product.weight ?? 0
+    const wt = Number(w) || 0
+    if (wt < weightLow || wt > weightHigh) return false
+  }
   const b = calculateBreakdown(
     product,
     rates,

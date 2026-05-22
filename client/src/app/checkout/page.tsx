@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ChevronLeft, Wallet, Sparkles, Info, Tag, X, CheckCircle2, Landmark, BookMarked, MessageCircle } from 'lucide-react'
 import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
-import { isDiamondItem } from '@/lib/pricing'
+import { isFixedPriceCatalogItem } from '@/lib/pricing'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CATALOG_PATH, CHECKOUT_PATH } from '@/lib/routes'
@@ -111,10 +111,10 @@ function CheckoutContent() {
     }
   }, [auth.isAuthenticated, auth.hasChecked, items.length, openLoginModal, isWholesaleCheckout])
 
-  const hasMetalItems = items.some((ci) => !isDiamondItem(ci.item))
+  const hasMetalItems = items.some((ci) => !isFixedPriceCatalogItem(ci.item))
   const canProceedRates = !hasMetalItems || ratesReady
   const hasZeroMetalCost = hasMetalItems && items.some((ci) => {
-    if (isDiamondItem(ci.item)) return false
+    if (isFixedPriceCatalogItem(ci.item)) return false
     const b = (ci.breakdown || {}) as { metal?: number }
     return (b.metal || 0) <= 0
   })
@@ -278,7 +278,7 @@ function CheckoutContent() {
 
   const handleWhatsAppOrder = useCallback(() => {
     if (items.length === 0) return
-    if (payDisabledRates && items.some((ci) => !isDiamondItem(ci.item))) {
+    if (payDisabledRates && items.some((ci) => !isFixedPriceCatalogItem(ci.item))) {
       alert('Prices are still loading or unavailable for some items. Wait and try again.')
       return
     }
