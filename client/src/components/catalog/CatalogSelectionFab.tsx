@@ -27,9 +27,10 @@ export default function CatalogSelectionFab({ onGenerateClick }: Props) {
         <button
           type="button"
           onClick={onGenerateClick}
-          className="shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-500 active:scale-[0.98] md:px-4 md:text-sm"
+          className="shrink-0 rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-500 active:scale-[0.98] min-h-[44px] md:px-4 md:py-2 md:text-sm md:min-h-0"
         >
-          Generate WhatsApp Catalog
+          <span className="sm:hidden">Generate Catalog</span>
+          <span className="hidden sm:inline">Generate WhatsApp Catalog</span>
         </button>
       </div>
     </div>

@@ -37,7 +37,12 @@ import {
   type SharedCatalogPickLineForWhatsApp,
 } from '@/lib/cart-order-whatsapp'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
-import { sharePdfBlob } from '@/lib/pdf-share'
+import {
+  sharePdfBlob,
+  shouldPresentPdfShareSheet,
+  type PdfShareSheetPayload,
+} from '@/lib/pdf-share'
+import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import SharedCatalogImageLightbox, {
   SharedCatalogZoomHint,
   type SharedCatalogLightboxSlide,
@@ -92,6 +97,8 @@ export default function SharedCatalogClient({
   /** key → quantity (only keys present are shortlisted) */
   const [selections, setSelections] = useState<Map<string, number>>(() => new Map())
   const [pdfBusy, setPdfBusy] = useState(false)
+  const [pdfShareOpen, setPdfShareOpen] = useState(false)
+  const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
 
@@ -267,12 +274,27 @@ export default function SharedCatalogClient({
       const fallbackText = `Hi ${brandLabel},\nI'm sharing my shortlist from your shared catalogue as PDF (${filename}). Please see the attachment.\n\nCatalogue link:\n${catalogueUrl}`
       const fallbackHref = wa ? buildWhatsAppOrderUrl(wa, fallbackText) : null
 
-      await sharePdfBlob(blob, filename, {
+      const sheetPayload: PdfShareSheetPayload = {
+        blob,
+        filename,
         title: `${brandLabel} — shortlist PDF`,
         text: fallbackText,
         fallbackWhatsAppText: fallbackText,
         fallbackWhatsAppHref: fallbackHref,
-      })
+        brandLabel,
+      }
+
+      if (shouldPresentPdfShareSheet()) {
+        setPdfSharePayload(sheetPayload)
+        setPdfShareOpen(true)
+      } else {
+        await sharePdfBlob(blob, filename, {
+          title: sheetPayload.title,
+          text: sheetPayload.text,
+          fallbackWhatsAppText: sheetPayload.fallbackWhatsAppText,
+          fallbackWhatsAppHref: sheetPayload.fallbackWhatsAppHref,
+        })
+      }
     } catch (e) {
       console.error(e)
       alert('Could not create the PDF. Check your connection and try again.')
@@ -660,6 +682,12 @@ export default function SharedCatalogClient({
         onOpenChange={setLightboxOpen}
         slides={lightboxSlides}
         initialIndex={lightboxIndex}
+      />
+
+      <PdfShareSheet
+        open={pdfShareOpen}
+        onOpenChange={setPdfShareOpen}
+        payload={pdfSharePayload}
       />
     </div>
   )

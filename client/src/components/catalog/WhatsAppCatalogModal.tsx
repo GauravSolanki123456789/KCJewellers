@@ -19,7 +19,8 @@ import { createSharedCatalog } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
 import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
-import { shareCatalogPdfBlob } from '@/lib/pdf-share'
+import { shareCatalogPdfBlob, shouldPresentPdfShareSheet, type PdfShareSheetPayload } from '@/lib/pdf-share'
+import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 
@@ -73,6 +74,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [pdfShareOpen, setPdfShareOpen] = useState(false)
+  const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
 
   const expiresAtIso = useMemo(() => {
     const h = EXPIRY_OPTIONS.find((o) => o.hours === expiryHours)?.hours ?? 24
@@ -164,9 +167,24 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             .replace(/^-+|-+$/g, '')
             .slice(0, 48) || 'catalog'
         const filename = `${slug}-${new Date().toISOString().slice(0, 10)}.pdf`
-        await shareCatalogPdfBlob(blob, filename)
+        const pdfText = `${shareBrandLabel} — catalogue PDF`
+        const sheetPayload: PdfShareSheetPayload = {
+          blob,
+          filename,
+          title: pdfText,
+          text: pdfText,
+          fallbackWhatsAppText: `${shareBrandLabel} — catalogue PDF (${filename}).`,
+          brandLabel: shareBrandLabel,
+        }
         clearSelection()
-        resetAndClose()
+        if (shouldPresentPdfShareSheet()) {
+          setPdfSharePayload(sheetPayload)
+          setPdfShareOpen(true)
+          onClose()
+        } else {
+          await shareCatalogPdfBlob(blob, filename)
+          resetAndClose()
+        }
         return
       }
 
@@ -222,9 +240,20 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     return buildWhatsAppShareLink(text)
   }, [shareUrl, shareBrandLabel])
 
-  if (!open) return null
+  if (!open) {
+    return (
+      <>
+        <PdfShareSheet
+          open={pdfShareOpen}
+          onOpenChange={setPdfShareOpen}
+          payload={pdfSharePayload}
+        />
+      </>
+    )
+  }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4"
       role="dialog"
@@ -396,5 +425,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         </div>
       </div>
     </div>
+    <PdfShareSheet
+      open={pdfShareOpen}
+      onOpenChange={setPdfShareOpen}
+      payload={pdfSharePayload}
+    />
+    </>
   )
 }

@@ -40,9 +40,18 @@ const FUSE_LIMIT = 8;
 const BROWSE_LIMIT = 6;
 
 function pathsMatch(a: string, b: string): boolean {
-  const x = (a || "").replace(/\/$/, "") || "/";
-  const y = (b || "").replace(/\/$/, "") || "/";
-  return x === y;
+  try {
+    const base = typeof window !== "undefined" ? window.location.origin : "http://local";
+    const ax = new URL(a, base);
+    const bx = new URL(b, base);
+    const x = `${ax.pathname.replace(/\/$/, "") || "/"}${ax.search}`;
+    const y = `${bx.pathname.replace(/\/$/, "") || "/"}${bx.search}`;
+    return x === y;
+  } catch {
+    const x = (a || "").replace(/\/$/, "") || "/";
+    const y = (b || "").replace(/\/$/, "") || "/";
+    return x === y;
+  }
 }
 
 function useDebouncedValue<T>(value: T, delay: number): T {
@@ -187,7 +196,11 @@ export default function SmartSearch({
 
   const goCatalogHref = useCallback(
     (href: string) => {
-      if (pathsMatch(pathname, href)) {
+      const current =
+        typeof window !== "undefined"
+          ? window.location.pathname + window.location.search
+          : pathname;
+      if (pathsMatch(current, href)) {
         setOpen(false);
         setRaw("");
         inputRef.current?.blur();

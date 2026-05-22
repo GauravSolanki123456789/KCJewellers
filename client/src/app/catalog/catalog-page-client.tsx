@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { flushSync } from 'react-dom'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import ProductCard from '@/components/ProductCard'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
 import WhatsAppContactLink from '@/components/WhatsAppContactLink'
@@ -227,7 +227,7 @@ function BulkSelectCheckbox({
     if (ref.current) ref.current.indeterminate = someSelected && !allSelected
   }, [someSelected, allSelected])
   return (
-    <span className="inline-flex shrink-0 items-center justify-center p-1.5 -m-1 sm:p-0 sm:m-0 touch-manipulation">
+    <span className="inline-flex size-11 shrink-0 touch-manipulation items-center justify-center sm:size-8">
       <input
         ref={ref}
         type="checkbox"
@@ -238,10 +238,22 @@ function BulkSelectCheckbox({
         }}
         onClick={(e) => e.stopPropagation()}
         aria-label={ariaLabel}
-        className="h-5 w-5 shrink-0 cursor-pointer rounded border-slate-600 bg-slate-900 accent-amber-500 sm:h-4 sm:w-4"
+        className="size-5 shrink-0 cursor-pointer rounded border-slate-600 bg-slate-900 accent-amber-500 sm:size-4"
       />
     </span>
   )
+}
+
+function metalKeyFromCatalogPathname(pathname: string): MetalKey | null {
+  if (!pathname.startsWith(CATALOG_PATH + '/') && pathname !== CATALOG_PATH) return null
+  const rest =
+    pathname === CATALOG_PATH
+      ? ''
+      : pathname.slice(CATALOG_PATH.length).replace(/^\//, '')
+  if (!rest) return null
+  const seg = rest.split('/').filter(Boolean)[0]?.toLowerCase()
+  if (seg === 'gold' || seg === 'silver' || seg === 'diamond') return seg
+  return null
 }
 
 function pathSegmentsFromPathname(pathname: string): ParsedCatalogPath | null {
@@ -286,6 +298,7 @@ function selectionMatchesPath(
 export default function CatalogPageClient() {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing, retailBrowseEnabled } =
     useCatalogData()
   const auth = useAuth()
@@ -327,6 +340,8 @@ export default function CatalogPageClient() {
   /** Retail browse: Women / Men / Kids — only when admin enables + not B2B reseller view. */
   const [selectedShopFor, setSelectedShopFor] = useState<CatalogShopFor>('all')
   const [selectedProductType, setSelectedProductType] = useState<CatalogProductType | 'all'>('all')
+  /** True when shop-for / product-type pills were clicked — prefer state over URL for that sync pass. */
+  const retailFiltersFromUiRef = useRef(false)
   /** False until initial load finishes — blocks URL bar sync from forcing ?metal=gold before session/URL apply. */
   const [catalogHydrated, setCatalogHydrated] = useState(false)
 
@@ -1001,11 +1016,39 @@ export default function CatalogPageClient() {
       }
     }
 
-    if (filteredCategories.length === 0) return
+    const urlRetail = parseCatalogRetailSearchParams(searchParams)
+    const urlHasRetail =
+      urlRetail.shopFor !== 'all' || urlRetail.productType !== 'all'
+
+    let shopFor = selectedShopFor
+    let productType = selectedProductType
+
+    if (retailFiltersFromUiRef.current) {
+      retailFiltersFromUiRef.current = false
+      shopFor = selectedShopFor
+      productType = selectedProductType
+    } else if (urlHasRetail) {
+      shopFor = urlRetail.shopFor
+      productType = urlRetail.productType
+      if (shopFor !== selectedShopFor) setSelectedShopFor(shopFor)
+      if (productType !== selectedProductType) setSelectedProductType(productType)
+    }
+
+    const pathMetal = metalKeyFromCatalogPathname(pathname)
+    const effectiveMetal = pathMetal ?? selectedMetal
+    if (pathMetal && pathMetal !== selectedMetal) {
+      setSelectedMetal(pathMetal)
+    }
+
+    const retailTree =
+      showRetailBrowse && (shopFor !== 'all' || productType !== 'all')
+        ? filterCatalogTreeByRetail(metalFilteredCategories, shopFor, productType)
+        : filteredCategories
+
+    if (retailTree.length === 0) return
 
     const retailActive =
-      showRetailBrowse &&
-      (selectedShopFor !== 'all' || selectedProductType !== 'all')
+      showRetailBrowse && (shopFor !== 'all' || productType !== 'all')
 
     let styleId = activeStyleId
     let skuId = activeSkuId
@@ -1013,19 +1056,19 @@ export default function CatalogPageClient() {
     if (retailActive) {
       const parsed = pathSegmentsFromPathname(pathname)
       const picked = resolveRetailCatalogSelection(
-        filteredCategories,
+        retailTree,
         activeStyleId,
         activeSkuId,
-        selectedProductType,
+        productType,
         parsed ? { styleSlug: parsed.styleSlug, skuSlug: parsed.skuSlug } : null,
       )
       if (!picked) return
       styleId = picked.styleId
       skuId = picked.skuId
     } else if (
-      !isSelectionValidInRetailTree(filteredCategories, activeStyleId, activeSkuId)
+      !isSelectionValidInRetailTree(retailTree, activeStyleId, activeSkuId)
     ) {
-      const first = filteredCategories[0]
+      const first = retailTree[0]
       styleId = first.id
       skuId = first.subcategories[0]?.id ?? null
     }
@@ -1035,15 +1078,15 @@ export default function CatalogPageClient() {
       setActiveSkuId(skuId)
     }
 
-    const style = filteredCategories.find((c) => c.id === styleId)
+    const style = retailTree.find((c) => c.id === styleId)
     const sub = style?.subcategories.find((s) => s.id === skuId)
     if (!style?.slug || !sub?.slug) return
 
-    const nextPath = buildCatalogSegmentPath(selectedMetal, style.slug, sub.slug)
+    const nextPath = buildCatalogSegmentPath(effectiveMetal, style.slug, sub.slug)
     const next = catalogPathWithRetailQuery(
       nextPath,
-      showRetailBrowse ? selectedShopFor : 'all',
-      showRetailBrowse ? selectedProductType : 'all',
+      showRetailBrowse ? shopFor : 'all',
+      showRetailBrowse ? productType : 'all',
     )
     const current = window.location.pathname + window.location.search
     if (current !== next) {
@@ -1060,6 +1103,8 @@ export default function CatalogPageClient() {
     showRetailBrowse,
     selectedShopFor,
     selectedProductType,
+    searchParams,
+    metalFilteredCategories,
   ])
 
   const catalogShareText = useMemo(() => {
@@ -1231,6 +1276,7 @@ export default function CatalogPageClient() {
                     key={key}
                     type="button"
                     onClick={() => {
+                      retailFiltersFromUiRef.current = true
                       setSelectedShopFor(key)
                       if (key === 'all') setSelectedProductType('all')
                     }}
@@ -1249,7 +1295,10 @@ export default function CatalogPageClient() {
               <div className="flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5 scrollbar-hide kc-scroll-contain">
                 <button
                   type="button"
-                  onClick={() => setSelectedProductType('all')}
+                  onClick={() => {
+                    retailFiltersFromUiRef.current = true
+                    setSelectedProductType('all')
+                  }}
                   className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition-colors sm:text-xs ${
                     selectedProductType === 'all'
                       ? 'bg-amber-500/20 text-amber-600 border border-amber-500/40 font-semibold'
@@ -1264,7 +1313,10 @@ export default function CatalogPageClient() {
                     <button
                       key={pt}
                       type="button"
-                      onClick={() => setSelectedProductType(pt)}
+                      onClick={() => {
+                        retailFiltersFromUiRef.current = true
+                        setSelectedProductType(pt)
+                      }}
                       className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition-colors sm:text-xs ${
                         isActive
                           ? 'bg-amber-500/20 text-amber-600 border border-amber-500/40 font-semibold'
@@ -1281,7 +1333,7 @@ export default function CatalogPageClient() {
         ) : null}
 
         {canUseCatalogBuilder && (
-          <div className="flex justify-center mb-4 px-1">
+          <div className="flex flex-col items-center gap-2 mb-4 px-1">
             <div className="flex w-full max-w-xl items-center justify-between gap-3 rounded-xl border border-slate-800/90 bg-slate-900/35 px-3 py-2 shadow-inner sm:justify-center sm:gap-6">
               <span className="text-xs font-medium text-slate-400 sm:text-sm">Catalog Builder</span>
               <button
@@ -1302,6 +1354,12 @@ export default function CatalogPageClient() {
                 />
               </button>
             </div>
+            {catalogBuilderMode ? (
+              <p className="w-full max-w-xl text-center text-[11px] text-slate-500 sm:text-xs">
+                Tap any product card to select · use{' '}
+                <span className="font-medium text-slate-400">View</span> for details
+              </p>
+            ) : null}
           </div>
         )}
 
