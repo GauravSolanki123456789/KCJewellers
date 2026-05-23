@@ -926,6 +926,8 @@ export default function CatalogPageClient() {
   const hasMoreGridProducts = products.length > gridShowCount
 
   const sidebarNavRef = useRef<HTMLElement | null>(null)
+  /** Scroll target when metal / style / SKU changes — "Catalogue" row (not page top). */
+  const catalogBrowseAnchorRef = useRef<HTMLDivElement | null>(null)
 
   /** Keep the active style/SKU visible inside scrollable nav strips — never scroll the page. */
   const scrollCatalogNavActiveIntoView = useCallback(
@@ -1061,7 +1063,7 @@ export default function CatalogPageClient() {
     [catalogProductSurfaceKey, activeDesignGroup],
   )
 
-  /** When user switches metal / style / SKU, return to top so the new catalogue starts visible. */
+  /** When user switches metal / style / SKU, scroll to the Catalogue section (not page top). */
   const prevCatalogSurfaceKeyRef = useRef<string | null>(null)
   useLayoutEffect(() => {
     if (!catalogHydrated || typeof window === 'undefined') return
@@ -1069,7 +1071,20 @@ export default function CatalogPageClient() {
     prevCatalogSurfaceKeyRef.current = catalogProductSurfaceKey
     if (prev === null || prev === catalogProductSurfaceKey) return
     if (scrollToBarcode) return
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+
+    const anchor = catalogBrowseAnchorRef.current
+    if (!anchor) return
+
+    const navSpacer = document.querySelector('[data-kc-nav-spacer]')
+    const headerOffset = navSpacer?.getBoundingClientRect().height ?? 48
+    const anchorTop = anchor.getBoundingClientRect().top + window.scrollY
+    const targetTop = Math.max(0, anchorTop - headerOffset - 6)
+    const scrollY = window.scrollY
+
+    // Only scroll up when the user was browsing below the Catalogue header (e.g. product grid).
+    if (scrollY > targetTop + 20) {
+      window.scrollTo({ top: targetTop, left: 0, behavior: 'auto' })
+    }
   }, [catalogProductSurfaceKey, catalogHydrated, scrollToBarcode])
 
   /** Resolve selection + sync URL (path + ?shop_for= / ?product_type=) without page scroll. */
@@ -1467,7 +1482,10 @@ export default function CatalogPageClient() {
         )}
 
         {/* Contact = business chat; Share = wa.me/?text= catalogue link (distinct icons) */}
-        <div className="flex items-center justify-between gap-2 mb-4">
+        <div
+          ref={catalogBrowseAnchorRef}
+          className="mb-4 flex scroll-mt-14 items-center justify-between gap-2 md:scroll-mt-[6.75rem]"
+        >
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <LayoutGrid className="size-5 shrink-0 text-amber-500" />
             <h1 className="truncate text-base font-semibold text-slate-200 sm:text-lg">

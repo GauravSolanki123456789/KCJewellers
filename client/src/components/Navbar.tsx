@@ -358,7 +358,7 @@ export default function Navbar() {
 
       {/* Offset fixed header (bottom nav spacing is handled by .kc-pb-mobile-nav) */}
       {/* md: primary row (3.375rem) + nav border + py-2 + h-9 pill row */}
-      <div className="h-12 shrink-0 md:h-[6.6875rem]" aria-hidden />
+      <div className="h-12 shrink-0 md:h-[6.6875rem]" data-kc-nav-spacer aria-hidden />
     </>
   )
 }
