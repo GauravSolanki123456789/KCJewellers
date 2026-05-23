@@ -581,7 +581,7 @@ export default function WholesaleOrderClient() {
                   : 'border-slate-700/80 bg-slate-900/80 text-slate-400 hover:border-slate-600 hover:text-slate-200',
               )}
             >
-              <Icon active={metal === key} className="shrink-0" aria-hidden />
+              <Icon className="size-3.5 md:size-4" aria-hidden />
               {label}
             </button>
           ))}

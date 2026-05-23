@@ -13,10 +13,8 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import {
-  GoldJewelleryRingIcon,
-  SilverMoonMetalIcon,
-  DiamondJewelleryIcon,
-  GiftingJewelleryIcon,
+  MetalTabFavicon,
+  type MetalTabFaviconKey,
 } from '@/components/icons/metal-tab-icons'
 import DualRangeSlider from '@/components/DualRangeSlider'
 import { calculateBreakdown, isFixedPriceCatalogItem, type Item } from '@/lib/pricing'
@@ -89,10 +87,10 @@ const CATALOG_PRODUCTS_PAGE_SIZE = 36
 
 /** Metal types for catalog navigation — values match backend metal_type (lowercase) */
 const METAL_TABS = [
-  { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
-  { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
-  { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
-  { key: 'gifting', label: 'Gifting', icon: GiftingJewelleryIcon },
+  { key: 'gold', label: 'Gold' },
+  { key: 'silver', label: 'Silver' },
+  { key: 'diamond', label: 'Diamond' },
+  { key: 'gifting', label: 'Gifting' },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']
@@ -1054,25 +1052,6 @@ export default function CatalogPageClient() {
     [selectedMetal, activeStyleId, activeSkuId],
   )
 
-  /** After user switches catalogue (metal / style / SKU), scroll to top so products are visible. */
-  const prevCatalogSurfaceRef = useRef<string | null>(null)
-  const catalogScrollResetReadyRef = useRef(false)
-
-  useLayoutEffect(() => {
-    if (!catalogHydrated || !hasRestoredFromStorage.current) return
-    if (scrollToBarcode) return
-    const key = catalogProductSurfaceKey
-    if (!catalogScrollResetReadyRef.current) {
-      catalogScrollResetReadyRef.current = true
-      prevCatalogSurfaceRef.current = key
-      return
-    }
-    if (prevCatalogSurfaceRef.current !== key) {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
-    }
-    prevCatalogSurfaceRef.current = key
-  }, [catalogProductSurfaceKey, catalogHydrated, scrollToBarcode])
-
   /**
    * Key for the animated product block: subcategory (sku id) + optional design_group filter.
    * `design_group` aligns with the ERP/catalog field; `activeDesignGroup` is 'all' or that key.
@@ -1081,6 +1060,17 @@ export default function CatalogPageClient() {
     () => `${catalogProductSurfaceKey}:${activeDesignGroup}`,
     [catalogProductSurfaceKey, activeDesignGroup],
   )
+
+  /** When user switches metal / style / SKU, return to top so the new catalogue starts visible. */
+  const prevCatalogSurfaceKeyRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    if (!catalogHydrated || typeof window === 'undefined') return
+    const prev = prevCatalogSurfaceKeyRef.current
+    prevCatalogSurfaceKeyRef.current = catalogProductSurfaceKey
+    if (prev === null || prev === catalogProductSurfaceKey) return
+    if (scrollToBarcode) return
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [catalogProductSurfaceKey, catalogHydrated, scrollToBarcode])
 
   /** Resolve selection + sync URL (path + ?shop_for= / ?product_type=) without page scroll. */
   useLayoutEffect(() => {
@@ -1345,7 +1335,7 @@ export default function CatalogPageClient() {
             role="tablist"
             aria-label="Catalogue metal type"
           >
-            {METAL_TABS.map(({ key, label, icon: Icon }) => {
+            {METAL_TABS.map(({ key, label }) => {
               const isActive = selectedMetal === key
               return (
                 <button
@@ -1360,7 +1350,7 @@ export default function CatalogPageClient() {
                       : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 active:bg-slate-800'
                   }`}
                 >
-                  <Icon active={isActive} className="shrink-0" aria-hidden />
+                  <MetalTabFavicon metal={key as MetalTabFaviconKey} active={isActive} />
                   <span>{label}</span>
                 </button>
               )

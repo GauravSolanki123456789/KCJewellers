@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { ScrollText, LockKeyhole, ReceiptIndianRupee, Truck } from "lucide-react";
 import {
   POLICY_PRIVACY_PATH,
   POLICY_REFUNDS_PATH,
@@ -14,10 +15,10 @@ import { useResellerBranding } from "@/context/ResellerBrandingContext";
 const YEAR = new Date().getFullYear();
 
 const policyLinks = [
-  { href: POLICY_TERMS_PATH, label: "Terms" },
-  { href: POLICY_PRIVACY_PATH, label: "Privacy" },
-  { href: POLICY_REFUNDS_PATH, label: "Refunds" },
-  { href: POLICY_SHIPPING_PATH, label: "Shipping" },
+  { href: POLICY_TERMS_PATH, label: "Terms", icon: ScrollText },
+  { href: POLICY_PRIVACY_PATH, label: "Privacy", icon: LockKeyhole },
+  { href: POLICY_REFUNDS_PATH, label: "Refunds", icon: ReceiptIndianRupee },
+  { href: POLICY_SHIPPING_PATH, label: "Shipping", icon: Truck },
 ] as const;
 
 export default function Footer() {
@@ -33,12 +34,13 @@ export default function Footer() {
       <div className="mx-auto max-w-6xl px-4 pt-4 pb-4 md:py-6 kc-pb-mobile-nav">
         <div className="hidden items-center justify-between gap-4 text-sm md:flex">
           <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-600">
-            {policyLinks.map(({ href, label }) => (
+            {policyLinks.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
-                className="transition-colors hover:text-amber-400/90"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-amber-400/90"
               >
+                <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
                 {label}
               </Link>
             ))}

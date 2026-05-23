@@ -1,163 +1,275 @@
 "use client";
 
-import { forwardRef, useId, type ReactNode, type SVGProps } from "react";
+import Image from "next/image";
+import { forwardRef, useId, type SVGProps } from "react";
 import { cn } from "@/lib/utils";
 
-type MetalTabIconProps = SVGProps<SVGSVGElement> & {
-  /** Active metal tab — favicon uses a lighter glyph on the amber pill. */
-  active?: boolean;
-};
+/** Favicon-style metal marks for catalogue tabs (public/icons/metal/*.svg). */
+export const METAL_TAB_FAVICONS = {
+  gold: "/icons/metal/gold.svg",
+  silver: "/icons/metal/silver.svg",
+  diamond: "/icons/metal/diamond.svg",
+  gifting: "/icons/metal/gifting.svg",
+} as const;
 
-function MetalTabFavicon({
-  active,
-  gradientClass,
-  children,
+export type MetalTabFaviconKey = keyof typeof METAL_TAB_FAVICONS;
+
+export function MetalTabFavicon({
+  metal,
+  active = false,
   className,
 }: {
+  metal: MetalTabFaviconKey | string;
   active?: boolean;
-  gradientClass: string;
-  children: ReactNode;
   className?: string;
 }) {
-  if (active) {
-    return (
-      <span
-        className={cn(
-          "inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-[5px] bg-white/20 ring-1 ring-white/25",
-          className,
-        )}
-        aria-hidden
-      >
-        {children}
-      </span>
-    );
-  }
+  const src = METAL_TAB_FAVICONS[metal as MetalTabFaviconKey];
+  if (!src) return null;
   return (
-    <span
+    <Image
+      src={src}
+      alt=""
+      width={20}
+      height={20}
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-gradient-to-br shadow-sm ring-1 ring-white/10",
-        gradientClass,
+        "size-5 shrink-0 object-contain",
+        active && "brightness-0 invert drop-shadow-sm",
         className,
       )}
       aria-hidden
-    >
-      {children}
-    </span>
+    />
   );
 }
 
-/** Gold — warm favicon badge with sparkle mark. */
-export const GoldJewelleryRingIcon = forwardRef<SVGSVGElement, MetalTabIconProps>(
-  function GoldJewelleryRingIcon({ className, active, ...props }, ref) {
-    const id = useId().replace(/:/g, "");
-    const gg = `${id}-gold`;
+type MetalTabIconProps = SVGProps<SVGSVGElement>;
 
-    return (
-      <MetalTabFavicon active={active} gradientClass="from-amber-300 via-amber-500 to-yellow-700">
-        <svg
-          ref={ref}
-          viewBox="0 0 16 16"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className={cn("size-3 text-white", className)}
-          aria-hidden
-          {...props}
-        >
-          <defs>
-            <linearGradient id={gg} x1="3" y1="2" x2="13" y2="14" gradientUnits="userSpaceOnUse">
-              <stop stopColor="currentColor" stopOpacity="0.85" />
-              <stop offset="1" stopColor="currentColor" stopOpacity="1" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M8 1.5 9.15 5.6 13.2 6.75 9.15 7.9 8 12 6.85 7.9 2.8 6.75 6.85 5.6z"
-            fill={`url(#${gg})`}
-          />
-          <circle cx="12.5" cy="3.2" r="0.65" fill="currentColor" opacity={0.9} />
-        </svg>
-      </MetalTabFavicon>
-    );
-  },
-);
+/**
+ * Metal tabs: Gold (sparkle + ring hint), Silver (crescent moon), Diamond (faceted gem).
+ * Gradients use currentColor so icons stay legible on amber (active) and slate (inactive).
+ */
+export const GoldJewelleryRingIcon = forwardRef<
+  SVGSVGElement,
+  MetalTabIconProps
+>(function GoldJewelleryRingIcon({ className, ...props }, ref) {
+  const id = useId().replace(/:/g, "");
+  const gg = `${id}-gold`;
 
-/** Silver — cool moon favicon. */
-export const SilverMoonMetalIcon = forwardRef<SVGSVGElement, MetalTabIconProps>(
-  function SilverMoonMetalIcon({ className, active, ...props }, ref) {
-    return (
-      <MetalTabFavicon active={active} gradientClass="from-slate-200 via-slate-400 to-slate-600">
-        <svg
-          ref={ref}
-          viewBox="0 0 16 16"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className={cn("size-3 text-white", className)}
-          aria-hidden
-          {...props}
-        >
-          <path
-            d="M13.2 8.3a5.5 5.5 0 1 1-5.8-5.8c.25-.01.38.28.25.49a3.7 3.7 0 0 0 5.1 5.1c.27-.17.65-.02.45.21Z"
-            fill="currentColor"
-            opacity={0.95}
-          />
-        </svg>
-      </MetalTabFavicon>
-    );
-  },
-);
+  return (
+    <svg
+      ref={ref}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("overflow-visible", className)}
+      aria-hidden
+      {...props}
+    >
+      <defs>
+        <linearGradient id={gg} x1="5" y1="3" x2="16" y2="19" gradientUnits="userSpaceOnUse">
+          <stop stopColor="currentColor" stopOpacity="0.32" />
+          <stop offset="0.45" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.58" />
+        </linearGradient>
+      </defs>
+      <ellipse
+        cx="12"
+        cy="18.85"
+        rx="5"
+        ry="1.28"
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinecap="round"
+        opacity={0.36}
+      />
+      <path
+        d="M12 3.2 13.72 8.42 19.05 10 13.72 11.58 12 16.8 10.28 11.58 4.95 10 10.28 8.42z"
+        fill={`url(#${gg})`}
+        stroke="currentColor"
+        strokeWidth="0.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 6.4 12.95 9.2 15.85 10 12.95 10.8 12 13.6 11.05 10.8 8.15 10 11.05 9.2z"
+        fill="currentColor"
+        opacity={0.22}
+      />
+      <path
+        d="M19.2 5.4 19.5 6.35 20.45 6.65 19.5 6.95 19.2 7.9 18.9 6.95 17.95 6.65 18.9 6.35z"
+        fill="currentColor"
+        opacity={0.52}
+      />
+      <path
+        d="M4.85 8.1 5.1 8.8 5.8 9.05 5.1 9.3 4.85 10 4.6 9.3 3.9 9.05 4.6 8.8z"
+        fill="currentColor"
+        opacity={0.42}
+      />
+    </svg>
+  );
+});
 
-/** Diamond — faceted gem favicon. */
-export const DiamondJewelleryIcon = forwardRef<SVGSVGElement, MetalTabIconProps>(
-  function DiamondJewelleryIcon({ className, active, ...props }, ref) {
-    return (
-      <MetalTabFavicon active={active} gradientClass="from-sky-300 via-cyan-400 to-indigo-600">
-        <svg
-          ref={ref}
-          viewBox="0 0 16 16"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className={cn("size-3 text-white", className)}
-          aria-hidden
-          {...props}
-        >
-          <path
-            d="M11.4 2.2a1.2 1.2 0 0 1 .96.48l1.8 2.4a1.2 1.2 0 0 1 .01 1.43l-4.8 6.6a1.2 1.2 0 0 1-1.95 0l-4.8-6.6a1.2 1.2 0 0 1 .01-1.43l1.8-2.4a1.2 1.2 0 0 1 .96-.48h5.01Z"
-            fill="currentColor"
-            opacity={0.92}
-          />
-          <path d="M7 2.2 5.3 6.2 8 13.5 10.7 6.2 9 2.2" stroke="currentColor" strokeWidth="0.35" opacity={0.45} />
-        </svg>
-      </MetalTabFavicon>
-    );
-  },
-);
+/** Crescent moon (Lucide moon silhouette), shaded for a gentle 3D read. */
+export const SilverMoonMetalIcon = forwardRef<
+  SVGSVGElement,
+  MetalTabIconProps
+>(function SilverMoonMetalIcon({ className, ...props }, ref) {
+  const id = useId().replace(/:/g, "");
+  const mg = `${id}-moon`;
 
-/** Gifting — gift box favicon. */
-export const GiftingJewelleryIcon = forwardRef<SVGSVGElement, MetalTabIconProps>(
-  function GiftingJewelleryIcon({ className, active, ...props }, ref) {
-    return (
-      <MetalTabFavicon active={active} gradientClass="from-rose-400 via-pink-500 to-rose-700">
-        <svg
-          ref={ref}
-          viewBox="0 0 16 16"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className={cn("size-3 text-white", className)}
-          aria-hidden
-          {...props}
-        >
-          <rect x="3" y="7.2" width="10" height="6.3" rx="0.8" fill="currentColor" opacity={0.92} />
-          <path d="M8 7.2v6.3" stroke="currentColor" strokeWidth="0.55" opacity={0.55} />
-          <path
-            d="M8 7.2c-1.45-1.85-3.2-2.1-4.1-.95-.75 1-.15 2.15 2.05 1.55 1.55-.45 2.05-1.05 2.05-1.05s.5.6 2.05 1.05c2.2.6 2.8-.55 2.05-1.55-.9-1.15-2.65-.9-4.1.95Z"
-            fill="currentColor"
-            opacity={0.75}
-          />
-          <path
-            d="M6.8 3.8c.4-.75 1.05-1.15 1.65-1 .45.1.75.45 1 1 .25-.55.55-.9 1-1 .6-.15 1.25.25 1.65 1 .55 1-.05 2.15-2.05 2.55-2-.4-2.6-1.55-2.05-2.55Z"
-            fill="currentColor"
-          />
-        </svg>
-      </MetalTabFavicon>
-    );
-  },
-);
+  return (
+    <svg
+      ref={ref}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("overflow-visible", className)}
+      aria-hidden
+      {...props}
+    >
+      <defs>
+        <linearGradient id={mg} x1="4" y1="4" x2="20" y2="20" gradientUnits="userSpaceOnUse">
+          <stop stopColor="currentColor" stopOpacity="0.22" />
+          <stop offset="0.38" stopColor="currentColor" stopOpacity="0.92" />
+          <stop offset="0.72" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.45" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"
+        fill={`url(#${mg})`}
+        stroke="currentColor"
+        strokeWidth="0.4"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.85 4.1c2.9.55 5.35 2.65 6.35 5.55"
+        stroke="currentColor"
+        strokeWidth="0.9"
+        strokeLinecap="round"
+        opacity={0.28}
+        fill="none"
+      />
+    </svg>
+  );
+});
+
+/** Faceted gem — Lucide Gem proportions with fill + inner facet strokes. */
+export const DiamondJewelleryIcon = forwardRef<
+  SVGSVGElement,
+  MetalTabIconProps
+>(function DiamondJewelleryIcon({ className, ...props }, ref) {
+  const id = useId().replace(/:/g, "");
+  const dg = `${id}-diamond`;
+
+  return (
+    <svg
+      ref={ref}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("overflow-visible", className)}
+      aria-hidden
+      {...props}
+    >
+      <defs>
+        <linearGradient id={dg} x1="12" y1="3" x2="12" y2="21" gradientUnits="userSpaceOnUse">
+          <stop stopColor="currentColor" stopOpacity="0.35" />
+          <stop offset="0.42" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="0.78" stopColor="currentColor" stopOpacity="0.72" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.4" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M17 3a2 2 0 0 1 1.6.8l3 4a2 2 0 0 1 .013 2.382l-7.99 10.986a2 2 0 0 1-3.247 0l-7.99-10.986A2 2 0 0 1 2.4 7.8l2.998-3.997A2 2 0 0 1 7 3z"
+        fill={`url(#${dg})`}
+        stroke="currentColor"
+        strokeWidth="0.55"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.5 3 8 9l4 13 4-13-2.5-6"
+        stroke="currentColor"
+        strokeWidth="0.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={0.4}
+      />
+      <path
+        d="M2 9h20"
+        stroke="currentColor"
+        strokeWidth="0.35"
+        strokeLinecap="round"
+        opacity={0.32}
+      />
+    </svg>
+  );
+});
+
+/** Gift box with bow — fixed-price gifting catalogue tab. */
+export const GiftingJewelleryIcon = forwardRef<
+  SVGSVGElement,
+  MetalTabIconProps
+>(function GiftingJewelleryIcon({ className, ...props }, ref) {
+  const id = useId().replace(/:/g, "");
+  const gg = `${id}-gift`;
+
+  return (
+    <svg
+      ref={ref}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("overflow-visible", className)}
+      aria-hidden
+      {...props}
+    >
+      <defs>
+        <linearGradient id={gg} x1="4" y1="5" x2="20" y2="20" gradientUnits="userSpaceOnUse">
+          <stop stopColor="currentColor" stopOpacity="0.28" />
+          <stop offset="0.45" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.55" />
+        </linearGradient>
+      </defs>
+      <rect
+        x="4.5"
+        y="11"
+        width="15"
+        height="9.5"
+        rx="1.2"
+        fill={`url(#${gg})`}
+        stroke="currentColor"
+        strokeWidth="0.55"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 11V20.5"
+        stroke="currentColor"
+        strokeWidth="0.85"
+        strokeLinecap="round"
+        opacity={0.55}
+      />
+      <path
+        d="M4.5 11h15"
+        stroke="currentColor"
+        strokeWidth="0.55"
+        strokeLinecap="round"
+        opacity={0.4}
+      />
+      <path
+        d="M12 11c-2.2-2.8-4.8-3.2-6.2-1.8S6.2 12.2 12 11c5.8-1.2 7.5-3.4 6.2-1.8S14.2 8.2 12 11Z"
+        fill="currentColor"
+        opacity={0.35}
+        stroke="currentColor"
+        strokeWidth="0.45"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.2 5.8c.6-1.1 1.6-1.7 2.5-1.5.6.1 1 .6 1.3 1.2.3-.6.7-1.1 1.3-1.2.9-.2 1.9.4 2.5 1.5.8 1.5-.2 3.2-2.5 3.8-2.3-.6-3.3-2.3-2.5-3.8Z"
+        fill="currentColor"
+        opacity={0.72}
+        stroke="currentColor"
+        strokeWidth="0.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+});

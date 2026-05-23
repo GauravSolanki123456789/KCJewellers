@@ -741,7 +741,7 @@ export default function AdminProductsPage() {
                           : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 active:bg-slate-800'
                       }`}
                     >
-                      <Icon active={isActive} className="shrink-0" />
+                      <Icon className="size-4 shrink-0" />
                       <span>{label}</span>
                     </button>
                   )
