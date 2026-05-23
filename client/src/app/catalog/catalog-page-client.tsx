@@ -1054,6 +1054,25 @@ export default function CatalogPageClient() {
     [selectedMetal, activeStyleId, activeSkuId],
   )
 
+  /** After user switches catalogue (metal / style / SKU), scroll to top so products are visible. */
+  const prevCatalogSurfaceRef = useRef<string | null>(null)
+  const catalogScrollResetReadyRef = useRef(false)
+
+  useLayoutEffect(() => {
+    if (!catalogHydrated || !hasRestoredFromStorage.current) return
+    if (scrollToBarcode) return
+    const key = catalogProductSurfaceKey
+    if (!catalogScrollResetReadyRef.current) {
+      catalogScrollResetReadyRef.current = true
+      prevCatalogSurfaceRef.current = key
+      return
+    }
+    if (prevCatalogSurfaceRef.current !== key) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    }
+    prevCatalogSurfaceRef.current = key
+  }, [catalogProductSurfaceKey, catalogHydrated, scrollToBarcode])
+
   /**
    * Key for the animated product block: subcategory (sku id) + optional design_group filter.
    * `design_group` aligns with the ERP/catalog field; `activeDesignGroup` is 'all' or that key.
@@ -1341,7 +1360,7 @@ export default function CatalogPageClient() {
                       : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 active:bg-slate-800'
                   }`}
                 >
-                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <Icon active={isActive} className="shrink-0" aria-hidden />
                   <span>{label}</span>
                 </button>
               )

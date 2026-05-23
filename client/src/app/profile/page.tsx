@@ -15,7 +15,7 @@ import {
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import Link from 'next/link'
-import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, FileText, ChevronRight, Package, BookMarked } from 'lucide-react'
+import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, ChevronRight, Package, BookMarked, Scale, ShieldCheck, RotateCcw, Truck } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
@@ -23,10 +23,10 @@ import { userHasAdminDashboardAccess, userCanCallStrictAdminApi } from '@/lib/ad
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 
 const LEGAL_SUPPORT_LINKS = [
-  { href: POLICY_TERMS_PATH, label: 'Terms & Conditions' },
-  { href: POLICY_PRIVACY_PATH, label: 'Privacy Policy' },
-  { href: POLICY_REFUNDS_PATH, label: 'Refunds & cancellations' },
-  { href: POLICY_SHIPPING_PATH, label: 'Shipping & delivery' },
+  { href: POLICY_TERMS_PATH, label: 'Terms & Conditions', icon: Scale },
+  { href: POLICY_PRIVACY_PATH, label: 'Privacy Policy', icon: ShieldCheck },
+  { href: POLICY_REFUNDS_PATH, label: 'Refunds & cancellations', icon: RotateCcw },
+  { href: POLICY_SHIPPING_PATH, label: 'Shipping & delivery', icon: Truck },
 ] as const
 
 type UserType = { role?: string; email?: string; name?: string; mobile_number?: string }
@@ -96,14 +96,14 @@ function ProfilePageContent() {
             Policies and help — use &quot;Back to profile&quot; on each page to return here.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-            {LEGAL_SUPPORT_LINKS.map(({ href, label }) => (
+            {LEGAL_SUPPORT_LINKS.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
                 className="glass-card flex min-h-[52px] items-center justify-between gap-3 rounded-xl border border-white/10 px-4 py-3 text-slate-200 transition-colors hover:border-amber-500/25 hover:bg-white/5 active:bg-white/[0.07]"
               >
                 <span className="flex min-w-0 items-center gap-3">
-                  <FileText className="size-5 shrink-0 text-amber-500/80" aria-hidden />
+                  <Icon className="size-5 shrink-0 text-amber-500/80" aria-hidden />
                   <span className="text-sm font-medium leading-snug">{label}</span>
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-slate-500" aria-hidden />

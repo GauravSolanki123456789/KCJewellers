@@ -245,7 +245,7 @@ export default function SipMarketingPage() {
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
                   }`}
                 >
-                  <Icon className="size-4 shrink-0" />
+                  <Icon active={isActive} className="shrink-0" />
                   <span className="truncate">{label}</span>
                 </button>
               )

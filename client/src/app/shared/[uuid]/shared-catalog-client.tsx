@@ -455,14 +455,7 @@ export default function SharedCatalogClient({
         </h1>
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
-            {hidePrices
-              ? 'Tap to shortlist · adjust quantities · zoom photos · weights only (no prices) · then share on WhatsApp or PDF.'
-              : 'Tap to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.'}
-          </p>
-        ) : null}
-        {hidePrices && showPickerChrome ? (
-          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-400/95">
-            Weight catalogue · prices hidden
+            Tap to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
