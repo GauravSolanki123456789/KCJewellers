@@ -10,6 +10,7 @@ export const ADMIN_ATTENTION_SECTION_KEY = {
   sip_payouts: 'sip_payouts',
   rate_bookings: 'rate_bookings',
   customer_insights: 'customer_insights',
+  reseller_applications: 'reseller_applications',
 } as const
 
 export type AdminAttentionSectionKey =
@@ -23,5 +24,6 @@ export function getAdminAttentionSectionKeyFromPathname(pathname: string | null)
   if (pathname.startsWith('/admin/sip/payouts')) return ADMIN_ATTENTION_SECTION_KEY.sip_payouts
   if (pathname.startsWith('/admin/bookings')) return ADMIN_ATTENTION_SECTION_KEY.rate_bookings
   if (pathname.startsWith('/admin/insights')) return ADMIN_ATTENTION_SECTION_KEY.customer_insights
+  if (pathname.startsWith('/admin/b2b-clients')) return ADMIN_ATTENTION_SECTION_KEY.reseller_applications
   return null
 }

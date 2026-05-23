@@ -99,7 +99,7 @@ const ADMIN_SECTIONS = [
   },
   {
     title: 'B2B wholesale clients',
-    description: 'Enable B2B tier by email or mobile, set MC discount & markup, post ledger entries',
+    description: 'Tiers, reseller invite codes, application queue, MC discount, ledger',
     href: '/admin/b2b-clients',
     icon: Building2,
     color: 'emerald',
@@ -133,7 +133,8 @@ function InboxSummaryStrip({ inbox }: { inbox: AdminInboxSummaryData | null }) {
   const hasOperationalQueue =
     inbox.totalAttentionCount > 0 ||
     c.newCustomersLast7Days > 0 ||
-    c.customerActivityEvents24h > 0
+    c.customerActivityEvents24h > 0 ||
+    c.resellerApplicationsPending > 0
   if (!hasOperationalQueue && inbox.navAttentionCount <= 0) return null
 
   const parts: string[] = []
@@ -146,6 +147,10 @@ function InboxSummaryStrip({ inbox }: { inbox: AdminInboxSummaryData | null }) {
   if (c.rateBookingsRecentBooked > 0)
     parts.push(
       `${c.rateBookingsRecentBooked} booking${c.rateBookingsRecentBooked === 1 ? '' : 's'} (7d)`
+    )
+  if (c.resellerApplicationsPending > 0)
+    parts.push(
+      `${c.resellerApplicationsPending} reseller application${c.resellerApplicationsPending === 1 ? '' : 's'}`
     )
   if (c.newCustomersLast7Days > 0) {
     parts.push(

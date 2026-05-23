@@ -5,7 +5,13 @@ import axios from '@/lib/axios'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { Loader2, ArrowLeft, Save, Store, Upload } from 'lucide-react'
+import { Loader2, ArrowLeft, Save, Store, Upload, UserPlus, Users } from 'lucide-react'
+import { ResellerApplicationsPanel } from '@/components/admin/ResellerApplicationsPanel'
+import { normalizeResellerInviteCode } from '@/lib/reseller-invite'
+import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
+import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
+import { userCanCallStrictAdminApi } from '@/lib/admin-access'
+import { useAuth } from '@/hooks/useAuth'
 
 type AdminUser = {
   id: number
@@ -23,6 +29,8 @@ type AdminUser = {
   kc_theme_id?: string | null
   /** Matches PostgreSQL `users.reseller_hide_prices` — weight-only shared catalogues. */
   reseller_hide_prices?: boolean
+  reseller_invite_code?: string | null
+  referred_by_user_id?: number | null
 }
 
 type ThemePick = {
@@ -56,6 +64,7 @@ export default function AdminB2BClientsPage() {
 }
 
 function B2BAdminContent() {
+  const [view, setView] = useState<'clients' | 'applications'>('clients')
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
@@ -78,6 +87,7 @@ function B2BAdminContent() {
     contact_mobile: '',
     kc_theme_id: '',
     reseller_hide_prices: false,
+    reseller_invite_code: '',
   })
   const [themeCatalog, setThemeCatalog] = useState<ThemePick[]>([])
   const [logoFile, setLogoFile] = useState<File | null>(null)
@@ -86,6 +96,18 @@ function B2BAdminContent() {
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategoryRow[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(false)
   const [resellerSaving, setResellerSaving] = useState(false)
+
+  const auth = useAuth()
+  const strictInbox = userCanCallStrictAdminApi(auth.user as { role?: string; email?: string })
+  const { data: adminInbox } = useAdminInboxSummary(!!auth.isAuthenticated && strictInbox)
+  const applicationsBadge = adminInbox?.badgesByHref?.['/admin/b2b-clients'] ?? 0
+  const pendingAppsCount = adminInbox?.counts?.resellerApplicationsPending ?? 0
+
+  const userById = useMemo(() => {
+    const m = new Map<number, AdminUser>()
+    for (const u of users) m.set(u.id, u)
+    return m
+  }, [users])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -131,6 +153,9 @@ function B2BAdminContent() {
             ? String(resellerModalUser.kc_theme_id).trim()
             : '',
         reseller_hide_prices: !!resellerModalUser.reseller_hide_prices,
+        reseller_invite_code: resellerModalUser.reseller_invite_code
+          ? normalizeResellerInviteCode(resellerModalUser.reseller_invite_code)
+          : '',
       })
       setLogoFile(null)
       setLogoFileError(null)
@@ -223,6 +248,9 @@ function B2BAdminContent() {
         mobile_number: rawMob ? mobDigits : null,
         kc_theme_id: resellerForm.kc_theme_id.trim() ? resellerForm.kc_theme_id.trim() : null,
         reseller_hide_prices: resellerForm.reseller_hide_prices,
+        reseller_invite_code: resellerForm.reseller_invite_code.trim()
+          ? normalizeResellerInviteCode(resellerForm.reseller_invite_code)
+          : null,
       })
       await load()
       setResellerModalUser(null)
@@ -310,12 +338,54 @@ function B2BAdminContent() {
             <p className="text-slate-500 text-sm mt-1 max-w-xl leading-relaxed">
               Set <code className="text-slate-400">customer_tier</code> for access: B2B wholesale,{' '}
               <strong className="text-slate-300 font-medium">RESELLER</strong> (white-label catalogue sharing), or ADMIN.
-              Resellers can use Catalogue Builder and optional custom domains. They do not get Wholesale quick order or
-              client Khata (ledger); use <strong className="text-slate-300 font-medium">B2B_WHOLESALE</strong> for that.
+              Assign each reseller a unique <code className="text-slate-400">reseller_invite_code</code> for referrals.
+              Review applications in the <strong className="text-slate-300 font-medium">Applications</strong> tab.
             </p>
           </div>
         </div>
 
+        <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
+          <button
+            type="button"
+            onClick={() => setView('clients')}
+            className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition touch-manipulation ${
+              view === 'clients'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-600'
+            }`}
+          >
+            <Users className="size-4" aria-hidden />
+            Clients
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('applications')}
+            className={`relative inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition touch-manipulation ${
+              view === 'applications'
+                ? 'bg-violet-600 text-white shadow-md'
+                : 'border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-600'
+            }`}
+          >
+            <UserPlus className="size-4" aria-hidden />
+            Applications
+            {(applicationsBadge > 0 || pendingAppsCount > 0) && (
+              <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                {formatAdminInboxBadge(applicationsBadge || pendingAppsCount)}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {view === 'applications' ? (
+          <ResellerApplicationsPanel
+            onApproved={(userId) => {
+              void load()
+              const u = users.find((x) => x.id === userId)
+              if (u) setResellerModalUser({ ...u, customer_tier: CUSTOMER_TIER.RESELLER })
+            }}
+          />
+        ) : (
+          <>
         <input
           type="search"
           placeholder="Search by email, mobile, or user id…"
@@ -352,6 +422,19 @@ function B2BAdminContent() {
                             <div className="text-xs text-slate-500">
                               {u.mobile_number ? `+91 ${u.mobile_number}` : ''}
                             </div>
+                            {u.referred_by_user_id != null && (
+                              <div className="mt-1 text-[11px] text-violet-400/90">
+                                Referred by{' '}
+                                {userById.get(u.referred_by_user_id)?.business_name ||
+                                  userById.get(u.referred_by_user_id)?.email ||
+                                  `#${u.referred_by_user_id}`}
+                              </div>
+                            )}
+                            {isReseller && u.reseller_invite_code && (
+                              <div className="mt-1 font-mono text-[11px] text-violet-300/80">
+                                Code: {u.reseller_invite_code}
+                              </div>
+                            )}
                           </div>
                           {isReseller && (
                             <button
@@ -462,6 +545,8 @@ function B2BAdminContent() {
             </table>
           </div>
         </div>
+          </>
+        )}
 
         {resellerModalUser && (
           <div
@@ -487,6 +572,27 @@ function B2BAdminContent() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5 space-y-4 safe-area-pb">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    Reseller invite code
+                  </label>
+                  <input
+                    className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm uppercase tracking-wide"
+                    value={resellerForm.reseller_invite_code}
+                    onChange={(e) =>
+                      setResellerForm((f) => ({
+                        ...f,
+                        reseller_invite_code: normalizeResellerInviteCode(e.target.value),
+                      }))
+                    }
+                    placeholder="e.g. GAURAV-KC"
+                  />
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                    Unique code prospects enter at{' '}
+                    <code className="text-slate-400">/join-reseller</code>. Stored as{' '}
+                    <code className="text-slate-400">reseller_invite_code</code>.
+                  </p>
+                </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Business name</label>
                   <input

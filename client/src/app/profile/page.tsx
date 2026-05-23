@@ -18,6 +18,10 @@ import Link from 'next/link'
 import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, ChevronRight, Package, BookMarked, ScrollText, LockKeyhole, ReceiptIndianRupee, Truck } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
+import {
+  ResellerApplicationStatusPanel,
+  ResellerInvitePanel,
+} from '@/components/profile/ResellerInvitePanel'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { userHasAdminDashboardAccess, userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
@@ -113,6 +117,14 @@ function ProfilePageContent() {
             ))}
           </div>
         </section>
+
+        {/* Reseller invite / application status */}
+        {auth.isAuthenticated && (
+          <>
+            <ResellerInvitePanel />
+            <ResellerApplicationStatusPanel />
+          </>
+        )}
 
         {/* Wallet Balance - Glassmorphism */}
         <section className="mb-6">

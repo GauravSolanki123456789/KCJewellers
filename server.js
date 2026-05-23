@@ -648,6 +648,10 @@ app.get('/api/auth/current_user', async (req, res) => {
                 logo_url: resolvedUser.logo_url ?? null,
                 allowed_category_ids: allowedCategoryIds,
                 reseller_hide_prices: !!resolvedUser.reseller_hide_prices,
+                reseller_invite_code: resolvedUser.reseller_invite_code
+                    ? normalizeResellerInviteCode(resolvedUser.reseller_invite_code)
+                    : null,
+                referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
                     ? String(resolvedUser.kc_theme_id).trim()
                     : null,
@@ -821,6 +825,343 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
         });
     } catch (error) {
         console.error('reseller-branding:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// RESELLER INVITE — public validate + apply; reseller panel; admin queue
+// ==========================================
+
+app.get('/api/public/reseller-invite/validate', globalLimiter, async (req, res) => {
+    try {
+        const code = normalizeResellerInviteCode(req.query.code || req.query.reseller_invite_code);
+        if (!code) {
+            return res.json({ valid: false, error: 'Invite code is required' });
+        }
+        const referrer = await findActiveResellerByInviteCode(code);
+        if (!referrer) {
+            return res.json({ valid: false, error: 'Invalid or inactive invite code' });
+        }
+        res.setHeader('Cache-Control', 'public, max-age=60');
+        res.json({
+            valid: true,
+            reseller_invite_code: code,
+            referrer: {
+                business_name: referrer.business_name || null,
+                name: referrer.name || null,
+            },
+        });
+    } catch (error) {
+        console.error('reseller-invite validate:', error);
+        res.status(500).json({ valid: false, error: error.message });
+    }
+});
+
+app.post('/api/public/reseller-applications', globalLimiter, requireJson, async (req, res) => {
+    try {
+        const body = req.body || {};
+        const code = normalizeResellerInviteCode(body.reseller_invite_code || body.code);
+        const contactName = String(body.contact_name || body.name || '').trim().slice(0, 255);
+        const businessName = String(body.business_name || '').trim().slice(0, 255);
+        const emailRaw = String(body.email || '').trim().toLowerCase().slice(0, 255);
+        const mobileDigits = String(body.mobile_number || body.mobile || '')
+            .replace(/\D/g, '')
+            .slice(-10);
+        const cityState = String(body.city_state || body.city || '').trim().slice(0, 255) || null;
+        const desiredDomainRaw = String(body.desired_custom_domain || body.custom_domain || '').trim();
+        const desiredDomain = desiredDomainRaw
+            ? desiredDomainRaw
+                  .replace(/^https?:\/\//i, '')
+                  .split('/')[0]
+                  .split(':')[0]
+                  .toLowerCase()
+                  .slice(0, 255)
+            : null;
+        const notes = String(body.notes || '').trim().slice(0, 2000) || null;
+
+        if (!code) return res.status(400).json({ error: 'Reseller invite code is required' });
+        if (!contactName) return res.status(400).json({ error: 'Your name is required' });
+        if (!businessName) return res.status(400).json({ error: 'Business name is required' });
+        if (!emailRaw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+            return res.status(400).json({ error: 'Valid email is required' });
+        }
+        if (mobileDigits.length !== 10) {
+            return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+        }
+
+        const referrer = await findActiveResellerByInviteCode(code);
+        if (!referrer) {
+            return res.status(404).json({ error: 'Invalid or inactive invite code' });
+        }
+
+        const existingUsers = await query('SELECT * FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1', [emailRaw]);
+        let userId;
+        if (existingUsers.length > 0) {
+            const u = existingUsers[0];
+            const tierUp = String(u.customer_tier || '').toUpperCase();
+            if (tierUp === 'RESELLER' || tierUp === 'ADMIN') {
+                return res.status(409).json({ error: 'This email is already a reseller account' });
+            }
+            userId = u.id;
+            await query(
+                `UPDATE users SET
+                    name = COALESCE(NULLIF($1, ''), name),
+                    mobile_number = $2,
+                    business_name = $3,
+                    referred_by_user_id = $4,
+                    updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $5`,
+                [contactName, mobileDigits, businessName, referrer.id, userId],
+            );
+        } else {
+            const inserted = await query(
+                `INSERT INTO users (email, name, mobile_number, business_name, role, account_status, customer_tier, referred_by_user_id, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, 'customer', 'active', 'B2C_CUSTOMER', $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 RETURNING id`,
+                [emailRaw, contactName, mobileDigits, businessName, referrer.id],
+            );
+            userId = inserted[0].id;
+        }
+
+        const pendingApps = await query(
+            `SELECT id FROM reseller_applications
+             WHERE user_id = $1 AND application_status = 'pending'
+             LIMIT 1`,
+            [userId],
+        );
+        if (pendingApps.length > 0) {
+            return res.status(409).json({
+                error: 'You already have a pending reseller application. We will contact you soon.',
+                application_id: pendingApps[0].id,
+            });
+        }
+
+        const appRows = await query(
+            `INSERT INTO reseller_applications (
+                user_id, reseller_invite_code, referred_by_user_id,
+                contact_name, business_name, email, mobile_number,
+                city_state, desired_custom_domain, notes,
+                application_status, created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             RETURNING *`,
+            [
+                userId,
+                code,
+                referrer.id,
+                contactName,
+                businessName,
+                emailRaw,
+                mobileDigits,
+                cityState,
+                desiredDomain,
+                notes,
+            ],
+        );
+
+        res.status(201).json({
+            success: true,
+            application: appRows[0],
+            message: 'Application received. Sign in with this email to track status. Our team will contact you for domain setup.',
+        });
+    } catch (error) {
+        console.error('reseller-applications submit:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/reseller/invite', async (req, res) => {
+    try {
+        if (!req.isAuthenticated()) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+        const tier = String(req.user.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.status(403).json({ error: 'RESELLER tier required' });
+        }
+        const userId = req.user.id;
+        const userRows = await query(
+            'SELECT reseller_invite_code, business_name FROM users WHERE id = $1',
+            [userId],
+        );
+        const inviteCode = userRows[0]?.reseller_invite_code
+            ? normalizeResellerInviteCode(userRows[0].reseller_invite_code)
+            : null;
+
+        const countRows = await query(
+            `SELECT application_status, COUNT(*)::int AS n
+             FROM reseller_applications
+             WHERE referred_by_user_id = $1
+             GROUP BY application_status`,
+            [userId],
+        );
+        const referral_counts = { pending: 0, approved: 0, rejected: 0, total: 0 };
+        for (const r of countRows) {
+            const st = String(r.application_status || '').toLowerCase();
+            const n = Number(r.n || 0);
+            if (st === 'pending') referral_counts.pending = n;
+            else if (st === 'approved') referral_counts.approved = n;
+            else if (st === 'rejected') referral_counts.rejected = n;
+            referral_counts.total += n;
+        }
+
+        const referralRows = await query(
+            `SELECT id, contact_name, business_name, email, mobile_number, application_status, created_at
+             FROM reseller_applications
+             WHERE referred_by_user_id = $1
+             ORDER BY created_at DESC
+             LIMIT 50`,
+            [userId],
+        );
+
+        const clientBase = (process.env.NEXT_PUBLIC_CLIENT_URL || process.env.CLIENT_URL || '').replace(/\/$/, '');
+        const sharePath = inviteCode ? `/join-reseller?code=${encodeURIComponent(inviteCode)}` : '/join-reseller';
+        const shareUrl = clientBase ? `${clientBase}${sharePath}` : sharePath;
+
+        res.json({
+            reseller_invite_code: inviteCode,
+            share_path: sharePath,
+            share_url: shareUrl,
+            referral_counts,
+            referrals: referralRows,
+        });
+    } catch (error) {
+        console.error('reseller invite panel:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/reseller/application', async (req, res) => {
+    try {
+        if (!req.isAuthenticated()) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+        const rows = await query(
+            `SELECT ra.*,
+                    ref.business_name AS referrer_business_name,
+                    ref.name AS referrer_name
+             FROM reseller_applications ra
+             LEFT JOIN users ref ON ref.id = ra.referred_by_user_id
+             WHERE ra.user_id = $1
+             ORDER BY ra.created_at DESC
+             LIMIT 1`,
+            [req.user.id],
+        );
+        if (!rows.length) {
+            return res.json({ application: null });
+        }
+        res.json({ application: rows[0] });
+    } catch (error) {
+        console.error('reseller application status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/admin/reseller-applications', isAdminStrict, async (req, res) => {
+    try {
+        const statusFilter = String(req.query.application_status || req.query.status || '').trim().toLowerCase();
+        const params = [];
+        let where = '1=1';
+        if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
+            params.push(statusFilter);
+            where += ` AND ra.application_status = $${params.length}`;
+        }
+        const rows = await query(
+            `SELECT ra.*,
+                    ref.business_name AS referrer_business_name,
+                    ref.name AS referrer_name,
+                    ref.email AS referrer_email,
+                    ref.reseller_invite_code AS referrer_reseller_invite_code,
+                    u.customer_tier AS applicant_customer_tier,
+                    u.account_status AS applicant_account_status
+             FROM reseller_applications ra
+             LEFT JOIN users ref ON ref.id = ra.referred_by_user_id
+             LEFT JOIN users u ON u.id = ra.user_id
+             WHERE ${where}
+             ORDER BY
+                CASE ra.application_status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+                ra.created_at DESC
+             LIMIT 500`,
+            params,
+        );
+        res.json(rows);
+    } catch (error) {
+        console.error('admin reseller-applications:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/admin/reseller-applications/:id/approve', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        const appId = parseInt(String(req.params.id || ''), 10);
+        if (!appId || Number.isNaN(appId)) {
+            return res.status(400).json({ error: 'Invalid application id' });
+        }
+        const apps = await query('SELECT * FROM reseller_applications WHERE id = $1', [appId]);
+        if (!apps.length) return res.status(404).json({ error: 'Application not found' });
+        const app = apps[0];
+        if (app.application_status === 'approved') {
+            return res.json({ success: true, message: 'Already approved', application: app });
+        }
+
+        const reviewerId = req.user?.id || null;
+        await query(
+            `UPDATE users SET
+                customer_tier = 'RESELLER',
+                account_status = 'active',
+                business_name = COALESCE(NULLIF(TRIM(business_name), ''), $1),
+                mobile_number = COALESCE(NULLIF(TRIM(mobile_number), ''), $2),
+                referred_by_user_id = COALESCE(referred_by_user_id, $3),
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = $4`,
+            [app.business_name, app.mobile_number, app.referred_by_user_id, app.user_id],
+        );
+
+        const updatedApps = await query(
+            `UPDATE reseller_applications SET
+                application_status = 'approved',
+                reviewed_at = CURRENT_TIMESTAMP,
+                reviewed_by_user_id = $1,
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2
+             RETURNING *`,
+            [reviewerId, appId],
+        );
+
+        res.json({
+            success: true,
+            application: updatedApps[0],
+            message: 'Approved — set custom domain & categories in Edit reseller.',
+        });
+    } catch (error) {
+        console.error('approve reseller application:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/admin/reseller-applications/:id/reject', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        const appId = parseInt(String(req.params.id || ''), 10);
+        if (!appId || Number.isNaN(appId)) {
+            return res.status(400).json({ error: 'Invalid application id' });
+        }
+        const reviewerId = req.user?.id || null;
+        const updatedApps = await query(
+            `UPDATE reseller_applications SET
+                application_status = 'rejected',
+                reviewed_at = CURRENT_TIMESTAMP,
+                reviewed_by_user_id = $1,
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND application_status = 'pending'
+             RETURNING *`,
+            [reviewerId, appId],
+        );
+        if (!updatedApps.length) {
+            return res.status(404).json({ error: 'Pending application not found' });
+        }
+        res.json({ success: true, application: updatedApps[0] });
+    } catch (error) {
+        console.error('reject reseller application:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1598,6 +1939,87 @@ async function checkAndMigrateResellerWhiteLabel() {
     }
 }
 
+/** Reseller invite codes + `reseller_applications` queue (migration 039). */
+async function checkAndMigrateResellerInvite() {
+    try {
+        const dbPool = getPool();
+        await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_invite_code VARCHAR(50)');
+        await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
+        await dbPool.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_reseller_invite_code_lower
+            ON users (LOWER(TRIM(reseller_invite_code)))
+            WHERE reseller_invite_code IS NOT NULL AND TRIM(reseller_invite_code) <> ''
+        `);
+        await dbPool.query(`
+            CREATE INDEX IF NOT EXISTS idx_users_referred_by_user_id
+            ON users (referred_by_user_id)
+            WHERE referred_by_user_id IS NOT NULL
+        `);
+        await dbPool.query(`
+            CREATE TABLE IF NOT EXISTS reseller_applications (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                reseller_invite_code VARCHAR(50) NOT NULL,
+                referred_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                contact_name VARCHAR(255) NOT NULL,
+                business_name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                mobile_number VARCHAR(20) NOT NULL,
+                city_state VARCHAR(255),
+                desired_custom_domain VARCHAR(255),
+                notes TEXT,
+                application_status VARCHAR(32) NOT NULL DEFAULT 'pending'
+                    CHECK (application_status IN ('pending', 'approved', 'rejected')),
+                reviewed_at TIMESTAMPTZ,
+                reviewed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await dbPool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reseller_applications_status
+            ON reseller_applications (application_status)
+        `);
+        await dbPool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reseller_applications_referred_by
+            ON reseller_applications (referred_by_user_id)
+            WHERE referred_by_user_id IS NOT NULL
+        `);
+        await dbPool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reseller_applications_user_created
+            ON reseller_applications (user_id, created_at DESC)
+        `);
+        console.log('✅ Reseller invite schema verified');
+        return true;
+    } catch (error) {
+        console.error('❌ Reseller invite migration failed:', error.message);
+        return false;
+    }
+}
+
+function normalizeResellerInviteCode(raw) {
+    return String(raw || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9-]/g, '')
+        .slice(0, 50);
+}
+
+async function findActiveResellerByInviteCode(code) {
+    const normalized = normalizeResellerInviteCode(code);
+    if (!normalized) return null;
+    const rows = await query(
+        `SELECT id, business_name, name, email, reseller_invite_code
+         FROM users
+         WHERE UPPER(TRIM(reseller_invite_code)) = $1
+           AND UPPER(TRIM(COALESCE(customer_tier::text, ''))) = 'RESELLER'
+           AND COALESCE(account_status, 'active') = 'active'
+         LIMIT 1`,
+        [normalized],
+    );
+    return rows[0] || null;
+}
+
 /** B2B wholesale purchase orders: orders.order_channel, b2b_checkout_type */
 async function checkAndMigrateB2BOrdersChannel() {
     try {
@@ -1658,6 +2080,7 @@ initDatabase().then(async success => {
         await checkAndMigrateUsersTable();
         await checkAndMigrateB2BWholesale();
         await checkAndMigrateResellerWhiteLabel();
+        await checkAndMigrateResellerInvite();
         await checkAndMigrateB2BOrdersChannel();
     } else {
         console.log('⚠️ Server started but database initialization failed.');
@@ -3012,6 +3435,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
                        business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
                        COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                       reseller_invite_code, referred_by_user_id,
                        created_at, updated_at 
                 FROM users 
                 WHERE COALESCE(is_deleted, false) = false
@@ -3030,6 +3454,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                            customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
                            business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
                            COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                           reseller_invite_code, referred_by_user_id,
                            created_at, updated_at 
                     FROM users 
                     ORDER BY 
@@ -3276,6 +3701,7 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             allowed_category_ids,
             kc_theme_id,
             reseller_hide_prices,
+            reseller_invite_code,
         } = req.body;
         
         // Check if user exists
@@ -3404,6 +3830,37 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (reseller_hide_prices !== undefined) {
             updates.push(`reseller_hide_prices = $${paramIndex++}`);
             params.push(!!reseller_hide_prices);
+        }
+
+        if (reseller_invite_code !== undefined) {
+            const tierForCode = String(
+                customer_tier !== undefined ? customer_tier : user.customer_tier || '',
+            ).toUpperCase();
+            if (tierForCode !== 'RESELLER' && String(user.customer_tier || '').toUpperCase() !== 'RESELLER') {
+                return res.status(400).json({
+                    error: 'reseller_invite_code can only be set for RESELLER accounts',
+                });
+            }
+            if (reseller_invite_code === null || reseller_invite_code === '') {
+                updates.push(`reseller_invite_code = $${paramIndex++}`);
+                params.push(null);
+            } else {
+                const normalizedCode = normalizeResellerInviteCode(reseller_invite_code);
+                if (!normalizedCode || normalizedCode.length < 3) {
+                    return res.status(400).json({
+                        error: 'Invite code must be at least 3 characters (letters, numbers, hyphen)',
+                    });
+                }
+                const clash = await query(
+                    `SELECT id FROM users WHERE id <> $1 AND UPPER(TRIM(reseller_invite_code)) = $2`,
+                    [parseInt(String(id), 10), normalizedCode],
+                );
+                if (clash.length > 0) {
+                    return res.status(409).json({ error: 'reseller_invite_code already in use' });
+                }
+                updates.push(`reseller_invite_code = $${paramIndex++}`);
+                params.push(normalizedCode);
+            }
         }
 
         if (kc_theme_id !== undefined) {
@@ -5122,6 +5579,7 @@ const KC_ADMIN_ATTENTION_SECTION_KEYS = new Set([
     'sip_payouts',
     'rate_bookings',
     'customer_insights',
+    'reseller_applications',
 ]);
 
 async function loadAdminAttentionLastSeenMap(userId) {
@@ -5176,6 +5634,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
         const seenSip = seenMap.sip_payouts || null;
         const seenBookings = seenMap.rate_bookings || null;
         const seenInsights = seenMap.customer_insights || null;
+        const seenResellerApps = seenMap.reseller_applications || null;
 
         const insightsUserExclusion = `LOWER(TRIM(COALESCE(email, ''))) <> 'jaigaurav56789@gmail.com' AND COALESCE(role, '') NOT IN ('admin', 'super_admin')`;
 
@@ -5187,6 +5646,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             bookingRows,
             newUsersRows,
             activityRows,
+            resellerAppPendingRows,
         ] = await Promise.all([
             query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'B2B_WHOLESALE' AND payment_status = 'PENDING_APPROVAL'`),
             query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'RETAIL' AND payment_status = 'PENDING'`),
@@ -5195,6 +5655,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             query(`SELECT COUNT(*)::int AS n FROM bookings WHERE status = 'booked' AND created_at >= NOW() - INTERVAL '7 days'`),
             query(`SELECT COUNT(*)::int AS n FROM users WHERE created_at >= NOW() - INTERVAL '7 days' AND ${insightsUserExclusion}`),
             query(`SELECT COUNT(*)::int AS n FROM user_activity_logs WHERE created_at >= NOW() - INTERVAL '24 hours'`),
+            query(`SELECT COUNT(*)::int AS n FROM reseller_applications WHERE application_status = 'pending'`).catch(() => [{ n: 0 }]),
         ]);
 
         const b2bOrdersPendingApproval = Number(b2bRows[0]?.n || 0);
@@ -5204,6 +5665,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
         const rateBookingsRecentBooked = Number(bookingRows[0]?.n || 0);
         const newCustomersLast7Days = Number(newUsersRows[0]?.n || 0);
         const customerActivityEvents24h = Number(activityRows[0]?.n || 0);
+        const resellerApplicationsPending = Number(resellerAppPendingRows[0]?.n || 0);
 
         let insightsAttentionOperational = newCustomersLast7Days;
         if (insightsAttentionOperational === 0 && customerActivityEvents24h > 0) {
@@ -5266,6 +5728,17 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             if (insightsUnread === 0 && actN > 0) insightsUnread = Math.min(actN, 99);
         }
 
+        const resellerAppsUnreadRows = seenResellerApps
+            ? await query(
+                `SELECT COUNT(*)::int AS n FROM reseller_applications
+                 WHERE application_status = 'pending' AND created_at::timestamptz > $1`,
+                [seenResellerApps],
+            ).catch(() => [{ n: resellerApplicationsPending }])
+            : await query(
+                `SELECT COUNT(*)::int AS n FROM reseller_applications WHERE application_status = 'pending'`,
+            ).catch(() => [{ n: resellerApplicationsPending }]);
+        const resellerApplicationsUnread = Number(resellerAppsUnreadRows[0]?.n || 0);
+
         const insights = {
             newSignupsLast7Days: newCustomersLast7Days,
             hasVisitorActivity24h: customerActivityEvents24h > 0,
@@ -5281,7 +5754,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             '/admin/bookings': rateBookingsUnread,
             '/admin/orders': retailOrdersUnread,
             '/admin/orders/b2b': b2bOrdersUnread,
-            '/admin/b2b-clients': 0,
+            '/admin/b2b-clients': resellerApplicationsUnread,
             '/admin/promos': 0,
             '/admin/insights': insightsUnread,
             '/admin/developer': 0,
@@ -5292,14 +5765,16 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             retailOrdersRecentFulfillment +
             b2bOrdersPendingApproval +
             sipPayoutsPending +
-            rateBookingsRecentBooked;
+            rateBookingsRecentBooked +
+            resellerApplicationsPending;
 
         const unreadSum =
             retailOrdersUnread +
             b2bOrdersUnread +
             sipPayoutsUnread +
             rateBookingsUnread +
-            insightsUnread;
+            insightsUnread +
+            resellerApplicationsUnread;
         const navAttentionCount = Math.min(99, unreadSum);
 
         res.json({
@@ -5313,6 +5788,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
                     rateBookingsRecentBooked,
                     newCustomersLast7Days,
                     customerActivityEvents24h,
+                    resellerApplicationsPending,
                 },
                 insights,
                 badgesByHref,
@@ -5324,6 +5800,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
                     sip_payouts: sipPayoutsUnread,
                     rate_bookings: rateBookingsUnread,
                     customer_insights: insightsUnread,
+                    reseller_applications: resellerApplicationsUnread,
                 },
                 generatedAt: new Date().toISOString(),
             },
