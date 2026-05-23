@@ -130,6 +130,8 @@ export type CatalogPdfDocumentProps = {
   kcThemeId?: string | null;
   /** First line under brand, before item count — default `Catalogue` (keyword: shared shortlist PDF). */
   itemsLabel?: string;
+  /** Weight-only brochure — skip price lines even when resellerPdfPricing is set. */
+  hidePrices?: boolean;
 };
 
 const PER_PAGE = 9;
@@ -140,6 +142,7 @@ export function CatalogPdfDocument({
   resellerPdfPricing = null,
   kcThemeId = null,
   itemsLabel = "Catalogue",
+  hidePrices = false,
 }: CatalogPdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId]);
   const styles = useMemo(() => buildCatalogPdfStyles(palette), [palette]);
@@ -177,7 +180,7 @@ export function CatalogPdfDocument({
                   ? `${Number(weight).toFixed(2)} gm`
                   : "-";
               const showPrices =
-                resellerPdfPricing && resellerPdfPricing.rates != null;
+                !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
               let amountStr: string | null = null;
               let qtyLabel: string | null = null;
               if (showPrices) {

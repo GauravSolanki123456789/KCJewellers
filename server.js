@@ -647,6 +647,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 custom_domain: resolvedUser.custom_domain ?? null,
                 logo_url: resolvedUser.logo_url ?? null,
                 allowed_category_ids: allowedCategoryIds,
+                reseller_hide_prices: !!resolvedUser.reseller_hide_prices,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
                     ? String(resolvedUser.kc_theme_id).trim()
                     : null,
@@ -1027,6 +1028,7 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
                     custom_domain: user.custom_domain ?? null,
                     logo_url: user.logo_url ?? null,
                     allowed_category_ids,
+                    reseller_hide_prices: !!user.reseller_hide_prices,
                     account_status: user.account_status,
                     allowed_tabs: user.allowed_tabs || [],
                 },
@@ -1577,6 +1579,12 @@ async function checkAndMigrateResellerWhiteLabel() {
         await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255)');
         await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS logo_url TEXT');
         await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_category_ids INTEGER[]');
+        await dbPool.query(
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_hide_prices BOOLEAN NOT NULL DEFAULT false',
+        );
+        await dbPool.query(
+            'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS hide_prices BOOLEAN NOT NULL DEFAULT false',
+        );
         await dbPool.query(`
             CREATE UNIQUE INDEX IF NOT EXISTS idx_users_custom_domain_lower
             ON users (LOWER(TRIM(custom_domain)))
@@ -3003,6 +3011,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        account_status, phone_number, mobile_number,
                        customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
                        business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
+                       COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                        created_at, updated_at 
                 FROM users 
                 WHERE COALESCE(is_deleted, false) = false
@@ -3020,6 +3029,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                            account_status, phone_number, mobile_number,
                            customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
                            business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
+                           COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                            created_at, updated_at 
                     FROM users 
                     ORDER BY 
@@ -3265,6 +3275,7 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             logo_url,
             allowed_category_ids,
             kc_theme_id,
+            reseller_hide_prices,
         } = req.body;
         
         // Check if user exists
@@ -3388,6 +3399,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             const ints = [...new Set(ids.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n)))];
             updates.push(`allowed_category_ids = $${paramIndex++}`);
             params.push(ints.length ? ints : null);
+        }
+
+        if (reseller_hide_prices !== undefined) {
+            updates.push(`reseller_hide_prices = $${paramIndex++}`);
+            params.push(!!reseller_hide_prices);
         }
 
         if (kc_theme_id !== undefined) {
@@ -5504,6 +5520,20 @@ function parseSharedCatalogRatesSnapshot(raw) {
     return null;
 }
 
+/** RESELLER accounts with admin `reseller_hide_prices` — snapshot on shared_catalogs.hide_prices at link creation. */
+async function resellerHidePricesForUser(userId) {
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid) || uid <= 0) return false;
+    const rows = await query(
+        `SELECT customer_tier, COALESCE(reseller_hide_prices, false) AS reseller_hide_prices
+         FROM users WHERE id = $1`,
+        [uid],
+    );
+    if (!rows.length) return false;
+    if (String(rows[0].customer_tier || '').toUpperCase() !== 'RESELLER') return false;
+    return !!rows[0].reseller_hide_prices;
+}
+
 /** When brochure creator is RESELLER, mirror catalogue wholesale pricing before link markup. */
 function creatorWholesaleForBrochure(row) {
     if (!row || !row.created_by_user_id) return null;
@@ -5573,11 +5603,15 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
 
         const id = randomUUID();
         const creatorUid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        const hidePrices =
+            Number.isFinite(creatorUid) && creatorUid > 0
+                ? await resellerHidePricesForUser(creatorUid)
+                : false;
         const ratePayload = await liveRateService.getCurrentPayload();
         const ratesSnapshot = ratePayload?.rates ?? [];
         await query(
-            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at, created_by_user_id, rates_snapshot)
-             VALUES ($1::uuid, $2::text[], $3::float8, $4, $5, $6::jsonb)`,
+            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at, created_by_user_id, rates_snapshot, hide_prices)
+             VALUES ($1::uuid, $2::text[], $3::float8, $4, $5, $6::jsonb, $7)`,
             [
                 id,
                 ids,
@@ -5585,6 +5619,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                 exp,
                 Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
                 JSON.stringify(ratesSnapshot),
+                hidePrices,
             ],
         );
 
@@ -5615,6 +5650,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             expiresAt: exp.toISOString(),
             selectedProductIds: ids,
             markupPercentage: markup,
+            hidePrices,
         });
     } catch (error) {
         console.error('shared-catalog create:', error);
@@ -5682,6 +5718,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         const rows = await query(
             `SELECT sc.id, sc.product_ids, sc.markup_percentage, sc.expires_at, sc.created_at,
                     sc.created_by_user_id, sc.rates_snapshot,
+                    COALESCE(sc.hide_prices, false) AS hide_prices,
                     u.customer_tier AS creator_customer_tier,
                     u.mobile_number AS creator_mobile_number,
                     u.wholesale_markup_percent AS creator_wholesale_markup_pct,
@@ -5696,6 +5733,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             return res.status(404).json({ error: 'Catalog not found' });
         }
         const row = rows[0];
+        const hidePrices = !!row.hide_prices;
         const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
         const cwPricing = creatorWholesaleForBrochure(row);
         const selectionWhatsAppDigits = selectionWhatsAppDigitsFromBrochureRow(row);
@@ -5716,6 +5754,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 expired: true,
                 expiresAt: expiresAt.toISOString(),
                 markupPercentage: markupPctJson,
+                hidePrices,
                 creatorWholesalePricing: cwPricing,
                 products: [],
                 kc_theme_id,
@@ -5735,6 +5774,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 expiresAt: expiresAt.toISOString(),
                 createdAt: new Date(row.created_at).toISOString(),
                 markupPercentage: markupPctJson,
+                hidePrices,
                 creatorWholesalePricing: cwPricing,
                 selectionWhatsAppDigits,
                 creatorCustomerTier,
@@ -5772,6 +5812,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             expiresAt: expiresAt.toISOString(),
             createdAt: new Date(row.created_at).toISOString(),
             markupPercentage: markupPctJson,
+            hidePrices,
             creatorWholesalePricing: cwPricing,
             selectionWhatsAppDigits,
             creatorCustomerTier,

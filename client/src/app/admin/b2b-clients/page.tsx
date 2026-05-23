@@ -21,6 +21,8 @@ type AdminUser = {
   logo_url?: string | null
   allowed_category_ids?: number[] | null
   kc_theme_id?: string | null
+  /** Matches PostgreSQL `users.reseller_hide_prices` — weight-only shared catalogues. */
+  reseller_hide_prices?: boolean
 }
 
 type ThemePick = {
@@ -75,6 +77,7 @@ function B2BAdminContent() {
     allowed_category_ids: [] as number[],
     contact_mobile: '',
     kc_theme_id: '',
+    reseller_hide_prices: false,
   })
   const [themeCatalog, setThemeCatalog] = useState<ThemePick[]>([])
   const [logoFile, setLogoFile] = useState<File | null>(null)
@@ -127,6 +130,7 @@ function B2BAdminContent() {
           resellerModalUser.kc_theme_id != null && String(resellerModalUser.kc_theme_id).trim()
             ? String(resellerModalUser.kc_theme_id).trim()
             : '',
+        reseller_hide_prices: !!resellerModalUser.reseller_hide_prices,
       })
       setLogoFile(null)
       setLogoFileError(null)
@@ -218,6 +222,7 @@ function B2BAdminContent() {
         allowed_category_ids: resellerForm.allowed_category_ids,
         mobile_number: rawMob ? mobDigits : null,
         kc_theme_id: resellerForm.kc_theme_id.trim() ? resellerForm.kc_theme_id.trim() : null,
+        reseller_hide_prices: resellerForm.reseller_hide_prices,
       })
       await load()
       setResellerModalUser(null)
@@ -575,6 +580,38 @@ function B2BAdminContent() {
                     Keyword stored as <code className="text-slate-400">kc_theme_id</code> — applies on this
                     reseller&apos;s custom domain and their temporary shared catalogue pages.
                   </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Weight-only shared catalogues</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        When enabled, this reseller&apos;s shared web links, PDF shortlists, and WhatsApp picks show
+                        product weight only — no prices. Snapshotted when each link is created (
+                        <code className="text-slate-400">reseller_hide_prices</code>).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_hide_prices}
+                      aria-label="Hide prices on shared catalogues"
+                      onClick={() =>
+                        setResellerForm((f) => ({ ...f, reseller_hide_prices: !f.reseller_hide_prices }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_hide_prices
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_hide_prices ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-2">

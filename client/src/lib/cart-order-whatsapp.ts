@@ -70,14 +70,25 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
   brandLabel: string
   lines: SharedCatalogPickLineForWhatsApp[]
   catalogueUrl?: string
+  /** When true, omit price lines — weight-only reseller brochure. */
+  hidePrices?: boolean
 }): string {
-  const { brandLabel, lines, catalogueUrl } = params
-  const header = `Hi ${brandLabel},\n\nI'd love to know more about these pieces from your shared catalogue:\n\n`
+  const { brandLabel, lines, catalogueUrl, hidePrices } = params
+  const header = hidePrices
+    ? `Hi ${brandLabel},\n\nI'd love to know more about these pieces from your catalogue (weights below):\n\n`
+    : `Hi ${brandLabel},\n\nI'd love to know more about these pieces from your shared catalogue:\n\n`
   const body = lines
     .map((l, i) => {
-      const wt = l.weightLabel ? ` · ${l.weightLabel}` : ''
+      const wt = l.weightLabel
+        ? hidePrices
+          ? `\n   ${l.weightLabel}`
+          : ` · ${l.weightLabel}`
+        : ''
       const qty = Math.max(1, Number(l.qty) || 1)
       const qtyLine = qty > 1 ? `\n   Qty: ${qty}` : ''
+      if (hidePrices) {
+        return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}${wt}\n`
+      }
       const unit = Math.round(l.priceInr)
       const lineTotal = unit * qty
       const priceLine =

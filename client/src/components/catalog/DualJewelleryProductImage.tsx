@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type TouchEvent,
+} from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
@@ -37,6 +44,84 @@ function ProductImageSkeleton({ label }: { label?: string }) {
   );
 }
 
+type SlideImageProps = {
+  src: string;
+  alt: string;
+  sizes: string;
+  subcategorySlug: string | null;
+  imageClassName?: string;
+  unoptimized: boolean;
+  priority: boolean;
+  fetchPriority?: "high" | "low" | "auto";
+  hoverFx?: boolean;
+  onLoad: () => void;
+  onError: () => void;
+  imageKey: string;
+};
+
+function SlideImage({
+  src,
+  alt,
+  sizes,
+  subcategorySlug,
+  imageClassName,
+  unoptimized,
+  priority,
+  fetchPriority,
+  hoverFx = false,
+  onLoad,
+  onError,
+  imageKey,
+}: SlideImageProps) {
+  return (
+    <div className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
+      <Image
+        key={imageKey}
+        src={src}
+        alt={alt}
+        fill
+        quality={72}
+        sizes={sizes}
+        className={cn(
+          catalogProductImageClass(subcategorySlug),
+          hoverFx &&
+            "transition-[filter,transform] duration-300 ease-out md:group-hover:brightness-105 md:group-hover:scale-[1.02]",
+          imageClassName,
+        )}
+        unoptimized={unoptimized}
+        decoding="async"
+        loading={priority ? "eager" : "lazy"}
+        priority={priority}
+        fetchPriority={fetchPriority}
+        draggable={false}
+        onLoad={onLoad}
+        onError={onError}
+      />
+    </div>
+  );
+}
+
+/** Passive dots — visual only; swipe/scroll changes the active slide. */
+function GalleryDots({ count, active }: { count: number; active: number }) {
+  if (count <= 1) return null;
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute bottom-2.5 left-0 right-0 z-30 flex justify-center gap-1.5"
+    >
+      {Array.from({ length: count }, (_, i) => (
+        <span
+          key={i}
+          className={cn(
+            "h-1 rounded-full transition-all duration-300",
+            i === active ? "w-4 bg-amber-500/95 shadow-sm" : "w-1 bg-white/55",
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
 type DualJewelleryProductImageProps = {
   primarySrc: string;
   /** Raw DB / API field `secondary_image_url` (normalized inside). */
@@ -46,13 +131,14 @@ type DualJewelleryProductImageProps = {
   subcategorySlug?: string | null;
   priority?: boolean;
   fetchPriority?: "high" | "low" | "auto";
-  /** Passed through to primary + secondary `<Image />`. */
   imageClassName?: string;
-  /** Shared brochure / known-remote hosts — bypass Next optimizer when needed. */
   unoptimized?: boolean;
 };
 
-/** Grid / brochure card: hover cross-fade on md+, dot toggle on smaller screens — only when secondary resolves. */
+/**
+ * Catalogue grid image: swipe sideways on touch to see `secondary_image_url`;
+ * hover cross-fade on md+ desktops. Uses DB fields `image_url` + `secondary_image_url`.
+ */
 export default function DualJewelleryProductImage({
   primarySrc,
   secondary_image_url,
@@ -69,14 +155,18 @@ export default function DualJewelleryProductImage({
       secondary_image_url == null ? undefined : String(secondary_image_url),
     ) || undefined;
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const touchRef = useRef({ x: 0, moved: false });
+
   const [primErr, setPrimErr] = useState(false);
   const [secErr, setSecErr] = useState(false);
   const [fallbackPrimUnopt, setFallbackPrimUnopt] = useState(false);
   const [fallbackSecUnopt, setFallbackSecUnopt] = useState(false);
   const [primLoaded, setPrimLoaded] = useState(false);
   const [secLoaded, setSecLoaded] = useState(false);
-  /** Mobile / coarse pointer: which angle is visible (front = false). */
-  const [showBackMobile, setShowBackMobile] = useState(false);
+  const [mobileIdx, setMobileIdx] = useState(0);
+  /** Desktop hover: show secondary on pointer over. */
+  const [hoverBack, setHoverBack] = useState(false);
 
   useEffect(() => {
     setPrimErr(false);
@@ -85,17 +175,39 @@ export default function DualJewelleryProductImage({
     setFallbackSecUnopt(false);
     setPrimLoaded(false);
     setSecLoaded(false);
-    setShowBackMobile(false);
+    setMobileIdx(0);
+    setHoverBack(false);
+    scrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
   }, [primarySrc, secondaryNorm]);
 
   const showDualUi = !!(secondaryNorm && !secErr);
   const fetchP = fetchPriority ?? (priority ? "high" : undefined);
 
-  function onDotTap(e: MouseEvent<HTMLButtonElement>, back: boolean) {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowBackMobile(back);
-  }
+  const syncIdxFromScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const w = el.clientWidth;
+    if (w <= 0) return;
+    setMobileIdx(Math.round(el.scrollLeft / w));
+  }, []);
+
+  const blockLinkAfterSwipe = useCallback((e: MouseEvent) => {
+    if (touchRef.current.moved) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, []);
+
+  const onTouchStart = useCallback((e: TouchEvent) => {
+    touchRef.current = { x: e.touches[0]?.clientX ?? 0, moved: false };
+  }, []);
+
+  const onTouchMove = useCallback((e: TouchEvent) => {
+    const x = e.touches[0]?.clientX ?? 0;
+    if (Math.abs(x - touchRef.current.x) > 10) {
+      touchRef.current.moved = true;
+    }
+  }, []);
 
   if (!primarySrc) return null;
 
@@ -142,6 +254,7 @@ export default function DualJewelleryProductImage({
             loading={priority ? "eager" : "lazy"}
             priority={priority}
             fetchPriority={fetchP}
+            draggable={false}
             onLoad={() => setPrimLoaded(true)}
             onError={() => {
               if (!fallbackPrimUnopt) {
@@ -156,120 +269,141 @@ export default function DualJewelleryProductImage({
     );
   }
 
+  const primKey = `p-${primarySrc}-${fallbackPrimUnopt ? "u" : "o"}`;
+  const secKey = `s-${secondaryNorm}-${fallbackSecUnopt ? "u" : "o"}`;
+
   return (
     <>
       <div
         className={cn(
           "pointer-events-none absolute inset-0 z-[5] transition-opacity duration-300",
-          (showBackMobile ? secLoaded : primLoaded) ? "opacity-0" : "opacity-100",
+          (mobileIdx === 1 ? secLoaded : primLoaded) ? "opacity-0" : "opacity-100",
+          "md:opacity-0 md:pointer-events-none",
         )}
       >
         <ProductImageSkeleton label="Loading" />
       </div>
 
-      {/* Primary */}
+      {/* Mobile / tablet: horizontal snap scroll (swipe for alternate view). */}
       <div
-        className={cn(
-          productImageViewportWrapperClass(),
-          "absolute inset-0 transition-opacity duration-300 ease-out md:transition-opacity",
-          showBackMobile ? "opacity-0 md:opacity-0" : "opacity-100",
-          "max-md:z-[1]",
-          "md:z-[1] md:group-hover:opacity-0",
-        )}
+        ref={scrollRef}
+        role="region"
+        aria-label="Product photos — swipe sideways"
+        className="absolute inset-0 z-[4] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-scroll-contain touch-pan-x md:hidden"
+        onScroll={syncIdxFromScroll}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onClickCapture={blockLinkAfterSwipe}
       >
-        <Image
-          key={`p-${primarySrc}-${fallbackPrimUnopt ? "u" : "o"}`}
-          src={primarySrc}
-          alt={alt}
-          fill
-          quality={72}
-          sizes={sizes}
-          className={cn(
-            catalogProductImageClass(subcategorySlug),
-            "transition-[filter,transform] duration-300 ease-out md:group-hover:brightness-105 md:group-hover:scale-[1.02]",
-            imageClassName,
-          )}
-          unoptimized={unoptimized || fallbackPrimUnopt}
-          decoding="async"
-          loading={priority ? "eager" : "lazy"}
-          priority={priority}
-          fetchPriority={fetchP}
-          onLoad={() => setPrimLoaded(true)}
-          onError={() => {
-            if (!fallbackPrimUnopt) {
-              setFallbackPrimUnopt(true);
-              return;
-            }
-            setPrimErr(true);
-          }}
-        />
+        <div className="relative h-full w-full shrink-0 snap-center snap-always">
+          <SlideImage
+            src={primarySrc}
+            alt={alt}
+            sizes={sizes}
+            subcategorySlug={subcategorySlug}
+            imageClassName={imageClassName}
+            unoptimized={unoptimized || fallbackPrimUnopt}
+            priority={priority}
+            fetchPriority={fetchP}
+            imageKey={primKey}
+            onLoad={() => setPrimLoaded(true)}
+            onError={() => {
+              if (!fallbackPrimUnopt) {
+                setFallbackPrimUnopt(true);
+                return;
+              }
+              setPrimErr(true);
+            }}
+          />
+        </div>
+        <div className="relative h-full w-full shrink-0 snap-center snap-always">
+          <SlideImage
+            src={secondaryNorm!}
+            alt={`${alt} — alternate view`}
+            sizes={sizes}
+            subcategorySlug={subcategorySlug}
+            imageClassName={imageClassName}
+            unoptimized={unoptimized || fallbackSecUnopt}
+            priority={priority}
+            fetchPriority={priority ? "low" : fetchP}
+            imageKey={secKey}
+            onLoad={() => setSecLoaded(true)}
+            onError={() => {
+              if (!fallbackSecUnopt) {
+                setFallbackSecUnopt(true);
+                return;
+              }
+              setSecErr(true);
+            }}
+          />
+        </div>
       </div>
 
-      {/* Secondary */}
+      {/* Desktop: cross-fade on hover (no click toggles). */}
       <div
-        className={cn(
-          productImageViewportWrapperClass(),
-          "absolute inset-0 transition-opacity duration-300 ease-out",
-          showBackMobile ? "opacity-100" : "opacity-0 pointer-events-none",
-          "max-md:z-[2]",
-          "md:z-[2] md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-none md:group-hover:opacity-100",
-        )}
+        className="absolute inset-0 z-[3] hidden md:block"
+        onMouseEnter={() => setHoverBack(true)}
+        onMouseLeave={() => setHoverBack(false)}
       >
-        <Image
-          key={`s-${secondaryNorm}-${fallbackSecUnopt ? "u" : "o"}`}
-          src={secondaryNorm}
-          alt={`${alt} — alternate view`}
-          fill
-          quality={72}
-          sizes={sizes}
-          className={cn(catalogProductImageClass(subcategorySlug), imageClassName)}
-          unoptimized={unoptimized || fallbackSecUnopt}
-          decoding="async"
-          loading={priority ? "eager" : "lazy"}
-          fetchPriority={priority ? "low" : fetchP}
-          onLoad={() => setSecLoaded(true)}
-          onError={() => {
-            if (!fallbackSecUnopt) {
-              setFallbackSecUnopt(true);
-              return;
-            }
-            setSecErr(true);
-          }}
-        />
+        <div
+          className={cn(
+            "absolute inset-0 transition-opacity duration-300 ease-out",
+            hoverBack ? "opacity-0" : "opacity-100",
+          )}
+        >
+          <SlideImage
+            src={primarySrc}
+            alt={alt}
+            sizes={sizes}
+            subcategorySlug={subcategorySlug}
+            imageClassName={imageClassName}
+            unoptimized={unoptimized || fallbackPrimUnopt}
+            priority={priority}
+            fetchPriority={fetchP}
+            hoverFx
+            imageKey={`desk-${primKey}`}
+            onLoad={() => setPrimLoaded(true)}
+            onError={() => {
+              if (!fallbackPrimUnopt) {
+                setFallbackPrimUnopt(true);
+                return;
+              }
+              setPrimErr(true);
+            }}
+          />
+        </div>
+        <div
+          className={cn(
+            "absolute inset-0 transition-opacity duration-300 ease-out",
+            hoverBack ? "opacity-100" : "opacity-0 pointer-events-none",
+          )}
+        >
+          <SlideImage
+            src={secondaryNorm!}
+            alt={`${alt} — alternate view`}
+            sizes={sizes}
+            subcategorySlug={subcategorySlug}
+            imageClassName={imageClassName}
+            unoptimized={unoptimized || fallbackSecUnopt}
+            priority={priority}
+            fetchPriority="low"
+            imageKey={`desk-${secKey}`}
+            onLoad={() => setSecLoaded(true)}
+            onError={() => {
+              if (!fallbackSecUnopt) {
+                setFallbackSecUnopt(true);
+                return;
+              }
+              setSecErr(true);
+            }}
+          />
+        </div>
+        <span className="pointer-events-none absolute bottom-2.5 right-2.5 rounded-md bg-slate-950/75 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400 backdrop-blur-sm">
+          Hover for alt
+        </span>
       </div>
 
-      <div
-        role="group"
-        aria-label="Product photo angle"
-        className="pointer-events-none absolute bottom-2 left-0 right-0 z-30 flex justify-center gap-2 px-2"
-      >
-        <button
-          type="button"
-          role="radio"
-          aria-checked={!showBackMobile}
-          aria-label="Front view"
-          onClick={(e) => onDotTap(e, false)}
-          className={cn(
-            "pointer-events-auto h-2.5 min-w-[2.5rem] rounded-full border transition md:opacity-90 md:hover:border-amber-400/70",
-            !showBackMobile
-              ? "border-amber-400/70 bg-amber-500 shadow-[0_0_16px_-2px_rgba(251,191,36,0.5)]"
-              : "border-slate-300/90 bg-white/95 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-sm",
-          )}
-        />
-        <button
-          type="button"
-          role="radio"
-          aria-checked={showBackMobile}
-          aria-label="Alternate view"
-          onClick={(e) => onDotTap(e, true)}
-          className={cn(
-            "pointer-events-auto h-2.5 min-w-[2.5rem] rounded-full border transition md:opacity-90 md:hover:border-amber-400/70",
-            showBackMobile
-              ? "border-amber-400/70 bg-amber-500 shadow-[0_0_16px_-2px_rgba(251,191,36,0.5)]"
-              : "border-slate-300/90 bg-white/95 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-sm",
-          )}
-        />
-      </div>
+      <GalleryDots count={2} active={mobileIdx} />
     </>
   );
 }

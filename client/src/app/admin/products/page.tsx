@@ -719,19 +719,26 @@ export default function AdminProductsPage() {
               <ArrowLeft className="size-4" /> Back to Dashboard
             </Link>
 
-            {/* Metal Type Tabs — same as public catalog */}
+            {/* Metal tabs — 2×2 on mobile, row on sm+ */}
             <div className="flex justify-center mb-6 px-1">
-              <div className="inline-flex w-full max-w-2xl sm:max-w-none sm:w-auto p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg overflow-x-auto scrollbar-hide kc-scroll-contain">
+              <div
+                className="mx-auto grid w-full max-w-sm grid-cols-2 gap-1.5 rounded-2xl border border-slate-800 bg-slate-900/80 p-1.5 shadow-lg sm:inline-grid sm:max-w-none sm:grid-cols-4 sm:gap-1 sm:p-1"
+                role="tablist"
+                aria-label="Catalogue metal type"
+              >
                 {METAL_TABS.map(({ key, label, icon: Icon }) => {
                   const isActive = selectedMetal === key
                   return (
                     <button
                       key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
                       onClick={() => setSelectedMetal(key)}
-                      className={`flex-none flex items-center justify-center gap-2 min-w-[4.25rem] px-3 sm:px-4 py-3 sm:py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 whitespace-nowrap snap-center ${
+                      className={`flex min-h-[44px] touch-manipulation items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-semibold transition-all duration-200 sm:rounded-lg sm:px-3 sm:py-2.5 ${
                         isActive
                           ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
+                          : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 active:bg-slate-800'
                       }`}
                     >
                       <Icon className="size-4 shrink-0" />

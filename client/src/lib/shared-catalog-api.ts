@@ -16,6 +16,7 @@ export type CreateSharedCatalogResponse =
       expiresAt: string
       selectedProductIds: string[]
       markupPercentage: number
+      hidePrices?: boolean
     }
   | {
       success: true
@@ -63,6 +64,7 @@ export type SharedCatalogPublicResponse =
       expired: true
       expiresAt: string
       markupPercentage: number
+      hidePrices?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
       products: SharedCatalogPublicProduct[]
     }
@@ -71,6 +73,8 @@ export type SharedCatalogPublicResponse =
       expiresAt: string
       createdAt?: string
       markupPercentage: number
+      /** Snapshot from `shared_catalogs.hide_prices` — weight-only brochure (no prices). */
+      hidePrices?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
       /** RESELLER creator mobile (10 digits) when set — share selection targets this WhatsApp. */
       selectionWhatsAppDigits?: string | null

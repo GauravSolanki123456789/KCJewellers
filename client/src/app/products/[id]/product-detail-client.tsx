@@ -297,22 +297,31 @@ export default function ProductDetailClient({
   }, [product]);
 
   const [galleryIdx, setGalleryIdx] = useState(0);
+  const galleryScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setGalleryIdx(0);
+    galleryScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
   }, [id, product?.image_url, product?.secondary_image_url]);
 
   const galleryLen = gallerySlides.length;
 
-  const galleryPrev = useCallback(() => {
-    if (galleryLen <= 1) return;
-    setGalleryIdx((i) => (i <= 0 ? galleryLen - 1 : i - 1));
+  const syncGalleryFromScroll = useCallback(() => {
+    const el = galleryScrollRef.current;
+    if (!el || galleryLen <= 1) return;
+    const w = el.clientWidth;
+    if (w <= 0) return;
+    setGalleryIdx(Math.max(0, Math.min(galleryLen - 1, Math.round(el.scrollLeft / w))));
   }, [galleryLen]);
 
-  const galleryNext = useCallback(() => {
-    if (galleryLen <= 1) return;
-    setGalleryIdx((i) => (i >= galleryLen - 1 ? 0 : i + 1));
-  }, [galleryLen]);
+  const scrollGalleryTo = useCallback((index: number) => {
+    const el = galleryScrollRef.current;
+    if (!el) return;
+    const w = el.clientWidth;
+    if (w <= 0) return;
+    el.scrollTo({ left: index * w, behavior: "smooth" });
+    setGalleryIdx(index);
+  }, []);
 
   if (loadState === "loading")
     return (
@@ -449,53 +458,107 @@ export default function ProductDetailClient({
                       <Loader2 className="size-9 animate-spin text-slate-400/90" />
                     </div>
                   )}
-                  <div className={productImageViewportWrapperClass()}>
-                    <HoverZoomImage>
-                      <Image
-                        key={`${activeGallerySrc}-${galleryIdx}-${pdpImageUnoptimized ? "u" : "o"}`}
-                        src={activeGallerySrc}
-                        alt={galleryIdx === 0 ? displayName : `${displayName} — alternate view`}
-                        fill
-                        sizes="(max-width: 768px) 100vw, 50vw"
-                        className={detailImgClass}
-                        unoptimized={pdpImageUnoptimized}
-                        priority
-                        fetchPriority="high"
-                        decoding="async"
-                        onLoad={handleProductImageLoad}
-                        onError={() => {
-                          if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
-                        }}
-                      />
-                    </HoverZoomImage>
-                  </div>
+                  {multiGallery ? (
+                    <div
+                      ref={galleryScrollRef}
+                      role="region"
+                      aria-label="Product photos — swipe sideways"
+                      className={cn(
+                        "absolute inset-0 z-[3] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-scroll-contain touch-pan-x",
+                        "md:rounded-2xl",
+                      )}
+                      onScroll={syncGalleryFromScroll}
+                    >
+                      {gallerySlides.map((src, i) => (
+                        <div
+                          key={`${src}-${i}`}
+                          className="relative h-full w-full shrink-0 snap-center snap-always"
+                        >
+                          <div className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
+                            {i === 0 ? (
+                              <HoverZoomImage>
+                                <Image
+                                  key={`${src}-${pdpImageUnoptimized ? "u" : "o"}`}
+                                  src={src}
+                                  alt={displayName}
+                                  fill
+                                  sizes="(max-width: 768px) 100vw, 50vw"
+                                  className={detailImgClass}
+                                  unoptimized={pdpImageUnoptimized}
+                                  priority
+                                  fetchPriority="high"
+                                  decoding="async"
+                                  draggable={false}
+                                  onLoad={handleProductImageLoad}
+                                  onError={() => {
+                                    if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
+                                  }}
+                                />
+                              </HoverZoomImage>
+                            ) : (
+                              <Image
+                                key={`${src}-${pdpImageUnoptimized ? "u" : "o"}`}
+                                src={src}
+                                alt={`${displayName} — alternate view`}
+                                fill
+                                sizes="(max-width: 768px) 100vw, 50vw"
+                                className={detailImgClass}
+                                unoptimized={pdpImageUnoptimized}
+                                decoding="async"
+                                draggable={false}
+                                onLoad={() => setPdpImageLoaded(true)}
+                                onError={() => {
+                                  if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
+                                }}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={cn("absolute inset-0 z-[3]", productImageViewportWrapperClass())}>
+                      <HoverZoomImage>
+                        <Image
+                          key={`${activeGallerySrc}-${pdpImageUnoptimized ? "u" : "o"}`}
+                          src={activeGallerySrc}
+                          alt={displayName}
+                          fill
+                          sizes="(max-width: 768px) 100vw, 50vw"
+                          className={detailImgClass}
+                          unoptimized={pdpImageUnoptimized}
+                          priority
+                          fetchPriority="high"
+                          decoding="async"
+                          draggable={false}
+                          onLoad={handleProductImageLoad}
+                          onError={() => {
+                            if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
+                          }}
+                        />
+                      </HoverZoomImage>
+                    </div>
+                  )}
                   {multiGallery && (
-                    <div className="pointer-events-none absolute bottom-3 left-0 right-0 z-[12] flex justify-center px-10 md:bottom-4">
-                      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-slate-950/90 px-1 py-1 shadow-lg backdrop-blur-md">
-                        <button
-                          type="button"
-                          onClick={galleryPrev}
-                          aria-label="Previous product photo"
-                          className="flex h-9 w-9 items-center justify-center rounded-full text-amber-400 transition hover:bg-white/10"
-                        >
-                          <ChevronLeft className="size-5" strokeWidth={2.5} />
-                        </button>
-                        <span className="min-w-[3.25rem] select-none text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400 tabular-nums">
-                          {galleryIdx + 1}/{gallerySlides.length}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={galleryNext}
-                          aria-label="Next product photo"
-                          className="flex h-9 w-9 items-center justify-center rounded-full text-amber-400 transition hover:bg-white/10"
-                        >
-                          <ChevronRight className="size-5" strokeWidth={2.5} />
-                        </button>
-                      </div>
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute bottom-3 left-0 right-0 z-[12] flex justify-center gap-1.5 md:bottom-4"
+                    >
+                      {gallerySlides.map((_, i) => (
+                        <span
+                          key={i}
+                          className={cn(
+                            "h-1 rounded-full transition-all duration-300",
+                            galleryIdx === i
+                              ? "w-5 bg-amber-500 shadow-sm"
+                              : "w-1 bg-white/50",
+                          )}
+                        />
+                      ))}
                     </div>
                   )}
                   <span className="pointer-events-none absolute bottom-3 left-3 z-10 hidden text-[10px] uppercase tracking-wider text-slate-500 md:block">
-                    Hover to zoom
+                    {multiGallery ? "Swipe or use thumbnails" : "Hover to zoom"}
                   </span>
                 </>
               ) : (
@@ -512,7 +575,7 @@ export default function ProductDetailClient({
             </div>
             {multiGallery && (
               <div
-                className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="hidden gap-2 md:flex"
                 role="tablist"
                 aria-label="Product photos"
               >
@@ -523,9 +586,9 @@ export default function ProductDetailClient({
                     role="tab"
                     aria-selected={galleryIdx === i}
                     aria-label={i === 0 ? "Front photo" : "Alternate photo"}
-                    onClick={() => setGalleryIdx(i)}
+                    onClick={() => scrollGalleryTo(i)}
                     className={cn(
-                      "relative h-[4.75rem] w-[4.75rem] shrink-0 snap-center overflow-hidden rounded-xl border transition-all sm:h-20 sm:w-20",
+                      "relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border transition-all lg:h-[4.75rem] lg:w-[4.75rem]",
                       galleryIdx === i
                         ? "border-amber-500 shadow-md shadow-amber-500/20 ring-2 ring-amber-500/35 ring-offset-2 ring-offset-slate-950"
                         : "border-slate-700 opacity-90 hover:border-amber-500/55 hover:opacity-100",
@@ -537,7 +600,7 @@ export default function ProductDetailClient({
                         src={src}
                         alt=""
                         fill
-                        sizes="96px"
+                        sizes="80px"
                         className={detailImgClass}
                         unoptimized={pdpImageUnoptimized}
                       />

@@ -241,6 +241,7 @@ export default function SharedCatalogClient({
 
     const markup = parseMarkupPercentage(payload.markupPercentage)
     const wholesale = wholesaleInputFromBrochure(payload.creatorWholesalePricing ?? null)
+    const hidePricesPdf = !!payload.hidePrices
     const catalogueUrl = typeof window !== 'undefined' ? window.location.href : ''
     const kcThemeId = normalizeKcThemeId(
       payload.kc_theme_id ?? initialBranding?.kcThemeId ?? null,
@@ -254,12 +255,17 @@ export default function SharedCatalogClient({
           products={itemsForPdf}
           brandName={brandLabel}
           kcThemeId={kcThemeId}
-          itemsLabel="Shared catalogue shortlist"
-          resellerPdfPricing={{
-            rates: payload.rates,
-            markupPercentage: markup,
-            wholesale,
-          }}
+          itemsLabel={hidePricesPdf ? 'Weight catalogue shortlist' : 'Shared catalogue shortlist'}
+          hidePrices={hidePricesPdf}
+          resellerPdfPricing={
+            hidePricesPdf
+              ? null
+              : {
+                  rates: payload.rates,
+                  markupPercentage: markup,
+                  wholesale,
+                }
+          }
         />,
       ).toBlob()
 
@@ -361,6 +367,7 @@ export default function SharedCatalogClient({
       brandLabel,
       lines,
       catalogueUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+      hidePrices: !!payload.hidePrices,
     })
     openWhatsAppOrder(wa, msg)
   }, [payload, selections, selectedCount, rows, rowKeys, brandLabel, initialBranding?.contactPhoneDigits])
@@ -415,6 +422,7 @@ export default function SharedCatalogClient({
 
   const expiresAt = payload.expiresAt
   const expDate = expiresAt ? new Date(expiresAt) : null
+  const hidePrices = !!payload.hidePrices
   const showPickerChrome = rows.length > 0
 
   return (
@@ -447,7 +455,14 @@ export default function SharedCatalogClient({
         </h1>
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
-            Tap to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
+            {hidePrices
+              ? 'Tap to shortlist · adjust quantities · zoom photos · weights only (no prices) · then share on WhatsApp or PDF.'
+              : 'Tap to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.'}
+          </p>
+        ) : null}
+        {hidePrices && showPickerChrome ? (
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-400/95">
+            Weight catalogue · prices hidden
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
@@ -573,15 +588,26 @@ export default function SharedCatalogClient({
                       </h2>
                       <p className="truncate font-mono text-[11px] text-slate-500">{code}</p>
                       {wtLabel ? (
-                        <p className="text-[11px] text-slate-500 sm:text-xs">Weight · {wtLabel}</p>
+                        <p
+                          className={cn(
+                            'tabular-nums',
+                            hidePrices
+                              ? 'text-sm font-semibold text-amber-500/95 sm:text-[15px]'
+                              : 'text-[11px] text-slate-500 sm:text-xs',
+                          )}
+                        >
+                          {hidePrices ? wtLabel : `Weight · ${wtLabel}`}
+                        </p>
                       ) : null}
                       <div className="mt-auto space-y-2 pt-1.5">
-                        <p className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
-                          ₹{unitTotalInr.toLocaleString('en-IN')}
-                          <span className="ml-1 text-[10px] font-normal text-slate-500 sm:text-[11px]">
-                            incl. GST
-                          </span>
-                        </p>
+                        {!hidePrices ? (
+                          <p className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
+                            ₹{unitTotalInr.toLocaleString('en-IN')}
+                            <span className="ml-1 text-[10px] font-normal text-slate-500 sm:text-[11px]">
+                              incl. GST
+                            </span>
+                          </p>
+                        ) : null}
                         {selected ? (
                           <div
                             className="flex items-center justify-between gap-2 rounded-xl border border-slate-700/80 bg-slate-950/60 px-2 py-1.5"

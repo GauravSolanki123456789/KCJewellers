@@ -93,6 +93,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   }, [auth.user, brandingActive, brandingBusinessName, customerTier])
 
   const isReseller = normalizeCustomerTier(customerTier) === CUSTOMER_TIER.RESELLER
+  const resellerHidePrices =
+    isReseller && !!(auth.user as WholesaleUserFields)?.reseller_hide_prices
 
   const clampedMarkup = useMemo(
     () => Math.max(0, Math.min(1000, Number(markupPercentage) || 0)),
@@ -131,7 +133,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           setBusy(false)
           return
         }
-        if (isReseller && isBootstrapping) {
+        if (isReseller && !resellerHidePrices && isBootstrapping) {
           setError('Prices are still loading. Wait a moment and try again.')
           setBusy(false)
           return
@@ -148,7 +150,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           <CatalogPdfDocument
             products={itemsForPdf}
             kcThemeId={kcThemeId}
-            {...(isReseller
+            hidePrices={resellerHidePrices}
+            {...(isReseller && !resellerHidePrices
               ? {
                   brandName: shareBrandLabel,
                   resellerPdfPricing: {
@@ -157,7 +160,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                     wholesale: wholesalePdf,
                   },
                 }
-              : {})}
+              : isReseller
+                ? { brandName: shareBrandLabel, itemsLabel: 'Weight catalogue' }
+                : {})}
           />,
         ).toBlob()
         const slug =
@@ -190,7 +195,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
       const res = await createSharedCatalog({
         selectedProductIds,
-        markupPercentage: clampedMarkup,
+        markupPercentage: resellerHidePrices ? 0 : clampedMarkup,
         format: 'temporary_web_link',
         expiresAt: expiresAtIso,
       })
@@ -221,6 +226,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     clampedMarkup,
     isBootstrapping,
     auth.user,
+    resellerHidePrices,
   ])
 
   const copyLink = useCallback(async () => {
@@ -314,7 +320,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             </div>
             {outputFormat === 'pdf' && (
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                {isReseller ? (
+                {isReseller && resellerHidePrices ? (
+                  <>Weight-only mode — PDF shows barcode, name, and net weight. No prices.</>
+                ) : isReseller ? (
                   <>
                     Uses your business name on the PDF. Prices use live rates incl.&nbsp;GST plus your global markup
                     ({clampedMarkup}%).
@@ -326,7 +334,14 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             )}
           </div>
 
-          {(outputFormat === 'temporary_web_link' || isReseller) && (
+          {resellerHidePrices ? (
+            <div className="rounded-xl border border-violet-500/30 bg-violet-950/25 px-3 py-2.5 text-[11px] leading-relaxed text-violet-200/90">
+              Weight-only sharing is enabled for your account. Shared links, PDFs, and customer shortlists will show
+              weights — not prices.
+            </div>
+          ) : null}
+
+          {(outputFormat === 'temporary_web_link' || isReseller) && !resellerHidePrices && (
             <div className="space-y-5">
               <div>
                 <label htmlFor="markup-pct" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">

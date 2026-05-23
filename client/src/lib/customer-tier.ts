@@ -23,6 +23,8 @@ export type WholesaleUserFields = {
   custom_domain?: string | null
   /** Saved from Admin B2B row — used for reseller storefront WhatsApp orders when set. */
   mobile_number?: string | null
+  /** Admin toggle: shared catalogue links/PDFs show weight only (matches `users.reseller_hide_prices`). */
+  reseller_hide_prices?: boolean
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

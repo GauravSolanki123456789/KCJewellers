@@ -602,6 +602,14 @@ async function initSchema() {
             ALTER TABLE shared_catalogs
             ADD COLUMN IF NOT EXISTS rates_snapshot JSONB
         `);
+        await pool.query(`
+            ALTER TABLE shared_catalogs
+            ADD COLUMN IF NOT EXISTS hide_prices BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_hide_prices BOOLEAN NOT NULL DEFAULT false
+        `);
     } catch (error) {
         console.warn('shared_catalogs init:', error.message);
     }

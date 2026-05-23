@@ -570,9 +570,9 @@ export default function CatalogPageClient() {
     }
   }, [pathname])
 
-  /** Smart default: when catalog loads, if current metal has no products, switch to first available */
+  /** Smart default: when catalog first loads, if default metal has no products, switch to first available */
   useEffect(() => {
-    if (categories.length === 0) return
+    if (categories.length === 0 || !catalogHydrated) return
     const first = firstAvailableMetal(categories)
     setSelectedMetal((prev) => {
       const hasCurrent = categories.some((c) =>
@@ -582,7 +582,7 @@ export default function CatalogPageClient() {
       )
       return hasCurrent ? prev : first
     })
-  }, [categories])
+  }, [categories, catalogHydrated])
 
   /** Filter categories/subcategories/products by selected metal type */
   const metalFilteredCategories = useMemo(() => {
@@ -618,6 +618,50 @@ export default function CatalogPageClient() {
     selectedShopFor,
     selectedProductType,
   ])
+
+  /** User tapped a metal tab — update selection + URL (must not be overwritten by path metal). */
+  const handleMetalTabClick = useCallback(
+    (key: MetalKey) => {
+      if (key === selectedMetal) return
+      setSelectedMetal(key)
+      setActiveDesignGroup('all')
+      setStyleNavSubmenuCollapsed(false)
+
+      let tree = categories
+        .map((cat) => ({
+          ...cat,
+          subcategories: cat.subcategories
+            .map((sub) => ({
+              ...sub,
+              products: sub.products.filter((p) => productMatchesMetal(p, key)),
+            }))
+            .filter((sub) => sub.products.length > 0),
+        }))
+        .filter((cat) => cat.subcategories.length > 0)
+
+      if (
+        showRetailBrowse &&
+        (selectedShopFor !== 'all' || selectedProductType !== 'all')
+      ) {
+        tree = filterCatalogTreeByRetail(tree, selectedShopFor, selectedProductType)
+      }
+
+      if (tree.length > 0) {
+        setActiveStyleId(tree[0].id)
+        setActiveSkuId(tree[0].subcategories[0]?.id ?? null)
+      } else {
+        setActiveStyleId(null)
+        setActiveSkuId(null)
+      }
+    },
+    [
+      selectedMetal,
+      categories,
+      showRetailBrowse,
+      selectedShopFor,
+      selectedProductType,
+    ],
+  )
 
   retailSyncCtxRef.current = {
     showRetailBrowse,
@@ -1069,18 +1113,26 @@ export default function CatalogPageClient() {
     if (shopFor !== selectedShopFor) setSelectedShopFor(shopFor)
     if (productType !== selectedProductType) setSelectedProductType(productType)
 
-    const pathMetal = metalKeyFromCatalogPathname(pathname)
-    const effectiveMetal = pathMetal ?? selectedMetal
-    if (pathMetal && pathMetal !== selectedMetal) {
-      setSelectedMetal(pathMetal)
-    }
+    // Tab selection drives the URL — do not revert to path metal (that blocked Diamond/Gifting clicks).
+    const effectiveMetal = selectedMetal
 
     const retailTree =
       showRetailBrowse && (shopFor !== 'all' || productType !== 'all')
         ? filterCatalogTreeByRetail(metalFilteredCategories, shopFor, productType)
         : filteredCategories
 
-    if (retailTree.length === 0) return
+    if (retailTree.length === 0) {
+      const next = catalogPathWithRetailQuery(
+        `${CATALOG_PATH}/${effectiveMetal}`,
+        showRetailBrowse ? shopFor : 'all',
+        showRetailBrowse ? productType : 'all',
+      )
+      const current = window.location.pathname + window.location.search
+      if (current !== next) {
+        router.replace(next, { scroll: false })
+      }
+      return
+    }
 
     const retailActive =
       showRetailBrowse && (shopFor !== 'all' || productType !== 'all')
@@ -1267,23 +1319,29 @@ export default function CatalogPageClient() {
             : 'pb-[calc(7rem+env(safe-area-inset-bottom,0px))]'
         }`}
       >
-        {/* Metal Type Tabs — scroll on narrow screens so all four tabs stay tappable */}
-        <div className="flex justify-center mb-4 px-1">
-          <div className="inline-flex w-full max-w-2xl p-1 rounded-xl bg-slate-900/80 border border-slate-800 shadow-lg overflow-x-auto scrollbar-hide kc-scroll-contain sm:max-w-none sm:w-auto">
+        {/* Metal tabs — 2×2 grid on phones, single row on sm+; tab drives URL via handleMetalTabClick */}
+        <div className="mb-4 px-1">
+          <div
+            className="mx-auto grid w-full max-w-sm grid-cols-2 gap-1.5 rounded-2xl border border-slate-800 bg-slate-900/80 p-1.5 shadow-lg sm:inline-grid sm:max-w-none sm:grid-cols-4 sm:gap-1 sm:p-1"
+            role="tablist"
+            aria-label="Catalogue metal type"
+          >
             {METAL_TABS.map(({ key, label, icon: Icon }) => {
               const isActive = selectedMetal === key
               return (
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setSelectedMetal(key)}
-                  className={`relative z-10 flex-none flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-w-[4.25rem] sm:min-w-0 px-2.5 sm:px-4 py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 whitespace-nowrap snap-center ${
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => handleMetalTabClick(key)}
+                  className={`flex min-h-[44px] touch-manipulation items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold transition-all duration-200 sm:gap-2 sm:rounded-lg sm:px-3 sm:py-2.5 sm:text-sm ${
                     isActive
                       ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 active:bg-slate-800'
+                      : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 active:bg-slate-800'
                   }`}
                 >
-                  <Icon className="size-5 shrink-0 sm:size-4" aria-hidden />
+                  <Icon className="size-4 shrink-0" aria-hidden />
                   <span>{label}</span>
                 </button>
               )
