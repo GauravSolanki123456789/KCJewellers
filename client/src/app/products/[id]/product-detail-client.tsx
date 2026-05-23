@@ -464,7 +464,7 @@ export default function ProductDetailClient({
                       role="region"
                       aria-label="Product photos — swipe sideways"
                       className={cn(
-                        "absolute inset-0 z-[3] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-scroll-contain touch-pan-x",
+                        "absolute inset-0 z-[3] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-gallery-swipe",
                         "md:rounded-2xl",
                       )}
                       onScroll={syncGalleryFromScroll}

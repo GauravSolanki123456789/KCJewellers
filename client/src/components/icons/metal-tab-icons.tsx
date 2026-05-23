@@ -26,18 +26,22 @@ export function MetalTabFavicon({
   const src = METAL_TAB_FAVICONS[metal as MetalTabFaviconKey];
   if (!src) return null;
   return (
-    <Image
-      src={src}
-      alt=""
-      width={20}
-      height={20}
+    <span
       className={cn(
-        "size-5 shrink-0 object-contain",
-        active && "brightness-0 invert drop-shadow-sm",
+        "inline-flex shrink-0 items-center justify-center rounded-full",
+        active && "bg-white p-0.5 shadow-sm ring-1 ring-white/50",
         className,
       )}
-      aria-hidden
-    />
+    >
+      <Image
+        src={src}
+        alt=""
+        width={20}
+        height={20}
+        className="size-5 object-contain"
+        aria-hidden
+      />
+    </span>
   );
 }
 

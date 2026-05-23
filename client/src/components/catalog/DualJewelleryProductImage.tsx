@@ -156,7 +156,7 @@ export default function DualJewelleryProductImage({
     ) || undefined;
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const touchRef = useRef({ x: 0, moved: false });
+  const touchRef = useRef({ x: 0, y: 0, moved: false, axis: null as "x" | "y" | null });
 
   const [primErr, setPrimErr] = useState(false);
   const [secErr, setSecErr] = useState(false);
@@ -199,14 +199,35 @@ export default function DualJewelleryProductImage({
   }, []);
 
   const onTouchStart = useCallback((e: TouchEvent) => {
-    touchRef.current = { x: e.touches[0]?.clientX ?? 0, moved: false };
+    const t = e.touches[0];
+    touchRef.current = {
+      x: t?.clientX ?? 0,
+      y: t?.clientY ?? 0,
+      moved: false,
+      axis: null,
+    };
   }, []);
 
   const onTouchMove = useCallback((e: TouchEvent) => {
-    const x = e.touches[0]?.clientX ?? 0;
-    if (Math.abs(x - touchRef.current.x) > 10) {
+    const t = e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - touchRef.current.x;
+    const dy = t.clientY - touchRef.current.y;
+    if (!touchRef.current.axis) {
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        touchRef.current.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      }
+    }
+    if (touchRef.current.axis === "x" && Math.abs(dx) > 12) {
       touchRef.current.moved = true;
     }
+  }, []);
+
+  const onTouchEnd = useCallback(() => {
+    window.setTimeout(() => {
+      touchRef.current.moved = false;
+      touchRef.current.axis = null;
+    }, 80);
   }, []);
 
   if (!primarySrc) return null;
@@ -289,10 +310,12 @@ export default function DualJewelleryProductImage({
         ref={scrollRef}
         role="region"
         aria-label="Product photos — swipe sideways"
-        className="absolute inset-0 z-[4] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-scroll-contain touch-pan-x md:hidden"
+        className="absolute inset-0 z-[4] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-gallery-swipe md:hidden"
         onScroll={syncIdxFromScroll}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
         onClickCapture={blockLinkAfterSwipe}
       >
         <div className="relative h-full w-full shrink-0 snap-center snap-always">

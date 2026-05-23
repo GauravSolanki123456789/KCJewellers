@@ -229,6 +229,18 @@ body {
     display: none;
   }
 
+  /** Horizontal product-photo strip — allows vertical page scroll through the image area on touch. */
+  .kc-gallery-swipe {
+    -webkit-overflow-scrolling: touch;
+    touch-action: manipulation;
+  }
+
+  @media (max-width: 767.98px) {
+    html {
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+
   /** Prevent nested scroll areas (catalog nav, chip strips) from chaining to the page. */
   .kc-scroll-contain {
     overscroll-behavior: contain;
