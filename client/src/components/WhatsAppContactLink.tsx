@@ -10,7 +10,7 @@ import { buildWhatsAppBusinessChatLink } from "@/lib/whatsapp";
 
 type Props = {
   className?: string;
-  /** Icon-only on narrow screens */
+  /** Narrow screens: icon only; from `sm` up, show label */
   compact?: boolean;
 };
 
@@ -44,9 +44,9 @@ export default function WhatsAppContactLink({ className = "", compact = false }:
       rel="noopener noreferrer"
       title="Contact us on WhatsApp"
       aria-label={`Contact ${brand} on WhatsApp`}
-      className={`inline-flex h-9 max-w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#25D366] text-xs font-semibold text-white shadow-sm ring-1 ring-black/10 transition hover:brightness-110 active:scale-[0.98] sm:gap-2 sm:text-sm ${compact ? "min-w-9 px-0 sm:min-w-0 sm:px-3" : "px-3 sm:px-3.5"} ${className}`}
+      className={`inline-flex h-9 max-w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#25D366] px-2.5 text-xs font-semibold text-white shadow-sm ring-1 ring-black/10 transition hover:brightness-110 active:scale-[0.98] sm:px-3 sm:text-sm ${compact ? "min-w-9 sm:min-w-0" : ""} ${className}`}
     >
-      <MessageCircle className="size-4 shrink-0 sm:size-[1.125rem]" strokeWidth={2} aria-hidden />
+      <MessageCircle className="size-4 shrink-0" strokeWidth={2} aria-hidden />
       <span className={compact ? "hidden truncate sm:inline" : "truncate"}>Contact</span>
     </a>
   );

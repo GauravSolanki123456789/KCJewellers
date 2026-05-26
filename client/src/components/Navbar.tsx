@@ -135,31 +135,31 @@ export default function Navbar() {
         <div className="mx-auto max-w-6xl px-3 sm:px-4 md:px-5">
           <div className="grid h-12 grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] items-center gap-1.5 sm:gap-3 md:h-14 md:gap-4">
             <div className="min-w-0 max-w-[42vw] sm:max-w-none">
-              <Link href={CATALOG_PATH} className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+              <Link href={CATALOG_PATH} className="flex min-w-0 items-center gap-2 sm:gap-2.5">
                 {resellerBrandingActive && logoUrl ? (
-                  <span className="relative block size-7 shrink-0 overflow-hidden rounded-md bg-white ring-1 ring-slate-700/30 md:size-8">
+                  <span className="relative block size-8 shrink-0 overflow-hidden rounded-md bg-white ring-1 ring-slate-700/30 md:size-9">
                     <Image
                       src={logoUrl}
                       alt={businessName}
                       fill
                       className="object-contain p-0.5"
-                      sizes="32px"
+                      sizes="36px"
                       unoptimized
                     />
                   </span>
                 ) : (
-                  <span className="relative block size-7 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-slate-700/25 md:size-8">
+                  <span className="relative block size-8 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-amber-500/20 md:size-9">
                     <Image
                       src={KC_LOGO_PATH}
                       alt="KC Jewellers"
                       fill
                       className="object-contain p-0.5"
-                      sizes="32px"
+                      sizes="36px"
                       priority
                     />
                   </span>
                 )}
-                <span className="kc-brand-text truncate text-[0.8125rem] sm:text-[0.9375rem] md:text-lg">
+                <span className="kc-brand-text truncate text-[0.875rem] sm:text-base md:text-lg">
                   {resellerBrandingActive ? businessName : 'KC Jewellers'}
                 </span>
               </Link>
@@ -343,7 +343,11 @@ export default function Navbar() {
         </div>
       </nav>
 
-      <div className="h-12 shrink-0 md:h-[5.75rem]" data-kc-nav-spacer aria-hidden />
+      <div
+        className="h-[var(--kc-header-stack-mobile)] shrink-0 md:h-[var(--kc-header-stack-desktop)]"
+        data-kc-nav-spacer
+        aria-hidden
+      />
     </>
   )
 }

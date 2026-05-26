@@ -224,10 +224,10 @@ export default function SmartSearch({
   };
 
   const inputCls = compact
-    ? "h-9 pl-9 pr-2.5 text-[13px] leading-none"
+    ? "h-9 pl-9 pr-2 text-[13px] leading-none"
     : "h-10 pl-10 pr-3 text-sm leading-normal md:text-[15px]";
 
-  const placeholder = "Search jewellery, SKU, or barcode";
+  const placeholder = compact ? "Search…" : "Search jewellery, SKU, or barcode";
 
   return (
     <div ref={rootRef} className={`relative min-w-0 ${className}`}>
@@ -257,7 +257,7 @@ export default function SmartSearch({
               inputRef.current?.blur();
             }
           }}
-          className={`kc-search-input ${inputCls}`}
+          className={`kc-search-input ${inputCls} disabled:opacity-60`}
           aria-label="Search catalogue"
           aria-expanded={showPanel}
           aria-controls="smart-search-results"

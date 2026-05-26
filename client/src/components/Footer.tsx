@@ -11,9 +11,6 @@ import {
   POLICY_TERMS_PATH,
 } from "@/lib/routes";
 import { useResellerBranding } from "@/context/ResellerBrandingContext";
-import { getOgImagePath } from "@/lib/og-image";
-
-const KC_LOGO_PATH = getOgImagePath();
 
 const YEAR = new Date().getFullYear();
 
@@ -53,11 +50,7 @@ export default function Footer() {
               <span className="relative block size-6 shrink-0 overflow-hidden rounded bg-slate-800/40">
                 <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
               </span>
-            ) : (
-              <span className="relative block size-6 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-slate-700/20">
-                <Image src={KC_LOGO_PATH} alt={displayName} fill className="object-contain p-0.5" sizes="24px" />
-              </span>
-            )}
+            ) : null}
             <span>© {YEAR} {displayName}</span>
           </p>
         </div>
@@ -66,11 +59,7 @@ export default function Footer() {
             <span className="relative block size-5 shrink-0 overflow-hidden rounded bg-slate-800/40">
               <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
             </span>
-          ) : (
-            <span className="relative block size-5 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-slate-700/20">
-              <Image src={KC_LOGO_PATH} alt={displayName} fill className="object-contain p-0.5" sizes="20px" />
-            </span>
-          )}
+          ) : null}
           <span>
             © {YEAR} {displayName}
           </span>

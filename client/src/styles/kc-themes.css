@@ -32,7 +32,7 @@ html[data-kc-luminosity="light"] .border-white\/20 {
 
 /* ─── kci_royal_gold — warm ivory + lustrous gold + emerald ─── */
 html[data-kc-theme="kci_royal_gold"] {
-  --color-jewelry-gold: #c4922a;
+  --color-jewelry-gold: #b8860b;
   --color-jewelry-black: #1a1814;
   --color-slate-50: #0c0a09;
   --color-slate-100: #1a1814;

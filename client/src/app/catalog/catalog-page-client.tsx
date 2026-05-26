@@ -1346,10 +1346,10 @@ export default function CatalogPageClient() {
             : 'kc-pb-mobile-nav md:pb-8'
         }`}
       >
-        {/* Sticky catalogue toolbar — metal tabs + optional retail browse */}
-        <div className="kc-catalog-toolbar -mx-3 px-3 sm:-mx-4 sm:px-4">
+        {/* Sticky: metal tabs only — compact bar that never covers products */}
+        <div className="kc-catalog-tabs-sticky -mx-3 px-3 sm:-mx-4 sm:px-4">
           <div
-            className="inline-grid w-full grid-cols-4 gap-0.5 rounded-lg border border-slate-700/30 bg-white/50 p-0.5 sm:gap-1 sm:rounded-xl sm:p-1"
+            className="inline-grid w-full grid-cols-4 gap-0.5 rounded-lg bg-slate-900/20 p-0.5 sm:gap-1 sm:rounded-xl sm:bg-white/40 sm:p-1"
             role="tablist"
             aria-label="Catalogue metal type"
           >
@@ -1372,87 +1372,89 @@ export default function CatalogPageClient() {
               )
             })}
           </div>
+        </div>
 
-          {showRetailBrowse ? (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={() => setRetailBrowseOpen((o) => !o)}
-                className="kc-collapse-trigger lg:hidden"
-                aria-expanded={retailBrowseOpen}
-              >
-                <span className="inline-flex items-center gap-2">
-                  Shop for
-                  {selectedShopFor !== 'all' || selectedProductType !== 'all' ? (
-                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-600">
-                      {selectedShopFor !== 'all' ? CATALOG_SHOP_FOR_TABS.find((t) => t.key === selectedShopFor)?.label : 'All'}
-                      {selectedProductType !== 'all' ? ` · ${catalogProductTypeLabel(selectedProductType)}` : ''}
-                    </span>
-                  ) : null}
-                </span>
-                <ChevronDown
-                  className={`size-4 shrink-0 text-slate-500 transition-transform ${retailBrowseOpen ? 'rotate-180' : ''}`}
-                  aria-hidden
-                />
-              </button>
-              <div className={`space-y-2 ${retailBrowseOpen ? 'mt-2 lg:mt-3' : 'hidden lg:block lg:mt-3'}`}>
-                <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain lg:flex-wrap lg:overflow-visible">
-                  {CATALOG_SHOP_FOR_TABS.map(({ key, label }) => {
-                    const isActive = selectedShopFor === key
+        {/* Shop for — scrolls with page (not sticky) so it never blocks the grid */}
+        {showRetailBrowse ? (
+          <div className="kc-catalog-filters">
+            <p className="kc-section-label mb-1.5 hidden lg:block">Shop for</p>
+            <button
+              type="button"
+              onClick={() => setRetailBrowseOpen((o) => !o)}
+              className="kc-collapse-trigger lg:hidden"
+              aria-expanded={retailBrowseOpen}
+            >
+              <span className="inline-flex items-center gap-2">
+                Shop for
+                {selectedShopFor !== 'all' || selectedProductType !== 'all' ? (
+                  <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-600">
+                    {selectedShopFor !== 'all' ? CATALOG_SHOP_FOR_TABS.find((t) => t.key === selectedShopFor)?.label : 'All'}
+                    {selectedProductType !== 'all' ? ` · ${catalogProductTypeLabel(selectedProductType)}` : ''}
+                  </span>
+                ) : null}
+              </span>
+              <ChevronDown
+                className={`size-4 shrink-0 text-slate-500 transition-transform ${retailBrowseOpen ? 'rotate-180' : ''}`}
+                aria-hidden
+              />
+            </button>
+            <div className={`space-y-2 ${retailBrowseOpen ? 'mt-2 lg:mt-0' : 'hidden lg:block'}`}>
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain lg:flex-wrap lg:overflow-visible">
+                {CATALOG_SHOP_FOR_TABS.map(({ key, label }) => {
+                  const isActive = selectedShopFor === key
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        retailFiltersFromUiRef.current = true
+                        setSelectedShopFor(key)
+                        if (key === 'all') setSelectedProductType('all')
+                      }}
+                      className={`kc-chip ${isActive ? 'kc-chip--active' : ''}`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedShopFor !== 'all' && availableProductTypes.length > 0 ? (
+                <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      retailFiltersFromUiRef.current = true
+                      setSelectedProductType('all')
+                    }}
+                    className={`kc-chip ${selectedProductType === 'all' ? 'kc-chip--active' : ''}`}
+                  >
+                    All types
+                  </button>
+                  {availableProductTypes.map((pt) => {
+                    const isActive = selectedProductType === pt
                     return (
                       <button
-                        key={key}
+                        key={pt}
                         type="button"
                         onClick={() => {
                           retailFiltersFromUiRef.current = true
-                          setSelectedShopFor(key)
-                          if (key === 'all') setSelectedProductType('all')
+                          setSelectedProductType(pt)
                         }}
                         className={`kc-chip ${isActive ? 'kc-chip--active' : ''}`}
                       >
-                        {label}
+                        {catalogProductTypeLabel(pt)}
                       </button>
                     )
                   })}
                 </div>
-                {selectedShopFor !== 'all' && availableProductTypes.length > 0 ? (
-                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        retailFiltersFromUiRef.current = true
-                        setSelectedProductType('all')
-                      }}
-                      className={`kc-chip ${selectedProductType === 'all' ? 'kc-chip--active' : ''}`}
-                    >
-                      All types
-                    </button>
-                    {availableProductTypes.map((pt) => {
-                      const isActive = selectedProductType === pt
-                      return (
-                        <button
-                          key={pt}
-                          type="button"
-                          onClick={() => {
-                            retailFiltersFromUiRef.current = true
-                            setSelectedProductType(pt)
-                          }}
-                          className={`kc-chip ${isActive ? 'kc-chip--active' : ''}`}
-                        >
-                          {catalogProductTypeLabel(pt)}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
 
         <div
           ref={catalogBrowseAnchorRef}
-          className="mb-3 mt-3 flex scroll-mt-[6.5rem] items-start justify-between gap-2 sm:mb-4 sm:mt-4 md:scroll-mt-[8.5rem]"
+          className="kc-scroll-anchor mb-3 mt-2 flex items-start justify-between gap-2 sm:mb-4 sm:mt-3"
         >
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -1760,7 +1762,7 @@ export default function CatalogPageClient() {
             </div>
             <nav
               ref={sidebarNavRef}
-              className="sticky top-24 space-y-1 max-h-[calc(100vh-8rem)] min-h-[12rem] overflow-y-auto pr-2 scrollbar-hide kc-scroll-contain"
+              className="kc-sidebar-sticky space-y-1 min-h-[12rem] pr-2 scrollbar-hide kc-scroll-contain"
             >
               {catalogBuilderMode && canUseCatalogBuilder && (
                 <div className="flex items-center justify-between gap-2 px-2 pb-2 mb-1 border-b border-slate-800/60">
