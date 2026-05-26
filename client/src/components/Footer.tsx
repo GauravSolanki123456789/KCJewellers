@@ -30,7 +30,7 @@ export default function Footer() {
     return null;
   }
   return (
-    <footer className="mt-auto border-t border-slate-300/20 bg-slate-950/80">
+    <footer className="mt-auto border-t border-slate-700/30 bg-slate-950/60">
       <div className="mx-auto max-w-6xl px-4 pt-4 pb-4 md:py-6 kc-pb-mobile-nav">
         <div className="hidden items-center justify-between gap-4 text-sm md:flex">
           <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-600">
@@ -38,7 +38,7 @@ export default function Footer() {
               <Link
                 key={href}
                 href={href}
-                className="inline-flex items-center gap-1.5 transition-colors hover:text-amber-400/90"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-slate-300"
               >
                 <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
                 {label}

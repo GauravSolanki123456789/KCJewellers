@@ -364,7 +364,7 @@ export default function DualJewelleryProductImage({
 
       {/* Desktop: cross-fade on hover (no click toggles). */}
       <div
-        className="absolute inset-0 z-[3] hidden md:block"
+        className="absolute inset-0 z-[3] group hidden md:block"
         onMouseEnter={() => setHoverBack(true)}
         onMouseLeave={() => setHoverBack(false)}
       >
@@ -421,8 +421,8 @@ export default function DualJewelleryProductImage({
             }}
           />
         </div>
-        <span className="pointer-events-none absolute bottom-2.5 right-2.5 rounded-md bg-slate-950/75 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400 backdrop-blur-sm">
-          Hover for alt
+        <span className="pointer-events-none absolute bottom-2 right-2 rounded-sm bg-slate-100/90 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-slate-500 opacity-0 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100 max-md:sr-only">
+          Alt view
         </span>
       </div>
 

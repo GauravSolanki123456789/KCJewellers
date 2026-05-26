@@ -436,8 +436,8 @@ export default function ProductDetailClient({
                 </button>
               )}
               {hasDiscount && (
-                <span className="absolute right-3 top-3 z-10 rounded-lg bg-amber-500 px-3 py-1 text-sm font-bold text-white">
-                  {Math.round(b?.discountPercent ?? 0)}% OFF
+                <span className="kc-discount-badge right-3 top-3 text-xs">
+                  {Math.round(b?.discountPercent ?? 0)}% off
                 </span>
               )}
               {activeGallerySrc ? (
@@ -763,14 +763,14 @@ export default function ProductDetailClient({
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
-                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors order-2 sm:order-1"
+                  className="kc-btn-primary order-2 w-full px-6 py-3.5 sm:order-1 sm:w-auto"
                   onClick={handleAddToCart}
                 >
                   Add to Cart
                 </button>
                 <button
                   type="button"
-                  className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-600 hover:border-slate-500 bg-slate-800/50 hover:bg-slate-800 text-slate-100 font-semibold transition-colors order-1 sm:order-2"
+                  className="order-1 w-full rounded-xl border border-slate-700/50 bg-white/70 px-6 py-3 font-medium tracking-wide text-slate-100 transition-colors hover:border-slate-600 hover:bg-white sm:order-2 sm:w-auto"
                   onClick={() => setOpen(true)}
                 >
                   View Breakdown
@@ -784,10 +784,10 @@ export default function ProductDetailClient({
           </div>
         </div>
 
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 p-4 pb-6 pt-3 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 safe-area-pb">
+        <div className="kc-mobile-nav-dock fixed bottom-0 left-0 right-0 z-30 border-t border-slate-700/40 bg-slate-950/95 p-4 pb-6 pt-3 backdrop-blur-md safe-area-pb md:hidden">
           <button
             type="button"
-            className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-base transition-colors shadow-lg"
+            className="kc-btn-primary w-full py-3.5 text-base"
             onClick={handleAddToCart}
           >
             Add to Cart — ₹

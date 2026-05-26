@@ -6,8 +6,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-jewelry-gold: #D4AF37;
-  --color-jewelry-black: #0a0a0a;
+  --color-jewelry-gold: #9a7b4f;
+  --color-jewelry-black: #1a1814;
+  --font-display: var(--font-display);
 }
 
 :root {
@@ -124,6 +125,7 @@ body {
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-display);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -297,7 +299,7 @@ body {
     background: white;
     cursor: pointer;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-    border: 2px solid color-mix(in oklab, var(--color-amber-500) 55%, transparent);
+    border: 2px solid color-mix(in oklab, var(--color-slate-400) 55%, transparent);
   }
   .dual-range-thumb::-moz-range-thumb {
     width: 1rem;
@@ -305,7 +307,7 @@ body {
     border-radius: 50%;
     background: white;
     cursor: pointer;
-    border: 2px solid color-mix(in oklab, var(--color-amber-500) 55%, transparent);
+    border: 2px solid color-mix(in oklab, var(--color-slate-400) 55%, transparent);
   }
   .dual-range-thumb {
     pointer-events: none;
@@ -313,5 +315,189 @@ body {
   .dual-range-thumb::-webkit-slider-thumb,
   .dual-range-thumb::-moz-range-thumb {
     pointer-events: auto;
+  }
+
+  /* ─── Premium KC Jewellers UI primitives ─── */
+
+  .font-display {
+    font-family: var(--font-display), ui-serif, Georgia, "Times New Roman", serif;
+  }
+
+  .kc-brand-text {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--color-jewelry-gold);
+  }
+
+  .kc-section-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-slate-500);
+  }
+
+  .kc-surface {
+    background: color-mix(in oklab, var(--color-slate-900) 65%, white);
+    border: 1px solid color-mix(in oklab, var(--color-slate-700) 55%, transparent);
+    border-radius: 0.75rem;
+  }
+
+  .kc-metal-tab {
+    display: flex;
+    min-height: 2.75rem;
+    touch-action: manipulation;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    border-radius: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--color-slate-500);
+    transition: color 200ms, background-color 200ms, box-shadow 200ms;
+  }
+
+  .kc-metal-tab:hover {
+    color: var(--color-slate-200);
+    background: color-mix(in oklab, var(--color-slate-800) 40%, transparent);
+  }
+
+  .kc-metal-tab--active {
+    color: var(--color-slate-100);
+    background: white;
+    box-shadow:
+      0 1px 2px rgb(15 23 42 / 0.06),
+      0 0 0 1px color-mix(in oklab, var(--color-amber-500) 22%, transparent);
+  }
+
+  .kc-chip {
+    flex-shrink: 0;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-slate-700) 70%, transparent);
+    background: color-mix(in oklab, white 88%, var(--color-slate-900));
+    padding: 0.375rem 0.875rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-slate-400);
+    transition: color 150ms, border-color 150ms, background-color 150ms;
+  }
+
+  .kc-chip:hover {
+    color: var(--color-slate-200);
+    border-color: color-mix(in oklab, var(--color-slate-600) 60%, transparent);
+  }
+
+  .kc-chip--active {
+    border-color: color-mix(in oklab, var(--color-amber-500) 45%, transparent);
+    background: color-mix(in oklab, var(--color-amber-500) 10%, white);
+    color: var(--color-amber-600);
+    font-weight: 600;
+  }
+
+  .kc-nav-chip {
+    flex-shrink: 0;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-slate-700) 65%, transparent);
+    background: color-mix(in oklab, white 90%, var(--color-slate-900));
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-slate-400);
+    transition: color 150ms, border-color 150ms, background-color 150ms;
+  }
+
+  .kc-nav-chip--active {
+    border-color: color-mix(in oklab, var(--color-amber-500) 50%, transparent);
+    background: color-mix(in oklab, var(--color-amber-500) 12%, white);
+    color: var(--color-amber-600);
+    font-weight: 600;
+  }
+
+  .kc-btn-primary {
+    display: block;
+    width: 100%;
+    border-radius: 0.5rem;
+    background: var(--color-slate-100);
+    padding: 0.625rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--color-slate-950);
+    transition: background-color 200ms, transform 100ms;
+  }
+
+  .kc-btn-primary:hover {
+    background: var(--color-slate-200);
+  }
+
+  .kc-btn-primary:active {
+    transform: scale(0.98);
+  }
+
+  .kc-product-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--color-slate-700) 50%, transparent);
+    background: white;
+    transition: box-shadow 300ms, border-color 300ms, transform 300ms;
+  }
+
+  .kc-product-card:hover {
+    border-color: color-mix(in oklab, var(--color-amber-500) 25%, transparent);
+    box-shadow:
+      0 4px 24px rgb(15 23 42 / 0.06),
+      0 1px 3px rgb(15 23 42 / 0.04);
+  }
+
+  .kc-discount-badge {
+    position: absolute;
+    top: 0.625rem;
+    right: 0.625rem;
+    z-index: 10;
+    border-radius: 0.25rem;
+    background: var(--color-slate-100);
+    padding: 0.125rem 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-slate-950);
+  }
+
+  .kc-header-bar {
+    border-bottom: 1px solid color-mix(in oklab, var(--color-slate-700) 45%, transparent);
+    background: color-mix(in oklab, var(--color-slate-950) 92%, white);
+    backdrop-filter: blur(12px);
+  }
+
+  .kc-mobile-nav-dock {
+    border-top: 1px solid color-mix(in oklab, var(--color-slate-700) 45%, transparent);
+    background: color-mix(in oklab, var(--color-slate-950) 94%, white);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 -4px 24px rgb(15 23 42 / 0.04);
+  }
+
+  .kc-search-input {
+    width: 100%;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-slate-700) 55%, transparent);
+    background: color-mix(in oklab, white 85%, var(--color-slate-900));
+    color: var(--color-slate-100);
+    outline: none;
+    transition: border-color 200ms, box-shadow 200ms;
+  }
+
+  .kc-search-input::placeholder {
+    color: var(--color-slate-500);
+  }
+
+  .kc-search-input:focus {
+    border-color: color-mix(in oklab, var(--color-amber-500) 35%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-amber-500) 12%, transparent);
   }
 }

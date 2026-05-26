@@ -30,28 +30,28 @@ html[data-kc-luminosity="light"] .border-white\/20 {
   border-color: rgb(15 23 42 / 0.12);
 }
 
-/* ─── kci_royal_gold — warm ivory + gold + emerald ─── */
+/* ─── kci_royal_gold — warm ivory + antique gold + emerald ─── */
 html[data-kc-theme="kci_royal_gold"] {
-  --color-jewelry-gold: #c2410c;
-  --color-jewelry-black: #1c1917;
+  --color-jewelry-gold: #8b6914;
+  --color-jewelry-black: #1a1814;
   --color-slate-50: #0c0a09;
-  --color-slate-100: #1c1917;
-  --color-slate-200: #292524;
+  --color-slate-100: #1a1814;
+  --color-slate-200: #2a2724;
   --color-slate-300: #44403c;
   --color-slate-400: #78716c;
   --color-slate-500: #78716c;
   --color-slate-600: #57534e;
-  --color-slate-700: #d6d3d1;
-  --color-slate-800: #e7e5e4;
-  --color-slate-900: #f5f5f4;
-  --color-slate-950: #faf8f5;
-  --color-amber-200: #fde68a;
-  --color-amber-300: #fcd34d;
-  --color-amber-400: #f59e0b;
-  --color-amber-500: #d97706;
-  --color-amber-600: #b45309;
-  --color-yellow-400: #fbbf24;
-  --color-yellow-500: #ea580c;
+  --color-slate-700: #e8e4df;
+  --color-slate-800: #f0ece6;
+  --color-slate-900: #f7f4ef;
+  --color-slate-950: #faf8f4;
+  --color-amber-200: #e8dcc8;
+  --color-amber-300: #d4bc8a;
+  --color-amber-400: #b8956a;
+  --color-amber-500: #9a7b4f;
+  --color-amber-600: #7a6239;
+  --color-yellow-400: #c9a962;
+  --color-yellow-500: #8b6914;
   --color-emerald-300: #6ee7b7;
   --color-emerald-400: #34d399;
   --color-emerald-500: #059669;

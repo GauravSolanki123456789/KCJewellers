@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Cormorant_Garamond, Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 import { headers } from "next/headers";
 import "./globals.css";
@@ -37,6 +37,12 @@ export const viewport: Viewport = {
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+});
+
+const cormorant = Cormorant_Garamond({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -159,7 +165,7 @@ export default async function RootLayout({
         ) : null}
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
+        className={`${geistSans.variable} ${geistMono.variable} ${cormorant.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >
         <KcThemeProvider initialKcThemeId={resolvedKcThemeId}>
         <GoogleAnalytics />

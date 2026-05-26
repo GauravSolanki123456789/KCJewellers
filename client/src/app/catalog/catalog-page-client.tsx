@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronLeft,
   ChevronDown,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   MetalTabFavicon,
@@ -338,6 +339,7 @@ export default function CatalogPageClient() {
   const [priceHigh, setPriceHigh] = useState(100000)
   const [activeDesignGroup, setActiveDesignGroup] = useState<'all' | string>('all')
   const [gridShowCount, setGridShowCount] = useState(CATALOG_PRODUCTS_PAGE_SIZE)
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const hasRestoredFromStorage = useRef(false)
   const skipNextBoundsSync = useRef(false)
   const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
@@ -1343,10 +1345,10 @@ export default function CatalogPageClient() {
             : 'pb-[calc(7rem+env(safe-area-inset-bottom,0px))]'
         }`}
       >
-        {/* Metal tabs — 2×2 grid on phones, single row on sm+; tab drives URL via handleMetalTabClick */}
-        <div className="mb-4 px-1">
+        {/* Metal tabs */}
+        <div className="mb-5 px-1">
           <div
-            className="mx-auto grid w-full max-w-sm grid-cols-2 gap-1.5 rounded-2xl border border-slate-800 bg-slate-900/80 p-1.5 shadow-lg sm:inline-grid sm:max-w-none sm:grid-cols-4 sm:gap-1 sm:p-1"
+            className="mx-auto inline-grid w-full max-w-md grid-cols-2 gap-1 rounded-xl border border-slate-700/40 bg-white/60 p-1 sm:max-w-none sm:grid-cols-4"
             role="tablist"
             aria-label="Catalogue metal type"
           >
@@ -1359,11 +1361,7 @@ export default function CatalogPageClient() {
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => handleMetalTabClick(key)}
-                  className={`flex min-h-[44px] touch-manipulation items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold transition-all duration-200 sm:gap-2 sm:rounded-lg sm:px-3 sm:py-2.5 sm:text-sm ${
-                    isActive
-                      ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-400/30'
-                      : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 active:bg-slate-800'
-                  }`}
+                  className={`kc-metal-tab sm:min-h-[2.5rem] ${isActive ? 'kc-metal-tab--active' : ''}`}
                 >
                   <MetalTabFavicon metal={key as MetalTabFaviconKey} active={isActive} />
                   <span>{label}</span>
@@ -1373,19 +1371,9 @@ export default function CatalogPageClient() {
           </div>
         </div>
 
-        {/* Shop for — retail browse (admin toggle); separate from metal tabs for future gift etc. */}
         {showRetailBrowse ? (
-          <div className="mb-4 space-y-2.5 px-1">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">
-                Shop for
-              </p>
-              {selectedShopFor !== 'all' && availableProductTypes.length > 0 ? (
-                <p className="text-[10px] text-slate-600 sm:text-xs">
-                  Then pick a product type
-                </p>
-              ) : null}
-            </div>
+          <div className="mb-5 space-y-2 px-1">
+            <p className="kc-section-label">Shop for</p>
             <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain sm:flex-wrap sm:overflow-visible">
               {CATALOG_SHOP_FOR_TABS.map(({ key, label }) => {
                 const isActive = selectedShopFor === key
@@ -1398,11 +1386,7 @@ export default function CatalogPageClient() {
                       setSelectedShopFor(key)
                       if (key === 'all') setSelectedProductType('all')
                     }}
-                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors sm:px-4 sm:py-2 sm:text-sm ${
-                      isActive
-                        ? 'bg-violet-600 text-white shadow-sm ring-2 ring-violet-400/25'
-                        : 'border border-slate-700/80 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800/80'
-                    }`}
+                    className={`kc-chip sm:px-4 sm:py-2 sm:text-sm ${isActive ? 'kc-chip--active' : ''}`}
                   >
                     {label}
                   </button>
@@ -1417,11 +1401,7 @@ export default function CatalogPageClient() {
                     retailFiltersFromUiRef.current = true
                     setSelectedProductType('all')
                   }}
-                  className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition-colors sm:text-xs ${
-                    selectedProductType === 'all'
-                      ? 'bg-amber-500/20 text-amber-600 border border-amber-500/40 font-semibold'
-                      : 'border border-slate-800 bg-slate-900/40 text-slate-400 hover:text-slate-200'
-                  }`}
+                  className={`kc-chip text-[11px] sm:text-xs ${selectedProductType === 'all' ? 'kc-chip--active' : ''}`}
                 >
                   All types
                 </button>
@@ -1435,11 +1415,7 @@ export default function CatalogPageClient() {
                         retailFiltersFromUiRef.current = true
                         setSelectedProductType(pt)
                       }}
-                      className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition-colors sm:text-xs ${
-                        isActive
-                          ? 'bg-amber-500/20 text-amber-600 border border-amber-500/40 font-semibold'
-                          : 'border border-slate-800 bg-slate-900/40 text-slate-400 hover:text-slate-200'
-                      }`}
+                      className={`kc-chip text-[11px] sm:text-xs ${isActive ? 'kc-chip--active' : ''}`}
                     >
                       {catalogProductTypeLabel(pt)}
                     </button>
@@ -1481,16 +1457,19 @@ export default function CatalogPageClient() {
           </div>
         )}
 
-        {/* Contact = business chat; Share = wa.me/?text= catalogue link (distinct icons) */}
         <div
           ref={catalogBrowseAnchorRef}
-          className="mb-4 flex scroll-mt-14 items-center justify-between gap-2 md:scroll-mt-[6.75rem]"
+          className="mb-5 flex scroll-mt-14 items-center justify-between gap-3 border-b border-slate-700/30 pb-4 md:scroll-mt-[6.875rem]"
         >
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <LayoutGrid className="size-5 shrink-0 text-amber-500" />
-            <h1 className="truncate text-base font-semibold text-slate-200 sm:text-lg">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <h1 className="font-display truncate text-xl font-semibold tracking-wide text-slate-100 sm:text-2xl">
               Catalogue
             </h1>
+            {activeStyle && activeSku ? (
+              <p className="truncate text-xs text-slate-500 sm:text-sm">
+                {breadcrumb}
+              </p>
+            ) : null}
           </div>
           {activeStyle && (
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -1499,7 +1478,7 @@ export default function CatalogPageClient() {
                 message={catalogShareText}
                 label="Share"
                 compact
-                variant="whatsapp"
+                variant="muted"
               />
             </div>
           )}
@@ -1550,11 +1529,7 @@ export default function CatalogPageClient() {
                       type="button"
                       onClick={() => handleStyleClick(cat)}
                       data-catalog-nav-active={activeStyleId === cat.id ? 'true' : undefined}
-                      className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
-                        activeStyleId === cat.id
-                          ? 'bg-amber-500 text-white'
-                          : 'bg-slate-800 text-slate-300 border border-slate-700'
-                      }`}
+                      className={`kc-nav-chip ${activeStyleId === cat.id ? 'kc-nav-chip--active' : ''}`}
                     >
                       {cat.name}
                     </button>
@@ -1620,14 +1595,10 @@ export default function CatalogPageClient() {
                         type="button"
                         onClick={() => handleSkuClick(sub, activeStyle.id)}
                         data-catalog-nav-active={activeSkuId === sub.id ? 'true' : undefined}
-                        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                          activeSkuId === sub.id
-                            ? 'border border-amber-500/45 bg-amber-500/20 text-amber-600 font-semibold'
-                            : 'bg-slate-800/60 text-slate-400 border border-slate-700/60'
-                        }`}
+                        className={`kc-chip text-xs ${activeSkuId === sub.id ? 'kc-chip--active' : ''}`}
                       >
                         {sub.name}
-                        <span className="ml-1 opacity-60">{sub.products.length}</span>
+                        <span className="ml-1 opacity-50 tabular-nums">{sub.products.length}</span>
                       </button>
                     </div>
                   )
@@ -1641,8 +1612,8 @@ export default function CatalogPageClient() {
           {/* ── Desktop sidebar (25 %) ── */}
           <aside className="hidden lg:block w-64 shrink-0 lg:min-h-[min(100vh,920px)]">
             {/* Filters — min height reduces layout jump when collection changes */}
-            <div className="mb-6 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-5 min-h-[260px]">
-              <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Filters</h3>
+            <div className="kc-surface mb-6 space-y-5 p-4 min-h-[260px]">
+              <h3 className="kc-section-label">Filters</h3>
               {!isGiftingCatalog ? (
                 <DualRangeSlider
                   min={weightBounds[0]}
@@ -1859,57 +1830,79 @@ export default function CatalogPageClient() {
             id="catalog-product-grid"
             className="flex-1 min-w-0 scroll-mt-12 md:scroll-mt-14"
           >
-            {/* Mobile filters */}
-            <div className="lg:hidden mb-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800 space-y-4">
-              {!isGiftingCatalog ? (
-                <DualRangeSlider
-                  min={weightBounds[0]}
-                  max={weightBounds[1]}
-                  low={weightLow}
-                  high={weightHigh}
-                  onLowChange={setWeightLow}
-                  onHighChange={setWeightHigh}
-                  step={0.5}
-                  label="Weight (gm)"
-                  formatValue={(v) => `${v} gm`}
+            {/* Mobile filters — collapsible to reduce clutter */}
+            <div className="lg:hidden mb-4">
+              <button
+                type="button"
+                onClick={() => setMobileFiltersOpen((o) => !o)}
+                className="flex w-full items-center justify-between rounded-xl border border-slate-700/40 bg-white/60 px-4 py-3 text-sm font-medium text-slate-300 transition-colors hover:bg-white/80"
+                aria-expanded={mobileFiltersOpen}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <SlidersHorizontal className="size-4 text-slate-500" aria-hidden />
+                  Filters
+                  {hasActiveFilters ? (
+                    <span className="rounded-full bg-slate-100/10 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
+                      Active
+                    </span>
+                  ) : null}
+                </span>
+                <ChevronDown
+                  className={`size-4 text-slate-500 transition-transform ${mobileFiltersOpen ? 'rotate-180' : ''}`}
+                  aria-hidden
                 />
-              ) : (
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Gifting items use fixed prices — filter by price only.
-                </p>
-              )}
-              <DualRangeSlider
-                min={priceBounds[0]}
-                max={priceBounds[1]}
-                low={priceLow}
-                high={priceHigh}
-                onLowChange={setPriceLow}
-                onHighChange={setPriceHigh}
-                step={500}
-                label="Price (₹)"
-                formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
-              />
-              {hasActiveFilters && (
-                <button
-                  onClick={() => {
-                    setWeightLow(weightBounds[0])
-                    setWeightHigh(weightBounds[1])
-                    setPriceLow(priceBounds[0])
-                    setPriceHigh(priceBounds[1])
-                  }}
-                  className="text-xs text-amber-500 hover:text-amber-400"
-                >
-                  Clear filters
-                </button>
-              )}
+              </button>
+              {mobileFiltersOpen ? (
+                <div className="kc-surface mt-2 space-y-4 p-4">
+                  {!isGiftingCatalog ? (
+                    <DualRangeSlider
+                      min={weightBounds[0]}
+                      max={weightBounds[1]}
+                      low={weightLow}
+                      high={weightHigh}
+                      onLowChange={setWeightLow}
+                      onHighChange={setWeightHigh}
+                      step={0.5}
+                      label="Weight (gm)"
+                      formatValue={(v) => `${v} gm`}
+                    />
+                  ) : (
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Gifting items use fixed prices — filter by price only.
+                    </p>
+                  )}
+                  <DualRangeSlider
+                    min={priceBounds[0]}
+                    max={priceBounds[1]}
+                    low={priceLow}
+                    high={priceHigh}
+                    onLowChange={setPriceLow}
+                    onHighChange={setPriceHigh}
+                    step={500}
+                    label="Price (₹)"
+                    formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
+                  />
+                  {hasActiveFilters && (
+                    <button
+                      onClick={() => {
+                        setWeightLow(weightBounds[0])
+                        setWeightHigh(weightBounds[1])
+                        setPriceLow(priceBounds[0])
+                        setPriceHigh(priceBounds[1])
+                      }}
+                      className="text-xs font-medium text-slate-500 hover:text-slate-300"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             {hasDesignGroupFilter && (
-              <div className="mb-4 rounded-xl border border-slate-800/80 bg-slate-900/45 p-2.5 sm:p-3">
-                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    Design Group
-                  </p>
+              <div className="kc-surface mb-5 p-3 sm:p-3.5">
+                <div className="mb-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="kc-section-label">Design group</p>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <span className="text-[11px] text-slate-500 tabular-nums order-first sm:order-none">
                       {products.length} visible
@@ -1958,11 +1951,7 @@ export default function CatalogPageClient() {
                       ref={(el) => registerDesignChipRef('__all__', el)}
                       type="button"
                       onClick={() => setActiveDesignGroup('all')}
-                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                        activeDesignGroup === 'all'
-                          ? 'bg-amber-500 text-white shadow-sm'
-                          : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
-                      }`}
+                      className={`kc-chip ${activeDesignGroup === 'all' ? 'kc-chip--active' : ''}`}
                     >
                       All
                     </button>
@@ -1972,11 +1961,7 @@ export default function CatalogPageClient() {
                         ref={(el) => registerDesignChipRef(group, el)}
                         type="button"
                         onClick={() => setActiveDesignGroup(group)}
-                        className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                          activeDesignGroup === group
-                            ? 'bg-amber-500 text-white shadow-sm'
-                            : 'border border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700/80'
-                        }`}
+                        className={`kc-chip ${activeDesignGroup === group ? 'kc-chip--active' : ''}`}
                       >
                         {group}
                       </button>
@@ -1994,20 +1979,20 @@ export default function CatalogPageClient() {
                   )}
                 </div>
                 {designGroups.length > 3 && (
-                  <p className="mt-1.5 text-center text-[10px] text-slate-500 sm:hidden">
-                    Swipe the row for more groups, or use theme buttons above
+                  <p className="mt-1.5 text-center text-[10px] text-slate-600 sm:hidden">
+                    Swipe for more
                   </p>
                 )}
               </div>
             )}
 
             <div key={catalogGridSurfaceKey} className="kc-catalog-surface-enter">
-              <div className="flex items-center justify-between mb-4 gap-4">
-                <p className="text-sm text-slate-400 truncate">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <p className="truncate text-xs font-medium uppercase tracking-wider text-slate-500">
                   {breadcrumb || 'Select a collection'}
                 </p>
                 {products.length > 0 && (
-                  <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                  <span className="whitespace-nowrap text-xs tabular-nums text-slate-500">
                     {products.length} item{products.length !== 1 ? 's' : ''}
                   </span>
                 )}
@@ -2024,7 +2009,7 @@ export default function CatalogPageClient() {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-5 lg:grid-cols-3 xl:grid-cols-4 xl:gap-6">
                   {gridProducts.map((p, i) => {
                     const selectionKey = getProductSelectionKey(p as Product)
                     const cardKey =
@@ -2064,7 +2049,7 @@ export default function CatalogPageClient() {
                         Math.min(c + CATALOG_PRODUCTS_PAGE_SIZE, products.length),
                       )
                     }
-                    className="rounded-full border border-slate-600 bg-slate-800/80 px-5 py-2.5 text-sm font-semibold text-slate-200 shadow-sm transition-colors hover:border-amber-500/50 hover:bg-slate-700/90 hover:text-amber-100 active:scale-[0.98]"
+                    className="rounded-full border border-slate-700/50 bg-white/70 px-5 py-2.5 text-sm font-medium tracking-wide text-slate-300 transition-colors hover:border-slate-600 hover:bg-white hover:text-slate-100 active:scale-[0.98]"
                   >
                     Show more jewellery
                     <span className="ml-1.5 tabular-nums text-slate-400">

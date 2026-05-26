@@ -14,9 +14,6 @@ type DualRangeSliderProps = {
   formatValue?: (v: number) => string
 }
 
-/**
- * Premium double-ended range slider. Track: dark muted, active range: amber, thumbs: white.
- */
 export default function DualRangeSlider({
   min,
   max,
@@ -59,27 +56,24 @@ export default function DualRangeSlider({
   )
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {label && (
         <div className="flex justify-between text-xs">
-          <span className="text-slate-500">{label}</span>
-          <span className="text-slate-300 font-medium tabular-nums">
+          <span className="font-medium text-slate-500">{label}</span>
+          <span className="font-medium tabular-nums text-slate-300">
             {formatValue(lowVal)} – {formatValue(highVal)}
           </span>
         </div>
       )}
-      <div className="relative h-8 flex items-center" ref={rangeRef}>
-        {/* Track background */}
-        <div className="absolute w-full h-1.5 rounded-full bg-slate-700" />
-        {/* Active range fill */}
+      <div className="relative flex h-7 items-center" ref={rangeRef}>
+        <div className="absolute h-0.5 w-full rounded-full bg-slate-700/60" />
         <div
-          className="absolute h-1.5 rounded-full bg-amber-500 transition-all duration-100"
+          className="absolute h-0.5 rounded-full bg-slate-400 transition-all duration-100"
           style={{
             left: `${percentLow}%`,
             width: `${percentHigh - percentLow}%`,
           }}
         />
-        {/* Low thumb input */}
         <input
           type="range"
           min={min}
@@ -87,9 +81,8 @@ export default function DualRangeSlider({
           step={step}
           value={lowVal}
           onChange={handleLowChange}
-          className="dual-range-thumb absolute w-full h-8 appearance-none bg-transparent z-10"
+          className="dual-range-thumb absolute z-10 h-7 w-full appearance-none bg-transparent"
         />
-        {/* High thumb input - overlapping, higher z so its thumb is on top when overlapping */}
         <input
           type="range"
           min={min}
@@ -97,7 +90,7 @@ export default function DualRangeSlider({
           step={step}
           value={highVal}
           onChange={handleHighChange}
-          className="dual-range-thumb absolute w-full h-8 appearance-none bg-transparent z-20"
+          className="dual-range-thumb absolute z-20 h-7 w-full appearance-none bg-transparent"
         />
       </div>
     </div>
