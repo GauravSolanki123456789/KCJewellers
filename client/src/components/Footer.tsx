@@ -11,6 +11,9 @@ import {
   POLICY_TERMS_PATH,
 } from "@/lib/routes";
 import { useResellerBranding } from "@/context/ResellerBrandingContext";
+import { getOgImagePath } from "@/lib/og-image";
+
+const KC_LOGO_PATH = getOgImagePath();
 
 const YEAR = new Date().getFullYear();
 
@@ -30,25 +33,15 @@ export default function Footer() {
     return null;
   }
   return (
-    <footer className="mt-auto border-t border-slate-700/25 bg-slate-950/40">
-      <div className="mx-auto max-w-6xl px-4 pt-4 pb-3 md:py-6 kc-pb-mobile-nav">
-        <nav
-          aria-label="Legal"
-          className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] text-slate-500 md:hidden"
-        >
-          {policyLinks.map(({ href, label }) => (
-            <Link key={href} href={href} className="transition-colors hover:text-slate-300">
-              {label}
-            </Link>
-          ))}
-        </nav>
+    <footer className="mt-auto border-t border-slate-300/20 bg-slate-950/80">
+      <div className="mx-auto max-w-6xl px-4 pt-4 pb-4 md:py-6 kc-pb-mobile-nav">
         <div className="hidden items-center justify-between gap-4 text-sm md:flex">
           <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-600">
             {policyLinks.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
-                className="inline-flex items-center gap-1.5 transition-colors hover:text-slate-300"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-amber-400/90"
               >
                 <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
                 {label}
@@ -60,7 +53,11 @@ export default function Footer() {
               <span className="relative block size-6 shrink-0 overflow-hidden rounded bg-slate-800/40">
                 <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
               </span>
-            ) : null}
+            ) : (
+              <span className="relative block size-6 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-slate-700/20">
+                <Image src={KC_LOGO_PATH} alt={displayName} fill className="object-contain p-0.5" sizes="24px" />
+              </span>
+            )}
             <span>© {YEAR} {displayName}</span>
           </p>
         </div>
@@ -69,7 +66,11 @@ export default function Footer() {
             <span className="relative block size-5 shrink-0 overflow-hidden rounded bg-slate-800/40">
               <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
             </span>
-          ) : null}
+          ) : (
+            <span className="relative block size-5 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-slate-700/20">
+              <Image src={KC_LOGO_PATH} alt={displayName} fill className="object-contain p-0.5" sizes="20px" />
+            </span>
+          )}
           <span>
             © {YEAR} {displayName}
           </span>

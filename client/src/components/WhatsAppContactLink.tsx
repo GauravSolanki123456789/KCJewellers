@@ -44,10 +44,10 @@ export default function WhatsAppContactLink({ className = "", compact = false }:
       rel="noopener noreferrer"
       title="Contact us on WhatsApp"
       aria-label={`Contact ${brand} on WhatsApp`}
-      className={`inline-flex h-8 max-w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-slate-700/45 bg-white/80 text-slate-500 transition-colors hover:border-slate-600 hover:text-slate-100 sm:h-9 sm:gap-2 sm:px-3.5 sm:text-sm ${compact ? "min-w-8 border-0 bg-transparent px-0 sm:min-w-0 sm:border sm:bg-white/80 sm:px-3" : "px-3 text-xs font-medium tracking-wide text-slate-100 hover:bg-white"} ${className}`}
+      className={`inline-flex h-9 max-w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#25D366] text-xs font-semibold text-white shadow-sm ring-1 ring-black/10 transition hover:brightness-110 active:scale-[0.98] sm:gap-2 sm:text-sm ${compact ? "min-w-9 px-0 sm:min-w-0 sm:px-3" : "px-3 sm:px-3.5"} ${className}`}
     >
-      <MessageCircle className="size-4 shrink-0 sm:size-[1.125rem]" strokeWidth={1.75} aria-hidden />
-      <span className={compact ? "hidden truncate sm:inline" : "hidden truncate sm:inline"}>Contact</span>
+      <MessageCircle className="size-4 shrink-0 sm:size-[1.125rem]" strokeWidth={2} aria-hidden />
+      <span className={compact ? "hidden truncate sm:inline" : "truncate"}>Contact</span>
     </a>
   );
 }

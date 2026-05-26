@@ -30,9 +30,9 @@ html[data-kc-luminosity="light"] .border-white\/20 {
   border-color: rgb(15 23 42 / 0.12);
 }
 
-/* ─── kci_royal_gold — warm ivory + antique gold + emerald ─── */
+/* ─── kci_royal_gold — warm ivory + lustrous gold + emerald ─── */
 html[data-kc-theme="kci_royal_gold"] {
-  --color-jewelry-gold: #8b6914;
+  --color-jewelry-gold: #c4922a;
   --color-jewelry-black: #1a1814;
   --color-slate-50: #0c0a09;
   --color-slate-100: #1a1814;
@@ -45,13 +45,13 @@ html[data-kc-theme="kci_royal_gold"] {
   --color-slate-800: #f0ece6;
   --color-slate-900: #f7f4ef;
   --color-slate-950: #faf8f4;
-  --color-amber-200: #e8dcc8;
-  --color-amber-300: #d4bc8a;
-  --color-amber-400: #b8956a;
-  --color-amber-500: #9a7b4f;
-  --color-amber-600: #7a6239;
-  --color-yellow-400: #c9a962;
-  --color-yellow-500: #8b6914;
+  --color-amber-200: #f0e4c8;
+  --color-amber-300: #e2c878;
+  --color-amber-400: #d4af37;
+  --color-amber-500: #c4922a;
+  --color-amber-600: #a67c1a;
+  --color-yellow-400: #e8c547;
+  --color-yellow-500: #b8860b;
   --color-emerald-300: #6ee7b7;
   --color-emerald-400: #34d399;
   --color-emerald-500: #059669;

@@ -238,7 +238,7 @@ export default function ProductCard({
             cart.add(product)
           }}
         >
-          <span className="kc-btn-outline">Add to Cart</span>
+          <span className="kc-btn-cart">Add to Cart</span>
         </button>
       )}
     </div>

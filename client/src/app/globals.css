@@ -6,7 +6,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-jewelry-gold: #9a7b4f;
+  --color-jewelry-gold: #c4922a;
   --color-jewelry-black: #1a1814;
   --font-display: var(--font-display);
 }
@@ -330,8 +330,17 @@ body {
   .kc-brand-text {
     font-family: var(--font-display), ui-serif, Georgia, serif;
     font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--color-jewelry-gold);
+    letter-spacing: 0.03em;
+    background: linear-gradient(
+      120deg,
+      var(--color-yellow-400) 0%,
+      var(--color-jewelry-gold) 42%,
+      var(--color-amber-600) 78%,
+      var(--color-jewelry-gold) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
   .kc-section-label {
@@ -414,21 +423,20 @@ body {
   }
 
   .kc-metal-tab--active {
-    color: var(--color-slate-100);
-    background: white;
+    color: white;
+    background: linear-gradient(
+      145deg,
+      var(--color-amber-400),
+      var(--color-amber-500) 55%,
+      var(--color-amber-600)
+    );
     box-shadow:
-      0 1px 2px rgb(15 23 42 / 0.04),
-      0 0 0 1px color-mix(in oklab, var(--color-amber-500) 22%, transparent);
+      0 2px 8px color-mix(in oklab, var(--color-amber-500) 28%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--color-amber-500) 35%, transparent);
   }
 
   .kc-metal-tab-icon {
-    display: none;
-  }
-
-  @media (min-width: 640px) {
-    .kc-metal-tab-icon {
-      display: inline-flex;
-    }
+    display: inline-flex;
   }
 
   .kc-chip {
@@ -497,14 +505,20 @@ body {
     display: block;
     width: 100%;
     border-radius: 0.4375rem;
-    background: var(--color-slate-100);
+    border: 1px solid color-mix(in oklab, var(--color-emerald-600) 35%, transparent);
+    background: linear-gradient(
+      165deg,
+      var(--color-emerald-500),
+      var(--color-emerald-600)
+    );
     padding: 0.5625rem 1rem;
     font-size: 0.6875rem;
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--color-slate-950);
-    transition: background-color 200ms, transform 100ms, box-shadow 200ms;
+    color: white;
+    transition: filter 200ms, transform 100ms, box-shadow 200ms;
+    box-shadow: 0 1px 3px color-mix(in oklab, var(--color-emerald-600) 25%, transparent);
   }
 
   @media (min-width: 640px) {
@@ -516,8 +530,8 @@ body {
   }
 
   .kc-btn-primary:hover {
-    background: var(--color-slate-200);
-    box-shadow: 0 2px 8px rgb(15 23 42 / 0.08);
+    filter: brightness(1.06);
+    box-shadow: 0 3px 10px color-mix(in oklab, var(--color-emerald-600) 30%, transparent);
   }
 
   .kc-btn-primary:active {
@@ -557,21 +571,61 @@ body {
     transform: scale(0.98);
   }
 
+  .kc-btn-cart {
+    display: block;
+    width: 100%;
+    border-radius: 0.4375rem;
+    border: 1px solid color-mix(in oklab, var(--color-emerald-600) 35%, transparent);
+    background: linear-gradient(
+      165deg,
+      var(--color-emerald-500),
+      var(--color-emerald-600)
+    );
+    padding: 0.5rem 0.875rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: white;
+    transition: filter 200ms, transform 100ms, box-shadow 200ms;
+    box-shadow: 0 1px 3px color-mix(in oklab, var(--color-emerald-600) 25%, transparent);
+  }
+
+  @media (min-width: 640px) {
+    .kc-btn-cart {
+      padding: 0.5625rem 1rem;
+      font-size: 0.75rem;
+    }
+  }
+
+  .kc-btn-cart:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 3px 10px color-mix(in oklab, var(--color-emerald-600) 30%, transparent);
+  }
+
+  .kc-btn-cart:active {
+    transform: scale(0.98);
+  }
+
   .kc-product-card {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-radius: 0.5rem;
+    border-radius: 0.625rem;
     border: 1px solid color-mix(in oklab, var(--color-slate-700) 28%, transparent);
     background: white;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.04);
     transition: box-shadow 350ms ease, border-color 350ms ease, transform 350ms ease;
   }
 
-  .kc-product-card:hover {
-    border-color: color-mix(in oklab, var(--color-amber-500) 18%, transparent);
-    box-shadow:
-      0 12px 40px rgb(15 23 42 / 0.06),
-      0 2px 8px rgb(15 23 42 / 0.03);
+  @media (hover: hover) {
+    .kc-product-card:hover {
+      border-color: color-mix(in oklab, var(--color-amber-500) 22%, transparent);
+      box-shadow:
+        0 16px 44px rgb(15 23 42 / 0.08),
+        0 4px 12px rgb(15 23 42 / 0.04);
+      transform: translateY(-1px);
+    }
   }
 
   .kc-product-card-body {
@@ -593,15 +647,15 @@ body {
     top: 0.5rem;
     right: 0.5rem;
     z-index: 10;
-    border-radius: 0.125rem;
-    background: color-mix(in oklab, var(--color-slate-100) 95%, transparent);
-    padding: 0.125rem 0.4375rem;
+    border-radius: 0.25rem;
+    background: color-mix(in oklab, var(--color-amber-500) 92%, black);
+    padding: 0.1875rem 0.4375rem;
     font-size: 0.5625rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
+    font-weight: 700;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--color-slate-950);
-    backdrop-filter: blur(4px);
+    color: white;
+    box-shadow: 0 1px 4px rgb(15 23 42 / 0.2);
   }
 
   .kc-header-bar {
@@ -633,7 +687,7 @@ body {
   }
 
   .kc-mobile-nav-link--active {
-    color: var(--color-slate-100);
+    color: var(--color-amber-600);
   }
 
   .kc-mobile-nav-link--active::before {
@@ -641,10 +695,14 @@ body {
     position: absolute;
     top: 0;
     left: 50%;
-    width: 1.25rem;
+    width: 1.5rem;
     height: 2px;
     border-radius: 9999px;
-    background: var(--color-amber-500);
+    background: linear-gradient(
+      90deg,
+      var(--color-amber-400),
+      var(--color-amber-600)
+    );
     transform: translateX(-50%);
   }
 

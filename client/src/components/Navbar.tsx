@@ -33,6 +33,9 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
+import { getOgImagePath } from '@/lib/og-image'
+
+const KC_LOGO_PATH = getOgImagePath()
 
 type UserType = { email?: string; name?: string; role?: string; mobile_number?: string }
 
@@ -119,7 +122,7 @@ export default function Navbar() {
     >
       <ShoppingCart className="size-[1.125rem]" strokeWidth={1.5} />
       {count > 0 && (
-        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-slate-100 px-1 text-[10px] font-bold text-slate-950">
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
           {count > 99 ? '99+' : count}
         </span>
       )}
@@ -131,8 +134,8 @@ export default function Navbar() {
       <header className="kc-header-bar safe-area-pt fixed left-0 right-0 top-0 z-50">
         <div className="mx-auto max-w-6xl px-3 sm:px-4 md:px-5">
           <div className="grid h-12 grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] items-center gap-1.5 sm:gap-3 md:h-14 md:gap-4">
-            <div className="min-w-0 max-w-[34vw] sm:max-w-none">
-              <Link href={CATALOG_PATH} className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0 max-w-[42vw] sm:max-w-none">
+              <Link href={CATALOG_PATH} className="flex min-w-0 items-center gap-1.5 sm:gap-2">
                 {resellerBrandingActive && logoUrl ? (
                   <span className="relative block size-7 shrink-0 overflow-hidden rounded-md bg-white ring-1 ring-slate-700/30 md:size-8">
                     <Image
@@ -144,8 +147,19 @@ export default function Navbar() {
                       unoptimized
                     />
                   </span>
-                ) : null}
-                <span className="kc-brand-text truncate text-[0.875rem] sm:text-[0.9375rem] md:text-lg">
+                ) : (
+                  <span className="relative block size-7 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-slate-700/25 md:size-8">
+                    <Image
+                      src={KC_LOGO_PATH}
+                      alt="KC Jewellers"
+                      fill
+                      className="object-contain p-0.5"
+                      sizes="32px"
+                      priority
+                    />
+                  </span>
+                )}
+                <span className="kc-brand-text truncate text-[0.8125rem] sm:text-[0.9375rem] md:text-lg">
                   {resellerBrandingActive ? businessName : 'KC Jewellers'}
                 </span>
               </Link>
@@ -181,7 +195,7 @@ export default function Navbar() {
                 <button
                   type="button"
                   onClick={() => openLoginModal(returnTo)}
-                  className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-slate-700/45 bg-white/80 px-2 text-[10px] font-medium tracking-wide text-slate-100 transition-colors hover:border-slate-600 hover:bg-white sm:h-9 sm:px-3.5 sm:text-xs"
+                  className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-slate-700/40 bg-white/90 px-2.5 text-[10px] font-medium tracking-wide text-slate-600 transition-colors hover:border-amber-500/35 hover:text-amber-600 sm:h-9 sm:px-3.5 sm:text-xs"
                 >
                   Sign in
                 </button>
@@ -254,8 +268,8 @@ export default function Navbar() {
                     href={href}
                     className={`inline-flex h-8 shrink-0 items-center rounded-full px-3.5 text-[12px] font-medium tracking-[0.06em] uppercase transition-colors ${
                       active
-                        ? 'text-slate-100 ring-1 ring-slate-700/40 bg-slate-100/5'
-                        : 'text-slate-500 hover:text-slate-200'
+                        ? 'text-amber-600 ring-1 ring-amber-500/25 bg-amber-500/8'
+                        : 'text-slate-500 hover:text-slate-700'
                     }`}
                   >
                     {label}

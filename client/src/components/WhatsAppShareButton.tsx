@@ -23,8 +23,8 @@ export default function WhatsAppShareButton({
   const href = buildWhatsAppShareLink(message);
   const styles =
     variant === "muted"
-      ? "border-slate-700/50 bg-white/70 text-slate-500 hover:border-slate-600 hover:text-slate-100"
-      : "border-slate-700/50 bg-white/80 text-slate-100 hover:border-slate-600 hover:bg-white";
+      ? "border border-slate-700/40 bg-white/90 text-slate-600 hover:border-amber-500/35 hover:text-amber-600"
+      : "border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 hover:border-emerald-500/55";
 
   return (
     <a
@@ -33,7 +33,7 @@ export default function WhatsAppShareButton({
       rel="noopener noreferrer"
       aria-label={label}
       title={label}
-      className={`inline-flex h-8 max-w-full items-center justify-center gap-1.5 rounded-full border px-2.5 text-xs font-medium tracking-wide transition-colors sm:h-9 sm:gap-2 sm:px-3.5 sm:text-sm ${styles} ${compact ? "min-w-8 border-0 bg-transparent px-0 sm:min-w-0 sm:border sm:bg-white/70 sm:px-3" : ""} ${className}`}
+      className={`inline-flex h-9 max-w-full items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold transition-colors sm:gap-2 sm:px-3 sm:text-sm ${styles} ${compact ? "min-w-9 sm:min-w-0" : ""} ${className}`}
     >
       <Share2 className="size-4 shrink-0" aria-hidden />
       <span className={compact ? "hidden truncate sm:inline" : "truncate"}>{label}</span>
