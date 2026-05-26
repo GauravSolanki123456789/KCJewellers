@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { forwardRef, useId, type SVGProps } from "react";
 import { cn } from "@/lib/utils";
 
@@ -13,37 +12,6 @@ export const METAL_TAB_FAVICONS = {
 } as const;
 
 export type MetalTabFaviconKey = keyof typeof METAL_TAB_FAVICONS;
-
-export function MetalTabFavicon({
-  metal,
-  active = false,
-  className,
-}: {
-  metal: MetalTabFaviconKey | string;
-  active?: boolean;
-  className?: string;
-}) {
-  const src = METAL_TAB_FAVICONS[metal as MetalTabFaviconKey];
-  if (!src) return null;
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full",
-        active && "bg-white p-0.5 shadow-sm ring-1 ring-white/50",
-        className,
-      )}
-    >
-      <Image
-        src={src}
-        alt=""
-        width={20}
-        height={20}
-        className="size-5 object-contain"
-        aria-hidden
-      />
-    </span>
-  );
-}
 
 type MetalTabIconProps = SVGProps<SVGSVGElement>;
 
@@ -277,3 +245,33 @@ export const GiftingJewelleryIcon = forwardRef<
     </svg>
   );
 });
+
+const METAL_TAB_LINE_ICONS = {
+  gold: GoldJewelleryRingIcon,
+  silver: SilverMoonMetalIcon,
+  diamond: DiamondJewelleryIcon,
+  gifting: GiftingJewelleryIcon,
+} as const;
+
+/** Minimal line-art metal mark — theme-aware, no colourful favicons. */
+export function MetalTabFavicon({
+  metal,
+  active = false,
+  className,
+}: {
+  metal: MetalTabFaviconKey | string;
+  active?: boolean;
+  className?: string;
+}) {
+  const Icon = METAL_TAB_LINE_ICONS[metal as MetalTabFaviconKey];
+  if (!Icon) return null;
+  return (
+    <Icon
+      className={cn(
+        "size-[1.0625rem] shrink-0 sm:size-[1.125rem]",
+        active ? "text-amber-600" : "text-slate-400",
+        className,
+      )}
+    />
+  );
+}

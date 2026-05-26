@@ -33,7 +33,7 @@ export default function WhatsAppShareButton({
       rel="noopener noreferrer"
       aria-label={label}
       title={label}
-      className={`inline-flex h-9 max-w-full items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-medium tracking-wide transition-colors sm:gap-2 sm:px-3.5 sm:text-sm ${styles} ${compact ? "min-w-9 sm:min-w-0" : ""} ${className}`}
+      className={`inline-flex h-8 max-w-full items-center justify-center gap-1.5 rounded-full border px-2.5 text-xs font-medium tracking-wide transition-colors sm:h-9 sm:gap-2 sm:px-3.5 sm:text-sm ${styles} ${compact ? "min-w-8 border-0 bg-transparent px-0 sm:min-w-0 sm:border sm:bg-white/70 sm:px-3" : ""} ${className}`}
     >
       <Share2 className="size-4 shrink-0" aria-hidden />
       <span className={compact ? "hidden truncate sm:inline" : "truncate"}>{label}</span>

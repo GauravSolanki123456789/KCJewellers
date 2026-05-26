@@ -393,7 +393,7 @@ export default function ProductDetailClient({
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="mx-auto max-w-6xl px-4 pb-28 pt-4 md:mt-8 md:pb-10 md:pt-6">
+      <div className="mx-auto max-w-6xl px-4 pb-32 pt-4 md:mt-8 md:pb-10 md:pt-6">
         <button
           type="button"
           onClick={handleBackToCatalog}
@@ -617,7 +617,7 @@ export default function ProductDetailClient({
                 {barcode}
               </span>
             )}
-            <h1 className="text-2xl md:text-3xl font-semibold text-slate-100 mt-1 tracking-tight">
+            <h1 className="kc-page-title mt-1 text-2xl md:text-3xl tracking-tight">
               {displayName}
             </h1>
             {styleCode && (
@@ -653,6 +653,13 @@ export default function ProductDetailClient({
               <span className="ml-2 text-base font-normal text-slate-500">
                 incl. GST
               </span>
+              <button
+                type="button"
+                className="mt-2 block text-xs font-medium tracking-wide text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline md:hidden"
+                onClick={() => setOpen(true)}
+              >
+                View price breakdown
+              </button>
             </div>
 
             {isDiamond && (
@@ -759,11 +766,11 @@ export default function ProductDetailClient({
               )}
             </div>
 
-            <div className="mt-8 flex flex-col gap-3">
+            <div className="mt-8 hidden flex-col gap-3 md:flex">
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
-                  className="kc-btn-primary order-2 w-full px-6 py-3.5 sm:order-1 sm:w-auto"
+                  className="kc-btn-primary order-2 w-full px-6 py-3.5 sm:order-1 sm:w-auto sm:!inline-block sm:!w-auto"
                   onClick={handleAddToCart}
                 >
                   Add to Cart
@@ -784,15 +791,22 @@ export default function ProductDetailClient({
           </div>
         </div>
 
-        <div className="kc-mobile-nav-dock fixed bottom-0 left-0 right-0 z-30 border-t border-slate-700/40 bg-slate-950/95 p-4 pb-6 pt-3 backdrop-blur-md safe-area-pb md:hidden">
-          <button
-            type="button"
-            className="kc-btn-primary w-full py-3.5 text-base"
-            onClick={handleAddToCart}
-          >
-            Add to Cart — ₹
-            {Math.round(b?.total || 0).toLocaleString("en-IN")}
-          </button>
+        <div className="kc-pdp-sticky-bar kc-bottom-above-mobile-nav fixed left-0 right-0 z-30 px-4 py-3 safe-area-pb md:hidden">
+          <div className="mx-auto flex max-w-lg items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold tabular-nums text-slate-100">
+                ₹{Math.round(b?.total || 0).toLocaleString("en-IN")}
+              </p>
+              <p className="text-[10px] text-slate-500">incl. GST</p>
+            </div>
+            <button
+              type="button"
+              className="kc-btn-primary shrink-0 !w-auto px-6 py-3"
+              onClick={handleAddToCart}
+            >
+              Add to Cart
+            </button>
+          </div>
         </div>
         {b && (
           <BreakdownModal

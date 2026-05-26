@@ -23,6 +23,8 @@ type ProductCardProps = {
   catalogBuilderActive?: boolean
   selected?: boolean
   onToggleSelect?: () => void
+  /** Hide redundant style label when browsing within that collection */
+  showStyleLabel?: boolean
 }
 
 function CatalogBuilderCheckmark({
@@ -69,6 +71,7 @@ export default function ProductCard({
   catalogBuilderActive = false,
   selected = false,
   onToggleSelect,
+  showStyleLabel = true,
 }: ProductCardProps) {
   const cart = useCart()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
@@ -177,47 +180,49 @@ export default function ProductCard({
   )
 
   const detailsBlock = (
-    <div className="flex flex-1 flex-col gap-1 p-3 sm:p-3.5">
-      {styleCode ? (
-        <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+    <div className="kc-product-card-body">
+      {showStyleLabel && styleCode ? (
+        <span className="truncate text-[9px] font-medium uppercase tracking-[0.14em] text-slate-500 sm:text-[10px]">
           {styleCode}
         </span>
       ) : null}
 
-      <span className="truncate text-sm font-semibold leading-snug text-slate-100 sm:text-[0.9375rem]">
+      <span className="truncate font-mono text-[11px] font-medium tabular-nums text-slate-300 sm:text-xs">
         {barcode}
       </span>
 
       {weight != null ? (
-        <span className="text-xs text-slate-500">{Number(weight).toFixed(2)} gm</span>
+        <span className="text-[10px] text-slate-500">{Number(weight).toFixed(2)} gm</span>
       ) : null}
 
-      <div className="mt-1 flex min-w-0 flex-col gap-0.5">
+      <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">
         {showWholesale ? (
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-600">
             Wholesale rate
           </span>
         ) : null}
         {showWholesale ? (
-          <span className="text-xs line-through text-slate-500">
+          <span className="text-[10px] line-through text-slate-500">
             ₹{Math.round(wholesale_retail_total ?? total).toLocaleString('en-IN')}
           </span>
         ) : null}
         {!showWholesale && hasDiscount ? (
-          <span className="text-xs line-through text-slate-500">
+          <span className="text-[10px] line-through text-slate-500">
             ₹{Math.round(originalTotal ?? total).toLocaleString('en-IN')}
           </span>
         ) : null}
-        <div className="flex flex-wrap items-baseline gap-1.5">
+        <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
           <span
             className={cn(
-              'text-base font-semibold tabular-nums tracking-tight',
+              'text-sm font-semibold tabular-nums tracking-tight sm:text-[0.9375rem]',
               showWholesale ? 'text-emerald-600' : 'text-slate-100',
             )}
           >
             ₹{Math.round(total).toLocaleString('en-IN')}
           </span>
-          <span className="shrink-0 text-[10px] font-normal text-slate-500">incl. GST</span>
+          <span className="shrink-0 text-[8px] font-normal uppercase tracking-wide text-slate-500 sm:text-[9px]">
+            incl. GST
+          </span>
         </div>
       </div>
 
@@ -227,13 +232,13 @@ export default function ProductCard({
         </p>
       ) : (
         <button
-          className="mt-auto w-full pt-2"
+          className="mt-2 w-full"
           onClick={(e) => {
             e.preventDefault()
             cart.add(product)
           }}
         >
-          <span className="kc-btn-primary">Add to Cart</span>
+          <span className="kc-btn-outline">Add to Cart</span>
         </button>
       )}
     </div>

@@ -56,19 +56,19 @@ export default function DualRangeSlider({
   )
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
       {label && (
-        <div className="flex justify-between text-xs">
-          <span className="font-medium text-slate-500">{label}</span>
-          <span className="font-medium tabular-nums text-slate-300">
+        <div className="flex justify-between text-[11px]">
+          <span className="kc-section-label">{label}</span>
+          <span className="font-medium tabular-nums text-slate-400">
             {formatValue(lowVal)} – {formatValue(highVal)}
           </span>
         </div>
       )}
-      <div className="relative flex h-7 items-center" ref={rangeRef}>
-        <div className="absolute h-0.5 w-full rounded-full bg-slate-700/60" />
+      <div className="relative flex h-6 items-center" ref={rangeRef}>
+        <div className="absolute h-px w-full rounded-full bg-slate-700/50" />
         <div
-          className="absolute h-0.5 rounded-full bg-slate-400 transition-all duration-100"
+          className="absolute h-px rounded-full bg-slate-400/80 transition-all duration-100"
           style={{
             left: `${percentLow}%`,
             width: `${percentHigh - percentLow}%`,

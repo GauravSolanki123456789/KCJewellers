@@ -224,7 +224,7 @@ export default function SmartSearch({
   };
 
   const inputCls = compact
-    ? "kc-search-input h-9 pl-9 pr-2.5 text-[13px] leading-none"
+    ? "kc-search-input h-8 pl-8 pr-2 text-[12px] leading-none sm:h-9 sm:pl-9 sm:pr-2.5 sm:text-[13px]"
     : "kc-search-input h-10 pl-10 pr-3 text-sm leading-normal md:text-[15px]";
 
   const placeholder = compact ? "Search" : "Search jewellery, SKU, or barcode";
@@ -233,7 +233,7 @@ export default function SmartSearch({
     <div ref={rootRef} className={`relative min-w-0 ${className}`}>
       <form onSubmit={onSubmit} className="relative" noValidate>
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-600"
+          className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-500 sm:left-3 sm:size-4"
           aria-hidden
         />
         <input
@@ -269,11 +269,11 @@ export default function SmartSearch({
         <div
           id="smart-search-results"
           role="listbox"
-          className="kc-smart-search-panel absolute left-0 right-0 top-[calc(100%+8px)] z-[70] max-h-[min(70vh,22rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-300/25 bg-slate-950/98 py-1.5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl kc-scroll-contain"
+          className="kc-smart-search-panel absolute left-0 right-0 top-[calc(100%+6px)] z-[70] max-h-[min(70vh,22rem)] w-full min-w-[12rem] overflow-y-auto overflow-x-hidden rounded-xl py-1.5 kc-scroll-contain"
         >
           {showDiscovery ? (
             <div className="px-2 pb-1">
-              <p className="flex items-center gap-1.5 px-1 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+              <p className="flex items-center gap-1.5 px-1 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 <Sparkles className="size-3 text-amber-500/80" aria-hidden />
                 Quick shop
               </p>
@@ -292,7 +292,7 @@ export default function SmartSearch({
                         )
                       )
                     }
-                    className="rounded-full border border-slate-700/80 bg-slate-900/80 px-3 py-1.5 text-left text-xs font-medium text-slate-200 transition-colors hover:border-amber-500/35 hover:bg-amber-500/10 hover:text-amber-100"
+                    className="kc-chip hover:!border-amber-500/30 hover:!text-amber-600"
                   >
                     {chip.label}
                   </button>

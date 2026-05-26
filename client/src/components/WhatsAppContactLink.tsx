@@ -10,6 +10,8 @@ import { buildWhatsAppBusinessChatLink } from "@/lib/whatsapp";
 
 type Props = {
   className?: string;
+  /** Icon-only on narrow screens */
+  compact?: boolean;
 };
 
 function contactPrompt(brand: string): string {
@@ -21,7 +23,7 @@ function contactPrompt(brand: string): string {
  * Opens a 1:1 chat with the business number (not the generic wa.me/?text= share flow).
  * Renders nothing if NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER is unset.
  */
-export default function WhatsAppContactLink({ className = "" }: Props) {
+export default function WhatsAppContactLink({ className = "", compact = false }: Props) {
   const auth = useAuth();
   const { customerTier } = useCustomerTier();
   const { active: brandingActive, businessName: brandingBusinessName } = useResellerBranding();
@@ -42,10 +44,10 @@ export default function WhatsAppContactLink({ className = "" }: Props) {
       rel="noopener noreferrer"
       title="Contact us on WhatsApp"
       aria-label={`Contact ${brand} on WhatsApp`}
-      className={`inline-flex h-9 max-w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-slate-700/50 bg-white/80 px-3 text-xs font-medium tracking-wide text-slate-100 transition-colors hover:border-slate-600 hover:bg-white sm:gap-2 sm:px-3.5 sm:text-sm ${className}`}
+      className={`inline-flex h-8 max-w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-slate-700/45 bg-white/80 text-slate-500 transition-colors hover:border-slate-600 hover:text-slate-100 sm:h-9 sm:gap-2 sm:px-3.5 sm:text-sm ${compact ? "min-w-8 border-0 bg-transparent px-0 sm:min-w-0 sm:border sm:bg-white/80 sm:px-3" : "px-3 text-xs font-medium tracking-wide text-slate-100 hover:bg-white"} ${className}`}
     >
-      <MessageCircle className="size-4 shrink-0 sm:size-[1.125rem]" strokeWidth={2} aria-hidden />
-      <span className="hidden truncate sm:inline">Contact</span>
+      <MessageCircle className="size-4 shrink-0 sm:size-[1.125rem]" strokeWidth={1.75} aria-hidden />
+      <span className={compact ? "hidden truncate sm:inline" : "hidden truncate sm:inline"}>Contact</span>
     </a>
   );
 }

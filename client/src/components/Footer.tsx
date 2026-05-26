@@ -30,8 +30,18 @@ export default function Footer() {
     return null;
   }
   return (
-    <footer className="mt-auto border-t border-slate-700/30 bg-slate-950/60">
-      <div className="mx-auto max-w-6xl px-4 pt-4 pb-4 md:py-6 kc-pb-mobile-nav">
+    <footer className="mt-auto border-t border-slate-700/25 bg-slate-950/40">
+      <div className="mx-auto max-w-6xl px-4 pt-4 pb-3 md:py-6 kc-pb-mobile-nav">
+        <nav
+          aria-label="Legal"
+          className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] text-slate-500 md:hidden"
+        >
+          {policyLinks.map(({ href, label }) => (
+            <Link key={href} href={href} className="transition-colors hover:text-slate-300">
+              {label}
+            </Link>
+          ))}
+        </nav>
         <div className="hidden items-center justify-between gap-4 text-sm md:flex">
           <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-slate-600">
             {policyLinks.map(({ href, label, icon: Icon }) => (

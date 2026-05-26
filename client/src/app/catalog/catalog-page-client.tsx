@@ -340,6 +340,7 @@ export default function CatalogPageClient() {
   const [activeDesignGroup, setActiveDesignGroup] = useState<'all' | string>('all')
   const [gridShowCount, setGridShowCount] = useState(CATALOG_PRODUCTS_PAGE_SIZE)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const [retailBrowseOpen, setRetailBrowseOpen] = useState(false)
   const hasRestoredFromStorage = useRef(false)
   const skipNextBoundsSync = useRef(false)
   const [scrollToBarcode, setScrollToBarcode] = useState<string | null>(null)
@@ -1339,16 +1340,16 @@ export default function CatalogPageClient() {
         </div>
       )}
       <main
-        className={`max-w-[1400px] mx-auto px-4 py-6 max-[480px]:px-3 ${
+        className={`max-w-[1400px] mx-auto px-3 py-4 sm:px-4 sm:py-5 ${
           catalogBuilderMode && selectedProductIds.length > 0
-            ? 'pb-[calc(10rem+env(safe-area-inset-bottom,0px))] sm:pb-36'
-            : 'pb-[calc(7rem+env(safe-area-inset-bottom,0px))]'
+            ? 'pb-[calc(8rem+env(safe-area-inset-bottom,0px))] sm:pb-32'
+            : 'kc-pb-mobile-nav md:pb-8'
         }`}
       >
-        {/* Metal tabs */}
-        <div className="mb-5 px-1">
+        {/* Sticky catalogue toolbar — metal tabs + optional retail browse */}
+        <div className="kc-catalog-toolbar -mx-3 px-3 sm:-mx-4 sm:px-4">
           <div
-            className="mx-auto inline-grid w-full max-w-md grid-cols-2 gap-1 rounded-xl border border-slate-700/40 bg-white/60 p-1 sm:max-w-none sm:grid-cols-4"
+            className="inline-grid w-full grid-cols-4 gap-0.5 rounded-lg border border-slate-700/30 bg-white/50 p-0.5 sm:gap-1 sm:rounded-xl sm:p-1"
             role="tablist"
             aria-label="Catalogue metal type"
           >
@@ -1361,131 +1362,232 @@ export default function CatalogPageClient() {
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => handleMetalTabClick(key)}
-                  className={`kc-metal-tab sm:min-h-[2.5rem] ${isActive ? 'kc-metal-tab--active' : ''}`}
+                  className={`kc-metal-tab ${isActive ? 'kc-metal-tab--active' : ''}`}
                 >
-                  <MetalTabFavicon metal={key as MetalTabFaviconKey} active={isActive} />
+                  <span className="kc-metal-tab-icon">
+                    <MetalTabFavicon metal={key as MetalTabFaviconKey} active={isActive} />
+                  </span>
                   <span>{label}</span>
                 </button>
               )
             })}
           </div>
-        </div>
 
-        {showRetailBrowse ? (
-          <div className="mb-5 space-y-2 px-1">
-            <p className="kc-section-label">Shop for</p>
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain sm:flex-wrap sm:overflow-visible">
-              {CATALOG_SHOP_FOR_TABS.map(({ key, label }) => {
-                const isActive = selectedShopFor === key
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      retailFiltersFromUiRef.current = true
-                      setSelectedShopFor(key)
-                      if (key === 'all') setSelectedProductType('all')
-                    }}
-                    className={`kc-chip sm:px-4 sm:py-2 sm:text-sm ${isActive ? 'kc-chip--active' : ''}`}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-            {selectedShopFor !== 'all' && availableProductTypes.length > 0 ? (
-              <div className="flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5 scrollbar-hide kc-scroll-contain">
-                <button
-                  type="button"
-                  onClick={() => {
-                    retailFiltersFromUiRef.current = true
-                    setSelectedProductType('all')
-                  }}
-                  className={`kc-chip text-[11px] sm:text-xs ${selectedProductType === 'all' ? 'kc-chip--active' : ''}`}
-                >
-                  All types
-                </button>
-                {availableProductTypes.map((pt) => {
-                  const isActive = selectedProductType === pt
-                  return (
+          {showRetailBrowse ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setRetailBrowseOpen((o) => !o)}
+                className="kc-collapse-trigger lg:hidden"
+                aria-expanded={retailBrowseOpen}
+              >
+                <span className="inline-flex items-center gap-2">
+                  Shop for
+                  {selectedShopFor !== 'all' || selectedProductType !== 'all' ? (
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-600">
+                      {selectedShopFor !== 'all' ? CATALOG_SHOP_FOR_TABS.find((t) => t.key === selectedShopFor)?.label : 'All'}
+                      {selectedProductType !== 'all' ? ` · ${catalogProductTypeLabel(selectedProductType)}` : ''}
+                    </span>
+                  ) : null}
+                </span>
+                <ChevronDown
+                  className={`size-4 shrink-0 text-slate-500 transition-transform ${retailBrowseOpen ? 'rotate-180' : ''}`}
+                  aria-hidden
+                />
+              </button>
+              <div className={`space-y-2 ${retailBrowseOpen ? 'mt-2 lg:mt-3' : 'hidden lg:block lg:mt-3'}`}>
+                <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain lg:flex-wrap lg:overflow-visible">
+                  {CATALOG_SHOP_FOR_TABS.map(({ key, label }) => {
+                    const isActive = selectedShopFor === key
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          retailFiltersFromUiRef.current = true
+                          setSelectedShopFor(key)
+                          if (key === 'all') setSelectedProductType('all')
+                        }}
+                        className={`kc-chip ${isActive ? 'kc-chip--active' : ''}`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+                {selectedShopFor !== 'all' && availableProductTypes.length > 0 ? (
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain">
                     <button
-                      key={pt}
                       type="button"
                       onClick={() => {
                         retailFiltersFromUiRef.current = true
-                        setSelectedProductType(pt)
+                        setSelectedProductType('all')
                       }}
-                      className={`kc-chip text-[11px] sm:text-xs ${isActive ? 'kc-chip--active' : ''}`}
+                      className={`kc-chip ${selectedProductType === 'all' ? 'kc-chip--active' : ''}`}
                     >
-                      {catalogProductTypeLabel(pt)}
+                      All types
                     </button>
-                  )
-                })}
+                    {availableProductTypes.map((pt) => {
+                      const isActive = selectedProductType === pt
+                      return (
+                        <button
+                          key={pt}
+                          type="button"
+                          onClick={() => {
+                            retailFiltersFromUiRef.current = true
+                            setSelectedProductType(pt)
+                          }}
+                          className={`kc-chip ${isActive ? 'kc-chip--active' : ''}`}
+                        >
+                          {catalogProductTypeLabel(pt)}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        ) : null}
+            </div>
+          ) : null}
+        </div>
 
-        {canUseCatalogBuilder && (
-          <div className="flex flex-col items-center gap-2 mb-4 px-1">
-            <div className="flex w-full max-w-xl items-center justify-between gap-3 rounded-xl border border-slate-800/90 bg-slate-900/35 px-3 py-2 shadow-inner sm:justify-center sm:gap-6">
-              <span className="text-xs font-medium text-slate-400 sm:text-sm">Catalog Builder</span>
+        <div
+          ref={catalogBrowseAnchorRef}
+          className="mb-3 mt-3 flex scroll-mt-[6.5rem] items-start justify-between gap-2 sm:mb-4 sm:mt-4 md:scroll-mt-[8.5rem]"
+        >
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <h1 className="kc-page-title truncate text-base sm:text-xl md:text-2xl">
+                {activeStyle && activeSku ? breadcrumb.split(' > ').pop() : 'Catalogue'}
+              </h1>
+              {products.length > 0 && (
+                <span className="shrink-0 text-[10px] font-medium tabular-nums text-slate-500">
+                  {products.length} item{products.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            {activeStyle && activeSku ? (
+              <p className="hidden truncate text-[11px] text-slate-500 sm:block sm:text-xs">
+                {breadcrumb}
+              </p>
+            ) : (
+              <p className="text-[10px] text-slate-500 sm:text-xs">
+                Browse our curated collections
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {canUseCatalogBuilder && (
               <button
                 type="button"
                 role="switch"
                 aria-checked={catalogBuilderMode}
+                aria-label="Catalog Builder"
+                title="Catalog Builder"
                 onClick={() => setCatalogBuilderMode(!catalogBuilderMode)}
-                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 ${
+                className={`relative mr-1 inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                   catalogBuilderMode
                     ? 'border-amber-400/50 bg-amber-500'
-                    : 'border-slate-600 bg-slate-800'
+                    : 'border-slate-700/50 bg-slate-800/40'
                 }`}
               >
                 <span
-                  className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
-                    catalogBuilderMode ? 'translate-x-5' : 'translate-x-0'
+                  className={`pointer-events-none absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow-sm transition-transform ${
+                    catalogBuilderMode ? 'translate-x-4' : 'translate-x-0'
                   }`}
                 />
               </button>
-            </div>
-            {catalogBuilderMode ? (
-              <p className="w-full max-w-xl text-center text-[11px] text-slate-500 sm:text-xs">
-                Tap any product card to select · use{' '}
-                <span className="font-medium text-slate-400">View</span> for details
-              </p>
-            ) : null}
+            )}
+            {activeStyle && (
+              <>
+                <WhatsAppContactLink compact />
+                <WhatsAppShareButton
+                  message={catalogShareText}
+                  label="Share"
+                  compact
+                  variant="muted"
+                />
+              </>
+            )}
           </div>
-        )}
+        </div>
 
-        <div
-          ref={catalogBrowseAnchorRef}
-          className="mb-5 flex scroll-mt-14 items-center justify-between gap-3 border-b border-slate-700/30 pb-4 md:scroll-mt-[6.875rem]"
-        >
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <h1 className="font-display truncate text-xl font-semibold tracking-wide text-slate-100 sm:text-2xl">
-              Catalogue
-            </h1>
-            {activeStyle && activeSku ? (
-              <p className="truncate text-xs text-slate-500 sm:text-sm">
-                {breadcrumb}
-              </p>
-            ) : null}
-          </div>
-          {activeStyle && (
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <WhatsAppContactLink />
-              <WhatsAppShareButton
-                message={catalogShareText}
-                label="Share"
-                compact
-                variant="muted"
+        {catalogBuilderMode && canUseCatalogBuilder ? (
+          <p className="-mt-2 mb-3 text-center text-[10px] text-slate-500 sm:text-xs">
+            Tap cards to select · <span className="font-medium text-slate-400">View</span> for details
+          </p>
+        ) : null}
+
+        {/* Mobile filters — above nav chips so products appear sooner */}
+        <div className="mb-2.5 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((o) => !o)}
+            className="kc-collapse-trigger"
+            aria-expanded={mobileFiltersOpen}
+          >
+            <span className="inline-flex items-center gap-2">
+              <SlidersHorizontal className="size-4 text-slate-500" aria-hidden />
+              Filters
+              {hasActiveFilters ? (
+                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600">
+                  Active
+                </span>
+              ) : null}
+            </span>
+            <ChevronDown
+              className={`size-4 text-slate-500 transition-transform ${mobileFiltersOpen ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
+          </button>
+          {mobileFiltersOpen ? (
+            <div className="kc-surface mt-2 space-y-4 p-3.5">
+              {!isGiftingCatalog ? (
+                <DualRangeSlider
+                  min={weightBounds[0]}
+                  max={weightBounds[1]}
+                  low={weightLow}
+                  high={weightHigh}
+                  onLowChange={setWeightLow}
+                  onHighChange={setWeightHigh}
+                  step={0.5}
+                  label="Weight (gm)"
+                  formatValue={(v) => `${v} gm`}
+                />
+              ) : (
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Gifting items use fixed prices — filter by price only.
+                </p>
+              )}
+              <DualRangeSlider
+                min={priceBounds[0]}
+                max={priceBounds[1]}
+                low={priceLow}
+                high={priceHigh}
+                onLowChange={setPriceLow}
+                onHighChange={setPriceHigh}
+                step={500}
+                label="Price (₹)"
+                formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
               />
+              {hasActiveFilters && (
+                <button
+                  onClick={() => {
+                    setWeightLow(weightBounds[0])
+                    setWeightHigh(weightBounds[1])
+                    setPriceLow(priceBounds[0])
+                    setPriceHigh(priceBounds[1])
+                  }}
+                  className="text-xs font-medium text-slate-500 hover:text-slate-300"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* ── Mobile: horizontal chips ── */}
-        <div className="lg:hidden space-y-3 mb-5">
+        <div className="mb-3 space-y-1.5 lg:hidden">
           {/* Style chips */}
           <div className="flex flex-col gap-1.5">
             {catalogBuilderMode && canUseCatalogBuilder && (
@@ -1830,75 +1932,6 @@ export default function CatalogPageClient() {
             id="catalog-product-grid"
             className="flex-1 min-w-0 scroll-mt-12 md:scroll-mt-14"
           >
-            {/* Mobile filters — collapsible to reduce clutter */}
-            <div className="lg:hidden mb-4">
-              <button
-                type="button"
-                onClick={() => setMobileFiltersOpen((o) => !o)}
-                className="flex w-full items-center justify-between rounded-xl border border-slate-700/40 bg-white/60 px-4 py-3 text-sm font-medium text-slate-300 transition-colors hover:bg-white/80"
-                aria-expanded={mobileFiltersOpen}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <SlidersHorizontal className="size-4 text-slate-500" aria-hidden />
-                  Filters
-                  {hasActiveFilters ? (
-                    <span className="rounded-full bg-slate-100/10 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
-                      Active
-                    </span>
-                  ) : null}
-                </span>
-                <ChevronDown
-                  className={`size-4 text-slate-500 transition-transform ${mobileFiltersOpen ? 'rotate-180' : ''}`}
-                  aria-hidden
-                />
-              </button>
-              {mobileFiltersOpen ? (
-                <div className="kc-surface mt-2 space-y-4 p-4">
-                  {!isGiftingCatalog ? (
-                    <DualRangeSlider
-                      min={weightBounds[0]}
-                      max={weightBounds[1]}
-                      low={weightLow}
-                      high={weightHigh}
-                      onLowChange={setWeightLow}
-                      onHighChange={setWeightHigh}
-                      step={0.5}
-                      label="Weight (gm)"
-                      formatValue={(v) => `${v} gm`}
-                    />
-                  ) : (
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      Gifting items use fixed prices — filter by price only.
-                    </p>
-                  )}
-                  <DualRangeSlider
-                    min={priceBounds[0]}
-                    max={priceBounds[1]}
-                    low={priceLow}
-                    high={priceHigh}
-                    onLowChange={setPriceLow}
-                    onHighChange={setPriceHigh}
-                    step={500}
-                    label="Price (₹)"
-                    formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
-                  />
-                  {hasActiveFilters && (
-                    <button
-                      onClick={() => {
-                        setWeightLow(weightBounds[0])
-                        setWeightHigh(weightBounds[1])
-                        setPriceLow(priceBounds[0])
-                        setPriceHigh(priceBounds[1])
-                      }}
-                      className="text-xs font-medium text-slate-500 hover:text-slate-300"
-                    >
-                      Clear filters
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
             {hasDesignGroupFilter && (
               <div className="kc-surface mb-5 p-3 sm:p-3.5">
                 <div className="mb-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1987,15 +2020,10 @@ export default function CatalogPageClient() {
             )}
 
             <div key={catalogGridSurfaceKey} className="kc-catalog-surface-enter">
-              <div className="mb-4 flex items-center justify-between gap-4">
+              <div className="mb-3 hidden items-center justify-between gap-4 md:flex">
                 <p className="truncate text-xs font-medium uppercase tracking-wider text-slate-500">
                   {breadcrumb || 'Select a collection'}
                 </p>
-                {products.length > 0 && (
-                  <span className="whitespace-nowrap text-xs tabular-nums text-slate-500">
-                    {products.length} item{products.length !== 1 ? 's' : ''}
-                  </span>
-                )}
               </div>
 
               {products.length === 0 ? (
@@ -2009,7 +2037,7 @@ export default function CatalogPageClient() {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-5 lg:grid-cols-3 xl:grid-cols-4 xl:gap-6">
+                <div className="grid grid-cols-2 gap-2 sm:gap-2.5 md:grid-cols-3 md:gap-4 lg:grid-cols-3 xl:grid-cols-4 xl:gap-5">
                   {gridProducts.map((p, i) => {
                     const selectionKey = getProductSelectionKey(p as Product)
                     const cardKey =
@@ -2035,6 +2063,7 @@ export default function CatalogPageClient() {
                         onToggleSelect={
                           selectionKey ? () => toggleProductId(selectionKey) : undefined
                         }
+                        showStyleLabel={false}
                       />
                     )
                   })}
