@@ -1346,8 +1346,8 @@ export default function CatalogPageClient() {
             : 'kc-pb-mobile-nav md:pb-8'
         }`}
       >
-        {/* Sticky: metal tabs only — compact bar that never covers products */}
-        <div className="kc-catalog-tabs-sticky -mx-3 px-3 sm:-mx-4 sm:px-4">
+        {/* Metal tabs — scrolls with page (never sticky; sticky caused overlap on grid/sidebar) */}
+        <div className="kc-catalog-tabs -mx-3 px-3 sm:-mx-4 sm:px-4">
           <div
             className="inline-grid w-full grid-cols-4 gap-0.5 rounded-lg bg-slate-900/20 p-0.5 sm:gap-1 sm:rounded-xl sm:bg-white/40 sm:p-1"
             role="tablist"
@@ -1377,16 +1377,16 @@ export default function CatalogPageClient() {
         {/* Shop for — scrolls with page (not sticky) so it never blocks the grid */}
         {showRetailBrowse ? (
           <div className="kc-catalog-filters">
-            <p className="kc-section-label mb-1.5 hidden lg:block">Shop for</p>
             <button
               type="button"
               onClick={() => setRetailBrowseOpen((o) => !o)}
-              className="kc-collapse-trigger lg:hidden"
+              className="kc-collapse-trigger"
               aria-expanded={retailBrowseOpen}
             >
               <span className="inline-flex items-center gap-2">
                 Shop for
-                {selectedShopFor !== 'all' || selectedProductType !== 'all' ? (
+                {!retailBrowseOpen &&
+                (selectedShopFor !== 'all' || selectedProductType !== 'all') ? (
                   <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-600">
                     {selectedShopFor !== 'all' ? CATALOG_SHOP_FOR_TABS.find((t) => t.key === selectedShopFor)?.label : 'All'}
                     {selectedProductType !== 'all' ? ` · ${catalogProductTypeLabel(selectedProductType)}` : ''}
@@ -1398,8 +1398,9 @@ export default function CatalogPageClient() {
                 aria-hidden
               />
             </button>
-            <div className={`space-y-2 ${retailBrowseOpen ? 'mt-2 lg:mt-0' : 'hidden lg:block'}`}>
-              <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain lg:flex-wrap lg:overflow-visible">
+            {retailBrowseOpen ? (
+              <div className="mt-2 space-y-2">
+                <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide kc-scroll-contain lg:flex-wrap lg:overflow-visible">
                 {CATALOG_SHOP_FOR_TABS.map(({ key, label }) => {
                   const isActive = selectedShopFor === key
                   return (
@@ -1448,7 +1449,8 @@ export default function CatalogPageClient() {
                   })}
                 </div>
               ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1714,7 +1716,7 @@ export default function CatalogPageClient() {
 
         <div className="flex gap-6">
           {/* ── Desktop sidebar (25 %) ── */}
-          <aside className="hidden lg:block w-64 shrink-0 lg:min-h-[min(100vh,920px)]">
+          <aside className="hidden w-64 shrink-0 self-start lg:block">
             {/* Filters — min height reduces layout jump when collection changes */}
             <div className="kc-surface mb-6 space-y-5 p-4 min-h-[260px]">
               <h3 className="kc-section-label">Filters</h3>
@@ -1762,7 +1764,7 @@ export default function CatalogPageClient() {
             </div>
             <nav
               ref={sidebarNavRef}
-              className="kc-sidebar-sticky space-y-1 min-h-[12rem] pr-2 scrollbar-hide kc-scroll-contain"
+              className="space-y-1 min-h-[12rem] pr-2"
             >
               {catalogBuilderMode && canUseCatalogBuilder && (
                 <div className="flex items-center justify-between gap-2 px-2 pb-2 mb-1 border-b border-slate-800/60">

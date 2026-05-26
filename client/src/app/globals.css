@@ -378,21 +378,27 @@ body {
     border-radius: 0.875rem;
   }
 
-  .kc-catalog-tabs-sticky {
-    position: sticky;
-    top: var(--kc-header-stack-mobile);
-    z-index: 20;
+  .kc-catalog-tabs {
     margin-left: -0.25rem;
     margin-right: -0.25rem;
     padding: 0.25rem 0.25rem 0.375rem;
-    background: color-mix(in oklab, var(--color-slate-950) 88%, transparent);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid color-mix(in oklab, var(--color-slate-700) 18%, transparent);
+  }
+
+  @media (min-width: 768px) {
+    .kc-catalog-tabs {
+      padding-bottom: 0.5rem;
+    }
+  }
+
+  /* Deprecated — do not use sticky on metal tabs (overlaps grid/sidebar) */
+  .kc-catalog-tabs-sticky {
+    margin-left: -0.25rem;
+    margin-right: -0.25rem;
+    padding: 0.25rem 0.25rem 0.375rem;
   }
 
   @media (min-width: 768px) {
     .kc-catalog-tabs-sticky {
-      top: calc(var(--kc-header-stack-desktop) + 0.25rem);
       padding-bottom: 0.5rem;
     }
   }
@@ -410,38 +416,34 @@ body {
   }
 
   .kc-scroll-anchor {
-    scroll-margin-top: var(--kc-scroll-anchor-mobile);
+    scroll-margin-top: calc(var(--kc-header-stack-mobile) + 0.5rem);
   }
 
   @media (min-width: 768px) {
     .kc-scroll-anchor {
-      scroll-margin-top: var(--kc-scroll-anchor-desktop);
+      scroll-margin-top: calc(var(--kc-header-stack-desktop) + 0.5rem);
     }
   }
 
-  .kc-sidebar-sticky {
+  .kc-catalog-sidebar {
     position: sticky;
-    top: calc(var(--kc-header-stack-desktop) + var(--kc-catalog-tabs-height) + 1.5rem);
-    max-height: calc(100vh - var(--kc-header-stack-desktop) - var(--kc-catalog-tabs-height) - 2.5rem);
+    top: calc(var(--kc-header-stack-desktop) + 0.5rem);
+    max-height: calc(100vh - var(--kc-header-stack-desktop) - 1rem);
     overflow-y: auto;
+    overscroll-behavior: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
-  /* Legacy alias — prefer kc-catalog-tabs-sticky */
+  /* Legacy alias — not sticky */
   .kc-catalog-toolbar {
-    position: sticky;
-    top: var(--kc-header-stack-mobile);
-    z-index: 20;
     margin-left: -0.25rem;
     margin-right: -0.25rem;
     padding: 0.25rem 0.25rem 0.375rem;
-    background: color-mix(in oklab, var(--color-slate-950) 88%, transparent);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid color-mix(in oklab, var(--color-slate-700) 18%, transparent);
   }
 
   @media (min-width: 768px) {
     .kc-catalog-toolbar {
-      top: calc(var(--kc-header-stack-desktop) + 0.25rem);
+      padding-bottom: 0.5rem;
     }
   }
 
