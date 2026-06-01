@@ -60,6 +60,7 @@ import {
   parseCatalogRetailSearchParams,
   resolveRetailCatalogSelection,
   isSelectionValidInRetailTree,
+  isRetailBrowseEnabledForMetal,
   type CatalogProductType,
   type CatalogShopFor,
 } from '@/lib/catalog-retail-tags'
@@ -305,7 +306,7 @@ export default function CatalogPageClient() {
   const searchParams = useSearchParams()
   const urlShopForParam = searchParams.get('shop_for')
   const urlProductTypeParam = searchParams.get('product_type')
-  const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing, retailBrowseEnabled } =
+  const { categories, rates, isBootstrapping, refresh, isRefreshing: contextRefreshing, retailBrowseByMetal } =
     useCatalogData()
   const auth = useAuth()
   const { wholesalePricing, customerTier } = useCustomerTier()
@@ -323,12 +324,14 @@ export default function CatalogPageClient() {
   const canUseCatalogBuilder =
     auth.isAuthenticated === true &&
     (isCatalogAdminUser(auth.user) || customerTier === CUSTOMER_TIER.RESELLER)
-  /** Resellers order by collection (PITARA, UTSAV); retail shop-for is B2C only. */
-  const showRetailBrowse =
-    retailBrowseEnabled && customerTier !== CUSTOMER_TIER.RESELLER
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
 
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
+
+  /** Resellers order by collection (PITARA, UTSAV); retail shop-for is B2C only and per metal tab. */
+  const showRetailBrowse =
+    isRetailBrowseEnabledForMetal(retailBrowseByMetal, selectedMetal) &&
+    customerTier !== CUSTOMER_TIER.RESELLER
 
   const [activeStyleId, setActiveStyleId] = useState<number | null>(null)
   const [activeSkuId, setActiveSkuId] = useState<number | null>(null)

@@ -690,34 +690,66 @@ app.get('/api/public/kc-theme', globalLimiter, async (req, res) => {
     }
 });
 
-async function getCatalogRetailBrowseEnabled() {
+function parseAppSettingBool(raw) {
+    const v = String(raw ?? '').trim().toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes';
+}
+
+const CATALOG_RETAIL_BROWSE_METAL_KEYS = ['gold', 'silver', 'diamond'];
+
+async function getCatalogRetailBrowseByMetal() {
+    const out = { gold: false, silver: false, diamond: false };
     try {
+        const keys = [
+            'catalog_retail_browse_enabled',
+            ...CATALOG_RETAIL_BROWSE_METAL_KEYS.map((m) => `catalog_retail_browse_${m}`),
+        ];
         const rows = await query(
-            `SELECT value FROM app_settings WHERE key = 'catalog_retail_browse_enabled' LIMIT 1`,
+            `SELECT key, value FROM app_settings WHERE key = ANY($1::text[])`,
+            [keys],
         );
-        const v = String(rows[0]?.value ?? '').trim().toLowerCase();
-        return v === 'true' || v === '1' || v === 'yes';
+        const map = new Map(rows.map((r) => [r.key, r.value]));
+        const legacyGlobal = parseAppSettingBool(map.get('catalog_retail_browse_enabled'));
+        for (const m of CATALOG_RETAIL_BROWSE_METAL_KEYS) {
+            const perKey = `catalog_retail_browse_${m}`;
+            if (map.has(perKey)) {
+                out[m] = parseAppSettingBool(map.get(perKey));
+            } else {
+                out[m] = legacyGlobal;
+            }
+        }
     } catch {
-        return false;
+        /* keep defaults */
     }
+    return out;
 }
 
 /** Public: whether storefront shows Shop for (Women / Men / Kids) browse UI. */
 app.get('/api/public/catalog-retail-settings', globalLimiter, async (req, res) => {
     try {
-        const retail_browse_enabled = await getCatalogRetailBrowseEnabled();
+        const retail_browse_by_metal = await getCatalogRetailBrowseByMetal();
+        const retail_browse_enabled = CATALOG_RETAIL_BROWSE_METAL_KEYS.some(
+            (m) => retail_browse_by_metal[m],
+        );
         res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60');
-        res.json({ retail_browse_enabled });
+        res.json({ retail_browse_enabled, retail_browse_by_metal });
     } catch (error) {
-        res.json({ retail_browse_enabled: false });
+        res.json({
+            retail_browse_enabled: false,
+            retail_browse_by_metal: { gold: false, silver: false, diamond: false },
+        });
     }
 });
 
 /** Admin: retail browse toggle + tag vocabulary (matches catalog-retail-tags.ts). */
 app.get('/api/admin/settings/catalog-retail', isAdminStrict, async (req, res) => {
     try {
+        const retail_browse_by_metal = await getCatalogRetailBrowseByMetal();
         res.json({
-            retail_browse_enabled: await getCatalogRetailBrowseEnabled(),
+            retail_browse_enabled: CATALOG_RETAIL_BROWSE_METAL_KEYS.some(
+                (m) => retail_browse_by_metal[m],
+            ),
+            retail_browse_by_metal,
             audience_values: Array.from(CATALOG_AUDIENCE_VALUES),
             product_type_values: Array.from(CATALOG_PRODUCT_TYPE_VALUES),
         });
@@ -728,17 +760,45 @@ app.get('/api/admin/settings/catalog-retail', isAdminStrict, async (req, res) =>
 
 app.put('/api/admin/settings/catalog-retail', requireJson, isAdminStrict, async (req, res) => {
     try {
-        const { retail_browse_enabled } = req.body || {};
-        if (retail_browse_enabled !== undefined) {
+        const { retail_browse_enabled, metal, retail_browse_by_metal } = req.body || {};
+        if (retail_browse_by_metal && typeof retail_browse_by_metal === 'object') {
+            for (const m of CATALOG_RETAIL_BROWSE_METAL_KEYS) {
+                if (retail_browse_by_metal[m] === undefined) continue;
+                const enabled = !!retail_browse_by_metal[m];
+                await query(`
+                    INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+                `, [`catalog_retail_browse_${m}`, enabled ? 'true' : 'false']);
+            }
+        } else if (
+            metal &&
+            CATALOG_RETAIL_BROWSE_METAL_KEYS.includes(String(metal).toLowerCase()) &&
+            retail_browse_enabled !== undefined
+        ) {
+            const m = String(metal).toLowerCase();
             const enabled = !!retail_browse_enabled;
+            await query(`
+                INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+            `, [`catalog_retail_browse_${m}`, enabled ? 'true' : 'false']);
+        } else if (retail_browse_enabled !== undefined) {
+            const enabled = !!retail_browse_enabled;
+            for (const m of CATALOG_RETAIL_BROWSE_METAL_KEYS) {
+                await query(`
+                    INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+                `, [`catalog_retail_browse_${m}`, enabled ? 'true' : 'false']);
+            }
             await query(`
                 INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
                 ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
             `, ['catalog_retail_browse_enabled', enabled ? 'true' : 'false']);
         }
+        const updated = await getCatalogRetailBrowseByMetal();
         res.json({
             success: true,
-            retail_browse_enabled: await getCatalogRetailBrowseEnabled(),
+            retail_browse_enabled: CATALOG_RETAIL_BROWSE_METAL_KEYS.some((m) => updated[m]),
+            retail_browse_by_metal: updated,
         });
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to save catalog retail settings' });
@@ -6315,6 +6375,9 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
         /** Per-style metal presence (matches storefront filtering; not limited by /api/products LIMIT). */
         const metalRows = await query(`
             SELECT wc.id,
+                COUNT(wp.id) FILTER (
+                    WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
+                )::int AS product_count,
                 COALESCE(BOOL_OR(
                     wp.id IS NOT NULL AND (
                         LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%'
@@ -6349,6 +6412,7 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
             const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false, has_gifting: false };
             categories.push({
                 ...c,
+                product_count: Number(m.product_count ?? 0) || 0,
                 has_gold: !!m.has_gold,
                 has_silver: !!m.has_silver,
                 has_diamond: !!m.has_diamond,
@@ -9142,6 +9206,13 @@ server.listen(PORT, '0.0.0.0', async () => {
             VALUES ('catalog_retail_browse_enabled', 'false', CURRENT_TIMESTAMP)
             ON CONFLICT (key) DO NOTHING
         `);
+        for (const m of ['gold', 'silver', 'diamond']) {
+            await query(`
+                INSERT INTO app_settings (key, value, updated_at)
+                SELECT $1, value, CURRENT_TIMESTAMP FROM app_settings WHERE key = 'catalog_retail_browse_enabled'
+                ON CONFLICT (key) DO NOTHING
+            `, [`catalog_retail_browse_${m}`]);
+        }
     } catch (e) {
         console.warn('⚠️  retail tag columns check failed:', e.message || e);
     }

@@ -22,8 +22,12 @@ import {
   catalogAudienceLabel,
   catalogProductTypeLabel,
   CATALOG_DISCOVERY_CHIPS,
+  DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL,
   isCatalogMetalKey,
+  isRetailBrowseEnabledForMetal,
+  parseCatalogRetailBrowseByMetal,
   type CatalogMetalKey,
+  type CatalogRetailBrowseByMetal,
 } from "@/lib/catalog-retail-tags";
 import axios from "@/lib/axios";
 import {
@@ -98,7 +102,9 @@ export default function SmartSearch({
   const debounced = useDebouncedValue(raw, DEBOUNCE_MS);
   const [records, setRecords] = useState<SearchIndexRecord[]>([]);
   const [browseRecords, setBrowseRecords] = useState<SearchBrowseRecord[]>([]);
-  const [retailBrowseEnabled, setRetailBrowseEnabled] = useState(false);
+  const [retailBrowseByMetal, setRetailBrowseByMetal] = useState<CatalogRetailBrowseByMetal>(
+    () => ({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }),
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -112,10 +118,17 @@ export default function SmartSearch({
     axios
       .get("/api/public/catalog-retail-settings")
       .then((res) => {
-        if (!cancelled) setRetailBrowseEnabled(!!res.data?.retail_browse_enabled);
+        if (cancelled) return;
+        const data = res.data ?? {};
+        if (data.retail_browse_by_metal != null) {
+          setRetailBrowseByMetal(parseCatalogRetailBrowseByMetal(data.retail_browse_by_metal));
+        } else if (data.retail_browse_enabled != null) {
+          const on = !!data.retail_browse_enabled;
+          setRetailBrowseByMetal({ gold: on, silver: on, diamond: on });
+        }
       })
       .catch(() => {
-        if (!cancelled) setRetailBrowseEnabled(false);
+        if (!cancelled) setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL });
       });
     return () => {
       cancelled = true;
@@ -148,7 +161,11 @@ export default function SmartSearch({
     return rankBrowseRecords(browseRecords, debounced, BROWSE_LIMIT);
   }, [browseRecords, debounced, normalized]);
 
-  const showDiscovery = open && normalized.length < 2 && retailBrowseEnabled;
+  const catalogMetal = inferMetalFromPathname(pathname);
+  const showDiscovery =
+    open &&
+    normalized.length < 2 &&
+    isRetailBrowseEnabledForMetal(retailBrowseByMetal, catalogMetal);
   const showResults =
     open &&
     normalized.length >= 2 &&

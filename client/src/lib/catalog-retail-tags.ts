@@ -23,6 +23,47 @@ export function isCatalogMetalKey(raw: string): raw is CatalogMetalKey {
   return (CATALOG_METAL_KEYS as readonly string[]).includes(raw);
 }
 
+/** Metals that support Shop for (Women / Men / Kids) — not Gift Items. */
+export const CATALOG_RETAIL_BROWSE_METAL_KEYS = ["gold", "silver", "diamond"] as const;
+export type CatalogRetailBrowseMetalKey = (typeof CATALOG_RETAIL_BROWSE_METAL_KEYS)[number];
+
+export type CatalogRetailBrowseByMetal = Record<CatalogRetailBrowseMetalKey, boolean>;
+
+export const DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL: CatalogRetailBrowseByMetal = {
+  gold: false,
+  silver: false,
+  diamond: false,
+};
+
+export function isCatalogRetailBrowseMetalKey(raw: string): raw is CatalogRetailBrowseMetalKey {
+  return (CATALOG_RETAIL_BROWSE_METAL_KEYS as readonly string[]).includes(raw);
+}
+
+export function parseCatalogRetailBrowseByMetal(raw: unknown): CatalogRetailBrowseByMetal {
+  const out: CatalogRetailBrowseByMetal = { ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL };
+  if (!raw || typeof raw !== "object") return out;
+  const o = raw as Record<string, unknown>;
+  for (const m of CATALOG_RETAIL_BROWSE_METAL_KEYS) {
+    const v = o[m];
+    if (typeof v === "boolean") out[m] = v;
+    else if (v != null) {
+      const s = String(v).trim().toLowerCase();
+      out[m] = s === "true" || s === "1" || s === "yes";
+    }
+  }
+  return out;
+}
+
+/** Whether Shop for UI applies on a catalogue metal tab. Always false for Gift Items. */
+export function isRetailBrowseEnabledForMetal(
+  byMetal: CatalogRetailBrowseByMetal,
+  metal: string,
+): boolean {
+  if (metal === "gifting") return false;
+  if (!isCatalogRetailBrowseMetalKey(metal)) return false;
+  return !!byMetal[metal];
+}
+
 export const CATALOG_AUDIENCE_VALUES = [
   "women",
   "men",

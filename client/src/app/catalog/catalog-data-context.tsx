@@ -11,6 +11,11 @@ import {
 } from "react";
 import axios from "@/lib/axios";
 import type { Item } from "@/lib/pricing";
+import {
+  DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL,
+  parseCatalogRetailBrowseByMetal,
+  type CatalogRetailBrowseByMetal,
+} from "@/lib/catalog-retail-tags";
 import { useAuth } from "@/hooks/useAuth";
 import { useCustomerTier } from "@/context/CustomerTierContext";
 import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
@@ -50,7 +55,9 @@ type CatalogDataContextValue = {
   isBootstrapping: boolean;
   isRefreshing: boolean;
   refresh: () => Promise<void>;
-  /** Admin toggle — Shop for UI on storefront (`app_settings.catalog_retail_browse_enabled`). */
+  /** Per-metal Shop for toggles (`app_settings.catalog_retail_browse_{gold|silver|diamond}`). Gift Items never uses Shop for. */
+  retailBrowseByMetal: CatalogRetailBrowseByMetal;
+  /** @deprecated true when any of gold/silver/diamond has Shop for enabled */
   retailBrowseEnabled: boolean;
 };
 
@@ -76,9 +83,26 @@ export function CatalogDataProvider({
   );
   const [isBootstrapping, setIsBootstrapping] = useState(!serverSeeded);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [retailBrowseEnabled, setRetailBrowseEnabled] = useState(false);
+  const [retailBrowseByMetal, setRetailBrowseByMetal] = useState<CatalogRetailBrowseByMetal>(
+    () => ({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }),
+  );
   const auth = useAuth();
   const { customerTier, tierReady } = useCustomerTier();
+  const applyRetailSettings = useCallback((data: { retail_browse_by_metal?: unknown; retail_browse_enabled?: boolean }) => {
+    const byMetal = parseCatalogRetailBrowseByMetal(data?.retail_browse_by_metal);
+    if (
+      data?.retail_browse_by_metal == null &&
+      data?.retail_browse_enabled != null
+    ) {
+      const on = !!data.retail_browse_enabled;
+      setRetailBrowseByMetal({ gold: on, silver: on, diamond: on });
+      return;
+    }
+    setRetailBrowseByMetal(byMetal);
+  }, []);
+
+  const retailBrowseEnabled =
+    retailBrowseByMetal.gold || retailBrowseByMetal.silver || retailBrowseByMetal.diamond;
   const wholesaleUser = auth.user as WholesaleUserFields | undefined;
 
   const categories = useMemo(() => {
@@ -96,24 +120,24 @@ export function CatalogDataProvider({
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);
-      setRetailBrowseEnabled(!!retailRes.data?.retail_browse_enabled);
+      applyRetailSettings(retailRes.data ?? {});
     } catch {
       setRawCategories([]);
       setRates([]);
-      setRetailBrowseEnabled(false);
+      setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL });
     } finally {
       setIsBootstrapping(false);
     }
-  }, [url]);
+  }, [url, applyRetailSettings]);
 
   useEffect(() => {
     if (serverSeeded) {
       axios
         .get(`${url}/api/public/catalog-retail-settings`)
-        .then((res) => setRetailBrowseEnabled(!!res.data?.retail_browse_enabled))
-        .catch(() => setRetailBrowseEnabled(false));
+        .then((res) => applyRetailSettings(res.data ?? {}))
+        .catch(() => setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }));
     }
-  }, [url, serverSeeded]);
+  }, [url, serverSeeded, applyRetailSettings]);
 
   useEffect(() => {
     if (serverSeeded) return;
@@ -130,11 +154,11 @@ export function CatalogDataProvider({
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);
-      setRetailBrowseEnabled(!!retailRes.data?.retail_browse_enabled);
+      applyRetailSettings(retailRes.data ?? {});
     } finally {
       setIsRefreshing(false);
     }
-  }, [url]);
+  }, [url, applyRetailSettings]);
 
   const value = useMemo(
     () => ({
@@ -143,9 +167,18 @@ export function CatalogDataProvider({
       isBootstrapping,
       isRefreshing,
       refresh,
+      retailBrowseByMetal,
       retailBrowseEnabled,
     }),
-    [categories, rates, isBootstrapping, isRefreshing, refresh, retailBrowseEnabled]
+    [
+      categories,
+      rates,
+      isBootstrapping,
+      isRefreshing,
+      refresh,
+      retailBrowseByMetal,
+      retailBrowseEnabled,
+    ],
   );
 
   return (

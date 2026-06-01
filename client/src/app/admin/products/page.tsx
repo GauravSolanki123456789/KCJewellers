@@ -32,6 +32,11 @@ import {
   CATALOG_AUDIENCE_OPTIONS,
   CATALOG_METAL_LABELS,
   CATALOG_PRODUCT_TYPE_OPTIONS,
+  CATALOG_RETAIL_BROWSE_METAL_KEYS,
+  DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL,
+  parseCatalogRetailBrowseByMetal,
+  type CatalogRetailBrowseByMetal,
+  type CatalogRetailBrowseMetalKey,
   normalizeCatalogAudience,
   normalizeCatalogProductType,
 } from '@/lib/catalog-retail-tags'
@@ -158,8 +163,18 @@ export default function AdminProductsPage() {
   const [savingRetailTags, setSavingRetailTags] = useState(false)
   const [retailTagsToast, setRetailTagsToast] = useState<'success' | 'error' | null>(null)
   const [expandedRetailStyles, setExpandedRetailStyles] = useState<Set<number>>(() => new Set())
-  const [retailBrowseEnabled, setRetailBrowseEnabled] = useState(false)
+  const [retailBrowseByMetal, setRetailBrowseByMetal] = useState<CatalogRetailBrowseByMetal>(
+    () => ({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }),
+  )
   const [savingRetailBrowse, setSavingRetailBrowse] = useState(false)
+
+  const retailBrowseEnabledForTab = useMemo(() => {
+    if (selectedMetal === 'gifting') return false
+    if (!CATALOG_RETAIL_BROWSE_METAL_KEYS.includes(selectedMetal as CatalogRetailBrowseMetalKey)) {
+      return false
+    }
+    return retailBrowseByMetal[selectedMetal as CatalogRetailBrowseMetalKey]
+  }, [selectedMetal, retailBrowseByMetal])
 
   const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
@@ -168,9 +183,14 @@ export default function AdminProductsPage() {
       const res = await axios.get(`${url}/api/admin/settings/catalog-retail`, {
         withCredentials: true,
       })
-      setRetailBrowseEnabled(!!res.data?.retail_browse_enabled)
+      const data = res.data ?? {}
+      setRetailBrowseByMetal(parseCatalogRetailBrowseByMetal(data.retail_browse_by_metal ?? data))
+      if (data.retail_browse_by_metal == null && data.retail_browse_enabled != null) {
+        const on = !!data.retail_browse_enabled
+        setRetailBrowseByMetal({ gold: on, silver: on, diamond: on })
+      }
     } catch {
-      setRetailBrowseEnabled(false)
+      setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL })
     }
   }, [url])
 
@@ -257,15 +277,21 @@ export default function AdminProductsPage() {
   }, [])
 
   const handleToggleRetailBrowse = async () => {
+    if (selectedMetal === 'gifting') return
+    if (!CATALOG_RETAIL_BROWSE_METAL_KEYS.includes(selectedMetal as CatalogRetailBrowseMetalKey)) {
+      return
+    }
     setSavingRetailBrowse(true)
     try {
-      const next = !retailBrowseEnabled
-      await axios.put(
+      const next = !retailBrowseByMetal[selectedMetal as CatalogRetailBrowseMetalKey]
+      const res = await axios.put(
         `${url}/api/admin/settings/catalog-retail`,
-        { retail_browse_enabled: next },
+        { metal: selectedMetal, retail_browse_enabled: next },
         { withCredentials: true },
       )
-      setRetailBrowseEnabled(next)
+      setRetailBrowseByMetal(
+        parseCatalogRetailBrowseByMetal(res.data?.retail_browse_by_metal ?? res.data),
+      )
       showRetailTagsToast('success')
     } catch {
       showRetailTagsToast('error')
@@ -333,23 +359,6 @@ export default function AdminProductsPage() {
       return next
     })
   }
-
-  const retailTagRows = useMemo(() => {
-    const rows: { cat: WebCategory; sub: SubcategoryInfo }[] = []
-    for (const cat of catalogCategories) {
-      for (const sub of cat.subcategories || []) {
-        rows.push({ cat, sub })
-      }
-    }
-    return rows
-  }, [catalogCategories])
-
-  const unclassifiedRetailCount = useMemo(() => {
-    return retailTagRows.filter(({ sub }) => {
-      const d = retailTagsDraft[sub.id]
-      return !d?.audience && !d?.product_type
-    }).length
-  }, [retailTagRows, retailTagsDraft])
 
   const handleSavePublish = async () => {
     setSavingPublish(true)
@@ -556,6 +565,23 @@ export default function AdminProductsPage() {
       return false
     })
   }, [orderedCategories, selectedMetal, products])
+
+  const retailTagRows = useMemo(() => {
+    const rows: { cat: WebCategory; sub: SubcategoryInfo }[] = []
+    for (const cat of categoriesWithProducts) {
+      for (const sub of cat.subcategories || []) {
+        rows.push({ cat, sub })
+      }
+    }
+    return rows
+  }, [categoriesWithProducts])
+
+  const unclassifiedRetailCount = useMemo(() => {
+    return retailTagRows.filter(({ sub }) => {
+      const d = retailTagsDraft[sub.id]
+      return !d?.audience && !d?.product_type
+    }).length
+  }, [retailTagRows, retailTagsDraft])
 
   const designGroupCatalogVersion = useMemo(
     () =>
@@ -1121,7 +1147,8 @@ export default function AdminProductsPage() {
               )}
             </div>
 
-            {/* ─── Retail tags (Shop for) ─── */}
+            {/* ─── Retail tags (Shop for) — Gold / Silver / Diamond only ─── */}
+            {selectedMetal !== 'gifting' ? (
             <div className="mt-8 bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
               <div className="p-4 sm:p-6 border-b border-white/10 flex flex-col gap-4">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -1138,26 +1165,30 @@ export default function AdminProductsPage() {
                   </div>
                   <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2.5 sm:min-w-[16rem]">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-300">Shop for on website</p>
+                      <p className="text-xs font-semibold text-slate-300">
+                        Shop for on website ({METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal})
+                      </p>
                       <p className="text-[10px] text-slate-600 mt-0.5">
-                        {retailBrowseEnabled ? 'Customers see Women / Men / Kids' : 'Regular catalogue only'}
+                        {retailBrowseEnabledForTab
+                          ? 'Customers see Women / Men / Kids on this metal tab'
+                          : 'Regular catalogue only for this metal tab'}
                       </p>
                     </div>
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={retailBrowseEnabled}
+                      aria-checked={retailBrowseEnabledForTab}
                       disabled={savingRetailBrowse}
                       onClick={handleToggleRetailBrowse}
                       className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 disabled:opacity-60 ${
-                        retailBrowseEnabled
+                        retailBrowseEnabledForTab
                           ? 'border-violet-400/50 bg-violet-500'
                           : 'border-slate-600 bg-slate-800'
                       }`}
                     >
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
-                          retailBrowseEnabled ? 'translate-x-5' : 'translate-x-0'
+                          retailBrowseEnabledForTab ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>
@@ -1187,7 +1218,7 @@ export default function AdminProductsPage() {
                   <button
                     type="button"
                     onClick={handleSaveRetailTags}
-                    disabled={savingRetailTags || catalogCategories.length === 0}
+                    disabled={savingRetailTags || categoriesWithProducts.length === 0}
                     className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm disabled:opacity-60 transition-colors"
                   >
                     {savingRetailTags ? 'Saving…' : 'Save tags'}
@@ -1206,11 +1237,11 @@ export default function AdminProductsPage() {
                 </div>
               )}
               <div className="p-4 sm:p-6">
-                {catalogCategories.length === 0 ? (
-                  <p className="text-slate-500 text-sm">Sync catalogues from ERP first.</p>
+                {categoriesWithProducts.length === 0 ? (
+                  <p className="text-slate-500 text-sm">No catalogues for this metal tab yet.</p>
                 ) : (
                   <div className="space-y-2">
-                    {catalogCategories.map((cat) => {
+                    {categoriesWithProducts.map((cat) => {
                       const subs = (cat.subcategories || []).filter((sub) => {
                         if (retailTagsFilter !== 'unclassified') return true
                         const d = retailTagsDraft[sub.id]
@@ -1377,6 +1408,7 @@ export default function AdminProductsPage() {
                 )}
               </div>
             </div>
+            ) : null}
 
             {/* ─── Catalogue Order ─── */}
             <div className="mt-8 bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
