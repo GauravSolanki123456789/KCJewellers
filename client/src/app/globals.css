@@ -846,6 +846,17 @@ body {
     background: var(--color-slate-900, #f7f4ef);
   }
 
+  /* Admin dashboard — readable cards on light & dark kc themes */
+  .kc-admin-dashboard {
+    color: var(--color-jewelry-black, #1a1814);
+  }
+
+  .kc-admin-dashboard .kc-admin-card {
+    background: #ffffff;
+    border: 1px solid var(--color-slate-700, #e8e4df);
+    color: var(--color-jewelry-black, #1a1814);
+  }
+
   .kc-smart-search-panel {
     border: 1px solid color-mix(in oklab, var(--color-slate-700) 45%, transparent);
     background: color-mix(in oklab, var(--color-slate-950) 96%, white);
