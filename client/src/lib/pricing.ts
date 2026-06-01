@@ -126,6 +126,40 @@ export function isFixedPriceCatalogItem(item: Item | null | undefined): boolean 
   return isDiamondItem(item) || isGiftingItem(item)
 }
 
+/** Gifting only: show purity only when ERP sent a real value (not null / 0 / 100 placeholder). */
+export function getCustomerDisplayPurity(
+  item: Item | null | undefined,
+): string | number | null {
+  if (!item) return null
+  const raw = item.purity
+  if (raw == null || raw === '') return null
+  if (isGiftingItem(item)) {
+    const n = Number(raw)
+    if (Number.isNaN(n) || n === 0 || n === 100) return null
+  }
+  return raw
+}
+
+/** Storefront weight: gifting rows hide 0 / missing net weight. */
+export function getCustomerDisplayWeight(item: Item | null | undefined): number | null {
+  const w = getItemWeight(item)
+  if (isGiftingItem(item)) {
+    if (w == null || w <= 0) return null
+    return w
+  }
+  return w
+}
+
+/**
+ * Catalogue / shared brochure weight — gross fallback except gifting (no 0 gm display).
+ */
+export function getCustomerDisplayWeightWithGrossFallback(
+  item: Item | null | undefined,
+): number | null {
+  if (isGiftingItem(item)) return getCustomerDisplayWeight(item)
+  return getItemWeightWithGrossFallback(item)
+}
+
 function purityPct(item: Item): number {
   const p = Number(item.purity || 0)
   if (!p || p <= 0) return 0

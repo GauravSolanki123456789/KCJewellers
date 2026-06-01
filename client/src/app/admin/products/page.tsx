@@ -30,6 +30,7 @@ import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
 import { mergeDesignGroupOrder } from '@/lib/design-group-order'
 import {
   CATALOG_AUDIENCE_OPTIONS,
+  CATALOG_METAL_LABELS,
   CATALOG_PRODUCT_TYPE_OPTIONS,
   normalizeCatalogAudience,
   normalizeCatalogProductType,
@@ -40,7 +41,7 @@ const METAL_TABS = [
   { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
   { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
   { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
-  { key: 'gifting', label: 'Gifting', icon: GiftingJewelleryIcon },
+  { key: 'gifting', label: CATALOG_METAL_LABELS.gifting, icon: GiftingJewelleryIcon },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']

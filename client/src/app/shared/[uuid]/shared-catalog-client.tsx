@@ -17,7 +17,7 @@ import {
   sharedCatalogProductToItem,
   wholesaleInputFromBrochure,
 } from '@/lib/shared-catalog-pricing'
-import { getItemWeightWithGrossFallback } from '@/lib/pricing'
+import { getCustomerDisplayWeightWithGrossFallback } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
@@ -351,7 +351,7 @@ export default function SharedCatalogClient({
         row.item.item_name ||
         String(row.product.barcode || row.product.sku || '')
       const code = String(row.product.barcode || row.product.sku || '')
-      const wt = getItemWeightWithGrossFallback(sharedCatalogProductToItem(row.product))
+      const wt = getCustomerDisplayWeightWithGrossFallback(sharedCatalogProductToItem(row.product))
       const weightLabel =
         wt != null && !Number.isNaN(Number(wt)) ? `Weight ${Number(wt).toFixed(2)} gm` : null
       lines.push({
@@ -506,7 +506,7 @@ export default function SharedCatalogClient({
               const img = normalizeCatalogImageSrc(product.image_url)
               const MetalIc = metalIcon(String(product.metal_type || ''))
               const code = String(product.barcode || product.sku || '')
-              const wt = getItemWeightWithGrossFallback(sharedCatalogProductToItem(product))
+              const wt = getCustomerDisplayWeightWithGrossFallback(sharedCatalogProductToItem(product))
               const wtLabel =
                 wt != null && !Number.isNaN(Number(wt)) ? `${Number(wt).toFixed(2)} gm` : null
               return (

@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { CATALOG_METAL_LABELS } from "@/lib/catalog-retail-tags";
 import { normalizeStorefrontProductId } from "@/lib/catalog-product-filters";
 import { getApiUrlForServer } from "@/lib/site";
 
@@ -216,7 +217,7 @@ export function resolveCatalogView(
         : metal === "diamond"
           ? "Diamond"
           : metal === "gifting"
-            ? "Gifting"
+            ? CATALOG_METAL_LABELS.gifting
             : undefined;
 
   return { style, sub, itemCount, metalLabel, products };

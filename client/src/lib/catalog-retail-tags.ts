@@ -16,7 +16,7 @@ export const CATALOG_METAL_LABELS: Record<CatalogMetalKey, string> = {
   gold: "Gold",
   silver: "Silver",
   diamond: "Diamond",
-  gifting: "Gifting",
+  gifting: "Gift Items",
 };
 
 export function isCatalogMetalKey(raw: string): raw is CatalogMetalKey {

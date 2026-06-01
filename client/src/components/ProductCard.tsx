@@ -5,7 +5,7 @@ import { Check, ExternalLink, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { productImageEmptyWellClass, productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
-import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
+import { calculateBreakdown, getCustomerDisplayWeight, type Item } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
@@ -81,7 +81,7 @@ export default function ProductCard({
     product.item_name ||
     product.short_name ||
     'Item'
-  const weight = getItemWeight(product)
+  const weight = getCustomerDisplayWeight(product)
   const barcode = getProductSelectionKey(product)
   const productHref = `/products/${encodeURIComponent(barcode)}`
 

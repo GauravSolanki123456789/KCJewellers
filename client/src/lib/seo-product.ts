@@ -1,4 +1,4 @@
-import { calculateBreakdown, getItemWeight, type Item } from "@/lib/pricing";
+import { calculateBreakdown, getCustomerDisplayPurity, getCustomerDisplayWeight, type Item } from "@/lib/pricing";
 
 const BRAND = "KC Jewellers";
 
@@ -15,8 +15,8 @@ function productDisplayName(p: Item | { name?: string }): string {
 /** Middle segment for <title>: purity-led copy for metals, else net weight. Uses DB fields only. */
 export function buildProductTitleMiddleSegment(product: Item): string | undefined {
   const metal = String(product.metal_type ?? "").toLowerCase();
-  const purityRaw = product.purity;
-  const w = getItemWeight(product);
+  const purityRaw = getCustomerDisplayPurity(product);
+  const w = getCustomerDisplayWeight(product);
 
   if (purityRaw != null && purityRaw !== "") {
     const p = Number(purityRaw);
@@ -59,7 +59,7 @@ export function buildProductMetaDescription(
   liveRates: unknown
 ): string {
   const name = productDisplayName(product);
-  const w = getItemWeight(product);
+  const w = getCustomerDisplayWeight(product);
   const metal = String(product.metal_type ?? "").trim();
   const gst = Number((product as { gst_rate?: number }).gst_rate ?? 3) || 3;
   const b = calculateBreakdown(product, liveRates, gst);

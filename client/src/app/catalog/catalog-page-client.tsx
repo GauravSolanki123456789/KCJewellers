@@ -52,6 +52,7 @@ import {
   CATALOG_SHOP_FOR_TABS,
   catalogProductTypeLabel,
   catalogPathWithRetailQuery,
+  CATALOG_METAL_LABELS,
   clampCatalogRetailFilters,
   collectAvailableProductTypes,
   filterCatalogTreeByRetail,
@@ -91,7 +92,7 @@ const METAL_TABS = [
   { key: 'gold', label: 'Gold' },
   { key: 'silver', label: 'Silver' },
   { key: 'diamond', label: 'Diamond' },
-  { key: 'gifting', label: 'Gifting' },
+  { key: 'gifting', label: CATALOG_METAL_LABELS.gifting },
 ] as const
 
 type MetalKey = (typeof METAL_TABS)[number]['key']
@@ -1559,7 +1560,7 @@ export default function CatalogPageClient() {
                 />
               ) : (
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Gifting items use fixed prices — filter by price only.
+                  Gift items use fixed prices — filter by price only.
                 </p>
               )}
               <DualRangeSlider
@@ -1734,7 +1735,7 @@ export default function CatalogPageClient() {
                 />
               ) : (
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Gifting items use fixed prices — filter by price only.
+                  Gift items use fixed prices — filter by price only.
                 </p>
               )}
               <DualRangeSlider

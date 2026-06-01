@@ -1,6 +1,6 @@
 import { getSiteUrl } from "@/lib/site";
 import { resolveCatalogImageUrlForMeta } from "@/lib/normalize-image-url";
-import { calculateBreakdown, getItemWeight, type Item } from "@/lib/pricing";
+import { calculateBreakdown, getCustomerDisplayWeight, type Item } from "@/lib/pricing";
 import type { ApiProductRow } from "@/lib/server-data";
 
 function displayName(p: Item | ApiProductRow): string {
@@ -35,7 +35,7 @@ export default function ProductJsonLd({
   const schemaImages = [img, img2].filter(Boolean) as string[];
   const gst = Number((product as { gst_rate?: number }).gst_rate ?? 3) || 3;
   const b = calculateBreakdown(product as Item, liveRates, gst);
-  const weight = getItemWeight(product as Item);
+  const weight = getCustomerDisplayWeight(product as Item);
   const sku =
     (product as ApiProductRow).barcode ||
     (product as ApiProductRow).sku ||

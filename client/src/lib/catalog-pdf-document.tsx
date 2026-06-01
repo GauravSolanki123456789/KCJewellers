@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import {
-  getItemWeightWithGrossFallback,
+  getCustomerDisplayWeightWithGrossFallback,
   type Item,
   type WholesalePricingInput,
 } from "@/lib/pricing";
@@ -171,14 +171,14 @@ export function CatalogPdfDocument({
               const name = displayName(p);
               const img = p.pdfImageSrc;
               const barcode = getProductSelectionKey(p);
-              const weight = getItemWeightWithGrossFallback(p);
+              const weight = getCustomerDisplayWeightWithGrossFallback(p);
               const key = `${barcode || String(p.id ?? i)}-${pageIndex}-${i}`;
               const barcodeText =
                 barcode && String(barcode).trim() !== "" ? String(barcode) : "-";
               const weightText =
                 weight != null && !Number.isNaN(Number(weight))
                   ? `${Number(weight).toFixed(2)} gm`
-                  : "-";
+                  : null;
               const showPrices =
                 !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
               let amountStr: string | null = null;
@@ -212,7 +212,9 @@ export function CatalogPdfDocument({
                   </View>
                   <Text style={styles.metaLabel}>Barcode</Text>
                   <Text style={styles.barcodeValue}>{barcodeText}</Text>
-                  <Text style={styles.weightLine}>Weight · {weightText}</Text>
+                  {weightText ? (
+                    <Text style={styles.weightLine}>Weight · {weightText}</Text>
+                  ) : null}
                   {amountStr ? (
                     <>
                       {qtyLabel ? (

@@ -17,7 +17,8 @@ import HoverZoomImage from "@/components/HoverZoomImage";
 import WhatsAppShareButton from "@/components/WhatsAppShareButton";
 import {
   calculateBreakdown,
-  getItemWeight,
+  getCustomerDisplayWeight,
+  getCustomerDisplayPurity,
   isDiamondItem,
   isFixedPriceCatalogItem,
   type Item,
@@ -355,8 +356,8 @@ export default function ProductDetailClient({
   const displayName = productDisplayName(product);
   const styleCode = product.style_code || "";
   const sku = product.sku || product.barcode || "";
-  const netWeight = getItemWeight(product);
-  const purity = product.purity ?? null;
+  const netWeight = getCustomerDisplayWeight(product)
+  const purity = getCustomerDisplayPurity(product)
   const metalType = product.metal_type ?? null;
   const isDiamond = isDiamondItem(product);
   const isFixedPrice = isFixedPriceCatalogItem(product);

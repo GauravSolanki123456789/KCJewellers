@@ -23,6 +23,7 @@ import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCart } from '@/context/CartContext'
 import { CATALOG_PATH } from '@/lib/routes'
 import { calculateBreakdown, getItemWeight, type Item } from '@/lib/pricing'
+import { CATALOG_METAL_LABELS } from '@/lib/catalog-retail-tags'
 import {
   countProductsForMetal,
   firstMetalWithProducts,
@@ -51,7 +52,7 @@ const METAL_TABS: {
   { key: 'gold', label: 'Gold', icon: GoldJewelleryRingIcon },
   { key: 'silver', label: 'Silver', icon: SilverMoonMetalIcon },
   { key: 'diamond', label: 'Diamond', icon: DiamondJewelleryIcon },
-  { key: 'gifting', label: 'Gifting', icon: GiftingJewelleryIcon },
+  { key: 'gifting', label: CATALOG_METAL_LABELS.gifting, icon: GiftingJewelleryIcon },
 ]
 
 function rowKey(p: Item): string {
