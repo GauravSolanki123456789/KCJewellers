@@ -11,7 +11,7 @@ const {
     styleSlugFromCode,
 } = require('./upsertWebProductFromSyncItem');
 
-const SUBMISSION_STATUSES = new Set(['pending', 'approved', 'rejected', 'withdrawn']);
+const SUBMISSION_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected', 'withdrawn']);
 
 function submissionRowToSyncItem(row) {
     if (!row) return null;
@@ -268,6 +268,7 @@ function registerResellerProductRoutes(app, deps) {
     app.get('/api/reseller/product-submissions', requireResellerUpload, async (req, res) => {
         try {
             const status = String(req.query.submission_status || '').trim().toLowerCase();
+            const batchId = String(req.query.batch_id || '').trim();
             const params = [req.user.id];
             let sql = `
                 SELECT rps.*, u.business_name AS submitter_business_name
@@ -277,6 +278,10 @@ function registerResellerProductRoutes(app, deps) {
             if (status && SUBMISSION_STATUSES.has(status)) {
                 params.push(status);
                 sql += ` AND rps.submission_status = $2`;
+            }
+            if (batchId) {
+                params.push(batchId);
+                sql += ` AND rps.batch_id = $${params.length}::uuid`;
             }
             sql += ' ORDER BY rps.created_at DESC LIMIT 500';
             const rows = await query(sql, params);
@@ -359,7 +364,11 @@ function registerResellerProductRoutes(app, deps) {
                     const norm = normalizeSyncItem(item);
                     if (!norm.prodSku) throw new Error('Barcode/SKU required');
                     const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
-                    fields.submission_status = 'pending';
+                    fields.submission_status = 'draft';
+                    fields.batch_label =
+                        req.body.batch_label != null
+                            ? String(req.body.batch_label).slice(0, 255)
+                            : `Excel ${new Date().toLocaleDateString('en-IN')}`;
                     const row = await insertSubmission(query, fields);
                     created.push(row);
                 } catch (rowErr) {
@@ -407,7 +416,11 @@ function registerResellerProductRoutes(app, deps) {
                             item.hasSecondaryImage = true;
                         }
                         const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
-                        fields.submission_status = 'pending';
+                        fields.submission_status = 'draft';
+                        fields.batch_label =
+                            req.body?.batch_label != null
+                                ? String(req.body.batch_label).slice(0, 255)
+                                : `Excel ${new Date().toLocaleDateString('en-IN')}`;
                         const row = await insertSubmission(query, fields);
                         created.push(row);
                     } catch (rowErr) {
@@ -436,8 +449,9 @@ function registerResellerProductRoutes(app, deps) {
                 [id, req.user.id],
             );
             if (!existing.length) return res.status(404).json({ error: 'Submission not found' });
-            if (existing[0].submission_status !== 'pending') {
-                return res.status(400).json({ error: 'Only pending submissions can be edited' });
+            const st = existing[0].submission_status;
+            if (st !== 'pending' && st !== 'draft') {
+                return res.status(400).json({ error: 'Only draft or pending submissions can be edited' });
             }
             let item = req.body?.product || req.body;
             if (typeof item === 'string') item = JSON.parse(item);
@@ -483,18 +497,111 @@ function registerResellerProductRoutes(app, deps) {
         }
     });
 
-    // ---- Reseller: withdraw pending ----
+    // ---- Reseller: withdraw pending / delete draft ----
     app.delete('/api/reseller/product-submissions/:id', requireResellerUpload, async (req, res) => {
         try {
             const id = parseInt(req.params.id, 10);
-            const rows = await query(
-                `UPDATE reseller_product_submissions SET submission_status = 'withdrawn', updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1 AND submitted_by_user_id = $2 AND submission_status = 'pending'
-                 RETURNING id`,
+            const existing = await query(
+                `SELECT id, submission_status FROM reseller_product_submissions WHERE id = $1 AND submitted_by_user_id = $2`,
                 [id, req.user.id],
             );
-            if (!rows.length) return res.status(404).json({ error: 'Pending submission not found' });
-            res.json({ success: true });
+            if (!existing.length) return res.status(404).json({ error: 'Submission not found' });
+            const st = existing[0].submission_status;
+            if (st === 'draft') {
+                await query('DELETE FROM reseller_product_submissions WHERE id = $1', [id]);
+                return res.json({ success: true, deleted: true });
+            }
+            if (st === 'pending') {
+                const rows = await query(
+                    `UPDATE reseller_product_submissions SET submission_status = 'withdrawn', updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1 RETURNING id`,
+                    [id],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Submission not found' });
+                return res.json({ success: true });
+            }
+            return res.status(400).json({ error: 'Cannot remove this submission' });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // ---- Reseller: list Excel batches (draft + pending review) ----
+    app.get('/api/reseller/product-batches', requireResellerUpload, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT batch_id,
+                        MAX(batch_label) AS batch_label,
+                        MIN(created_at) AS created_at,
+                        MAX(batch_submitted_at) AS batch_submitted_at,
+                        COUNT(*)::int AS product_count,
+                        COUNT(*) FILTER (WHERE submission_status = 'draft')::int AS draft_count,
+                        COUNT(*) FILTER (WHERE submission_status = 'pending')::int AS pending_count,
+                        COUNT(*) FILTER (WHERE submission_status = 'approved')::int AS approved_count,
+                        COUNT(*) FILTER (WHERE image_url IS NOT NULL AND TRIM(image_url) <> '')::int AS with_primary_image,
+                        COUNT(*) FILTER (WHERE secondary_image_url IS NOT NULL AND TRIM(secondary_image_url) <> '')::int AS with_secondary_image
+                 FROM reseller_product_submissions
+                 WHERE submitted_by_user_id = $1 AND batch_id IS NOT NULL
+                 GROUP BY batch_id
+                 ORDER BY MIN(created_at) DESC
+                 LIMIT 100`,
+                [req.user.id],
+            );
+            res.json(rows);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // ---- Reseller: submit Excel batch for KC admin review ----
+    app.post('/api/reseller/product-batches/:batchId/submit-for-review', requireResellerUpload, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            if (!batchId) return res.status(400).json({ error: 'batchId required' });
+            const draftRows = await query(
+                `SELECT id FROM reseller_product_submissions
+                 WHERE batch_id = $1::uuid AND submitted_by_user_id = $2 AND submission_status = 'draft'`,
+                [batchId, req.user.id],
+            );
+            if (!draftRows.length) {
+                return res.status(400).json({ error: 'No draft products in this batch to submit' });
+            }
+            const updated = await query(
+                `UPDATE reseller_product_submissions SET
+                    submission_status = 'pending',
+                    batch_submitted_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                 WHERE batch_id = $1::uuid AND submitted_by_user_id = $2 AND submission_status = 'draft'
+                 RETURNING id`,
+                [batchId, req.user.id],
+            );
+            res.json({ success: true, submitted_count: updated.length, batch_id: batchId });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // ---- Admin: approve entire batch ----
+    app.post('/api/admin/reseller-product-submissions/batch/:batchId/approve', isAdminStrict, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            if (!batchId) return res.status(400).json({ error: 'batchId required' });
+            const rows = await query(
+                `SELECT * FROM reseller_product_submissions
+                 WHERE batch_id = $1::uuid AND submission_status = 'pending'`,
+                [batchId],
+            );
+            const approved = [];
+            const errors = [];
+            for (const row of rows) {
+                try {
+                    const result = await approveSubmissionToCatalog(upsertDeps, row, req.user.id);
+                    approved.push({ id: row.id, product_sku: result.prodSku });
+                } catch (e) {
+                    errors.push({ id: row.id, error: e.message });
+                }
+            }
+            res.json({ success: approved.length > 0, approved, errors });
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
@@ -505,6 +612,7 @@ function registerResellerProductRoutes(app, deps) {
         try {
             const status = String(req.query.submission_status || '').trim().toLowerCase();
             const submitterId = parseInt(String(req.query.submitted_by_user_id || ''), 10);
+            const batchId = String(req.query.batch_id || '').trim();
             const params = [];
             let sql = `
                 SELECT rps.*,
@@ -522,6 +630,10 @@ function registerResellerProductRoutes(app, deps) {
             if (!Number.isNaN(submitterId) && submitterId > 0) {
                 params.push(submitterId);
                 sql += ` AND rps.submitted_by_user_id = $${params.length}`;
+            }
+            if (batchId) {
+                params.push(batchId);
+                sql += ` AND rps.batch_id = $${params.length}::uuid`;
             }
             sql += ' ORDER BY rps.created_at DESC LIMIT 1000';
             const rows = await query(sql, params);

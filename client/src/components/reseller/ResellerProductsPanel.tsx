@@ -11,13 +11,14 @@ import {
   RESELLER_PRODUCT_IMAGE_MAX_LABEL,
   submissionStatusLabel,
   submissionStatusTone,
+  type ResellerProductBatch,
   type ResellerProductPayload,
   type ResellerProductSubmission,
   type ResellerSubmissionStatus,
 } from '@/lib/reseller-products'
-import { FileSpreadsheet, ImagePlus, Loader2, Package, Plus, Upload } from 'lucide-react'
+import { FileSpreadsheet, ImagePlus, Loader2, Package, Plus, Send, Upload } from 'lucide-react'
 
-type Tab = 'add' | 'list' | 'bulk'
+type Tab = 'add' | 'batches' | 'list'
 
 const METAL_OPTIONS = [
   { value: 'gold', label: 'Gold' },
@@ -27,7 +28,8 @@ const METAL_OPTIONS = [
 ]
 
 const STATUS_FILTERS = [
-  { key: 'pending', label: 'Pending' },
+  { key: 'draft', label: 'Draft' },
+  { key: 'pending', label: 'In review' },
   { key: 'approved', label: 'Live' },
   { key: 'rejected', label: 'Rejected' },
   { key: '', label: 'All' },
@@ -57,15 +59,15 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-slate-600">{label}</span>
-      {hint ? <span className="mt-0.5 block text-[11px] text-slate-400">{hint}</span> : null}
+      <span className="kc-upload-label text-xs font-medium">{label}</span>
+      {hint ? <span className="kc-upload-hint mt-0.5 block text-[11px]">{hint}</span> : null}
       <div className="mt-1.5">{children}</div>
     </label>
   )
 }
 
 const inputCls =
-  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[var(--kc-accent,#c41e3a)] focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/15'
+  'kc-upload-input w-full rounded-xl px-3 py-2.5 text-sm shadow-sm outline-none transition'
 
 export function ResellerProductsPanel() {
   const [tab, setTab] = useState<Tab>('add')
@@ -82,6 +84,12 @@ export function ResellerProductsPanel() {
 
   const [bulkParsing, setBulkParsing] = useState(false)
   const [bulkResult, setBulkResult] = useState<string | null>(null)
+  const [batches, setBatches] = useState<ResellerProductBatch[]>([])
+  const [batchesLoading, setBatchesLoading] = useState(false)
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null)
+  const [batchProducts, setBatchProducts] = useState<ResellerProductSubmission[]>([])
+  const [batchProductsLoading, setBatchProductsLoading] = useState(false)
+  const [submittingBatchId, setSubmittingBatchId] = useState<string | null>(null)
   const excelInputRef = useRef<HTMLInputElement>(null)
   const primaryInputRef = useRef<HTMLInputElement>(null)
   const secondaryInputRef = useRef<HTMLInputElement>(null)
@@ -106,6 +114,44 @@ export function ResellerProductsPanel() {
   }, [tab, load])
 
   const pendingCount = useMemo(() => rows.filter((r) => r.submission_status === 'pending').length, [rows])
+  const draftBatchCount = useMemo(
+    () => batches.filter((b) => (b.draft_count ?? 0) > 0).length,
+    [batches],
+  )
+
+  const loadBatches = useCallback(async () => {
+    setBatchesLoading(true)
+    try {
+      const res = await axios.get<ResellerProductBatch[]>('/api/reseller/product-batches')
+      setBatches(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setBatches([])
+    } finally {
+      setBatchesLoading(false)
+    }
+  }, [])
+
+  const loadBatchProducts = useCallback(async (batchId: string) => {
+    setBatchProductsLoading(true)
+    try {
+      const res = await axios.get<ResellerProductSubmission[]>('/api/reseller/product-submissions', {
+        params: { batch_id: batchId, submission_status: 'draft' },
+      })
+      setBatchProducts(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setBatchProducts([])
+    } finally {
+      setBatchProductsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadBatches()
+  }, [loadBatches])
+
+  useEffect(() => {
+    if (expandedBatchId) void loadBatchProducts(expandedBatchId)
+  }, [expandedBatchId, loadBatchProducts])
 
   const setField = <K extends keyof ResellerProductPayload>(key: K, value: ResellerProductPayload[K]) => {
     setForm((f) => ({ ...f, [key]: value }))
@@ -191,14 +237,19 @@ export function ResellerProductsPanel() {
       }
       const res = await axios.post<{
         created_count: number
+        batch_id?: string
         errors?: { row: number; error: string }[]
       }>('/api/reseller/product-submissions/bulk', { products })
       const n = res.data.created_count ?? 0
       const errN = res.data.errors?.length ?? 0
       setBulkResult(
-        `Queued ${n} product${n === 1 ? '' : 's'} for admin review${errN ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)` : ''}.`,
+        `${n} product${n === 1 ? '' : 's'} imported — add photos, then send the batch for KC review.${errN ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)` : ''}`,
       )
-      if (tab === 'list') void load()
+      if (res.data.batch_id) {
+        setExpandedBatchId(res.data.batch_id)
+        setTab('batches')
+      }
+      void loadBatches()
     } catch (e: unknown) {
       const msg =
         e && typeof e === 'object' && 'response' in e
@@ -209,6 +260,35 @@ export function ResellerProductsPanel() {
       setBulkParsing(false)
       if (excelInputRef.current) excelInputRef.current.value = ''
     }
+  }
+
+  const submitBatchForReview = async (batchId: string) => {
+    if (!window.confirm('Send this entire batch to KC admin for review?')) return
+    setSubmittingBatchId(batchId)
+    try {
+      await axios.post(`/api/reseller/product-batches/${batchId}/submit-for-review`)
+      setMessage('Batch sent for KC review. You can start another Excel import anytime.')
+      setExpandedBatchId(null)
+      await loadBatches()
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null
+      setError(msg || 'Could not submit batch')
+    } finally {
+      setSubmittingBatchId(null)
+    }
+  }
+
+  const uploadPhotos = async (submissionId: number, primary: File | null, secondary: File | null) => {
+    const fd = new FormData()
+    fd.append('payload', JSON.stringify({}))
+    if (primary) fd.append('primaryImage', primary)
+    if (secondary) fd.append('secondaryImage', secondary)
+    await axios.put(`/api/reseller/product-submissions/${submissionId}`, fd)
+    if (expandedBatchId) await loadBatchProducts(expandedBatchId)
+    await loadBatches()
   }
 
   const withdraw = async (id: number) => {
@@ -223,12 +303,16 @@ export function ResellerProductsPanel() {
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-slate-200/80 bg-slate-50/80 p-1 scrollbar-none">
+      <div className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white/80 p-1 scrollbar-none">
         {(
           [
             { id: 'add' as Tab, label: 'Add product', icon: Plus },
+            {
+              id: 'batches' as Tab,
+              label: `Excel batches${draftBatchCount ? ` (${draftBatchCount})` : ''}`,
+              icon: FileSpreadsheet,
+            },
             { id: 'list' as Tab, label: `My uploads${pendingCount ? ` (${pendingCount})` : ''}`, icon: Package },
-            { id: 'bulk' as Tab, label: 'Bulk Excel', icon: FileSpreadsheet },
           ] as const
         ).map(({ id, label, icon: Icon }) => (
           <button
@@ -237,8 +321,8 @@ export function ResellerProductsPanel() {
             onClick={() => setTab(id)}
             className={`flex min-h-[44px] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-medium transition ${
               tab === id
-                ? 'bg-white text-[var(--kc-accent,#c41e3a)] shadow-sm ring-1 ring-slate-200/80'
-                : 'text-slate-600 hover:bg-white/60'
+                ? 'bg-white text-[var(--kc-accent,#c41e3a)] shadow-sm ring-1 ring-[var(--color-slate-700,#e8e4df)]'
+                : 'text-[var(--color-jewelry-black,#1a1814)]/70 hover:bg-white/80'
             }`}
           >
             <Icon className="size-4 shrink-0" aria-hidden />
@@ -259,14 +343,8 @@ export function ResellerProductsPanel() {
       ) : null}
 
       {tab === 'add' ? (
-        <div className="space-y-5 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Add a product</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Same fields as ERP sync. Upload front and back photos from your phone. KC admin approves before it goes
-              live on kcjewellers.co.in.
-            </p>
-          </div>
+        <div className="kc-upload-card space-y-5 rounded-2xl p-4 shadow-sm sm:p-6">
+          <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Add one product</h2>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="StyleCode" hint="e.g. SILVER PLATED">
@@ -408,7 +486,7 @@ export function ResellerProductsPanel() {
                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                   statusFilter === key
                     ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    : 'bg-[var(--color-slate-900,#f7f4ef)] text-[var(--color-jewelry-black,#1a1814)]/70 ring-1 ring-[var(--color-slate-700,#e8e4df)] hover:bg-white'
                 }`}
               >
                 {label}
@@ -421,7 +499,7 @@ export function ResellerProductsPanel() {
               <Loader2 className="size-8 animate-spin text-slate-400" />
             </div>
           ) : rows.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-12 text-center text-sm text-slate-500">
+            <div className="kc-upload-card rounded-2xl border-dashed px-6 py-12 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
               No submissions yet. Add a product or import Excel.
             </div>
           ) : (
@@ -434,39 +512,117 @@ export function ResellerProductsPanel() {
         </div>
       ) : null}
 
-      {tab === 'bulk' ? (
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Bulk import (Excel)</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            Use Sample_Products.xlsx columns: Barcode, SKU, StyleCode, ProductName, MetalType (gifting for gift items),
-            FixedPrice, ItemCode, etc. Rows queue for admin approval.
-          </p>
-          <input
-            ref={excelInputRef}
-            type="file"
-            accept={RESELLER_EXCEL_ACCEPT}
-            className="sr-only"
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) void handleBulkExcel(f)
-            }}
-          />
-          <button
-            type="button"
-            disabled={bulkParsing}
-            onClick={() => excelInputRef.current?.click()}
-            className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 transition hover:border-[var(--kc-accent,#c41e3a)]/40 hover:bg-white disabled:opacity-60"
-          >
-            {bulkParsing ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <FileSpreadsheet className="size-5 text-emerald-600" />
-            )}
-            Choose .xlsx or .csv file
-          </button>
-          {bulkResult ? (
-            <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{bulkResult}</p>
-          ) : null}
+      {tab === 'batches' ? (
+        <div className="space-y-4">
+          <div className="kc-upload-card rounded-2xl p-4 shadow-sm sm:p-6">
+            <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk Excel import</h2>
+            <p className="kc-upload-hint mt-2 text-sm leading-relaxed">
+              Barcode, SKU, StyleCode, ProductName, MetalType (gifting for gift items), FixedPrice, ItemCode, etc.
+              Import first — add front &amp; back photos — then send the batch for KC review when ready.
+            </p>
+            <input
+              ref={excelInputRef}
+              type="file"
+              accept={RESELLER_EXCEL_ACCEPT}
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void handleBulkExcel(f)
+              }}
+            />
+            <button
+              type="button"
+              disabled={bulkParsing}
+              onClick={() => excelInputRef.current?.click()}
+              className="mt-5 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--color-slate-700,#d6d3d1)] bg-[var(--color-slate-900,#f7f4ef)] px-4 py-4 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/40 hover:bg-white disabled:opacity-60"
+            >
+              {bulkParsing ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="size-5 text-emerald-600" />
+              )}
+              Choose .xlsx or .csv file
+            </button>
+            {bulkResult ? (
+              <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                {bulkResult}
+              </p>
+            ) : null}
+          </div>
+
+          {batchesLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="size-8 animate-spin text-[var(--color-jewelry-black,#1a1814)]/40" />
+            </div>
+          ) : batches.length === 0 ? (
+            <div className="kc-upload-card rounded-2xl border-dashed px-6 py-10 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
+              No Excel batches yet.
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {batches.map((b) => {
+                const open = expandedBatchId === b.batch_id
+                const canSubmit = (b.draft_count ?? 0) > 0
+                return (
+                  <li key={b.batch_id} className="kc-upload-card overflow-hidden rounded-2xl shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedBatchId(open ? null : b.batch_id)}
+                      className="flex w-full items-start justify-between gap-3 p-4 text-left sm:p-5"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                          {b.batch_label || 'Excel import'}
+                        </p>
+                        <p className="kc-upload-hint mt-1 text-xs">
+                          {b.product_count} items · {b.with_primary_image}/{b.product_count} with front photo
+                          {b.draft_count ? ` · ${b.draft_count} draft` : ''}
+                          {b.pending_count ? ` · ${b.pending_count} in review` : ''}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs font-medium text-[var(--kc-accent,#c41e3a)]">
+                        {open ? 'Hide' : 'Open'}
+                      </span>
+                    </button>
+                    {open ? (
+                      <div className="border-t border-[var(--color-slate-700,#e8e4df)] px-4 pb-4 sm:px-5 sm:pb-5">
+                        {canSubmit ? (
+                          <button
+                            type="button"
+                            disabled={submittingBatchId === b.batch_id}
+                            onClick={() => void submitBatchForReview(b.batch_id)}
+                            className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--kc-accent,#c41e3a)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                          >
+                            {submittingBatchId === b.batch_id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Send className="size-4" />
+                            )}
+                            Send batch to KC for review
+                          </button>
+                        ) : (
+                          <p className="kc-upload-hint mt-4 text-xs">
+                            {b.pending_count ? 'This batch is with KC admin for review.' : 'All items processed.'}
+                          </p>
+                        )}
+                        {batchProductsLoading ? (
+                          <div className="flex justify-center py-8">
+                            <Loader2 className="size-6 animate-spin" />
+                          </div>
+                        ) : (
+                          <ul className="mt-4 space-y-3">
+                            {batchProducts.map((p) => (
+                              <BatchProductPhotoRow key={p.id} row={p} onSave={uploadPhotos} />
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </div>
       ) : null}
     </div>
@@ -488,9 +644,9 @@ function ImageUploadTile({
 }) {
   const preview = file ? URL.createObjectURL(file) : null
   return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-3">
-      <p className="text-xs font-medium text-slate-700">{label}</p>
-      <p className="text-[11px] text-slate-400">{hint}</p>
+    <div className="kc-upload-photo-tile rounded-xl border border-dashed border-[var(--color-slate-700,#d6d3d1)] bg-[var(--color-slate-900,#f7f4ef)] p-3">
+      <p className="kc-upload-label text-xs font-medium">{label}</p>
+      <p className="kc-upload-hint text-[11px]">{hint}</p>
       <input
         ref={inputRef}
         type="file"
@@ -501,22 +657,22 @@ function ImageUploadTile({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="mt-3 flex min-h-[120px] w-full flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white transition hover:border-[var(--kc-accent,#c41e3a)]/30"
+        className="mt-3 flex min-h-[120px] w-full flex-col items-center justify-center gap-2 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white transition hover:border-[var(--kc-accent,#c41e3a)]/40"
       >
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={preview} alt="" className="max-h-24 max-w-full rounded object-contain" />
         ) : (
           <>
-            <ImagePlus className="size-8 text-slate-300" />
-            <span className="text-xs text-slate-500">Tap to choose</span>
+            <ImagePlus className="size-8 text-[var(--color-jewelry-black,#1a1814)]/25" />
+            <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/60">Tap to choose</span>
           </>
         )}
       </button>
       {file ? (
         <button
           type="button"
-          className="mt-2 text-xs text-rose-600"
+          className="mt-2 text-xs font-medium text-rose-600"
           onClick={() => {
             onPick(null)
             if (inputRef.current) inputRef.current.value = ''
@@ -526,6 +682,126 @@ function ImageUploadTile({
         </button>
       ) : null}
     </div>
+  )
+}
+
+function BatchProductPhotoRow({
+  row,
+  onSave,
+}: {
+  row: ResellerProductSubmission
+  onSave: (id: number, primary: File | null, secondary: File | null) => Promise<void>
+}) {
+  const [primary, setPrimary] = useState<File | null>(null)
+  const [secondary, setSecondary] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const primaryRef = useRef<HTMLInputElement>(null)
+  const secondaryRef = useRef<HTMLInputElement>(null)
+  const sku = row.barcode || row.web_product_sku || row.sku || ''
+  const existingPrimary = row.image_url || (sku ? productImageUrl(sku) : '')
+  const existingSecondary = row.secondary_image_url || ''
+
+  const save = async () => {
+    if (!primary && !secondary) return
+    setSaving(true)
+    try {
+      await onSave(row.id, primary, secondary)
+      setPrimary(null)
+      setSecondary(null)
+      if (primaryRef.current) primaryRef.current.value = ''
+      if (secondaryRef.current) secondaryRef.current.value = ''
+    } catch {
+      alert('Could not save photos')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <li className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 sm:p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-[var(--color-jewelry-black,#1a1814)]">
+            {row.product_name || sku}
+          </p>
+          <p className="kc-upload-hint text-xs">
+            {row.style_code} › {row.sku}
+            {row.fixed_price != null && Number(row.fixed_price) > 0 ? ` · ₹${row.fixed_price}` : ''}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
+            {existingPrimary || primary ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={primary ? URL.createObjectURL(primary) : existingPrimary}
+                alt=""
+                className="size-full object-cover"
+              />
+            ) : (
+              <div className="flex size-full items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/25">
+                <ImagePlus className="size-5" />
+              </div>
+            )}
+          </div>
+          <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
+            {existingSecondary || secondary ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={secondary ? URL.createObjectURL(secondary) : existingSecondary}
+                alt=""
+                className="size-full object-cover"
+              />
+            ) : (
+              <div className="flex size-full items-center justify-center text-[10px] text-[var(--color-jewelry-black,#1a1814)]/30">
+                Back
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <input
+          ref={primaryRef}
+          type="file"
+          accept={RESELLER_PRODUCT_IMAGE_ACCEPT}
+          className="sr-only"
+          onChange={(e) => setPrimary(e.target.files?.[0] ?? null)}
+        />
+        <input
+          ref={secondaryRef}
+          type="file"
+          accept={RESELLER_PRODUCT_IMAGE_ACCEPT}
+          className="sr-only"
+          onChange={(e) => setSecondary(e.target.files?.[0] ?? null)}
+        />
+        <button
+          type="button"
+          onClick={() => primaryRef.current?.click()}
+          className="min-h-[40px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+        >
+          {primary ? 'Change front photo' : existingPrimary ? 'Replace front' : 'Add front photo'}
+        </button>
+        <button
+          type="button"
+          onClick={() => secondaryRef.current?.click()}
+          className="min-h-[40px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+        >
+          {secondary ? 'Change back photo' : existingSecondary ? 'Replace back' : 'Add back photo (optional)'}
+        </button>
+      </div>
+      {(primary || secondary) && (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void save()}
+          className="mt-3 flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg bg-[var(--kc-accent,#c41e3a)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+          Save photos
+        </button>
+      )}
+    </li>
   )
 }
 
@@ -541,8 +817,8 @@ function SubmissionCard({
   const status = row.submission_status as ResellerSubmissionStatus
 
   return (
-    <li className="flex gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm sm:p-4">
-      <div className="relative size-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:size-24">
+    <li className="kc-upload-card flex gap-3 rounded-2xl p-3 shadow-sm sm:p-4">
+      <div className="relative size-20 shrink-0 overflow-hidden rounded-xl bg-[var(--color-slate-900,#f7f4ef)] sm:size-24">
         {img ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={img} alt="" className="size-full object-cover" />
@@ -555,8 +831,8 @@ function SubmissionCard({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate font-semibold text-slate-900">{row.product_name || sku}</p>
-            <p className="text-xs text-slate-500">
+            <p className="truncate font-semibold text-[var(--color-jewelry-black,#1a1814)]">{row.product_name || sku}</p>
+            <p className="kc-upload-hint text-xs">
               {row.style_code} › {row.sku}
             </p>
           </div>
@@ -566,7 +842,7 @@ function SubmissionCard({
             {submissionStatusLabel(status)}
           </span>
         </div>
-        <p className="mt-1 text-xs text-slate-400">{formatWhen(row.created_at)}</p>
+        <p className="kc-upload-hint mt-1 text-xs">{formatWhen(row.created_at)}</p>
         {row.review_notes ? <p className="mt-2 text-xs text-rose-600">{row.review_notes}</p> : null}
         {status === 'pending' ? (
           <button

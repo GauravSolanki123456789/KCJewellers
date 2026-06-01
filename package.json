@@ -10,6 +10,7 @@
     "production": "NODE_ENV=production node server.js",
     "setup-db": "node scripts/setup-database.js",
     "migrate": "node scripts/run-migration.js",
+    "revert-pending-excel-bulk": "node scripts/revert-pending-excel-bulk-to-draft.js",
     "fix-gaurav-password": "node scripts/fix-gaurav-password.js",
     "change-master-password": "node scripts/change-master-password.js",
     "migrate-sales-returns": "node migrate-sales-returns.js",

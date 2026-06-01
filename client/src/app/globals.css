@@ -779,6 +779,53 @@ body {
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-amber-500) 10%, transparent);
   }
 
+  /* Reseller product upload — readable inputs on inverted slate theme tokens */
+  .kc-reseller-upload-panel {
+    color: var(--color-jewelry-black, #1a1814);
+  }
+
+  .kc-reseller-upload-panel .kc-upload-card {
+    background: #ffffff;
+    border: 1px solid var(--color-slate-700, #e8e4df);
+    color: var(--color-jewelry-black, #1a1814);
+  }
+
+  .kc-reseller-upload-panel .kc-upload-label {
+    color: var(--color-jewelry-black, #1a1814);
+    font-weight: 500;
+  }
+
+  .kc-reseller-upload-panel .kc-upload-hint {
+    color: #57534e;
+  }
+
+  .kc-reseller-upload-panel .kc-upload-input,
+  .kc-reseller-upload-panel select.kc-upload-input {
+    color: var(--color-jewelry-black, #1a1814) !important;
+    -webkit-text-fill-color: var(--color-jewelry-black, #1a1814) !important;
+    background-color: #ffffff !important;
+    border: 1px solid var(--color-slate-700, #d6d3d1);
+  }
+
+  .kc-reseller-upload-panel .kc-upload-input::placeholder {
+    color: #78716c !important;
+    opacity: 1;
+  }
+
+  .kc-reseller-upload-panel .kc-upload-input:focus {
+    border-color: var(--kc-accent, #c41e3a);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--kc-accent, #c41e3a) 18%, transparent);
+    outline: none;
+  }
+
+  .kc-reseller-upload-panel .kc-upload-photo-tile {
+    color: var(--color-jewelry-black, #1a1814);
+  }
+
+  .kc-reseller-upload-panel .kc-upload-photo-tile .kc-upload-hint {
+    color: #57534e;
+  }
+
   .kc-smart-search-panel {
     border: 1px solid color-mix(in oklab, var(--color-slate-700) 45%, transparent);
     background: color-mix(in oklab, var(--color-slate-950) 96%, white);

@@ -169,7 +169,7 @@ function ProfilePageContent() {
                 <div className="min-w-0 flex-1">
                   <h2 className="text-base font-semibold text-violet-300">Upload products</h2>
                   <p className="text-xs text-slate-500 mt-0.5 leading-snug">
-                    Add items, photos & Excel — KC approves before live
+                    Add items, photos & Excel — send batches for KC review
                   </p>
                 </div>
                 <ChevronRight className="size-5 shrink-0 text-violet-500/80 transition group-hover:translate-x-0.5" aria-hidden />

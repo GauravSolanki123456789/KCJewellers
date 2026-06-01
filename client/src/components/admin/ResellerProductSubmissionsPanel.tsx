@@ -65,6 +65,23 @@ export function ResellerProductSubmissionsPanel() {
   const pendingRows = useMemo(() => rows.filter((r) => r.submission_status === 'pending'), [rows])
   const pendingIds = useMemo(() => pendingRows.map((r) => r.id), [pendingRows])
 
+  /** Group pending rows by Excel batch (batch_id) for batch-wise admin review. */
+  const pendingGroups = useMemo(() => {
+    const map = new Map<string, { batchId: string; label: string; rows: ResellerProductSubmission[] }>()
+    for (const row of pendingRows) {
+      const batchId = row.batch_id || `single-${row.id}`
+      const label = row.batch_label || (row.batch_id ? 'Excel batch' : 'Single product')
+      const existing = map.get(batchId)
+      if (existing) existing.rows.push(row)
+      else map.set(batchId, { batchId: row.batch_id || batchId, label, rows: [row] })
+    }
+    return [...map.values()].sort(
+      (a, b) =>
+        new Date(b.rows[0]?.batch_submitted_at || b.rows[0]?.created_at || 0).getTime() -
+        new Date(a.rows[0]?.batch_submitted_at || a.rows[0]?.created_at || 0).getTime(),
+    )
+  }, [pendingRows])
+
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -106,6 +123,25 @@ export function ResellerProductSubmissionsPanel() {
       await load()
     } catch {
       alert('Bulk approve failed')
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  const approveBatch = async (batchId: string, count: number) => {
+    if (!batchId || batchId.startsWith('single-')) return
+    if (!window.confirm(`Approve all ${count} products in this Excel batch? They will go live on kcjewellers.co.in.`)) return
+    setActingId(-2)
+    try {
+      await axios.post(`/api/admin/reseller-product-submissions/batch/${batchId}/approve`)
+      window.dispatchEvent(new Event(KC_ADMIN_INBOX_REFRESH_EVENT))
+      await load()
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null
+      alert(msg || 'Batch approve failed')
     } finally {
       setActingId(null)
     }
@@ -198,6 +234,56 @@ export function ResellerProductSubmissionsPanel() {
         </div>
       ) : rows.length === 0 ? (
         <p className="py-8 text-center text-sm text-slate-500">No reseller product submissions.</p>
+      ) : filter === 'pending' ? (
+        <div className="space-y-6">
+          {pendingGroups.map((group) => {
+            const isExcelBatch = group.batchId && !group.batchId.startsWith('single-')
+            return (
+              <div key={group.batchId} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3 sm:p-4">
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-200">{group.label}</p>
+                    <p className="text-xs text-slate-500">
+                      {group.rows.length} product{group.rows.length === 1 ? '' : 's'}
+                      {group.rows[0]?.submitter_business_name
+                        ? ` · ${group.rows[0].submitter_business_name}`
+                        : ''}
+                      {group.rows[0]?.batch_submitted_at
+                        ? ` · sent ${formatWhen(group.rows[0].batch_submitted_at)}`
+                        : ''}
+                    </p>
+                  </div>
+                  {isExcelBatch ? (
+                    <button
+                      type="button"
+                      disabled={actingId === -2}
+                      onClick={() => void approveBatch(group.batchId, group.rows.length)}
+                      className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                    >
+                      {actingId === -2 ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                      Approve entire batch
+                    </button>
+                  ) : null}
+                </div>
+                <ul className="space-y-3">
+                  {group.rows.map((row) => (
+                    <AdminSubmissionRow
+                      key={row.id}
+                      row={row}
+                      acting={actingId === row.id}
+                      selected={selected.has(row.id)}
+                      onToggleSelect={() => toggleSelect(row.id)}
+                      onApprove={() => void approve(row.id)}
+                      onReject={() => void reject(row.id)}
+                      onEdit={() => setEditRow(row)}
+                      onDelete={() => void remove(row.id, row.submission_status === 'approved')}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )
+          })}
+        </div>
       ) : (
         <ul className="space-y-3">
           {rows.map((row) => (
@@ -321,10 +407,10 @@ function ActionBtn({
 }) {
   const cls =
     tone === 'emerald'
-      ? 'bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30'
+      ? 'bg-emerald-600 text-white hover:bg-emerald-500'
       : tone === 'rose'
-        ? 'bg-rose-600/15 text-rose-300 hover:bg-rose-600/25'
-        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+        ? 'bg-rose-600 text-white hover:bg-rose-500'
+        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
   return (
     <button
       type="button"

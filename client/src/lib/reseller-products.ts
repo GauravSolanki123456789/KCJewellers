@@ -3,13 +3,28 @@
  * DB: `reseller_product_submissions`, live catalog: `web_products`.
  */
 
-export type ResellerSubmissionStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn'
+export type ResellerSubmissionStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'withdrawn'
+
+export type ResellerProductBatch = {
+  batch_id: string
+  batch_label?: string | null
+  created_at: string
+  batch_submitted_at?: string | null
+  product_count: number
+  draft_count: number
+  pending_count: number
+  approved_count: number
+  with_primary_image: number
+  with_secondary_image: number
+}
 
 export type ResellerProductSubmission = {
   id: number
   submitted_by_user_id: number
   submission_status: ResellerSubmissionStatus
   batch_id?: string | null
+  batch_label?: string | null
+  batch_submitted_at?: string | null
   style_code?: string | null
   sku?: string | null
   barcode?: string | null
@@ -75,8 +90,10 @@ export const RESELLER_EXCEL_ACCEPT =
 
 export function submissionStatusLabel(status: ResellerSubmissionStatus): string {
   switch (status) {
+    case 'draft':
+      return 'Draft — add photos'
     case 'pending':
-      return 'Pending review'
+      return 'Awaiting KC review'
     case 'approved':
       return 'Live on KC site'
     case 'rejected':
@@ -90,8 +107,10 @@ export function submissionStatusLabel(status: ResellerSubmissionStatus): string 
 
 export function submissionStatusTone(status: ResellerSubmissionStatus): string {
   switch (status) {
+    case 'draft':
+      return 'bg-sky-500/15 text-sky-800 border-sky-500/30'
     case 'pending':
-      return 'bg-amber-500/15 text-amber-700 border-amber-500/30'
+      return 'bg-amber-500/15 text-amber-800 border-amber-500/30'
     case 'approved':
       return 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
     case 'rejected':
