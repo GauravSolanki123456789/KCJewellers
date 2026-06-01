@@ -71,6 +71,14 @@ function normalizeSyncItem(item) {
                   ? String(item.ItemCode).trim() || null
                   : null,
         barcode: String(item.barcode || item.Barcode || '').trim() || null,
+        rawPrimary:
+            item.imageUrl != null
+                ? String(item.imageUrl)
+                : item.image_url != null
+                  ? String(item.image_url)
+                  : item.ImageUrl != null
+                    ? String(item.ImageUrl)
+                    : '',
         rawSecondary:
             item.secondaryImageUrl != null
                 ? String(item.secondaryImageUrl)
@@ -161,7 +169,12 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
     if (!subId) throw new Error(`could not resolve subcategory for SKU "${norm.skuCode}"`);
 
     const apiBase = getPublicApiBaseUrl();
-    const imageUrl = `${apiBase}/uploads/web_products/${norm.prodSku}.webp`;
+    let imageUrl;
+    if (norm.rawPrimary.trim() !== '') {
+        imageUrl = resolveSecondaryUrlFromPayload(norm.rawPrimary.trim(), apiBase);
+    } else {
+        imageUrl = `${apiBase}/uploads/web_products/${norm.prodSku}.webp`;
+    }
 
     const uploadedSecondaryDisk = lookUpSecondaryDisk(secondaryUploadMap, norm.prodSku);
     let secondaryTouch = false;

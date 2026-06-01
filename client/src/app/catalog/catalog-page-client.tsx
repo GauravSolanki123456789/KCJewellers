@@ -110,6 +110,36 @@ type CatalogSessionState = {
   scrollToBarcode?: string
 }
 
+/** Scroll a child inside its overflow container — avoids `scrollIntoView` moving the page. */
+function scrollElementWithinContainer(
+  container: HTMLElement,
+  target: HTMLElement,
+  opts: { inline?: ScrollLogicalPosition; block?: ScrollLogicalPosition } = {},
+) {
+  const inline = opts.inline ?? 'nearest'
+  const block = opts.block ?? 'nearest'
+  const cRect = container.getBoundingClientRect()
+  const tRect = target.getBoundingClientRect()
+
+  if (inline === 'center') {
+    container.scrollLeft +=
+      tRect.left + tRect.width / 2 - (cRect.left + cRect.width / 2)
+  } else if (inline === 'start' || (inline === 'nearest' && tRect.left < cRect.left)) {
+    container.scrollLeft += tRect.left - cRect.left
+  } else if (inline === 'end' || (inline === 'nearest' && tRect.right > cRect.right)) {
+    container.scrollLeft += tRect.right - cRect.right
+  }
+
+  if (block === 'center') {
+    container.scrollTop +=
+      tRect.top + tRect.height / 2 - (cRect.top + cRect.height / 2)
+  } else if (block === 'start' || (block === 'nearest' && tRect.top < cRect.top)) {
+    container.scrollTop += tRect.top - cRect.top
+  } else if (block === 'end' || (block === 'nearest' && tRect.bottom > cRect.bottom)) {
+    container.scrollTop += tRect.bottom - cRect.bottom
+  }
+}
+
 /** First metal that has products; used for smart default */
 function firstAvailableMetal(categories: Category[]): MetalKey {
   const allProducts = categories.flatMap((c) =>
@@ -902,8 +932,11 @@ export default function CatalogPageClient() {
   useLayoutEffect(() => {
     if (!hasDesignGroupFilter) return
     const key = activeDesignGroup === 'all' ? '__all__' : activeDesignGroup
-    const el = designChipRefs.current.get(key)
-    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+    const chip = designChipRefs.current.get(key)
+    const container = designGroupStripRef.current
+    if (chip && container) {
+      scrollElementWithinContainer(container, chip, { inline: 'center', block: 'nearest' })
+    }
   }, [activeDesignGroup, hasDesignGroupFilter, designGroups])
 
   const designGroupNavSequence = useMemo(() => ['all', ...designGroups], [designGroups])
@@ -942,12 +975,7 @@ export default function CatalogPageClient() {
       if (!root || typeof window === 'undefined') return
       const active = root.querySelector<HTMLElement>('[data-catalog-nav-active="true"]')
       if (!active) return
-      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      active.scrollIntoView({
-        block: 'nearest',
-        inline,
-        behavior: prefersReduced ? 'auto' : 'smooth',
-      })
+      scrollElementWithinContainer(root, active, { inline, block: 'nearest' })
     },
     [],
   )

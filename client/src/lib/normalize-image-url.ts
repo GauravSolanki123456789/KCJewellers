@@ -40,6 +40,25 @@ export function normalizeCatalogImageSrc(
   return `${api}${t.startsWith("/") ? "" : "/"}${t}`;
 }
 
+/** Reseller uploads and legacy rows may store `.jpg` while ERP sync defaults to `.webp`. */
+export function catalogImageUrlAlternates(raw: string): string[] {
+  const base = raw.trim();
+  if (!base) return [];
+  const alts: string[] = [];
+  if (/\.webp(?:\?|$)/i.test(base)) {
+    for (const ext of [".jpg", ".jpeg", ".png"]) {
+      alts.push(base.replace(/\.webp(\?.*)?$/i, `${ext}$1`));
+    }
+  } else if (/\.jpe?g(?:\?|$)/i.test(base)) {
+    alts.push(base.replace(/\.jpe?g(\?.*)?$/i, ".webp$1"));
+    alts.push(base.replace(/\.jpe?g(\?.*)?$/i, ".png$1"));
+  } else if (/\.png(?:\?|$)/i.test(base)) {
+    alts.push(base.replace(/\.png(\?.*)?$/i, ".webp$1"));
+    alts.push(base.replace(/\.png(\?.*)?$/i, ".jpg$1"));
+  }
+  return alts.filter((u, i, arr) => u !== base && arr.indexOf(u) === i);
+}
+
 /** Server metadata / JSON-LD: prefer normalized host, then legacy absolute rules. */
 export function resolveCatalogImageUrlForMeta(
   raw: string | null | undefined,

@@ -4,13 +4,14 @@ import Image from "next/image";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
   type TouchEvent,
 } from "react";
 import { cn } from "@/lib/utils";
-import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
+import { normalizeCatalogImageSrc, catalogImageUrlAlternates } from "@/lib/normalize-image-url";
 import { catalogProductImageClass } from "@/lib/product-image-classes";
 import { productImageViewportWrapperClass } from "@/lib/flat-product-image";
 import { productImageEmptyWellClass } from "@/lib/product-image-theme";
@@ -123,6 +124,12 @@ export default function DualJewelleryProductImage({
       secondary_image_url == null ? undefined : String(secondary_image_url),
     ) || undefined;
 
+  const primaryNorm = normalizeCatalogImageSrc(primarySrc) || primarySrc;
+  const primaryAlternates = useMemo(
+    () => catalogImageUrlAlternates(primaryNorm),
+    [primaryNorm],
+  );
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const touchRef = useRef({ x: 0, y: 0, moved: false, axis: null as "x" | "y" | null });
 
@@ -130,15 +137,35 @@ export default function DualJewelleryProductImage({
   const [secErr, setSecErr] = useState(false);
   const [fallbackPrimUnopt, setFallbackPrimUnopt] = useState(false);
   const [fallbackSecUnopt, setFallbackSecUnopt] = useState(false);
+  const [primaryAltIdx, setPrimaryAltIdx] = useState(0);
   const [mobileIdx, setMobileIdx] = useState(0);
   /** Desktop hover: show secondary on pointer over. */
   const [hoverBack, setHoverBack] = useState(false);
+
+  const resolvedPrimarySrc =
+    primaryAltIdx === 0
+      ? primaryNorm
+      : primaryAlternates[primaryAltIdx - 1] ?? primaryNorm;
+
+  const handlePrimaryError = useCallback(() => {
+    if (!fallbackPrimUnopt) {
+      setFallbackPrimUnopt(true);
+      return;
+    }
+    if (primaryAltIdx < primaryAlternates.length) {
+      setPrimaryAltIdx((i) => i + 1);
+      setFallbackPrimUnopt(false);
+      return;
+    }
+    setPrimErr(true);
+  }, [fallbackPrimUnopt, primaryAltIdx, primaryAlternates.length]);
 
   useEffect(() => {
     setPrimErr(false);
     setSecErr(false);
     setFallbackPrimUnopt(false);
     setFallbackSecUnopt(false);
+    setPrimaryAltIdx(0);
     setMobileIdx(0);
     setHoverBack(false);
     scrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
@@ -194,7 +221,7 @@ export default function DualJewelleryProductImage({
     }, 80);
   }, []);
 
-  if (!primarySrc) return null;
+  if (!primaryNorm) return null;
 
   if (primErr) {
     return (
@@ -213,8 +240,8 @@ export default function DualJewelleryProductImage({
     return (
       <div className={productImageViewportWrapperClass()}>
         <Image
-          key={`${primarySrc}-${fallbackPrimUnopt ? "u" : "o"}`}
-          src={primarySrc}
+          key={`${resolvedPrimarySrc}-${fallbackPrimUnopt ? "u" : "o"}-${primaryAltIdx}`}
+          src={resolvedPrimarySrc}
           alt={alt}
           fill
           quality={72}
@@ -230,19 +257,13 @@ export default function DualJewelleryProductImage({
           priority={priority}
           fetchPriority={fetchP}
           draggable={false}
-          onError={() => {
-            if (!fallbackPrimUnopt) {
-              setFallbackPrimUnopt(true);
-              return;
-            }
-            setPrimErr(true);
-          }}
+          onError={handlePrimaryError}
         />
       </div>
     );
   }
 
-  const primKey = `p-${primarySrc}-${fallbackPrimUnopt ? "u" : "o"}`;
+  const primKey = `p-${resolvedPrimarySrc}-${fallbackPrimUnopt ? "u" : "o"}-${primaryAltIdx}`;
   const secKey = `s-${secondaryNorm}-${fallbackSecUnopt ? "u" : "o"}`;
 
   return (
@@ -262,7 +283,7 @@ export default function DualJewelleryProductImage({
       >
         <div className="relative h-full w-full shrink-0 snap-center snap-always">
           <SlideImage
-            src={primarySrc}
+            src={resolvedPrimarySrc}
             alt={alt}
             sizes={sizes}
             subcategorySlug={subcategorySlug}
@@ -271,13 +292,7 @@ export default function DualJewelleryProductImage({
             priority={priority}
             fetchPriority={fetchP}
             imageKey={primKey}
-            onError={() => {
-              if (!fallbackPrimUnopt) {
-                setFallbackPrimUnopt(true);
-                return;
-              }
-              setPrimErr(true);
-            }}
+            onError={handlePrimaryError}
           />
         </div>
         <div className="relative h-full w-full shrink-0 snap-center snap-always">
@@ -315,7 +330,7 @@ export default function DualJewelleryProductImage({
           )}
         >
           <SlideImage
-            src={primarySrc}
+            src={resolvedPrimarySrc}
             alt={alt}
             sizes={sizes}
             subcategorySlug={subcategorySlug}
@@ -325,13 +340,7 @@ export default function DualJewelleryProductImage({
             fetchPriority={fetchP}
             hoverFx
             imageKey={`desk-${primKey}`}
-            onError={() => {
-              if (!fallbackPrimUnopt) {
-                setFallbackPrimUnopt(true);
-                return;
-              }
-              setPrimErr(true);
-            }}
+            onError={handlePrimaryError}
           />
         </div>
         <div
