@@ -631,7 +631,22 @@ app.get('/api/auth/current_user', async (req, res) => {
             ? catIds.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n))
             : null;
         const kc_theme_id = await resolveUserKcThemeId(resolvedUser);
-        res.json({ 
+        /** Fresh from DB — session deserialize can lag new columns until re-login on some hosts. */
+        let resellerProductUploadsEnabled = !!resolvedUser.reseller_product_uploads_enabled;
+        try {
+            const fresh = await query(
+                'SELECT COALESCE(reseller_product_uploads_enabled, false) AS enabled FROM users WHERE id = $1',
+                [resolvedUser.id],
+            );
+            if (fresh.length) resellerProductUploadsEnabled = !!fresh[0].enabled;
+        } catch (e) {
+            if (String(e.message || '').includes('reseller_product_uploads_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+        }
+        res.json({
             isAuthenticated: true,
             kc_theme_id,
             user: {
@@ -652,7 +667,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_invite_code: resolvedUser.reseller_invite_code
                     ? normalizeResellerInviteCode(resolvedUser.reseller_invite_code)
                     : null,
-                reseller_product_uploads_enabled: !!resolvedUser.reseller_product_uploads_enabled,
+                reseller_product_uploads_enabled: resellerProductUploadsEnabled,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
                     ? String(resolvedUser.kc_theme_id).trim()
@@ -3509,6 +3524,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
                        business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
                        COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                       COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
                        reseller_invite_code, referred_by_user_id,
                        created_at, updated_at 
                 FROM users 
@@ -3519,8 +3535,28 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                     created_at DESC
             `);
         } catch (colError) {
-            // If is_deleted column doesn't exist, query without it
-            if (colError.message && colError.message.includes('is_deleted')) {
+            const msg = colError.message || '';
+            if (msg.includes('reseller_product_uploads_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+                result = await query(`
+                    SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
+                           account_status, phone_number, mobile_number,
+                           customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
+                           business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
+                           COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                           COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
+                           reseller_invite_code, referred_by_user_id,
+                           created_at, updated_at 
+                    FROM users 
+                    WHERE COALESCE(is_deleted, false) = false
+                    ORDER BY 
+                        CASE WHEN email = 'jaigaurav56789@gmail.com' THEN 0 ELSE 1 END,
+                        role ASC,
+                        created_at DESC
+                `);
+            } else if (msg.includes('is_deleted')) {
                 console.warn('is_deleted column not found, querying all users');
                 result = await query(`
                     SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
@@ -3528,6 +3564,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                            customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
                            business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
                            COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                           COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
                            reseller_invite_code, referred_by_user_id,
                            created_at, updated_at 
                     FROM users 
@@ -4003,7 +4040,20 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         params.push(id);
         
         const queryText = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
-        const result = await query(queryText, params);
+        let result;
+        try {
+            result = await query(queryText, params);
+        } catch (updateErr) {
+            const umsg = updateErr.message || '';
+            if (umsg.includes('reseller_product_uploads_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+                result = await query(queryText, params);
+            } else {
+                throw updateErr;
+            }
+        }
         
         console.log(`📝 User updated: ${user.email} (ID: ${id})`);
         

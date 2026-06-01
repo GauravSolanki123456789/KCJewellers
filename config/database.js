@@ -610,6 +610,10 @@ async function initSchema() {
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_hide_prices BOOLEAN NOT NULL DEFAULT false
         `);
+        await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
     } catch (error) {
         console.warn('shared_catalogs init:', error.message);
     }
