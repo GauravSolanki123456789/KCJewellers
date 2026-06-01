@@ -6,6 +6,7 @@ import "./globals.css";
 import { CustomerTierProvider } from "@/context/CustomerTierContext";
 import { ResellerBrandingProvider } from "@/context/ResellerBrandingContext";
 import { KcThemeProvider } from "@/context/KcThemeContext";
+import { CatalogPricingSettingsProvider } from "@/context/CatalogPricingSettingsContext";
 import { getStorefrontTenantFromHeaders } from "@/lib/reseller-branding-server";
 import {
   fetchPublicKcAppThemeId,
@@ -168,6 +169,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${cormorant.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >
         <KcThemeProvider initialKcThemeId={resolvedKcThemeId}>
+        <CatalogPricingSettingsProvider>
         <GoogleAnalytics />
         <CustomerTierProvider>
         <ResellerBrandingProvider
@@ -199,6 +201,7 @@ export default async function RootLayout({
         </CartProvider>
         </ResellerBrandingProvider>
         </CustomerTierProvider>
+        </CatalogPricingSettingsProvider>
         </KcThemeProvider>
       </body>
     </html>

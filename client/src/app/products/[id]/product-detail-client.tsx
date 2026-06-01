@@ -21,8 +21,10 @@ import {
   getCustomerDisplayPurity,
   isDiamondItem,
   isFixedPriceCatalogItem,
+  productPriceShowsInclGst,
   type Item,
 } from "@/lib/pricing";
+import { useCatalogPricingSettings } from "@/context/CatalogPricingSettingsContext";
 import { detailProductImageClass } from "@/lib/product-image-classes";
 import {
   analyzeProductImage,
@@ -90,6 +92,8 @@ export default function ProductDetailClient({
   });
   const cart = useCart();
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier();
+  const { pricingOptions } = useCatalogPricingSettings();
+  const showInclGst = product ? productPriceShowsInclGst(product, pricingOptions) : true;
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
   const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(true);
@@ -150,6 +154,7 @@ export default function ProductDetailClient({
               dr.data?.rates || [],
               item.gst_rate ?? 3,
               wholesalePricing,
+              pricingOptions,
             ),
           );
           const dn = productDisplayName(item);
@@ -184,6 +189,7 @@ export default function ProductDetailClient({
             p?.rates || [],
             cur.gst_rate ?? 3,
             wholesalePricing,
+            pricingOptions,
           ),
         );
     };
@@ -192,7 +198,7 @@ export default function ProductDetailClient({
       cancelled = true;
       s.off("live-rate", on);
     };
-  }, [id, initialProduct, wholesalePricing]);
+  }, [id, initialProduct, wholesalePricing, pricingOptions]);
 
   useEffect(() => {
     const safeId = normalizeStorefrontProductId(id);
@@ -630,9 +636,11 @@ export default function ProductDetailClient({
               >
                 ₹{Math.round(b?.total || 0).toLocaleString("en-IN")}
               </span>
-              <span className="ml-2 text-base font-normal text-slate-500">
-                incl. GST
-              </span>
+              {showInclGst ? (
+                <span className="ml-2 text-base font-normal text-slate-500">
+                  incl. GST
+                </span>
+              ) : null}
               <button
                 type="button"
                 className="mt-2 block text-xs font-medium tracking-wide text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline md:hidden"
@@ -777,7 +785,9 @@ export default function ProductDetailClient({
               <p className="truncate text-sm font-semibold tabular-nums text-slate-100">
                 ₹{Math.round(b?.total || 0).toLocaleString("en-IN")}
               </p>
-              <p className="text-[10px] text-slate-500">incl. GST</p>
+              {showInclGst ? (
+                <p className="text-[10px] text-slate-500">incl. GST</p>
+              ) : null}
             </div>
             <button
               type="button"

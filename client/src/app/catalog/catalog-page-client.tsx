@@ -35,6 +35,7 @@ import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
 import { useCatalogData } from './catalog-data-context'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
 import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
@@ -161,6 +162,7 @@ function collectFilteredIdsForStyle(
   priceHigh: number,
   rates: unknown,
   wholesale: import('@/lib/pricing').WholesalePricingInput | null,
+  pricingOptions?: import('@/lib/pricing').CatalogPricingOptions,
 ): string[] {
   const cat = filteredCategories.find((c) => c.id === styleId)
   if (!cat) return []
@@ -177,6 +179,7 @@ function collectFilteredIdsForStyle(
           priceHigh,
           rates,
           wholesale,
+          pricingOptions,
         )
       ) {
         const k = getProductSelectionKey(p)
@@ -200,6 +203,7 @@ function collectFilteredIdsForSku(
   wholesale: import('@/lib/pricing').WholesalePricingInput | null,
   /** When set, only products with this `design_group` (same as grid chips) — must match active SKU row only. */
   restrictDesignGroup?: string,
+  pricingOptions?: import('@/lib/pricing').CatalogPricingOptions,
 ): string[] {
   const cat = filteredCategories.find((c) => c.id === styleId)
   if (!cat) return []
@@ -218,6 +222,7 @@ function collectFilteredIdsForSku(
         priceHigh,
         rates,
         wholesale,
+        pricingOptions,
       )
     ) {
       if (dg) {
@@ -340,6 +345,7 @@ export default function CatalogPageClient() {
     useCatalogData()
   const auth = useAuth()
   const { wholesalePricing, customerTier } = useCustomerTier()
+  const { pricingOptions } = useCatalogPricingSettings()
   const { active: resellerBrandingActive, businessName: resellerBrandName } = useResellerBranding()
   const {
     catalogBuilderMode,
@@ -842,6 +848,7 @@ export default function CatalogPageClient() {
         rates,
         (p as { gst_rate?: number }).gst_rate ?? 3,
         wholesalePricing,
+        pricingOptions,
       )
       return b.total
     })
@@ -853,7 +860,7 @@ export default function CatalogPageClient() {
       weightBounds: [Math.max(0, wMin - 1), wMax + 1] as [number, number],
       priceBounds: [Math.max(0, pMin - 1000), pMax + 1000] as [number, number],
     }
-  }, [rawProducts, rates, wholesalePricing])
+  }, [rawProducts, rates, wholesalePricing, pricingOptions])
 
   // Sync slider bounds when category changes (skip once after restore from sessionStorage)
   useEffect(() => {
@@ -883,11 +890,12 @@ export default function CatalogPageClient() {
         rates,
         (p as { gst_rate?: number }).gst_rate ?? 3,
         wholesalePricing,
+        pricingOptions,
       )
       return b.total >= priceLow && b.total <= priceHigh
     })
     return list
-  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing, selectedMetal])
+  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing, pricingOptions, selectedMetal])
 
   const products = useMemo(() => {
     if (!hasDesignGroupFilter || activeDesignGroup === 'all') return sliderFilteredProducts
@@ -1046,6 +1054,7 @@ export default function CatalogPageClient() {
       priceHigh,
       rates,
       wholesalePricing,
+      pricingOptions,
     )
     if (ids.length === 0) return
     const allOn = ids.every((id) => selectedProductIds.includes(id))
@@ -1072,6 +1081,7 @@ export default function CatalogPageClient() {
       rates,
       wholesalePricing,
       dg,
+      pricingOptions,
     )
     if (ids.length === 0) return
     const allOn = ids.every((id) => selectedProductIds.includes(id))
@@ -1711,6 +1721,7 @@ export default function CatalogPageClient() {
                     rates,
                     wholesalePricing,
                     skuDg,
+                    pricingOptions,
                   )
                   const kn = skuScopeIds.filter((id) => selectedProductIds.includes(id)).length
                   const allSku = skuScopeIds.length > 0 && kn === skuScopeIds.length
@@ -1910,6 +1921,7 @@ export default function CatalogPageClient() {
                                 rates,
                                 wholesalePricing,
                                 skuDg,
+                                pricingOptions,
                               )
                               const kn = skuScopeIds.filter((id) =>
                                 selectedProductIds.includes(id),

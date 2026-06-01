@@ -152,6 +152,30 @@ export function isFixedPriceCatalogItem(item: Item | null | undefined): boolean 
   return isDiamondItem(item) || isGiftingItem(item)
 }
 
+/** Storefront pricing toggles from `app_settings` (admin). */
+export type CatalogPricingOptions = {
+  /** When false, gift items use fixed_price with 0% GST. Defaults to true. */
+  giftingGstEnabled?: boolean
+}
+
+/** Effective GST % for an item — respects gift-items admin toggle. */
+export function resolveItemGstRate(
+  item: Item,
+  gstRate?: number,
+  pricingOptions?: CatalogPricingOptions,
+): number {
+  if (isGiftingItem(item) && pricingOptions?.giftingGstEnabled === false) return 0
+  return Number(gstRate ?? item.gst_rate ?? 3) || 3
+}
+
+/** Whether storefront should label the price as GST-inclusive. */
+export function productPriceShowsInclGst(
+  item: Item,
+  pricingOptions?: CatalogPricingOptions,
+): boolean {
+  return resolveItemGstRate(item, undefined, pricingOptions) > 0
+}
+
 /** Gifting only: show purity only when ERP sent a real value (not null / 0 / 100 placeholder). */
 export function getCustomerDisplayPurity(
   item: Item | null | undefined,
@@ -240,6 +264,7 @@ export function calculateBreakdown(
   liveRates: unknown,
   gstRate?: number,
   wholesale?: WholesalePricingInput | null,
+  pricingOptions?: CatalogPricingOptions,
 ): BreakdownResult {
   const metal = (item.metal_type || 'silver').toLowerCase()
   const wIn = wholesale && wholesaleIsActive(wholesale) ? wholesale : null
@@ -251,7 +276,7 @@ export function calculateBreakdown(
     const stoneAmt = Number(item.stone_charges ?? 0) || 0
     const basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt
     const categoryDisc = categoryDiscountPct(item)
-    const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
+    const gstPct = resolveItemGstRate(item, gstRate, pricingOptions)
 
     if (categoryDisc > 0) {
       const taxable = basePrice * (1 - categoryDisc / 100)

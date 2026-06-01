@@ -220,7 +220,7 @@ function ProfilePageContent() {
               <button
                 type="button"
                 onClick={() => openLoginModal(PROFILE_PATH)}
-                className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-[var(--kc-accent,#c41e3a)] px-6 py-2.5 text-sm font-semibold text-white"
+                className="kc-btn-theme min-h-[44px]"
               >
                 Sign in
               </button>

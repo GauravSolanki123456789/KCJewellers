@@ -168,6 +168,8 @@ export default function AdminProductsPage() {
     () => ({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }),
   )
   const [savingRetailBrowse, setSavingRetailBrowse] = useState(false)
+  const [giftingGstEnabled, setGiftingGstEnabled] = useState(true)
+  const [savingGiftingGst, setSavingGiftingGst] = useState(false)
 
   const retailBrowseEnabledForTab = useMemo(() => {
     if (selectedMetal === 'gifting') return false
@@ -192,6 +194,17 @@ export default function AdminProductsPage() {
       }
     } catch {
       setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL })
+    }
+  }, [url])
+
+  const loadGiftingGstSetting = useCallback(async () => {
+    try {
+      const res = await axios.get(`${url}/api/admin/settings/catalog-pricing`, {
+        withCredentials: true,
+      })
+      setGiftingGstEnabled(res.data?.gifting_gst_enabled !== false)
+    } catch {
+      setGiftingGstEnabled(true)
     }
   }, [url])
 
@@ -252,6 +265,9 @@ export default function AdminProductsPage() {
   useEffect(() => {
     loadRetailBrowseSetting()
   }, [loadRetailBrowseSetting])
+  useEffect(() => {
+    loadGiftingGstSetting()
+  }, [loadGiftingGstSetting])
 
   const togglePublish = (id: number) => {
     setPublishedIds((prev) => {
@@ -276,6 +292,24 @@ export default function AdminProductsPage() {
     setRetailTagsToast(type)
     setTimeout(() => setRetailTagsToast(null), 4000)
   }, [])
+
+  const handleToggleGiftingGst = async () => {
+    setSavingGiftingGst(true)
+    try {
+      const next = !giftingGstEnabled
+      const res = await axios.put(
+        `${url}/api/admin/settings/catalog-pricing`,
+        { gifting_gst_enabled: next },
+        { withCredentials: true },
+      )
+      setGiftingGstEnabled(res.data?.gifting_gst_enabled !== false)
+      showRetailTagsToast('success')
+    } catch {
+      showRetailTagsToast('error')
+    } finally {
+      setSavingGiftingGst(false)
+    }
+  }
 
   const handleToggleRetailBrowse = async () => {
     if (selectedMetal === 'gifting') return
@@ -480,7 +514,9 @@ export default function AdminProductsPage() {
   }
 
   const getProductPrice = (p: Product) => {
-    const b = calculateBreakdown(p as Item, rates, p.gst_rate)
+    const b = calculateBreakdown(p as Item, rates, p.gst_rate, null, {
+      giftingGstEnabled,
+    })
     return b.total
   }
 
@@ -1409,6 +1445,54 @@ export default function AdminProductsPage() {
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+            ) : null}
+
+            {selectedMetal === 'gifting' ? (
+            <div className="mt-8 bg-slate-900/50 backdrop-blur border border-white/10 rounded-xl overflow-hidden">
+              <div className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <GiftingJewelleryIcon className="size-6 shrink-0 text-amber-400" />
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-semibold text-slate-200">
+                      Gift item pricing
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Controls whether GST is added on top of fixed gift prices site-wide.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2.5 sm:min-w-[18rem]">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-300">
+                      Add GST to gift items
+                    </p>
+                    <p className="text-[10px] text-slate-600 mt-0.5">
+                      {giftingGstEnabled
+                        ? 'Prices show as incl. GST (fixed price + 3%)'
+                        : 'Prices show fixed MRP with no GST added'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={giftingGstEnabled}
+                    disabled={savingGiftingGst}
+                    onClick={handleToggleGiftingGst}
+                    className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 disabled:opacity-60 ${
+                      giftingGstEnabled
+                        ? 'border-amber-400/50 bg-amber-500'
+                        : 'border-slate-600 bg-slate-800'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                        giftingGstEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
             ) : null}

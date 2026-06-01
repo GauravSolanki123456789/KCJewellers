@@ -5,6 +5,7 @@ import {
 import {
   calculateBreakdown,
   isFixedPriceCatalogItem,
+  type CatalogPricingOptions,
   type Item,
   type WholesalePricingInput,
 } from '@/lib/pricing'
@@ -137,6 +138,7 @@ export function productPassesCatalogFilters(
   priceHigh: number,
   rates: unknown,
   wholesale?: WholesalePricingInput | null,
+  pricingOptions?: CatalogPricingOptions,
 ): boolean {
   if (!productMatchesMetal(product, metal)) return false
   if (!isFixedPriceCatalogItem(product)) {
@@ -149,6 +151,7 @@ export function productPassesCatalogFilters(
     rates,
     (product as { gst_rate?: number }).gst_rate ?? 3,
     wholesale,
+    pricingOptions,
   )
   return b.total >= priceLow && b.total <= priceHigh
 }

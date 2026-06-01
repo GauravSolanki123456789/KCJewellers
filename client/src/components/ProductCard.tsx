@@ -5,9 +5,10 @@ import { Check, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { productImageEmptyWellClass, productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
-import { calculateBreakdown, getCustomerDisplayWeight, type Item } from '@/lib/pricing'
+import { calculateBreakdown, getCustomerDisplayWeight, productPriceShowsInclGst, type Item } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
@@ -75,6 +76,7 @@ export default function ProductCard({
 }: ProductCardProps) {
   const cart = useCart()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
+  const { pricingOptions } = useCatalogPricingSettings()
 
   const displayName =
     (product as { name?: string }).name ||
@@ -89,7 +91,8 @@ export default function ProductCard({
 
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
-  const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing)
+  const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing, pricingOptions)
+  const showInclGst = productPriceShowsInclGst(product, pricingOptions)
   const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
   const showWholesale =
@@ -219,9 +222,11 @@ export default function ProductCard({
           >
             ₹{Math.round(total).toLocaleString('en-IN')}
           </span>
-          <span className="shrink-0 text-[8px] font-normal uppercase tracking-wide text-slate-500 sm:text-[9px]">
-            incl. GST
-          </span>
+          {showInclGst ? (
+            <span className="shrink-0 text-[8px] font-normal uppercase tracking-wide text-slate-500 sm:text-[9px]">
+              incl. GST
+            </span>
+          ) : null}
         </div>
       </div>
 

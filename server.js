@@ -747,6 +747,55 @@ async function getCatalogRetailBrowseByMetal() {
     return out;
 }
 
+async function getGiftingGstEnabled() {
+    try {
+        const rows = await query(
+            `SELECT value FROM app_settings WHERE key = 'gifting_gst_enabled' LIMIT 1`,
+        );
+        if (!rows.length) return true;
+        return parseAppSettingBool(rows[0].value);
+    } catch {
+        return true;
+    }
+}
+
+/** Public: whether storefront adds GST on gift-item fixed prices. */
+app.get('/api/public/catalog-pricing-settings', globalLimiter, async (req, res) => {
+    try {
+        const gifting_gst_enabled = await getGiftingGstEnabled();
+        res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60');
+        res.json({ gifting_gst_enabled });
+    } catch (error) {
+        res.json({ gifting_gst_enabled: true });
+    }
+});
+
+/** Admin: gift-item GST toggle. */
+app.get('/api/admin/settings/catalog-pricing', isAdminStrict, async (req, res) => {
+    try {
+        res.json({ gifting_gst_enabled: await getGiftingGstEnabled() });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to load catalog pricing settings' });
+    }
+});
+
+app.put('/api/admin/settings/catalog-pricing', requireJson, isAdminStrict, async (req, res) => {
+    try {
+        const { gifting_gst_enabled } = req.body || {};
+        if (gifting_gst_enabled === undefined) {
+            return res.status(400).json({ error: 'gifting_gst_enabled is required' });
+        }
+        const enabled = !!gifting_gst_enabled;
+        await query(`
+            INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+        `, ['gifting_gst_enabled', enabled ? 'true' : 'false']);
+        res.json({ success: true, gifting_gst_enabled: enabled });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to save catalog pricing settings' });
+    }
+});
+
 /** Public: whether storefront shows Shop for (Women / Men / Kids) browse UI. */
 app.get('/api/public/catalog-retail-settings', globalLimiter, async (req, res) => {
     try {

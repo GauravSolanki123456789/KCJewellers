@@ -592,6 +592,36 @@ body {
     transform: scale(0.98);
   }
 
+  /** Theme CTA — profile sign-in, reseller actions; uses palette emerald per kc_theme_id */
+  .kc-btn-theme {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--kc-accent, var(--color-emerald-600)) 30%, transparent);
+    background: linear-gradient(
+      165deg,
+      var(--kc-accent-hover, var(--color-emerald-500)),
+      var(--kc-accent, var(--color-emerald-600))
+    );
+    padding: 0.625rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--kc-accent-foreground, #ffffff);
+    transition: filter 200ms, transform 100ms, box-shadow 200ms;
+    box-shadow: 0 1px 3px color-mix(in oklab, var(--kc-accent, var(--color-emerald-600)) 22%, transparent);
+  }
+
+  .kc-btn-theme:hover {
+    filter: brightness(1.05);
+  }
+
+  .kc-btn-theme:active {
+    transform: scale(0.98);
+  }
+
   .kc-btn-outline {
     display: block;
     width: 100%;

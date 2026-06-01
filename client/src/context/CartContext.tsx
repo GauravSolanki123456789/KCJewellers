@@ -6,6 +6,7 @@ import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 
 /**
  * ProductLite extends Item to ensure all product fields are available in cart items.
@@ -53,6 +54,7 @@ function loadCartFromStorage(): CartItem[] {
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { wholesalePricing } = useCustomerTier()
+  const { pricingOptions } = useCatalogPricingSettings()
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [lastAdded, setLastAdded] = useState<ProductLite | null>(null)
   const [items, setItems] = useState<CartItem[]>([])
@@ -74,12 +76,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setLastRates(rates)
     setRatesReady(rates.length > 0)
     setItems(prev => prev.map(ci => {
-      const b = calculateBreakdown(ci.item, rates, ci.item.gst_rate, wholesalePricing)
+      const b = calculateBreakdown(ci.item, rates, ci.item.gst_rate, wholesalePricing, pricingOptions)
       const delta = Math.abs(b.total - ci.price) / (ci.price || 1)
       if (delta > 0.02) return { ...ci, price: b.total, breakdown: b }
       return ci
     }))
-  }, [wholesalePricing])
+  }, [wholesalePricing, pricingOptions])
 
   useEffect(() => {
     axios.get('/api/rates/display').then((res) => {
@@ -95,8 +97,23 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     })
     return off
   }, [applyRates])
+
+  useEffect(() => {
+    setItems((prev) =>
+      prev.map((ci) => {
+        const b = calculateBreakdown(
+          ci.item,
+          lastRates,
+          ci.item.gst_rate,
+          wholesalePricing,
+          pricingOptions,
+        )
+        return { ...ci, price: b.total, breakdown: b }
+      }),
+    )
+  }, [pricingOptions, wholesalePricing, lastRates])
   const add = useCallback((p: ProductLite) => {
-    const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing)
+    const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing, pricingOptions)
     const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
     setLastAdded(p)
     axios.post('/api/analytics/track', {
@@ -108,20 +125,20 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const exists = prev.find(x => x.id === ci.id)
       if (exists) {
         const updated = { ...exists, qty: exists.qty + 1 }
-        const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing)
+        const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing, pricingOptions)
         updated.price = freshB.total
         updated.breakdown = freshB
         return prev.map(x => x.id === ci.id ? updated : x)
       }
       return [...prev, ci]
     })
-  }, [lastRates, wholesalePricing])
+  }, [lastRates, wholesalePricing, pricingOptions])
 
   const addWithQty = useCallback((p: ProductLite, qty: number) => {
     const q = Math.max(1, Math.min(9999, Math.floor(Number(qty) || 1)))
     const id = String(p.barcode || p.id || '')
     if (!id) return
-    const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing)
+    const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing, pricingOptions)
     setLastAdded(p)
     axios.post('/api/analytics/track', {
       action_type: 'add_to_cart',
@@ -131,14 +148,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems((prev) => {
       const exists = prev.find((x) => x.id === id)
       if (exists) {
-        const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing)
+        const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing, pricingOptions)
         return prev.map((x) =>
           x.id === id ? { ...x, qty: q, price: freshB.total, breakdown: freshB } : x,
         )
       }
       return [...prev, { id, item: p, qty: q, price: b.total, breakdown: b }]
     })
-  }, [lastRates, wholesalePricing])
+  }, [lastRates, wholesalePricing, pricingOptions])
   const remove = useCallback((id: string) => setItems(prev => prev.filter(x => x.id !== id)), [])
   const clearAll = useCallback(() => setItems([]), [])
   /** qty below 1 removes the line (minus at quantity 1 matches Remove). */
