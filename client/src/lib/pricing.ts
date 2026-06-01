@@ -28,7 +28,7 @@ export type Item = {
   [key: string]: unknown
 }
 
-/** Matches `users.wholesale_*` — % off making charge and % adjustment on metal+MC line (before GST). */
+/** Matches `users.wholesale_*` — account disc % (not stacked on retail promos) and optional markup. */
 export type WholesalePricingInput = {
   wholesale_making_charge_discount_percent: number
   wholesale_markup_percent: number
@@ -47,6 +47,32 @@ function wholesaleIsActive(w: WholesalePricingInput | null | undefined): boolean
     Math.abs(w.wholesale_making_charge_discount_percent) > 1e-6 ||
     Math.abs(w.wholesale_markup_percent) > 1e-6
   )
+}
+
+/** Style-level retail promo from `web_categories.discount_percentage`. */
+function categoryDiscountPct(item: Item): number {
+  const n = Number((item as { discount_percentage?: number }).discount_percentage || 0) || 0
+  return n > 0 ? clampPct(n, 0, 100) : 0
+}
+
+/**
+ * Reseller / wholesale account discount (`users.wholesale_making_charge_discount_percent`).
+ * Skipped when the product style already has a retail promo — resellers pay the same promo price.
+ */
+function accountDiscountPct(
+  wholesale: WholesalePricingInput | null | undefined,
+  categoryDiscount: number,
+): number {
+  if (!wholesale || categoryDiscount > 0) return 0
+  return clampPct(wholesale.wholesale_making_charge_discount_percent, -100, 100)
+}
+
+function accountMarkupPct(
+  wholesale: WholesalePricingInput | null | undefined,
+  categoryDiscount: number,
+): number {
+  if (!wholesale || categoryDiscount > 0) return 0
+  return Number(wholesale.wholesale_markup_percent ?? 0) || 0
 }
 
 /**
@@ -203,7 +229,8 @@ type BreakdownResult = {
  *   Base         = (PerGramCost + mc_rate) × net_weight
  *   FinalPrice   = Base × (1 + GST%)          — GST default 3 %
  *
- * B2B wholesale: optional `wholesale` applies making-charge discount and/or markup on the metal+MC line.
+ * B2B wholesale / RESELLER: optional account `disc %` and markup on the metal+MC line.
+ * Account disc % is not stacked on styles that already have a retail promo discount.
  *
  * DIAMOND / GIFTING: use fixed_price only, ignore live rates (ERP `fixedPrice` → DB fixed_price).
  * Legacy (non-web) products fall through to the classic formula.
@@ -222,34 +249,51 @@ export function calculateBreakdown(
     const fixedPrice = Number(item.fixed_price ?? 0) || 0
     const mcRate = Number(item.mc_rate ?? 0) || 0
     const stoneAmt = Number(item.stone_charges ?? 0) || 0
-    let basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt
-    const discountPct = Number((item as { discount_percentage?: number }).discount_percentage || 0) || 0
-    let taxable = discountPct > 0 ? basePrice * (1 - discountPct / 100) : basePrice
+    const basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt
+    const categoryDisc = categoryDiscountPct(item)
     const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
-    let retailTaxable = taxable
-    if (wIn) {
-      retailTaxable = taxable
-      taxable = taxable * (1 + wIn.wholesale_markup_percent / 100)
+
+    if (categoryDisc > 0) {
+      const taxable = basePrice * (1 - categoryDisc / 100)
+      const gstAmt = taxable * (gstPct / 100)
+      const total = taxable + gstAmt
+      const originalTotal = basePrice * (1 + gstPct / 100)
+      return {
+        metal: 0,
+        mc: 0,
+        stone: 0,
+        cgst: gstAmt / 2,
+        sgst: gstAmt / 2,
+        taxable,
+        total,
+        originalTotal,
+        discountPercent: categoryDisc,
+        wholesale_retail_total: undefined,
+        is_wholesale_price: false,
+      }
     }
+
+    const markup = accountMarkupPct(wIn, 0)
+    const acctDisc = accountDiscountPct(wIn, 0)
+    let taxable = basePrice * (1 + markup / 100)
     const gstAmt = taxable * (gstPct / 100)
-    const cgst = gstAmt / 2
-    const sgst = gstAmt / 2
-    const total = taxable + gstAmt
-    const originalTotal = discountPct > 0 ? basePrice + (basePrice * (gstPct / 100)) : undefined
-    const retailGst = retailTaxable * (gstPct / 100)
-    const retailTotal = retailTaxable + retailGst
+    const totalBeforeDiscount = taxable + gstAmt
+    const total =
+      acctDisc > 0 ? totalBeforeDiscount * (1 - acctDisc / 100) : totalBeforeDiscount
+    const retailTotal = basePrice * (1 + gstPct / 100)
+    const wholesaleActive = !!wIn && (acctDisc > 0 || Math.abs(markup) > 1e-6)
     return {
       metal: 0,
       mc: 0,
       stone: 0,
-      cgst,
-      sgst,
+      cgst: gstAmt / 2,
+      sgst: gstAmt / 2,
       taxable,
       total,
-      originalTotal,
-      discountPercent: discountPct > 0 ? discountPct : undefined,
-      wholesale_retail_total: wIn ? retailTotal : undefined,
-      is_wholesale_price: !!wIn,
+      originalTotal: acctDisc > 0 ? totalBeforeDiscount : undefined,
+      discountPercent: acctDisc > 0 ? acctDisc : undefined,
+      wholesale_retail_total: wholesaleActive ? retailTotal : undefined,
+      is_wholesale_price: wholesaleActive,
     }
   }
 
@@ -267,70 +311,113 @@ export function calculateBreakdown(
 
     const adjustedRate =
       rate * (effectivePurity > 0 ? effectivePurity / 100 : 1)
-    const mcDisc = wIn ? clampPct(wIn.wholesale_making_charge_discount_percent, -100, 100) : 0
-    const effectiveMcRate = mcRate * (1 - mcDisc / 100)
-    const perGramCostRetail = adjustedRate + mcRate
-    const perGramCost = adjustedRate + effectiveMcRate
-    const markup = wIn ? wIn.wholesale_markup_percent : 0
-    const baseRetail = perGramCostRetail * wt
-    const base = perGramCost * wt * (1 + markup / 100)
     const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
+    const categoryDisc = categoryDiscountPct(item)
+    const perGramCostRetail = adjustedRate + mcRate
+    const baseRetail = perGramCostRetail * wt
+
+    if (categoryDisc > 0) {
+      const totalBeforeDiscount = baseRetail * (1 + gstPct / 100)
+      const total = totalBeforeDiscount * (1 - categoryDisc / 100)
+      const gstAmt = totalBeforeDiscount - baseRetail
+      return {
+        metal: adjustedRate * wt,
+        mc: mcRate * wt,
+        stone: 0,
+        cgst: gstAmt / 2,
+        sgst: gstAmt / 2,
+        taxable: baseRetail,
+        total,
+        originalTotal: totalBeforeDiscount,
+        discountPercent: categoryDisc,
+        rate_per_gram: adjustedRate,
+        net_weight: wt,
+        wholesale_retail_total: undefined,
+        is_wholesale_price: false,
+      }
+    }
+
+    const markup = accountMarkupPct(wIn, 0)
+    const acctDisc = accountDiscountPct(wIn, 0)
+    const base = baseRetail * (1 + markup / 100)
     const totalBeforeDiscount = base * (1 + gstPct / 100)
-    const gstAmt = totalBeforeDiscount - base
-    const discountPct = Number((item as { discount_percentage?: number }).discount_percentage || 0) || 0
-    const total = discountPct > 0 ? totalBeforeDiscount * (1 - discountPct / 100) : totalBeforeDiscount
+    const total =
+      acctDisc > 0 ? totalBeforeDiscount * (1 - acctDisc / 100) : totalBeforeDiscount
     const retailBeforePromo = baseRetail * (1 + gstPct / 100)
-    const retailTotal = discountPct > 0 ? retailBeforePromo * (1 - discountPct / 100) : retailBeforePromo
+    const gstAmt = totalBeforeDiscount - base
+    const wholesaleActive = !!wIn && (acctDisc > 0 || Math.abs(markup) > 1e-6)
     return {
       metal: adjustedRate * wt,
-      mc: effectiveMcRate * wt,
+      mc: mcRate * wt,
       stone: 0,
       cgst: gstAmt / 2,
       sgst: gstAmt / 2,
       taxable: base,
       total,
-      originalTotal: discountPct > 0 ? totalBeforeDiscount : undefined,
-      discountPercent: discountPct > 0 ? discountPct : undefined,
+      originalTotal: acctDisc > 0 ? totalBeforeDiscount : undefined,
+      discountPercent: acctDisc > 0 ? acctDisc : undefined,
       rate_per_gram: adjustedRate,
       net_weight: wt,
-      wholesale_retail_total: wIn ? retailTotal : undefined,
-      is_wholesale_price: !!wIn,
+      wholesale_retail_total: wholesaleActive ? retailBeforePromo : undefined,
+      is_wholesale_price: wholesaleActive,
     }
   }
 
   // Legacy path (non-web products without mc_rate on the row)
   const metalVal = wt * rate * (purity / 100)
   const mc = mcAmount(item)
-  const mcDisc = wIn ? clampPct(wIn.wholesale_making_charge_discount_percent, -100, 100) : 0
-  const mcEff = mc * (1 - mcDisc / 100)
   const stoneAmt = stone(item)
-  const baseRetail = metalVal + mc + stoneAmt
-  let taxable = metalVal + mcEff + stoneAmt
-  if (wIn) taxable *= (1 + wIn.wholesale_markup_percent / 100)
   const gst = Number(gstRate ?? item.gst_rate ?? 0) || 0
+  const categoryDisc = categoryDiscountPct(item)
+  const baseRetail = metalVal + mc + stoneAmt
+
+  if (categoryDisc > 0) {
+    const retailCgst = gst ? baseRetail * (gst / 200) : 0
+    const retailSgst = gst ? baseRetail * (gst / 200) : 0
+    const retailBeforePromo = baseRetail + retailCgst + retailSgst
+    const total = retailBeforePromo * (1 - categoryDisc / 100)
+    return {
+      metal: metalVal,
+      mc,
+      stone: stoneAmt,
+      cgst: retailCgst,
+      sgst: retailSgst,
+      taxable: baseRetail,
+      total,
+      originalTotal: retailBeforePromo,
+      discountPercent: categoryDisc,
+      rate_per_gram: wt > 0 ? rate * (purity / 100) : 0,
+      net_weight: wt,
+      wholesale_retail_total: undefined,
+      is_wholesale_price: false,
+    }
+  }
+
+  const markup = accountMarkupPct(wIn, 0)
+  const acctDisc = accountDiscountPct(wIn, 0)
+  let taxable = baseRetail * (1 + markup / 100)
   const cgst = gst ? taxable * (gst / 200) : 0
   const sgst = gst ? taxable * (gst / 200) : 0
   const totalBeforeDiscount = taxable + cgst + sgst
-  const discountPct = Number((item as { discount_percentage?: number }).discount_percentage || 0) || 0
-  const total = discountPct > 0 ? totalBeforeDiscount * (1 - discountPct / 100) : totalBeforeDiscount
-  const retailTaxable = baseRetail
-  const retailCgst = gst ? retailTaxable * (gst / 200) : 0
-  const retailSgst = gst ? retailTaxable * (gst / 200) : 0
-  const retailBeforePromo = retailTaxable + retailCgst + retailSgst
-  const retailTotal = discountPct > 0 ? retailBeforePromo * (1 - discountPct / 100) : retailBeforePromo
+  const total =
+    acctDisc > 0 ? totalBeforeDiscount * (1 - acctDisc / 100) : totalBeforeDiscount
+  const retailCgst = gst ? baseRetail * (gst / 200) : 0
+  const retailSgst = gst ? baseRetail * (gst / 200) : 0
+  const retailBeforePromo = baseRetail + retailCgst + retailSgst
+  const wholesaleActive = !!wIn && (acctDisc > 0 || Math.abs(markup) > 1e-6)
   return {
     metal: metalVal,
-    mc: mcEff,
+    mc,
     stone: stoneAmt,
     cgst,
     sgst,
     taxable,
     total,
-    originalTotal: discountPct > 0 ? totalBeforeDiscount : undefined,
-    discountPercent: discountPct > 0 ? discountPct : undefined,
+    originalTotal: acctDisc > 0 ? totalBeforeDiscount : undefined,
+    discountPercent: acctDisc > 0 ? acctDisc : undefined,
     rate_per_gram: wt > 0 ? rate * (purity / 100) : 0,
     net_weight: wt,
-    wholesale_retail_total: wIn ? retailTotal : undefined,
-    is_wholesale_price: !!wIn,
+    wholesale_retail_total: wholesaleActive ? retailBeforePromo : undefined,
+    is_wholesale_price: wholesaleActive,
   }
 }

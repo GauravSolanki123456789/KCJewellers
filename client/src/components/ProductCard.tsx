@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Check, ExternalLink, Loader2 } from 'lucide-react'
+import { Check, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { productImageEmptyWellClass, productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
@@ -172,7 +172,6 @@ export default function ProductCard({
             productImageEmptyWellClass,
           )}
         >
-          <Loader2 className="size-7 animate-spin text-slate-400" aria-hidden />
           <span className="sr-only">{displayName} — awaiting photo</span>
         </div>
       )}

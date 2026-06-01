@@ -99,7 +99,7 @@ const ADMIN_SECTIONS = [
   },
   {
     title: 'B2B wholesale clients',
-    description: 'Tiers, reseller invite codes, application queue, MC discount, ledger',
+    description: 'Tiers, reseller invite codes, application queue, disc %, ledger',
     href: '/admin/b2b-clients',
     icon: Building2,
     color: 'emerald',

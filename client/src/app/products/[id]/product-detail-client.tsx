@@ -35,7 +35,6 @@ import {
 } from "@/lib/flat-product-image";
 import {
   productImageEmptyWellClass,
-  productImageLoadingShimmerClass,
   productImageWellClass,
 } from "@/lib/product-image-theme";
 import { productShareMessage } from "@/lib/whatsapp";
@@ -93,13 +92,11 @@ export default function ProductDetailClient({
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier();
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
-  const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(false);
-  const [pdpImageLoaded, setPdpImageLoaded] = useState(false);
+  const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(true);
 
   useEffect(() => {
     setImageAnalysis(null);
-    setPdpImageUnoptimized(false);
-    setPdpImageLoaded(false);
+    setPdpImageUnoptimized(true);
   }, [id, product?.image_url, product?.secondary_image_url]);
 
   useEffect(() => {
@@ -274,7 +271,6 @@ export default function ProductDetailClient({
   const handleProductImageLoad = useCallback(
     (e: SyntheticEvent<HTMLImageElement>) => {
       const el = e.currentTarget;
-      setPdpImageLoaded(true);
       if (shouldAnalyzeImageSurface(el)) {
         setImageAnalysis(analyzeProductImage(el));
       }
@@ -443,22 +439,6 @@ export default function ProductDetailClient({
               )}
               {activeGallerySrc ? (
                 <>
-                  <div
-                    aria-hidden
-                    className={cn(
-                      "pointer-events-none absolute inset-0 z-[1] transition-opacity duration-300",
-                      productImageLoadingShimmerClass,
-                      pdpImageLoaded ? "opacity-0" : "opacity-100",
-                    )}
-                  />
-                  {!pdpImageLoaded && (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
-                    >
-                      <Loader2 className="size-9 animate-spin text-slate-400/90" />
-                    </div>
-                  )}
                   {multiGallery ? (
                     <div
                       ref={galleryScrollRef}
@@ -507,7 +487,6 @@ export default function ProductDetailClient({
                                 unoptimized={pdpImageUnoptimized}
                                 decoding="async"
                                 draggable={false}
-                                onLoad={() => setPdpImageLoaded(true)}
                                 onError={() => {
                                   if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
                                 }}

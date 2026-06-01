@@ -45,6 +45,22 @@ type CatalogCategoryRow = {
   name: string
   slug?: string
   is_published?: boolean
+  product_count?: number
+  has_gold?: boolean
+  has_silver?: boolean
+  has_diamond?: boolean
+  has_gifting?: boolean
+}
+
+function resellerCategoryHint(c: CatalogCategoryRow): string {
+  const metals: string[] = []
+  if (c.has_gifting) metals.push('Gift Items')
+  if (c.has_gold) metals.push('Gold')
+  if (c.has_silver) metals.push('Silver')
+  if (c.has_diamond) metals.push('Diamond')
+  const n = c.product_count ?? 0
+  const countLabel = n === 1 ? '1 product' : `${n} products`
+  return metals.length ? `${metals.join(', ')} · ${countLabel}` : countLabel
 }
 
 const TIERS = ['B2C_CUSTOMER', 'B2B_WHOLESALE', 'RESELLER', 'ADMIN'] as const
@@ -339,6 +355,7 @@ function B2BAdminContent() {
               Set <code className="text-slate-400">customer_tier</code> for access: B2B wholesale,{' '}
               <strong className="text-slate-300 font-medium">RESELLER</strong> (white-label catalogue sharing), or ADMIN.
               Assign each reseller a unique <code className="text-slate-400">reseller_invite_code</code> for referrals.
+              <strong className="text-slate-300 font-medium"> Disc %</strong> applies only on styles without an existing retail promo discount.
               Review applications in the <strong className="text-slate-300 font-medium">Applications</strong> tab.
             </p>
           </div>
@@ -402,7 +419,9 @@ function B2BAdminContent() {
                   <th className="p-2">ID</th>
                   <th className="p-2">Client</th>
                   <th className="p-2">Tier</th>
-                  <th className="p-2">MC disc %</th>
+                  <th className="p-2" title="Extra discount for wholesale/reseller accounts. Not applied when the style already has a retail promo (e.g. 15% off ER SET).">
+                    Disc %
+                  </th>
                   <th className="p-2">Markup %</th>
                   <th className="p-2">Mobile</th>
                   <th className="p-2"></th>
@@ -741,7 +760,9 @@ function B2BAdminContent() {
                           />
                           <span className="text-sm text-slate-200">
                             {c.name}{' '}
-                            <span className="font-mono text-[11px] text-slate-500">#{c.id}</span>
+                            <span className="text-[11px] text-slate-500">
+                              ({resellerCategoryHint(c)})
+                            </span>
                           </span>
                         </label>
                       ))

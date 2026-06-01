@@ -9,40 +9,11 @@ import {
   type MouseEvent,
   type TouchEvent,
 } from "react";
-import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 import { catalogProductImageClass } from "@/lib/product-image-classes";
 import { productImageViewportWrapperClass } from "@/lib/flat-product-image";
-import {
-  productImageEmptyWellClass,
-  productImageLoadingShimmerClass,
-} from "@/lib/product-image-theme";
-
-function ProductImageSkeleton({ label }: { label?: string }) {
-  return (
-    <>
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-0 transition-opacity duration-200",
-          productImageLoadingShimmerClass,
-        )}
-      />
-      <div
-        className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 transition-opacity duration-200"
-        aria-hidden
-      >
-        <Loader2 className="size-7 animate-spin text-slate-400/80" />
-        {label ? (
-          <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-            {label}
-          </span>
-        ) : null}
-      </div>
-    </>
-  );
-}
+import { productImageEmptyWellClass } from "@/lib/product-image-theme";
 
 type SlideImageProps = {
   src: string;
@@ -54,7 +25,6 @@ type SlideImageProps = {
   priority: boolean;
   fetchPriority?: "high" | "low" | "auto";
   hoverFx?: boolean;
-  onLoad: () => void;
   onError: () => void;
   imageKey: string;
 };
@@ -69,7 +39,6 @@ function SlideImage({
   priority,
   fetchPriority,
   hoverFx = false,
-  onLoad,
   onError,
   imageKey,
 }: SlideImageProps) {
@@ -94,7 +63,6 @@ function SlideImage({
         priority={priority}
         fetchPriority={fetchPriority}
         draggable={false}
-        onLoad={onLoad}
         onError={onError}
       />
     </div>
@@ -148,7 +116,7 @@ export default function DualJewelleryProductImage({
   priority = false,
   fetchPriority,
   imageClassName,
-  unoptimized = false,
+  unoptimized = true,
 }: DualJewelleryProductImageProps) {
   const secondaryNorm =
     normalizeCatalogImageSrc(
@@ -162,8 +130,6 @@ export default function DualJewelleryProductImage({
   const [secErr, setSecErr] = useState(false);
   const [fallbackPrimUnopt, setFallbackPrimUnopt] = useState(false);
   const [fallbackSecUnopt, setFallbackSecUnopt] = useState(false);
-  const [primLoaded, setPrimLoaded] = useState(false);
-  const [secLoaded, setSecLoaded] = useState(false);
   const [mobileIdx, setMobileIdx] = useState(0);
   /** Desktop hover: show secondary on pointer over. */
   const [hoverBack, setHoverBack] = useState(false);
@@ -173,8 +139,6 @@ export default function DualJewelleryProductImage({
     setSecErr(false);
     setFallbackPrimUnopt(false);
     setFallbackSecUnopt(false);
-    setPrimLoaded(false);
-    setSecLoaded(false);
     setMobileIdx(0);
     setHoverBack(false);
     scrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
@@ -240,7 +204,6 @@ export default function DualJewelleryProductImage({
           productImageEmptyWellClass,
         )}
       >
-        <Loader2 className="size-6 text-slate-400 opacity-70" aria-hidden />
         <span className="px-4 text-center text-xs text-slate-500">Photo unavailable</span>
       </div>
     );
@@ -248,45 +211,34 @@ export default function DualJewelleryProductImage({
 
   if (!showDualUi) {
     return (
-      <>
-        <div
+      <div className={productImageViewportWrapperClass()}>
+        <Image
+          key={`${primarySrc}-${fallbackPrimUnopt ? "u" : "o"}`}
+          src={primarySrc}
+          alt={alt}
+          fill
+          quality={72}
+          sizes={sizes}
           className={cn(
-            "pointer-events-none absolute inset-0 z-[2] transition-opacity duration-300",
-            primLoaded ? "opacity-0" : "opacity-100",
+            catalogProductImageClass(subcategorySlug),
+            "transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]",
+            imageClassName,
           )}
-        >
-          <ProductImageSkeleton label="Loading" />
-        </div>
-        <div className={productImageViewportWrapperClass()}>
-          <Image
-            key={`${primarySrc}-${fallbackPrimUnopt ? "u" : "o"}`}
-            src={primarySrc}
-            alt={alt}
-            fill
-            quality={72}
-            sizes={sizes}
-            className={cn(
-              catalogProductImageClass(subcategorySlug),
-              "transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]",
-              imageClassName,
-            )}
-            unoptimized={unoptimized || fallbackPrimUnopt}
-            decoding="async"
-            loading={priority ? "eager" : "lazy"}
-            priority={priority}
-            fetchPriority={fetchP}
-            draggable={false}
-            onLoad={() => setPrimLoaded(true)}
-            onError={() => {
-              if (!fallbackPrimUnopt) {
-                setFallbackPrimUnopt(true);
-                return;
-              }
-              setPrimErr(true);
-            }}
-          />
-        </div>
-      </>
+          unoptimized={unoptimized || fallbackPrimUnopt}
+          decoding="async"
+          loading={priority ? "eager" : "lazy"}
+          priority={priority}
+          fetchPriority={fetchP}
+          draggable={false}
+          onError={() => {
+            if (!fallbackPrimUnopt) {
+              setFallbackPrimUnopt(true);
+              return;
+            }
+            setPrimErr(true);
+          }}
+        />
+      </div>
     );
   }
 
@@ -295,16 +247,6 @@ export default function DualJewelleryProductImage({
 
   return (
     <>
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 z-[5] transition-opacity duration-300",
-          (mobileIdx === 1 ? secLoaded : primLoaded) ? "opacity-0" : "opacity-100",
-          "md:opacity-0 md:pointer-events-none",
-        )}
-      >
-        <ProductImageSkeleton label="Loading" />
-      </div>
-
       {/* Mobile / tablet: horizontal snap scroll (swipe for alternate view). */}
       <div
         ref={scrollRef}
@@ -329,7 +271,6 @@ export default function DualJewelleryProductImage({
             priority={priority}
             fetchPriority={fetchP}
             imageKey={primKey}
-            onLoad={() => setPrimLoaded(true)}
             onError={() => {
               if (!fallbackPrimUnopt) {
                 setFallbackPrimUnopt(true);
@@ -350,7 +291,6 @@ export default function DualJewelleryProductImage({
             priority={priority}
             fetchPriority={priority ? "low" : fetchP}
             imageKey={secKey}
-            onLoad={() => setSecLoaded(true)}
             onError={() => {
               if (!fallbackSecUnopt) {
                 setFallbackSecUnopt(true);
@@ -385,7 +325,6 @@ export default function DualJewelleryProductImage({
             fetchPriority={fetchP}
             hoverFx
             imageKey={`desk-${primKey}`}
-            onLoad={() => setPrimLoaded(true)}
             onError={() => {
               if (!fallbackPrimUnopt) {
                 setFallbackPrimUnopt(true);
@@ -411,7 +350,6 @@ export default function DualJewelleryProductImage({
             priority={priority}
             fetchPriority="low"
             imageKey={`desk-${secKey}`}
-            onLoad={() => setSecLoaded(true)}
             onError={() => {
               if (!fallbackSecUnopt) {
                 setFallbackSecUnopt(true);
