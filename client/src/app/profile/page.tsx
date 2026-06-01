@@ -11,11 +11,13 @@ import {
   POLICY_TERMS_PATH,
   PROFILE_PATH,
   PROFILE_LEDGER_PATH,
+  RESELLER_PRODUCTS_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import Link from 'next/link'
-import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, ChevronRight, Package, BookMarked, ScrollText, LockKeyhole, ReceiptIndianRupee, Truck } from 'lucide-react'
+import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, ChevronRight, Package, BookMarked, ScrollText, LockKeyhole, ReceiptIndianRupee, Truck, Upload } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
 import {
@@ -45,7 +47,7 @@ export default function ProfilePage() {
 
 function ProfilePageContent() {
   const auth = useAuth()
-  const { hasB2bPortalAccess } = useCustomerTier()
+  const { hasB2bPortalAccess, customerTier } = useCustomerTier()
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const isAdmin = userHasAdminDashboardAccess(user)
@@ -55,6 +57,13 @@ function ProfilePageContent() {
     adminInbox && adminInbox.navAttentionCount > 0
       ? formatAdminInboxBadge(adminInbox.navAttentionCount)
       : ''
+
+  const resellerUploadsEnabled = Boolean(
+    auth.isAuthenticated &&
+      customerTier === CUSTOMER_TIER.RESELLER &&
+      auth.user &&
+      (auth.user as { reseller_product_uploads_enabled?: boolean }).reseller_product_uploads_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -118,13 +127,12 @@ function ProfilePageContent() {
           </div>
         </section>
 
-        {/* Reseller invite / application status */}
-        {auth.isAuthenticated && (
+        {auth.isAuthenticated ? (
           <>
             <ResellerInvitePanel />
             <ResellerApplicationStatusPanel />
           </>
-        )}
+        ) : null}
 
         {/* Wallet Balance - Glassmorphism */}
         <section className="mb-6">
@@ -146,6 +154,29 @@ function ProfilePageContent() {
             </div>
           </div>
         </section>
+
+        {/* Reseller product uploads */}
+        {resellerUploadsEnabled && (
+          <section className="mb-6">
+            <Link
+              href={RESELLER_PRODUCTS_PATH}
+              className="group block glass-card rounded-2xl overflow-hidden border border-violet-500/30 bg-gradient-to-br from-violet-500/[0.12] to-violet-950/25 shadow-lg shadow-black/20 transition hover:border-violet-500/50 hover:from-violet-500/20 active:scale-[0.99]"
+            >
+              <div className="flex min-h-[5.5rem] items-center gap-4 p-5">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-violet-500/15 ring-1 ring-violet-500/25 transition group-hover:bg-violet-500/25">
+                  <Upload className="size-6 text-violet-400" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-base font-semibold text-violet-300">Upload products</h2>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">
+                    Add items, photos & Excel — KC approves before live
+                  </p>
+                </div>
+                <ChevronRight className="size-5 shrink-0 text-violet-500/80 transition group-hover:translate-x-0.5" aria-hidden />
+              </div>
+            </Link>
+          </section>
+        )}
 
         {/* B2B wholesale — only approved wholesale accounts */}
         {auth.isAuthenticated && hasB2bPortalAccess && (

@@ -16,6 +16,7 @@ export type AdminInboxCounts = {
   newCustomersLast7Days: number
   customerActivityEvents24h: number
   resellerApplicationsPending: number
+  resellerProductSubmissionsPending: number
 }
 
 export type AdminInboxInsights = {
@@ -34,6 +35,7 @@ export type AdminUnreadCountsByAttentionSectionKey = {
   rate_bookings: number
   customer_insights: number
   reseller_applications: number
+  reseller_product_submissions: number
 }
 
 export type AdminInboxSummaryData = {

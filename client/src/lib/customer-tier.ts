@@ -25,6 +25,8 @@ export type WholesaleUserFields = {
   mobile_number?: string | null
   /** Admin toggle: shared catalogue links/PDFs show weight only (matches `users.reseller_hide_prices`). */
   reseller_hide_prices?: boolean
+  /** Admin enables staff product uploads at `/reseller/products`. */
+  reseller_product_uploads_enabled?: boolean
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

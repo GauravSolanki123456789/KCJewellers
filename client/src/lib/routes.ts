@@ -28,6 +28,8 @@ export const PROFILE_LEDGER_PATH = '/profile/ledger'
 export const SIP_PATH = '/sip'
 /** Public reseller onboarding — apply with admin-assigned `reseller_invite_code`. */
 export const JOIN_RESELLER_PATH = '/join-reseller'
+/** RESELLER tier — staff upload products + front/back photos (same fields as ERP sync). */
+export const RESELLER_PRODUCTS_PATH = '/reseller/products'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const

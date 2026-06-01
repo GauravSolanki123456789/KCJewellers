@@ -66,6 +66,7 @@ const {
     getResellerDefaultKcThemeId,
     resolveUserKcThemeId,
 } = require('./services/kcThemeSettings');
+const { registerResellerProductRoutes } = require('./services/resellerProductSubmissions');
 
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
 const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
@@ -651,6 +652,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_invite_code: resolvedUser.reseller_invite_code
                     ? normalizeResellerInviteCode(resolvedUser.reseller_invite_code)
                     : null,
+                reseller_product_uploads_enabled: !!resolvedUser.reseller_product_uploads_enabled,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
                     ? String(resolvedUser.kc_theme_id).trim()
@@ -1224,6 +1226,18 @@ app.post('/api/admin/reseller-applications/:id/reject', isAdminStrict, requireJs
         console.error('reject reseller application:', error);
         res.status(500).json({ error: error.message });
     }
+});
+
+registerResellerProductRoutes(app, {
+    query,
+    pool,
+    getPublicApiBaseUrl,
+    lookUpSecondaryDisk,
+    resolveSecondaryUrlFromPayload,
+    indexSyncedWebProductSecondaryUploads,
+    isAdminStrict,
+    uploadsWebProductsDir,
+    SYNC_RECEIVE_UPLOAD,
 });
 
 // ==========================================
@@ -3892,6 +3906,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             params.push(!!reseller_hide_prices);
         }
 
+        if (req.body.reseller_product_uploads_enabled !== undefined) {
+            updates.push(`reseller_product_uploads_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_product_uploads_enabled);
+        }
+
         if (reseller_invite_code !== undefined) {
             const tierForCode = String(
                 customer_tier !== undefined ? customer_tier : user.customer_tier || '',
@@ -5640,6 +5659,7 @@ const KC_ADMIN_ATTENTION_SECTION_KEYS = new Set([
     'rate_bookings',
     'customer_insights',
     'reseller_applications',
+    'reseller_product_submissions',
 ]);
 
 async function loadAdminAttentionLastSeenMap(userId) {
@@ -5695,6 +5715,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
         const seenBookings = seenMap.rate_bookings || null;
         const seenInsights = seenMap.customer_insights || null;
         const seenResellerApps = seenMap.reseller_applications || null;
+        const seenResellerProducts = seenMap.reseller_product_submissions || null;
 
         const insightsUserExclusion = `LOWER(TRIM(COALESCE(email, ''))) <> 'jaigaurav56789@gmail.com' AND COALESCE(role, '') NOT IN ('admin', 'super_admin')`;
 
@@ -5707,6 +5728,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             newUsersRows,
             activityRows,
             resellerAppPendingRows,
+            resellerProductPendingRows,
         ] = await Promise.all([
             query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'B2B_WHOLESALE' AND payment_status = 'PENDING_APPROVAL'`),
             query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'RETAIL' AND payment_status = 'PENDING'`),
@@ -5716,6 +5738,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             query(`SELECT COUNT(*)::int AS n FROM users WHERE created_at >= NOW() - INTERVAL '7 days' AND ${insightsUserExclusion}`),
             query(`SELECT COUNT(*)::int AS n FROM user_activity_logs WHERE created_at >= NOW() - INTERVAL '24 hours'`),
             query(`SELECT COUNT(*)::int AS n FROM reseller_applications WHERE application_status = 'pending'`).catch(() => [{ n: 0 }]),
+            query(`SELECT COUNT(*)::int AS n FROM reseller_product_submissions WHERE submission_status = 'pending'`).catch(() => [{ n: 0 }]),
         ]);
 
         const b2bOrdersPendingApproval = Number(b2bRows[0]?.n || 0);
@@ -5726,6 +5749,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
         const newCustomersLast7Days = Number(newUsersRows[0]?.n || 0);
         const customerActivityEvents24h = Number(activityRows[0]?.n || 0);
         const resellerApplicationsPending = Number(resellerAppPendingRows[0]?.n || 0);
+        const resellerProductSubmissionsPending = Number(resellerProductPendingRows[0]?.n || 0);
 
         let insightsAttentionOperational = newCustomersLast7Days;
         if (insightsAttentionOperational === 0 && customerActivityEvents24h > 0) {
@@ -5799,6 +5823,17 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             ).catch(() => [{ n: resellerApplicationsPending }]);
         const resellerApplicationsUnread = Number(resellerAppsUnreadRows[0]?.n || 0);
 
+        const resellerProductUnreadRows = seenResellerProducts
+            ? await query(
+                `SELECT COUNT(*)::int AS n FROM reseller_product_submissions
+                 WHERE submission_status = 'pending' AND created_at::timestamptz > $1`,
+                [seenResellerProducts],
+            ).catch(() => [{ n: resellerProductSubmissionsPending }])
+            : await query(
+                `SELECT COUNT(*)::int AS n FROM reseller_product_submissions WHERE submission_status = 'pending'`,
+            ).catch(() => [{ n: resellerProductSubmissionsPending }]);
+        const resellerProductSubmissionsUnread = Number(resellerProductUnreadRows[0]?.n || 0);
+
         const insights = {
             newSignupsLast7Days: newCustomersLast7Days,
             hasVisitorActivity24h: customerActivityEvents24h > 0,
@@ -5810,7 +5845,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             '/admin/sip/payouts': sipPayoutsUnread,
             '/admin/liabilities': 0,
             '/admin/transactions': 0,
-            '/admin/products': 0,
+            '/admin/products': resellerProductSubmissionsUnread,
             '/admin/bookings': rateBookingsUnread,
             '/admin/orders': retailOrdersUnread,
             '/admin/orders/b2b': b2bOrdersUnread,
@@ -5826,7 +5861,8 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             b2bOrdersPendingApproval +
             sipPayoutsPending +
             rateBookingsRecentBooked +
-            resellerApplicationsPending;
+            resellerApplicationsPending +
+            resellerProductSubmissionsPending;
 
         const unreadSum =
             retailOrdersUnread +
@@ -5834,7 +5870,8 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             sipPayoutsUnread +
             rateBookingsUnread +
             insightsUnread +
-            resellerApplicationsUnread;
+            resellerApplicationsUnread +
+            resellerProductSubmissionsUnread;
         const navAttentionCount = Math.min(99, unreadSum);
 
         res.json({
@@ -5849,6 +5886,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
                     newCustomersLast7Days,
                     customerActivityEvents24h,
                     resellerApplicationsPending,
+                    resellerProductSubmissionsPending,
                 },
                 insights,
                 badgesByHref,
@@ -5861,6 +5899,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
                     rate_bookings: rateBookingsUnread,
                     customer_insights: insightsUnread,
                     reseller_applications: resellerApplicationsUnread,
+                    reseller_product_submissions: resellerProductSubmissionsUnread,
                 },
                 generatedAt: new Date().toISOString(),
             },

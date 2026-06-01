@@ -27,6 +27,7 @@ import {
 } from '@/components/icons/metal-tab-icons'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
+import { ResellerProductSubmissionsPanel } from '@/components/admin/ResellerProductSubmissionsPanel'
 import { mergeDesignGroupOrder } from '@/lib/design-group-order'
 import {
   CATALOG_AUDIENCE_OPTIONS,
@@ -745,6 +746,8 @@ export default function AdminProductsPage() {
             >
               <ArrowLeft className="size-4" /> Back to Dashboard
             </Link>
+
+            <ResellerProductSubmissionsPanel />
 
             {/* Metal tabs — 2×2 on mobile, row on sm+ */}
             <div className="flex justify-center mb-6 px-1">
