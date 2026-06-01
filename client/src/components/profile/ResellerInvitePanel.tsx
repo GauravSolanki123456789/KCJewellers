@@ -57,10 +57,12 @@ function CopyChip({
   label,
   value,
   mono,
+  embedded,
 }: {
   label: string
   value: string
   mono?: boolean
+  embedded?: boolean
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -76,18 +78,32 @@ function CopyChip({
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-900/50 p-3">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">{label}</p>
+    <div
+      className={
+        embedded
+          ? 'rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] p-3'
+          : 'rounded-xl border border-white/10 bg-slate-900/50 p-3'
+      }
+    >
+      <p
+        className={`text-[11px] font-medium uppercase tracking-wider ${embedded ? 'text-[var(--color-jewelry-black,#1a1814)]/50' : 'text-slate-500'}`}
+      >
+        {label}
+      </p>
       <div className="mt-2 flex items-center gap-2">
         <p
-          className={`min-w-0 flex-1 truncate text-sm text-slate-100 ${mono ? 'font-mono uppercase tracking-wide' : ''}`}
+          className={`min-w-0 flex-1 truncate text-sm ${mono ? 'font-mono uppercase tracking-wide' : ''} ${embedded ? 'text-[var(--color-jewelry-black,#1a1814)]' : 'text-slate-100'}`}
         >
           {value}
         </p>
         <button
           type="button"
           onClick={() => void copy()}
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-violet-500/30 hover:bg-violet-500/10 hover:text-violet-200 touch-manipulation"
+          className={
+            embedded
+              ? 'inline-flex shrink-0 items-center gap-1 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/40 touch-manipulation'
+              : 'inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-violet-500/30 hover:bg-violet-500/10 hover:text-violet-200 touch-manipulation'
+          }
           aria-label={`Copy ${label}`}
         >
           {copied ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
@@ -99,7 +115,7 @@ function CopyChip({
 }
 
 /** RESELLER tier — show invite code, share link, WhatsApp, referral list. */
-export function ResellerInvitePanel() {
+export function ResellerInvitePanel({ embedded = false }: { embedded?: boolean }) {
   const auth = useAuth()
   const { customerTier, tierReady } = useCustomerTier()
   const businessName =
@@ -147,18 +163,45 @@ export function ResellerInvitePanel() {
       : ''
 
   return (
-    <section className="mb-6">
-      <div className="glass-card overflow-hidden rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-500/[0.08] to-amber-500/[0.04]">
-        <div className="border-b border-white/10 px-4 py-4 sm:px-5">
+    <section className={embedded ? '' : 'mb-6'}>
+      <div
+        className={
+          embedded
+            ? 'kc-profile-card overflow-hidden rounded-2xl'
+            : 'glass-card overflow-hidden rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-500/[0.08] to-amber-500/[0.04]'
+        }
+      >
+        <div
+          className={
+            embedded
+              ? 'border-b border-[var(--color-slate-700,#e8e4df)] px-4 py-3.5'
+              : 'border-b border-white/10 px-4 py-4 sm:px-5'
+          }
+        >
           <div className="flex items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/15">
-              <Store className="size-5 text-violet-300" aria-hidden />
+            <div
+              className={
+                embedded
+                  ? 'flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]'
+                  : 'flex size-10 shrink-0 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/15'
+              }
+            >
+              <Store
+                className={`size-5 ${embedded ? 'text-[var(--color-jewelry-black,#1a1814)]/70' : 'text-violet-300'}`}
+                aria-hidden
+              />
             </div>
             <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-semibold text-slate-100">Reseller programme</h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                Share your invite link so others can apply to become a reseller. KC admin will
-                approve and set up their domain.
+              <h2
+                className={`text-sm font-semibold ${embedded ? 'text-[var(--color-jewelry-black,#1a1814)]' : 'text-lg text-slate-100'}`}
+              >
+                Reseller programme
+              </h2>
+              <p
+                className={`mt-0.5 text-xs leading-relaxed ${embedded ? 'text-[var(--color-jewelry-black,#1a1814)]/55' : 'mt-1 text-slate-400'}`}
+              >
+                Share your invite link so others can apply to become a reseller. KC admin will approve
+                and set up their domain.
               </p>
             </div>
           </div>
@@ -183,8 +226,12 @@ export function ResellerInvitePanel() {
             </div>
           ) : (
             <>
-              <CopyChip label="Your invite code" value={inviteCode} mono />
-              <CopyChip label="Share link" value={shareUrl || `${JOIN_RESELLER_PATH}?code=${inviteCode}`} />
+              <CopyChip label="Your invite code" value={inviteCode} mono embedded={embedded} />
+              <CopyChip
+                label="Share link"
+                value={shareUrl || `${JOIN_RESELLER_PATH}?code=${inviteCode}`}
+                embedded={embedded}
+              />
 
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <WhatsAppShareButton
@@ -210,7 +257,11 @@ export function ResellerInvitePanel() {
                       /* user cancelled */
                     }
                   }}
-                  className="inline-flex min-h-[44px] w-full flex-1 items-center justify-center gap-2 rounded-lg border border-white/15 bg-slate-800/50 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 touch-manipulation sm:w-auto"
+                  className={
+                    embedded
+                      ? 'inline-flex min-h-[44px] w-full flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/40 touch-manipulation sm:w-auto'
+                      : 'inline-flex min-h-[44px] w-full flex-1 items-center justify-center gap-2 rounded-lg border border-white/15 bg-slate-800/50 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 touch-manipulation sm:w-auto'
+                  }
                 >
                   <Share2 className="size-4" aria-hidden />
                   Share link
@@ -301,30 +352,32 @@ export function ResellerApplicationStatusPanel() {
 
   return (
     <section className="mb-6">
-      <div className="glass-card rounded-2xl border border-white/10 px-4 py-4 sm:px-5">
+      <div className="kc-profile-card rounded-2xl px-4 py-4 sm:px-5">
         <div className="flex items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/15">
-            <UserPlus className="size-5 text-amber-400" aria-hidden />
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
+            <UserPlus className="size-5 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-100">Reseller application</h2>
+              <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Reseller application
+              </h2>
               <span
                 className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resellerApplicationStatusTone(application.application_status)}`}
               >
                 {resellerApplicationStatusLabel(application.application_status)}
               </span>
             </div>
-            <p className="mt-1 text-sm text-slate-400">{application.business_name}</p>
+            <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]/65">{application.business_name}</p>
             {referrer && (
-              <p className="mt-1 text-xs text-violet-400/90">
+              <p className="mt-1 text-xs text-[var(--kc-accent,#c41e3a)]/85">
                 Referred via code{' '}
                 <span className="font-mono">{application.reseller_invite_code}</span>
                 {referrer ? ` · ${referrer}` : ''}
               </p>
             )}
             {application.application_status === 'pending' && (
-              <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-500">
+              <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
                 <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                 Our team will contact you for domain setup and catalogue access.
               </p>
@@ -332,7 +385,7 @@ export function ResellerApplicationStatusPanel() {
             {application.application_status === 'approved' && (
               <Link
                 href={PROFILE_PATH}
-                className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-emerald-400 hover:underline"
+                className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
               >
                 You&apos;re approved — sign out and back in if features don&apos;t appear
                 <ChevronRight className="size-3.5" />

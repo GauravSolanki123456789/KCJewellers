@@ -323,10 +323,16 @@ function strictAdminOrigin(req, res, next) {
     if (!ok) return res.status(403).json({ error: 'Forbidden origin' });
     next();
 }
-// Allow multipart for diamond-details + reseller logo uploads; require JSON for other admin writes
+// Allow multipart for diamond-details, reseller logo, and reseller product photo uploads
 const adminRequireJson = (req, res, next) => {
     const pathOnly = String(req.path || req.url || '').split('?')[0];
-    if (pathOnly.includes('diamond-details') || pathOnly.includes('reseller-logo')) return next();
+    if (
+        pathOnly.includes('diamond-details') ||
+        pathOnly.includes('reseller-logo') ||
+        pathOnly.includes('reseller-product-submissions')
+    ) {
+        return next();
+    }
     return requireJson(req, res, next);
 };
 

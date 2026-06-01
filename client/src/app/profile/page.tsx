@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, type ComponentType } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import {
@@ -11,13 +11,29 @@ import {
   POLICY_TERMS_PATH,
   PROFILE_PATH,
   PROFILE_LEDGER_PATH,
+  PROFILE_SIPS_PATH,
   RESELLER_PRODUCTS_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import Link from 'next/link'
-import { Wallet, History, LayoutDashboard, User, Sparkles, LogOut, TrendingUp, ChevronRight, Package, BookMarked, ScrollText, LockKeyhole, ReceiptIndianRupee, Truck, Upload } from 'lucide-react'
+import {
+  Wallet,
+  History,
+  LayoutDashboard,
+  User,
+  LogOut,
+  TrendingUp,
+  ChevronRight,
+  Package,
+  BookMarked,
+  ScrollText,
+  LockKeyhole,
+  ReceiptIndianRupee,
+  Truck,
+  Upload,
+} from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
 import {
@@ -29,17 +45,107 @@ import { userHasAdminDashboardAccess, userCanCallStrictAdminApi } from '@/lib/ad
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 
 const LEGAL_SUPPORT_LINKS = [
-  { href: POLICY_TERMS_PATH, label: 'Terms & Conditions', icon: ScrollText, tone: 'text-amber-400', bg: 'bg-amber-500/15' },
-  { href: POLICY_PRIVACY_PATH, label: 'Privacy Policy', icon: LockKeyhole, tone: 'text-sky-400', bg: 'bg-sky-500/15' },
-  { href: POLICY_REFUNDS_PATH, label: 'Refunds & cancellations', icon: ReceiptIndianRupee, tone: 'text-rose-400', bg: 'bg-rose-500/15' },
-  { href: POLICY_SHIPPING_PATH, label: 'Shipping & delivery', icon: Truck, tone: 'text-emerald-400', bg: 'bg-emerald-500/15' },
+  { href: POLICY_TERMS_PATH, label: 'Terms', icon: ScrollText },
+  { href: POLICY_PRIVACY_PATH, label: 'Privacy', icon: LockKeyhole },
+  { href: POLICY_REFUNDS_PATH, label: 'Refunds', icon: ReceiptIndianRupee },
+  { href: POLICY_SHIPPING_PATH, label: 'Shipping', icon: Truck },
 ] as const
 
 type UserType = { role?: string; email?: string; name?: string; mobile_number?: string }
 
+function ProfileSectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-jewelry-black,#94a3b8)]/55">
+      {children}
+    </h2>
+  )
+}
+
+function ProfileActionCard({
+  href,
+  onClick,
+  icon: Icon,
+  title,
+  subtitle,
+  badge,
+  primary,
+}: {
+  href?: string
+  onClick?: () => void
+  icon: ComponentType<{ className?: string }>
+  title: string
+  subtitle?: string
+  badge?: string
+  primary?: boolean
+}) {
+  const inner = (
+    <>
+      <div
+        className={`flex size-11 shrink-0 items-center justify-center rounded-xl ring-1 ${
+          primary
+            ? 'bg-[var(--kc-accent,#c41e3a)]/12 ring-[var(--kc-accent,#c41e3a)]/25'
+            : 'bg-[var(--color-slate-900,#f7f4ef)] ring-[var(--color-slate-700,#e8e4df)]'
+        }`}
+      >
+        <Icon
+          className={`size-5 ${primary ? 'text-[var(--kc-accent,#c41e3a)]' : 'text-[var(--color-jewelry-black,#1a1814)]/70'}`}
+          aria-hidden
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p
+          className={`text-sm font-semibold leading-snug ${
+            primary ? 'text-[var(--kc-accent,#c41e3a)]' : 'text-[var(--color-jewelry-black,#1a1814)]'
+          }`}
+        >
+          {title}
+        </p>
+        {subtitle ? (
+          <p className="mt-0.5 text-xs leading-snug text-[var(--color-jewelry-black,#1a1814)]/55">{subtitle}</p>
+        ) : null}
+      </div>
+      {badge ? (
+        <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 px-2 text-[10px] font-bold text-white">
+          {badge}
+        </span>
+      ) : null}
+      <ChevronRight
+        className={`size-4 shrink-0 ${primary ? 'text-[var(--kc-accent,#c41e3a)]/70' : 'text-[var(--color-jewelry-black,#1a1814)]/35'}`}
+        aria-hidden
+      />
+    </>
+  )
+
+  const cls = `kc-profile-card group flex min-h-[4.25rem] w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left transition active:scale-[0.99] ${
+    primary
+      ? 'border-[var(--kc-accent,#c41e3a)]/30 bg-[var(--kc-accent,#c41e3a)]/[0.06] hover:border-[var(--kc-accent,#c41e3a)]/45 hover:bg-[var(--kc-accent,#c41e3a)]/10'
+      : 'hover:border-[var(--color-slate-700,#d6d3d1)] hover:bg-[var(--color-slate-900,#faf8f4)]'
+  }`
+
+  if (href) {
+    return (
+      <Link href={href} className={cls}>
+        {inner}
+      </Link>
+    )
+  }
+
+  return (
+    <button type="button" onClick={onClick} className={cls}>
+      {inner}
+    </button>
+  )
+}
+
 export default function ProfilePage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-slate-400">Loading profile...</div></div>}>
+    <Suspense
+      fallback={
+        <div className="kc-profile-page flex min-h-screen items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/50">
+          Loading profile…
+        </div>
+      }
+    >
       <ProfilePageContent />
     </Suspense>
   )
@@ -58,9 +164,10 @@ function ProfilePageContent() {
       ? formatAdminInboxBadge(adminInbox.navAttentionCount)
       : ''
 
+  const isReseller = customerTier === CUSTOMER_TIER.RESELLER
   const resellerUploadsEnabled = Boolean(
     auth.isAuthenticated &&
-      customerTier === CUSTOMER_TIER.RESELLER &&
+      isReseller &&
       auth.user &&
       (auth.user as { reseller_product_uploads_enabled?: boolean }).reseller_product_uploads_enabled,
   )
@@ -70,276 +177,191 @@ function ProfilePageContent() {
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
       window.location.href = HOME_PATH
-    } catch (error) {
-      console.error('Logout error:', error)
+    } catch {
       window.location.href = HOME_PATH
     }
   }
 
+  const displayName =
+    user?.name || user?.email || (user?.mobile_number ? `+91 ${user.mobile_number}` : 'User')
+  const displaySub = user?.email || (user?.mobile_number ? `+91 ${user.mobile_number}` : '')
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <main className="max-w-4xl mx-auto px-4 py-8 kc-pb-mobile-nav md:pb-12">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 bg-clip-text text-transparent flex items-center gap-2">
-            <Sparkles className="size-6 text-amber-500" />
-            Profile
-          </h1>
-          {auth.isAuthenticated && user && (
+    <div className="kc-profile-page min-h-screen bg-[var(--color-slate-950,#0f172a)] text-[var(--color-jewelry-black,#f1f5f9)]">
+      <main className="mx-auto max-w-lg px-4 py-6 kc-pb-mobile-nav md:max-w-xl md:py-8 md:pb-12">
+        {/* User header */}
+        <header className="mb-6">
+          <h1 className="text-xl font-semibold text-[var(--color-jewelry-black,#1a1814)]">Profile</h1>
+          {auth.isAuthenticated && user ? (
             <div className="mt-2">
-              <p className="text-slate-300 font-medium">{user.name || user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : 'User')}</p>
-              {(user.email || user.mobile_number) && (
-                <p className="text-slate-500 text-sm">{user.email || (user.mobile_number ? `+91 ${user.mobile_number}` : '')}</p>
-              )}
-              {user.role === 'super_admin' && (
-                <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">
+              <p className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{displayName}</p>
+              {displaySub ? (
+                <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">{displaySub}</p>
+              ) : null}
+              {user.role === 'super_admin' ? (
+                <span className="mt-2 inline-block rounded-full border border-[var(--kc-accent,#c41e3a)]/30 bg-[var(--kc-accent,#c41e3a)]/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#c41e3a)]">
                   Admin
                 </span>
-              )}
+              ) : null}
             </div>
-          )}
-        </div>
+          ) : null}
+        </header>
 
-        {/* Legal & policies — grid on tablet+; large tap targets on mobile */}
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-1">
-            Legal & support
-          </h2>
-          <p className="text-xs text-slate-600 mb-3">
-            Policies and help — use &quot;Back to profile&quot; on each page to return here.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-            {LEGAL_SUPPORT_LINKS.map(({ href, label, icon: Icon, tone, bg }) => (
-              <Link
-                key={href}
-                href={href}
-                className="glass-card flex min-h-[52px] items-center justify-between gap-3 rounded-xl border border-white/10 px-4 py-3 text-slate-200 transition-colors hover:border-amber-500/25 hover:bg-white/5 active:bg-white/[0.07]"
-              >
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${bg}`}>
-                    <Icon className={`size-[18px] ${tone}`} aria-hidden />
-                  </span>
-                  <span className="text-sm font-medium leading-snug">{label}</span>
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-slate-500" aria-hidden />
-              </Link>
-            ))}
-          </div>
-        </section>
-
-        {auth.isAuthenticated ? (
-          <>
-            <ResellerInvitePanel />
-            <ResellerApplicationStatusPanel />
-          </>
-        ) : null}
-
-        {/* Wallet Balance - Glassmorphism */}
-        <section className="mb-6">
-          <div className="glass-card rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/30">
-                  <Wallet className="size-6 text-amber-500" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-200">Wallet Balance</h2>
-                  <p className="text-xs text-slate-500">Available for purchases & bookings</p>
-                </div>
-              </div>
-              <div className="text-3xl font-bold text-amber-500 tabular-nums">
-                ₹0
-              </div>
-              <p className="text-xs text-slate-500 mt-1">Add funds to get started</p>
-            </div>
-          </div>
-        </section>
-
-        {/* Reseller product uploads */}
-        {resellerUploadsEnabled && (
-          <section className="mb-6">
-            <Link
-              href={RESELLER_PRODUCTS_PATH}
-              className="group block glass-card rounded-2xl overflow-hidden border border-violet-500/30 bg-gradient-to-br from-violet-500/[0.12] to-violet-950/25 shadow-lg shadow-black/20 transition hover:border-violet-500/50 hover:from-violet-500/20 active:scale-[0.99]"
-            >
-              <div className="flex min-h-[5.5rem] items-center gap-4 p-5">
-                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-violet-500/15 ring-1 ring-violet-500/25 transition group-hover:bg-violet-500/25">
-                  <Upload className="size-6 text-violet-400" aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-base font-semibold text-violet-300">Upload products</h2>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">
-                    Add items, photos & Excel — send batches for KC review
-                  </p>
-                </div>
-                <ChevronRight className="size-5 shrink-0 text-violet-500/80 transition group-hover:translate-x-0.5" aria-hidden />
-              </div>
-            </Link>
-          </section>
-        )}
-
-        {/* B2B wholesale — only approved wholesale accounts */}
-        {auth.isAuthenticated && hasB2bPortalAccess && (
-          <section className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Link
-              href={WHOLESALE_ORDER_PATH}
-              className="group block glass-card rounded-2xl overflow-hidden border border-emerald-500/30 bg-gradient-to-br from-emerald-500/[0.12] to-emerald-950/25 shadow-lg shadow-black/20 transition hover:border-emerald-500/50 hover:from-emerald-500/20 active:scale-[0.99]"
-            >
-              <div className="flex min-h-[5.5rem] items-center gap-4 p-5">
-                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/25 transition group-hover:bg-emerald-500/25">
-                  <Package className="size-6 text-emerald-400" aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-base font-semibold text-emerald-300">Wholesale quick order</h2>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">SKU matrix & bulk add to cart</p>
-                </div>
-                <ChevronRight className="size-5 shrink-0 text-emerald-500/80 transition group-hover:translate-x-0.5" aria-hidden />
-              </div>
-            </Link>
-            <Link
-              href={PROFILE_LEDGER_PATH}
-              className="group block glass-card rounded-2xl overflow-hidden border border-emerald-500/30 bg-gradient-to-br from-emerald-500/[0.12] to-emerald-950/25 shadow-lg shadow-black/20 transition hover:border-emerald-500/50 hover:from-emerald-500/20 active:scale-[0.99]"
-            >
-              <div className="flex min-h-[5.5rem] items-center gap-4 p-5">
-                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/25 transition group-hover:bg-emerald-500/25">
-                  <BookMarked className="size-6 text-emerald-400" aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-base font-semibold text-emerald-300">Ledger (Khata)</h2>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">Rupee & fine metal balances</p>
-                </div>
-                <ChevronRight className="size-5 shrink-0 text-emerald-500/80 transition group-hover:translate-x-0.5" aria-hidden />
-              </div>
-            </Link>
-          </section>
-        )}
-
-        {/* My SIP Investments - For all authenticated customers */}
-        {auth.isAuthenticated && (
-          <section className="mb-6">
-            <Link
-              href="/profile/sips"
-              className="block glass-card rounded-2xl overflow-hidden border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 transition-all group"
-            >
-              <div className="p-6 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/30 group-hover:bg-amber-500/30 transition-colors">
-                    <TrendingUp className="size-8 text-amber-500" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-amber-400">My SIPs</h2>
-                    <p className="text-sm text-slate-500">Track your Gold, Silver & Diamond investments</p>
-                  </div>
-                </div>
-                <span className="text-amber-500 group-hover:translate-x-1 transition-transform">→</span>
-              </div>
-            </Link>
-          </section>
-        )}
-
-        {/* Order History / Active Bookings */}
-        {auth.isAuthenticated && (
-          <section className="mb-6">
-            <div className="glass-card rounded-2xl overflow-hidden border border-white/10">
-              <div className="px-5 sm:px-6 py-4 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <History className="size-5 text-slate-400 shrink-0" />
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-200">Orders & rate bookings</h2>
-                    <p className="text-xs text-slate-500">Status, items, and quick WhatsApp to KC</p>
-                  </div>
-                </div>
-              </div>
-              <ProfileOrderHistory />
-            </div>
-          </section>
-        )}
-
-        {/* Admin Dashboard - Only for admin */}
-        {isAdmin && (
-          <section className="mb-6">
-            <Link
-              href="/admin"
-              className="group relative block glass-card rounded-2xl overflow-hidden border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 transition-all"
-            >
-              {adminNavBadge && (
-                <span
-                  className="absolute right-12 top-4 z-10 flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-bold tabular-nums text-white shadow-md sm:right-14 sm:top-5"
-                  aria-label={`${adminNavBadge} admin updates`}
-                >
-                  {adminNavBadge}
-                </span>
-              )}
-              <div className="p-6 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/30 group-hover:bg-amber-500/30 transition-colors shrink-0">
-                    <LayoutDashboard className="size-8 text-amber-500" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-lg font-semibold text-amber-400">Admin Dashboard</h2>
-                    <p className="text-sm text-slate-500">
-                      {adminInbox && adminInbox.totalAttentionCount > 0
-                        ? `${adminInbox.totalAttentionCount} operational item${adminInbox.totalAttentionCount === 1 ? '' : 's'} need attention`
-                        : adminInbox &&
-                            (adminInbox.insights.newSignupsLast7Days > 0 ||
-                              adminInbox.insights.hasVisitorActivity24h)
-                          ? 'New customers or site activity — open the dashboard for details'
-                          : 'Manage rates, margins, products, SIP plans & more'}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-amber-500 group-hover:translate-x-1 transition-transform shrink-0" aria-hidden>
-                  →
-                </span>
-              </div>
-            </Link>
-          </section>
-        )}
-
-        {/* Logout Button - Only when authenticated */}
-        {auth.isAuthenticated && (
-          <section className="mb-6">
-            <button
-              onClick={handleLogout}
-              className="w-full glass-card rounded-2xl overflow-hidden border border-red-500/30 bg-gradient-to-br from-red-500/10 to-red-500/5 hover:from-red-500/20 hover:to-red-500/10 transition-all group"
-            >
-              <div className="p-6 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-red-500/20 border border-red-500/30 group-hover:bg-red-500/30 transition-colors">
-                    <LogOut className="size-8 text-red-500" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-red-400">Logout</h2>
-                    <p className="text-sm text-slate-500">Sign out of your account</p>
-                  </div>
-                </div>
-                <span className="text-red-500 group-hover:translate-x-1 transition-transform">→</span>
-              </div>
-            </button>
-          </section>
-        )}
-
-        {/* Sign in prompt when not authenticated */}
-        {!auth.isAuthenticated && (
-          <div className="glass-card rounded-2xl p-8 text-center border border-white/10">
-            <User className="size-12 text-slate-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-300">Sign in to view your profile</h3>
-            <p className="text-slate-500 mt-2 text-sm">Access wallet, bookings, and order history</p>
-            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+        {!auth.isAuthenticated ? (
+          <div className="kc-profile-card rounded-2xl px-6 py-10 text-center">
+            <User className="mx-auto mb-4 size-12 text-[var(--color-jewelry-black,#1a1814)]/25" />
+            <h3 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Sign in to view your profile
+            </h3>
+            <p className="mt-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+              Access wallet, bookings, and order history
+            </p>
+            <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
               <button
-                onClick={() => openLoginModal('/profile')}
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-lg transition-colors"
+                type="button"
+                onClick={() => openLoginModal(PROFILE_PATH)}
+                className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-[var(--kc-accent,#c41e3a)] px-6 py-2.5 text-sm font-semibold text-white"
               >
-                Sign In
+                Sign in
               </button>
               <a
                 href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google?returnTo=${encodeURIComponent(PROFILE_PATH)}`}
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 border border-slate-600 hover:border-slate-500 bg-slate-800/50 text-slate-200 font-medium rounded-lg transition-colors"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-6 py-2.5 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]"
               >
-                Sign In with Google
+                Sign in with Google
               </a>
             </div>
           </div>
+        ) : (
+          <>
+            {/* ——— Reseller quick actions (most important first) ——— */}
+            {(resellerUploadsEnabled || isReseller) && (
+              <section className="mb-6 space-y-2">
+                <ProfileSectionHeading>Reseller</ProfileSectionHeading>
+                {resellerUploadsEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_PRODUCTS_PATH}
+                    icon={Upload}
+                    title="Upload products"
+                    subtitle="Add items, photos & Excel — send batches for KC review"
+                    primary
+                  />
+                ) : null}
+                {isReseller ? <ResellerInvitePanel embedded /> : null}
+              </section>
+            )}
+
+            {/* Pending reseller application (non-resellers only) */}
+            <ResellerApplicationStatusPanel />
+
+            {/* Admin */}
+            {isAdmin ? (
+              <section className="mb-6 space-y-2">
+                <ProfileSectionHeading>Administration</ProfileSectionHeading>
+                <ProfileActionCard
+                  href="/admin"
+                  icon={LayoutDashboard}
+                  title="Admin dashboard"
+                  subtitle={
+                    adminInbox && adminInbox.totalAttentionCount > 0
+                      ? `${adminInbox.totalAttentionCount} item${adminInbox.totalAttentionCount === 1 ? '' : 's'} need attention`
+                      : 'Rates, products, orders & more'
+                  }
+                  badge={adminNavBadge || undefined}
+                />
+              </section>
+            ) : null}
+
+            {/* B2B wholesale */}
+            {hasB2bPortalAccess ? (
+              <section className="mb-6 space-y-2">
+                <ProfileSectionHeading>Wholesale</ProfileSectionHeading>
+                <div className="space-y-2">
+                  <ProfileActionCard
+                    href={WHOLESALE_ORDER_PATH}
+                    icon={Package}
+                    title="Wholesale quick order"
+                    subtitle="SKU matrix & bulk add to cart"
+                  />
+                  <ProfileActionCard
+                    href={PROFILE_LEDGER_PATH}
+                    icon={BookMarked}
+                    title="Ledger (Khata)"
+                    subtitle="Rupee & fine metal balances"
+                  />
+                </div>
+              </section>
+            ) : null}
+
+            {/* Account */}
+            <section className="mb-6 space-y-2">
+              <ProfileSectionHeading>Account</ProfileSectionHeading>
+              <div className="kc-profile-card rounded-2xl px-4 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[var(--kc-accent,#c41e3a)]/12 ring-1 ring-[var(--kc-accent,#c41e3a)]/20">
+                    <Wallet className="size-5 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Wallet balance</p>
+                    <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">For purchases & bookings</p>
+                  </div>
+                  <p className="text-xl font-bold tabular-nums text-[var(--kc-accent,#c41e3a)]">₹0</p>
+                </div>
+              </div>
+              <ProfileActionCard
+                href={PROFILE_SIPS_PATH}
+                icon={TrendingUp}
+                title="My SIPs"
+                subtitle="Gold, Silver & Diamond investments"
+              />
+            </section>
+
+            {/* Orders */}
+            <section className="mb-6">
+              <ProfileSectionHeading>Orders</ProfileSectionHeading>
+              <div className="kc-profile-card overflow-hidden rounded-2xl">
+                <div className="flex items-center gap-3 border-b border-[var(--color-slate-700,#e8e4df)] px-4 py-3.5">
+                  <History className="size-5 shrink-0 text-[var(--color-jewelry-black,#1a1814)]/45" aria-hidden />
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                      Orders & rate bookings
+                    </p>
+                    <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                      Status, items & WhatsApp to KC
+                    </p>
+                  </div>
+                </div>
+                <ProfileOrderHistory />
+              </div>
+            </section>
+
+            {/* Legal — last before logout */}
+            <section className="mb-6">
+              <ProfileSectionHeading>Legal & support</ProfileSectionHeading>
+              <div className="grid grid-cols-2 gap-2">
+                {LEGAL_SUPPORT_LINKS.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="kc-profile-card flex min-h-[44px] items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/80 transition hover:bg-[var(--color-slate-900,#f7f4ef)]"
+                  >
+                    <Icon className="size-3.5 shrink-0 text-[var(--color-jewelry-black,#1a1814)]/45" aria-hidden />
+                    <span className="truncate">{label}</span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+
+            {/* Logout */}
+            <section className="mb-2">
+              <ProfileActionCard
+                onClick={() => void handleLogout()}
+                icon={LogOut}
+                title="Logout"
+                subtitle="Sign out of your account"
+              />
+            </section>
+          </>
         )}
       </main>
     </div>

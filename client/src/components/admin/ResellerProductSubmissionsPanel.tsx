@@ -98,7 +98,7 @@ export function ResellerProductSubmissionsPanel() {
   const approve = async (id: number) => {
     setActingId(id)
     try {
-      await axios.post(`/api/admin/reseller-product-submissions/${id}/approve`)
+      await axios.post(`/api/admin/reseller-product-submissions/${id}/approve`, {})
       window.dispatchEvent(new Event(KC_ADMIN_INBOX_REFRESH_EVENT))
       await load()
     } catch (e: unknown) {
@@ -133,7 +133,7 @@ export function ResellerProductSubmissionsPanel() {
     if (!window.confirm(`Approve all ${count} products in this Excel batch? They will go live on kcjewellers.co.in.`)) return
     setActingId(-2)
     try {
-      await axios.post(`/api/admin/reseller-product-submissions/batch/${batchId}/approve`)
+      await axios.post(`/api/admin/reseller-product-submissions/batch/${batchId}/approve`, {})
       window.dispatchEvent(new Event(KC_ADMIN_INBOX_REFRESH_EVENT))
       await load()
     } catch (e: unknown) {
