@@ -59,6 +59,13 @@ import {
 } from "@/lib/catalog-product-filters";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
+import GiftingSizeVariantPicker from "@/components/catalog/GiftingSizeVariantPicker";
+import {
+  findVariantByBarcode,
+  sortSizeVariants,
+  variantDisplayTitle,
+} from "@/lib/product-variants";
+import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 
 type RateRow = {
   metal_type?: string;
@@ -69,8 +76,7 @@ type ProductNeighbors = { prev: string | null; next: string | null };
 
 function productDisplayName(p: Item | null): string {
   if (!p) return "Product";
-  const named = (p as { name?: string }).name;
-  return named || p.item_name || p.short_name || "Product";
+  return variantDisplayTitle(p);
 }
 
 export default function ProductDetailClient({
@@ -82,6 +88,7 @@ export default function ProductDetailClient({
 }) {
   const router = useRouter();
   const [product, setProduct] = useState<Item | null>(initialProduct ?? null);
+  const [sizeVariants, setSizeVariants] = useState<Item[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "not_found">(
     initialProduct ? "ready" : "loading",
   );
@@ -130,6 +137,7 @@ export default function ProductDetailClient({
       }
 
       let item: Item | null = useInitial ? initialProduct : null;
+      let sortedVariants: Item[] = [];
       try {
         if (!item) {
           const res = await axios.get("/api/products", {
@@ -138,32 +146,57 @@ export default function ProductDetailClient({
           item = Array.isArray(res.data?.items)
             ? res.data.items[0]
             : res.data?.products?.[0] || res.data?.[0] || null;
+          const rawVariants = Array.isArray(res.data?.size_variants)
+            ? res.data.size_variants
+            : [];
+          sortedVariants = sortSizeVariants(rawVariants as Item[]);
+        } else if (useInitial && initialProduct) {
+          try {
+            const res = await axios.get("/api/products", {
+              params: { barcode: safeId, limit: 1 },
+            });
+            const rawVariants = Array.isArray(res.data?.size_variants)
+              ? res.data.size_variants
+              : [];
+            sortedVariants = sortSizeVariants(rawVariants as Item[]);
+          } catch {
+            sortedVariants = [];
+          }
         }
         if (cancelled) return;
 
-        setProduct(item);
-        productRef.current = item;
-        setLoadState(item ? "ready" : "not_found");
+        if (!cancelled) {
+          setSizeVariants(sortedVariants.length > 1 ? sortedVariants : []);
+        }
+
+        const resolved =
+          item && sortedVariants.length > 1
+            ? findVariantByBarcode(sortedVariants, safeId) ?? item
+            : item;
+        const activeItem = resolved ?? item;
+        setProduct(activeItem);
+        productRef.current = activeItem;
+        setLoadState(activeItem ? "ready" : "not_found");
 
         const dr = await axios.get("/api/rates/display");
         if (cancelled) return;
 
-        if (item) {
+        if (activeItem) {
           setB(
             calculateBreakdown(
-              item,
+              activeItem,
               dr.data?.rates || [],
-              item.gst_rate ?? 3,
+              activeItem.gst_rate ?? 3,
               wholesalePricing,
               pricingOptions,
             ),
           );
-          const dn = productDisplayName(item);
-          trackProductView(item.barcode || String(item.id || ""), dn);
+          const dn = productDisplayName(activeItem);
+          trackProductView(activeItem.barcode || String(activeItem.id || ""), dn);
           axios
             .post("/api/analytics/track", {
               action_type: "view_product",
-              target_id: item.barcode || item.sku || String(item.id || ""),
+              target_id: activeItem.barcode || activeItem.sku || String(activeItem.id || ""),
               metadata: { product_name: dn },
             })
             .catch(() => {});
@@ -200,6 +233,45 @@ export default function ProductDetailClient({
       s.off("live-rate", on);
     };
   }, [id, initialProduct, wholesalePricing, pricingOptions]);
+
+  useEffect(() => {
+    if (!product) {
+      setB(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const dr = await axios.get("/api/rates/display");
+        if (cancelled) return;
+        setB(
+          calculateBreakdown(
+            product,
+            dr.data?.rates || [],
+            product.gst_rate ?? 3,
+            wholesalePricing,
+            pricingOptions,
+          ),
+        );
+      } catch {
+        if (!cancelled) setB(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [product, wholesalePricing, pricingOptions]);
+
+  const handleSelectVariant = useCallback(
+    (v: Item) => {
+      const key = getProductSelectionKey(v);
+      if (!key) return;
+      setProduct(v);
+      productRef.current = v;
+      router.replace(`/products/${encodeURIComponent(key)}`, { scroll: false });
+    },
+    [router],
+  );
 
   useEffect(() => {
     const safeId = normalizeStorefrontProductId(id);
@@ -615,6 +687,17 @@ export default function ProductDetailClient({
               </span>
             )}
 
+            {sizeVariants.length > 1 && product ? (
+              <div className="mt-6 rounded-xl border border-slate-800/80 bg-slate-900/40 p-4">
+                <GiftingSizeVariantPicker
+                  variants={sizeVariants}
+                  selected={product}
+                  onSelect={handleSelectVariant}
+                  density="detail"
+                />
+              </div>
+            ) : null}
+
             <div className="mt-6">
               {showWholesale && (
                 <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
@@ -744,14 +827,14 @@ export default function ProductDetailClient({
                   </span>
                 </div>
               )}
-              {sizeInches && (
+              {sizeInches && sizeVariants.length <= 1 ? (
                 <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                   <span className="text-xs text-slate-500 uppercase tracking-wider block">
                     Size (inches)
                   </span>
                   <span className="text-slate-100 font-medium">{sizeInches}</span>
                 </div>
-              )}
+              ) : null}
               {barcode && (
                 <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                   <span className="text-xs text-slate-500 uppercase tracking-wider block">

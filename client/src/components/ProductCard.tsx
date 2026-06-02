@@ -1,10 +1,12 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Check, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { productImageEmptyWellClass, productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
+import { useCatalogBuilderOptional } from '@/context/CatalogBuilderContext'
 import {
   calculateBreakdown,
   getCustomerDisplaySize,
@@ -18,9 +20,15 @@ import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsConte
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
+import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
+import {
+  getAttachedVariants,
+  variantDisplayTitle,
+  type ItemWithVariants,
+} from '@/lib/product-variants'
 
 type ProductCardProps = {
-  product: Item
+  product: ItemWithVariants
   rates?: unknown[]
   onBeforeNavigate?: (barcode: string) => void
   imageSizes?: string
@@ -76,30 +84,43 @@ export default function ProductCard({
   imageFetchPriority,
   subcategorySlug = null,
   catalogBuilderActive = false,
-  selected = false,
+  selected: selectedProp = false,
   onToggleSelect,
   showStyleLabel = true,
 }: ProductCardProps) {
   const cart = useCart()
+  const catalogBuilder = useCatalogBuilderOptional()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
   const { pricingOptions } = useCatalogPricingSettings()
 
-  const displayName =
-    (product as { name?: string }).name ||
-    product.item_name ||
-    product.short_name ||
-    'Item'
-  const weight = getCustomerDisplayWeight(product)
-  const sizeInches = getCustomerDisplaySize(product)
-  const barcode = getProductSelectionKey(product)
+  const variants = useMemo(() => getAttachedVariants(product), [product])
+  const hasVariants = variants.length > 1
+  const [activeVariant, setActiveVariant] = useState<Item>(() => variants[0] ?? product)
+
+  useEffect(() => {
+    setActiveVariant(variants[0] ?? product)
+  }, [product, variants])
+
+  const active = hasVariants ? activeVariant : product
+  const displayName = variantDisplayTitle(product)
+  const weight = getCustomerDisplayWeight(active)
+  const barcode = getProductSelectionKey(active)
   const productHref = `/products/${encodeURIComponent(barcode)}`
 
-  const imageSrc = normalizeCatalogImageSrc(product.image_url)
+  const imageSrc = normalizeCatalogImageSrc(
+    active.image_url || product.image_url,
+  )
 
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
-  const breakdown = calculateBreakdown(product, rates, product.gst_rate ?? 3, wholesalePricing, pricingOptions)
-  const showInclGst = productPriceShowsInclGst(product, pricingOptions)
+  const breakdown = calculateBreakdown(
+    active,
+    rates,
+    active.gst_rate ?? 3,
+    wholesalePricing,
+    pricingOptions,
+  )
+  const showInclGst = productPriceShowsInclGst(active, pricingOptions)
   const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
   const showWholesale =
@@ -111,14 +132,25 @@ export default function ProductCard({
 
   const showImage = !!imageSrc
 
-  const toggleSelection = () => onToggleSelect?.()
+  const builderSelected =
+    catalogBuilderActive && catalogBuilder
+      ? catalogBuilder.isProductSelected(barcode)
+      : selectedProp
+
+  const toggleSelection = () => {
+    if (catalogBuilderActive && catalogBuilder) {
+      catalogBuilder.toggleProductId(barcode)
+      return
+    }
+    onToggleSelect?.()
+  }
 
   const cardShellClass = cn(
     'kc-product-card group',
     catalogBuilderActive
       ? cn(
           'cursor-pointer select-none touch-manipulation',
-          selected
+          builderSelected
             ? 'ring-2 ring-amber-500/30 border-amber-500/40'
             : '',
         )
@@ -134,7 +166,7 @@ export default function ProductCard({
     >
       {catalogBuilderActive ? (
         <div className="absolute left-2 top-2 z-40 sm:left-2.5 sm:top-2.5">
-          <CatalogBuilderCheckmark selected={selected} onToggle={toggleSelection} />
+          <CatalogBuilderCheckmark selected={builderSelected} onToggle={toggleSelection} />
         </div>
       ) : null}
 
@@ -196,15 +228,25 @@ export default function ProductCard({
         </span>
       ) : null}
 
-      <span className="truncate font-mono text-[11px] font-medium tabular-nums text-slate-300 sm:text-xs">
-        {barcode}
+      <span className="line-clamp-2 text-[11px] font-semibold leading-snug text-slate-100 sm:text-xs">
+        {displayName}
       </span>
 
       {weight != null ? (
         <span className="text-[10px] text-slate-500">{Number(weight).toFixed(2)} gm</span>
       ) : null}
-      {sizeInches ? (
-        <span className="text-[10px] text-slate-500">Size {sizeInches}</span>
+      {hasVariants ? (
+        <GiftingSizeVariantPicker
+          variants={variants}
+          selected={active}
+          onSelect={setActiveVariant}
+          density="card"
+          className="mt-0.5"
+        />
+      ) : getCustomerDisplaySize(active) ? (
+        <span className="text-[10px] text-slate-500">
+          Size {getCustomerDisplaySize(active)}
+        </span>
       ) : null}
 
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">
@@ -242,14 +284,14 @@ export default function ProductCard({
 
       {catalogBuilderActive ? (
         <p className="mt-2 text-center text-[10px] font-medium text-slate-500">
-          {selected ? 'Tap to remove' : 'Tap to select'}
+          {builderSelected ? 'Tap to remove' : 'Tap to select'}
         </p>
       ) : (
         <button
           className="mt-2 w-full"
           onClick={(e) => {
             e.preventDefault()
-            cart.add(product)
+            cart.add(active)
           }}
         >
           <span className="kc-btn-cart">Add to Cart</span>
@@ -264,8 +306,8 @@ export default function ProductCard({
         data-product-id={barcode}
         role="button"
         tabIndex={0}
-        aria-pressed={selected}
-        aria-label={`${selected ? 'Deselect' : 'Select'} ${barcode}`}
+        aria-pressed={builderSelected}
+        aria-label={`${builderSelected ? 'Deselect' : 'Select'} ${displayName}`}
         onClick={toggleSelection}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {

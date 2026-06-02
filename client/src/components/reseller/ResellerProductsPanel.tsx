@@ -547,9 +547,11 @@ export function ResellerProductsPanel() {
           <div className="kc-upload-card rounded-2xl p-4 shadow-sm sm:p-6">
             <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk Excel import</h2>
             <p className="kc-upload-hint mt-2 text-sm leading-relaxed">
-              Barcode, SKU, StyleCode, ProductName, Size (inches), MetalType (gifting for gift items),
-              FixedPrice, ItemCode, etc.
-              Import first — add front &amp; back photos — then send the batch for KC review when ready.
+              Barcode, SKU, StyleCode, ProductName, <strong>Size</strong> (e.g. 3x2.5), MetalType
+              (gifting), <strong>FixedPrice</strong>, <strong>ItemCode</strong> (design group — e.g.
+              Ganesh). One row per size; same ItemCode + different Size = one product with size options
+              on the shop. Upload one photo named <span className="font-mono text-xs">ItemCode.webp</span>{' '}
+              (e.g. ganesh.webp). Import first — add photos — then send for KC review.
             </p>
             <input
               ref={excelInputRef}

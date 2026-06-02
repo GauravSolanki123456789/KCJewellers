@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } fr
 import { flushSync } from 'react-dom'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import ProductCard from '@/components/ProductCard'
+import { collapseGiftingVariantRows } from '@/lib/product-variants'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
 import WhatsAppContactLink from '@/components/WhatsAppContactLink'
 import {
@@ -970,8 +971,16 @@ export default function CatalogPageClient() {
     el.scrollBy({ left: delta, behavior: 'smooth' })
   }, [])
 
-  const gridProducts = useMemo(() => products.slice(0, gridShowCount), [products, gridShowCount])
-  const hasMoreGridProducts = products.length > gridShowCount
+  const displayProducts = useMemo(
+    () => collapseGiftingVariantRows(products),
+    [products],
+  )
+
+  const gridProducts = useMemo(
+    () => displayProducts.slice(0, gridShowCount),
+    [displayProducts, gridShowCount],
+  )
+  const hasMoreGridProducts = displayProducts.length > gridShowCount
 
   const sidebarNavRef = useRef<HTMLElement | null>(null)
   /** Scroll target when metal / style / SKU changes — "Catalogue" row (not page top). */
@@ -2107,10 +2116,6 @@ export default function CatalogPageClient() {
                         subcategorySlug={activeSku?.slug}
                         onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
                         catalogBuilderActive={catalogBuilderMode && canUseCatalogBuilder}
-                        selected={selectionKey ? isProductSelected(selectionKey) : false}
-                        onToggleSelect={
-                          selectionKey ? () => toggleProductId(selectionKey) : undefined
-                        }
                         showStyleLabel={false}
                       />
                     )

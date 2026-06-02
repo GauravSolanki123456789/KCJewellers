@@ -3,6 +3,8 @@
  * Used by ERP sync, reseller submission approval, and admin edits.
  */
 
+const { resolveVariantIdentity } = require('./productVariantIdentity');
+
 function styleSlugFromCode(styleCode) {
     const s = String(styleCode || 'Uncategorized').trim();
     return s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'uncategorized';
@@ -124,6 +126,10 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
     const publishCategory = !!opts.publishCategory;
 
     const norm = normalizeSyncItem(item);
+    const variantId = resolveVariantIdentity(norm);
+    norm.prodSku = variantId.prodSku;
+    norm.barcode = variantId.barcode;
+    norm.name = variantId.displayName || norm.name;
     if (!norm.prodSku) {
         throw new Error('missing barcode/sku');
     }
@@ -179,7 +185,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
     if (norm.rawPrimary.trim() !== '') {
         imageUrl = resolveSecondaryUrlFromPayload(norm.rawPrimary.trim(), apiBase);
     } else {
-        imageUrl = `${apiBase}/uploads/web_products/${norm.prodSku}.webp`;
+        imageUrl = `${apiBase}/uploads/web_products/${variantId.imageStem}.webp`;
     }
 
     const uploadedSecondaryDisk = lookUpSecondaryDisk(secondaryUploadMap, norm.prodSku);
@@ -195,7 +201,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         secondaryTouch = true;
         secondaryVal = resolveSecondaryUrlFromPayload(norm.rawSecondary.trim(), apiBase);
     } else if (norm.hasSecTrue) {
-        const fileStemCompact = norm.prodSku.trim().toLowerCase().replace(/\s+/g, '');
+        const fileStemCompact = variantId.imageStem.trim().toLowerCase().replace(/\s+/g, '');
         secondaryTouch = true;
         secondaryVal = `${apiBase}/uploads/web_products/${fileStemCompact}_secondary.webp`;
     }
@@ -283,4 +289,5 @@ module.exports = {
     upsertWebProductFromSyncItem,
     normalizeSyncItem,
     styleSlugFromCode,
+    resolveVariantIdentity,
 };

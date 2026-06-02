@@ -2547,6 +2547,27 @@ app.get('/api/products', async (req, res) => {
 
         const result = await query(`${baseSelect} ${whereSQL} ${paginationSQL}`, paginationParams);
 
+        let size_variants = [];
+        if (barcode && result.length > 0) {
+            const first = result[0];
+            const dg = String(first.design_group || '').trim();
+            const subId = first.subcategory_id;
+            const mt = String(first.metal_type || '').toLowerCase();
+            if (dg && subId != null && mt.startsWith('gifting')) {
+                const variantParams = [subId, dg];
+                const variantWhere = `
+                    WHERE wp.subcategory_id = $1
+                    AND TRIM(COALESCE(wp.design_group, '')) = $2
+                    AND (wp.is_active IS NULL OR wp.is_active = true)
+                    AND LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%'
+                `;
+                size_variants = await query(
+                    `${baseSelect} ${variantWhere} ORDER BY wp.size NULLS LAST, wp.name ASC, wp.id ASC`,
+                    variantParams,
+                );
+            }
+        }
+
         // Total count for pagination
         let totalCount = null;
         if (limitValue || search) {
@@ -2557,6 +2578,7 @@ app.get('/api/products', async (req, res) => {
         res.json({
             products: result,
             items: result, // frontend compatibility
+            size_variants,
             total: totalCount,
             limit: limitValue,
             offset: offset ? parseInt(offset) : 0,
