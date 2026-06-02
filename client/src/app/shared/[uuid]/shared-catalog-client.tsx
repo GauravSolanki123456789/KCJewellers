@@ -8,6 +8,7 @@ import { pdf } from '@react-pdf/renderer'
 import { Check, Clock, FileText, Gem, Loader2, MessageCircle, Minus, Plus, Sparkles } from 'lucide-react'
 import {
   fetchSharedCatalogByUuid,
+  sharedCatalogGiftingGstEnabled,
   type SharedCatalogPublicProduct,
   type SharedCatalogPublicResponse,
 } from '@/lib/shared-catalog-api'
@@ -17,7 +18,11 @@ import {
   sharedCatalogProductToItem,
   wholesaleInputFromBrochure,
 } from '@/lib/shared-catalog-pricing'
-import { getCustomerDisplayWeightWithGrossFallback } from '@/lib/pricing'
+import {
+  getCustomerDisplayWeightWithGrossFallback,
+  productPriceShowsInclGst,
+  type CatalogPricingOptions,
+} from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
@@ -141,6 +146,13 @@ export default function SharedCatalogClient({
   const brandLabel = initialBranding?.businessName?.trim() || 'KC Jewellers'
   const brandLogo = initialBranding?.logoUrl?.trim() || null
 
+  const giftingGstEnabled = sharedCatalogGiftingGstEnabled(payload)
+
+  const sharedPricingOptions = useMemo(
+    (): CatalogPricingOptions => ({ giftingGstEnabled }),
+    [giftingGstEnabled],
+  )
+
   const rows = useMemo(() => {
     if (!isLoadedBrochure(payload)) return []
     return buildSharedCatalogPricingRows(
@@ -148,8 +160,9 @@ export default function SharedCatalogClient({
       payload.rates ?? [],
       parseMarkupPercentage(payload.markupPercentage),
       payload.creatorWholesalePricing ?? null,
+      giftingGstEnabled,
     )
-  }, [payload])
+  }, [payload, giftingGstEnabled])
 
   const rowKeys = useMemo(() => rows.map((r, i) => stableProductKey(r.product, i)), [rows])
 
@@ -264,6 +277,7 @@ export default function SharedCatalogClient({
                   rates: payload.rates,
                   markupPercentage: markup,
                   wholesale,
+                  giftingGstEnabled,
                 }
           }
         />,
@@ -360,6 +374,7 @@ export default function SharedCatalogClient({
         priceInr: row.unitTotalInr,
         qty,
         weightLabel,
+        showInclGst: productPriceShowsInclGst(row.item, sharedPricingOptions),
       })
     })
 
@@ -370,7 +385,16 @@ export default function SharedCatalogClient({
       hidePrices: !!payload.hidePrices,
     })
     openWhatsAppOrder(wa, msg)
-  }, [payload, selections, selectedCount, rows, rowKeys, brandLabel, initialBranding?.contactPhoneDigits])
+  }, [
+    payload,
+    selections,
+    selectedCount,
+    rows,
+    rowKeys,
+    brandLabel,
+    initialBranding?.contactPhoneDigits,
+    sharedPricingOptions,
+  ])
 
   if (loading) {
     return (
@@ -596,9 +620,11 @@ export default function SharedCatalogClient({
                         {!hidePrices ? (
                           <p className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
                             ₹{unitTotalInr.toLocaleString('en-IN')}
-                            <span className="ml-1 text-[10px] font-normal text-slate-500 sm:text-[11px]">
-                              incl. GST
-                            </span>
+                            {productPriceShowsInclGst(item, sharedPricingOptions) ? (
+                              <span className="ml-1 text-[10px] font-normal text-slate-500 sm:text-[11px]">
+                                incl. GST
+                              </span>
+                            ) : null}
                           </p>
                         ) : null}
                         {selected ? (

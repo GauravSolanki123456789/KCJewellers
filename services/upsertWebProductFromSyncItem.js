@@ -71,6 +71,12 @@ function normalizeSyncItem(item) {
                   ? String(item.ItemCode).trim() || null
                   : null,
         barcode: String(item.barcode || item.Barcode || '').trim() || null,
+        size:
+            item.size != null
+                ? String(item.size).trim() || null
+                : item.Size != null
+                  ? String(item.Size).trim() || null
+                  : null,
         rawPrimary:
             item.imageUrl != null
                 ? String(item.imageUrl)
@@ -196,16 +202,17 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
 
     const upsertSql = `
         INSERT INTO web_products
-            (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, metal_type,
+            (subcategory_id, sku, barcode, name, size, gross_weight, net_weight, purity, mc_rate, metal_type,
              fixed_price, stone_charges, design_group, image_url, secondary_image_url,
              submitted_by_user_id, reseller_submission_id, is_active, last_synced_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                CASE WHEN $14::boolean THEN $15::text ELSE NULL END,
-                $16, $17, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                CASE WHEN $15::boolean THEN $16::text ELSE NULL END,
+                $17, $18, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (sku) DO UPDATE SET
             subcategory_id  = EXCLUDED.subcategory_id,
             barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
             name            = EXCLUDED.name,
+            size            = COALESCE(NULLIF(TRIM(EXCLUDED.size), ''), web_products.size),
             gross_weight    = EXCLUDED.gross_weight,
             net_weight      = EXCLUDED.net_weight,
             purity          = EXCLUDED.purity,
@@ -215,7 +222,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
             design_group    = EXCLUDED.design_group,
             image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
-            secondary_image_url = CASE WHEN $14::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
+            secondary_image_url = CASE WHEN $15::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
             submitted_by_user_id = COALESCE(EXCLUDED.submitted_by_user_id, web_products.submitted_by_user_id),
             reseller_submission_id = COALESCE(EXCLUDED.reseller_submission_id, web_products.reseller_submission_id),
             is_active       = true,
@@ -227,6 +234,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         norm.prodSku,
         norm.barcode,
         norm.name,
+        norm.size,
         norm.grossWeight,
         norm.netWeight,
         norm.purity,
@@ -246,13 +254,22 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         await query(upsertSql, upsertParams);
     } catch (upsertErr) {
         const msg = upsertErr.message || '';
-        if (msg.includes('submitted_by_user_id') || msg.includes('reseller_submission_id')) {
-            await pool.query(
-                'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS submitted_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL',
-            );
-            await pool.query(
-                'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS reseller_submission_id INTEGER',
-            );
+        if (
+            msg.includes('submitted_by_user_id') ||
+            msg.includes('reseller_submission_id') ||
+            msg.includes('"size"')
+        ) {
+            if (msg.includes('submitted_by_user_id') || msg.includes('reseller_submission_id')) {
+                await pool.query(
+                    'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS submitted_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL',
+                );
+                await pool.query(
+                    'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS reseller_submission_id INTEGER',
+                );
+            }
+            if (msg.includes('"size"')) {
+                await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS size VARCHAR(64)');
+            }
             await query(upsertSql, upsertParams);
         } else {
             throw upsertErr;

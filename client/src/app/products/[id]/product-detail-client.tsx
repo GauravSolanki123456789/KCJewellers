@@ -17,6 +17,7 @@ import HoverZoomImage from "@/components/HoverZoomImage";
 import WhatsAppShareButton from "@/components/WhatsAppShareButton";
 import {
   calculateBreakdown,
+  getCustomerDisplaySize,
   getCustomerDisplayWeight,
   getCustomerDisplayPurity,
   isDiamondItem,
@@ -359,6 +360,7 @@ export default function ProductDetailClient({
   const styleCode = product.style_code || "";
   const sku = product.sku || product.barcode || "";
   const netWeight = getCustomerDisplayWeight(product)
+  const sizeInches = getCustomerDisplaySize(product)
   const purity = getCustomerDisplayPurity(product)
   const metalType = product.metal_type ?? null;
   const isDiamond = isDiamondItem(product);
@@ -740,6 +742,14 @@ export default function ProductDetailClient({
                   <span className="text-slate-100 font-medium capitalize">
                     {String(metalType)}
                   </span>
+                </div>
+              )}
+              {sizeInches && (
+                <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
+                  <span className="text-xs text-slate-500 uppercase tracking-wider block">
+                    Size (inches)
+                  </span>
+                  <span className="text-slate-100 font-medium">{sizeInches}</span>
                 </div>
               )}
               {barcode && (

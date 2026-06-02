@@ -21,6 +21,8 @@ export type Item = {
   stone_charges?: number
   design_group?: string | null
   gst_rate?: number
+  /** Gift / reseller — dimensions in inches (e.g. 2.5x5.5). */
+  size?: string | null
   image_url?: string
   secondary_image_url?: string | null
   pcs?: number
@@ -188,6 +190,26 @@ export function getCustomerDisplayPurity(
     if (Number.isNaN(n) || n === 0 || n === 100) return null
   }
   return raw
+}
+
+/** Gift items — show size with "in" suffix when not already present. */
+export function formatProductSizeInches(raw: string | null | undefined): string | null {
+  const t = String(raw ?? '').trim()
+  if (!t) return null
+  const lower = t.toLowerCase()
+  if (/\b(in|inch|inches|")\b/.test(lower) || lower.endsWith('"')) return t
+  return `${t} in`
+}
+
+export function getCustomerDisplaySize(item: Item | null | undefined): string | null {
+  if (!item || !isGiftingItem(item)) return null
+  const raw =
+    item.size != null
+      ? String(item.size)
+      : (item as { Size?: string }).Size != null
+        ? String((item as { Size?: string }).Size)
+        : ''
+  return formatProductSizeInches(raw)
 }
 
 /** Storefront weight: gifting rows hide 0 / missing net weight. */

@@ -4,6 +4,8 @@
  */
 import {
   calculateBreakdown,
+  resolveItemGstRate,
+  type CatalogPricingOptions,
   type Item,
   type WholesalePricingInput,
 } from '@/lib/pricing'
@@ -50,14 +52,23 @@ export function wholesaleInputFromBrochure(
   return w
 }
 
-/** Catalogue card display total incl. GST (rounded rupees). */
+function sharedCatalogPricingOptions(
+  giftingGstEnabled?: boolean,
+): CatalogPricingOptions | undefined {
+  if (giftingGstEnabled === false) return { giftingGstEnabled: false }
+  return undefined
+}
+
+/** Catalogue card display total (rounded rupees). */
 export function catalogDisplayTotalInr(
   item: Item,
   rates: unknown,
   wholesale?: WholesalePricingInput | null,
+  giftingGstEnabled?: boolean,
 ): number {
-  const gst = Number(item.gst_rate ?? 3) || 3
-  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined)
+  const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
+  const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
+  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
   return Math.round(b.total)
 }
 
@@ -71,10 +82,12 @@ export function sharedCatalogMarkedUpTotalInr(
   rates: unknown,
   markupPercentage: number,
   wholesale?: WholesalePricingInput | null,
+  giftingGstEnabled?: boolean,
 ): number {
-  const gst = Number(item.gst_rate ?? 3) || 3
+  const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
+  const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
   const mk = parseMarkupPercentage(markupPercentage)
-  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined)
+  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
   return Math.round(b.total * (1 + mk / 100))
 }
 
@@ -90,12 +103,19 @@ export function buildSharedCatalogPricingRows(
   rates: unknown,
   markupPercentage: number,
   creatorWholesale: SharedCatalogCreatorWholesale | null | undefined,
+  giftingGstEnabled?: boolean,
 ): SharedCatalogPricingRow[] {
   const mk = parseMarkupPercentage(markupPercentage)
   const wholesale = wholesaleInputFromBrochure(creatorWholesale ?? null)
   return products.map((p) => {
     const item = sharedCatalogProductToItem(p)
-    const unitTotalInr = sharedCatalogMarkedUpTotalInr(item, rates, mk, wholesale)
+    const unitTotalInr = sharedCatalogMarkedUpTotalInr(
+      item,
+      rates,
+      mk,
+      wholesale,
+      giftingGstEnabled,
+    )
     return { item, product: p, unitTotalInr, markupPercentage: mk }
   })
 }

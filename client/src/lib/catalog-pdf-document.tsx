@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import {
   getCustomerDisplayWeightWithGrossFallback,
+  productPriceShowsInclGst,
+  type CatalogPricingOptions,
   type Item,
   type WholesalePricingInput,
 } from "@/lib/pricing";
@@ -120,6 +122,8 @@ export type CatalogPdfResellerPricing = {
   markupPercentage: number;
   /** Mirrors logged-in reseller catalogue pricing before brochure markup. */
   wholesale?: WholesalePricingInput | null;
+  /** Site-wide gift GST toggle — same as shared catalogue API. */
+  giftingGstEnabled?: boolean;
 };
 
 export type CatalogPdfDocumentProps = {
@@ -183,14 +187,19 @@ export function CatalogPdfDocument({
                 !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
               let amountStr: string | null = null;
               let qtyLabel: string | null = null;
+              let showInclGst = false;
               if (showPrices) {
                 const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
+                const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
                 const unitInr = sharedCatalogMarkedUpTotalInr(
                   p,
                   resellerPdfPricing.rates,
                   mk,
                   resellerPdfPricing.wholesale ?? undefined,
+                  giftingGstEnabled,
                 );
+                const pricingOptions: CatalogPricingOptions = { giftingGstEnabled };
+                showInclGst = productPriceShowsInclGst(p, pricingOptions);
                 const shareQty = Math.max(
                   1,
                   Math.floor(Number((p as { shareCatalogQty?: number }).shareCatalogQty) || 1),
@@ -221,7 +230,9 @@ export function CatalogPdfDocument({
                         <Text style={styles.weightLine}>{qtyLabel}</Text>
                       ) : null}
                       <Text style={styles.priceLine}>Rs. {amountStr}</Text>
-                      <Text style={styles.priceGst}>incl. GST</Text>
+                      {showInclGst ? (
+                        <Text style={styles.priceGst}>incl. GST</Text>
+                      ) : null}
                     </>
                   ) : null}
                   <Text style={styles.title}>{name}</Text>

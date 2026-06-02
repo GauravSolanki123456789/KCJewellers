@@ -202,6 +202,9 @@ export function ResellerProductsPanel() {
     }
   }
 
+  const rowHasData = (row: Record<string, unknown>) =>
+    Object.values(row).some((v) => String(v ?? '').trim() !== '')
+
   const parseExcelFile = async (file: File): Promise<Record<string, unknown>[]> => {
     const name = file.name.toLowerCase()
     if (name.endsWith('.csv')) {
@@ -209,20 +212,24 @@ export function ResellerProductsPanel() {
       const lines = text.split(/\r?\n/).filter((l) => l.trim())
       if (lines.length < 2) return []
       const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''))
-      return lines.slice(1).map((line) => {
-        const cells = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
-        const row: Record<string, unknown> = {}
-        headers.forEach((h, i) => {
-          row[h] = cells[i] ?? ''
+      return lines
+        .slice(1)
+        .map((line) => {
+          const cells = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
+          const row: Record<string, unknown> = {}
+          headers.forEach((h, i) => {
+            row[h] = cells[i] ?? ''
+          })
+          return row
         })
-        return row
-      })
+        .filter(rowHasData)
     }
     const XLSX = await import('xlsx')
     const buf = await file.arrayBuffer()
     const wb = XLSX.read(buf, { type: 'array' })
     const sheet = wb.Sheets[wb.SheetNames[0]]
-    return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    return rows.filter(rowHasData)
   }
 
   const handleBulkExcel = async (file: File) => {
@@ -241,7 +248,18 @@ export function ResellerProductsPanel() {
         errors?: { row: number; error: string }[]
       }>('/api/reseller/product-submissions/bulk', { products })
       const n = res.data.created_count ?? 0
-      const errN = res.data.errors?.length ?? 0
+      const errs = res.data.errors ?? []
+      const errN = errs.length
+      if (n === 0) {
+        const first = errs[0]?.error
+        const rowHint = errs[0]?.row != null ? ` (row ${errs[0].row + 1})` : ''
+        setError(
+          first
+            ? `No rows imported${rowHint}: ${first}${errN > 1 ? ` — and ${errN - 1} more` : ''}`
+            : 'No rows imported. Check Barcode, StyleCode, and MetalType (use gifting for gift items).',
+        )
+        return
+      }
       setBulkResult(
         `${n} product${n === 1 ? '' : 's'} imported — add photos, then send the batch for KC review.${errN ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)` : ''}`,
       )
@@ -251,10 +269,17 @@ export function ResellerProductsPanel() {
       }
       void loadBatches()
     } catch (e: unknown) {
-      const msg =
+      const data =
         e && typeof e === 'object' && 'response' in e
-          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          ? (e as { response?: { data?: { error?: string; errors?: { row: number; error: string }[] } } })
+              .response?.data
           : null
+      const firstRow = data?.errors?.[0]
+      const msg =
+        data?.error ||
+        (firstRow
+          ? `Row ${firstRow.row + 1}: ${firstRow.error}`
+          : null)
       setError(msg || 'Bulk import failed')
     } finally {
       setBulkParsing(false)
@@ -409,8 +434,13 @@ export function ResellerProductsPanel() {
                 onChange={(e) => setField('itemCode', e.target.value)}
               />
             </Field>
-            <Field label="Size">
-              <input className={inputCls} value={form.size || ''} onChange={(e) => setField('size', e.target.value)} />
+            <Field label="Size (inches)" hint="e.g. 2.5x5.5">
+              <input
+                className={inputCls}
+                value={form.size || ''}
+                onChange={(e) => setField('size', e.target.value)}
+                placeholder="2.5x5.5"
+              />
             </Field>
             <Field label="AvgWeight (g)">
               <input
@@ -517,7 +547,8 @@ export function ResellerProductsPanel() {
           <div className="kc-upload-card rounded-2xl p-4 shadow-sm sm:p-6">
             <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk Excel import</h2>
             <p className="kc-upload-hint mt-2 text-sm leading-relaxed">
-              Barcode, SKU, StyleCode, ProductName, MetalType (gifting for gift items), FixedPrice, ItemCode, etc.
+              Barcode, SKU, StyleCode, ProductName, Size (inches), MetalType (gifting for gift items),
+              FixedPrice, ItemCode, etc.
               Import first — add front &amp; back photos — then send the batch for KC review when ready.
             </p>
             <input

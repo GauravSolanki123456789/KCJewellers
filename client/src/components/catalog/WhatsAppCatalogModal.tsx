@@ -23,6 +23,7 @@ import { shareCatalogPdfBlob, shouldPresentPdfShareSheet, type PdfShareSheetPayl
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
+import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 
 const EXPIRY_OPTIONS = [
   { label: '1 hour', hours: 1 },
@@ -67,6 +68,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const auth = useAuth()
   const { customerTier } = useCustomerTier()
   const { active: brandingActive, businessName: brandingBusinessName } = useResellerBranding()
+  const { giftingGstEnabled } = useCatalogPricingSettings()
   const [outputFormat, setOutputFormat] = useState<'temporary_web_link' | 'pdf'>('temporary_web_link')
   const [markupPercentage, setMarkupPercentage] = useState(0)
   const [expiryHours, setExpiryHours] = useState<number>(24)
@@ -158,6 +160,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                     rates,
                     markupPercentage: clampedMarkup,
                     wholesale: wholesalePdf,
+                    giftingGstEnabled,
                   },
                 }
               : isReseller
@@ -359,8 +362,12 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
                   {outputFormat === 'temporary_web_link'
-                    ? 'Applied on top of the live price incl. GST on the shared link (e.g. 10 = +10%).'
-                    : 'Applied on top of the live price incl. GST on each line in the PDF (same basis as the shared link).'}
+                    ? giftingGstEnabled
+                      ? 'Applied on top of the live price incl. GST on the shared link (e.g. 10 = +10%).'
+                      : 'Applied on top of the catalogue price on the shared link. Gift items use fixed MRP with no GST added.'
+                    : giftingGstEnabled
+                      ? 'Applied on top of the live price incl. GST on each line in the PDF (same basis as the shared link).'
+                      : 'Applied on top of the catalogue price on each PDF line. Gift items use fixed MRP with no GST added.'}
                 </p>
               </div>
               {outputFormat === 'temporary_web_link' ? (

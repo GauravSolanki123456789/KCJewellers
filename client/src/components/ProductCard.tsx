@@ -5,7 +5,13 @@ import { Check, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { productImageEmptyWellClass, productImageWellClass } from '@/lib/product-image-theme'
 import { useCart } from '@/context/CartContext'
-import { calculateBreakdown, getCustomerDisplayWeight, productPriceShowsInclGst, type Item } from '@/lib/pricing'
+import {
+  calculateBreakdown,
+  getCustomerDisplaySize,
+  getCustomerDisplayWeight,
+  productPriceShowsInclGst,
+  type Item,
+} from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
@@ -84,6 +90,7 @@ export default function ProductCard({
     product.short_name ||
     'Item'
   const weight = getCustomerDisplayWeight(product)
+  const sizeInches = getCustomerDisplaySize(product)
   const barcode = getProductSelectionKey(product)
   const productHref = `/products/${encodeURIComponent(barcode)}`
 
@@ -195,6 +202,9 @@ export default function ProductCard({
 
       {weight != null ? (
         <span className="text-[10px] text-slate-500">{Number(weight).toFixed(2)} gm</span>
+      ) : null}
+      {sizeInches ? (
+        <span className="text-[10px] text-slate-500">Size {sizeInches}</span>
       ) : null}
 
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">

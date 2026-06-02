@@ -29,6 +29,7 @@ function submissionRowToSyncItem(row) {
         fixedPrice: row.fixed_price ?? payload.fixedPrice,
         stoneCharges: row.stone_charges ?? payload.stoneCharges,
         itemCode: row.design_group ?? payload.itemCode,
+        size: row.size ?? payload.size ?? payload.Size,
         secondaryImageUrl: row.secondary_image_url ?? payload.secondaryImageUrl,
         imageUrl: row.image_url ?? payload.imageUrl,
         ...payload,
@@ -48,7 +49,7 @@ function excelRowToSyncItem(row) {
         sku: get('SKU', 'sku'),
         barcode: get('Barcode', 'barcode'),
         name: get('ProductName', 'product_name', 'name'),
-        size: get('Size', 'size'),
+        size: get('Size', 'size', 'Size (inches)', 'size_inches', 'SizeInches'),
         netWeight: get('AvgWeight', 'netWeight', 'net_weight'),
         grossWeight: get('grossWeight', 'gross_weight'),
         purity: get('Purity', 'purity'),
@@ -165,11 +166,8 @@ async function assertResellerStyleAllowed(query, userId, styleCode) {
     const allowed = u?.allowed_category_ids;
     if (!allowed || !Array.isArray(allowed) || allowed.length === 0) return;
     const catId = await resolveCategoryIdForStyle(query, styleCode);
-    if (catId == null) {
-        const er = new Error(`Style "${styleCode}" is not in your allowed catalogue categories`);
-        er.status = 403;
-        throw er;
-    }
+    // New StyleCode rows are allowed in draft; category is created when KC approves.
+    if (catId == null) return;
     if (!allowed.includes(catId)) {
         const er = new Error(`Style "${styleCode}" is outside your allowed catalogue categories`);
         er.status = 403;
@@ -375,7 +373,7 @@ function registerResellerProductRoutes(app, deps) {
                     errors.push({ row: i, error: rowErr.message });
                 }
             }
-            res.status(created.length ? 201 : 400).json({
+            res.status(201).json({
                 success: created.length > 0,
                 batch_id: batchId,
                 created_count: created.length,

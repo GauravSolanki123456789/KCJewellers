@@ -2436,6 +2436,7 @@ app.get('/api/products', async (req, res) => {
                 wp.sku,
                 wp.barcode,
                 wp.name,
+                wp.size,
                 wp.gross_weight::float    AS gross_weight,
                 wp.net_weight::float     AS net_weight,
                 wp.purity::float         AS purity,
@@ -6108,7 +6109,7 @@ app.get('/api/catalog', async (req, res) => {
             for (const s of subs) {
                 const products = await query(`
                     SELECT
-                        id, sku, barcode, name, image_url, secondary_image_url, subcategory_id,
+                        id, sku, barcode, name, size, image_url, secondary_image_url, subcategory_id,
                         gross_weight::float AS gross_weight,
                         net_weight::float   AS net_weight,
                         purity::float       AS purity,
@@ -6414,6 +6415,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             return res.status(404).json({ error: 'Catalog not found' });
         }
         const row = rows[0];
+        const gifting_gst_enabled = await getGiftingGstEnabled();
         const hidePrices = !!row.hide_prices;
         const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
         const cwPricing = creatorWholesaleForBrochure(row);
@@ -6439,6 +6441,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 creatorWholesalePricing: cwPricing,
                 products: [],
                 kc_theme_id,
+                gifting_gst_enabled,
             });
         }
 
@@ -6463,6 +6466,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 rates: ratesForBrochure,
                 ratesFrozenAtShare,
                 kc_theme_id,
+                gifting_gst_enabled,
             });
         }
 
@@ -6501,6 +6505,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             rates: ratesForBrochure,
             ratesFrozenAtShare,
             kc_theme_id,
+            gifting_gst_enabled,
         });
     } catch (error) {
         console.error('shared-catalog get:', error);

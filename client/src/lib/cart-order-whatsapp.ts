@@ -64,6 +64,8 @@ export type SharedCatalogPickLineForWhatsApp = {
   priceInr: number
   qty?: number
   weightLabel?: string | null
+  /** When false, omit "incl. GST" on price lines (e.g. gift items with GST toggle off). */
+  showInclGst?: boolean
 }
 
 export function buildSharedCatalogSelectionWhatsAppMessage(params: {
@@ -91,10 +93,11 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
       }
       const unit = Math.round(l.priceInr)
       const lineTotal = unit * qty
+      const gstSuffix = l.showInclGst === false ? '' : ' incl. GST'
       const priceLine =
         qty > 1
-          ? `₹${unit.toLocaleString('en-IN')} each · line ₹${lineTotal.toLocaleString('en-IN')} incl. GST`
-          : `₹${unit.toLocaleString('en-IN')} incl. GST`
+          ? `₹${unit.toLocaleString('en-IN')} each · line ₹${lineTotal.toLocaleString('en-IN')}${gstSuffix}`
+          : `₹${unit.toLocaleString('en-IN')}${gstSuffix}`
       return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}\n   ${priceLine}${wt}\n`
     })
     .join('\n')

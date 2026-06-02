@@ -67,6 +67,8 @@ export type SharedCatalogPublicResponse =
       hidePrices?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
       products: SharedCatalogPublicProduct[]
+      /** Site-wide gift GST toggle from `app_settings.gifting_gst_enabled`. */
+      gifting_gst_enabled?: boolean
     }
   | {
       expired: false
@@ -82,6 +84,8 @@ export type SharedCatalogPublicResponse =
       creatorCustomerTier?: string | null
       products: SharedCatalogPublicProduct[]
       rates: unknown[]
+      /** Site-wide gift GST toggle from `app_settings.gifting_gst_enabled`. */
+      gifting_gst_enabled?: boolean
   /** Palette for PDF / UX — stored as app_settings `kc_theme_id` or reseller profile. */
   kc_theme_id?: string | null
   /** True when prices use live rates frozen at link creation (not current ticker). */
@@ -94,4 +98,13 @@ export async function fetchSharedCatalogByUuid(
 ): Promise<SharedCatalogPublicResponse> {
   const { data } = await axios.get<SharedCatalogPublicResponse>(`/api/shared-catalog/${uuid}`)
   return data
+}
+
+/** Gift-item GST toggle from shared-catalog API (`app_settings.gifting_gst_enabled`). */
+export function sharedCatalogGiftingGstEnabled(
+  payload: SharedCatalogPublicResponse | null | undefined,
+): boolean {
+  if (!payload || typeof payload !== 'object') return true
+  if ('gifting_gst_enabled' in payload) return payload.gifting_gst_enabled !== false
+  return true
 }
