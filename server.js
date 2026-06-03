@@ -6502,6 +6502,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 COALESCE(wp.fixed_price, 0)::float AS fixed_price,
                 COALESCE(wp.stone_charges, 0)::float AS stone_charges,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
+                wp.size,
+                wp.design_group,
                 wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,
                 COALESCE(wc.discount_percentage, 0)::float AS discount_percentage,
                 wc.name AS style_name

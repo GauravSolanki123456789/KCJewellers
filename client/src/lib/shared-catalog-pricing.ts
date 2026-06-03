@@ -5,10 +5,16 @@
 import {
   calculateBreakdown,
   resolveItemGstRate,
+  isGiftingItem,
   type CatalogPricingOptions,
   type Item,
   type WholesalePricingInput,
 } from '@/lib/pricing'
+import {
+  compareVariantBySize,
+  getDesignGroupKey,
+  variantDisplayTitle,
+} from '@/lib/product-variants'
 import type {
   SharedCatalogCreatorWholesale,
   SharedCatalogPublicProduct,
@@ -96,6 +102,70 @@ export type SharedCatalogPricingRow = {
   product: SharedCatalogPublicProduct
   unitTotalInr: number
   markupPercentage: number
+}
+
+export type SharedCatalogGroupedRow = {
+  groupKey: string
+  displayTitle: string
+  variants: SharedCatalogPricingRow[]
+}
+
+function sharedCatalogRowKey(row: SharedCatalogPricingRow, index: number): string {
+  const b = String(row.product.barcode ?? '').trim()
+  if (b) return b
+  const s = String(row.product.sku ?? '').trim()
+  if (s) return s
+  if (row.product.id != null && String(row.product.id).trim()) return String(row.product.id)
+  return `i:${index}`
+}
+
+/** One grid card per `design_group` for gifting rows with multiple sizes (shared brochure). */
+export function groupSharedCatalogPricingRows(
+  rows: SharedCatalogPricingRow[],
+): SharedCatalogGroupedRow[] {
+  const groupBuckets = new Map<string, SharedCatalogPricingRow[]>()
+  for (const row of rows) {
+    const dg = getDesignGroupKey(row.item)
+    if (!dg || !isGiftingItem(row.item)) continue
+    const bucket = groupBuckets.get(dg) ?? []
+    bucket.push(row)
+    groupBuckets.set(dg, bucket)
+  }
+
+  for (const [dg, list] of groupBuckets) {
+    groupBuckets.set(
+      dg,
+      [...list].sort((a, b) => compareVariantBySize(a.item, b.item)),
+    )
+  }
+
+  const seenGroups = new Set<string>()
+  const grouped: SharedCatalogGroupedRow[] = []
+
+  rows.forEach((row, index) => {
+    const dg = getDesignGroupKey(row.item)
+    if (dg && isGiftingItem(row.item)) {
+      if (seenGroups.has(dg)) return
+      seenGroups.add(dg)
+      const variants = groupBuckets.get(dg) ?? [row]
+      grouped.push({
+        groupKey: dg,
+        displayTitle: variantDisplayTitle(variants[0].item),
+        variants,
+      })
+      return
+    }
+    grouped.push({
+      groupKey: sharedCatalogRowKey(row, index),
+      displayTitle:
+        (row.product.name as string) ||
+        row.item.item_name ||
+        String(row.product.barcode || row.product.sku || ''),
+      variants: [row],
+    })
+  })
+
+  return grouped
 }
 
 export function buildSharedCatalogPricingRows(

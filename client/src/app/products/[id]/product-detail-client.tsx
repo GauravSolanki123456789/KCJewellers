@@ -688,7 +688,7 @@ export default function ProductDetailClient({
             )}
 
             {sizeVariants.length > 1 && product ? (
-              <div className="mt-6 rounded-xl border border-slate-800/80 bg-slate-900/40 p-4">
+              <div className="mt-6 rounded-xl border border-slate-700/80 bg-slate-950/[0.03] p-4">
                 <GiftingSizeVariantPicker
                   variants={sizeVariants}
                   selected={product}

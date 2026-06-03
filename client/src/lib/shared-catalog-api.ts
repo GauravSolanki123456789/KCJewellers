@@ -51,6 +51,8 @@ export type SharedCatalogPublicProduct = {
   discount_percentage?: number
   style_name?: string
   gst_rate?: number
+  size?: string | null
+  design_group?: string | null
   [key: string]: unknown
 }
 

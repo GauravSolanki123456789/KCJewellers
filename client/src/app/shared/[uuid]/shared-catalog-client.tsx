@@ -14,9 +14,12 @@ import {
 } from '@/lib/shared-catalog-api'
 import {
   buildSharedCatalogPricingRows,
+  groupSharedCatalogPricingRows,
   parseMarkupPercentage,
   sharedCatalogProductToItem,
   wholesaleInputFromBrochure,
+  type SharedCatalogGroupedRow,
+  type SharedCatalogPricingRow,
 } from '@/lib/shared-catalog-pricing'
 import {
   getCustomerDisplayWeightWithGrossFallback,
@@ -30,6 +33,7 @@ import { cn } from '@/lib/utils'
 import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
+import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
 import {
@@ -164,7 +168,41 @@ export default function SharedCatalogClient({
     )
   }, [payload, giftingGstEnabled])
 
+  const groupedRows = useMemo(() => groupSharedCatalogPricingRows(rows), [rows])
+
   const rowKeys = useMemo(() => rows.map((r, i) => stableProductKey(r.product, i)), [rows])
+
+  const rowKeyByRow = useMemo(() => {
+    const m = new Map<SharedCatalogPricingRow, string>()
+    rows.forEach((row, i) => m.set(row, rowKeys[i]))
+    return m
+  }, [rows, rowKeys])
+
+  const [activeVariantByGroup, setActiveVariantByGroup] = useState<Map<string, string>>(
+    () => new Map(),
+  )
+
+  useEffect(() => {
+    setActiveVariantByGroup((prev) => {
+      const next = new Map<string, string>()
+      for (const g of groupedRows) {
+        const keys = g.variants.map((v) => rowKeyByRow.get(v) ?? '').filter(Boolean)
+        const kept = prev.get(g.groupKey)
+        next.set(g.groupKey, kept && keys.includes(kept) ? kept : keys[0] ?? g.groupKey)
+      }
+      return next
+    })
+  }, [groupedRows, rowKeyByRow])
+
+  const resolveActiveVariant = useCallback(
+    (group: SharedCatalogGroupedRow): SharedCatalogPricingRow => {
+      const activeKey = activeVariantByGroup.get(group.groupKey)
+      return (
+        group.variants.find((v) => rowKeyByRow.get(v) === activeKey) ?? group.variants[0]
+      )
+    },
+    [activeVariantByGroup, rowKeyByRow],
+  )
 
   const lightboxSlides = useMemo((): SharedCatalogLightboxSlide[] => {
     return rows
@@ -220,8 +258,14 @@ export default function SharedCatalogClient({
   }, [])
 
   const selectAll = useCallback(() => {
-    setSelections(new Map(rowKeys.map((k) => [k, 1])))
-  }, [rowKeys])
+    const next = new Map<string, number>()
+    for (const group of groupedRows) {
+      const active = resolveActiveVariant(group)
+      const key = rowKeyByRow.get(active)
+      if (key) next.set(key, 1)
+    }
+    setSelections(next)
+  }, [groupedRows, resolveActiveVariant, rowKeyByRow])
 
   const clearSelection = useCallback(() => {
     setSelections(new Map())
@@ -447,13 +491,13 @@ export default function SharedCatalogClient({
   const expiresAt = payload.expiresAt
   const expDate = expiresAt ? new Date(expiresAt) : null
   const hidePrices = !!payload.hidePrices
-  const showPickerChrome = rows.length > 0
+  const showPickerChrome = groupedRows.length > 0
 
   return (
     <div
       className={cn(
         'min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100',
-        showPickerChrome ? 'pb-[calc(8.5rem+env(safe-area-inset-bottom,0px))] sm:pb-32' : 'pb-16',
+        showPickerChrome ? 'pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))] sm:pb-20' : 'pb-16',
       )}
     >
       <header className="mx-auto max-w-6xl px-4 pt-8 text-center sm:px-6 md:pt-12">
@@ -515,26 +559,28 @@ export default function SharedCatalogClient({
       </header>
 
       <main className="mx-auto mt-8 max-w-6xl px-4 sm:mt-10 sm:px-6">
-        {rows.length === 0 ? (
+        {groupedRows.length === 0 ? (
           <p className="text-center text-slate-500">No products in this share.</p>
         ) : (
           <ul className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
-            {rows.map(({ item, product, unitTotalInr }, i) => {
-              const key = rowKeys[i]
+            {groupedRows.map((group) => {
+              const activeRow = resolveActiveVariant(group)
+              const key = rowKeyByRow.get(activeRow) ?? group.groupKey
               const qty = selections.get(key) ?? 0
               const selected = qty > 0
-              const name =
-                (product.name as string) ||
-                item.item_name ||
-                String(product.barcode || product.sku || '')
-              const img = normalizeCatalogImageSrc(product.image_url)
+              const hasVariants = group.variants.length > 1
+              const { item, product, unitTotalInr } = activeRow
+              const name = group.displayTitle
+              const img = normalizeCatalogImageSrc(
+                product.image_url || group.variants[0]?.product.image_url,
+              )
               const MetalIc = metalIcon(String(product.metal_type || ''))
               const code = String(product.barcode || product.sku || '')
               const wt = getCustomerDisplayWeightWithGrossFallback(sharedCatalogProductToItem(product))
               const wtLabel =
                 wt != null && !Number.isNaN(Number(wt)) ? `${Number(wt).toFixed(2)} gm` : null
               return (
-                <li key={key}>
+                <li key={group.groupKey}>
                   <article
                     className={cn(
                       'flex h-full flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition',
@@ -579,7 +625,10 @@ export default function SharedCatalogClient({
                         <>
                           <DualJewelleryProductImage
                             primarySrc={img}
-                            secondary_image_url={product.secondary_image_url}
+                            secondary_image_url={
+                              product.secondary_image_url ||
+                              group.variants[0]?.product.secondary_image_url
+                            }
                             alt={name}
                             sizes="(max-width: 640px) 50vw, 25vw"
                             imageClassName="object-cover"
@@ -603,7 +652,37 @@ export default function SharedCatalogClient({
                       <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-slate-100">
                         {name}
                       </h2>
-                      <p className="truncate font-mono text-[11px] text-slate-500">{code}</p>
+                      {!hasVariants && code ? (
+                        <p className="truncate font-mono text-[11px] text-slate-500">{code}</p>
+                      ) : null}
+                      {hasVariants ? (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <GiftingSizeVariantPicker
+                            variants={group.variants.map((v) => v.item)}
+                            selected={item}
+                            onSelect={(v) => {
+                              const match = group.variants.find(
+                                (row) =>
+                                  String(row.item.barcode ?? '') === String(v.barcode ?? '') ||
+                                  String(row.item.sku ?? '') === String(v.sku ?? ''),
+                              )
+                              const variantKey = match ? rowKeyByRow.get(match) : undefined
+                              if (variantKey) {
+                                setActiveVariantByGroup((prev) => {
+                                  const next = new Map(prev)
+                                  next.set(group.groupKey, variantKey)
+                                  return next
+                                })
+                              }
+                            }}
+                            density="card"
+                            className="mt-0.5"
+                          />
+                        </div>
+                      ) : null}
                       {wtLabel ? (
                         <p
                           className={cn(
@@ -672,50 +751,52 @@ export default function SharedCatalogClient({
       </main>
 
       {showPickerChrome ? (
-        <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-300/90 bg-white/98 shadow-[0_-8px_32px_rgba(15,23,42,0.12)] backdrop-blur-md">
-          <div className="mx-auto max-w-6xl px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 sm:px-6">
-            <p className="mb-2.5 text-center text-xs text-neutral-600 sm:text-left sm:text-sm">
+        <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-300/90 bg-white/98 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-md">
+          <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
+            <p className="min-w-0 flex-1 truncate text-xs text-neutral-600 sm:text-sm">
               {selectedCount === 0 ? (
-                <>Shortlist items to enable sharing</>
+                <>Shortlist items to share</>
               ) : (
                 <span className="font-semibold text-neutral-900">
-                  {totalPieces} {totalPieces === 1 ? 'piece' : 'pieces'} · {selectedCount}{' '}
+                  {totalPieces} {totalPieces === 1 ? 'pc' : 'pcs'} · {selectedCount}{' '}
                   {selectedCount === 1 ? 'design' : 'designs'}
                 </span>
               )}
             </p>
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 disabled={selectedCount === 0 || pdfBusy}
                 onClick={handleSharePicksPdf}
                 className={cn(
-                  'inline-flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl border-2 px-4 py-3 text-sm font-bold shadow-sm transition active:scale-[0.99]',
+                  'inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition active:scale-[0.99] sm:min-h-[46px] sm:gap-2 sm:px-4 sm:text-sm',
                   selectedCount === 0 || pdfBusy
                     ? 'cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400'
                     : 'border-neutral-800 bg-neutral-900 text-white hover:bg-neutral-800',
                 )}
               >
                 {pdfBusy ? (
-                  <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
+                  <Loader2 className="size-4 shrink-0 animate-spin sm:size-[18px]" aria-hidden />
                 ) : (
-                  <FileText className="size-5 shrink-0" aria-hidden />
+                  <FileText className="size-4 shrink-0 sm:size-[18px]" aria-hidden />
                 )}
-                <span>{pdfBusy ? 'Building PDF…' : 'PDF with photos'}</span>
+                <span className="max-w-[5.5rem] truncate sm:max-w-none">
+                  {pdfBusy ? 'PDF…' : 'PDF with photos'}
+                </span>
               </button>
               <button
                 type="button"
                 disabled={selectedCount === 0}
                 onClick={handleSharePicks}
                 className={cn(
-                  'inline-flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold shadow-md transition active:scale-[0.99]',
+                  'inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold shadow-sm transition active:scale-[0.99] sm:min-h-[46px] sm:gap-2 sm:px-4 sm:text-sm',
                   selectedCount === 0
                     ? 'cursor-not-allowed bg-neutral-200 text-neutral-400'
                     : 'bg-emerald-600 text-white hover:bg-emerald-500',
                 )}
               >
-                <MessageCircle className="size-5 shrink-0" aria-hidden />
-                WhatsApp (text)
+                <MessageCircle className="size-4 shrink-0 sm:size-[18px]" aria-hidden />
+                <span className="max-w-[4.5rem] truncate sm:max-w-none">WhatsApp (text)</span>
               </button>
             </div>
           </div>

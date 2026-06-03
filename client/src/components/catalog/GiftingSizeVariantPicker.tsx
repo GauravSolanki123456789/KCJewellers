@@ -37,7 +37,7 @@ export default function GiftingSizeVariantPicker({
       <p
         className={cn(
           'font-medium uppercase tracking-wider',
-          isDetail ? 'mb-2 text-xs text-slate-400' : 'mb-1 text-[9px] text-slate-600 sm:text-[10px]',
+          isDetail ? 'mb-2 text-xs text-slate-600' : 'mb-1 text-[9px] text-slate-600 sm:text-[10px]',
         )}
       >
         Size
@@ -70,13 +70,7 @@ export default function GiftingSizeVariantPicker({
                 isDetail
                   ? 'min-h-[44px] px-4 py-2.5 text-sm'
                   : 'min-h-[32px] px-2.5 py-1 text-[11px] sm:min-h-[36px] sm:px-3 sm:text-xs',
-                active
-                  ? isDetail
-                    ? 'kc-size-chip-active-dark'
-                    : 'kc-size-chip-active'
-                  : isDetail
-                    ? 'kc-size-chip-idle-dark'
-                    : 'kc-size-chip-idle',
+                active ? 'kc-size-chip-active' : 'kc-size-chip-idle',
               )}
             >
               {label}
