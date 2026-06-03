@@ -3,6 +3,11 @@
  * Each variant gets a unique `sku` / `barcode`; images default to the design_group file stem.
  */
 
+function trimCatalogField(value) {
+    if (value == null) return '';
+    return String(value).trim();
+}
+
 function slugPart(value) {
     const s = String(value ?? '')
         .trim()

@@ -244,8 +244,8 @@ export default function ProductCard({
           className="mt-0.5"
         />
       ) : getCustomerDisplaySize(active) ? (
-        <span className="text-[10px] text-slate-500">
-          Size {getCustomerDisplaySize(active)}
+        <span className="kc-size-chip-single mt-0.5 w-fit">
+          {getCustomerDisplaySize(active)}
         </span>
       ) : null}
 

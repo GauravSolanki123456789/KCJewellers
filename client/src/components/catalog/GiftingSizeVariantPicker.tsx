@@ -36,8 +36,8 @@ export default function GiftingSizeVariantPicker({
     <div className={cn('min-w-0', className)}>
       <p
         className={cn(
-          'font-medium uppercase tracking-wider text-slate-500',
-          isDetail ? 'mb-2 text-xs' : 'mb-1 text-[9px] sm:text-[10px]',
+          'font-medium uppercase tracking-wider',
+          isDetail ? 'mb-2 text-xs text-slate-400' : 'mb-1 text-[9px] text-slate-600 sm:text-[10px]',
         )}
       >
         Size
@@ -66,13 +66,17 @@ export default function GiftingSizeVariantPicker({
                 onSelect(v)
               }}
               className={cn(
-                'shrink-0 snap-start touch-manipulation rounded-lg border font-medium tabular-nums transition',
+                'kc-size-chip shrink-0 snap-start touch-manipulation rounded-lg border font-semibold tabular-nums transition',
                 isDetail
                   ? 'min-h-[44px] px-4 py-2.5 text-sm'
                   : 'min-h-[32px] px-2.5 py-1 text-[11px] sm:min-h-[36px] sm:px-3 sm:text-xs',
                 active
-                  ? 'border-amber-500/70 bg-amber-500/15 text-amber-200 ring-1 ring-amber-500/30'
-                  : 'border-slate-600/80 bg-slate-900/50 text-slate-300 hover:border-slate-500 hover:bg-slate-800/80',
+                  ? isDetail
+                    ? 'kc-size-chip-active-dark'
+                    : 'kc-size-chip-active'
+                  : isDetail
+                    ? 'kc-size-chip-idle-dark'
+                    : 'kc-size-chip-idle',
               )}
             >
               {label}

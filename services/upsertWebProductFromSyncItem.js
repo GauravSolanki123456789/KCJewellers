@@ -15,15 +15,21 @@ function skuSlugFromStyleAndSku(styleSlug, skuCode) {
     return `${styleSlug}-${sku.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'na'}`;
 }
 
+function trimField(value) {
+    if (value == null) return '';
+    return String(value).trim();
+}
+
 function normalizeSyncItem(item) {
-    const prodSku = String(item.barcode || item.sku || item.Barcode || item.SKU || '').trim();
+    const prodSku = trimField(item.barcode || item.sku || item.Barcode || item.SKU);
     return {
-        styleCode: String(item.styleCode || item.style_code || item.StyleCode || 'Uncategorized').trim(),
-        skuCode: String(item.sku || item.SKU || item.barcode || item.Barcode || 'N/A').trim(),
+        styleCode: trimField(item.styleCode || item.style_code || item.StyleCode) || 'Uncategorized',
+        skuCode: trimField(item.sku || item.SKU || item.barcode || item.Barcode) || 'N/A',
         prodSku,
-        name: String(
-            item.name || item.product_name || item.ProductName || item.item_name || item.short_name || prodSku,
-        ).trim(),
+        name:
+            trimField(
+                item.name || item.product_name || item.ProductName || item.item_name || item.short_name || prodSku,
+            ) || prodSku,
         netWeight:
             item.netWeight != null
                 ? Number(item.netWeight)
@@ -67,18 +73,9 @@ function normalizeSyncItem(item) {
                     ? Number(item.StoneCharges)
                     : 0,
         designGroup:
-            item.itemCode != null
-                ? String(item.itemCode).trim() || null
-                : item.ItemCode != null
-                  ? String(item.ItemCode).trim() || null
-                  : null,
-        barcode: String(item.barcode || item.Barcode || '').trim() || null,
-        size:
-            item.size != null
-                ? String(item.size).trim() || null
-                : item.Size != null
-                  ? String(item.Size).trim() || null
-                  : null,
+            trimField(item.itemCode ?? item.ItemCode ?? item.item_code) || null,
+        barcode: trimField(item.barcode || item.Barcode) || null,
+        size: trimField(item.size ?? item.Size) || null,
         rawPrimary:
             item.imageUrl != null
                 ? String(item.imageUrl)
@@ -282,7 +279,33 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         }
     }
 
+    await deactivateStaleGiftVariantRows(query, norm);
+
     return { prodSku: norm.prodSku, styleCode: norm.styleCode, catId };
+}
+
+/**
+ * When the same gift design_group + size is re-published under a new SKU/subcategory,
+ * retire older live rows (e.g. Mecca left in GOLD NOTE after re-import to L_STAND).
+ */
+async function deactivateStaleGiftVariantRows(query, norm) {
+    const dg = trimField(norm.designGroup);
+    if (!dg) return;
+    const mt = String(norm.metalType || '').toLowerCase();
+    if (!mt.startsWith('gifting')) return;
+    const sizeKey = trimField(norm.size);
+    const prodSku = trimField(norm.prodSku);
+    if (!prodSku) return;
+    await query(
+        `UPDATE web_products
+         SET is_active = false, updated_at = CURRENT_TIMESTAMP
+         WHERE TRIM(COALESCE(design_group, '')) = $1
+           AND TRIM(COALESCE(size, '')) = $2
+           AND TRIM(COALESCE(sku, '')) <> $3
+           AND LOWER(COALESCE(metal_type, '')) LIKE 'gifting%'
+           AND (is_active IS NULL OR is_active = true)`,
+        [dg, sizeKey, prodSku],
+    );
 }
 
 module.exports = {

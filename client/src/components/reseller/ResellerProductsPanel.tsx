@@ -205,6 +205,23 @@ export function ResellerProductsPanel() {
   const rowHasData = (row: Record<string, unknown>) =>
     Object.values(row).some((v) => String(v ?? '').trim() !== '')
 
+  const normalizeExcelRow = (row: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(row)) {
+      const key = String(k).trim()
+      if (v == null) {
+        out[key] = ''
+        continue
+      }
+      if (typeof v === 'number' && key.toLowerCase().includes('size')) {
+        out[key] = String(v)
+        continue
+      }
+      out[key] = typeof v === 'string' ? v.trim() : v
+    }
+    return out
+  }
+
   const parseExcelFile = async (file: File): Promise<Record<string, unknown>[]> => {
     const name = file.name.toLowerCase()
     if (name.endsWith('.csv')) {
@@ -220,7 +237,7 @@ export function ResellerProductsPanel() {
           headers.forEach((h, i) => {
             row[h] = cells[i] ?? ''
           })
-          return row
+          return normalizeExcelRow(row)
         })
         .filter(rowHasData)
     }
@@ -228,7 +245,9 @@ export function ResellerProductsPanel() {
     const buf = await file.arrayBuffer()
     const wb = XLSX.read(buf, { type: 'array' })
     const sheet = wb.Sheets[wb.SheetNames[0]]
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+    const rows = XLSX.utils
+      .sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+      .map(normalizeExcelRow)
     return rows.filter(rowHasData)
   }
 
@@ -550,8 +569,10 @@ export function ResellerProductsPanel() {
               Barcode, SKU, StyleCode, ProductName, <strong>Size</strong> (e.g. 3x2.5), MetalType
               (gifting), <strong>FixedPrice</strong>, <strong>ItemCode</strong> (design group — e.g.
               Ganesh). One row per size; same ItemCode + different Size = one product with size options
-              on the shop. Upload one photo named <span className="font-mono text-xs">ItemCode.webp</span>{' '}
-              (e.g. ganesh.webp). Import first — add photos — then send for KC review.
+              on the shop. <strong>SKU</strong> column = subcategory (e.g. L_STAND) — must match exactly;
+              trailing spaces are trimmed. Upload one photo named{' '}
+              <span className="font-mono text-xs">ItemCode.webp</span> (e.g. ganesh.webp). Import first —
+              add photos — then send for KC review.
             </p>
             <input
               ref={excelInputRef}

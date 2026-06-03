@@ -36,11 +36,17 @@ function submissionRowToSyncItem(row) {
     };
 }
 
+function trimExcelCell(value) {
+    if (value == null) return undefined;
+    const s = String(value).trim();
+    return s === '' ? undefined : s;
+}
+
 function excelRowToSyncItem(row) {
     if (!row || typeof row !== 'object') return null;
     const get = (...keys) => {
         for (const k of keys) {
-            if (row[k] != null && String(row[k]).trim() !== '') return row[k];
+            if (row[k] != null && String(row[k]).trim() !== '') return trimExcelCell(row[k]);
         }
         return undefined;
     };
@@ -604,6 +610,44 @@ function registerResellerProductRoutes(app, deps) {
             res.status(500).json({ error: e.message });
         }
     });
+
+    // ---- Admin: re-publish approved batch (retire duplicate gift rows in wrong SKU) ----
+    app.post(
+        '/api/admin/reseller-product-submissions/batch/:batchId/republish',
+        isAdminStrict,
+        async (req, res) => {
+            try {
+                const batchId = String(req.params.batchId || '').trim();
+                if (!batchId) return res.status(400).json({ error: 'batchId required' });
+                const rows = await query(
+                    `SELECT * FROM reseller_product_submissions
+                     WHERE batch_id = $1::uuid AND submission_status = 'approved'`,
+                    [batchId],
+                );
+                const republished = [];
+                const errors = [];
+                for (const row of rows) {
+                    try {
+                        const result = await upsertWebProductFromSyncItem(
+                            upsertDeps,
+                            submissionRowToSyncItem(row),
+                            {
+                                submittedByUserId: row.submitted_by_user_id,
+                                resellerSubmissionId: row.id,
+                                publishCategory: true,
+                            },
+                        );
+                        republished.push({ id: row.id, product_sku: result.prodSku });
+                    } catch (e) {
+                        errors.push({ id: row.id, error: e.message });
+                    }
+                }
+                res.json({ success: republished.length > 0, republished, errors });
+            } catch (e) {
+                res.status(500).json({ error: e.message });
+            }
+        },
+    );
 
     // ---- Admin: list all submissions ----
     app.get('/api/admin/reseller-product-submissions', isAdminStrict, async (req, res) => {

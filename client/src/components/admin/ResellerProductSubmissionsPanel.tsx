@@ -82,6 +82,19 @@ export function ResellerProductSubmissionsPanel() {
     )
   }, [pendingRows])
 
+  const approvedGroups = useMemo(() => {
+    const approved = rows.filter((r) => r.submission_status === 'approved' && r.batch_id)
+    const map = new Map<string, { batchId: string; label: string; rows: ResellerProductSubmission[] }>()
+    for (const row of approved) {
+      const batchId = row.batch_id as string
+      const label = row.batch_label || 'Excel batch'
+      const existing = map.get(batchId)
+      if (existing) existing.rows.push(row)
+      else map.set(batchId, { batchId, label, rows: [row] })
+    }
+    return [...map.values()]
+  }, [rows])
+
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -123,6 +136,36 @@ export function ResellerProductSubmissionsPanel() {
       await load()
     } catch {
       alert('Bulk approve failed')
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  const republishBatch = async (batchId: string, count: number) => {
+    if (!batchId || batchId.startsWith('single-')) return
+    if (
+      !window.confirm(
+        `Re-sync all ${count} approved products in this batch? This updates catalogue placement and hides duplicate gift rows (e.g. old GOLD NOTE copies).`,
+      )
+    ) {
+      return
+    }
+    setActingId(-3)
+    try {
+      const res = await axios.post<{ republished?: { id: number }[]; errors?: { error: string }[] }>(
+        `/api/admin/reseller-product-submissions/batch/${batchId}/republish`,
+        {},
+      )
+      const n = res.data.republished?.length ?? 0
+      const errN = res.data.errors?.length ?? 0
+      alert(
+        errN > 0
+          ? `Re-synced ${n} product(s). ${errN} row(s) had errors.`
+          : `Re-synced ${n} product(s). Duplicate placements in wrong SKU should now be hidden.`,
+      )
+      await load()
+    } catch {
+      alert('Batch re-sync failed')
     } finally {
       setActingId(null)
     }
@@ -283,6 +326,43 @@ export function ResellerProductSubmissionsPanel() {
               </div>
             )
           })}
+        </div>
+      ) : filter === 'approved' && approvedGroups.length > 0 ? (
+        <div className="space-y-6">
+          {approvedGroups.map((group) => (
+            <div key={group.batchId} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3 sm:p-4">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-200">{group.label}</p>
+                  <p className="text-xs text-slate-500">{group.rows.length} live product(s)</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={actingId === -3}
+                  onClick={() => void republishBatch(group.batchId, group.rows.length)}
+                  className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 disabled:opacity-60"
+                >
+                  {actingId === -3 ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  Re-sync batch placements
+                </button>
+              </div>
+              <ul className="space-y-3">
+                {group.rows.map((row) => (
+                  <AdminSubmissionRow
+                    key={row.id}
+                    row={row}
+                    acting={actingId === row.id}
+                    selected={selected.has(row.id)}
+                    onToggleSelect={() => toggleSelect(row.id)}
+                    onApprove={() => void approve(row.id)}
+                    onReject={() => void reject(row.id)}
+                    onEdit={() => setEditRow(row)}
+                    onDelete={() => void remove(row.id, row.submission_status === 'approved')}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       ) : (
         <ul className="space-y-3">
