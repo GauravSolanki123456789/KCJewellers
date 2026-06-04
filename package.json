@@ -11,6 +11,8 @@
     "setup-db": "node scripts/setup-database.js",
     "migrate": "node scripts/run-migration.js",
     "revert-pending-excel-bulk": "node scripts/revert-pending-excel-bulk-to-draft.js",
+    "repair-gifting-images": "node scripts/repair-gifting-product-image-urls.js",
+    "test-product-variant-identity": "node scripts/test-product-variant-identity.js",
     "fix-gaurav-password": "node scripts/fix-gaurav-password.js",
     "change-master-password": "node scripts/change-master-password.js",
     "migrate-sales-returns": "node migrate-sales-returns.js",

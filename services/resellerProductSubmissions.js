@@ -8,6 +8,7 @@ const multer = require('multer');
 const {
     upsertWebProductFromSyncItem,
     normalizeSyncItem,
+    resolveNormalizedVariant,
     styleSlugFromCode,
 } = require('./upsertWebProductFromSyncItem');
 
@@ -73,25 +74,37 @@ function excelRowToSyncItem(row) {
     };
 }
 
+function enrichSubmissionRow(row) {
+    if (!row) return row;
+    const sync = submissionRowToSyncItem(row);
+    const resolved = resolveNormalizedVariant(sync);
+    return {
+        ...row,
+        barcode: resolved.barcode || row.barcode,
+        web_product_sku: resolved.prodSku || row.web_product_sku,
+        product_name: resolved.name || row.product_name,
+    };
+}
+
 function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
-    const norm = normalizeSyncItem(item);
+    const resolved = resolveNormalizedVariant(item);
     const payload = { ...item };
     return {
         submitted_by_user_id: submittedByUserId,
         batch_id: batchId || null,
-        style_code: norm.styleCode,
-        sku: norm.skuCode,
-        barcode: norm.barcode || norm.prodSku,
-        product_name: norm.name,
+        style_code: resolved.styleCode,
+        sku: resolved.skuCode,
+        barcode: resolved.barcode,
+        product_name: resolved.name,
         size: item.size != null ? String(item.size) : item.Size != null ? String(item.Size) : null,
-        net_weight: norm.netWeight,
-        gross_weight: norm.grossWeight,
-        purity: norm.purity,
-        mc_rate: norm.mcRate,
+        net_weight: resolved.netWeight,
+        gross_weight: resolved.grossWeight,
+        purity: resolved.purity,
+        mc_rate: resolved.mcRate,
         mc_type: item.mcType != null ? String(item.mcType) : item.MCType != null ? String(item.MCType) : null,
-        metal_type: norm.metalType,
-        fixed_price: norm.fixedPrice ?? 0,
-        stone_charges: norm.stoneCharges ?? 0,
+        metal_type: resolved.metalType,
+        fixed_price: resolved.fixedPrice ?? 0,
+        stone_charges: resolved.stoneCharges ?? 0,
         box_charges:
             item.boxCharges != null
                 ? Number(item.boxCharges)
@@ -104,7 +117,7 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
                 : item.PCS != null
                   ? parseInt(String(item.PCS), 10) || 1
                   : 1,
-        design_group: norm.designGroup,
+        design_group: resolved.designGroup,
         attr_color:
             item['Attr:Color'] != null
                 ? String(item['Attr:Color'])
@@ -123,7 +136,7 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
                 ? String(item.secondaryImageUrl || item.secondary_image_url)
                 : null,
         payload_json: payload,
-        web_product_sku: norm.prodSku || null,
+        web_product_sku: resolved.prodSku || null,
     };
 }
 
@@ -254,6 +267,7 @@ function registerResellerProductRoutes(app, deps) {
         getPublicApiBaseUrl,
         lookUpSecondaryDisk,
         resolveSecondaryUrlFromPayload,
+        uploadsWebProductsDir,
     };
 
     const RESELLER_PRODUCT_UPLOAD = createResellerProductUploadMulter(uploadsWebProductsDir);
@@ -289,7 +303,7 @@ function registerResellerProductRoutes(app, deps) {
             }
             sql += ' ORDER BY rps.created_at DESC LIMIT 500';
             const rows = await query(sql, params);
-            res.json(rows);
+            res.json(rows.map(enrichSubmissionRow));
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
@@ -310,8 +324,8 @@ function registerResellerProductRoutes(app, deps) {
             if (!styleCode) return res.status(400).json({ error: 'styleCode (StyleCode) is required' });
             await assertResellerStyleAllowed(query, req.user.id, styleCode);
 
-            const norm = normalizeSyncItem(item);
-            if (!norm.prodSku) return res.status(400).json({ error: 'barcode or sku is required' });
+            const resolved = resolveNormalizedVariant(item);
+            if (!resolved.prodSku) return res.status(400).json({ error: 'barcode or sku is required' });
 
             const files = req.files || {};
             const primary = (files.primaryImage && files.primaryImage[0]) || (files.images && files.images[0]);
@@ -322,14 +336,14 @@ function registerResellerProductRoutes(app, deps) {
 
             if (primary) {
                 const ext = path.extname(primary.filename) || '.webp';
-                const target = `${norm.prodSku}${ext}`;
+                const target = `${resolved.prodSku}${ext}`;
                 if (primary.filename !== target) {
                     fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
                 }
             }
             if (secondary) {
                 const ext = path.extname(secondary.filename) || '.webp';
-                const target = `${norm.prodSku}_secondary${ext}`;
+                const target = `${resolved.prodSku}_secondary${ext}`;
                 if (secondary.filename !== target) {
                     fs.renameSync(
                         path.join(uploadsWebProductsDir, secondary.filename),
@@ -365,8 +379,8 @@ function registerResellerProductRoutes(app, deps) {
                     const styleCode = String(item.styleCode || '').trim();
                     if (!styleCode) throw new Error('StyleCode required');
                     await assertResellerStyleAllowed(query, req.user.id, styleCode);
-                    const norm = normalizeSyncItem(item);
-                    if (!norm.prodSku) throw new Error('Barcode/SKU required');
+                    const resolved = resolveNormalizedVariant(item);
+                    if (!resolved.prodSku) throw new Error('Barcode/SKU required');
                     const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
                     fields.submission_status = 'draft';
                     fields.batch_label =
@@ -412,9 +426,9 @@ function registerResellerProductRoutes(app, deps) {
                         const styleCode = String(item.styleCode || '').trim();
                         if (!styleCode) throw new Error('StyleCode required');
                         await assertResellerStyleAllowed(query, req.user.id, styleCode);
-                        const norm = normalizeSyncItem(item);
-                        if (!norm.prodSku) throw new Error('Barcode/SKU required');
-                        const secDisk = lookUpSecondaryDisk(secondaryUploadMap, norm.prodSku);
+                        const resolved = resolveNormalizedVariant(item);
+                        if (!resolved.prodSku) throw new Error('Barcode/SKU required');
+                        const secDisk = lookUpSecondaryDisk(secondaryUploadMap, resolved.prodSku);
                         if (secDisk) {
                             item.secondaryImageUrl = `${getPublicApiBaseUrl()}/uploads/web_products/${secDisk}`;
                             item.hasSecondaryImage = true;
@@ -463,22 +477,22 @@ function registerResellerProductRoutes(app, deps) {
             const styleCode = String(item.styleCode || item.style_code || existing[0].style_code || '').trim();
             if (styleCode) await assertResellerStyleAllowed(query, req.user.id, styleCode);
             const mergedItem = { ...submissionRowToSyncItem(existing[0]), ...item };
+            const resolved = resolveNormalizedVariant(mergedItem);
             const fields = buildSubmissionFieldsFromItem(mergedItem, req.user.id, existing[0].batch_id);
-            const norm = normalizeSyncItem(mergedItem);
             const files = req.files || {};
             const primary = (files.primaryImage && files.primaryImage[0]) || (files.images && files.images[0]);
             const secondary =
                 (files.secondaryImage && files.secondaryImage[0]) ||
                 (files.secondaryImages && files.secondaryImages[0]);
-            if (primary && norm.prodSku) {
+            if (primary && resolved.prodSku) {
                 const ext = path.extname(primary.filename) || '.webp';
-                const target = `${norm.prodSku}${ext}`;
+                const target = `${resolved.prodSku}${ext}`;
                 fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
                 fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
-            if (secondary && norm.prodSku) {
+            if (secondary && resolved.prodSku) {
                 const ext = path.extname(secondary.filename) || '.webp';
-                const target = `${norm.prodSku}_secondary${ext}`;
+                const target = `${resolved.prodSku}_secondary${ext}`;
                 fs.renameSync(path.join(uploadsWebProductsDir, secondary.filename), path.join(uploadsWebProductsDir, target));
                 fields.secondary_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
@@ -495,7 +509,7 @@ function registerResellerProductRoutes(app, deps) {
                 `UPDATE reseller_product_submissions SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
                 params,
             );
-            res.json({ success: true, submission: rows[0] });
+            res.json({ success: true, submission: enrichSubmissionRow(rows[0]) });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message });
         }
@@ -712,20 +726,20 @@ function registerResellerProductRoutes(app, deps) {
             let item = req.body?.product || req.body;
             if (typeof item === 'string') item = JSON.parse(item);
             const merged = { ...submissionRowToSyncItem(existing[0]), ...item };
+            const resolved = resolveNormalizedVariant(merged);
             const fields = buildSubmissionFieldsFromItem(merged, existing[0].submitted_by_user_id, existing[0].batch_id);
-            const norm = normalizeSyncItem(fields);
             const files = req.files || {};
             const primary = (files.primaryImage && files.primaryImage[0]) || (files.images && files.images[0]);
             const secondary = (files.secondaryImage && files.secondaryImage[0]) || (files.secondaryImages && files.secondaryImages[0]);
-            if (primary && norm.prodSku) {
+            if (primary && resolved.prodSku) {
                 const ext = path.extname(primary.filename) || '.webp';
-                const target = `${norm.prodSku}${ext}`;
+                const target = `${resolved.prodSku}${ext}`;
                 fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
                 fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
-            if (secondary && norm.prodSku) {
+            if (secondary && resolved.prodSku) {
                 const ext = path.extname(secondary.filename) || '.webp';
-                const target = `${norm.prodSku}_secondary${ext}`;
+                const target = `${resolved.prodSku}_secondary${ext}`;
                 fs.renameSync(path.join(uploadsWebProductsDir, secondary.filename), path.join(uploadsWebProductsDir, target));
                 fields.secondary_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }

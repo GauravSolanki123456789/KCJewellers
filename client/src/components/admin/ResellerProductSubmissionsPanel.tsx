@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import {
-  productImageUrl,
+  submissionImageDiskKey,
+  submissionPreviewImageUrl,
   submissionStatusLabel,
   submissionStatusTone,
   submissionToPayload,
@@ -408,8 +409,9 @@ function AdminSubmissionRow({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const sku = row.barcode || row.web_product_sku || row.sku || ''
-  const img = row.image_url || (sku ? productImageUrl(sku) : '')
+  const diskKey = submissionImageDiskKey(row)
+  const displayCode = diskKey || row.barcode || row.sku || ''
+  const img = submissionPreviewImageUrl(row)
   const status = row.submission_status as ResellerSubmissionStatus
   const isPending = status === 'pending'
 
@@ -439,7 +441,7 @@ function AdminSubmissionRow({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <p className="font-medium text-slate-200">{row.product_name || sku}</p>
+            <p className="font-medium text-slate-200">{row.product_name || displayCode}</p>
             <p className="text-xs text-slate-500">
               {row.style_code} › {row.sku}
               {row.metal_type ? ` · ${row.metal_type}` : ''}

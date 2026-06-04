@@ -165,3 +165,22 @@ export function productImageUrl(skuOrBarcode: string, apiBase?: string): string 
   if (!code) return ''
   return `${base}/uploads/web_products/${encodeURIComponent(code)}.webp`
 }
+
+/**
+ * Unique catalog sku for reseller photos (subcategory + design_group + size).
+ * Never fall back to Excel Barcode or subcategory SKU — those caused shared `mecca.webp` previews.
+ */
+export function submissionImageDiskKey(row: ResellerProductSubmission): string {
+  return String(row.web_product_sku || '').trim()
+}
+
+/** Preview URL: explicit upload only, or file named after web_product_sku. */
+export function submissionPreviewImageUrl(
+  row: ResellerProductSubmission,
+  apiBase?: string,
+): string {
+  const explicit = String(row.image_url || '').trim()
+  if (explicit) return explicit
+  const key = submissionImageDiskKey(row)
+  return key ? productImageUrl(key, apiBase) : ''
+}

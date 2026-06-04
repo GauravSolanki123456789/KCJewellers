@@ -3,7 +3,13 @@
  * Used by ERP sync, reseller submission approval, and admin edits.
  */
 
-const { resolveVariantIdentity } = require('./productVariantIdentity');
+const { resolveVariantIdentity, slugPart } = require('./productVariantIdentity');
+const {
+    productImageFileExists,
+    defaultProductImageUrl,
+    defaultSecondaryImageUrl,
+    imageUrlBasename,
+} = require('./productImagePaths');
 
 function styleSlugFromCode(styleCode) {
     const s = String(styleCode || 'Uncategorized').trim();
@@ -104,6 +110,7 @@ function normalizeSyncItem(item) {
  * @param {Function} deps.getPublicApiBaseUrl
  * @param {Function} deps.lookUpSecondaryDisk
  * @param {Function} deps.resolveSecondaryUrlFromPayload
+ * @param {string} [deps.uploadsWebProductsDir] - disk check before assigning default image_url
  * @param {object} item - ERP / reseller payload row
  * @param {object} [opts]
  * @param {Map} [opts.catIdCache]
@@ -114,7 +121,8 @@ function normalizeSyncItem(item) {
  * @param {boolean} [opts.publishCategory] - set web_categories.is_published = true
  */
 async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
-    const { query, pool, getPublicApiBaseUrl, lookUpSecondaryDisk, resolveSecondaryUrlFromPayload } = deps;
+    const { query, pool, getPublicApiBaseUrl, lookUpSecondaryDisk, resolveSecondaryUrlFromPayload, uploadsWebProductsDir } =
+        deps;
     const catIdCache = opts.catIdCache || new Map();
     const subIdCache = opts.subIdCache || new Map();
     const secondaryUploadMap = opts.secondaryUploadMap || Object.create(null);
@@ -178,11 +186,14 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
     if (!subId) throw new Error(`could not resolve subcategory for SKU "${norm.skuCode}"`);
 
     const apiBase = getPublicApiBaseUrl();
-    let imageUrl;
+    let imageUrl = null;
+    let touchPrimaryImage = false;
     if (norm.rawPrimary.trim() !== '') {
         imageUrl = resolveSecondaryUrlFromPayload(norm.rawPrimary.trim(), apiBase);
-    } else {
-        imageUrl = `${apiBase}/uploads/web_products/${variantId.imageStem}.webp`;
+        touchPrimaryImage = true;
+    } else if (uploadsWebProductsDir && productImageFileExists(uploadsWebProductsDir, norm.prodSku)) {
+        imageUrl = defaultProductImageUrl(apiBase, norm.prodSku);
+        touchPrimaryImage = true;
     }
 
     const uploadedSecondaryDisk = lookUpSecondaryDisk(secondaryUploadMap, norm.prodSku);
@@ -198,9 +209,8 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         secondaryTouch = true;
         secondaryVal = resolveSecondaryUrlFromPayload(norm.rawSecondary.trim(), apiBase);
     } else if (norm.hasSecTrue) {
-        const fileStemCompact = variantId.imageStem.trim().toLowerCase().replace(/\s+/g, '');
         secondaryTouch = true;
-        secondaryVal = `${apiBase}/uploads/web_products/${fileStemCompact}_secondary.webp`;
+        secondaryVal = defaultSecondaryImageUrl(apiBase, norm.prodSku);
     }
 
     const upsertSql = `
@@ -224,7 +234,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             fixed_price     = COALESCE(EXCLUDED.fixed_price, web_products.fixed_price),
             stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
             design_group    = EXCLUDED.design_group,
-            image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
+            image_url       = CASE WHEN $19::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
             secondary_image_url = CASE WHEN $15::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
             submitted_by_user_id = COALESCE(EXCLUDED.submitted_by_user_id, web_products.submitted_by_user_id),
             reseller_submission_id = COALESCE(EXCLUDED.reseller_submission_id, web_products.reseller_submission_id),
@@ -251,6 +261,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         secondaryVal,
         submittedByUserId,
         resellerSubmissionId,
+        touchPrimaryImage,
     ];
 
     try {
@@ -279,7 +290,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         }
     }
 
-    await deactivateStaleGiftVariantRows(query, norm);
+    await deactivateStaleGiftVariantRows(query, norm, subId);
 
     return { prodSku: norm.prodSku, styleCode: norm.styleCode, catId };
 }
@@ -288,29 +299,56 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
  * When the same gift design_group + size is re-published under a new SKU/subcategory,
  * retire older live rows (e.g. Mecca left in GOLD NOTE after re-import to L_STAND).
  */
-async function deactivateStaleGiftVariantRows(query, norm) {
+async function deactivateStaleGiftVariantRows(query, norm, subcategoryId) {
     const dg = trimField(norm.designGroup);
     if (!dg) return;
     const mt = String(norm.metalType || '').toLowerCase();
     if (!mt.startsWith('gifting')) return;
     const sizeKey = trimField(norm.size);
     const prodSku = trimField(norm.prodSku);
-    if (!prodSku) return;
+    if (!prodSku || subcategoryId == null) return;
     await query(
         `UPDATE web_products
          SET is_active = false, updated_at = CURRENT_TIMESTAMP
-         WHERE TRIM(COALESCE(design_group, '')) = $1
+         WHERE subcategory_id = $4
+           AND TRIM(COALESCE(design_group, '')) = $1
            AND TRIM(COALESCE(size, '')) = $2
            AND TRIM(COALESCE(sku, '')) <> $3
            AND LOWER(COALESCE(metal_type, '')) LIKE 'gifting%'
            AND (is_active IS NULL OR is_active = true)`,
-        [dg, sizeKey, prodSku],
+        [dg, sizeKey, prodSku, subcategoryId],
     );
+}
+
+/**
+ * True when image_url points at a shared design_group file (e.g. mecca.webp) while sku is unique.
+ */
+function isLegacySharedDesignGroupImageUrl(imageUrl, designGroup, prodSku) {
+    const dgStem = slugPart(designGroup);
+    const skuStem = slugPart(prodSku);
+    if (!dgStem || !skuStem || dgStem === skuStem) return false;
+    const base = imageUrlBasename(imageUrl).replace(/\.(webp|jpe?g|png)$/i, '');
+    return base === dgStem;
+}
+
+/** Same sku/barcode resolution as catalog upsert — use for uploads, not raw Excel Barcode alone. */
+function resolveNormalizedVariant(item) {
+    const norm = normalizeSyncItem(item);
+    const variantId = resolveVariantIdentity(norm);
+    return {
+        ...norm,
+        prodSku: variantId.prodSku,
+        barcode: variantId.barcode,
+        imageStem: variantId.imageStem,
+        name: variantId.displayName || norm.name,
+    };
 }
 
 module.exports = {
     upsertWebProductFromSyncItem,
     normalizeSyncItem,
+    resolveNormalizedVariant,
     styleSlugFromCode,
     resolveVariantIdentity,
+    isLegacySharedDesignGroupImageUrl,
 };

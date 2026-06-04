@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import axios from '@/lib/axios'
 import {
   emptyProductPayload,
-  productImageUrl,
+  submissionImageDiskKey,
+  submissionPreviewImageUrl,
   RESELLER_EXCEL_ACCEPT,
   RESELLER_PRODUCT_IMAGE_ACCEPT,
   RESELLER_PRODUCT_IMAGE_MAX_BYTES,
@@ -792,8 +793,9 @@ function BatchProductPhotoRow({
   const [saving, setSaving] = useState(false)
   const primaryRef = useRef<HTMLInputElement>(null)
   const secondaryRef = useRef<HTMLInputElement>(null)
-  const sku = row.barcode || row.web_product_sku || row.sku || ''
-  const existingPrimary = row.image_url || (sku ? productImageUrl(sku) : '')
+  const diskKey = submissionImageDiskKey(row)
+  const displayCode = diskKey || row.barcode || row.sku || ''
+  const existingPrimary = submissionPreviewImageUrl(row)
   const existingSecondary = row.secondary_image_url || ''
 
   const save = async () => {
@@ -820,7 +822,7 @@ function BatchProductPhotoRow({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-[var(--color-jewelry-black,#1a1814)]">
-            {row.product_name || sku}
+            {row.product_name || displayCode}
           </p>
           <p className="kc-upload-hint text-xs">
             {row.style_code} › {row.sku}
@@ -910,8 +912,9 @@ function SubmissionCard({
   row: ResellerProductSubmission
   onWithdraw: (id: number) => void
 }) {
-  const sku = row.barcode || row.web_product_sku || row.sku || ''
-  const img = row.image_url || (sku ? productImageUrl(sku) : '')
+  const diskKey = submissionImageDiskKey(row)
+  const displayCode = diskKey || row.barcode || row.sku || ''
+  const img = submissionPreviewImageUrl(row)
   const status = row.submission_status as ResellerSubmissionStatus
 
   return (
@@ -929,7 +932,7 @@ function SubmissionCard({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate font-semibold text-[var(--color-jewelry-black,#1a1814)]">{row.product_name || sku}</p>
+            <p className="truncate font-semibold text-[var(--color-jewelry-black,#1a1814)]">{row.product_name || displayCode}</p>
             <p className="kc-upload-hint text-xs">
               {row.style_code} › {row.sku}
             </p>

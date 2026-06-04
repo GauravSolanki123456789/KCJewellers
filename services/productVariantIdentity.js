@@ -1,6 +1,7 @@
 /**
  * Gift-item size variants: same `design_group` (Excel ItemCode) + different `size` + `fixed_price`.
- * Each variant gets a unique `sku` / `barcode`; images default to the design_group file stem.
+ * Each variant gets a unique `sku` / `barcode`. Photos are keyed by that sku (subcategory + design + size),
+ * never by design_group alone — avoids MECCA in L_STAND sharing `mecca.webp` with GOD FRAMES.
  */
 
 function trimCatalogField(value) {
@@ -48,7 +49,7 @@ function resolveVariantIdentity(norm) {
         return {
             prodSku,
             barcode: prodSku,
-            imageStem: slugPart(designGroup || name || baseSlug),
+            imageStem: prodSku,
             displayName,
         };
     }
@@ -57,7 +58,7 @@ function resolveVariantIdentity(norm) {
     return {
         prodSku: fallback,
         barcode: barcodeIn || fallback,
-        imageStem: slugPart(designGroup || name || fallback),
+        imageStem: fallback,
         displayName,
     };
 }
