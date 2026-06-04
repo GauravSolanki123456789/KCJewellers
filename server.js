@@ -6506,7 +6506,11 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 wp.design_group,
                 wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,
                 COALESCE(wc.discount_percentage, 0)::float AS discount_percentage,
-                wc.name AS style_name
+                wc.name AS style_name,
+                ws.id AS subcategory_id,
+                ws.name AS subcategory_name,
+                ws.slug AS subcategory_slug,
+                COALESCE(ws.sort_order, 0)::int AS subcategory_sort_order
             FROM web_products wp
             JOIN web_subcategories ws ON ws.id = wp.subcategory_id
             JOIN web_categories wc ON wc.id = ws.category_id

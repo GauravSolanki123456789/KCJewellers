@@ -53,6 +53,10 @@ export type SharedCatalogPublicProduct = {
   gst_rate?: number
   size?: string | null
   design_group?: string | null
+  subcategory_id?: number | string | null
+  subcategory_name?: string | null
+  subcategory_slug?: string | null
+  subcategory_sort_order?: number | null
   [key: string]: unknown
 }
 

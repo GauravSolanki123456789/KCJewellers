@@ -31,6 +31,11 @@ import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
 import { cn } from '@/lib/utils'
 import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
+import {
+  buildSharedCatalogSubcategoryTabs,
+  filterSharedCatalogGroupsBySubcategory,
+  SHARED_CATALOG_ALL_TAB,
+} from '@/lib/shared-catalog-categories'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
@@ -110,9 +115,11 @@ export default function SharedCatalogClient({
   const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [activeSubcategory, setActiveSubcategory] = useState<string>(SHARED_CATALOG_ALL_TAB)
 
   useEffect(() => {
     setSelections(new Map())
+    setActiveSubcategory(SHARED_CATALOG_ALL_TAB)
   }, [uuid])
 
   useEffect(() => {
@@ -169,6 +176,21 @@ export default function SharedCatalogClient({
   }, [payload, giftingGstEnabled])
 
   const groupedRows = useMemo(() => groupSharedCatalogPricingRows(rows), [rows])
+
+  const subcategoryTabs = useMemo(
+    () => buildSharedCatalogSubcategoryTabs(rows),
+    [rows],
+  )
+
+  const showSubcategoryTabs = subcategoryTabs.length > 1
+
+  const visibleGroupedRows = useMemo(
+    () =>
+      showSubcategoryTabs
+        ? filterSharedCatalogGroupsBySubcategory(groupedRows, activeSubcategory)
+        : groupedRows,
+    [groupedRows, activeSubcategory, showSubcategoryTabs],
+  )
 
   const rowKeys = useMemo(() => rows.map((r, i) => stableProductKey(r.product, i)), [rows])
 
@@ -258,14 +280,16 @@ export default function SharedCatalogClient({
   }, [])
 
   const selectAll = useCallback(() => {
-    const next = new Map<string, number>()
-    for (const group of groupedRows) {
-      const active = resolveActiveVariant(group)
-      const key = rowKeyByRow.get(active)
-      if (key) next.set(key, 1)
-    }
-    setSelections(next)
-  }, [groupedRows, resolveActiveVariant, rowKeyByRow])
+    setSelections((prev) => {
+      const next = new Map(prev)
+      for (const group of visibleGroupedRows) {
+        const active = resolveActiveVariant(group)
+        const key = rowKeyByRow.get(active)
+        if (key) next.set(key, next.get(key) ?? 1)
+      }
+      return next
+    })
+  }, [visibleGroupedRows, resolveActiveVariant, rowKeyByRow])
 
   const clearSelection = useCallback(() => {
     setSelections(new Map())
@@ -558,12 +582,51 @@ export default function SharedCatalogClient({
         ) : null}
       </header>
 
+      {showSubcategoryTabs ? (
+        <nav
+          aria-label="Catalogue categories"
+          className="mx-auto mt-6 max-w-6xl px-4 sm:px-6"
+        >
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
+            <button
+              type="button"
+              onClick={() => setActiveSubcategory(SHARED_CATALOG_ALL_TAB)}
+              className={cn(
+                'kc-size-chip shrink-0 snap-start touch-manipulation rounded-full border px-4 py-2.5 text-xs font-semibold transition sm:text-sm',
+                activeSubcategory === SHARED_CATALOG_ALL_TAB
+                  ? 'kc-size-chip-active'
+                  : 'kc-size-chip-idle',
+              )}
+            >
+              All
+              <span className="ml-1.5 tabular-nums opacity-75">{rows.length}</span>
+            </button>
+            {subcategoryTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveSubcategory(tab.key)}
+                className={cn(
+                  'kc-size-chip shrink-0 snap-start touch-manipulation rounded-full border px-4 py-2.5 text-xs font-semibold transition sm:text-sm',
+                  activeSubcategory === tab.key ? 'kc-size-chip-active' : 'kc-size-chip-idle',
+                )}
+              >
+                {tab.label}
+                <span className="ml-1.5 tabular-nums opacity-75">{tab.count}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      ) : null}
+
       <main className="mx-auto mt-8 max-w-6xl px-4 sm:mt-10 sm:px-6">
-        {groupedRows.length === 0 ? (
-          <p className="text-center text-slate-500">No products in this share.</p>
+        {visibleGroupedRows.length === 0 ? (
+          <p className="text-center text-slate-500">
+            {groupedRows.length === 0 ? 'No products in this share.' : 'No items in this category.'}
+          </p>
         ) : (
           <ul className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
-            {groupedRows.map((group) => {
+            {visibleGroupedRows.map((group) => {
               const activeRow = resolveActiveVariant(group)
               const key = rowKeyByRow.get(activeRow) ?? group.groupKey
               const qty = selections.get(key) ?? 0
