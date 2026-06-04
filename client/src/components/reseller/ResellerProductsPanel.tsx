@@ -119,20 +119,20 @@ export function ResellerProductsPanel() {
     [batches],
   )
 
-  const loadBatches = useCallback(async () => {
-    setBatchesLoading(true)
+  const loadBatches = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setBatchesLoading(true)
     try {
       const res = await axios.get<ResellerProductBatch[]>('/api/reseller/product-batches')
       setBatches(Array.isArray(res.data) ? res.data : [])
     } catch {
       setBatches([])
     } finally {
-      setBatchesLoading(false)
+      if (!opts?.silent) setBatchesLoading(false)
     }
   }, [])
 
-  const loadBatchProducts = useCallback(async (batchId: string) => {
-    setBatchProductsLoading(true)
+  const loadBatchProducts = useCallback(async (batchId: string, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setBatchProductsLoading(true)
     try {
       const res = await axios.get<ResellerProductSubmission[]>('/api/reseller/product-submissions', {
         params: { batch_id: batchId, submission_status: 'draft' },
@@ -141,7 +141,7 @@ export function ResellerProductsPanel() {
     } catch {
       setBatchProducts([])
     } finally {
-      setBatchProductsLoading(false)
+      if (!opts?.silent) setBatchProductsLoading(false)
     }
   }, [])
 
@@ -326,13 +326,54 @@ export function ResellerProductsPanel() {
   }
 
   const uploadPhotos = async (submissionId: number, primary: File | null, secondary: File | null) => {
+    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
     const fd = new FormData()
     fd.append('payload', JSON.stringify({}))
     if (primary) fd.append('primaryImage', primary)
     if (secondary) fd.append('secondaryImage', secondary)
-    await axios.put(`/api/reseller/product-submissions/${submissionId}`, fd)
-    if (expandedBatchId) await loadBatchProducts(expandedBatchId)
-    await loadBatches()
+    const res = await axios.put<{ success?: boolean; submission?: ResellerProductSubmission }>(
+      `/api/reseller/product-submissions/${submissionId}`,
+      fd,
+    )
+    const updated = res.data?.submission
+    const prevRow = batchProducts.find((p) => p.id === submissionId)
+    if (updated) {
+      setBatchProducts((prev) =>
+        prev.map((p) => (p.id === submissionId ? { ...p, ...updated } : p)),
+      )
+      if (expandedBatchId) {
+        const hadPrimary = Boolean(prevRow?.image_url)
+        const hasPrimaryNow = Boolean(updated.image_url)
+        const hadSecondary = Boolean(prevRow?.secondary_image_url)
+        const hasSecondaryNow = Boolean(updated.secondary_image_url)
+        if (!hadPrimary && hasPrimaryNow) {
+          setBatches((prev) =>
+            prev.map((b) =>
+              b.batch_id === expandedBatchId
+                ? { ...b, with_primary_image: (b.with_primary_image ?? 0) + 1 }
+                : b,
+            ),
+          )
+        }
+        if (!hadSecondary && hasSecondaryNow) {
+          setBatches((prev) =>
+            prev.map((b) =>
+              b.batch_id === expandedBatchId
+                ? { ...b, with_secondary_image: (b.with_secondary_image ?? 0) + 1 }
+                : b,
+            ),
+          )
+        }
+      }
+    } else if (expandedBatchId) {
+      await loadBatchProducts(expandedBatchId, { silent: true })
+      await loadBatches({ silent: true })
+    }
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => {
+        window.scrollTo(0, scrollY)
+      })
+    }
   }
 
   const withdraw = async (id: number) => {
@@ -772,7 +813,10 @@ function BatchProductPhotoRow({
   }
 
   return (
-    <li className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 sm:p-4">
+    <li
+      id={`batch-product-${row.id}`}
+      className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 sm:p-4"
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-[var(--color-jewelry-black,#1a1814)]">
