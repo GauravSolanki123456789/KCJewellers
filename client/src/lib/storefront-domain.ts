@@ -20,7 +20,12 @@ export function ratesApiQueryForStorefront(): string {
   return d ? `?domain=${encodeURIComponent(d)}` : ''
 }
 
-/** Reseller vanity domains use fixed staff rates — do not overwrite via global socket ticks. */
-export function shouldSubscribeGlobalLiveRates(): boolean {
+/** Reseller vanity domains + logged-in reseller sessions use fixed staff rates. */
+export function shouldSubscribeGlobalLiveRates(options?: {
+  resellerRatesSession?: boolean
+}): boolean {
+  if (options?.resellerRatesSession) return false
   return !getClientStorefrontDomain()
 }
+
+export const RESELLER_RATES_UPDATED_EVENT = 'kc-reseller-rates-updated'

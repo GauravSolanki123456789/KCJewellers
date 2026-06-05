@@ -2,7 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
-import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
+import {
+  ratesApiQueryForStorefront,
+  shouldSubscribeGlobalLiveRates,
+  RESELLER_RATES_UPDATED_EVENT,
+} from '@/lib/storefront-domain'
 import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -51,7 +55,7 @@ export default function RatesPage() {
   const fetchRates = useCallback(async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const res = await fetch(`${url}/api/rates/live${ratesQuery}`)
+      const res = await fetch(`${url}/api/rates/live${ratesQuery}`, { credentials: 'include' })
       const data = await res.json()
       if (data.success && data.rates) {
         const r = data.rates
@@ -74,7 +78,15 @@ export default function RatesPage() {
 
   useEffect(() => {
     fetchRates()
-    if (!shouldSubscribeGlobalLiveRates()) return
+    const onRatesUpdated = () => {
+      void fetchRates()
+    }
+    window.addEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
+    return () => window.removeEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
+  }, [fetchRates])
+
+  useEffect(() => {
+    if (!shouldSubscribeGlobalLiveRates({ resellerRatesSession: canEditResellerRates })) return
     const off = subscribeLiveRates((p) => {
       const arr = Array.isArray(p?.rates) ? p.rates : []
       const gold = arr.find((x: { metal_type?: string }) => (x?.metal_type || '').toLowerCase() === 'gold')
@@ -94,7 +106,7 @@ export default function RatesPage() {
       if (Object.keys(updates).length) setRates(prev => ({ ...prev, ...updates }))
     })
     return () => off()
-  }, [])
+  }, [canEditResellerRates])
 
   const isEstimated = source === 'estimated'
   const isResellerRates = source === 'reseller'

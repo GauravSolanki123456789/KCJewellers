@@ -19,7 +19,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useCustomerTier } from "@/context/CustomerTierContext";
 import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
-import { ratesApiQueryForStorefront } from "@/lib/storefront-domain";
+import { ratesApiQueryForStorefront, RESELLER_RATES_UPDATED_EVENT } from "@/lib/storefront-domain";
 
 export type CatalogTreeCategory = {
   id: number;
@@ -142,10 +142,32 @@ export function CatalogDataProvider({
     }
   }, [url, serverSeeded, applyRetailSettings]);
 
+  const fetchRatesOnly = useCallback(async () => {
+    try {
+      const ratesRes = await axios.get(`${url}/api/rates/display${ratesQuery}`);
+      setRates(ratesRes.data?.rates ?? []);
+    } catch {
+      /* keep SSR snapshot */
+    }
+  }, [url, ratesQuery]);
+
   useEffect(() => {
     if (serverSeeded) return;
     bootstrap();
   }, [bootstrap, serverSeeded]);
+
+  /** SSR seeds global rates — re-fetch with session so logged-in reseller sees custom ₹/g. */
+  useEffect(() => {
+    void fetchRatesOnly();
+  }, [fetchRatesOnly]);
+
+  useEffect(() => {
+    const onRatesUpdated = () => {
+      void fetchRatesOnly();
+    };
+    window.addEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated);
+    return () => window.removeEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated);
+  }, [fetchRatesOnly]);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);

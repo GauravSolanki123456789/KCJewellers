@@ -5,6 +5,7 @@ import axios from '@/lib/axios'
 import { Loader2, RefreshCw, Save, Sparkles, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
 import { LIVE_RATES_PATH } from '@/lib/routes'
+import { RESELLER_RATES_UPDATED_EVENT } from '@/lib/storefront-domain'
 
 type RateForm = {
   silver_per_gram: string
@@ -135,6 +136,7 @@ export function ResellerRatesPanel() {
       })
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2500)
+      window.dispatchEvent(new CustomEvent(RESELLER_RATES_UPDATED_EVENT))
       await load()
     } catch (e: unknown) {
       const msg =

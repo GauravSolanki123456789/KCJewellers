@@ -5,9 +5,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
-import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
+import {
+  ratesApiQueryForStorefront,
+  shouldSubscribeGlobalLiveRates,
+  RESELLER_RATES_UPDATED_EVENT,
+} from '@/lib/storefront-domain'
+import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
+import { useAuth } from '@/hooks/useAuth'
 
 /**
  * ProductLite extends Item to ensure all product fields are available in cart items.
@@ -54,7 +60,13 @@ function loadCartFromStorage(): CartItem[] {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { wholesalePricing } = useCustomerTier()
+  const { wholesalePricing, customerTier } = useCustomerTier()
+  const auth = useAuth()
+  const resellerRatesSession = Boolean(
+    auth.isAuthenticated &&
+      customerTier === CUSTOMER_TIER.RESELLER &&
+      (auth.user as { reseller_rates_update_enabled?: boolean } | undefined)?.reseller_rates_update_enabled,
+  )
   const { pricingOptions } = useCatalogPricingSettings()
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [lastAdded, setLastAdded] = useState<ProductLite | null>(null)
@@ -84,21 +96,34 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [wholesalePricing, pricingOptions])
 
-  useEffect(() => {
-    axios.get(`/api/rates/display${ratesApiQueryForStorefront()}`).then((res) => {
-      const rates = res.data?.rates || []
-      if (rates.length > 0) applyRates(rates)
-    }).catch(() => {})
+  const loadDisplayRates = useCallback(() => {
+    axios
+      .get(`/api/rates/display${ratesApiQueryForStorefront()}`)
+      .then((res) => {
+        const rates = res.data?.rates || []
+        if (rates.length > 0) applyRates(rates)
+      })
+      .catch(() => {})
   }, [applyRates])
 
   useEffect(() => {
-    if (!shouldSubscribeGlobalLiveRates()) return
+    loadDisplayRates()
+  }, [loadDisplayRates])
+
+  useEffect(() => {
+    if (!shouldSubscribeGlobalLiveRates({ resellerRatesSession })) return
     const off = subscribeLiveRates((p) => {
       const rates = p?.rates || []
       if (rates.length > 0) applyRates(rates)
     })
     return off
-  }, [applyRates])
+  }, [applyRates, resellerRatesSession])
+
+  useEffect(() => {
+    const onRatesUpdated = () => loadDisplayRates()
+    window.addEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
+    return () => window.removeEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
+  }, [loadDisplayRates])
 
   useEffect(() => {
     setItems((prev) =>

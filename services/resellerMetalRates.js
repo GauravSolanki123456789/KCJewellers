@@ -189,42 +189,64 @@ async function getResellerRatesPayloadForUserId(userId) {
     return buildDisplayPayloadFromStored(stored);
 }
 
-/**
- * Resolve display rates for a request (optional vanity domain).
- * Falls back to global liveRateService payload when no reseller override.
- */
-async function resolveDisplayRatesForRequest(req, liveRateService) {
-    const domain =
+function extractRequestDomain(req) {
+    return (
         normalizeDomain(req.query?.domain) ||
         normalizeDomain(req.headers['x-storefront-domain']) ||
-        normalizeDomain(req.headers['x-custom-domain']);
+        normalizeDomain(req.headers['x-custom-domain'])
+    );
+}
+
+/** Logged-in RESELLER with admin-enabled custom rates (applies on kcjewellers.co.in too). */
+async function resolveResellerUserIdFromSession(req) {
+    if (!req.isAuthenticated || !req.user?.id) return null;
+    const tier = String(req.user.customer_tier || '').toUpperCase();
+    if (tier !== 'RESELLER') return null;
+    const uid = parseInt(String(req.user.id), 10);
+    if (!Number.isFinite(uid) || uid <= 0) return null;
+    const enabled = await resellerRatesEnabled(uid);
+    if (!enabled) return null;
+    const stored = await getStoredRates(uid);
+    if (!stored) return null;
+    return uid;
+}
+
+async function resolveResellerUserIdForRequest(req) {
+    const domain = extractRequestDomain(req);
     if (domain) {
         const reseller = await findResellerByDomain(domain);
         if (reseller?.id) {
             const payload = await getResellerRatesPayloadForUserId(reseller.id);
-            if (payload) return payload;
+            if (payload) return reseller.id;
         }
+    }
+    return resolveResellerUserIdFromSession(req);
+}
+
+/**
+ * Resolve display rates for a request.
+ * Priority: vanity domain owner → logged-in reseller session → global market.
+ */
+async function resolveDisplayRatesForRequest(req, liveRateService) {
+    const resellerId = await resolveResellerUserIdForRequest(req);
+    if (resellerId) {
+        const payload = await getResellerRatesPayloadForUserId(resellerId);
+        if (payload) return payload;
     }
     return liveRateService.getCurrentPayload();
 }
 
 async function resolveLiveRatesForRequest(req, liveRateService) {
-    const domain =
-        normalizeDomain(req.query?.domain) ||
-        normalizeDomain(req.headers['x-storefront-domain']) ||
-        normalizeDomain(req.headers['x-custom-domain']);
-    if (domain) {
-        const reseller = await findResellerByDomain(domain);
-        if (reseller?.id && (await resellerRatesEnabled(reseller.id))) {
-            const stored = await getStoredRates(reseller.id);
-            if (stored) {
-                return {
-                    success: true,
-                    rates: buildLiveRatesFromStored(stored),
-                    source: 'reseller',
-                    timestamp: new Date(stored.updated_at).getTime() || Date.now(),
-                };
-            }
+    const resellerId = await resolveResellerUserIdForRequest(req);
+    if (resellerId) {
+        const stored = await getStoredRates(resellerId);
+        if (stored) {
+            return {
+                success: true,
+                rates: buildLiveRatesFromStored(stored),
+                source: 'reseller',
+                timestamp: new Date(stored.updated_at).getTime() || Date.now(),
+            };
         }
     }
     return liveRateService.fetchLiveRates();

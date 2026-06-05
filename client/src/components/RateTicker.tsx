@@ -12,7 +12,9 @@ export default function RateTicker() {
   const fetchRatesFromAPI = async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const response = await fetch(`${url}/api/rates/live${ratesApiQueryForStorefront()}`)
+      const response = await fetch(`${url}/api/rates/live${ratesApiQueryForStorefront()}`, {
+        credentials: 'include',
+      })
       const data = await response.json()
       console.log('API Response:', data)
       
