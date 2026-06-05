@@ -1,5 +1,6 @@
 'use client'
 import axios from '@/lib/axios'
+import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { toPaise } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 
@@ -15,7 +16,7 @@ export default function BuySilverPage() {
     script.src = 'https://checkout.razorpay.com/v1/checkout.js'
     script.async = true
     document.body.appendChild(script)
-    axios.get('/api/rates/display').then(res => {
+    axios.get(`/api/rates/display${ratesApiQueryForStorefront()}`).then(res => {
       const silver = (res.data?.rates || []).find((r: any) => (r.metal_type || '').toLowerCase() === 'silver')
       setRate(Number(silver?.display_rate || silver?.sell_rate || 0))
     }).catch(() => {})

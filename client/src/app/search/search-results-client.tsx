@@ -7,6 +7,7 @@ import ProductCard from "@/components/ProductCard";
 import type { Item } from "@/lib/pricing";
 import type { ApiProductRow } from "@/lib/server-data";
 import { CATALOG_PATH } from "@/lib/routes";
+import { ratesApiQueryForStorefront } from "@/lib/storefront-domain";
 import { SEARCH_GRID_IMAGE_SIZES } from "@/lib/product-card-image-sizes";
 
 function rowToItem(p: ApiProductRow): Item {
@@ -27,7 +28,7 @@ export default function SearchResultsClient({
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
     axios
-      .get(`${url.replace(/\/$/, "")}/api/rates/display`)
+      .get(`${url.replace(/\/$/, "")}/api/rates/display${ratesApiQueryForStorefront()}`)
       .then((r) => setRates(r.data?.rates ?? []))
       .catch(() => setRates([]));
   }, []);

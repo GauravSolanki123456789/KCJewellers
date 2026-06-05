@@ -27,6 +27,8 @@ export type WholesaleUserFields = {
   reseller_hide_prices?: boolean
   /** Admin enables staff product uploads at `/reseller/products`. */
   reseller_product_uploads_enabled?: boolean
+  /** Admin enables staff live rate updates at `/reseller/rates`. */
+  reseller_rates_update_enabled?: boolean
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

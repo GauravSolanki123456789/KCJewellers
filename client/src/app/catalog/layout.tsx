@@ -2,6 +2,7 @@ import CatalogPageClient from "./catalog-page-client";
 import { CatalogDataProvider, type CatalogTreeCategory } from "./catalog-data-context";
 import { CatalogBuilderProvider } from "@/context/CatalogBuilderContext";
 import { fetchCatalogJson, fetchDisplayRates } from "@/lib/server-data";
+import { getStorefrontDomainFromHeaders } from "@/lib/storefront-domain-server";
 
 /**
  * Prefetches catalogue JSON on the server so the grid SSR includes real products/rates.
@@ -12,9 +13,10 @@ export default async function CatalogLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [categories, ratesPayload] = await Promise.all([
     fetchCatalogJson(),
-    fetchDisplayRates(),
+    fetchDisplayRates(storefrontDomain),
   ]);
   const rates = Array.isArray(ratesPayload) ? ratesPayload : [];
 

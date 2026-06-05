@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
+import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 
@@ -84,13 +85,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [wholesalePricing, pricingOptions])
 
   useEffect(() => {
-    axios.get('/api/rates/display').then((res) => {
+    axios.get(`/api/rates/display${ratesApiQueryForStorefront()}`).then((res) => {
       const rates = res.data?.rates || []
       if (rates.length > 0) applyRates(rates)
     }).catch(() => {})
   }, [applyRates])
 
   useEffect(() => {
+    if (!shouldSubscribeGlobalLiveRates()) return
     const off = subscribeLiveRates((p) => {
       const rates = p?.rates || []
       if (rates.length > 0) applyRates(rates)

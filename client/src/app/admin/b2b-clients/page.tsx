@@ -31,6 +31,8 @@ type AdminUser = {
   reseller_hide_prices?: boolean
   /** Admin enables reseller staff product uploads (`users.reseller_product_uploads_enabled`). */
   reseller_product_uploads_enabled?: boolean
+  /** Admin enables staff live rate updates (`users.reseller_rates_update_enabled`). */
+  reseller_rates_update_enabled?: boolean
   reseller_invite_code?: string | null
   referred_by_user_id?: number | null
 }
@@ -106,6 +108,7 @@ function B2BAdminContent() {
     kc_theme_id: '',
     reseller_hide_prices: false,
     reseller_product_uploads_enabled: false,
+    reseller_rates_update_enabled: false,
     reseller_invite_code: '',
   })
   const [themeCatalog, setThemeCatalog] = useState<ThemePick[]>([])
@@ -173,6 +176,7 @@ function B2BAdminContent() {
             : '',
         reseller_hide_prices: !!resellerModalUser.reseller_hide_prices,
         reseller_product_uploads_enabled: !!resellerModalUser.reseller_product_uploads_enabled,
+        reseller_rates_update_enabled: !!resellerModalUser.reseller_rates_update_enabled,
         reseller_invite_code: resellerModalUser.reseller_invite_code
           ? normalizeResellerInviteCode(resellerModalUser.reseller_invite_code)
           : '',
@@ -269,6 +273,7 @@ function B2BAdminContent() {
         kc_theme_id: resellerForm.kc_theme_id.trim() ? resellerForm.kc_theme_id.trim() : null,
         reseller_hide_prices: resellerForm.reseller_hide_prices,
         reseller_product_uploads_enabled: resellerForm.reseller_product_uploads_enabled,
+        reseller_rates_update_enabled: resellerForm.reseller_rates_update_enabled,
         reseller_invite_code: resellerForm.reseller_invite_code.trim()
           ? normalizeResellerInviteCode(resellerForm.reseller_invite_code)
           : null,
@@ -774,6 +779,42 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_product_uploads_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Allow staff to update live rates</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        When enabled, this reseller&apos;s team can set silver and gold 18K / 22K / 24K ₹/g at{' '}
+                        <code className="text-slate-400">/reseller/rates</code>. Prices on their custom domain
+                        catalogue, Live Rates, cart, and new shared links use these rates (
+                        <code className="text-slate-400">reseller_rates_update_enabled</code>).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_rates_update_enabled}
+                      aria-label="Allow reseller staff rate updates"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_rates_update_enabled: !f.reseller_rates_update_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_rates_update_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_rates_update_enabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

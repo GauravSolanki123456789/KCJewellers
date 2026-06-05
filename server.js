@@ -67,6 +67,12 @@ const {
     resolveUserKcThemeId,
 } = require('./services/kcThemeSettings');
 const { registerResellerProductRoutes } = require('./services/resellerProductSubmissions');
+const {
+    registerResellerRatesRoutes,
+    resolveDisplayRatesForRequest,
+    resolveLiveRatesForRequest,
+    getRatesSnapshotForSharedCatalogCreator,
+} = require('./services/resellerMetalRates');
 
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
 const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
@@ -639,16 +645,28 @@ app.get('/api/auth/current_user', async (req, res) => {
         const kc_theme_id = await resolveUserKcThemeId(resolvedUser);
         /** Fresh from DB — session deserialize can lag new columns until re-login on some hosts. */
         let resellerProductUploadsEnabled = !!resolvedUser.reseller_product_uploads_enabled;
+        let resellerRatesUpdateEnabled = !!resolvedUser.reseller_rates_update_enabled;
         try {
             const fresh = await query(
-                'SELECT COALESCE(reseller_product_uploads_enabled, false) AS enabled FROM users WHERE id = $1',
+                `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
+                        COALESCE(reseller_rates_update_enabled, false) AS rates_update
+                 FROM users WHERE id = $1`,
                 [resolvedUser.id],
             );
-            if (fresh.length) resellerProductUploadsEnabled = !!fresh[0].enabled;
+            if (fresh.length) {
+                resellerProductUploadsEnabled = !!fresh[0].product_uploads;
+                resellerRatesUpdateEnabled = !!fresh[0].rates_update;
+            }
         } catch (e) {
-            if (String(e.message || '').includes('reseller_product_uploads_enabled')) {
+            const msg = String(e.message || '');
+            if (msg.includes('reseller_product_uploads_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_rates_update_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_rates_update_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
         }
@@ -674,6 +692,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                     ? normalizeResellerInviteCode(resolvedUser.reseller_invite_code)
                     : null,
                 reseller_product_uploads_enabled: resellerProductUploadsEnabled,
+                reseller_rates_update_enabled: resellerRatesUpdateEnabled,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
                     ? String(resolvedUser.kc_theme_id).trim()
@@ -1309,6 +1328,8 @@ registerResellerProductRoutes(app, {
     uploadsWebProductsDir,
     SYNC_RECEIVE_UPLOAD,
 });
+
+registerResellerRatesRoutes(app, { checkAuth, liveRateService });
 
 // ==========================================
 // B2B WHOLESALE — client ledger (Khata) & admin ledger lines
@@ -3603,6 +3624,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
                        COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                        COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
+                       COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
                        reseller_invite_code, referred_by_user_id,
                        created_at, updated_at 
                 FROM users 
@@ -4024,6 +4046,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_product_uploads_enabled !== undefined) {
             updates.push(`reseller_product_uploads_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_product_uploads_enabled);
+        }
+
+        if (req.body.reseller_rates_update_enabled !== undefined) {
+            updates.push(`reseller_rates_update_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_rates_update_enabled);
         }
 
         if (reseller_invite_code !== undefined) {
@@ -4847,7 +4874,7 @@ app.post('/api/rates/set-margin', isAdminStrict, async (req, res) => {
 
 app.get('/api/rates/display', async (req, res) => {
     try {
-        const payload = await liveRateService.getCurrentPayload();
+        const payload = await resolveDisplayRatesForRequest(req, liveRateService);
         res.json(payload);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -4856,7 +4883,7 @@ app.get('/api/rates/display', async (req, res) => {
 
 app.get('/api/rates/live', async (req, res) => {
     try {
-        const result = await liveRateService.fetchLiveRates();
+        const result = await resolveLiveRatesForRequest(req, liveRateService);
         res.json({
             success: result.success,
             rates: result.rates,
@@ -6311,8 +6338,10 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHidePricesForUser(creatorUid)
                 : false;
-        const ratePayload = await liveRateService.getCurrentPayload();
-        const ratesSnapshot = ratePayload?.rates ?? [];
+        const ratesSnapshot =
+            Number.isFinite(creatorUid) && creatorUid > 0
+                ? await getRatesSnapshotForSharedCatalogCreator(creatorUid, liveRateService)
+                : (await liveRateService.getCurrentPayload())?.rates ?? [];
         await query(
             `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at, created_by_user_id, rates_snapshot, hide_prices)
              VALUES ($1::uuid, $2::text[], $3::float8, $4, $5, $6::jsonb, $7)`,

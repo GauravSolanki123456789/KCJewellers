@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
+import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 
 type Rate = { metal_type: string, display_rate?: number, sell_rate?: number }
 export default function RateTicker() {
@@ -11,7 +12,7 @@ export default function RateTicker() {
   const fetchRatesFromAPI = async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const response = await fetch(`${url}/api/rates/live`)
+      const response = await fetch(`${url}/api/rates/live${ratesApiQueryForStorefront()}`)
       const data = await response.json()
       console.log('API Response:', data)
       

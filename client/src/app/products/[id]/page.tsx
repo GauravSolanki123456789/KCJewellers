@@ -15,6 +15,7 @@ import {
 } from "@/lib/seo-product";
 import { normalizeStorefrontProductId } from "@/lib/catalog-product-filters";
 import type { Item } from "@/lib/pricing";
+import { getStorefrontDomainFromHeaders } from "@/lib/storefront-domain-server";
 
 const BRAND = "KC Jewellers";
 
@@ -27,9 +28,10 @@ export async function generateMetadata({
   const safeId = normalizeStorefrontProductId(id);
   const site = getSiteUrl();
   const productPath = `/products/${encodeURIComponent(safeId)}`;
+  const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [product, liveRates] = await Promise.all([
     fetchProductByBarcode(safeId),
-    fetchDisplayRates(),
+    fetchDisplayRates(storefrontDomain),
   ]);
 
   if (!product) {
@@ -102,9 +104,10 @@ export default async function ProductPage({
 }) {
   const { id } = await params;
   const safeId = normalizeStorefrontProductId(id);
+  const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [product, liveRates] = await Promise.all([
     fetchProductByBarcode(safeId),
-    fetchDisplayRates(),
+    fetchDisplayRates(storefrontDomain),
   ]);
   const productPath = `/products/${encodeURIComponent(safeId)}`;
 

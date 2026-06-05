@@ -614,6 +614,21 @@ async function initSchema() {
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false
         `);
+        await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_rates_update_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS reseller_metal_rates (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                silver_per_gram NUMERIC(12, 2) NOT NULL,
+                gold_24k_per_gram NUMERIC(12, 2) NOT NULL,
+                gold_22k_per_gram NUMERIC(12, 2) NOT NULL,
+                gold_18k_per_gram NUMERIC(12, 2) NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
     } catch (error) {
         console.warn('shared_catalogs init:', error.message);
     }

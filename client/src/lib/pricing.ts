@@ -77,34 +77,58 @@ function accountMarkupPct(
   return Number(wholesale.wholesale_markup_percent ?? 0) || 0
 }
 
+function rateRow(live: unknown, metalType: string): RateRow | null {
+  const key = (metalType || '').toLowerCase()
+  if (!live) return null
+  if (Array.isArray(live)) {
+    return (
+      (live as RateRow[]).find((r) => (r.metal_type || '').toLowerCase() === key) ?? null
+    )
+  }
+  if (typeof live === 'object' && live !== null) {
+    return (live as Record<string, RateRow>)[key] ?? null
+  }
+  return null
+}
+
+function displayRatePerGram(live: unknown, metalType: string, divisor: number): number {
+  const row = rateRow(live, metalType)
+  if (!row || divisor <= 0) return 0
+  return Number(row.display_rate || row.sell_rate || 0) / divisor
+}
+
+/** Pick 18K / 22K / 24K gold ₹/g from live rates using product purity. */
+function goldRatePerGramForItem(live: unknown, item: Item): number {
+  const g24 = displayRatePerGram(live, 'gold', 10)
+  const g22Row = displayRatePerGram(live, 'gold_22k', 10)
+  const g18Row = displayRatePerGram(live, 'gold_18k', 10)
+  const g22 = g22Row > 0 ? g22Row : g24 > 0 ? g24 * 0.916 : 0
+  const g18 = g18Row > 0 ? g18Row : g24 > 0 ? g24 * 0.75 : 0
+
+  const p = purityPct(item)
+  if (p >= 99 || p >= 995) return g24
+  if ((p >= 90 && p <= 93) || Math.abs(p - 91.6) < 1.5 || p === 916) return g22
+  if ((p >= 74 && p <= 76) || Math.abs(p - 75) < 1.5 || p === 750) return g18
+  if (g24 > 0 && p > 0) return g24 * (p / 100)
+  return g24 || g22 || g18
+}
+
 /**
  * Return the LIVE 1-GRAM rate for a given metal.
  *
  * The rates payload from the server uses:
- *   gold  → display_rate is per 10 g
+ *   gold  → display_rate is per 10 g (24K baseline)
+ *   gold_22k / gold_18k → per 10 g when set by reseller
  *   silver → display_rate is per 1 kg
- *
- * This helper normalises both to per-gram.
  */
-function ratePerGram(live: unknown, metal: string): number {
+function ratePerGram(live: unknown, metal: string, item?: Item): number {
   const m = (metal || 'silver').toLowerCase()
   if (!live) return 0
 
-  let rawRate = 0
-  const searchKey = m.startsWith('silver') ? 'silver' : 'gold'
+  if (m.startsWith('silver')) return displayRatePerGram(live, 'silver', 1000)
+  if (item) return goldRatePerGramForItem(live, item)
 
-  if (Array.isArray(live)) {
-    const row = (live as RateRow[]).find(
-      (r) => (r.metal_type || '').toLowerCase() === searchKey,
-    )
-    if (row) rawRate = Number(row.display_rate || row.sell_rate || 0)
-  } else if (typeof live === 'object' && live !== null) {
-    const row = (live as Record<string, RateRow>)[searchKey]
-    if (row) rawRate = Number(row.display_rate || row.sell_rate || 0)
-  }
-
-  if (m.startsWith('silver')) return rawRate / 1000
-  return rawRate / 10
+  return displayRatePerGram(live, 'gold', 10)
 }
 
 function netWeight(item: Item): number {
@@ -344,20 +368,26 @@ export function calculateBreakdown(
     }
   }
 
-  const rate = ratePerGram(liveRates, metal)
   const wt = netWeight(item)
   const purity = purityPct(item)
   const mcRate = Number(item.mc_rate ?? 0) || 0
+  const isSilver = metal.startsWith('silver')
+  const isGold = !isSilver && !metal.startsWith('diamond') && !metal.startsWith('gifting')
+  const rate = ratePerGram(liveRates, metal, isGold ? item : undefined)
 
   const hasMcRate = (item as Record<string, unknown>).mc_rate != null
 
   if (hasMcRate && (rate > 0 || mcRate > 0) && wt > 0) {
-    const isSilver = metal.startsWith('silver')
     const effectivePurity =
-      isSilver && purity >= 90 && purity <= 100 ? 100 : purity
+      isSilver && purity >= 90 && purity <= 100
+        ? 100
+        : isGold && rate > 0
+          ? 100
+          : purity
 
-    const adjustedRate =
-      rate * (effectivePurity > 0 ? effectivePurity / 100 : 1)
+    const adjustedRate = isGold
+      ? rate
+      : rate * (effectivePurity > 0 ? effectivePurity / 100 : 1)
     const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
     const categoryDisc = categoryDiscountPct(item)
     const perGramCostRetail = adjustedRate + mcRate

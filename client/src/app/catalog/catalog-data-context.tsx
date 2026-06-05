@@ -19,6 +19,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useCustomerTier } from "@/context/CustomerTierContext";
 import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
+import { ratesApiQueryForStorefront } from "@/lib/storefront-domain";
 
 export type CatalogTreeCategory = {
   id: number;
@@ -111,11 +112,13 @@ export function CatalogDataProvider({
     return filterCategoriesForReseller(rawCategories, wholesaleUser?.allowed_category_ids ?? null);
   }, [tierReady, rawCategories, customerTier, wholesaleUser?.allowed_category_ids]);
 
+  const ratesQuery = ratesApiQueryForStorefront();
+
   const bootstrap = useCallback(async () => {
     try {
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
         axios.get(`${url}/api/catalog`),
-        axios.get(`${url}/api/rates/display`),
+        axios.get(`${url}/api/rates/display${ratesQuery}`),
         axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
@@ -128,7 +131,7 @@ export function CatalogDataProvider({
     } finally {
       setIsBootstrapping(false);
     }
-  }, [url, applyRetailSettings]);
+  }, [url, applyRetailSettings, ratesQuery]);
 
   useEffect(() => {
     if (serverSeeded) {
@@ -149,7 +152,7 @@ export function CatalogDataProvider({
     try {
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
         axios.get(`${url}/api/catalog`),
-        axios.get(`${url}/api/rates/display`),
+        axios.get(`${url}/api/rates/display${ratesQuery}`),
         axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
@@ -158,7 +161,7 @@ export function CatalogDataProvider({
     } finally {
       setIsRefreshing(false);
     }
-  }, [url, applyRetailSettings]);
+  }, [url, applyRetailSettings, ratesQuery]);
 
   const value = useMemo(
     () => ({

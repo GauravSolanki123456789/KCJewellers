@@ -15,6 +15,7 @@ import { inferCatalogMetalParam } from "@/lib/catalog-navigation";
 import BreakdownModal from "@/components/BreakdownModal";
 import HoverZoomImage from "@/components/HoverZoomImage";
 import WhatsAppShareButton from "@/components/WhatsAppShareButton";
+import { ratesApiQueryForStorefront } from "@/lib/storefront-domain";
 import {
   calculateBreakdown,
   getCustomerDisplaySize,
@@ -178,7 +179,7 @@ export default function ProductDetailClient({
         productRef.current = activeItem;
         setLoadState(activeItem ? "ready" : "not_found");
 
-        const dr = await axios.get("/api/rates/display");
+        const dr = await axios.get(`/api/rates/display${ratesApiQueryForStorefront()}`);
         if (cancelled) return;
 
         if (activeItem) {
@@ -242,7 +243,7 @@ export default function ProductDetailClient({
     let cancelled = false;
     (async () => {
       try {
-        const dr = await axios.get("/api/rates/display");
+        const dr = await axios.get(`/api/rates/display${ratesApiQueryForStorefront()}`);
         if (cancelled) return;
         setB(
           calculateBreakdown(

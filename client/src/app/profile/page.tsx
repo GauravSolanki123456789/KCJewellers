@@ -13,6 +13,7 @@ import {
   PROFILE_LEDGER_PATH,
   PROFILE_SIPS_PATH,
   RESELLER_PRODUCTS_PATH,
+  RESELLER_RATES_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -27,6 +28,7 @@ import {
   TrendingUp,
   ChevronRight,
   Package,
+  LineChart,
   BookMarked,
   ScrollText,
   LockKeyhole,
@@ -171,6 +173,12 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_product_uploads_enabled?: boolean }).reseller_product_uploads_enabled,
   )
+  const resellerRatesEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_rates_update_enabled?: boolean }).reseller_rates_update_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -235,9 +243,18 @@ function ProfilePageContent() {
         ) : (
           <>
             {/* ——— Reseller quick actions (most important first) ——— */}
-            {(resellerUploadsEnabled || isReseller) && (
+            {(resellerUploadsEnabled || resellerRatesEnabled || isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
+                {resellerRatesEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_RATES_PATH}
+                    icon={LineChart}
+                    title="Update live rates"
+                    subtitle="Silver & gold 18K / 22K / 24K — updates your storefront prices"
+                    primary={!resellerUploadsEnabled}
+                  />
+                ) : null}
                 {resellerUploadsEnabled ? (
                   <ProfileActionCard
                     href={RESELLER_PRODUCTS_PATH}

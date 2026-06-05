@@ -2,7 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
+import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { useBookRate } from '@/context/BookRateContext'
+import { useAuth } from '@/hooks/useAuth'
+import { useCustomerTier } from '@/context/CustomerTierContext'
+import { CUSTOMER_TIER } from '@/lib/customer-tier'
+import Link from 'next/link'
+import { RESELLER_RATES_PATH } from '@/lib/routes'
+import { PencilLine } from 'lucide-react'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import { Button } from '@/components/ui/button'
 import { BookMarked, AlertTriangle } from 'lucide-react'
@@ -33,11 +40,18 @@ export default function RatesPage() {
   const [source, setSource] = useState<string>('live')
   const [loading, setLoading] = useState(true)
   const { open: openBookRate } = useBookRate()
+  const auth = useAuth()
+  const { customerTier } = useCustomerTier()
+  const canEditResellerRates =
+    auth.isAuthenticated &&
+    customerTier === CUSTOMER_TIER.RESELLER &&
+    !!(auth.user as { reseller_rates_update_enabled?: boolean } | undefined)?.reseller_rates_update_enabled
+  const ratesQuery = ratesApiQueryForStorefront()
 
   const fetchRates = useCallback(async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const res = await fetch(`${url}/api/rates/live`)
+      const res = await fetch(`${url}/api/rates/live${ratesQuery}`)
       const data = await res.json()
       if (data.success && data.rates) {
         const r = data.rates
@@ -54,12 +68,13 @@ export default function RatesPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [ratesQuery])
 
   const { pullY, isRefreshing, handleTouchStart, handleTouchMove, handleTouchEnd } = usePullToRefresh(fetchRates)
 
   useEffect(() => {
     fetchRates()
+    if (!shouldSubscribeGlobalLiveRates()) return
     const off = subscribeLiveRates((p) => {
       const arr = Array.isArray(p?.rates) ? p.rates : []
       const gold = arr.find((x: { metal_type?: string }) => (x?.metal_type || '').toLowerCase() === 'gold')
@@ -82,6 +97,7 @@ export default function RatesPage() {
   }, [])
 
   const isEstimated = source === 'estimated'
+  const isResellerRates = source === 'reseller'
 
   return (
     <div
@@ -114,12 +130,28 @@ export default function RatesPage() {
                     Gold & silver prices — book your rate below or from any row
                   </p>
                 </div>
-                {isEstimated && (
-                  <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-600 text-xs sm:text-sm">
-                    <AlertTriangle className="size-3.5 sm:size-4 shrink-0" />
-                    <span>Market closed — estimated</span>
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {isEstimated && (
+                    <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-600 text-xs sm:text-sm">
+                      <AlertTriangle className="size-3.5 sm:size-4 shrink-0" />
+                      <span>Market closed — estimated</span>
+                    </div>
+                  )}
+                  {isResellerRates && (
+                    <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-200 sm:text-sm">
+                      Your storefront rates
+                    </div>
+                  )}
+                  {canEditResellerRates && (
+                    <Link
+                      href={RESELLER_RATES_PATH}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--kc-accent,#c41e3a)]/40 bg-[var(--kc-accent,#c41e3a)]/10 px-3 py-1.5 text-xs font-semibold text-amber-500 transition hover:bg-[var(--kc-accent,#c41e3a)]/20 sm:text-sm"
+                    >
+                      <PencilLine className="size-3.5" />
+                      Update rates
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
 

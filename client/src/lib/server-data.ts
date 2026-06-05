@@ -92,10 +92,16 @@ export const fetchCatalogJson = cache(async function fetchCatalogJson(): Promise
 });
 
 /** Live display rates — same payload as client GET /api/rates/display (for SSR price in SEO). */
-export const fetchDisplayRates = cache(async function fetchDisplayRates(): Promise<unknown> {
+export const fetchDisplayRates = cache(async function fetchDisplayRates(
+  storefrontDomain?: string | null,
+): Promise<unknown> {
   const api = getApiUrlForServer();
+  const q =
+    storefrontDomain?.trim()
+      ? `?domain=${encodeURIComponent(storefrontDomain.trim().toLowerCase())}`
+      : "";
   try {
-    const res = await fetch(`${api}/api/rates/display`, FETCH_OPTS);
+    const res = await fetch(`${api}/api/rates/display${q}`, FETCH_OPTS);
     if (!res.ok) return [];
     const data = (await res.json()) as { rates?: unknown };
     return data.rates ?? [];

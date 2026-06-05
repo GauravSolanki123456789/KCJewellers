@@ -18,6 +18,7 @@ import { useLoginModal } from '@/context/LoginModalContext'
 import { subscribeLiveRates } from '@/lib/socket'
 import { toPaise } from '@/lib/utils'
 import { CATALOG_PATH } from '@/lib/routes'
+import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 
 declare global {
   interface Window {
@@ -152,7 +153,7 @@ export default function BookRateModal() {
   useEffect(() => {
     const fetchRates = async () => {
       try {
-        const res = await fetch(`${url}/api/rates/live`)
+        const res = await fetch(`${url}/api/rates/live${ratesApiQueryForStorefront()}`)
         const data = await res.json()
         if (data.success && data.rates) {
           const r = data.rates
