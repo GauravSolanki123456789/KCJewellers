@@ -251,7 +251,7 @@ function ProfilePageContent() {
                     href={RESELLER_RATES_PATH}
                     icon={LineChart}
                     title="Update live rates"
-                    subtitle="Silver & gold 18K / 22K / 24K — updates your storefront prices"
+                    subtitle="Silver & gold 18K / 22K / 24K — updates prices for all KC visitors"
                     primary={!resellerUploadsEnabled}
                   />
                 ) : null}

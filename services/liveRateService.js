@@ -237,6 +237,14 @@ function buildPayload(external, margins) {
 
 async function tick(io) {
   try {
+    const { getGlobalResellerRatesPayload, broadcastRatesPayload } = require('./resellerMetalRates');
+    const resellerPayload = await getGlobalResellerRatesPayload();
+    if (resellerPayload) {
+      lastPayload = resellerPayload;
+      broadcastRatesPayload(io, resellerPayload);
+      return;
+    }
+
     const external = await fetchExternalRates();
     lastExternal = { gold: external.gold24, silver: external.silver, platinum: 0 };
     const margins = await getMargins();
@@ -245,12 +253,10 @@ async function tick(io) {
     for (const r of payload.rates) {
       if (r.metal_type === 'gold_22k') continue;
       if (String(r.metal_type || '').includes('_mcx')) continue;
+      if (r.metal_type === 'gold_18k') continue;
       await upsertRate(r.metal_type, r.buy_rate, r.display_rate, r.admin_margin);
     }
-    io.to('main').emit('live-rate', payload);
-    io.to('main').emit('rate_update', payload);
-    io.emit('live-rate', payload);
-    io.emit('rate_update', payload);
+    broadcastRatesPayload(io, payload);
   } catch (error) {
     console.error('liveRateService tick error:', error.message);
   }
@@ -281,6 +287,13 @@ async function setMargin(metal, margin, io) {
 }
 
 async function getCurrentPayload() {
+  try {
+    const { getGlobalResellerRatesPayload } = require('./resellerMetalRates');
+    const resellerPayload = await getGlobalResellerRatesPayload();
+    if (resellerPayload) return resellerPayload;
+  } catch (_) {
+    /* fall through to market payload */
+  }
   const margins = await getMargins();
   return buildPayload(
     { gold24: lastExternal.gold, gold22: Math.round((Number(lastExternal.gold || 0) * 0.916)), silver: lastExternal.silver, platinum: lastExternal.platinum },

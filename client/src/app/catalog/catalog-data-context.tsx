@@ -19,7 +19,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useCustomerTier } from "@/context/CustomerTierContext";
 import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
-import { ratesApiQueryForStorefront, RESELLER_RATES_UPDATED_EVENT } from "@/lib/storefront-domain";
+import { KC_RATES_UPDATED_EVENT } from "@/lib/reseller-rates-events";
 
 export type CatalogTreeCategory = {
   id: number;
@@ -112,13 +112,11 @@ export function CatalogDataProvider({
     return filterCategoriesForReseller(rawCategories, wholesaleUser?.allowed_category_ids ?? null);
   }, [tierReady, rawCategories, customerTier, wholesaleUser?.allowed_category_ids]);
 
-  const ratesQuery = ratesApiQueryForStorefront();
-
   const bootstrap = useCallback(async () => {
     try {
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
         axios.get(`${url}/api/catalog`),
-        axios.get(`${url}/api/rates/display${ratesQuery}`),
+        axios.get(`${url}/api/rates/display`),
         axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
@@ -131,7 +129,7 @@ export function CatalogDataProvider({
     } finally {
       setIsBootstrapping(false);
     }
-  }, [url, applyRetailSettings, ratesQuery]);
+  }, [url, applyRetailSettings]);
 
   useEffect(() => {
     if (serverSeeded) {
@@ -142,39 +140,17 @@ export function CatalogDataProvider({
     }
   }, [url, serverSeeded, applyRetailSettings]);
 
-  const fetchRatesOnly = useCallback(async () => {
-    try {
-      const ratesRes = await axios.get(`${url}/api/rates/display${ratesQuery}`);
-      setRates(ratesRes.data?.rates ?? []);
-    } catch {
-      /* keep SSR snapshot */
-    }
-  }, [url, ratesQuery]);
-
   useEffect(() => {
     if (serverSeeded) return;
     bootstrap();
   }, [bootstrap, serverSeeded]);
-
-  /** SSR seeds global rates — re-fetch with session so logged-in reseller sees custom ₹/g. */
-  useEffect(() => {
-    void fetchRatesOnly();
-  }, [fetchRatesOnly]);
-
-  useEffect(() => {
-    const onRatesUpdated = () => {
-      void fetchRatesOnly();
-    };
-    window.addEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated);
-    return () => window.removeEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated);
-  }, [fetchRatesOnly]);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
         axios.get(`${url}/api/catalog`),
-        axios.get(`${url}/api/rates/display${ratesQuery}`),
+        axios.get(`${url}/api/rates/display`),
         axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
@@ -183,7 +159,15 @@ export function CatalogDataProvider({
     } finally {
       setIsRefreshing(false);
     }
-  }, [url, applyRetailSettings, ratesQuery]);
+  }, [url, applyRetailSettings]);
+
+  useEffect(() => {
+    const onRatesUpdated = () => {
+      void refresh();
+    };
+    window.addEventListener(KC_RATES_UPDATED_EVENT, onRatesUpdated);
+    return () => window.removeEventListener(KC_RATES_UPDATED_EVENT, onRatesUpdated);
+  }, [refresh]);
 
   const value = useMemo(
     () => ({

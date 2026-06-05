@@ -2,11 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
-import {
-  ratesApiQueryForStorefront,
-  shouldSubscribeGlobalLiveRates,
-  RESELLER_RATES_UPDATED_EVENT,
-} from '@/lib/storefront-domain'
+import { shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
+import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
 import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -50,12 +47,10 @@ export default function RatesPage() {
     auth.isAuthenticated &&
     customerTier === CUSTOMER_TIER.RESELLER &&
     !!(auth.user as { reseller_rates_update_enabled?: boolean } | undefined)?.reseller_rates_update_enabled
-  const ratesQuery = ratesApiQueryForStorefront()
-
   const fetchRates = useCallback(async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const res = await fetch(`${url}/api/rates/live${ratesQuery}`, { credentials: 'include' })
+      const res = await fetch(`${url}/api/rates/live`)
       const data = await res.json()
       if (data.success && data.rates) {
         const r = data.rates
@@ -72,21 +67,19 @@ export default function RatesPage() {
     } finally {
       setLoading(false)
     }
-  }, [ratesQuery])
+  }, [])
 
   const { pullY, isRefreshing, handleTouchStart, handleTouchMove, handleTouchEnd } = usePullToRefresh(fetchRates)
 
   useEffect(() => {
     fetchRates()
-    const onRatesUpdated = () => {
-      void fetchRates()
-    }
-    window.addEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
-    return () => window.removeEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
+    const onRatesUpdated = () => void fetchRates()
+    window.addEventListener(KC_RATES_UPDATED_EVENT, onRatesUpdated)
+    return () => window.removeEventListener(KC_RATES_UPDATED_EVENT, onRatesUpdated)
   }, [fetchRates])
 
   useEffect(() => {
-    if (!shouldSubscribeGlobalLiveRates({ resellerRatesSession: canEditResellerRates })) return
+    if (!shouldSubscribeGlobalLiveRates(source)) return
     const off = subscribeLiveRates((p) => {
       const arr = Array.isArray(p?.rates) ? p.rates : []
       const gold = arr.find((x: { metal_type?: string }) => (x?.metal_type || '').toLowerCase() === 'gold')
@@ -106,7 +99,7 @@ export default function RatesPage() {
       if (Object.keys(updates).length) setRates(prev => ({ ...prev, ...updates }))
     })
     return () => off()
-  }, [canEditResellerRates])
+  }, [source])
 
   const isEstimated = source === 'estimated'
   const isResellerRates = source === 'reseller'

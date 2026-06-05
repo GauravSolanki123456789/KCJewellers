@@ -1,6 +1,7 @@
 /**
  * Per-reseller metal rates — silver + gold 18K/22K/24K (₹ per gram).
- * Used on custom-domain storefronts when admin enables `reseller_rates_update_enabled`.
+ * When an enabled reseller saves rates, the latest update applies site-wide
+ * (kcjewellers.co.in + custom domains + all product pricing).
  */
 const { query, pool } = require('../config/database');
 
@@ -189,64 +190,95 @@ async function getResellerRatesPayloadForUserId(userId) {
     return buildDisplayPayloadFromStored(stored);
 }
 
-function extractRequestDomain(req) {
-    return (
+/**
+ * Active site-wide override: most recently saved rates among enabled RESELLER accounts.
+ * All visitors on kcjewellers.co.in and reseller custom domains use this when set.
+ */
+async function getActiveGlobalResellerRates() {
+    await ensureSchema();
+    try {
+        const rows = await query(
+            `SELECT r.user_id, r.silver_per_gram, r.gold_24k_per_gram, r.gold_22k_per_gram, r.gold_18k_per_gram,
+                    r.updated_at, r.updated_by_user_id, u.business_name
+             FROM reseller_metal_rates r
+             INNER JOIN users u ON u.id = r.user_id
+             WHERE UPPER(TRIM(COALESCE(u.customer_tier::text, ''))) = 'RESELLER'
+               AND COALESCE(u.reseller_rates_update_enabled, false) = true
+             ORDER BY r.updated_at DESC
+             LIMIT 1`,
+        );
+        return rows[0] || null;
+    } catch (e) {
+        if (String(e.message || '').includes('reseller_metal_rates') || String(e.message || '').includes('reseller_rates_update_enabled')) {
+            await ensureSchema();
+            return getActiveGlobalResellerRates();
+        }
+        throw e;
+    }
+}
+
+async function getGlobalResellerRatesPayload() {
+    const row = await getActiveGlobalResellerRates();
+    if (!row) return null;
+    return buildDisplayPayloadFromStored(row);
+}
+
+function broadcastRatesPayload(io, payload) {
+    if (!io || !payload) return;
+    io.to('main').emit('live-rate', payload);
+    io.to('main').emit('rate_update', payload);
+    io.emit('live-rate', payload);
+    io.emit('rate_update', payload);
+}
+
+/**
+ * Resolve display rates — reseller override (site-wide) wins over Yahoo/market feed.
+ */
+async function resolveDisplayRatesForRequest(req, liveRateService) {
+    const globalPayload = await getGlobalResellerRatesPayload();
+    if (globalPayload) return globalPayload;
+
+    const domain =
         normalizeDomain(req.query?.domain) ||
         normalizeDomain(req.headers['x-storefront-domain']) ||
-        normalizeDomain(req.headers['x-custom-domain'])
-    );
-}
-
-/** Logged-in RESELLER with admin-enabled custom rates (applies on kcjewellers.co.in too). */
-async function resolveResellerUserIdFromSession(req) {
-    if (!req.isAuthenticated || !req.user?.id) return null;
-    const tier = String(req.user.customer_tier || '').toUpperCase();
-    if (tier !== 'RESELLER') return null;
-    const uid = parseInt(String(req.user.id), 10);
-    if (!Number.isFinite(uid) || uid <= 0) return null;
-    const enabled = await resellerRatesEnabled(uid);
-    if (!enabled) return null;
-    const stored = await getStoredRates(uid);
-    if (!stored) return null;
-    return uid;
-}
-
-async function resolveResellerUserIdForRequest(req) {
-    const domain = extractRequestDomain(req);
+        normalizeDomain(req.headers['x-custom-domain']);
     if (domain) {
         const reseller = await findResellerByDomain(domain);
         if (reseller?.id) {
             const payload = await getResellerRatesPayloadForUserId(reseller.id);
-            if (payload) return reseller.id;
+            if (payload) return payload;
         }
-    }
-    return resolveResellerUserIdFromSession(req);
-}
-
-/**
- * Resolve display rates for a request.
- * Priority: vanity domain owner → logged-in reseller session → global market.
- */
-async function resolveDisplayRatesForRequest(req, liveRateService) {
-    const resellerId = await resolveResellerUserIdForRequest(req);
-    if (resellerId) {
-        const payload = await getResellerRatesPayloadForUserId(resellerId);
-        if (payload) return payload;
     }
     return liveRateService.getCurrentPayload();
 }
 
 async function resolveLiveRatesForRequest(req, liveRateService) {
-    const resellerId = await resolveResellerUserIdForRequest(req);
-    if (resellerId) {
-        const stored = await getStoredRates(resellerId);
-        if (stored) {
-            return {
-                success: true,
-                rates: buildLiveRatesFromStored(stored),
-                source: 'reseller',
-                timestamp: new Date(stored.updated_at).getTime() || Date.now(),
-            };
+    const row = await getActiveGlobalResellerRates();
+    if (row) {
+        return {
+            success: true,
+            rates: buildLiveRatesFromStored(row),
+            source: 'reseller',
+            timestamp: new Date(row.updated_at).getTime() || Date.now(),
+        };
+    }
+
+    const domain =
+        normalizeDomain(req.query?.domain) ||
+        normalizeDomain(req.headers['x-storefront-domain']) ||
+        normalizeDomain(req.headers['x-custom-domain']);
+    if (domain) {
+        const reseller = await findResellerByDomain(domain);
+        if (reseller?.id && (await resellerRatesEnabled(reseller.id))) {
+            const stored = await getStoredRates(reseller.id);
+            if (stored) {
+                return {
+                    success: true,
+                    rates: buildLiveRatesFromStored(stored),
+                    source: 'reseller',
+                    timestamp: new Date(stored.updated_at).getTime() || Date.now(),
+                };
+            }
         }
     }
     return liveRateService.fetchLiveRates();
@@ -272,7 +304,7 @@ async function getResellerRatesForEditor(userId) {
     };
 }
 
-async function saveResellerRates(userId, body, updatedByUserId) {
+async function saveResellerRates(userId, body, updatedByUserId, io) {
     await ensureSchema();
     const enabled = await resellerRatesEnabled(userId);
     if (!enabled) {
@@ -311,10 +343,12 @@ async function saveResellerRates(userId, body, updatedByUserId) {
             Number.isFinite(by) && by > 0 ? by : null,
         ],
     );
+    const display = buildDisplayPayloadFromStored(rows[0]);
+    broadcastRatesPayload(io, display);
     return {
         saved: rows[0],
         preview: buildLiveRatesFromStored(rows[0]),
-        display: buildDisplayPayloadFromStored(rows[0]),
+        display,
     };
 }
 
@@ -326,7 +360,7 @@ async function getRatesSnapshotForSharedCatalogCreator(userId, liveRateService) 
     return global?.rates ?? [];
 }
 
-function registerResellerRatesRoutes(app, { checkAuth, liveRateService }) {
+function registerResellerRatesRoutes(app, { checkAuth, liveRateService, io }) {
     app.get('/api/reseller/rates', checkAuth, async (req, res) => {
         try {
             if (!req.isAuthenticated()) {
@@ -358,7 +392,7 @@ function registerResellerRatesRoutes(app, { checkAuth, liveRateService }) {
             if (tier !== 'RESELLER') {
                 return res.status(403).json({ error: 'RESELLER tier required' });
             }
-            const result = await saveResellerRates(req.user.id, req.body, req.user.id);
+            const result = await saveResellerRates(req.user.id, req.body, req.user.id, io);
             res.json({
                 success: true,
                 rates: {
@@ -387,6 +421,9 @@ module.exports = {
     buildDisplayPayloadFromStored,
     buildLiveRatesFromStored,
     getResellerRatesPayloadForUserId,
+    getActiveGlobalResellerRates,
+    getGlobalResellerRatesPayload,
+    broadcastRatesPayload,
     resolveDisplayRatesForRequest,
     resolveLiveRatesForRequest,
     getResellerRatesForEditor,

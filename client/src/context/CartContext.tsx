@@ -5,15 +5,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
-import {
-  ratesApiQueryForStorefront,
-  shouldSubscribeGlobalLiveRates,
-  RESELLER_RATES_UPDATED_EVENT,
-} from '@/lib/storefront-domain'
-import { CUSTOMER_TIER } from '@/lib/customer-tier'
+import { shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
+import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
-import { useAuth } from '@/hooks/useAuth'
 
 /**
  * ProductLite extends Item to ensure all product fields are available in cart items.
@@ -60,18 +55,13 @@ function loadCartFromStorage(): CartItem[] {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { wholesalePricing, customerTier } = useCustomerTier()
-  const auth = useAuth()
-  const resellerRatesSession = Boolean(
-    auth.isAuthenticated &&
-      customerTier === CUSTOMER_TIER.RESELLER &&
-      (auth.user as { reseller_rates_update_enabled?: boolean } | undefined)?.reseller_rates_update_enabled,
-  )
+  const { wholesalePricing } = useCustomerTier()
   const { pricingOptions } = useCatalogPricingSettings()
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [lastAdded, setLastAdded] = useState<ProductLite | null>(null)
   const [items, setItems] = useState<CartItem[]>([])
   const [lastRates, setLastRates] = useState<unknown[]>([])
+  const [ratesSource, setRatesSource] = useState<string | null>(null)
   const [ratesReady, setRatesReady] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
 
@@ -96,34 +86,36 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [wholesalePricing, pricingOptions])
 
-  const loadDisplayRates = useCallback(() => {
+  const fetchDisplayRates = useCallback(() => {
     axios
-      .get(`/api/rates/display${ratesApiQueryForStorefront()}`)
+      .get('/api/rates/display')
       .then((res) => {
         const rates = res.data?.rates || []
+        const source = res.data?.source != null ? String(res.data.source) : null
+        setRatesSource(source)
         if (rates.length > 0) applyRates(rates)
       })
       .catch(() => {})
   }, [applyRates])
 
   useEffect(() => {
-    loadDisplayRates()
-  }, [loadDisplayRates])
+    fetchDisplayRates()
+  }, [fetchDisplayRates])
 
   useEffect(() => {
-    if (!shouldSubscribeGlobalLiveRates({ resellerRatesSession })) return
+    const onRatesUpdated = () => fetchDisplayRates()
+    window.addEventListener(KC_RATES_UPDATED_EVENT, onRatesUpdated)
+    return () => window.removeEventListener(KC_RATES_UPDATED_EVENT, onRatesUpdated)
+  }, [fetchDisplayRates])
+
+  useEffect(() => {
+    if (!shouldSubscribeGlobalLiveRates(ratesSource)) return
     const off = subscribeLiveRates((p) => {
       const rates = p?.rates || []
       if (rates.length > 0) applyRates(rates)
     })
     return off
-  }, [applyRates, resellerRatesSession])
-
-  useEffect(() => {
-    const onRatesUpdated = () => loadDisplayRates()
-    window.addEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
-    return () => window.removeEventListener(RESELLER_RATES_UPDATED_EVENT, onRatesUpdated)
-  }, [loadDisplayRates])
+  }, [applyRates, ratesSource])
 
   useEffect(() => {
     setItems((prev) =>

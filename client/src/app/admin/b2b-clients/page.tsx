@@ -790,8 +790,8 @@ function B2BAdminContent() {
                       <p className="text-sm font-medium text-slate-200">Allow staff to update live rates</p>
                       <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
                         When enabled, this reseller&apos;s team can set silver and gold 18K / 22K / 24K ₹/g at{' '}
-                        <code className="text-slate-400">/reseller/rates</code>. Prices on their custom domain
-                        catalogue, Live Rates, cart, and new shared links use these rates (
+                        <code className="text-slate-400">/reseller/rates</code>. The latest save applies site-wide
+                        on kcjewellers.co.in, custom domains, catalogue, cart, and Live Rates (
                         <code className="text-slate-400">reseller_rates_update_enabled</code>).
                       </p>
                     </div>

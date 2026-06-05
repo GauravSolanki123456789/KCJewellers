@@ -20,12 +20,11 @@ export function ratesApiQueryForStorefront(): string {
   return d ? `?domain=${encodeURIComponent(d)}` : ''
 }
 
-/** Reseller vanity domains + logged-in reseller sessions use fixed staff rates. */
-export function shouldSubscribeGlobalLiveRates(options?: {
-  resellerRatesSession?: boolean
-}): boolean {
-  if (options?.resellerRatesSession) return false
-  return !getClientStorefrontDomain()
+/**
+ * Skip Yahoo/socket ticks when the API is serving reseller-managed rates (site-wide override).
+ * Pass `source` from GET /api/rates/display or /api/rates/live response.
+ */
+export function shouldSubscribeGlobalLiveRates(ratesSource?: string | null): boolean {
+  if (ratesSource === 'reseller') return false
+  return true
 }
-
-export const RESELLER_RATES_UPDATED_EVENT = 'kc-reseller-rates-updated'

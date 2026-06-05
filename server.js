@@ -1329,7 +1329,7 @@ registerResellerProductRoutes(app, {
     SYNC_RECEIVE_UPLOAD,
 });
 
-registerResellerRatesRoutes(app, { checkAuth, liveRateService });
+registerResellerRatesRoutes(app, { checkAuth, liveRateService, io });
 
 // ==========================================
 // B2B WHOLESALE — client ledger (Khata) & admin ledger lines

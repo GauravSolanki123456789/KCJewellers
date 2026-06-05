@@ -5,7 +5,7 @@ import axios from '@/lib/axios'
 import { Loader2, RefreshCw, Save, Sparkles, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
 import { LIVE_RATES_PATH } from '@/lib/routes'
-import { RESELLER_RATES_UPDATED_EVENT } from '@/lib/storefront-domain'
+import { dispatchRatesUpdated } from '@/lib/reseller-rates-events'
 
 type RateForm = {
   silver_per_gram: string
@@ -135,8 +135,8 @@ export function ResellerRatesPanel() {
         gold_18k_per_gram: parseField(form.gold_18k_per_gram),
       })
       setSavedFlash(true)
+      dispatchRatesUpdated()
       setTimeout(() => setSavedFlash(false), 2500)
-      window.dispatchEvent(new CustomEvent(RESELLER_RATES_UPDATED_EVENT))
       await load()
     } catch (e: unknown) {
       const msg =
@@ -188,8 +188,8 @@ export function ResellerRatesPanel() {
               Your storefront rates
             </h2>
             <p className="mt-1 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-              Enter ₹ per gram. Catalog, Live Rates, and shared links on your custom domain use
-              these prices instantly after you save.
+              Enter ₹ per gram and tap Save — prices update instantly on KC Jewellers, your custom
+              domain, catalogue, cart, and Live Rates for every visitor.
             </p>
           </div>
           <button
@@ -216,7 +216,7 @@ export function ResellerRatesPanel() {
 
       {savedFlash ? (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-          Rates saved — your catalogue prices are updated.
+          Rates saved — live everywhere on KC Jewellers and your storefront.
         </p>
       ) : null}
 
@@ -323,15 +323,15 @@ export function ResellerRatesPanel() {
         ) : (
           <Save className="size-5" />
         )}
-        {saving ? 'Saving…' : 'Publish rates to storefront'}
+        {saving ? 'Saving…' : 'Save rates'}
       </button>
 
       <p className="text-center text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/45">
-        Tip: open{' '}
+        After saving, open{' '}
         <Link href={LIVE_RATES_PATH} className="font-medium text-[var(--kc-accent,#c41e3a)]">
           Live Rates
         </Link>{' '}
-        on your custom domain to confirm what customers see.
+        or any product — everyone should see the same ₹/g.
       </p>
     </div>
   )
