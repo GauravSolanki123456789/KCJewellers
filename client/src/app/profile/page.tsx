@@ -250,8 +250,8 @@ function ProfilePageContent() {
                   <ProfileActionCard
                     href={RESELLER_RATES_PATH}
                     icon={LineChart}
-                    title="Update live rates"
-                    subtitle="Silver & gold 18K / 22K / 24K — updates prices for all KC visitors"
+                    title="Update today rates"
+                    subtitle="Silver & gold 18K / 22K / 24K — share on your domain via WhatsApp"
                     primary={!resellerUploadsEnabled}
                   />
                 ) : null}

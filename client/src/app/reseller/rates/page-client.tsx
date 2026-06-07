@@ -75,7 +75,7 @@ function ResellerRatesContent() {
           <div className="min-w-0 flex-1">
             <h1 className="flex items-center gap-2 truncate text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               <LineChart className="size-5 shrink-0 text-[var(--kc-accent,#c41e3a)]" />
-              Update live rates
+              Update today rates
             </h1>
             {ratesEnabled ? (
               <p className="truncate text-xs text-[var(--color-jewelry-black,#1a1814)]/55">

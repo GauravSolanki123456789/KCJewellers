@@ -71,7 +71,7 @@ export default function RateTicker() {
   
   return (
     <div className="glass-card p-4">
-      <div className="text-2xl font-semibold gold-text">Live Rates</div>
+      <div className="text-2xl font-semibold gold-text">Today Rates</div>
       {isOffline && rates.length === 0 ? (
         <div className="mt-4 text-center">
           <div className="text-lg font-semibold text-gray-500">Offline Mode</div>

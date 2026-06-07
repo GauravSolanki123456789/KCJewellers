@@ -5,7 +5,7 @@
 export const CATALOG_PATH = '/catalog'
 /** Global search results page (`?q=`). */
 export const SEARCH_PATH = '/search'
-/** Live bullion rates + book-rate flow (single “Live Rates” destination). */
+/** Today bullion rates + book-rate flow (single “Today Rates” destination). */
 export const RATES_PATH = '/rates'
 /** Alias for clarity in UI copy and analytics. */
 export const LIVE_RATES_PATH = RATES_PATH

@@ -67,7 +67,7 @@ const BOTTOM_NAV: Array<{
   shortLabel?: string
 }> = [
   { href: CATALOG_PATH, icon: Home, label: 'Home' },
-  { href: RATES_PATH, icon: LineChart, label: 'Live Rates', shortLabel: 'Rates' },
+  { href: RATES_PATH, icon: LineChart, label: 'Today Rates', shortLabel: 'Rates' },
   { href: SIP_PATH, icon: TrendingUp, label: 'Invest' },
   { href: PROFILE_PATH, icon: User, label: 'Profile' },
 ]

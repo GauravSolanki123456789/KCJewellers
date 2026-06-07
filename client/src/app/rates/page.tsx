@@ -1,19 +1,25 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
-import { shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
+import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
 import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import Link from 'next/link'
-import { RESELLER_RATES_PATH } from '@/lib/routes'
-import { PencilLine } from 'lucide-react'
+import { CATALOG_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
+import { PencilLine, Store } from 'lucide-react'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import { Button } from '@/components/ui/button'
 import { BookMarked, AlertTriangle } from 'lucide-react'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
+import WhatsAppShareButton from '@/components/WhatsAppShareButton'
+import {
+  buildStorefrontCatalogUrl,
+  ratesShareWhatsAppMessage,
+} from '@/lib/rates-share'
 
 type Rates = {
   gold24k_10g: number
@@ -43,14 +49,46 @@ export default function RatesPage() {
   const { open: openBookRate } = useBookRate()
   const auth = useAuth()
   const { customerTier } = useCustomerTier()
+  const {
+    businessName: brandingName,
+    active: resellerBrandingActive,
+    customDomainHost,
+  } = useResellerBranding()
+  const user = auth.user as {
+    reseller_rates_update_enabled?: boolean
+    custom_domain?: string | null
+    business_name?: string | null
+  } | undefined
   const canEditResellerRates =
     auth.isAuthenticated &&
     customerTier === CUSTOMER_TIER.RESELLER &&
-    !!(auth.user as { reseller_rates_update_enabled?: boolean } | undefined)?.reseller_rates_update_enabled
+    !!user?.reseller_rates_update_enabled
+  const shareCtx = useMemo(
+    () => ({
+      browserHostname: typeof window !== 'undefined' ? window.location.hostname : null,
+      customerTier,
+      resellerCustomDomain: user?.custom_domain ?? null,
+      userBusinessName: user?.business_name ?? null,
+      brandingActive: resellerBrandingActive,
+      brandingBusinessName: brandingName,
+    }),
+    [
+      customerTier,
+      user?.custom_domain,
+      user?.business_name,
+      resellerBrandingActive,
+      brandingName,
+    ],
+  )
+  const canShareRates = canEditResellerRates && !!user?.custom_domain?.trim()
+  const storefrontCatalogUrl = useMemo(
+    () => buildStorefrontCatalogUrl(shareCtx),
+    [shareCtx],
+  )
   const fetchRates = useCallback(async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const res = await fetch(`${url}/api/rates/live`)
+      const res = await fetch(`${url}/api/rates/live${ratesApiQueryForStorefront()}`)
       const data = await res.json()
       if (data.success && data.rates) {
         const r = data.rates
@@ -129,12 +167,22 @@ export default function RatesPage() {
             <div className="px-3 sm:px-6 py-4 sm:py-5 border-b border-white/10">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-amber-600">Live Rates</h1>
+                  <h1 className="text-xl sm:text-2xl font-bold text-amber-600">Today Rates</h1>
                   <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-                    Gold & silver prices — book your rate below or from any row
+                    {resellerBrandingActive
+                      ? `Gold & silver prices from ${brandingName} — updated for today`
+                      : 'Gold & silver prices — book your rate below or from any row'}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {canShareRates ? (
+                    <WhatsAppShareButton
+                      message={ratesShareWhatsAppMessage(shareCtx)}
+                      label="Share rates"
+                      compact
+                      className="border-emerald-500/50 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                    />
+                  ) : null}
                   {isEstimated && (
                     <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-600 text-xs sm:text-sm">
                       <AlertTriangle className="size-3.5 sm:size-4 shrink-0" />
@@ -246,7 +294,32 @@ export default function RatesPage() {
             )}
 
             {!loading && (
-              <div className="border-t border-white/10 bg-gradient-to-b from-amber-500/10 to-transparent px-3 py-5 sm:px-6 sm:py-6">
+              <div className="border-t border-white/10 bg-gradient-to-b from-amber-500/10 to-transparent px-3 py-5 sm:px-6 sm:py-6 space-y-4">
+                {resellerBrandingActive ? (
+                  <div className="rounded-xl border border-emerald-500/25 bg-slate-900/60 p-4 sm:p-5">
+                    <h2 className="text-base font-semibold text-emerald-400 sm:text-lg">
+                      Browse our catalogue
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-400 sm:text-sm">
+                      View {brandingName}&apos;s full jewellery collection with today&apos;s rates applied
+                      to every product.
+                    </p>
+                    <Button
+                      asChild
+                      className="mt-4 w-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 sm:w-auto sm:px-8"
+                    >
+                      <Link href={CATALOG_PATH}>
+                        <Store className="mr-2 size-4" />
+                        View products
+                      </Link>
+                    </Button>
+                    {customDomainHost ? (
+                      <p className="mt-3 text-[11px] text-slate-500">
+                        Catalogue: {storefrontCatalogUrl.replace(/^https?:\/\//, '')}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="rounded-xl border border-amber-500/25 bg-slate-900/60 p-4 sm:p-5">
                   <h2 className="text-base font-semibold text-amber-500 sm:text-lg">
                     Book your rate

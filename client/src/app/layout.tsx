@@ -7,7 +7,11 @@ import { CustomerTierProvider } from "@/context/CustomerTierContext";
 import { ResellerBrandingProvider } from "@/context/ResellerBrandingContext";
 import { KcThemeProvider } from "@/context/KcThemeContext";
 import { CatalogPricingSettingsProvider } from "@/context/CatalogPricingSettingsContext";
-import { getStorefrontTenantFromHeaders } from "@/lib/reseller-branding-server";
+import {
+  getStorefrontTenantFromHeaders,
+  type PublicResellerBranding,
+} from "@/lib/reseller-branding-server";
+import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
 import {
   fetchPublicKcAppThemeId,
   fetchSharedCatalogKcThemeId,
@@ -68,7 +72,7 @@ function apiOriginForPreconnect(): string | null {
   }
 }
 
-export const metadata: Metadata = {
+const kcMetadata: Metadata = {
   metadataBase: new URL(site),
   applicationName: "KC Jewellers",
   title: {
@@ -76,7 +80,7 @@ export const metadata: Metadata = {
     template: "%s · KC Jewellers",
   },
   description:
-    "KC Jewellers — curated gold, silver, diamond and gifting jewellery with transparent live pricing incl. GST. Book rates, SIP plans, and shop the catalogue online.",
+    "KC Jewellers — curated gold, silver, diamond and gifting jewellery with transparent today pricing incl. GST. Book rates, SIP plans, and shop the catalogue online.",
   keywords: [
     "KC Jewellers",
     "jewellery",
@@ -99,7 +103,7 @@ export const metadata: Metadata = {
     siteName: "KC Jewellers",
     title: "KC Jewellers — Gold, Silver & Diamond Jewellery",
     description:
-      "Curated jewellery with live rates, SIP plans, and a full online catalogue.",
+      "Curated jewellery with today rates, SIP plans, and a full online catalogue.",
     images: [
       {
         url: ogImage,
@@ -113,7 +117,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "KC Jewellers",
     description:
-      "Gold, silver & diamond jewellery — live pricing and catalogue shopping.",
+      "Gold, silver & diamond jewellery — today pricing and catalogue shopping.",
     images: [ogImage],
   },
   robots: {
@@ -124,6 +128,76 @@ export const metadata: Metadata = {
     canonical: site.replace(/\/$/, ""),
   },
 };
+
+function storefrontOriginFromHeaders(h: Headers): string {
+  const host = h.get("host")?.trim();
+  if (!host) return site.replace(/\/$/, "");
+  const name = host.split(":")[0].toLowerCase();
+  if (name === "localhost" || name === "127.0.0.1") return site.replace(/\/$/, "");
+  const xfProto = h.get("x-forwarded-proto")?.trim().toLowerCase();
+  const proto = xfProto === "http" ? "http" : "https";
+  return `${proto}://${host.split(":")[0]}`;
+}
+
+function resellerHostMetadata(
+  branding: PublicResellerBranding,
+  origin: string,
+): Metadata {
+  const brand = branding.businessName?.trim() || "Partner store";
+  const ogLogo = normalizeResellerLogoUrl(branding.logoUrl);
+  const defaultOgAbs = new URL(ogImage, new URL(site)).toString();
+  const ogImages =
+    ogLogo && /^https?:\/\//i.test(ogLogo)
+      ? [{ url: ogLogo, width: 1200, height: 1200, alt: brand }]
+      : [{ url: defaultOgAbs, width: 2048, height: 2048, alt: brand }];
+  const ogIcon =
+    ogLogo && /^https?:\/\//i.test(ogLogo)
+      ? {
+          icons: {
+            icon: [{ url: ogLogo }],
+            apple: [{ url: ogLogo }],
+          },
+        }
+      : {};
+
+  return {
+    metadataBase: new URL(origin),
+    applicationName: brand,
+    title: {
+      default: `${brand} — Jewellery Catalogue`,
+      template: `%s · ${brand}`,
+    },
+    description: `${brand} — curated jewellery with today's gold & silver rates and transparent pricing incl. GST.`,
+    openGraph: {
+      type: "website",
+      locale: "en_IN",
+      url: origin,
+      siteName: brand,
+      title: `${brand} — Jewellery Catalogue`,
+      description:
+        "Curated jewellery with today's rates — browse and shop online.",
+      images: ogImages,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: brand,
+      description: "Curated jewellery with today's rates.",
+      images: ogImages.map((i) => i.url),
+    },
+    robots: { index: true, follow: true },
+    alternates: { canonical: origin },
+    ...ogIcon,
+  };
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { branding, customDomainHost } = await getStorefrontTenantFromHeaders();
+  if (!customDomainHost || !branding?.businessName) {
+    return kcMetadata;
+  }
+  const h = await headers();
+  return resellerHostMetadata(branding, storefrontOriginFromHeaders(h));
+}
 
 export default async function RootLayout({
   children,
