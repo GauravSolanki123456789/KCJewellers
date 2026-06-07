@@ -91,10 +91,12 @@ export default function Navbar() {
   const isStorefrontGuest = isResellerStorefrontGuest(customDomainHost, auth.isAuthenticated)
   const navItems = useMemo(
     () =>
-      isStorefrontGuest
-        ? BOTTOM_NAV.filter((item) => item.href !== PROFILE_PATH)
-        : BOTTOM_NAV,
-    [isStorefrontGuest],
+      BOTTOM_NAV.filter((item) => {
+        if (isStorefrontGuest && item.href === PROFILE_PATH) return false
+        if (customDomainHost && item.href === SIP_PATH) return false
+        return true
+      }),
+    [isStorefrontGuest, customDomainHost],
   )
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined

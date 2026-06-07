@@ -4,8 +4,9 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
-import { SIP_PATH } from '@/lib/routes'
+import { CATALOG_PATH, SIP_PATH } from '@/lib/routes'
 import { useRouter } from 'next/navigation'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import Link from 'next/link'
 import {
   Sparkles,
@@ -54,6 +55,7 @@ export default function SipMarketingPage() {
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const router = useRouter()
+  const { customDomainHost } = useResellerBranding()
   const [plans, setPlans] = useState<SipPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
@@ -84,6 +86,10 @@ export default function SipMarketingPage() {
       document.body.appendChild(script)
     })
   }
+
+  useEffect(() => {
+    if (customDomainHost) router.replace(CATALOG_PATH)
+  }, [customDomainHost, router])
 
   const load = useCallback(async () => {
     setLoading(true)
