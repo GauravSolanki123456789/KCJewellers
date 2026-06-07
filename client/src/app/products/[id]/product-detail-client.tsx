@@ -375,6 +375,17 @@ export default function ProductDetailClient({
 
   const [galleryIdx, setGalleryIdx] = useState(0);
   const galleryScrollRef = useRef<HTMLDivElement>(null);
+  /** Finger-follow zoom on phones/tablets; desktop keeps hover-only zoom. */
+  const [touchPdpZoom, setTouchPdpZoom] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px), (pointer: coarse)");
+    const sync = () => setTouchPdpZoom(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     setGalleryIdx(0);
@@ -537,7 +548,7 @@ export default function ProductDetailClient({
                           className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always"
                         >
                           <div className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
-                            <HoverZoomImage swipeFriendly>
+                            <HoverZoomImage swipeFriendly touchZoom={touchPdpZoom}>
                               <Image
                                 key={`${src}-${pdpImageUnoptimized ? "u" : "o"}`}
                                 src={src}
@@ -562,7 +573,7 @@ export default function ProductDetailClient({
                     </div>
                   ) : (
                     <div className={cn("absolute inset-0 z-[3]", productImageViewportWrapperClass())}>
-                      <HoverZoomImage>
+                      <HoverZoomImage touchZoom={touchPdpZoom}>
                         <Image
                           key={`${activeGallerySrc}-${pdpImageUnoptimized ? "u" : "o"}`}
                           src={activeGallerySrc}

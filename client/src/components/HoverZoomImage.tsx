@@ -44,8 +44,24 @@ export default function HoverZoomImage({
   const [isHovering, setIsHovering] = useState(false)
   const [isTouching, setIsTouching] = useState(false)
   const [allowHoverZoom, setAllowHoverZoom] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const touchActiveRef = useRef(false)
   const touchGestureRef = useRef({ x: 0, y: 0, axis: null as 'x' | 'y' | null })
+
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el || !touchZoom) return
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || !touchActiveRef.current) return
+      if (!swipeFriendly || touchGestureRef.current.axis === 'y') {
+        e.preventDefault()
+      }
+    }
+
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    return () => el.removeEventListener('touchmove', onTouchMove)
+  }, [touchZoom, swipeFriendly])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -131,15 +147,21 @@ export default function HoverZoomImage({
     !touchZoom
       ? undefined
       : swipeFriendly
-        ? 'pan-x pan-y'
+        ? isTouching
+          ? 'none'
+          : 'pan-x pan-y'
         : 'none'
 
   return (
     <div
+      ref={rootRef}
       className={`relative h-full w-full overflow-hidden ${
-        touchZoom && !swipeFriendly ? 'touch-none' : ''
+        touchZoom && (!swipeFriendly || isTouching) ? 'touch-none' : ''
       } ${className}`}
-      style={{ touchAction: touchActionStyle }}
+      style={{
+        touchAction: touchActionStyle,
+        overscrollBehavior: isTouching ? 'none' : undefined,
+      }}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
