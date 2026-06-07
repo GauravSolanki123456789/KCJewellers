@@ -102,7 +102,6 @@ export default function RatesPage() {
   }, [source])
 
   const isEstimated = source === 'estimated'
-  const isResellerRates = source === 'reseller'
 
   return (
     <div
@@ -140,11 +139,6 @@ export default function RatesPage() {
                     <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-600 text-xs sm:text-sm">
                       <AlertTriangle className="size-3.5 sm:size-4 shrink-0" />
                       <span>Market closed — estimated</span>
-                    </div>
-                  )}
-                  {isResellerRates && (
-                    <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-200 sm:text-sm">
-                      Your storefront rates
                     </div>
                   )}
                   {canEditResellerRates && (

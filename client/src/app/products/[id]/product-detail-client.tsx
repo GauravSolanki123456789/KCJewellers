@@ -534,45 +534,28 @@ export default function ProductDetailClient({
                       {gallerySlides.map((src, i) => (
                         <div
                           key={`${src}-${i}`}
-                          className="relative h-full w-full shrink-0 snap-center snap-always"
+                          className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always"
                         >
                           <div className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
-                            {i === 0 ? (
-                              <HoverZoomImage>
-                                <Image
-                                  key={`${src}-${pdpImageUnoptimized ? "u" : "o"}`}
-                                  src={src}
-                                  alt={displayName}
-                                  fill
-                                  sizes="(max-width: 768px) 100vw, 50vw"
-                                  className={detailImgClass}
-                                  unoptimized={pdpImageUnoptimized}
-                                  priority
-                                  fetchPriority="high"
-                                  decoding="async"
-                                  draggable={false}
-                                  onLoad={handleProductImageLoad}
-                                  onError={() => {
-                                    if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
-                                  }}
-                                />
-                              </HoverZoomImage>
-                            ) : (
+                            <HoverZoomImage swipeFriendly>
                               <Image
                                 key={`${src}-${pdpImageUnoptimized ? "u" : "o"}`}
                                 src={src}
-                                alt={`${displayName} — alternate view`}
+                                alt={i === 0 ? displayName : `${displayName} — alternate view`}
                                 fill
-                                sizes="(max-width: 768px) 100vw, 50vw"
+                                sizes="(max-width: 1024px) 100vw, 50vw"
                                 className={detailImgClass}
                                 unoptimized={pdpImageUnoptimized}
+                                priority={i === 0}
+                                fetchPriority={i === 0 ? "high" : "auto"}
                                 decoding="async"
                                 draggable={false}
+                                onLoad={i === 0 ? handleProductImageLoad : undefined}
                                 onError={() => {
                                   if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
                                 }}
                               />
-                            )}
+                            </HoverZoomImage>
                           </div>
                         </div>
                       ))}

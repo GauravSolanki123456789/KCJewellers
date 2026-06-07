@@ -10,6 +10,11 @@ type HoverZoomImageProps = {
   className?: string
   /** Allow touch-and-drag loupe zoom on coarse pointers (mobile). Default true. */
   touchZoom?: boolean
+  /**
+   * Let horizontal swipes reach a parent scroll gallery (PDP alternate photos).
+   * Vertical drags still trigger finger-follow zoom.
+   */
+  swipeFriendly?: boolean
 }
 
 function originFromPoint(
@@ -27,16 +32,20 @@ function originFromPoint(
  * - Fine pointer: hover zoom (desktop).
  * - Touch: press and move on the image to zoom at your finger (mobile PDP).
  */
+const SWIPE_AXIS_THRESHOLD_PX = 10
+
 export default function HoverZoomImage({
   children,
   className = '',
   touchZoom = true,
+  swipeFriendly = false,
 }: HoverZoomImageProps) {
   const [origin, setOrigin] = useState({ x: 50, y: 50 })
   const [isHovering, setIsHovering] = useState(false)
   const [isTouching, setIsTouching] = useState(false)
   const [allowHoverZoom, setAllowHoverZoom] = useState(false)
   const touchActiveRef = useRef(false)
+  const touchGestureRef = useRef({ x: 0, y: 0, axis: null as 'x' | 'y' | null })
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -58,36 +67,79 @@ export default function HoverZoomImage({
   const handleTouchStart = useCallback(
     (e: React.TouchEvent<HTMLDivElement>) => {
       if (!touchZoom || e.touches.length !== 1) return
+      const t = e.touches[0]
+      touchGestureRef.current = { x: t.clientX, y: t.clientY, axis: null }
+      if (swipeFriendly) {
+        touchActiveRef.current = false
+        setIsTouching(false)
+        return
+      }
       touchActiveRef.current = true
       const rect = e.currentTarget.getBoundingClientRect()
-      const t = e.touches[0]
       setOrigin(originFromPoint(t.clientX, t.clientY, rect))
       setIsTouching(true)
     },
-    [touchZoom],
+    [touchZoom, swipeFriendly],
   )
 
   const handleTouchMove = useCallback(
     (e: React.TouchEvent<HTMLDivElement>) => {
-      if (!touchZoom || !touchActiveRef.current || e.touches.length !== 1) return
+      if (!touchZoom || e.touches.length !== 1) return
       const rect = e.currentTarget.getBoundingClientRect()
       const t = e.touches[0]
+
+      if (swipeFriendly) {
+        const dx = t.clientX - touchGestureRef.current.x
+        const dy = t.clientY - touchGestureRef.current.y
+        if (!touchGestureRef.current.axis) {
+          if (
+            Math.abs(dx) > SWIPE_AXIS_THRESHOLD_PX ||
+            Math.abs(dy) > SWIPE_AXIS_THRESHOLD_PX
+          ) {
+            touchGestureRef.current.axis =
+              Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
+          }
+        }
+        if (touchGestureRef.current.axis === 'x') {
+          touchActiveRef.current = false
+          setIsTouching(false)
+          return
+        }
+        if (!touchActiveRef.current) {
+          touchActiveRef.current = true
+          setIsTouching(true)
+        }
+        setOrigin(originFromPoint(t.clientX, t.clientY, rect))
+        return
+      }
+
+      if (!touchActiveRef.current) return
       setOrigin(originFromPoint(t.clientX, t.clientY, rect))
     },
-    [touchZoom],
+    [touchZoom, swipeFriendly],
   )
 
   const endTouch = useCallback(() => {
     touchActiveRef.current = false
+    touchGestureRef.current.axis = null
     setIsTouching(false)
   }, [])
 
   const zoomed = (isHovering && allowHoverZoom) || isTouching
 
+  const touchActionStyle =
+    !touchZoom
+      ? undefined
+      : swipeFriendly
+        ? 'pan-x pan-y'
+        : 'none'
+
   return (
     <div
-      className={`relative h-full w-full overflow-hidden touch-none ${className}`}
-      style={{ touchAction: touchZoom ? 'none' : undefined }}
+      className={`relative h-full w-full overflow-hidden ${
+        touchZoom && !swipeFriendly ? 'touch-none' : ''
+      } ${className}`}
+      style={{ touchAction: touchActionStyle }}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}

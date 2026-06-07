@@ -281,7 +281,7 @@ export default function DualJewelleryProductImage({
         onTouchCancel={onTouchEnd}
         onClickCapture={blockLinkAfterSwipe}
       >
-        <div className="relative h-full w-full shrink-0 snap-center snap-always">
+        <div className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always">
           <SlideImage
             src={resolvedPrimarySrc}
             alt={alt}
@@ -295,7 +295,7 @@ export default function DualJewelleryProductImage({
             onError={handlePrimaryError}
           />
         </div>
-        <div className="relative h-full w-full shrink-0 snap-center snap-always">
+        <div className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always">
           <SlideImage
             src={secondaryNorm!}
             alt={`${alt} — alternate view`}
@@ -368,9 +368,6 @@ export default function DualJewelleryProductImage({
             }}
           />
         </div>
-        <span className="pointer-events-none absolute bottom-2.5 right-2.5 rounded-md bg-slate-950/75 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400 backdrop-blur-sm">
-          Hover for alt
-        </span>
       </div>
 
       <GalleryDots count={2} active={mobileIdx} />
