@@ -72,6 +72,8 @@ const {
     resolveDisplayRatesForRequest,
     resolveLiveRatesForRequest,
     getRatesSnapshotForSharedCatalogCreator,
+    findResellerByDomain,
+    normalizeDomain,
 } = require('./services/resellerMetalRates');
 
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
@@ -948,7 +950,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             return res.status(400).json({ error: 'domain query parameter required' });
         }
         const rows = await query(
-            `SELECT business_name, logo_url, mobile_number, kc_theme_id FROM users
+            `SELECT business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids FROM users
              WHERE customer_tier = 'RESELLER'
              AND NULLIF(TRIM(custom_domain), '') IS NOT NULL
              AND LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(custom_domain), '^https?://', '', 'i'), '/.*$', ''), '^www\.', '', 'i'))) = $1
@@ -961,6 +963,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
                 logo_url: null,
                 contact_phone: null,
                 kc_theme_id: null,
+                allowed_category_ids: null,
             });
         }
         const rawDigits = String(rows[0].mobile_number || '').replace(/\D/g, '');
@@ -968,11 +971,16 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits.length > 0 ? rawDigits : null;
         const resellerDef = await getResellerDefaultKcThemeId();
         const kc_theme_id = normalizeKcThemeId(rows[0].kc_theme_id, resellerDef);
+        const rawCatIds = rows[0].allowed_category_ids;
+        const allowed_category_ids = Array.isArray(rawCatIds)
+            ? rawCatIds.map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n) && n > 0)
+            : null;
         res.json({
             business_name: rows[0].business_name || null,
             logo_url: rows[0].logo_url || null,
             contact_phone,
             kc_theme_id,
+            allowed_category_ids: allowed_category_ids?.length ? allowed_category_ids : null,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -6182,7 +6190,20 @@ app.get('/api/catalog', async (req, res) => {
             }
             categories.push({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url, subcategories });
         }
-        res.json({ categories });
+        const domain =
+            normalizeDomain(req.query?.domain) ||
+            normalizeDomain(req.headers['x-storefront-domain']) ||
+            normalizeDomain(req.headers['x-custom-domain']);
+        let filtered = categories;
+        if (domain) {
+            const reseller = await findResellerByDomain(domain);
+            const allowed = reseller?.allowed_category_ids;
+            if (Array.isArray(allowed) && allowed.length > 0) {
+                const set = new Set(allowed.map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n)));
+                filtered = categories.filter((cat) => set.has(cat.id));
+            }
+        }
+        res.json({ categories: filtered });
     } catch (error) {
         console.error('Catalog error:', error);
         res.json({ categories: [] });

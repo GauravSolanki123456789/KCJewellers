@@ -75,9 +75,9 @@ async function findResellerByDomain(domain) {
     const d = normalizeDomain(domain);
     if (!d) return null;
     const rows = await query(
-        `SELECT id, customer_tier,
+        `SELECT id, customer_tier, business_name,
                 COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
-                custom_domain
+                custom_domain, allowed_category_ids
          FROM users
          WHERE UPPER(TRIM(COALESCE(customer_tier::text, ''))) = 'RESELLER'
            AND NULLIF(TRIM(custom_domain), '') IS NOT NULL
@@ -234,14 +234,16 @@ function broadcastRatesPayload(io, payload) {
 /**
  * Resolve display rates — reseller override (site-wide) wins over Yahoo/market feed.
  */
-async function resolveDisplayRatesForRequest(req, liveRateService) {
-    const globalPayload = await getGlobalResellerRatesPayload();
-    if (globalPayload) return globalPayload;
-
-    const domain =
+function requestStorefrontDomain(req) {
+    return (
         normalizeDomain(req.query?.domain) ||
         normalizeDomain(req.headers['x-storefront-domain']) ||
-        normalizeDomain(req.headers['x-custom-domain']);
+        normalizeDomain(req.headers['x-custom-domain'])
+    );
+}
+
+async function resolveDisplayRatesForRequest(req, liveRateService) {
+    const domain = requestStorefrontDomain(req);
     if (domain) {
         const reseller = await findResellerByDomain(domain);
         if (reseller?.id) {
@@ -249,24 +251,15 @@ async function resolveDisplayRatesForRequest(req, liveRateService) {
             if (payload) return payload;
         }
     }
+
+    const globalPayload = await getGlobalResellerRatesPayload();
+    if (globalPayload) return globalPayload;
+
     return liveRateService.getCurrentPayload();
 }
 
 async function resolveLiveRatesForRequest(req, liveRateService) {
-    const row = await getActiveGlobalResellerRates();
-    if (row) {
-        return {
-            success: true,
-            rates: buildLiveRatesFromStored(row),
-            source: 'reseller',
-            timestamp: new Date(row.updated_at).getTime() || Date.now(),
-        };
-    }
-
-    const domain =
-        normalizeDomain(req.query?.domain) ||
-        normalizeDomain(req.headers['x-storefront-domain']) ||
-        normalizeDomain(req.headers['x-custom-domain']);
+    const domain = requestStorefrontDomain(req);
     if (domain) {
         const reseller = await findResellerByDomain(domain);
         if (reseller?.id && (await resellerRatesEnabled(reseller.id))) {
@@ -281,6 +274,17 @@ async function resolveLiveRatesForRequest(req, liveRateService) {
             }
         }
     }
+
+    const row = await getActiveGlobalResellerRates();
+    if (row) {
+        return {
+            success: true,
+            rates: buildLiveRatesFromStored(row),
+            source: 'reseller',
+            timestamp: new Date(row.updated_at).getTime() || Date.now(),
+        };
+    }
+
     return liveRateService.fetchLiveRates();
 }
 

@@ -77,12 +77,16 @@ export const fetchProductByBarcode = cache(async function fetchProductByBarcode(
   }
 });
 
-export const fetchCatalogJson = cache(async function fetchCatalogJson(): Promise<
-  ApiCatalogCategory[]
-> {
+export const fetchCatalogJson = cache(async function fetchCatalogJson(
+  storefrontDomain?: string | null,
+): Promise<ApiCatalogCategory[]> {
   const api = getApiUrlForServer();
+  const q =
+    storefrontDomain?.trim()
+      ? `?domain=${encodeURIComponent(storefrontDomain.trim().toLowerCase())}`
+      : "";
   try {
-    const res = await fetch(`${api}/api/catalog`, FETCH_OPTS);
+    const res = await fetch(`${api}/api/catalog${q}`, FETCH_OPTS);
     if (!res.ok) return [];
     const data = (await res.json()) as { categories?: ApiCatalogCategory[] };
     return Array.isArray(data.categories) ? data.categories : [];

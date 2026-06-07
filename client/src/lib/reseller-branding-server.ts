@@ -12,6 +12,8 @@ export type PublicResellerBranding = {
   contactPhoneDigits: string | null;
   /** Resolved palette id for this reseller host (`kc_theme_id`). */
   kcThemeId: string;
+  /** Restricted web_categories for this reseller storefront (empty/null = all). */
+  allowedCategoryIds: number[] | null;
 };
 
 function apiBase(): string {
@@ -35,16 +37,22 @@ export async function fetchPublicResellerBranding(
       logo_url?: string | null;
       contact_phone?: string | null;
       kc_theme_id?: string | null;
+      allowed_category_ids?: number[] | null;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
       digits.length >= 10 ? digits.slice(-10) : digits.length > 0 ? digits : null;
     if (!data?.business_name && !data?.logo_url && !contactPhoneDigits) return null;
+    const rawIds = data?.allowed_category_ids;
+    const allowedCategoryIds = Array.isArray(rawIds)
+      ? rawIds.map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      : null;
     return {
       businessName: data.business_name || null,
       logoUrl: normalizeResellerLogoUrl(data.logo_url ?? null),
       contactPhoneDigits,
       kcThemeId: normalizeKcThemeId(data?.kc_theme_id, DEFAULT_KC_THEME_ID),
+      allowedCategoryIds: allowedCategoryIds?.length ? allowedCategoryIds : null,
     };
   } catch {
     return null;

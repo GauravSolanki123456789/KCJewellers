@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useSearchParams } from 'next/navigation'
@@ -34,6 +35,7 @@ import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 import { getOgImagePath } from '@/lib/og-image'
+import { isResellerStorefrontGuest } from '@/lib/reseller-storefront'
 
 const KC_LOGO_PATH = getOgImagePath()
 
@@ -80,7 +82,20 @@ export default function Navbar() {
   const { items, openCart } = useCart()
   const auth = useAuth()
   const { hasB2bPortalAccess } = useCustomerTier()
-  const { businessName, logoUrl, active: resellerBrandingActive } = useResellerBranding()
+  const {
+    businessName,
+    logoUrl,
+    active: resellerBrandingActive,
+    customDomainHost,
+  } = useResellerBranding()
+  const isStorefrontGuest = isResellerStorefrontGuest(customDomainHost, auth.isAuthenticated)
+  const navItems = useMemo(
+    () =>
+      isStorefrontGuest
+        ? BOTTOM_NAV.filter((item) => item.href !== PROFILE_PATH)
+        : BOTTOM_NAV,
+    [isStorefrontGuest],
+  )
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const count = items.reduce((sum, i) => sum + i.qty, 0)
@@ -191,7 +206,7 @@ export default function Navbar() {
                 </div>
               )}
 
-              {!auth.isAuthenticated && (
+              {!auth.isAuthenticated && !isStorefrontGuest && (
                 <button
                   type="button"
                   onClick={() => openLoginModal(returnTo)}
@@ -260,7 +275,7 @@ export default function Navbar() {
             aria-label="Primary navigation"
           >
             <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
-              {BOTTOM_NAV.map(({ href, label }) => {
+              {navItems.map(({ href, label }) => {
                 const active = navIsActive(pathname, href)
                 return (
                   <Link
@@ -312,7 +327,7 @@ export default function Navbar() {
         aria-label="Mobile navigation"
       >
         <div className="flex min-h-[48px] items-stretch justify-around px-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1">
-          {BOTTOM_NAV.map(({ href, icon: Icon, label, shortLabel }) => {
+          {navItems.map(({ href, icon: Icon, label, shortLabel }) => {
             const active = navIsActive(pathname, href)
             const profileAdminDot = href === PROFILE_PATH && strictAdminInbox && adminAttention
             return (

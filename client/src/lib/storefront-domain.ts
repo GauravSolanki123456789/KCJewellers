@@ -20,6 +20,11 @@ export function ratesApiQueryForStorefront(): string {
   return d ? `?domain=${encodeURIComponent(d)}` : ''
 }
 
+export function catalogApiQueryForStorefront(): string {
+  const d = getClientStorefrontDomain()
+  return d ? `?domain=${encodeURIComponent(d)}` : ''
+}
+
 /**
  * Skip Yahoo/socket ticks when the API is serving reseller-managed rates (site-wide override).
  * Pass `source` from GET /api/rates/display or /api/rates/live response.

@@ -1,4 +1,5 @@
 import axios from "@/lib/axios";
+import { catalogApiQueryForStorefront } from "@/lib/storefront-domain";
 import Fuse from "fuse.js";
 import { buildCatalogSegmentPath } from "@/lib/catalog-paths";
 import { inferCatalogMetalParam } from "@/lib/catalog-navigation";
@@ -54,7 +55,7 @@ export function getCatalogForSearchIndex(): Promise<ApiCatalogCategory[]> {
   if (!catalogPromise) {
     const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
     catalogPromise = axios
-      .get(`${url.replace(/\/$/, "")}/api/catalog`)
+      .get(`${url.replace(/\/$/, "")}/api/catalog${catalogApiQueryForStorefront()}`)
       .then((res) => {
         const cats = res.data?.categories;
         return Array.isArray(cats) ? (cats as ApiCatalogCategory[]) : [];

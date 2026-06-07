@@ -20,6 +20,8 @@ export type EffectiveResellerBranding = {
   customDomainHost: boolean
   /** 10-digit local mobile for storefront WhatsApp orders (custom domain). */
   contactPhoneDigits: string | null
+  /** Reseller-allowed web_categories on vanity domain (null = all). */
+  allowedCategoryIds: number[] | null
 }
 
 const defaultBranding: EffectiveResellerBranding = {
@@ -28,6 +30,7 @@ const defaultBranding: EffectiveResellerBranding = {
   active: false,
   customDomainHost: false,
   contactPhoneDigits: null,
+  allowedCategoryIds: null,
 }
 
 const Ctx = createContext<EffectiveResellerBranding>(defaultBranding)
@@ -54,6 +57,7 @@ export function ResellerBrandingProvider({
         active: true,
         customDomainHost,
         contactPhoneDigits: initialFromHost.contactPhoneDigits || null,
+        allowedCategoryIds: initialFromHost.allowedCategoryIds ?? null,
       }
     }
     if (customerTier === CUSTOMER_TIER.RESELLER && auth.isAuthenticated && user) {
@@ -68,6 +72,7 @@ export function ResellerBrandingProvider({
           active: true,
           customDomainHost: false,
           contactPhoneDigits,
+          allowedCategoryIds: null,
         }
       }
     }
@@ -77,6 +82,7 @@ export function ResellerBrandingProvider({
       active: false,
       customDomainHost: false,
       contactPhoneDigits: null,
+      allowedCategoryIds: null,
     }
   }, [initialFromHost, customDomainHost, customerTier, auth.isAuthenticated, user])
 

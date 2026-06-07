@@ -20,6 +20,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCustomerTier } from "@/context/CustomerTierContext";
 import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
 import { KC_RATES_UPDATED_EVENT } from "@/lib/reseller-rates-events";
+import { catalogApiQueryForStorefront, ratesApiQueryForStorefront } from "@/lib/storefront-domain";
+import { useResellerBranding } from "@/context/ResellerBrandingContext";
 
 export type CatalogTreeCategory = {
   id: number;
@@ -89,6 +91,7 @@ export function CatalogDataProvider({
   );
   const auth = useAuth();
   const { customerTier, tierReady } = useCustomerTier();
+  const { customDomainHost, allowedCategoryIds: hostAllowedCategoryIds } = useResellerBranding();
   const applyRetailSettings = useCallback((data: { retail_browse_by_metal?: unknown; retail_browse_enabled?: boolean }) => {
     const byMetal = parseCatalogRetailBrowseByMetal(data?.retail_browse_by_metal);
     if (
@@ -108,15 +111,29 @@ export function CatalogDataProvider({
 
   const categories = useMemo(() => {
     if (!tierReady) return rawCategories;
-    if (customerTier !== CUSTOMER_TIER.RESELLER) return rawCategories;
-    return filterCategoriesForReseller(rawCategories, wholesaleUser?.allowed_category_ids ?? null);
-  }, [tierReady, rawCategories, customerTier, wholesaleUser?.allowed_category_ids]);
+    if (customerTier === CUSTOMER_TIER.RESELLER) {
+      return filterCategoriesForReseller(rawCategories, wholesaleUser?.allowed_category_ids ?? null);
+    }
+    if (customDomainHost && hostAllowedCategoryIds?.length) {
+      return filterCategoriesForReseller(rawCategories, hostAllowedCategoryIds);
+    }
+    return rawCategories;
+  }, [
+    tierReady,
+    rawCategories,
+    customerTier,
+    wholesaleUser?.allowed_category_ids,
+    customDomainHost,
+    hostAllowedCategoryIds,
+  ]);
 
   const bootstrap = useCallback(async () => {
     try {
+      const catalogQ = catalogApiQueryForStorefront();
+      const ratesQ = ratesApiQueryForStorefront();
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
-        axios.get(`${url}/api/catalog`),
-        axios.get(`${url}/api/rates/display`),
+        axios.get(`${url}/api/catalog${catalogQ}`),
+        axios.get(`${url}/api/rates/display${ratesQ}`),
         axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
@@ -148,9 +165,11 @@ export function CatalogDataProvider({
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
+      const catalogQ = catalogApiQueryForStorefront();
+      const ratesQ = ratesApiQueryForStorefront();
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
-        axios.get(`${url}/api/catalog`),
-        axios.get(`${url}/api/rates/display`),
+        axios.get(`${url}/api/catalog${catalogQ}`),
+        axios.get(`${url}/api/rates/display${ratesQ}`),
         axios.get(`${url}/api/public/catalog-retail-settings`),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);

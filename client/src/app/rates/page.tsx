@@ -1,25 +1,23 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import Link from 'next/link'
+import Image from 'next/image'
 import { subscribeLiveRates } from '@/lib/socket'
 import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
 import { useBookRate } from '@/context/BookRateContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
-import Link from 'next/link'
 import { CATALOG_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
-import { PencilLine, Store } from 'lucide-react'
+import { PencilLine, BookMarked, AlertTriangle, ArrowRight } from 'lucide-react'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import { Button } from '@/components/ui/button'
-import { BookMarked, AlertTriangle } from 'lucide-react'
-import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
-import {
-  buildStorefrontCatalogUrl,
-  ratesShareWhatsAppMessage,
-} from '@/lib/rates-share'
+import { buildRatesShareMessage } from '@/lib/rates-share'
+import { isResellerStorefrontGuest } from '@/lib/reseller-storefront'
 
 type Rates = {
   gold24k_10g: number
@@ -37,6 +35,7 @@ const GOLD_PURITIES = [
 const SILVER_ROW = { key: 'Ag', label: 'Silver (999)', get1g: (r: Rates) => r.silver_1kg / 1000, get1kg: (r: Rates) => r.silver_1kg }
 
 const PULL_THRESHOLD = 80
+const PAGE_TITLE = 'Today Rates'
 
 function formatPrice(n: number) {
   return `₹${Math.round(n).toLocaleString('en-IN')}`
@@ -50,41 +49,26 @@ export default function RatesPage() {
   const auth = useAuth()
   const { customerTier } = useCustomerTier()
   const {
-    businessName: brandingName,
+    businessName,
+    logoUrl,
     active: resellerBrandingActive,
     customDomainHost,
   } = useResellerBranding()
+  const isStorefrontGuest = isResellerStorefrontGuest(customDomainHost, auth.isAuthenticated)
   const user = auth.user as {
     reseller_rates_update_enabled?: boolean
     custom_domain?: string | null
     business_name?: string | null
   } | undefined
+
   const canEditResellerRates =
     auth.isAuthenticated &&
     customerTier === CUSTOMER_TIER.RESELLER &&
     !!user?.reseller_rates_update_enabled
-  const shareCtx = useMemo(
-    () => ({
-      browserHostname: typeof window !== 'undefined' ? window.location.hostname : null,
-      customerTier,
-      resellerCustomDomain: user?.custom_domain ?? null,
-      userBusinessName: user?.business_name ?? null,
-      brandingActive: resellerBrandingActive,
-      brandingBusinessName: brandingName,
-    }),
-    [
-      customerTier,
-      user?.custom_domain,
-      user?.business_name,
-      resellerBrandingActive,
-      brandingName,
-    ],
-  )
-  const canShareRates = canEditResellerRates && !!user?.custom_domain?.trim()
-  const storefrontCatalogUrl = useMemo(
-    () => buildStorefrontCatalogUrl(shareCtx),
-    [shareCtx],
-  )
+
+  const isResellerStorefront = resellerBrandingActive && customDomainHost
+  const displayBrand = isResellerStorefront ? businessName : 'KC Jewellers'
+
   const fetchRates = useCallback(async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -139,6 +123,33 @@ export default function RatesPage() {
     return () => off()
   }, [source])
 
+  const shareCtx = useMemo(
+    () => ({
+      browserHostname: typeof window !== 'undefined' ? window.location.hostname : null,
+      customerTier,
+      resellerCustomDomain: user?.custom_domain ?? null,
+      userBusinessName: user?.business_name ?? null,
+      brandingActive: resellerBrandingActive,
+      brandingBusinessName: businessName,
+    }),
+    [customerTier, user?.custom_domain, user?.business_name, resellerBrandingActive, businessName],
+  )
+
+  const shareMessage = useMemo(() => {
+    if (loading) return ''
+    return buildRatesShareMessage(shareCtx, {
+      gold24_1g: rates.gold24k_10g / 10,
+      gold22_1g: rates.gold22k_10g / 10,
+      gold18_1g: rates.gold18k_10g / 10,
+      silver1g: rates.silver_1kg / 1000,
+    })
+  }, [loading, shareCtx, rates])
+
+  const canShareRates =
+    canEditResellerRates &&
+    !!shareMessage &&
+    !!(user?.custom_domain?.trim() || isResellerStorefront)
+
   const isEstimated = source === 'estimated'
 
   return (
@@ -165,29 +176,52 @@ export default function RatesPage() {
         <section className="pt-4 sm:pt-6 md:pt-10">
           <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden">
             <div className="px-3 sm:px-6 py-4 sm:py-5 border-b border-white/10">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-amber-600">Today Rates</h1>
+              {isResellerStorefront && (
+                <div className="mb-4 flex flex-col items-center gap-2 text-center sm:mb-5">
+                  {logoUrl ? (
+                    <span className="relative block size-12 overflow-hidden rounded-xl border border-white/10 bg-white shadow-sm sm:size-14">
+                      <Image
+                        src={logoUrl}
+                        alt={displayBrand}
+                        fill
+                        className="object-contain p-1.5"
+                        sizes="56px"
+                        unoptimized
+                      />
+                    </span>
+                  ) : null}
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-600">
+                    {displayBrand}
+                  </p>
+                </div>
+              )}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h1 className="text-xl sm:text-2xl font-bold text-amber-600">
+                    {PAGE_TITLE}
+                  </h1>
                   <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-                    {resellerBrandingActive
-                      ? `Gold & silver prices from ${brandingName} — updated for today`
+                    {isResellerStorefront
+                      ? isStorefrontGuest
+                        ? `${displayBrand} — gold & silver prices today. Browse our catalogue below.`
+                        : `${displayBrand} — gold & silver prices today. Share with customers or browse the catalogue.`
                       : 'Gold & silver prices — book your rate below or from any row'}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {canShareRates ? (
-                    <WhatsAppShareButton
-                      message={ratesShareWhatsAppMessage(shareCtx)}
-                      label="Share rates"
-                      compact
-                      className="border-emerald-500/50 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
-                    />
-                  ) : null}
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   {isEstimated && (
                     <div className="flex items-center gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-600 text-xs sm:text-sm">
                       <AlertTriangle className="size-3.5 sm:size-4 shrink-0" />
                       <span>Market closed — estimated</span>
                     </div>
+                  )}
+                  {canShareRates && (
+                    <WhatsAppShareButton
+                      message={shareMessage}
+                      label="Share on WhatsApp"
+                      compact
+                      className="border-[var(--kc-accent,#c41e3a)]/35 bg-[var(--kc-accent,#c41e3a)]/10 text-amber-500 hover:bg-[var(--kc-accent,#c41e3a)]/20"
+                    />
                   )}
                   {canEditResellerRates && (
                     <Link
@@ -213,7 +247,7 @@ export default function RatesPage() {
                         <th className="text-left py-2.5 sm:py-4 pl-3 sm:pl-6 pr-2 text-slate-400 font-medium text-xs sm:text-sm">Purity</th>
                         <th className="text-right py-2.5 sm:py-4 px-2 sm:px-6 text-slate-400 font-medium text-xs sm:text-sm whitespace-nowrap">1 g</th>
                         <th className="text-right py-2.5 sm:py-4 px-2 sm:px-6 text-slate-400 font-medium text-xs sm:text-sm whitespace-nowrap">10 g</th>
-                        <th className="w-[4.25rem] sm:w-32 pr-2 sm:pr-4" />
+                        {!isStorefrontGuest ? <th className="w-[4.25rem] sm:w-32 pr-2 sm:pr-4" /> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -232,16 +266,20 @@ export default function RatesPage() {
                               {formatPrice(p.get10g(rates))}
                             </span>
                           </td>
-                          <td className="py-2 sm:py-4 pl-1 pr-2 sm:pr-4">
-                            <Button
-                              size="sm"
-                              onClick={openBookRate}
-                              className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
-                            >
-                              <BookMarked className="size-3.5 sm:size-4 sm:mr-1 shrink-0" />
-                              <span className="hidden sm:inline">Book</span>
-                            </Button>
-                          </td>
+                          {!isStorefrontGuest ? (
+                            <td className="py-2 sm:py-4 pl-1 pr-2 sm:pr-4">
+                              <Button
+                                size="sm"
+                                onClick={openBookRate}
+                                className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
+                              >
+                                <BookMarked className="size-3.5 sm:size-4 sm:mr-1 shrink-0" />
+                                <span className="hidden sm:inline">Book</span>
+                              </Button>
+                            </td>
+                          ) : (
+                            <td className="py-2 sm:py-4 pl-1 pr-2 sm:pr-4" />
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -257,7 +295,7 @@ export default function RatesPage() {
                           <th className="text-left py-2 sm:py-3 pl-3 sm:pl-6 pr-2 text-slate-400 font-medium text-xs sm:text-sm">Purity</th>
                           <th className="text-right py-2 sm:py-3 px-2 sm:px-6 text-slate-400 font-medium text-xs sm:text-sm whitespace-nowrap">1 g</th>
                           <th className="text-right py-2 sm:py-3 px-2 sm:px-6 text-slate-400 font-medium text-xs sm:text-sm whitespace-nowrap">1 kg</th>
-                          <th className="w-[4.25rem] sm:w-32 pr-2 sm:pr-4" />
+                          {!isStorefrontGuest ? <th className="w-[4.25rem] sm:w-32 pr-2 sm:pr-4" /> : null}
                         </tr>
                       </thead>
                       <tbody>
@@ -275,16 +313,18 @@ export default function RatesPage() {
                               {formatPrice(SILVER_ROW.get1kg(rates))}
                             </span>
                           </td>
-                          <td className="py-2 sm:py-3 pl-1 pr-2 sm:pr-4">
-                            <Button
-                              size="sm"
-                              onClick={openBookRate}
-                              className="w-full bg-cyan-500/80 hover:bg-cyan-500 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
-                            >
-                              <BookMarked className="size-3.5 sm:size-4 sm:mr-1 shrink-0" />
-                              <span className="hidden sm:inline">Book</span>
-                            </Button>
-                          </td>
+                          {!isStorefrontGuest ? (
+                            <td className="py-2 sm:py-3 pl-1 pr-2 sm:pr-4">
+                              <Button
+                                size="sm"
+                                onClick={openBookRate}
+                                className="w-full bg-cyan-500/80 hover:bg-cyan-500 text-white font-semibold h-8 sm:h-9 px-1.5 sm:px-3 text-[10px] sm:text-sm"
+                              >
+                                <BookMarked className="size-3.5 sm:size-4 sm:mr-1 shrink-0" />
+                                <span className="hidden sm:inline">Book</span>
+                              </Button>
+                            </td>
+                          ) : null}
                         </tr>
                       </tbody>
                     </table>
@@ -295,48 +335,41 @@ export default function RatesPage() {
 
             {!loading && (
               <div className="border-t border-white/10 bg-gradient-to-b from-amber-500/10 to-transparent px-3 py-5 sm:px-6 sm:py-6 space-y-4">
-                {resellerBrandingActive ? (
-                  <div className="rounded-xl border border-emerald-500/25 bg-slate-900/60 p-4 sm:p-5">
-                    <h2 className="text-base font-semibold text-emerald-400 sm:text-lg">
-                      Browse our catalogue
-                    </h2>
-                    <p className="mt-1 text-xs text-slate-400 sm:text-sm">
-                      View {brandingName}&apos;s full jewellery collection with today&apos;s rates applied
-                      to every product.
-                    </p>
-                    <Button
-                      asChild
-                      className="mt-4 w-full bg-emerald-600 font-semibold text-white hover:bg-emerald-500 sm:w-auto sm:px-8"
-                    >
-                      <Link href={CATALOG_PATH}>
-                        <Store className="mr-2 size-4" />
-                        View products
-                      </Link>
-                    </Button>
-                    {customDomainHost ? (
-                      <p className="mt-3 text-[11px] text-slate-500">
-                        Catalogue: {storefrontCatalogUrl.replace(/^https?:\/\//, '')}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="rounded-xl border border-amber-500/25 bg-slate-900/60 p-4 sm:p-5">
-                  <h2 className="text-base font-semibold text-amber-500 sm:text-lg">
-                    Book your rate
+                <div className="rounded-xl border border-white/10 bg-slate-900/50 p-4 sm:p-5">
+                  <h2 className="text-base font-semibold text-slate-200 sm:text-lg">
+                    Browse {isResellerStorefront ? displayBrand : 'our'} catalogue
                   </h2>
                   <p className="mt-1 text-xs text-slate-400 sm:text-sm">
-                    Freeze the current market rate with a small advance — same flow as tapping Book on a
-                    row above. Opens here so you don&apos;t need a separate tab.
+                    View jewellery priced with today&apos;s rates — gift items, silver, gold and more.
                   </p>
-                  <Button
-                    type="button"
-                    onClick={openBookRate}
-                    className="mt-4 w-full bg-amber-500 font-semibold text-white hover:bg-amber-400 sm:w-auto sm:px-8"
+                  <Link
+                    href={CATALOG_PATH}
+                    className="mt-4 inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/15 px-5 py-3 text-sm font-semibold text-amber-500 transition hover:bg-amber-500/25"
                   >
-                    <BookMarked className="mr-2 size-4" />
-                    Open book rate form
-                  </Button>
+                    View products
+                    <ArrowRight className="size-4" />
+                  </Link>
                 </div>
+
+                {!isStorefrontGuest ? (
+                  <div className="rounded-xl border border-amber-500/25 bg-slate-900/60 p-4 sm:p-5">
+                    <h2 className="text-base font-semibold text-amber-500 sm:text-lg">
+                      Book your rate
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-400 sm:text-sm">
+                      Freeze the current market rate with a small advance — same flow as tapping Book on a
+                      row above.
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={openBookRate}
+                      className="mt-4 w-full bg-amber-500 font-semibold text-white hover:bg-amber-400 sm:w-auto sm:px-8"
+                    >
+                      <BookMarked className="mr-2 size-4" />
+                      Open book rate form
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

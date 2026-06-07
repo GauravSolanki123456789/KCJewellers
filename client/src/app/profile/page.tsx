@@ -251,7 +251,7 @@ function ProfilePageContent() {
                     href={RESELLER_RATES_PATH}
                     icon={LineChart}
                     title="Update today rates"
-                    subtitle="Silver & gold 18K / 22K / 24K — share on your domain via WhatsApp"
+                    subtitle="Silver & gold 18K / 22K / 24K — updates prices for all KC visitors"
                     primary={!resellerUploadsEnabled}
                   />
                 ) : null}

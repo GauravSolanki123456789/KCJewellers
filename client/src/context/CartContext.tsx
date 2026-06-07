@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
-import { shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
+import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
@@ -88,7 +88,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const fetchDisplayRates = useCallback(() => {
     axios
-      .get('/api/rates/display')
+      .get(`/api/rates/display${ratesApiQueryForStorefront()}`)
       .then((res) => {
         const rates = res.data?.rates || []
         const source = res.data?.source != null ? String(res.data.source) : null

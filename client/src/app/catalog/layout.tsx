@@ -15,7 +15,7 @@ export default async function CatalogLayout({
 }) {
   const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [categories, ratesPayload] = await Promise.all([
-    fetchCatalogJson(),
+    fetchCatalogJson(storefrontDomain),
     fetchDisplayRates(storefrontDomain),
   ]);
   const rates = Array.isArray(ratesPayload) ? ratesPayload : [];

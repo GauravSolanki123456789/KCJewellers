@@ -1,32 +1,51 @@
-import { RATES_PATH, CATALOG_PATH } from '@/lib/routes'
+import { CATALOG_PATH, RATES_PATH } from '@/lib/routes'
 import {
   resolveCatalogShareBrand,
   resolveCatalogShareOrigin,
   type CatalogShareAudienceContext,
 } from '@/lib/catalog-share'
 
-export type RatesShareContext = CatalogShareAudienceContext
-
-/** Public rates page URL on the reseller vanity domain (or main site). */
-export function buildRatesShareUrl(ctx: RatesShareContext): string {
-  const origin = resolveCatalogShareOrigin(ctx).replace(/\/$/, '')
-  return `${origin}${RATES_PATH}`
+export type RatesShareNumbers = {
+  gold24_1g: number
+  gold22_1g: number
+  gold18_1g: number
+  silver1g: number
 }
 
-/** Catalogue home on the same origin as the rates link. */
-export function buildStorefrontCatalogUrl(ctx: RatesShareContext): string {
-  const origin = resolveCatalogShareOrigin(ctx).replace(/\/$/, '')
-  return `${origin}${CATALOG_PATH}`
+function formatInr(n: number) {
+  return `₹${Math.round(n).toLocaleString('en-IN')}`
 }
 
-export function ratesShareWhatsAppMessage(ctx: RatesShareContext): string {
+/** Public rates page on reseller vanity domain or KC site. */
+export function buildRatesShareUrl(ctx: CatalogShareAudienceContext): string {
+  const origin = resolveCatalogShareOrigin(ctx)
+  return `${origin.replace(/\/$/, '')}${RATES_PATH}`
+}
+
+/** Catalogue home on the same storefront origin. */
+export function buildCatalogHomeShareUrl(ctx: CatalogShareAudienceContext): string {
+  const origin = resolveCatalogShareOrigin(ctx)
+  return `${origin.replace(/\/$/, '')}${CATALOG_PATH}`
+}
+
+/** WhatsApp message for reseller staff sharing today's bullion rates with customers. */
+export function buildRatesShareMessage(
+  ctx: CatalogShareAudienceContext,
+  rates: RatesShareNumbers,
+): string {
   const brand = resolveCatalogShareBrand(ctx)
   const ratesUrl = buildRatesShareUrl(ctx)
-  const catalogUrl = buildStorefrontCatalogUrl(ctx)
-  return (
-    `*${brand} — Today Rates*\n\n` +
-    `Gold & silver prices updated for today.\n\n` +
-    `View rates: ${ratesUrl}\n` +
-    `Browse jewellery: ${catalogUrl}`
-  )
+  const catalogUrl = buildCatalogHomeShareUrl(ctx)
+  const lines = [
+    `${brand} — Today Rates`,
+    '',
+    `Gold 24K (999): ${formatInr(rates.gold24_1g)}/g`,
+    `Gold 22K (916): ${formatInr(rates.gold22_1g)}/g`,
+    `Gold 18K (750): ${formatInr(rates.gold18_1g)}/g`,
+    `Silver (999): ${formatInr(rates.silver1g)}/g`,
+    '',
+    `View rates: ${ratesUrl}`,
+    `Browse jewellery: ${catalogUrl}`,
+  ]
+  return lines.join('\n')
 }

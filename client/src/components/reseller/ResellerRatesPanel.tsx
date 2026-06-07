@@ -6,11 +6,10 @@ import { Loader2, RefreshCw, Save, Sparkles, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
 import { LIVE_RATES_PATH } from '@/lib/routes'
 import { dispatchRatesUpdated } from '@/lib/reseller-rates-events'
-import { useAuth } from '@/hooks/useAuth'
-import { useCustomerTier } from '@/context/CustomerTierContext'
-import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
-import { ratesShareWhatsAppMessage } from '@/lib/rates-share'
+import { buildRatesShareMessage } from '@/lib/rates-share'
+import { useAuth } from '@/hooks/useAuth'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
 
 type RateForm = {
   silver_per_gram: string
@@ -44,24 +43,8 @@ const EMPTY: RateForm = {
 
 export function ResellerRatesPanel() {
   const auth = useAuth()
-  const { customerTier } = useCustomerTier()
-  const { businessName: brandingName, active: brandingActive } = useResellerBranding()
-  const user = auth.user as {
-    custom_domain?: string | null
-    business_name?: string | null
-  } | undefined
-  const shareCtx = useMemo(
-    () => ({
-      browserHostname: typeof window !== 'undefined' ? window.location.hostname : null,
-      customerTier,
-      resellerCustomDomain: user?.custom_domain ?? null,
-      userBusinessName: user?.business_name ?? null,
-      brandingActive,
-      brandingBusinessName: brandingName,
-    }),
-    [customerTier, user?.custom_domain, user?.business_name, brandingActive, brandingName],
-  )
-  const canShareRates = !!user?.custom_domain?.trim()
+  const { businessName, active: brandingActive } = useResellerBranding()
+  const user = auth.user as { custom_domain?: string | null; business_name?: string | null } | undefined
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [enabled, setEnabled] = useState(false)
@@ -197,7 +180,7 @@ export function ResellerRatesPanel() {
           href={LIVE_RATES_PATH}
           className="mt-6 inline-block text-sm font-medium text-[var(--kc-accent,#c41e3a)]"
         >
-          View KC today rates →
+          View today rates →
         </Link>
       </div>
     )
@@ -212,37 +195,22 @@ export function ResellerRatesPanel() {
               Your storefront rates
             </h2>
             <p className="mt-1 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-              Enter ₹ per gram and tap Save — prices update instantly on your custom domain,
-              catalogue, cart, and Today Rates for every visitor.
+              Enter ₹ per gram and tap Save — your customers on your custom domain see these rates in
+              Today Rates, catalogue, and cart. Share via WhatsApp when ready.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canShareRates ? (
-              <WhatsAppShareButton
-                message={ratesShareWhatsAppMessage(shareCtx)}
-                label="Share with customers"
-                className="border-emerald-600/35 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
-              />
-            ) : null}
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/80 transition hover:bg-[var(--color-slate-900,#f7f4ef)]"
-            >
-              <RefreshCw className="size-3.5" />
-              Refresh
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/80 transition hover:bg-[var(--color-slate-900,#f7f4ef)]"
+          >
+            <RefreshCw className="size-3.5" />
+            Refresh
+          </button>
         </div>
         {updatedAt ? (
           <p className="mt-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
             Last saved {new Date(updatedAt).toLocaleString('en-IN')}
-          </p>
-        ) : null}
-        {!canShareRates ? (
-          <p className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
-            Add a custom domain in B2B → Edit reseller to share Today Rates on WhatsApp with your
-            branding (no KC Jewellers logo or domain in the link).
           </p>
         ) : null}
       </div>
@@ -255,9 +223,41 @@ export function ResellerRatesPanel() {
 
       {savedFlash ? (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-          Rates saved — live on your storefront and Today Rates page. Share the link with customers on
-          WhatsApp.
+          Rates saved — your storefront and shared links now show these prices.
         </p>
+      ) : null}
+
+      {!loading && user?.custom_domain?.trim() && (preview.g24_1g > 0 || preview.silver1g > 0) ? (
+        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] px-4 py-4 sm:px-5">
+          <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+            Share today&apos;s rates with customers
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+            Opens WhatsApp with your business name, rates, and links to your domain — not KC Jewellers.
+          </p>
+          <div className="mt-3">
+            <WhatsAppShareButton
+              message={buildRatesShareMessage(
+                {
+                  browserHostname: typeof window !== 'undefined' ? window.location.hostname : null,
+                  customerTier: 'RESELLER',
+                  resellerCustomDomain: user?.custom_domain ?? null,
+                  userBusinessName: user?.business_name ?? null,
+                  brandingActive,
+                  brandingBusinessName: businessName,
+                },
+                {
+                  gold24_1g: preview.g24_1g,
+                  gold22_1g: preview.g22_1g,
+                  gold18_1g: preview.g18_1g,
+                  silver1g: preview.silver1g,
+                },
+              )}
+              label="Share on WhatsApp"
+              className="w-full sm:w-auto border-emerald-600/40 bg-emerald-600/10 text-emerald-800 hover:bg-emerald-600/20"
+            />
+          </div>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
@@ -371,7 +371,7 @@ export function ResellerRatesPanel() {
         <Link href={LIVE_RATES_PATH} className="font-medium text-[var(--kc-accent,#c41e3a)]">
           Today Rates
         </Link>{' '}
-        or any product — everyone should see the same ₹/g.
+        on your custom domain to confirm what customers will see.
       </p>
     </div>
   )
