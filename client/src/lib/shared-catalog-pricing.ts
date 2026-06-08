@@ -7,6 +7,7 @@ import {
   calculateBreakdown,
   resolveItemGstRate,
   isGiftingItem,
+  productPriceShowsInclGst,
   type CatalogPricingOptions,
   type Item,
   type WholesalePricingInput,
@@ -51,6 +52,74 @@ export function applySharedCatalogPriceAdjustments(
   const disc = parseDiscountPercentage(discountPercentage)
   const afterMarkup = baseTotal * (1 + mk / 100)
   return Math.round(afterMarkup * (1 - disc / 100))
+}
+
+/** Price after link markup only (before customer `discountPercentage`). */
+export function sharedCatalogMarkedUpBeforeLinkDiscountInr(
+  item: Item,
+  rates: unknown,
+  markupPercentage: number,
+  wholesale?: WholesalePricingInput | null,
+  giftingGstEnabled?: boolean,
+): number {
+  const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
+  const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
+  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
+  return Math.round(b.total * (1 + parseMarkupPercentage(markupPercentage) / 100))
+}
+
+export type SharedCatalogUnitPrice = {
+  unitTotalInr: number
+  /** Strikethrough list price when a link or style discount applies. */
+  unitCompareAtInr: number | null
+  /** Badge label e.g. "25% off" — link discount takes precedence over style promo. */
+  discountBadge: string | null
+  showInclGst: boolean
+}
+
+/** Final + compare-at prices for one shared brochure line (markup → link discount). */
+export function computeSharedCatalogUnitPrice(
+  item: Item,
+  rates: unknown,
+  markupPercentage: number,
+  wholesale?: WholesalePricingInput | null,
+  giftingGstEnabled?: boolean,
+  discountPercentage = 0,
+): SharedCatalogUnitPrice {
+  const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
+  const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
+  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
+  const mk = parseMarkupPercentage(markupPercentage)
+  const disc = parseDiscountPercentage(discountPercentage)
+
+  const afterMarkup = b.total * (1 + mk / 100)
+  const finalInr = Math.round(afterMarkup * (1 - disc / 100))
+  const listAfterMarkup = Math.round(afterMarkup)
+
+  let unitCompareAtInr: number | null = null
+  let discountBadge: string | null = null
+
+  if (disc > 0 && listAfterMarkup > finalInr) {
+    unitCompareAtInr = listAfterMarkup
+    discountBadge = `${Math.round(disc)}% off`
+  } else if (
+    b.originalTotal != null &&
+    b.discountPercent != null &&
+    b.discountPercent > 0
+  ) {
+    const styleList = Math.round(b.originalTotal * (1 + mk / 100))
+    if (styleList > finalInr) {
+      unitCompareAtInr = styleList
+      discountBadge = `${Math.round(b.discountPercent)}% off`
+    }
+  }
+
+  return {
+    unitTotalInr: finalInr,
+    unitCompareAtInr,
+    discountBadge,
+    showInclGst: productPriceShowsInclGst(item, pricingOptions),
+  }
 }
 
 export function sharedCatalogProductToItem(p: SharedCatalogPublicProduct): Item {
@@ -114,16 +183,23 @@ export function sharedCatalogMarkedUpTotalInr(
   giftingGstEnabled?: boolean,
   discountPercentage = 0,
 ): number {
-  const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
-  const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
-  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
-  return applySharedCatalogPriceAdjustments(b.total, markupPercentage, discountPercentage)
+  return computeSharedCatalogUnitPrice(
+    item,
+    rates,
+    markupPercentage,
+    wholesale,
+    giftingGstEnabled,
+    discountPercentage,
+  ).unitTotalInr
 }
 
 export type SharedCatalogPricingRow = {
   item: Item
   product: SharedCatalogPublicProduct
   unitTotalInr: number
+  unitCompareAtInr: number | null
+  discountBadge: string | null
+  showInclGst: boolean
   markupPercentage: number
   discountPercentage: number
 }
@@ -205,7 +281,7 @@ export function buildSharedCatalogPricingRows(
   const wholesale = wholesaleInputFromBrochure(creatorWholesale ?? null)
   return products.map((p) => {
     const item = sharedCatalogProductToItem(p)
-    const unitTotalInr = sharedCatalogMarkedUpTotalInr(
+    const price = computeSharedCatalogUnitPrice(
       item,
       rates,
       mk,
@@ -213,6 +289,15 @@ export function buildSharedCatalogPricingRows(
       giftingGstEnabled,
       disc,
     )
-    return { item, product: p, unitTotalInr, markupPercentage: mk, discountPercentage: disc }
+    return {
+      item,
+      product: p,
+      unitTotalInr: price.unitTotalInr,
+      unitCompareAtInr: price.unitCompareAtInr,
+      discountBadge: price.discountBadge,
+      showInclGst: price.showInclGst,
+      markupPercentage: mk,
+      discountPercentage: disc,
+    }
   })
 }

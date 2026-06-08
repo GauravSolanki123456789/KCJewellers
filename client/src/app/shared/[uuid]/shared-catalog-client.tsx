@@ -24,8 +24,6 @@ import {
 } from '@/lib/shared-catalog-pricing'
 import {
   getCustomerDisplayWeightWithGrossFallback,
-  productPriceShowsInclGst,
-  type CatalogPricingOptions,
 } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
@@ -159,11 +157,6 @@ export default function SharedCatalogClient({
   const brandLogo = initialBranding?.logoUrl?.trim() || null
 
   const giftingGstEnabled = sharedCatalogGiftingGstEnabled(payload)
-
-  const sharedPricingOptions = useMemo(
-    (): CatalogPricingOptions => ({ giftingGstEnabled }),
-    [giftingGstEnabled],
-  )
 
   const rows = useMemo(() => {
     if (!isLoadedBrochure(payload)) return []
@@ -444,9 +437,10 @@ export default function SharedCatalogClient({
         name,
         skuOrBarcode: code || key,
         priceInr: row.unitTotalInr,
+        compareAtInr: row.unitCompareAtInr,
         qty,
         weightLabel,
-        showInclGst: productPriceShowsInclGst(row.item, sharedPricingOptions),
+        showInclGst: row.showInclGst,
       })
     })
 
@@ -465,7 +459,6 @@ export default function SharedCatalogClient({
     rowKeys,
     brandLabel,
     initialBranding?.contactPhoneDigits,
-    sharedPricingOptions,
   ])
 
   if (loading) {
@@ -636,7 +629,8 @@ export default function SharedCatalogClient({
               const qty = selections.get(key) ?? 0
               const selected = qty > 0
               const hasVariants = group.variants.length > 1
-              const { item, product, unitTotalInr } = activeRow
+              const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst } =
+                activeRow
               const name = group.displayTitle
               const img = normalizeCatalogImageSrc(
                 product.image_url || group.variants[0]?.product.image_url,
@@ -688,6 +682,9 @@ export default function SharedCatalogClient({
                       >
                         {selected ? <Check className="size-4 shrink-0 stroke-[2.5]" aria-hidden /> : null}
                       </button>
+                      {discountBadge ? (
+                        <span className="kc-discount-badge right-2 left-auto">{discountBadge}</span>
+                      ) : null}
                       {img ? (
                         <>
                           <DualJewelleryProductImage
@@ -764,14 +761,23 @@ export default function SharedCatalogClient({
                       ) : null}
                       <div className="mt-auto space-y-2 pt-1.5">
                         {!hidePrices ? (
-                          <p className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
-                            ₹{unitTotalInr.toLocaleString('en-IN')}
-                            {productPriceShowsInclGst(item, sharedPricingOptions) ? (
-                              <span className="ml-1 text-[10px] font-normal text-slate-500 sm:text-[11px]">
-                                incl. GST
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            {unitCompareAtInr != null && unitCompareAtInr > unitTotalInr ? (
+                              <span className="text-[11px] tabular-nums line-through text-slate-500 sm:text-xs">
+                                ₹{unitCompareAtInr.toLocaleString('en-IN')}
                               </span>
                             ) : null}
-                          </p>
+                            <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
+                              <span className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
+                                ₹{unitTotalInr.toLocaleString('en-IN')}
+                              </span>
+                              {showInclGst ? (
+                                <span className="shrink-0 text-[10px] font-normal text-slate-500 sm:text-[11px]">
+                                  incl. GST
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
                         ) : null}
                         {selected ? (
                           <div

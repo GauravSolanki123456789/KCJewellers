@@ -2,12 +2,10 @@ import { useMemo } from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import {
   getCustomerDisplayWeightWithGrossFallback,
-  productPriceShowsInclGst,
-  type CatalogPricingOptions,
   type Item,
   type WholesalePricingInput,
 } from "@/lib/pricing";
-import { sharedCatalogMarkedUpTotalInr } from "@/lib/shared-catalog-pricing";
+import { computeSharedCatalogUnitPrice } from "@/lib/shared-catalog-pricing";
 import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 import type { ItemWithPdfImage } from "@/lib/pdf-embed-images";
 import { getKcPdfPalette, type KcPdfPalette } from "@/lib/kc-pdf-palette";
@@ -89,6 +87,13 @@ function buildCatalogPdfStyles(p: KcPdfPalette) {
       fontWeight: "bold",
       marginTop: 2,
       marginBottom: 2,
+    },
+    priceCompare: {
+      fontSize: 9,
+      color: p.textSecondary,
+      textDecoration: "line-through",
+      marginTop: 2,
+      marginBottom: 1,
     },
     priceGst: {
       fontSize: 8,
@@ -187,13 +192,14 @@ export function CatalogPdfDocument({
               const showPrices =
                 !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
               let amountStr: string | null = null;
+              let compareAtStr: string | null = null;
               let qtyLabel: string | null = null;
               let showInclGst = false;
               if (showPrices) {
                 const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
                 const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
                 const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
-                const unitInr = sharedCatalogMarkedUpTotalInr(
+                const price = computeSharedCatalogUnitPrice(
                   p,
                   resellerPdfPricing.rates,
                   mk,
@@ -201,8 +207,14 @@ export function CatalogPdfDocument({
                   giftingGstEnabled,
                   disc,
                 );
-                const pricingOptions: CatalogPricingOptions = { giftingGstEnabled };
-                showInclGst = productPriceShowsInclGst(p, pricingOptions);
+                const unitInr = price.unitTotalInr;
+                showInclGst = price.showInclGst;
+                if (
+                  price.unitCompareAtInr != null &&
+                  price.unitCompareAtInr > unitInr
+                ) {
+                  compareAtStr = price.unitCompareAtInr.toLocaleString("en-IN");
+                }
                 const shareQty = Math.max(
                   1,
                   Math.floor(Number((p as { shareCatalogQty?: number }).shareCatalogQty) || 1),
@@ -231,6 +243,9 @@ export function CatalogPdfDocument({
                     <>
                       {qtyLabel ? (
                         <Text style={styles.weightLine}>{qtyLabel}</Text>
+                      ) : null}
+                      {compareAtStr ? (
+                        <Text style={styles.priceCompare}>Rs. {compareAtStr}</Text>
                       ) : null}
                       <Text style={styles.priceLine}>Rs. {amountStr}</Text>
                       {showInclGst ? (

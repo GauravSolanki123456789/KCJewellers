@@ -62,6 +62,8 @@ export type SharedCatalogPickLineForWhatsApp = {
   name: string
   skuOrBarcode: string
   priceInr: number
+  /** List price before link/style discount — shown as "Was ₹X, now ₹Y" when higher than priceInr. */
+  compareAtInr?: number | null
   qty?: number
   weightLabel?: string | null
   /** When false, omit "incl. GST" on price lines (e.g. gift items with GST toggle off). */
@@ -94,10 +96,15 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
       const unit = Math.round(l.priceInr)
       const lineTotal = unit * qty
       const gstSuffix = l.showInclGst === false ? '' : ' incl. GST'
+      const compareAt =
+        l.compareAtInr != null && l.compareAtInr > unit ? Math.round(l.compareAtInr) : null
+      const unitLabel = compareAt
+        ? `Was ₹${compareAt.toLocaleString('en-IN')}, now ₹${unit.toLocaleString('en-IN')}${gstSuffix}`
+        : `₹${unit.toLocaleString('en-IN')}${gstSuffix}`
       const priceLine =
         qty > 1
-          ? `₹${unit.toLocaleString('en-IN')} each · line ₹${lineTotal.toLocaleString('en-IN')}${gstSuffix}`
-          : `₹${unit.toLocaleString('en-IN')}${gstSuffix}`
+          ? `${unitLabel} · line ₹${lineTotal.toLocaleString('en-IN')}`
+          : unitLabel
       return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}\n   ${priceLine}${wt}\n`
     })
     .join('\n')
