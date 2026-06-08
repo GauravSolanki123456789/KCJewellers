@@ -33,6 +33,10 @@ type AdminUser = {
   reseller_product_uploads_enabled?: boolean
   /** Admin enables staff live rate updates (`users.reseller_rates_update_enabled`). */
   reseller_rates_update_enabled?: boolean
+  /** Admin enables staff offline Invest payment recording (`users.reseller_invest_manage_enabled`). */
+  reseller_invest_manage_enabled?: boolean
+  /** Admin enables customer Invest (SIP) on this reseller's custom domain (`users.reseller_invest_enabled`). */
+  reseller_invest_enabled?: boolean
   reseller_invite_code?: string | null
   referred_by_user_id?: number | null
 }
@@ -109,6 +113,8 @@ function B2BAdminContent() {
     reseller_hide_prices: false,
     reseller_product_uploads_enabled: false,
     reseller_rates_update_enabled: false,
+    reseller_invest_manage_enabled: false,
+    reseller_invest_enabled: false,
     reseller_invite_code: '',
   })
   const [themeCatalog, setThemeCatalog] = useState<ThemePick[]>([])
@@ -177,6 +183,8 @@ function B2BAdminContent() {
         reseller_hide_prices: !!resellerModalUser.reseller_hide_prices,
         reseller_product_uploads_enabled: !!resellerModalUser.reseller_product_uploads_enabled,
         reseller_rates_update_enabled: !!resellerModalUser.reseller_rates_update_enabled,
+        reseller_invest_manage_enabled: !!resellerModalUser.reseller_invest_manage_enabled,
+        reseller_invest_enabled: !!resellerModalUser.reseller_invest_enabled,
         reseller_invite_code: resellerModalUser.reseller_invite_code
           ? normalizeResellerInviteCode(resellerModalUser.reseller_invite_code)
           : '',
@@ -274,6 +282,8 @@ function B2BAdminContent() {
         reseller_hide_prices: resellerForm.reseller_hide_prices,
         reseller_product_uploads_enabled: resellerForm.reseller_product_uploads_enabled,
         reseller_rates_update_enabled: resellerForm.reseller_rates_update_enabled,
+        reseller_invest_manage_enabled: resellerForm.reseller_invest_manage_enabled,
+        reseller_invest_enabled: resellerForm.reseller_invest_enabled,
         reseller_invite_code: resellerForm.reseller_invite_code.trim()
           ? normalizeResellerInviteCode(resellerForm.reseller_invite_code)
           : null,
@@ -815,6 +825,76 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_rates_update_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Enable Invest on custom domain</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        When enabled, customers on this reseller&apos;s vanity domain see the Invest tab and can
+                        subscribe to SIP plans. When off, Invest is hidden and blocked (
+                        <code className="text-slate-400">reseller_invest_enabled</code>).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_invest_enabled}
+                      aria-label="Enable Invest on reseller custom domain"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_invest_enabled: !f.reseller_invest_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_invest_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_invest_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Allow staff to record Invest payments</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        When enabled, staff can credit offline DigiGold / DigiSilver (SIP) installments at{' '}
+                        <code className="text-slate-400">/reseller/invest</code> (
+                        <code className="text-slate-400">reseller_invest_manage_enabled</code>).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_invest_manage_enabled}
+                      aria-label="Allow reseller staff Invest payment recording"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_invest_manage_enabled: !f.reseller_invest_manage_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_invest_manage_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_invest_manage_enabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

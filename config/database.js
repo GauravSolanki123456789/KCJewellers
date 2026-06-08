@@ -604,6 +604,10 @@ async function initSchema() {
         `);
         await pool.query(`
             ALTER TABLE shared_catalogs
+            ADD COLUMN IF NOT EXISTS discount_percentage DOUBLE PRECISION NOT NULL DEFAULT 0
+        `);
+        await pool.query(`
+            ALTER TABLE shared_catalogs
             ADD COLUMN IF NOT EXISTS hide_prices BOOLEAN NOT NULL DEFAULT false
         `);
         await pool.query(`
@@ -617,6 +621,21 @@ async function initSchema() {
         await pool.query(`
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_rates_update_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_invest_manage_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_invest_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE reseller_metal_rates
+            ADD COLUMN IF NOT EXISTS digi_silver_per_gram NUMERIC(12, 2),
+            ADD COLUMN IF NOT EXISTS digi_gold_24k_per_gram NUMERIC(12, 2),
+            ADD COLUMN IF NOT EXISTS digi_gold_22k_per_gram NUMERIC(12, 2),
+            ADD COLUMN IF NOT EXISTS digi_gold_18k_per_gram NUMERIC(12, 2)
         `);
         await pool.query(`
             CREATE TABLE IF NOT EXISTS reseller_metal_rates (

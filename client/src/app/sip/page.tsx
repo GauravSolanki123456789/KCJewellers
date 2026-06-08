@@ -7,6 +7,7 @@ import { useLoginModal } from '@/context/LoginModalContext'
 import { CATALOG_PATH, SIP_PATH } from '@/lib/routes'
 import { useRouter } from 'next/navigation'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
+import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 import Link from 'next/link'
 import {
   Sparkles,
@@ -55,13 +56,17 @@ export default function SipMarketingPage() {
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const router = useRouter()
-  const { customDomainHost } = useResellerBranding()
+  const { customDomainHost, investEnabled } = useResellerBranding()
   const [plans, setPlans] = useState<SipPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
   const [confirmPlan, setConfirmPlan] = useState<SipPlan | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [digiRates, setDigiRates] = useState<{
+    digi_silver_per_gram?: number | null
+    digi_gold_24k_per_gram?: number | null
+  } | null>(null)
   const razorpayScriptLoaded = useRef(false)
 
   const showToast = (type: 'success' | 'error', message: string) => {
@@ -88,8 +93,10 @@ export default function SipMarketingPage() {
   }
 
   useEffect(() => {
-    if (customDomainHost) router.replace(CATALOG_PATH)
-  }, [customDomainHost, router])
+    if (customDomainHost && !isStorefrontInvestAvailable(customDomainHost, investEnabled)) {
+      router.replace(CATALOG_PATH)
+    }
+  }, [customDomainHost, investEnabled, router])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -101,6 +108,17 @@ export default function SipMarketingPage() {
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await axios.get('/api/rates/digi-invest')
+        if (res.data?.rates) setDigiRates(res.data.rates)
+      } catch {
+        setDigiRates(null)
+      }
+    })()
   }, [])
 
   useEffect(() => {
@@ -235,6 +253,28 @@ export default function SipMarketingPage() {
             </span>
           </div>
         </section>
+
+        {digiRates?.digi_silver_per_gram || digiRates?.digi_gold_24k_per_gram ? (
+          <div className="mb-8 rounded-2xl border border-violet-500/30 bg-violet-500/[0.08] px-4 py-4 sm:px-6">
+            <p className="text-sm font-semibold text-violet-200">DigiGold & DigiSilver benefit rates</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-400 sm:text-sm">
+              Your monthly instalment converts to grams at preferential invest rates — better than walk-in
+              today rates.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-4 text-sm tabular-nums">
+              {digiRates.digi_gold_24k_per_gram ? (
+                <span className="text-amber-400">
+                  Gold 24K: ₹{Math.round(digiRates.digi_gold_24k_per_gram).toLocaleString('en-IN')}/g
+                </span>
+              ) : null}
+              {digiRates.digi_silver_per_gram ? (
+                <span className="text-cyan-400">
+                  Silver: ₹{Math.round(digiRates.digi_silver_per_gram).toLocaleString('en-IN')}/g
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         {/* Metal Tabs */}
         <div className="flex justify-center mb-8 px-1">

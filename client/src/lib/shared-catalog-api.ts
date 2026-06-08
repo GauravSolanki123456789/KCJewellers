@@ -3,6 +3,7 @@ import axios from '@/lib/axios'
 export type CreateSharedCatalogPayload = {
   selectedProductIds: string[]
   markupPercentage: number
+  discountPercentage?: number
   format: 'temporary_web_link' | 'pdf'
   expiresAt?: string | null
 }
@@ -16,6 +17,7 @@ export type CreateSharedCatalogResponse =
       expiresAt: string
       selectedProductIds: string[]
       markupPercentage: number
+      discountPercentage?: number
       hidePrices?: boolean
     }
   | {
@@ -70,6 +72,7 @@ export type SharedCatalogPublicResponse =
       expired: true
       expiresAt: string
       markupPercentage: number
+      discountPercentage?: number
       hidePrices?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
       products: SharedCatalogPublicProduct[]
@@ -81,6 +84,7 @@ export type SharedCatalogPublicResponse =
       expiresAt: string
       createdAt?: string
       markupPercentage: number
+      discountPercentage?: number
       /** Snapshot from `shared_catalogs.hide_prices` — weight-only brochure (no prices). */
       hidePrices?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null

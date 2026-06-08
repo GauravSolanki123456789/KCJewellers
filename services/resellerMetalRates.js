@@ -25,6 +25,16 @@ function normalizeDomain(raw) {
     return d.replace(/^www\./, '');
 }
 
+function optionalDigiPerGram(raw, min, max, label) {
+    if (raw == null || raw === '') return null;
+    const v = safeNum(raw);
+    if (v <= 0) return null;
+    if (v < min || v > max) {
+        return { error: `${label} invest rate must be between ₹${min} and ₹${max} per gram` };
+    }
+    return Math.round(v * 100) / 100;
+}
+
 function validatePerGramRates(body) {
     const silver = safeNum(body.silver_per_gram);
     const g24 = safeNum(body.gold_24k_per_gram);
@@ -42,6 +52,22 @@ function validatePerGramRates(body) {
             return { ok: false, error: `${label} rate must be between ₹${GOLD_G_MIN} and ₹${GOLD_G_MAX} per gram` };
         }
     }
+    const digiSilver = optionalDigiPerGram(body.digi_silver_per_gram, SILVER_G_MIN, SILVER_G_MAX, 'DigiSilver');
+    if (digiSilver && typeof digiSilver === 'object' && digiSilver.error) {
+        return { ok: false, error: digiSilver.error };
+    }
+    const digiG24 = optionalDigiPerGram(body.digi_gold_24k_per_gram, GOLD_G_MIN, GOLD_G_MAX, 'DigiGold 24K');
+    if (digiG24 && typeof digiG24 === 'object' && digiG24.error) {
+        return { ok: false, error: digiG24.error };
+    }
+    const digiG22 = optionalDigiPerGram(body.digi_gold_22k_per_gram, GOLD_G_MIN, GOLD_G_MAX, 'DigiGold 22K');
+    if (digiG22 && typeof digiG22 === 'object' && digiG22.error) {
+        return { ok: false, error: digiG22.error };
+    }
+    const digiG18 = optionalDigiPerGram(body.digi_gold_18k_per_gram, GOLD_G_MIN, GOLD_G_MAX, 'DigiGold 18K');
+    if (digiG18 && typeof digiG18 === 'object' && digiG18.error) {
+        return { ok: false, error: digiG18.error };
+    }
     return {
         ok: true,
         rates: {
@@ -49,6 +75,10 @@ function validatePerGramRates(body) {
             gold_24k_per_gram: Math.round(g24 * 100) / 100,
             gold_22k_per_gram: Math.round(g22 * 100) / 100,
             gold_18k_per_gram: Math.round(g18 * 100) / 100,
+            digi_silver_per_gram: typeof digiSilver === 'number' ? digiSilver : null,
+            digi_gold_24k_per_gram: typeof digiG24 === 'number' ? digiG24 : null,
+            digi_gold_22k_per_gram: typeof digiG22 === 'number' ? digiG22 : null,
+            digi_gold_18k_per_gram: typeof digiG18 === 'number' ? digiG18 : null,
         },
     };
 }
@@ -68,6 +98,21 @@ async function ensureSchema() {
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
         )
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_metal_rates
+        ADD COLUMN IF NOT EXISTS digi_silver_per_gram NUMERIC(12, 2),
+        ADD COLUMN IF NOT EXISTS digi_gold_24k_per_gram NUMERIC(12, 2),
+        ADD COLUMN IF NOT EXISTS digi_gold_22k_per_gram NUMERIC(12, 2),
+        ADD COLUMN IF NOT EXISTS digi_gold_18k_per_gram NUMERIC(12, 2)
+    `);
+    await pool.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS reseller_invest_manage_enabled BOOLEAN NOT NULL DEFAULT false
+    `);
+    await pool.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS reseller_invest_enabled BOOLEAN NOT NULL DEFAULT false
     `);
 }
 
@@ -94,6 +139,7 @@ async function getStoredRates(userId) {
     try {
         const rows = await query(
             `SELECT user_id, silver_per_gram, gold_24k_per_gram, gold_22k_per_gram, gold_18k_per_gram,
+                    digi_silver_per_gram, digi_gold_24k_per_gram, digi_gold_22k_per_gram, digi_gold_18k_per_gram,
                     updated_at, updated_by_user_id
              FROM reseller_metal_rates WHERE user_id = $1`,
             [uid],
@@ -199,6 +245,7 @@ async function getActiveGlobalResellerRates() {
     try {
         const rows = await query(
             `SELECT r.user_id, r.silver_per_gram, r.gold_24k_per_gram, r.gold_22k_per_gram, r.gold_18k_per_gram,
+                    r.digi_silver_per_gram, r.digi_gold_24k_per_gram, r.digi_gold_22k_per_gram, r.digi_gold_18k_per_gram,
                     r.updated_at, r.updated_by_user_id, u.business_name
              FROM reseller_metal_rates r
              INNER JOIN users u ON u.id = r.user_id
@@ -301,6 +348,10 @@ async function getResellerRatesForEditor(userId) {
                   gold_24k_per_gram: safeNum(stored.gold_24k_per_gram),
                   gold_22k_per_gram: safeNum(stored.gold_22k_per_gram),
                   gold_18k_per_gram: safeNum(stored.gold_18k_per_gram),
+                  digi_silver_per_gram: stored.digi_silver_per_gram != null ? safeNum(stored.digi_silver_per_gram) : null,
+                  digi_gold_24k_per_gram: stored.digi_gold_24k_per_gram != null ? safeNum(stored.digi_gold_24k_per_gram) : null,
+                  digi_gold_22k_per_gram: stored.digi_gold_22k_per_gram != null ? safeNum(stored.digi_gold_22k_per_gram) : null,
+                  digi_gold_18k_per_gram: stored.digi_gold_18k_per_gram != null ? safeNum(stored.digi_gold_18k_per_gram) : null,
               }
             : null,
         updated_at: stored?.updated_at || null,
@@ -328,13 +379,18 @@ async function saveResellerRates(userId, body, updatedByUserId, io) {
     const rows = await query(
         `INSERT INTO reseller_metal_rates (
             user_id, silver_per_gram, gold_24k_per_gram, gold_22k_per_gram, gold_18k_per_gram,
+            digi_silver_per_gram, digi_gold_24k_per_gram, digi_gold_22k_per_gram, digi_gold_18k_per_gram,
             updated_at, updated_by_user_id
-         ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, $10)
          ON CONFLICT (user_id) DO UPDATE SET
             silver_per_gram = EXCLUDED.silver_per_gram,
             gold_24k_per_gram = EXCLUDED.gold_24k_per_gram,
             gold_22k_per_gram = EXCLUDED.gold_22k_per_gram,
             gold_18k_per_gram = EXCLUDED.gold_18k_per_gram,
+            digi_silver_per_gram = EXCLUDED.digi_silver_per_gram,
+            digi_gold_24k_per_gram = EXCLUDED.digi_gold_24k_per_gram,
+            digi_gold_22k_per_gram = EXCLUDED.digi_gold_22k_per_gram,
+            digi_gold_18k_per_gram = EXCLUDED.digi_gold_18k_per_gram,
             updated_at = CURRENT_TIMESTAMP,
             updated_by_user_id = EXCLUDED.updated_by_user_id
          RETURNING *`,
@@ -344,6 +400,10 @@ async function saveResellerRates(userId, body, updatedByUserId, io) {
             rates.gold_24k_per_gram,
             rates.gold_22k_per_gram,
             rates.gold_18k_per_gram,
+            rates.digi_silver_per_gram,
+            rates.digi_gold_24k_per_gram,
+            rates.digi_gold_22k_per_gram,
+            rates.digi_gold_18k_per_gram,
             Number.isFinite(by) && by > 0 ? by : null,
         ],
     );
@@ -404,6 +464,10 @@ function registerResellerRatesRoutes(app, { checkAuth, liveRateService, io }) {
                     gold_24k_per_gram: safeNum(result.saved.gold_24k_per_gram),
                     gold_22k_per_gram: safeNum(result.saved.gold_22k_per_gram),
                     gold_18k_per_gram: safeNum(result.saved.gold_18k_per_gram),
+                    digi_silver_per_gram: result.saved.digi_silver_per_gram != null ? safeNum(result.saved.digi_silver_per_gram) : null,
+                    digi_gold_24k_per_gram: result.saved.digi_gold_24k_per_gram != null ? safeNum(result.saved.digi_gold_24k_per_gram) : null,
+                    digi_gold_22k_per_gram: result.saved.digi_gold_22k_per_gram != null ? safeNum(result.saved.digi_gold_22k_per_gram) : null,
+                    digi_gold_18k_per_gram: result.saved.digi_gold_18k_per_gram != null ? safeNum(result.saved.digi_gold_18k_per_gram) : null,
                 },
                 preview: result.preview,
                 updated_at: result.saved.updated_at,

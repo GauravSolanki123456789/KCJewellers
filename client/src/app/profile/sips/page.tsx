@@ -4,8 +4,11 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
-import { PROFILE_SIPS_PATH } from '@/lib/routes'
+import { PROFILE_SIPS_PATH, CATALOG_PATH } from '@/lib/routes'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
+import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 import {
   ArrowLeft,
   Wallet,
@@ -34,6 +37,8 @@ type UserSip = {
 
 export default function ProfileSipsPage() {
   const auth = useAuth()
+  const router = useRouter()
+  const { customDomainHost, investEnabled } = useResellerBranding()
   const { open: openLoginModal } = useLoginModal()
   const [sips, setSips] = useState<UserSip[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,6 +67,12 @@ export default function ProfileSipsPage() {
       setLoading(false)
     }
   }, [auth.isAuthenticated])
+
+  useEffect(() => {
+    if (customDomainHost && !isStorefrontInvestAvailable(customDomainHost, investEnabled)) {
+      router.replace(CATALOG_PATH)
+    }
+  }, [customDomainHost, investEnabled, router])
 
   useEffect(() => {
     load()

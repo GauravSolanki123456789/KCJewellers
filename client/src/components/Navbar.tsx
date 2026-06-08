@@ -36,6 +36,7 @@ import { userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 import { getOgImagePath } from '@/lib/og-image'
 import { isResellerStorefrontGuest } from '@/lib/reseller-storefront'
+import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 
 const KC_LOGO_PATH = getOgImagePath()
 
@@ -87,16 +88,18 @@ export default function Navbar() {
     logoUrl,
     active: resellerBrandingActive,
     customDomainHost,
+    investEnabled,
   } = useResellerBranding()
   const isStorefrontGuest = isResellerStorefrontGuest(customDomainHost, auth.isAuthenticated)
+  const storefrontInvestAvailable = isStorefrontInvestAvailable(customDomainHost, investEnabled)
   const navItems = useMemo(
     () =>
       BOTTOM_NAV.filter((item) => {
         if (isStorefrontGuest && item.href === PROFILE_PATH) return false
-        if (customDomainHost && item.href === SIP_PATH) return false
+        if (item.href === SIP_PATH && !storefrontInvestAvailable) return false
         return true
       }),
-    [isStorefrontGuest, customDomainHost],
+    [isStorefrontGuest, storefrontInvestAvailable],
   )
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined

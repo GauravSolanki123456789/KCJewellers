@@ -22,6 +22,7 @@ model SharedCatalog {
   id               String   @id @db.Uuid
   productIds       String[] @map("product_ids")
   markupPercentage Float    @map("markup_percentage")
+  discountPercentage Float  @default(0) @map("discount_percentage")
   expiresAt        DateTime @map("expires_at") @db.Timestamptz(6)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   /// Snapshot creator — applies reseller wholesale pricing on public brochure (+ link markup).

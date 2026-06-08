@@ -120,6 +120,7 @@ function displayName(p: Item) {
 export type CatalogPdfResellerPricing = {
   rates: unknown;
   markupPercentage: number;
+  discountPercentage?: number;
   /** Mirrors logged-in reseller catalogue pricing before brochure markup. */
   wholesale?: WholesalePricingInput | null;
   /** Site-wide gift GST toggle — same as shared catalogue API. */
@@ -190,6 +191,7 @@ export function CatalogPdfDocument({
               let showInclGst = false;
               if (showPrices) {
                 const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
+                const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
                 const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
                 const unitInr = sharedCatalogMarkedUpTotalInr(
                   p,
@@ -197,6 +199,7 @@ export function CatalogPdfDocument({
                   mk,
                   resellerPdfPricing.wholesale ?? undefined,
                   giftingGstEnabled,
+                  disc,
                 );
                 const pricingOptions: CatalogPricingOptions = { giftingGstEnabled };
                 showInclGst = productPriceShowsInclGst(p, pricingOptions);

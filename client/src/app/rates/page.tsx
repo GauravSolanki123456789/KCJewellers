@@ -11,13 +11,23 @@ import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
-import { CATALOG_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
+import { CATALOG_PATH, RESELLER_RATES_PATH, SIP_PATH } from '@/lib/routes'
 import { PencilLine, BookMarked, AlertTriangle, ArrowRight } from 'lucide-react'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import { Button } from '@/components/ui/button'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
 import { buildRatesShareMessage } from '@/lib/rates-share'
 import { isResellerStorefrontGuest } from '@/lib/reseller-storefront'
+import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
+
+type DigiRates = {
+  digi_silver_per_gram?: number | null
+  digi_gold_24k_per_gram?: number | null
+  digi_gold_22k_per_gram?: number | null
+  digi_gold_18k_per_gram?: number | null
+  retail_silver_per_gram?: number | null
+  retail_gold_24k_per_gram?: number | null
+}
 
 type Rates = {
   gold24k_10g: number
@@ -43,6 +53,7 @@ function formatPrice(n: number) {
 
 export default function RatesPage() {
   const [rates, setRates] = useState<Rates>({ gold24k_10g: 0, gold22k_10g: 0, gold18k_10g: 0, silver_1kg: 0 })
+  const [digiRates, setDigiRates] = useState<DigiRates | null>(null)
   const [source, setSource] = useState<string>('live')
   const [loading, setLoading] = useState(true)
   const { open: openBookRate } = useBookRate()
@@ -53,8 +64,10 @@ export default function RatesPage() {
     logoUrl,
     active: resellerBrandingActive,
     customDomainHost,
+    investEnabled,
   } = useResellerBranding()
   const isStorefrontGuest = isResellerStorefrontGuest(customDomainHost, auth.isAuthenticated)
+  const storefrontInvestAvailable = isStorefrontInvestAvailable(customDomainHost, investEnabled)
   const user = auth.user as {
     reseller_rates_update_enabled?: boolean
     custom_domain?: string | null
@@ -72,8 +85,11 @@ export default function RatesPage() {
   const fetchRates = useCallback(async () => {
     try {
       const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const res = await fetch(`${url}/api/rates/live${ratesApiQueryForStorefront()}`)
-      const data = await res.json()
+      const [liveRes, digiRes] = await Promise.all([
+        fetch(`${url}/api/rates/live${ratesApiQueryForStorefront()}`),
+        fetch(`${url}/api/rates/digi-invest`),
+      ])
+      const data = await liveRes.json()
       if (data.success && data.rates) {
         const r = data.rates
         setRates({
@@ -84,6 +100,8 @@ export default function RatesPage() {
         })
         if (data.source) setSource(String(data.source))
       }
+      const digiData = await digiRes.json()
+      if (digiData.success && digiData.rates) setDigiRates(digiData.rates as DigiRates)
     } catch {
       // keep previous state
     } finally {
@@ -330,6 +348,42 @@ export default function RatesPage() {
                     </table>
                   </div>
                 </div>
+
+                {!loading && digiRates && storefrontInvestAvailable ? (
+                  <div className="border-t border-white/10 px-3 py-4 sm:px-6 sm:py-5">
+                    <div className="rounded-xl border border-violet-500/30 bg-violet-500/[0.08] p-4 sm:p-5">
+                      <h2 className="text-sm font-semibold text-violet-300 sm:text-base">
+                        DigiGold & DigiSilver — Invest rates
+                      </h2>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-400 sm:text-sm">
+                        Preferential rates for monthly Invest (SIP). Gram accumulation uses these prices — e.g.
+                        silver at {formatPrice(digiRates.digi_silver_per_gram ?? 0)}/g vs today&apos;s{' '}
+                        {formatPrice(SILVER_ROW.get1g(rates))}/g.
+                      </p>
+                      <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 sm:text-sm">
+                        <p className="tabular-nums text-slate-300">
+                          DigiSilver:{' '}
+                          <span className="font-semibold text-cyan-400">
+                            {formatPrice(digiRates.digi_silver_per_gram ?? 0)}/g
+                          </span>
+                        </p>
+                        <p className="tabular-nums text-slate-300">
+                          DigiGold 24K:{' '}
+                          <span className="font-semibold text-amber-500">
+                            {formatPrice(digiRates.digi_gold_24k_per_gram ?? 0)}/g
+                          </span>
+                        </p>
+                      </div>
+                      <Link
+                        href={SIP_PATH}
+                        className="mt-4 inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-violet-500/40 bg-violet-500/15 px-5 py-2.5 text-sm font-semibold text-violet-200 transition hover:bg-violet-500/25"
+                      >
+                        Start Invest (SIP)
+                        <ArrowRight className="size-4" />
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
 

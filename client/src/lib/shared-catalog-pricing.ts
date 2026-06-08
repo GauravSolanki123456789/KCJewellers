@@ -1,6 +1,7 @@
 /**
- * Shared catalogue pricing — same basis as catalogue cards + brochure `markupPercentage`.
- * Keyword: markupPercentage (DB: shared_catalogs.markup_percentage).
+ * Shared catalogue pricing — catalogue cards + brochure `markupPercentage` / `discountPercentage`.
+ * Keywords: markupPercentage (DB: shared_catalogs.markup_percentage),
+ *           discountPercentage (DB: shared_catalogs.discount_percentage).
  */
 import {
   calculateBreakdown,
@@ -28,6 +29,28 @@ export function parseMarkupPercentage(raw: unknown): number {
       : Number.parseFloat(String(raw).replace(/,/g, '').trim())
   if (!Number.isFinite(n)) return 0
   return Math.max(0, Math.min(1000, n))
+}
+
+export function parseDiscountPercentage(raw: unknown): number {
+  if (raw == null || raw === '') return 0
+  const n =
+    typeof raw === 'number' && Number.isFinite(raw)
+      ? raw
+      : Number.parseFloat(String(raw).replace(/,/g, '').trim())
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.min(100, n))
+}
+
+/** Apply brochure markup then customer discount on the precise calculated total. */
+export function applySharedCatalogPriceAdjustments(
+  baseTotal: number,
+  markupPercentage: number,
+  discountPercentage: number,
+): number {
+  const mk = parseMarkupPercentage(markupPercentage)
+  const disc = parseDiscountPercentage(discountPercentage)
+  const afterMarkup = baseTotal * (1 + mk / 100)
+  return Math.round(afterMarkup * (1 - disc / 100))
 }
 
 export function sharedCatalogProductToItem(p: SharedCatalogPublicProduct): Item {
@@ -89,12 +112,12 @@ export function sharedCatalogMarkedUpTotalInr(
   markupPercentage: number,
   wholesale?: WholesalePricingInput | null,
   giftingGstEnabled?: boolean,
+  discountPercentage = 0,
 ): number {
   const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
   const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
-  const mk = parseMarkupPercentage(markupPercentage)
   const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
-  return Math.round(b.total * (1 + mk / 100))
+  return applySharedCatalogPriceAdjustments(b.total, markupPercentage, discountPercentage)
 }
 
 export type SharedCatalogPricingRow = {
@@ -102,6 +125,7 @@ export type SharedCatalogPricingRow = {
   product: SharedCatalogPublicProduct
   unitTotalInr: number
   markupPercentage: number
+  discountPercentage: number
 }
 
 export type SharedCatalogGroupedRow = {
@@ -174,8 +198,10 @@ export function buildSharedCatalogPricingRows(
   markupPercentage: number,
   creatorWholesale: SharedCatalogCreatorWholesale | null | undefined,
   giftingGstEnabled?: boolean,
+  discountPercentage = 0,
 ): SharedCatalogPricingRow[] {
   const mk = parseMarkupPercentage(markupPercentage)
+  const disc = parseDiscountPercentage(discountPercentage)
   const wholesale = wholesaleInputFromBrochure(creatorWholesale ?? null)
   return products.map((p) => {
     const item = sharedCatalogProductToItem(p)
@@ -185,7 +211,8 @@ export function buildSharedCatalogPricingRows(
       mk,
       wholesale,
       giftingGstEnabled,
+      disc,
     )
-    return { item, product: p, unitTotalInr, markupPercentage: mk }
+    return { item, product: p, unitTotalInr, markupPercentage: mk, discountPercentage: disc }
   })
 }

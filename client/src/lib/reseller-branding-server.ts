@@ -14,6 +14,8 @@ export type PublicResellerBranding = {
   kcThemeId: string;
   /** Restricted web_categories for this reseller storefront (empty/null = all). */
   allowedCategoryIds: number[] | null;
+  /** Customer Invest (SIP) on this vanity domain — `users.reseller_invest_enabled`. */
+  investEnabled: boolean;
 };
 
 function apiBase(): string {
@@ -38,6 +40,7 @@ export async function fetchPublicResellerBranding(
       contact_phone?: string | null;
       kc_theme_id?: string | null;
       allowed_category_ids?: number[] | null;
+      reseller_invest_enabled?: boolean;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -53,6 +56,7 @@ export async function fetchPublicResellerBranding(
       contactPhoneDigits,
       kcThemeId: normalizeKcThemeId(data?.kc_theme_id, DEFAULT_KC_THEME_ID),
       allowedCategoryIds: allowedCategoryIds?.length ? allowedCategoryIds : null,
+      investEnabled: !!data?.reseller_invest_enabled,
     };
   } catch {
     return null;

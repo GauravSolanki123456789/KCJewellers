@@ -16,6 +16,7 @@ import {
   buildSharedCatalogPricingRows,
   groupSharedCatalogPricingRows,
   parseMarkupPercentage,
+  parseDiscountPercentage,
   sharedCatalogProductToItem,
   wholesaleInputFromBrochure,
   type SharedCatalogGroupedRow,
@@ -172,6 +173,7 @@ export default function SharedCatalogClient({
       parseMarkupPercentage(payload.markupPercentage),
       payload.creatorWholesalePricing ?? null,
       giftingGstEnabled,
+      parseDiscountPercentage(payload.discountPercentage),
     )
   }, [payload, giftingGstEnabled])
 
@@ -321,6 +323,7 @@ export default function SharedCatalogClient({
     if (pickedItems.length === 0) return
 
     const markup = parseMarkupPercentage(payload.markupPercentage)
+    const discount = parseDiscountPercentage(payload.discountPercentage)
     const wholesale = wholesaleInputFromBrochure(payload.creatorWholesalePricing ?? null)
     const hidePricesPdf = !!payload.hidePrices
     const catalogueUrl = typeof window !== 'undefined' ? window.location.href : ''
@@ -344,6 +347,7 @@ export default function SharedCatalogClient({
               : {
                   rates: payload.rates,
                   markupPercentage: markup,
+                  discountPercentage: discount,
                   wholesale,
                   giftingGstEnabled,
                 }

@@ -75,6 +75,16 @@ const {
     findResellerByDomain,
     normalizeDomain,
 } = require('./services/resellerMetalRates');
+const {
+    registerDigiInvestRoutes,
+    resolveSipMetalRatePerGram,
+    gramsFromInstallment,
+} = require('./services/digiInvestRates');
+const { registerResellerInvestRoutes } = require('./services/resellerInvestStaff');
+const {
+    isStorefrontInvestAllowed,
+    assertStorefrontInvestAllowed,
+} = require('./services/storefrontInvest');
 
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
 const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
@@ -648,16 +658,19 @@ app.get('/api/auth/current_user', async (req, res) => {
         /** Fresh from DB — session deserialize can lag new columns until re-login on some hosts. */
         let resellerProductUploadsEnabled = !!resolvedUser.reseller_product_uploads_enabled;
         let resellerRatesUpdateEnabled = !!resolvedUser.reseller_rates_update_enabled;
+        let resellerInvestManageEnabled = !!resolvedUser.reseller_invest_manage_enabled;
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
-                        COALESCE(reseller_rates_update_enabled, false) AS rates_update
+                        COALESCE(reseller_rates_update_enabled, false) AS rates_update,
+                        COALESCE(reseller_invest_manage_enabled, false) AS invest_manage
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
             );
             if (fresh.length) {
                 resellerProductUploadsEnabled = !!fresh[0].product_uploads;
                 resellerRatesUpdateEnabled = !!fresh[0].rates_update;
+                resellerInvestManageEnabled = !!fresh[0].invest_manage;
             }
         } catch (e) {
             const msg = String(e.message || '');
@@ -669,6 +682,11 @@ app.get('/api/auth/current_user', async (req, res) => {
             if (msg.includes('reseller_rates_update_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_rates_update_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_invest_manage_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_invest_manage_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
         }
@@ -695,6 +713,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                     : null,
                 reseller_product_uploads_enabled: resellerProductUploadsEnabled,
                 reseller_rates_update_enabled: resellerRatesUpdateEnabled,
+                reseller_invest_manage_enabled: resellerInvestManageEnabled,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
                     ? String(resolvedUser.kc_theme_id).trim()
@@ -950,7 +969,9 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             return res.status(400).json({ error: 'domain query parameter required' });
         }
         const rows = await query(
-            `SELECT business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids FROM users
+            `SELECT business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids,
+                    COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled
+             FROM users
              WHERE customer_tier = 'RESELLER'
              AND NULLIF(TRIM(custom_domain), '') IS NOT NULL
              AND LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(custom_domain), '^https?://', '', 'i'), '/.*$', ''), '^www\.', '', 'i'))) = $1
@@ -964,6 +985,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
                 contact_phone: null,
                 kc_theme_id: null,
                 allowed_category_ids: null,
+                reseller_invest_enabled: false,
             });
         }
         const rawDigits = String(rows[0].mobile_number || '').replace(/\D/g, '');
@@ -981,9 +1003,20 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             contact_phone,
             kc_theme_id,
             allowed_category_ids: allowed_category_ids?.length ? allowed_category_ids : null,
+            reseller_invest_enabled: !!rows[0].reseller_invest_enabled,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/** Public: whether Invest (SIP) is enabled for a storefront host (vanity domain). */
+app.get('/api/public/storefront-invest', globalLimiter, async (req, res) => {
+    try {
+        const allowed = await isStorefrontInvestAllowed(req);
+        res.json({ invest_enabled: allowed });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
@@ -1338,6 +1371,8 @@ registerResellerProductRoutes(app, {
 });
 
 registerResellerRatesRoutes(app, { checkAuth, liveRateService, io });
+registerDigiInvestRoutes(app, { checkAuth, isAdminStrict, liveRateService });
+registerResellerInvestRoutes(app, { checkAuth, liveRateService });
 
 // ==========================================
 // B2B WHOLESALE — client ledger (Khata) & admin ledger lines
@@ -2481,7 +2516,7 @@ app.get('/api/products', async (req, res) => {
                 wp.diamond_color,
                 wp.diamond_clarity,
                 wp.certificate_url,
-                COALESCE(wc.discount_percentage, 0)::float AS discount_percentage,
+                COALESCE(GREATEST(COALESCE(wc.discount_percentage, 0), COALESCE(wp.discount_percentage, 0)), 0)::float AS discount_percentage,
                 wp.subcategory_id,
                 wp.is_active,
                 wp.last_synced_at,
@@ -3633,6 +3668,8 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                        COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
                        COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
+                       COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
+                       COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                        reseller_invite_code, referred_by_user_id,
                        created_at, updated_at 
                 FROM users 
@@ -4059,6 +4096,16 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_rates_update_enabled !== undefined) {
             updates.push(`reseller_rates_update_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_rates_update_enabled);
+        }
+
+        if (req.body.reseller_invest_manage_enabled !== undefined) {
+            updates.push(`reseller_invest_manage_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_invest_manage_enabled);
+        }
+
+        if (req.body.reseller_invest_enabled !== undefined) {
+            updates.push(`reseller_invest_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_invest_enabled);
         }
 
         if (reseller_invite_code !== undefined) {
@@ -6257,6 +6304,17 @@ function parseSharedMarkupPct(raw) {
     return Math.max(0, Math.min(1000, n));
 }
 
+/** Brochure customer discount % — keyword discountPercentage / shared_catalogs.discount_percentage */
+function parseSharedDiscountPct(raw) {
+    if (raw == null || raw === '') return 0;
+    const n =
+        typeof raw === 'number' && Number.isFinite(raw)
+            ? raw
+            : parseFloat(String(raw).replace(/,/g, '').trim());
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, n));
+}
+
 /** Parse frozen live rates from shared_catalogs.rates_snapshot (JSONB). */
 function parseSharedCatalogRatesSnapshot(raw) {
     if (raw == null) return null;
@@ -6309,12 +6367,12 @@ function selectionWhatsAppDigitsFromBrochureRow(row) {
 
 /**
  * Catalogue Builder: super-admin OR authenticated RESELLER — shared catalogue link (WhatsApp-friendly).
- * Body: { selectedProductIds, markupPercentage, format: 'temporary_web_link'|'pdf', expiresAt?: ISO string }
+ * Body: { selectedProductIds, markupPercentage, discountPercentage, format: 'temporary_web_link'|'pdf', expiresAt?: ISO string }
  * PDF format is handled on the client; this endpoint only persists web links.
  */
 app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
     try {
-        const { selectedProductIds, markupPercentage, format, expiresAt } = req.body || {};
+        const { selectedProductIds, markupPercentage, discountPercentage, format, expiresAt } = req.body || {};
         const ids = Array.isArray(selectedProductIds)
             ? [...new Set(selectedProductIds.map((x) => String(x).trim()).filter(Boolean))]
             : [];
@@ -6325,6 +6383,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             return res.status(400).json({ error: 'Too many products (max 500)' });
         }
         const markup = parseSharedMarkupPct(markupPercentage);
+        const discount = parseSharedDiscountPct(discountPercentage);
         const fmt = format === 'pdf' ? 'pdf' : 'temporary_web_link';
 
         if (fmt === 'pdf') {
@@ -6364,12 +6423,13 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                 ? await getRatesSnapshotForSharedCatalogCreator(creatorUid, liveRateService)
                 : (await liveRateService.getCurrentPayload())?.rates ?? [];
         await query(
-            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, expires_at, created_by_user_id, rates_snapshot, hide_prices)
-             VALUES ($1::uuid, $2::text[], $3::float8, $4, $5, $6::jsonb, $7)`,
+            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id, rates_snapshot, hide_prices)
+             VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8)`,
             [
                 id,
                 ids,
                 markup,
+                discount,
                 exp,
                 Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
                 JSON.stringify(ratesSnapshot),
@@ -6404,6 +6464,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             expiresAt: exp.toISOString(),
             selectedProductIds: ids,
             markupPercentage: markup,
+            discountPercentage: discount,
             hidePrices,
         });
     } catch (error) {
@@ -6470,7 +6531,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Invalid catalog id' });
         }
         const rows = await query(
-            `SELECT sc.id, sc.product_ids, sc.markup_percentage, sc.expires_at, sc.created_at,
+            `SELECT sc.id, sc.product_ids, sc.markup_percentage, sc.discount_percentage, sc.expires_at, sc.created_at,
                     sc.created_by_user_id, sc.rates_snapshot,
                     COALESCE(sc.hide_prices, false) AS hide_prices,
                     u.customer_tier AS creator_customer_tier,
@@ -6490,6 +6551,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         const gifting_gst_enabled = await getGiftingGstEnabled();
         const hidePrices = !!row.hide_prices;
         const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
+        const discountPctJson = parseSharedDiscountPct(row.discount_percentage);
         const cwPricing = creatorWholesaleForBrochure(row);
         const selectionWhatsAppDigits = selectionWhatsAppDigitsFromBrochureRow(row);
         const creatorCustomerTier = row.created_by_user_id
@@ -6509,6 +6571,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 expired: true,
                 expiresAt: expiresAt.toISOString(),
                 markupPercentage: markupPctJson,
+                discountPercentage: discountPctJson,
                 hidePrices,
                 creatorWholesalePricing: cwPricing,
                 products: [],
@@ -6530,6 +6593,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 expiresAt: expiresAt.toISOString(),
                 createdAt: new Date(row.created_at).toISOString(),
                 markupPercentage: markupPctJson,
+                discountPercentage: discountPctJson,
                 hidePrices,
                 creatorWholesalePricing: cwPricing,
                 selectionWhatsAppDigits,
@@ -6555,7 +6619,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 wp.size,
                 wp.design_group,
                 wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,
-                COALESCE(wc.discount_percentage, 0)::float AS discount_percentage,
+                COALESCE(GREATEST(COALESCE(wc.discount_percentage, 0), COALESCE(wp.discount_percentage, 0)), 0)::float AS discount_percentage,
                 wc.name AS style_name,
                 ws.id AS subcategory_id,
                 ws.name AS subcategory_name,
@@ -6575,6 +6639,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             expiresAt: expiresAt.toISOString(),
             createdAt: new Date(row.created_at).toISOString(),
             markupPercentage: markupPctJson,
+            discountPercentage: discountPctJson,
             hidePrices,
             creatorWholesalePricing: cwPricing,
             selectionWhatsAppDigits,
@@ -7459,6 +7524,9 @@ app.post('/api/addresses', checkAuth, async (req, res) => {
 // ==========================================
 app.get('/api/sip/plans', async (req, res) => {
     try {
+        if (!(await isStorefrontInvestAllowed(req))) {
+            return res.status(403).json({ error: 'Invest is not available on this storefront' });
+        }
         const rows = await query('SELECT * FROM sip_plans WHERE is_active = true ORDER BY created_at DESC');
         res.json(rows);
     } catch (error) {
@@ -7472,6 +7540,7 @@ app.get('/api/sip/plans', async (req, res) => {
 // ==========================================
 app.post('/api/sip/checkout', checkAuth, requireJson, async (req, res) => {
     try {
+        await assertStorefrontInvestAllowed(req);
         const userId = req.user?.id;
         if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -7585,6 +7654,7 @@ app.post('/api/sip/checkout', checkAuth, requireJson, async (req, res) => {
 // ==========================================
 app.post('/api/sip/verify-subscription', checkAuth, requireJson, async (req, res) => {
     try {
+        await assertStorefrontInvestAllowed(req);
         const userId = req.user?.id;
         if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -7622,17 +7692,10 @@ app.post('/api/sip/verify-subscription', checkAuth, requireJson, async (req, res
         let metalRateOnDate = null;
 
         if (metalType === 'gold' || metalType === 'silver') {
-            const payload = await liveRateService.getCurrentPayload();
-            const rates = payload?.rates || [];
-            const rateEntry = rates.find(r => (r.metal_type || '').toLowerCase() === metalType);
-            const displayRate = rateEntry ? Number(rateEntry.display_rate || rateEntry.sell_rate || 0) : 0;
-            if (displayRate > 0) {
-                metalRateOnDate = displayRate;
-                if (metalType === 'gold') {
-                    accumulatedGrams = installmentAmount / (displayRate / 10);
-                } else {
-                    accumulatedGrams = installmentAmount / (displayRate / 1000);
-                }
+            const rateInfo = await resolveSipMetalRatePerGram(metalType, liveRateService);
+            if (rateInfo) {
+                metalRateOnDate = rateInfo.displayRate;
+                accumulatedGrams = gramsFromInstallment(installmentAmount, metalType, rateInfo);
             }
         }
 

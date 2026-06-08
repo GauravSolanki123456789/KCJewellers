@@ -17,6 +17,8 @@ import {
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
+import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import Link from 'next/link'
 import {
@@ -165,6 +167,9 @@ function ProfilePageContent() {
     adminInbox && adminInbox.navAttentionCount > 0
       ? formatAdminInboxBadge(adminInbox.navAttentionCount)
       : ''
+
+  const { customDomainHost, investEnabled } = useResellerBranding()
+  const storefrontInvestAvailable = isStorefrontInvestAvailable(customDomainHost, investEnabled)
 
   const isReseller = customerTier === CUSTOMER_TIER.RESELLER
   const resellerUploadsEnabled = Boolean(
@@ -325,12 +330,14 @@ function ProfilePageContent() {
                   <p className="text-xl font-bold tabular-nums text-[var(--kc-accent,#c41e3a)]">₹0</p>
                 </div>
               </div>
-              <ProfileActionCard
-                href={PROFILE_SIPS_PATH}
-                icon={TrendingUp}
-                title="My SIPs"
-                subtitle="Gold, Silver & Diamond investments"
-              />
+              {storefrontInvestAvailable ? (
+                <ProfileActionCard
+                  href={PROFILE_SIPS_PATH}
+                  icon={TrendingUp}
+                  title="My SIPs"
+                  subtitle="Gold, Silver & Diamond investments"
+                />
+              ) : null}
             </section>
 
             {/* Orders */}

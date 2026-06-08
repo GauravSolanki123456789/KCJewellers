@@ -71,6 +71,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const { giftingGstEnabled } = useCatalogPricingSettings()
   const [outputFormat, setOutputFormat] = useState<'temporary_web_link' | 'pdf'>('temporary_web_link')
   const [markupPercentage, setMarkupPercentage] = useState(0)
+  const [discountPercentage, setDiscountPercentage] = useState(0)
   const [expiryHours, setExpiryHours] = useState<number>(24)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,6 +102,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const clampedMarkup = useMemo(
     () => Math.max(0, Math.min(1000, Number(markupPercentage) || 0)),
     [markupPercentage],
+  )
+
+  const clampedDiscount = useMemo(
+    () => Math.max(0, Math.min(100, Number(discountPercentage) || 0)),
+    [discountPercentage],
   )
 
   const resetAndClose = useCallback(() => {
@@ -159,6 +165,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   resellerPdfPricing: {
                     rates,
                     markupPercentage: clampedMarkup,
+                    discountPercentage: clampedDiscount,
                     wholesale: wholesalePdf,
                     giftingGstEnabled,
                   },
@@ -199,6 +206,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
       const res = await createSharedCatalog({
         selectedProductIds,
         markupPercentage: resellerHidePrices ? 0 : clampedMarkup,
+        discountPercentage: resellerHidePrices ? 0 : clampedDiscount,
         format: 'temporary_web_link',
         expiresAt: expiresAtIso,
       })
@@ -219,6 +227,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     selectedProductIds,
     outputFormat,
     markupPercentage,
+    discountPercentage,
     expiresAtIso,
     categories,
     rates,
@@ -227,6 +236,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     shareBrandLabel,
     isReseller,
     clampedMarkup,
+    clampedDiscount,
     isBootstrapping,
     auth.user,
     resellerHidePrices,
@@ -327,8 +337,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   <>Weight-only mode — PDF shows barcode, name, and net weight. No prices.</>
                 ) : isReseller ? (
                   <>
-                    Uses your business name on the PDF. Prices use live rates incl.&nbsp;GST plus your global markup
-                    ({clampedMarkup}%).
+                    Uses your business name on the PDF. Prices use live rates incl.&nbsp;GST
+                    {clampedDiscount > 0
+                      ? ` with ${clampedDiscount}% customer discount`
+                      : ''}
+                    {clampedMarkup > 0 ? ` and ${clampedMarkup}% markup` : ''}.
                   </>
                 ) : (
                   <>PDF includes product image, name, barcode, and net weight — prices are not shown.</>
@@ -358,16 +371,35 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   step={0.5}
                   value={markupPercentage}
                   onChange={(e) => setMarkupPercentage(Number(e.target.value) || 0)}
-                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none ring-amber-500/0 transition focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none ring-amber-500/0 transition focus:border-[var(--kc-accent,#c41e3a)]/50 focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/30 sm:min-h-0 sm:text-sm"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
                   {outputFormat === 'temporary_web_link'
                     ? giftingGstEnabled
-                      ? 'Applied on top of the live price incl. GST on the shared link (e.g. 10 = +10%).'
-                      : 'Applied on top of the catalogue price on the shared link. Gift items use fixed MRP with no GST added.'
+                      ? 'Added on top of the live price incl. GST (e.g. 10 = +10%).'
+                      : 'Added on top of the catalogue price. Gift items use fixed MRP with no GST added.'
                     : giftingGstEnabled
-                      ? 'Applied on top of the live price incl. GST on each line in the PDF (same basis as the shared link).'
-                      : 'Applied on top of the catalogue price on each PDF line. Gift items use fixed MRP with no GST added.'}
+                      ? 'Added on top of the live price incl. GST on each PDF line.'
+                      : 'Added on top of the catalogue price on each PDF line.'}
+                </p>
+              </div>
+              <div>
+                <label htmlFor="discount-pct" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Customer discount (%)
+                </label>
+                <input
+                  id="discount-pct"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={discountPercentage}
+                  onChange={(e) => setDiscountPercentage(Number(e.target.value) || 0)}
+                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none transition focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/30 sm:min-h-0 sm:text-sm"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Applied after markup on the shared link (e.g. 5 = −5% for your customer). Stored as{' '}
+                  <code className="text-slate-400">discountPercentage</code>.
                 </p>
               </div>
               {outputFormat === 'temporary_web_link' ? (

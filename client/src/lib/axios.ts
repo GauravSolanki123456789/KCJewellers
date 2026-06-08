@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getClientStorefrontDomain } from '@/lib/storefront-domain'
 
 // Resolve API base URL (no trailing slash). Production builds must set NEXT_PUBLIC_API_URL.
 function getApiUrl(): string {
@@ -13,5 +14,14 @@ function getApiUrl(): string {
 const API_URL = getApiUrl()
 axios.defaults.baseURL = API_URL
 axios.defaults.withCredentials = true
+
+axios.interceptors.request.use((config) => {
+  const domain = getClientStorefrontDomain()
+  if (domain) {
+    config.headers = config.headers ?? {}
+    config.headers['X-Storefront-Domain'] = domain
+  }
+  return config
+})
 
 export default axios 

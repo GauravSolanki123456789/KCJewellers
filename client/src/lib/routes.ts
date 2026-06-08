@@ -32,6 +32,8 @@ export const JOIN_RESELLER_PATH = '/join-reseller'
 export const RESELLER_PRODUCTS_PATH = '/reseller/products'
 /** RESELLER tier — staff update silver + gold live rates (per custom domain storefront). */
 export const RESELLER_RATES_PATH = '/reseller/rates'
+/** RESELLER tier — staff record offline DigiGold / DigiSilver (SIP) payments. */
+export const RESELLER_INVEST_PATH = '/reseller/invest'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const
