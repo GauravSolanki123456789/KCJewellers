@@ -29,10 +29,14 @@ function submissionRowToSyncItem(row) {
         metalType: row.metal_type ?? payload.metalType,
         fixedPrice: row.fixed_price ?? payload.fixedPrice,
         stoneCharges: row.stone_charges ?? payload.stoneCharges,
+        boxCharges: row.box_charges ?? payload.boxCharges,
         itemCode: row.design_group ?? payload.itemCode,
         size: row.size ?? payload.size ?? payload.Size,
         secondaryImageUrl: row.secondary_image_url ?? payload.secondaryImageUrl,
         imageUrl: row.image_url ?? payload.imageUrl,
+        boxCharges: row.box_charges ?? payload.boxCharges,
+        boxImageUrl: row.box_image_url ?? payload.boxImageUrl,
+        videoUrl: row.video_url ?? payload.videoUrl,
         ...payload,
     };
 }
@@ -86,9 +90,21 @@ function enrichSubmissionRow(row) {
     };
 }
 
+function parseExcelWeight(val) {
+    if (val == null || String(val).trim() === '') return null;
+    const n = Number(val);
+    if (Number.isFinite(n)) return n;
+    const m = String(val).trim().match(/^(\d+(?:\.\d+)?)/);
+    return m ? Number(m[1]) : null;
+}
+
 function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
     const resolved = resolveNormalizedVariant(item);
     const payload = { ...item };
+    const netWeight =
+        resolved.netWeight != null && Number.isFinite(Number(resolved.netWeight))
+            ? resolved.netWeight
+            : parseExcelWeight(item.netWeight ?? item.AvgWeight ?? item.net_weight);
     return {
         submitted_by_user_id: submittedByUserId,
         batch_id: batchId || null,
@@ -97,7 +113,7 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         barcode: resolved.barcode,
         product_name: resolved.name,
         size: item.size != null ? String(item.size) : item.Size != null ? String(item.Size) : null,
-        net_weight: resolved.netWeight,
+        net_weight: netWeight,
         gross_weight: resolved.grossWeight,
         purity: resolved.purity,
         mc_rate: resolved.mcRate,
@@ -135,6 +151,9 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
             item.secondaryImageUrl || item.secondary_image_url
                 ? String(item.secondaryImageUrl || item.secondary_image_url)
                 : null,
+        box_image_url:
+            item.boxImageUrl || item.box_image_url ? String(item.boxImageUrl || item.box_image_url) : null,
+        video_url: item.videoUrl || item.video_url ? String(item.videoUrl || item.video_url) : null,
         payload_json: payload,
         web_product_sku: resolved.prodSku || null,
     };
@@ -243,9 +262,13 @@ function createResellerProductUploadMulter(uploadsDir) {
     }).fields([
         { name: 'primaryImage', maxCount: 1 },
         { name: 'secondaryImage', maxCount: 1 },
+        { name: 'boxImage', maxCount: 1 },
+        { name: 'productVideo', maxCount: 1 },
         { name: 'images', maxCount: 150 },
         { name: 'secondaryImages', maxCount: 150 },
         { name: 'secondary_images', maxCount: 150 },
+        { name: 'boxImages', maxCount: 150 },
+        { name: 'productVideos', maxCount: 150 },
     ]);
 }
 
@@ -495,6 +518,23 @@ function registerResellerProductRoutes(app, deps) {
                 const target = `${resolved.prodSku}_secondary${ext}`;
                 fs.renameSync(path.join(uploadsWebProductsDir, secondary.filename), path.join(uploadsWebProductsDir, target));
                 fields.secondary_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+            }
+            const boxImg =
+                (files.boxImage && files.boxImage[0]) || (files.boxImages && files.boxImages[0]);
+            const video =
+                (files.productVideo && files.productVideo[0]) ||
+                (files.productVideos && files.productVideos[0]);
+            if (boxImg && resolved.prodSku) {
+                const ext = path.extname(boxImg.filename) || '.webp';
+                const target = `${resolved.prodSku}_box${ext}`;
+                fs.renameSync(path.join(uploadsWebProductsDir, boxImg.filename), path.join(uploadsWebProductsDir, target));
+                fields.box_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+            }
+            if (video && resolved.prodSku) {
+                const ext = path.extname(video.filename) || '.mp4';
+                const target = `${resolved.prodSku}_video${ext}`;
+                fs.renameSync(path.join(uploadsWebProductsDir, video.filename), path.join(uploadsWebProductsDir, target));
+                fields.video_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
             const sets = [];
             const params = [id];

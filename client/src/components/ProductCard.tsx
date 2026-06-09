@@ -20,7 +20,13 @@ import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsConte
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
+import BoxOptionToggle from '@/components/catalog/BoxOptionToggle'
 import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
+import {
+  boxImageSlideIndex,
+  giftingDisplayTotal,
+  productHasBoxOption,
+} from '@/lib/product-box-pricing'
 import {
   getAttachedVariants,
   variantDisplayTitle,
@@ -96,12 +102,18 @@ export default function ProductCard({
   const variants = useMemo(() => getAttachedVariants(product), [product])
   const hasVariants = variants.length > 1
   const [activeVariant, setActiveVariant] = useState<Item>(() => variants[0] ?? product)
+  const [includeBox, setIncludeBox] = useState(false)
+  const [galleryScrollIdx, setGalleryScrollIdx] = useState<number | null>(null)
 
   useEffect(() => {
     setActiveVariant(variants[0] ?? product)
+    setIncludeBox(false)
+    setGalleryScrollIdx(null)
   }, [product, variants])
 
   const active = hasVariants ? activeVariant : product
+  const hasBox = productHasBoxOption(active)
+  const boxSlideIdx = boxImageSlideIndex(active)
   const displayName = variantDisplayTitle(product)
   const weight = getCustomerDisplayWeight(active)
   const barcode = getProductSelectionKey(active)
@@ -117,6 +129,13 @@ export default function ProductCard({
     active,
     rates,
     active.gst_rate ?? 3,
+    wholesalePricing,
+    pricingOptions,
+  )
+  const displayTotal = giftingDisplayTotal(
+    active,
+    rates,
+    includeBox,
     wholesalePricing,
     pricingOptions,
   )
@@ -200,12 +219,19 @@ export default function ProductCard({
       {showImage ? (
         <DualJewelleryProductImage
           primarySrc={imageSrc}
-          secondary_image_url={(product as { secondary_image_url?: string | null }).secondary_image_url}
+          secondary_image_url={active.secondary_image_url ?? product.secondary_image_url}
+          box_image_url={active.box_image_url ?? (product as Item).box_image_url}
+          video_url={active.video_url ?? (product as Item).video_url}
           alt={displayName}
           sizes={imageSizes}
           subcategorySlug={subcategorySlug}
           priority={priority}
           fetchPriority={fetchPriority}
+          scrollToIndex={galleryScrollIdx}
+          onActiveIndexChange={(idx) => {
+            if (boxSlideIdx != null && idx === boxSlideIdx) setIncludeBox(true)
+            else if (hasBox) setIncludeBox(false)
+          }}
         />
       ) : (
         <div
@@ -249,6 +275,19 @@ export default function ProductCard({
         </span>
       ) : null}
 
+      {hasBox ? (
+        <BoxOptionToggle
+          item={active}
+          includeBox={includeBox}
+          onChange={(withBox) => {
+            setIncludeBox(withBox)
+            if (withBox && boxSlideIdx != null) setGalleryScrollIdx(boxSlideIdx)
+            else setGalleryScrollIdx(0)
+          }}
+          density="card"
+        />
+      ) : null}
+
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">
         {showWholesale ? (
           <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-600">
@@ -272,8 +311,13 @@ export default function ProductCard({
               showWholesale ? 'text-emerald-600' : 'text-slate-100',
             )}
           >
-            ₹{Math.round(total).toLocaleString('en-IN')}
+            ₹{Math.round(hasBox ? displayTotal : total).toLocaleString('en-IN')}
           </span>
+          {hasBox && includeBox ? (
+            <span className="shrink-0 text-[8px] font-normal uppercase tracking-wide text-emerald-500/90 sm:text-[9px]">
+              with box
+            </span>
+          ) : null}
           {showInclGst ? (
             <span className="shrink-0 text-[8px] font-normal uppercase tracking-wide text-slate-500 sm:text-[9px]">
               incl. GST
@@ -291,7 +335,7 @@ export default function ProductCard({
           className="mt-2 w-full"
           onClick={(e) => {
             e.preventDefault()
-            cart.add(active)
+            cart.add({ ...active, include_box: includeBox })
           }}
         >
           <span className="kc-btn-cart">Add to Cart</span>

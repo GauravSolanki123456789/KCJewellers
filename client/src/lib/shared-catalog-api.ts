@@ -43,6 +43,9 @@ export type SharedCatalogPublicProduct = {
   name?: string
   image_url?: string
   secondary_image_url?: string | null
+  box_image_url?: string | null
+  video_url?: string | null
+  box_charges?: number
   net_weight?: number
   gross_weight?: number
   purity?: number

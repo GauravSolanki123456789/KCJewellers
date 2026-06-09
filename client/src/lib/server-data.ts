@@ -28,6 +28,9 @@ export type ApiProductRow = {
   gst_rate?: number;
   discount_percentage?: number;
   secondary_image_url?: string | null;
+  box_image_url?: string | null;
+  video_url?: string | null;
+  box_charges?: number | null;
 };
 
 export type ApiCatalogCategory = {

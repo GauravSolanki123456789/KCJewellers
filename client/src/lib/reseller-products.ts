@@ -45,6 +45,8 @@ export type ResellerProductSubmission = {
   attr_stone?: string | null
   image_url?: string | null
   secondary_image_url?: string | null
+  box_image_url?: string | null
+  video_url?: string | null
   web_product_sku?: string | null
   review_notes?: string | null
   reviewed_at?: string | null
@@ -81,6 +83,12 @@ export type ResellerProductPayload = {
 
 export const RESELLER_PRODUCT_IMAGE_ACCEPT =
   'image/png,image/jpeg,image/jpg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif'
+
+export const RESELLER_PRODUCT_VIDEO_ACCEPT =
+  'video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov'
+
+export const RESELLER_PRODUCT_VIDEO_MAX_BYTES = 25 * 1024 * 1024
+export const RESELLER_PRODUCT_VIDEO_MAX_LABEL = '25 MB'
 
 export const RESELLER_PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 export const RESELLER_PRODUCT_IMAGE_MAX_LABEL = '5 MB'

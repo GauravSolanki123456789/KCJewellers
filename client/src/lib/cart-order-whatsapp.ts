@@ -68,6 +68,8 @@ export type SharedCatalogPickLineForWhatsApp = {
   weightLabel?: string | null
   /** When false, omit "incl. GST" on price lines (e.g. gift items with GST toggle off). */
   showInclGst?: boolean
+  /** When set, append "With box · ₹X" after the base price line. */
+  withBoxPriceInr?: number | null
 }
 
 export function buildSharedCatalogSelectionWhatsAppMessage(params: {
@@ -105,7 +107,11 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
         qty > 1
           ? `${unitLabel} · line ₹${lineTotal.toLocaleString('en-IN')}`
           : unitLabel
-      return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}\n   ${priceLine}${wt}\n`
+      const boxLine =
+        l.withBoxPriceInr != null && l.withBoxPriceInr > unit
+          ? `\n   With box · ₹${Math.round(l.withBoxPriceInr * qty).toLocaleString('en-IN')}${qty > 1 ? ` (${Math.round(l.withBoxPriceInr).toLocaleString('en-IN')} each)` : ''}`
+          : ''
+      return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}\n   ${priceLine}${boxLine}${wt}\n`
     })
     .join('\n')
   const link = catalogueUrl ? `\n—\nFor reference — catalogue link:\n${catalogueUrl}\n` : "";

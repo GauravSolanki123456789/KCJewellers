@@ -6213,13 +6213,15 @@ app.get('/api/catalog', async (req, res) => {
             for (const s of subs) {
                 const products = await query(`
                     SELECT
-                        id, sku, barcode, name, size, image_url, secondary_image_url, subcategory_id,
+                        id, sku, barcode, name, size, image_url, secondary_image_url,
+                        box_image_url, video_url, subcategory_id,
                         gross_weight::float AS gross_weight,
                         net_weight::float   AS net_weight,
                         purity::float       AS purity,
                         mc_rate::float      AS mc_rate,
                         COALESCE(fixed_price, 0)::float AS fixed_price,
                         COALESCE(stone_charges, 0)::float AS stone_charges,
+                        COALESCE(box_charges, 0)::float AS box_charges,
                         design_group,
                         COALESCE(metal_type, 'silver') AS metal_type,
                         diamond_carat, diamond_cut, diamond_color, diamond_clarity, certificate_url
@@ -6609,12 +6611,14 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         const products = await query(
             `SELECT
                 wp.id, wp.sku, wp.barcode, wp.name AS name, wp.image_url, wp.secondary_image_url,
+                wp.box_image_url, wp.video_url,
                 wp.gross_weight::float AS gross_weight,
                 wp.net_weight::float AS net_weight,
                 wp.purity::float AS purity,
                 wp.mc_rate::float AS mc_rate,
                 COALESCE(wp.fixed_price, 0)::float AS fixed_price,
                 COALESCE(wp.stone_charges, 0)::float AS stone_charges,
+                COALESCE(wp.box_charges, 0)::float AS box_charges,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
                 wp.size,
                 wp.design_group,

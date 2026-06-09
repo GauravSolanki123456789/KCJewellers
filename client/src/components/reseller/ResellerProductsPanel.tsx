@@ -10,6 +10,9 @@ import {
   RESELLER_PRODUCT_IMAGE_ACCEPT,
   RESELLER_PRODUCT_IMAGE_MAX_BYTES,
   RESELLER_PRODUCT_IMAGE_MAX_LABEL,
+  RESELLER_PRODUCT_VIDEO_ACCEPT,
+  RESELLER_PRODUCT_VIDEO_MAX_BYTES,
+  RESELLER_PRODUCT_VIDEO_MAX_LABEL,
   submissionStatusLabel,
   submissionStatusTone,
   type ResellerProductBatch,
@@ -162,6 +165,14 @@ export function ResellerProductsPanel() {
     if (!file) return null
     if (file.size > RESELLER_PRODUCT_IMAGE_MAX_BYTES) {
       return `Image too large (max ${RESELLER_PRODUCT_IMAGE_MAX_LABEL})`
+    }
+    return null
+  }
+
+  const validateVideo = (file: File | null): string | null => {
+    if (!file) return null
+    if (file.size > RESELLER_PRODUCT_VIDEO_MAX_BYTES) {
+      return `Video too large (max ${RESELLER_PRODUCT_VIDEO_MAX_LABEL})`
     }
     return null
   }
@@ -326,12 +337,20 @@ export function ResellerProductsPanel() {
     }
   }
 
-  const uploadPhotos = async (submissionId: number, primary: File | null, secondary: File | null) => {
+  const uploadPhotos = async (
+    submissionId: number,
+    primary: File | null,
+    secondary: File | null,
+    boxImage: File | null,
+    video: File | null,
+  ) => {
     const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
     const fd = new FormData()
     fd.append('payload', JSON.stringify({}))
     if (primary) fd.append('primaryImage', primary)
     if (secondary) fd.append('secondaryImage', secondary)
+    if (boxImage) fd.append('boxImage', boxImage)
+    if (video) fd.append('productVideo', video)
     const res = await axios.put<{ success?: boolean; submission?: ResellerProductSubmission }>(
       `/api/reseller/product-submissions/${submissionId}`,
       fd,
@@ -609,12 +628,11 @@ export function ResellerProductsPanel() {
             <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk Excel import</h2>
             <p className="kc-upload-hint mt-2 text-sm leading-relaxed">
               Barcode, SKU, StyleCode, ProductName, <strong>Size</strong> (e.g. 3x2.5), MetalType
-              (gifting), <strong>FixedPrice</strong>, <strong>ItemCode</strong> (design group — e.g.
-              Ganesh). One row per size; same ItemCode + different Size = one product with size options
-              on the shop. <strong>SKU</strong> column = subcategory (e.g. L_STAND) — must match exactly;
-              trailing spaces are trimmed. Upload one photo named{' '}
-              <span className="font-mono text-xs">ItemCode.webp</span> (e.g. ganesh.webp). Import first —
-              add photos — then send for KC review.
+              (gifting), <strong>FixedPrice</strong>, optional <strong>BoxCharges</strong>,{' '}
+              <strong>ItemCode</strong> (design group). One row per size; same ItemCode + different Size =
+              size options on the shop. <strong>SKU</strong> = subcategory (e.g. IDOLS). Import first —
+              then add <strong>front</strong>, <strong>back</strong>, optional <strong>with-box photo</strong>,
+              and optional <strong>product video</strong> per row — then send for KC review.
             </p>
             <input
               ref={excelInputRef}
@@ -786,27 +804,51 @@ function BatchProductPhotoRow({
   onSave,
 }: {
   row: ResellerProductSubmission
-  onSave: (id: number, primary: File | null, secondary: File | null) => Promise<void>
+  onSave: (
+    id: number,
+    primary: File | null,
+    secondary: File | null,
+    boxImage: File | null,
+    video: File | null,
+  ) => Promise<void>
 }) {
   const [primary, setPrimary] = useState<File | null>(null)
   const [secondary, setSecondary] = useState<File | null>(null)
+  const [boxImage, setBoxImage] = useState<File | null>(null)
+  const [video, setVideo] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const primaryRef = useRef<HTMLInputElement>(null)
   const secondaryRef = useRef<HTMLInputElement>(null)
+  const boxRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLInputElement>(null)
   const diskKey = submissionImageDiskKey(row)
   const displayCode = diskKey || row.barcode || row.sku || ''
   const existingPrimary = submissionPreviewImageUrl(row)
   const existingSecondary = row.secondary_image_url || ''
+  const existingBox = row.box_image_url || ''
+  const existingVideo = row.video_url || ''
+  const hasBoxCharge = Number(row.box_charges ?? 0) > 0
 
   const save = async () => {
-    if (!primary && !secondary) return
+    if (!primary && !secondary && !boxImage && !video) return
+    const vErr = video && video.size > RESELLER_PRODUCT_VIDEO_MAX_BYTES
+      ? `Video too large (max ${RESELLER_PRODUCT_VIDEO_MAX_LABEL})`
+      : null
+    if (vErr) {
+      alert(vErr)
+      return
+    }
     setSaving(true)
     try {
-      await onSave(row.id, primary, secondary)
+      await onSave(row.id, primary, secondary, boxImage, video)
       setPrimary(null)
       setSecondary(null)
+      setBoxImage(null)
+      setVideo(null)
       if (primaryRef.current) primaryRef.current.value = ''
       if (secondaryRef.current) secondaryRef.current.value = ''
+      if (boxRef.current) boxRef.current.value = ''
+      if (videoRef.current) videoRef.current.value = ''
     } catch {
       alert('Could not save photos')
     } finally {
@@ -827,6 +869,7 @@ function BatchProductPhotoRow({
           <p className="kc-upload-hint text-xs">
             {row.style_code} › {row.sku}
             {row.fixed_price != null && Number(row.fixed_price) > 0 ? ` · ₹${row.fixed_price}` : ''}
+            {hasBoxCharge ? ` · box +₹${Number(row.box_charges).toLocaleString('en-IN')}` : ''}
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -858,6 +901,16 @@ function BatchProductPhotoRow({
               </div>
             )}
           </div>
+          {(existingBox || boxImage) ? (
+            <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-emerald-500/30">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={boxImage ? URL.createObjectURL(boxImage) : existingBox}
+                alt=""
+                className="size-full object-cover"
+              />
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -875,6 +928,20 @@ function BatchProductPhotoRow({
           className="sr-only"
           onChange={(e) => setSecondary(e.target.files?.[0] ?? null)}
         />
+        <input
+          ref={boxRef}
+          type="file"
+          accept={RESELLER_PRODUCT_IMAGE_ACCEPT}
+          className="sr-only"
+          onChange={(e) => setBoxImage(e.target.files?.[0] ?? null)}
+        />
+        <input
+          ref={videoRef}
+          type="file"
+          accept={RESELLER_PRODUCT_VIDEO_ACCEPT}
+          className="sr-only"
+          onChange={(e) => setVideo(e.target.files?.[0] ?? null)}
+        />
         <button
           type="button"
           onClick={() => primaryRef.current?.click()}
@@ -889,8 +956,24 @@ function BatchProductPhotoRow({
         >
           {secondary ? 'Change back photo' : existingSecondary ? 'Replace back' : 'Add back photo (optional)'}
         </button>
+        {hasBoxCharge ? (
+          <button
+            type="button"
+            onClick={() => boxRef.current?.click()}
+            className="min-h-[40px] rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900"
+          >
+            {boxImage ? 'Change with-box photo' : existingBox ? 'Replace with-box' : 'Add with-box photo'}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => videoRef.current?.click()}
+          className="min-h-[40px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+        >
+          {video ? 'Change video' : existingVideo ? 'Replace video' : `Add video (max ${RESELLER_PRODUCT_VIDEO_MAX_LABEL})`}
+        </button>
       </div>
-      {(primary || secondary) && (
+      {(primary || secondary || boxImage || video) && (
         <button
           type="button"
           disabled={saving}

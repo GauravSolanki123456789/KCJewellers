@@ -6,6 +6,7 @@ import {
   type WholesalePricingInput,
 } from "@/lib/pricing";
 import { computeSharedCatalogUnitPrice } from "@/lib/shared-catalog-pricing";
+import { getProductBoxCharges } from "@/lib/product-box-pricing";
 import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 import type { ItemWithPdfImage } from "@/lib/pdf-embed-images";
 import { getKcPdfPalette, type KcPdfPalette } from "@/lib/kc-pdf-palette";
@@ -225,6 +226,11 @@ export function CatalogPdfDocument({
                   qtyLabel = `Qty · ${shareQty} · ₹${unitInr.toLocaleString("en-IN")} each`;
                 }
               }
+              const boxAdd = getProductBoxCharges(p as Item);
+              const withBoxNote =
+                showPrices && boxAdd > 0 && amountStr
+                  ? `With box · Rs. ${(Number(amountStr.replace(/,/g, "")) + boxAdd * Math.max(1, Math.floor(Number((p as { shareCatalogQty?: number }).shareCatalogQty) || 1))).toLocaleString("en-IN")}`
+                  : null;
               return (
                 <View key={key} style={styles.card}>
                   <View style={styles.thumbWrap}>
@@ -248,6 +254,9 @@ export function CatalogPdfDocument({
                         <Text style={styles.priceCompare}>Rs. {compareAtStr}</Text>
                       ) : null}
                       <Text style={styles.priceLine}>Rs. {amountStr}</Text>
+                      {withBoxNote ? (
+                        <Text style={styles.weightLine}>{withBoxNote}</Text>
+                      ) : null}
                       {showInclGst ? (
                         <Text style={styles.priceGst}>incl. GST</Text>
                       ) : null}

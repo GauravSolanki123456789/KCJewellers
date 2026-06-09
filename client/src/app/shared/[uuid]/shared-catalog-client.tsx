@@ -37,7 +37,13 @@ import {
 } from '@/lib/shared-catalog-categories'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
+import BoxOptionToggle from '@/components/catalog/BoxOptionToggle'
 import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
+import {
+  boxImageSlideIndex,
+  getProductBoxCharges,
+  productHasBoxOption,
+} from '@/lib/product-box-pricing'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
 import {
@@ -115,6 +121,10 @@ export default function SharedCatalogClient({
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [activeSubcategory, setActiveSubcategory] = useState<string>(SHARED_CATALOG_ALL_TAB)
+  const [includeBoxByKey, setIncludeBoxByKey] = useState<Map<string, boolean>>(() => new Map())
+  const [galleryScrollByKey, setGalleryScrollByKey] = useState<Map<string, number | null>>(
+    () => new Map(),
+  )
 
   useEffect(() => {
     setSelections(new Map())
@@ -433,6 +443,7 @@ export default function SharedCatalogClient({
       const wt = getCustomerDisplayWeightWithGrossFallback(sharedCatalogProductToItem(row.product))
       const weightLabel =
         wt != null && !Number.isNaN(Number(wt)) ? `Weight ${Number(wt).toFixed(2)} gm` : null
+      const item = sharedCatalogProductToItem(row.product)
       lines.push({
         name,
         skuOrBarcode: code || key,
@@ -441,6 +452,10 @@ export default function SharedCatalogClient({
         qty,
         weightLabel,
         showInclGst: row.showInclGst,
+        withBoxPriceInr:
+          productHasBoxOption(item) && getProductBoxCharges(item) > 0
+            ? row.unitTotalInr + getProductBoxCharges(item)
+            : null,
       })
     })
 
@@ -459,6 +474,7 @@ export default function SharedCatalogClient({
     rowKeys,
     brandLabel,
     initialBranding?.contactPhoneDigits,
+    includeBoxByKey,
   ])
 
   if (loading) {
@@ -640,6 +656,11 @@ export default function SharedCatalogClient({
               const wt = getCustomerDisplayWeightWithGrossFallback(sharedCatalogProductToItem(product))
               const wtLabel =
                 wt != null && !Number.isNaN(Number(wt)) ? `${Number(wt).toFixed(2)} gm` : null
+              const hasBox = productHasBoxOption(item)
+              const includeBox = includeBoxByKey.get(key) ?? false
+              const boxSlideIdx = boxImageSlideIndex(item)
+              const displayUnitInr = unitTotalInr + (includeBox ? getProductBoxCharges(item) : 0)
+              const galleryScroll = galleryScrollByKey.get(key) ?? null
               return (
                 <li key={group.groupKey}>
                   <article
@@ -693,10 +714,33 @@ export default function SharedCatalogClient({
                               product.secondary_image_url ||
                               group.variants[0]?.product.secondary_image_url
                             }
+                            box_image_url={
+                              product.box_image_url ||
+                              group.variants[0]?.product.box_image_url
+                            }
+                            video_url={
+                              product.video_url || group.variants[0]?.product.video_url
+                            }
                             alt={name}
                             sizes="(max-width: 640px) 50vw, 25vw"
                             imageClassName="object-cover"
                             unoptimized
+                            scrollToIndex={galleryScroll}
+                            onActiveIndexChange={(idx) => {
+                              if (boxSlideIdx != null && idx === boxSlideIdx) {
+                                setIncludeBoxByKey((prev) => {
+                                  const next = new Map(prev)
+                                  next.set(key, true)
+                                  return next
+                                })
+                              } else if (hasBox) {
+                                setIncludeBoxByKey((prev) => {
+                                  const next = new Map(prev)
+                                  next.set(key, false)
+                                  return next
+                                })
+                              }
+                            }}
                           />
                           <SharedCatalogZoomHint onZoom={() => openLightboxForKey(key)} />
                         </>
@@ -759,6 +803,39 @@ export default function SharedCatalogClient({
                           {hidePrices ? wtLabel : `Weight · ${wtLabel}`}
                         </p>
                       ) : null}
+                      {hasBox && !hidePrices ? (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <BoxOptionToggle
+                            item={item}
+                            includeBox={includeBox}
+                            onChange={(withBox) => {
+                              setIncludeBoxByKey((prev) => {
+                                const next = new Map(prev)
+                                next.set(key, withBox)
+                                return next
+                              })
+                              if (withBox && boxSlideIdx != null) {
+                                setGalleryScrollByKey((prev) => {
+                                  const next = new Map(prev)
+                                  next.set(key, boxSlideIdx)
+                                  return next
+                                })
+                              } else {
+                                setGalleryScrollByKey((prev) => {
+                                  const next = new Map(prev)
+                                  next.set(key, 0)
+                                  return next
+                                })
+                              }
+                            }}
+                            density="card"
+                            className="mt-1"
+                          />
+                        </div>
+                      ) : null}
                       <div className="mt-auto space-y-2 pt-1.5">
                         {!hidePrices ? (
                           <div className="flex min-w-0 flex-col gap-0.5">
@@ -769,8 +846,13 @@ export default function SharedCatalogClient({
                             ) : null}
                             <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
                               <span className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
-                                ₹{unitTotalInr.toLocaleString('en-IN')}
+                                ₹{displayUnitInr.toLocaleString('en-IN')}
                               </span>
+                              {includeBox && hasBox ? (
+                                <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-emerald-500/90 sm:text-[10px]">
+                                  with box
+                                </span>
+                              ) : null}
                               {showInclGst ? (
                                 <span className="shrink-0 text-[10px] font-normal text-slate-500 sm:text-[11px]">
                                   incl. GST

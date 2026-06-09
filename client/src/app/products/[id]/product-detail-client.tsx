@@ -61,6 +61,12 @@ import {
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 import GiftingSizeVariantPicker from "@/components/catalog/GiftingSizeVariantPicker";
+import BoxOptionToggle from "@/components/catalog/BoxOptionToggle";
+import {
+  boxImageSlideIndex,
+  giftingDisplayTotal,
+  productHasBoxOption,
+} from "@/lib/product-box-pricing";
 import {
   findVariantByBarcode,
   sortSizeVariants,
@@ -106,11 +112,16 @@ export default function ProductDetailClient({
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
   const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(true);
+  const [includeBox, setIncludeBox] = useState(false);
 
   useEffect(() => {
     setImageAnalysis(null);
     setPdpImageUnoptimized(true);
-  }, [id, product?.image_url, product?.secondary_image_url]);
+  }, [id, product?.image_url, product?.secondary_image_url, product?.box_image_url, product?.video_url]);
+
+  useEffect(() => {
+    setIncludeBox(false);
+  }, [id, product?.barcode, product?.sku]);
 
   useEffect(() => {
     let cancelled = false;
@@ -358,8 +369,12 @@ export default function ProductDetailClient({
     [],
   );
 
-  const gallerySlides = useMemo(() => {
-    if (!product) return [] as string[];
+  type PdpGallerySlide =
+    | { kind: "image"; src: string }
+    | { kind: "video"; src: string; poster?: string };
+
+  const gallerySlides = useMemo((): PdpGallerySlide[] => {
+    if (!product) return [];
     const primary = product.image_url
       ? normalizeCatalogImageSrc(product.image_url)
       : undefined;
@@ -367,11 +382,20 @@ export default function ProductDetailClient({
       product.secondary_image_url != null
         ? normalizeCatalogImageSrc(product.secondary_image_url)
         : undefined;
-    const out: string[] = [];
-    if (primary) out.push(primary);
-    if (sec) out.push(sec);
+    const box =
+      product.box_image_url != null
+        ? normalizeCatalogImageSrc(product.box_image_url)
+        : undefined;
+    const out: PdpGallerySlide[] = [];
+    if (primary) out.push({ kind: "image", src: primary });
+    if (sec) out.push({ kind: "image", src: sec });
+    if (box) out.push({ kind: "image", src: box });
+    const videoRaw = String(product.video_url ?? "").trim();
+    if (videoRaw) out.push({ kind: "video", src: videoRaw, poster: primary });
     return out;
   }, [product]);
+
+  const boxSlideIdx = product ? boxImageSlideIndex(product) : null;
 
   const [galleryIdx, setGalleryIdx] = useState(0);
   const galleryScrollRef = useRef<HTMLDivElement>(null);
@@ -390,9 +414,14 @@ export default function ProductDetailClient({
   useEffect(() => {
     setGalleryIdx(0);
     galleryScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
-  }, [id, product?.image_url, product?.secondary_image_url]);
+  }, [id, product?.image_url, product?.secondary_image_url, product?.box_image_url, product?.video_url]);
 
   const galleryLen = gallerySlides.length;
+
+  useEffect(() => {
+    if (boxSlideIdx != null && galleryIdx === boxSlideIdx) setIncludeBox(true);
+    else if (productHasBoxOption(product)) setIncludeBox(false);
+  }, [galleryIdx, boxSlideIdx, product]);
 
   const syncGalleryFromScroll = useCallback(() => {
     const el = galleryScrollRef.current;
@@ -462,15 +491,25 @@ export default function ProductDetailClient({
   const detailImgClass = detailProductImageClass(subcategorySlug, {
     flatTone: isFlatBg,
   });
-  const activeGallerySrc = gallerySlides[galleryIdx] ?? gallerySlides[0];
+  const activeGallerySlide = gallerySlides[galleryIdx] ?? gallerySlides[0];
+  const activeGallerySrc =
+    activeGallerySlide?.kind === "image" ? activeGallerySlide.src : activeGallerySlide?.poster;
   const multiGallery = gallerySlides.length > 1;
 
+  const displayPrice = product
+    ? giftingDisplayTotal(product, [], includeBox, wholesalePricing, pricingOptions)
+    : b?.total || 0;
+
   const handleAddToCart = () => {
-    cart.add({ ...product, id: product.id ? String(product.id) : product.barcode });
+    cart.add({
+      ...product,
+      id: product.id ? String(product.id) : product.barcode,
+      include_box: includeBox,
+    });
     trackAddToCart(
       product.barcode || String(product.id || ""),
       displayName,
-      b?.total || 0
+      displayPrice
     );
   };
 
@@ -542,32 +581,50 @@ export default function ProductDetailClient({
                       )}
                       onScroll={syncGalleryFromScroll}
                     >
-                      {gallerySlides.map((src, i) => (
+                      {gallerySlides.map((slide, i) => (
                         <div
-                          key={`${src}-${i}`}
+                          key={`${slide.kind}-${slide.src}-${i}`}
                           className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always"
                         >
-                          <div className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
-                            <HoverZoomImage swipeFriendly touchZoom={touchPdpZoom}>
-                              <Image
-                                key={`${src}-${pdpImageUnoptimized ? "u" : "o"}`}
-                                src={src}
-                                alt={i === 0 ? displayName : `${displayName} — alternate view`}
-                                fill
-                                sizes="(max-width: 1024px) 100vw, 50vw"
-                                className={detailImgClass}
-                                unoptimized={pdpImageUnoptimized}
-                                priority={i === 0}
-                                fetchPriority={i === 0 ? "high" : "auto"}
-                                decoding="async"
-                                draggable={false}
-                                onLoad={i === 0 ? handleProductImageLoad : undefined}
-                                onError={() => {
-                                  if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
-                                }}
+                          {slide.kind === "video" ? (
+                            <div
+                              className={cn(
+                                "relative flex h-full w-full items-center justify-center bg-slate-950",
+                                productImageViewportWrapperClass(),
+                              )}
+                            >
+                              <video
+                                src={slide.src}
+                                poster={slide.poster}
+                                className="h-full w-full object-contain"
+                                controls
+                                playsInline
+                                preload="metadata"
                               />
-                            </HoverZoomImage>
-                          </div>
+                            </div>
+                          ) : (
+                            <div className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
+                              <HoverZoomImage swipeFriendly touchZoom={touchPdpZoom}>
+                                <Image
+                                  key={`${slide.src}-${pdpImageUnoptimized ? "u" : "o"}`}
+                                  src={slide.src}
+                                  alt={i === 0 ? displayName : `${displayName} — alternate view`}
+                                  fill
+                                  sizes="(max-width: 1024px) 100vw, 50vw"
+                                  className={detailImgClass}
+                                  unoptimized={pdpImageUnoptimized}
+                                  priority={i === 0}
+                                  fetchPriority={i === 0 ? "high" : "auto"}
+                                  decoding="async"
+                                  draggable={false}
+                                  onLoad={i === 0 ? handleProductImageLoad : undefined}
+                                  onError={() => {
+                                    if (!pdpImageUnoptimized) setPdpImageUnoptimized(true);
+                                  }}
+                                />
+                              </HoverZoomImage>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -634,13 +691,19 @@ export default function ProductDetailClient({
                 role="tablist"
                 aria-label="Product photos"
               >
-                {gallerySlides.map((src, i) => (
+                {gallerySlides.map((slide, i) => (
                   <button
-                    key={`${src}-${i}`}
+                    key={`${slide.kind}-${slide.src}-${i}`}
                     type="button"
                     role="tab"
                     aria-selected={galleryIdx === i}
-                    aria-label={i === 0 ? "Front photo" : "Alternate photo"}
+                    aria-label={
+                      slide.kind === "video"
+                        ? "Product video"
+                        : i === 0
+                          ? "Front photo"
+                          : "Alternate photo"
+                    }
                     onClick={() => scrollGalleryTo(i)}
                     className={cn(
                       "relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border transition-all lg:h-[4.75rem] lg:w-[4.75rem]",
@@ -650,16 +713,22 @@ export default function ProductDetailClient({
                       productImageWellClass,
                     )}
                   >
-                    <div className={productImageViewportWrapperClass()}>
-                      <Image
-                        src={src}
-                        alt=""
-                        fill
-                        sizes="80px"
-                        className={detailImgClass}
-                        unoptimized={pdpImageUnoptimized}
-                      />
-                    </div>
+                    {slide.kind === "video" ? (
+                      <div className="flex h-full w-full items-center justify-center bg-slate-900 text-[10px] font-semibold uppercase tracking-wide text-amber-500">
+                        Video
+                      </div>
+                    ) : (
+                      <div className={productImageViewportWrapperClass()}>
+                        <Image
+                          src={slide.src}
+                          alt=""
+                          fill
+                          sizes="80px"
+                          className={detailImgClass}
+                          unoptimized={pdpImageUnoptimized}
+                        />
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -693,6 +762,21 @@ export default function ProductDetailClient({
               </div>
             ) : null}
 
+            {productHasBoxOption(product) ? (
+              <div className="mt-4">
+                <BoxOptionToggle
+                  item={product}
+                  includeBox={includeBox}
+                  onChange={(withBox) => {
+                    setIncludeBox(withBox);
+                    if (withBox && boxSlideIdx != null) scrollGalleryTo(boxSlideIdx);
+                    else scrollGalleryTo(0);
+                  }}
+                  density="detail"
+                />
+              </div>
+            ) : null}
+
             <div className="mt-6">
               {showWholesale && (
                 <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
@@ -714,8 +798,13 @@ export default function ProductDetailClient({
                   showWholesale ? "text-emerald-400" : "text-amber-500"
                 }`}
               >
-                ₹{Math.round(b?.total || 0).toLocaleString("en-IN")}
+                ₹{Math.round(displayPrice).toLocaleString("en-IN")}
               </span>
+              {includeBox && productHasBoxOption(product) ? (
+                <span className="ml-2 text-xs font-medium uppercase tracking-wide text-emerald-400">
+                  with box
+                </span>
+              ) : null}
               {showInclGst ? (
                 <span className="ml-2 text-base font-normal text-slate-500">
                   incl. GST

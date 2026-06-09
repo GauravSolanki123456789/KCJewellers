@@ -19,8 +19,14 @@ export type Item = {
   mc_rate?: number
   mc_value?: number
   stone_charges?: number
+  /** Gift packaging add-on (₹) — shown as optional "with box" price on storefront. */
+  box_charges?: number | string | null
+  box_image_url?: string | null
+  video_url?: string | null
   design_group?: string | null
   gst_rate?: number
+  /** Cart / checkout — customer chose gift box packaging. */
+  include_box?: boolean
   /** Gift / reseller — dimensions in inches (e.g. 2.5x5.5). */
   size?: string | null
   image_url?: string

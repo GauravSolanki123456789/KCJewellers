@@ -10,6 +10,7 @@ import {
   type MouseEvent,
   type TouchEvent,
 } from "react";
+import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc, catalogImageUrlAlternates } from "@/lib/normalize-image-url";
 import { catalogProductImageClass } from "@/lib/product-image-classes";
@@ -70,7 +71,26 @@ function SlideImage({
   );
 }
 
-/** Passive dots — visual only; swipe/scroll changes the active slide. */
+function SlideVideo({ src, poster }: { src: string; poster?: string }) {
+  return (
+    <div className={cn("relative h-full w-full bg-slate-950", productImageViewportWrapperClass())}>
+      <video
+        src={src}
+        poster={poster}
+        className="h-full w-full object-contain"
+        controls
+        playsInline
+        preload="metadata"
+      />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <span className="rounded-full bg-slate-950/50 p-2 text-white/80">
+          <Play className="size-6" aria-hidden />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function GalleryDots({ count, active }: { count: number; active: number }) {
   if (count <= 1) return null;
   return (
@@ -91,10 +111,15 @@ function GalleryDots({ count, active }: { count: number; active: number }) {
   );
 }
 
+type MediaSlide =
+  | { kind: "image"; src: string; alt: string; key: string }
+  | { kind: "video"; src: string; key: string; poster?: string };
+
 type DualJewelleryProductImageProps = {
   primarySrc: string;
-  /** Raw DB / API field `secondary_image_url` (normalized inside). */
   secondary_image_url?: string | null;
+  box_image_url?: string | null;
+  video_url?: string | null;
   alt: string;
   sizes: string;
   subcategorySlug?: string | null;
@@ -102,15 +127,17 @@ type DualJewelleryProductImageProps = {
   fetchPriority?: "high" | "low" | "auto";
   imageClassName?: string;
   unoptimized?: boolean;
+  /** Fired when swipe/hover changes visible slide — use to sync box pricing. */
+  onActiveIndexChange?: (index: number) => void;
+  /** When set, parent can scroll gallery to this slide (e.g. "With box" chip). */
+  scrollToIndex?: number | null;
 };
 
-/**
- * Catalogue grid image: swipe sideways on touch to see `secondary_image_url`;
- * hover cross-fade on md+ desktops. Uses DB fields `image_url` + `secondary_image_url`.
- */
 export default function DualJewelleryProductImage({
   primarySrc,
   secondary_image_url,
+  box_image_url,
+  video_url,
   alt,
   sizes,
   subcategorySlug = null,
@@ -118,11 +145,17 @@ export default function DualJewelleryProductImage({
   fetchPriority,
   imageClassName,
   unoptimized = true,
+  onActiveIndexChange,
+  scrollToIndex = null,
 }: DualJewelleryProductImageProps) {
   const secondaryNorm =
     normalizeCatalogImageSrc(
       secondary_image_url == null ? undefined : String(secondary_image_url),
     ) || undefined;
+  const boxNorm =
+    normalizeCatalogImageSrc(box_image_url == null ? undefined : String(box_image_url)) ||
+    undefined;
+  const videoNorm = String(video_url ?? "").trim() || undefined;
 
   const primaryNorm = normalizeCatalogImageSrc(primarySrc) || primarySrc;
   const primaryAlternates = useMemo(
@@ -135,11 +168,12 @@ export default function DualJewelleryProductImage({
 
   const [primErr, setPrimErr] = useState(false);
   const [secErr, setSecErr] = useState(false);
+  const [boxErr, setBoxErr] = useState(false);
   const [fallbackPrimUnopt, setFallbackPrimUnopt] = useState(false);
   const [fallbackSecUnopt, setFallbackSecUnopt] = useState(false);
+  const [fallbackBoxUnopt, setFallbackBoxUnopt] = useState(false);
   const [primaryAltIdx, setPrimaryAltIdx] = useState(0);
   const [mobileIdx, setMobileIdx] = useState(0);
-  /** Desktop hover: show secondary on pointer over. */
   const [hoverBack, setHoverBack] = useState(false);
 
   const resolvedPrimarySrc =
@@ -160,19 +194,78 @@ export default function DualJewelleryProductImage({
     setPrimErr(true);
   }, [fallbackPrimUnopt, primaryAltIdx, primaryAlternates.length]);
 
+  const slides = useMemo((): MediaSlide[] => {
+    const out: MediaSlide[] = [];
+    if (primaryNorm && !primErr) {
+      out.push({ kind: "image", src: resolvedPrimarySrc, alt, key: `p-${resolvedPrimarySrc}` });
+    }
+    if (secondaryNorm && !secErr) {
+      out.push({
+        kind: "image",
+        src: secondaryNorm,
+        alt: `${alt} — alternate view`,
+        key: `s-${secondaryNorm}`,
+      });
+    }
+    if (boxNorm && !boxErr) {
+      out.push({
+        kind: "image",
+        src: boxNorm,
+        alt: `${alt} — with gift box`,
+        key: `b-${boxNorm}`,
+      });
+    }
+    if (videoNorm) {
+      out.push({
+        kind: "video",
+        src: videoNorm,
+        key: `v-${videoNorm}`,
+        poster: resolvedPrimarySrc,
+      });
+    }
+    return out;
+  }, [
+    primaryNorm,
+    primErr,
+    resolvedPrimarySrc,
+    alt,
+    secondaryNorm,
+    secErr,
+    boxNorm,
+    boxErr,
+    videoNorm,
+  ]);
+
   useEffect(() => {
     setPrimErr(false);
     setSecErr(false);
+    setBoxErr(false);
     setFallbackPrimUnopt(false);
     setFallbackSecUnopt(false);
+    setFallbackBoxUnopt(false);
     setPrimaryAltIdx(0);
     setMobileIdx(0);
     setHoverBack(false);
     scrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
-  }, [primarySrc, secondaryNorm]);
+  }, [primarySrc, secondaryNorm, boxNorm, videoNorm]);
 
-  const showDualUi = !!(secondaryNorm && !secErr);
+  useEffect(() => {
+    onActiveIndexChange?.(mobileIdx);
+  }, [mobileIdx, onActiveIndexChange]);
+
+  useEffect(() => {
+    if (scrollToIndex == null || scrollToIndex < 0) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const w = el.clientWidth;
+    if (w <= 0) return;
+    el.scrollTo({ left: scrollToIndex * w, behavior: "smooth" });
+    setMobileIdx(scrollToIndex);
+  }, [scrollToIndex]);
+
   const fetchP = fetchPriority ?? (priority ? "high" : undefined);
+  const slideCount = slides.length;
+  const dualDesktopHover = slideCount === 2 && slides[0]?.kind === "image" && slides[1]?.kind === "image";
 
   const syncIdxFromScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -221,9 +314,9 @@ export default function DualJewelleryProductImage({
     }, 80);
   }, []);
 
-  if (!primaryNorm) return null;
+  if (!primaryNorm && !videoNorm) return null;
 
-  if (primErr) {
+  if (primErr && slideCount === 0) {
     return (
       <div
         className={cn(
@@ -236,13 +329,13 @@ export default function DualJewelleryProductImage({
     );
   }
 
-  if (!showDualUi) {
+  if (slideCount <= 1 && slides[0]?.kind === "image") {
     return (
       <div className={productImageViewportWrapperClass()}>
         <Image
-          key={`${resolvedPrimarySrc}-${fallbackPrimUnopt ? "u" : "o"}-${primaryAltIdx}`}
-          src={resolvedPrimarySrc}
-          alt={alt}
+          key={`${slides[0].src}-${fallbackPrimUnopt ? "u" : "o"}-${primaryAltIdx}`}
+          src={slides[0].src}
+          alt={slides[0].alt}
           fill
           quality={72}
           sizes={sizes}
@@ -263,17 +356,62 @@ export default function DualJewelleryProductImage({
     );
   }
 
-  const primKey = `p-${resolvedPrimarySrc}-${fallbackPrimUnopt ? "u" : "o"}-${primaryAltIdx}`;
-  const secKey = `s-${secondaryNorm}-${fallbackSecUnopt ? "u" : "o"}`;
+  const renderImageSlide = (slide: Extract<MediaSlide, { kind: "image" }>, idx: number) => {
+    const isPrimary = idx === 0;
+    const isSecondary = idx === 1 && secondaryNorm && !secErr;
+    const isBox = slide.key.startsWith("b-");
+    return (
+      <SlideImage
+        src={slide.src}
+        alt={slide.alt}
+        sizes={sizes}
+        subcategorySlug={subcategorySlug}
+        imageClassName={imageClassName}
+        unoptimized={
+          unoptimized ||
+          (isPrimary && fallbackPrimUnopt) ||
+          (isSecondary && fallbackSecUnopt) ||
+          (isBox && fallbackBoxUnopt)
+        }
+        priority={priority && idx === 0}
+        fetchPriority={idx === 0 ? fetchP : "low"}
+        hoverFx={dualDesktopHover}
+        imageKey={slide.key}
+        onError={() => {
+          if (isPrimary) {
+            handlePrimaryError();
+            return;
+          }
+          if (isSecondary) {
+            if (!fallbackSecUnopt) {
+              setFallbackSecUnopt(true);
+              return;
+            }
+            setSecErr(true);
+            return;
+          }
+          if (isBox) {
+            if (!fallbackBoxUnopt) {
+              setFallbackBoxUnopt(true);
+              return;
+            }
+            setBoxErr(true);
+          }
+        }}
+      />
+    );
+  };
 
   return (
     <>
-      {/* Mobile / tablet: horizontal snap scroll (swipe for alternate view). */}
       <div
         ref={scrollRef}
         role="region"
         aria-label="Product photos — swipe sideways"
-        className="absolute inset-0 z-[4] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-gallery-swipe md:hidden"
+        className={cn(
+          "absolute inset-0 z-[4] flex overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide kc-gallery-swipe",
+          dualDesktopHover ? "md:hidden" : "",
+        )}
         onScroll={syncIdxFromScroll}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
@@ -281,96 +419,52 @@ export default function DualJewelleryProductImage({
         onTouchCancel={onTouchEnd}
         onClickCapture={blockLinkAfterSwipe}
       >
-        <div className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always">
-          <SlideImage
-            src={resolvedPrimarySrc}
-            alt={alt}
-            sizes={sizes}
-            subcategorySlug={subcategorySlug}
-            imageClassName={imageClassName}
-            unoptimized={unoptimized || fallbackPrimUnopt}
-            priority={priority}
-            fetchPriority={fetchP}
-            imageKey={primKey}
-            onError={handlePrimaryError}
-          />
-        </div>
-        <div className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always">
-          <SlideImage
-            src={secondaryNorm!}
-            alt={`${alt} — alternate view`}
-            sizes={sizes}
-            subcategorySlug={subcategorySlug}
-            imageClassName={imageClassName}
-            unoptimized={unoptimized || fallbackSecUnopt}
-            priority={priority}
-            fetchPriority={priority ? "low" : fetchP}
-            imageKey={secKey}
-            onError={() => {
-              if (!fallbackSecUnopt) {
-                setFallbackSecUnopt(true);
-                return;
-              }
-              setSecErr(true);
-            }}
-          />
-        </div>
+        {slides.map((slide, idx) => (
+          <div
+            key={slide.key}
+            className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always"
+          >
+            {slide.kind === "video" ? (
+              <SlideVideo src={slide.src} poster={slide.poster} />
+            ) : (
+              renderImageSlide(slide, idx)
+            )}
+          </div>
+        ))}
       </div>
 
-      {/* Desktop: cross-fade on hover (no click toggles). */}
-      <div
-        className="absolute inset-0 z-[3] hidden md:block"
-        onMouseEnter={() => setHoverBack(true)}
-        onMouseLeave={() => setHoverBack(false)}
-      >
+      {dualDesktopHover && slides[0]?.kind === "image" && slides[1]?.kind === "image" ? (
         <div
-          className={cn(
-            "absolute inset-0 transition-opacity duration-300 ease-out",
-            hoverBack ? "opacity-0" : "opacity-100",
-          )}
+          className="absolute inset-0 z-[3] hidden md:block"
+          onMouseEnter={() => {
+            setHoverBack(true);
+            onActiveIndexChange?.(1);
+          }}
+          onMouseLeave={() => {
+            setHoverBack(false);
+            onActiveIndexChange?.(0);
+          }}
         >
-          <SlideImage
-            src={resolvedPrimarySrc}
-            alt={alt}
-            sizes={sizes}
-            subcategorySlug={subcategorySlug}
-            imageClassName={imageClassName}
-            unoptimized={unoptimized || fallbackPrimUnopt}
-            priority={priority}
-            fetchPriority={fetchP}
-            hoverFx
-            imageKey={`desk-${primKey}`}
-            onError={handlePrimaryError}
-          />
+          <div
+            className={cn(
+              "absolute inset-0 transition-opacity duration-300 ease-out",
+              hoverBack ? "opacity-0" : "opacity-100",
+            )}
+          >
+            {renderImageSlide(slides[0], 0)}
+          </div>
+          <div
+            className={cn(
+              "absolute inset-0 transition-opacity duration-300 ease-out",
+              hoverBack ? "opacity-100" : "opacity-0 pointer-events-none",
+            )}
+          >
+            {renderImageSlide(slides[1], 1)}
+          </div>
         </div>
-        <div
-          className={cn(
-            "absolute inset-0 transition-opacity duration-300 ease-out",
-            hoverBack ? "opacity-100" : "opacity-0 pointer-events-none",
-          )}
-        >
-          <SlideImage
-            src={secondaryNorm!}
-            alt={`${alt} — alternate view`}
-            sizes={sizes}
-            subcategorySlug={subcategorySlug}
-            imageClassName={imageClassName}
-            unoptimized={unoptimized || fallbackSecUnopt}
-            priority={priority}
-            fetchPriority="low"
-            imageKey={`desk-${secKey}`}
-            onError={() => {
-              if (!fallbackSecUnopt) {
-                setFallbackSecUnopt(true);
-                return;
-              }
-              setSecErr(true);
-            }}
-          />
-        </div>
-      </div>
+      ) : null}
 
-      <GalleryDots count={2} active={mobileIdx} />
+      <GalleryDots count={slideCount} active={mobileIdx} />
     </>
   );
 }

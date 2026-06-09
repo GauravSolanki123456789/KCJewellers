@@ -4,6 +4,7 @@ import axios from '@/lib/axios'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { subscribeLiveRates } from '@/lib/socket'
 import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { getProductBoxCharges } from '@/lib/product-box-pricing'
 import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
 import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
@@ -80,8 +81,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setRatesReady(rates.length > 0)
     setItems(prev => prev.map(ci => {
       const b = calculateBreakdown(ci.item, rates, ci.item.gst_rate, wholesalePricing, pricingOptions)
-      const delta = Math.abs(b.total - ci.price) / (ci.price || 1)
-      if (delta > 0.02) return { ...ci, price: b.total, breakdown: b }
+      const box = ci.item.include_box ? getProductBoxCharges(ci.item) : 0
+      const lineTotal = b.total + box
+      const delta = Math.abs(lineTotal - ci.price) / (ci.price || 1)
+      if (delta > 0.02) return { ...ci, price: lineTotal, breakdown: b }
       return ci
     }))
   }, [wholesalePricing, pricingOptions])
@@ -127,13 +130,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           wholesalePricing,
           pricingOptions,
         )
-        return { ...ci, price: b.total, breakdown: b }
+        const box = ci.item.include_box ? getProductBoxCharges(ci.item) : 0
+        return { ...ci, price: b.total + box, breakdown: b }
       }),
     )
   }, [pricingOptions, wholesalePricing, lastRates])
   const add = useCallback((p: ProductLite) => {
     const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing, pricingOptions)
-    const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total, breakdown: b }
+    const box = p.include_box ? getProductBoxCharges(p) : 0
+    const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total + box, breakdown: b }
     setLastAdded(p)
     axios.post('/api/analytics/track', {
       action_type: 'add_to_cart',
@@ -145,7 +150,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       if (exists) {
         const updated = { ...exists, qty: exists.qty + 1 }
         const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing, pricingOptions)
-        updated.price = freshB.total
+        const box = exists.item.include_box ? getProductBoxCharges(exists.item) : 0
+        updated.price = freshB.total + box
         updated.breakdown = freshB
         return prev.map(x => x.id === ci.id ? updated : x)
       }
@@ -158,6 +164,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const id = String(p.barcode || p.id || '')
     if (!id) return
     const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing, pricingOptions)
+    const box = p.include_box ? getProductBoxCharges(p) : 0
     setLastAdded(p)
     axios.post('/api/analytics/track', {
       action_type: 'add_to_cart',
@@ -168,11 +175,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const exists = prev.find((x) => x.id === id)
       if (exists) {
         const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing, pricingOptions)
+        const lineBox = exists.item.include_box ? getProductBoxCharges(exists.item) : 0
         return prev.map((x) =>
-          x.id === id ? { ...x, qty: q, price: freshB.total, breakdown: freshB } : x,
+          x.id === id ? { ...x, qty: q, price: freshB.total + lineBox, breakdown: freshB } : x,
         )
       }
-      return [...prev, { id, item: p, qty: q, price: b.total, breakdown: b }]
+      return [...prev, { id, item: p, qty: q, price: b.total + box, breakdown: b }]
     })
   }, [lastRates, wholesalePricing, pricingOptions])
   const remove = useCallback((id: string) => setItems(prev => prev.filter(x => x.id !== id)), [])

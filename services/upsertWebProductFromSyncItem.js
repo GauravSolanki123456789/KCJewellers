@@ -6,8 +6,11 @@
 const { resolveVariantIdentity, slugPart } = require('./productVariantIdentity');
 const {
     productImageFileExists,
+    productMediaFileExists,
     defaultProductImageUrl,
     defaultSecondaryImageUrl,
+    defaultBoxImageUrl,
+    defaultVideoUrl,
     imageUrlBasename,
 } = require('./productImagePaths');
 
@@ -78,6 +81,14 @@ function normalizeSyncItem(item) {
                   : item.StoneCharges != null
                     ? Number(item.StoneCharges)
                     : 0,
+        boxCharges:
+            item.boxCharges != null
+                ? Number(item.boxCharges)
+                : item.box_charges != null
+                  ? Number(item.box_charges)
+                  : item.BoxCharges != null
+                    ? Number(item.BoxCharges)
+                    : 0,
         designGroup:
             trimField(item.itemCode ?? item.ItemCode ?? item.item_code) || null,
         barcode: trimField(item.barcode || item.Barcode) || null,
@@ -100,6 +111,18 @@ function normalizeSyncItem(item) {
                     : '',
         hasSecFalse: item.hasSecondaryImage === false || item.has_secondary_image === false,
         hasSecTrue: item.hasSecondaryImage === true || item.has_secondary_image === true,
+        rawBoxImage:
+            item.boxImageUrl != null
+                ? String(item.boxImageUrl)
+                : item.box_image_url != null
+                  ? String(item.box_image_url)
+                  : '',
+        rawVideo:
+            item.videoUrl != null
+                ? String(item.videoUrl)
+                : item.video_url != null
+                  ? String(item.video_url)
+                  : '',
     };
 }
 
@@ -213,14 +236,37 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         secondaryVal = defaultSecondaryImageUrl(apiBase, norm.prodSku);
     }
 
+    let boxImageUrl = null;
+    let touchBoxImage = false;
+    if (norm.rawBoxImage.trim() !== '') {
+        boxImageUrl = resolveSecondaryUrlFromPayload(norm.rawBoxImage.trim(), apiBase);
+        touchBoxImage = true;
+    } else if (uploadsWebProductsDir && productMediaFileExists(uploadsWebProductsDir, norm.prodSku, '_box')) {
+        boxImageUrl = defaultBoxImageUrl(apiBase, norm.prodSku);
+        touchBoxImage = true;
+    }
+
+    let videoUrl = null;
+    let touchVideo = false;
+    if (norm.rawVideo.trim() !== '') {
+        videoUrl = resolveSecondaryUrlFromPayload(norm.rawVideo.trim(), apiBase);
+        touchVideo = true;
+    } else if (uploadsWebProductsDir && productMediaFileExists(uploadsWebProductsDir, norm.prodSku, '_video')) {
+        videoUrl = defaultVideoUrl(apiBase, norm.prodSku);
+        touchVideo = true;
+    }
+
     const upsertSql = `
         INSERT INTO web_products
             (subcategory_id, sku, barcode, name, size, gross_weight, net_weight, purity, mc_rate, metal_type,
-             fixed_price, stone_charges, design_group, image_url, secondary_image_url,
+             fixed_price, stone_charges, box_charges, design_group, image_url, secondary_image_url,
+             box_image_url, video_url,
              submitted_by_user_id, reseller_submission_id, is_active, last_synced_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                CASE WHEN $15::boolean THEN $16::text ELSE NULL END,
-                $17, $18, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                CASE WHEN $16::boolean THEN $17::text ELSE NULL END,
+                CASE WHEN $18::boolean THEN $19::text ELSE NULL END,
+                CASE WHEN $20::boolean THEN $21::text ELSE NULL END,
+                $22, $23, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (sku) DO UPDATE SET
             subcategory_id  = EXCLUDED.subcategory_id,
             barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -233,9 +279,12 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
             fixed_price     = COALESCE(EXCLUDED.fixed_price, web_products.fixed_price),
             stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
+            box_charges     = COALESCE(EXCLUDED.box_charges, web_products.box_charges),
             design_group    = EXCLUDED.design_group,
-            image_url       = CASE WHEN $19::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
-            secondary_image_url = CASE WHEN $15::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
+            image_url       = CASE WHEN $24::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
+            secondary_image_url = CASE WHEN $16::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
+            box_image_url   = CASE WHEN $18::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
+            video_url       = CASE WHEN $20::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
             submitted_by_user_id = COALESCE(EXCLUDED.submitted_by_user_id, web_products.submitted_by_user_id),
             reseller_submission_id = COALESCE(EXCLUDED.reseller_submission_id, web_products.reseller_submission_id),
             is_active       = true,
@@ -255,10 +304,15 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         norm.metalType,
         norm.fixedPrice ?? 0,
         norm.stoneCharges ?? 0,
+        norm.boxCharges ?? 0,
         norm.designGroup,
         imageUrl,
         secondaryTouch,
         secondaryVal,
+        touchBoxImage,
+        boxImageUrl,
+        touchVideo,
+        videoUrl,
         submittedByUserId,
         resellerSubmissionId,
         touchPrimaryImage,
@@ -271,7 +325,10 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         if (
             msg.includes('submitted_by_user_id') ||
             msg.includes('reseller_submission_id') ||
-            msg.includes('"size"')
+            msg.includes('"size"') ||
+            msg.includes('box_charges') ||
+            msg.includes('box_image_url') ||
+            msg.includes('video_url')
         ) {
             if (msg.includes('submitted_by_user_id') || msg.includes('reseller_submission_id')) {
                 await pool.query(
@@ -283,6 +340,15 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             }
             if (msg.includes('"size"')) {
                 await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS size VARCHAR(64)');
+            }
+            if (msg.includes('box_charges')) {
+                await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS box_charges NUMERIC(12,2) DEFAULT 0');
+            }
+            if (msg.includes('box_image_url')) {
+                await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS box_image_url TEXT');
+            }
+            if (msg.includes('video_url')) {
+                await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS video_url TEXT');
             }
             await query(upsertSql, upsertParams);
         } else {
