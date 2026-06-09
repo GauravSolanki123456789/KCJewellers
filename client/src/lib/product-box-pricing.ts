@@ -23,7 +23,9 @@ export function productHasBoxOption(item: Item | null | undefined): boolean {
 export function boxImageSlideIndex(item: Item | null | undefined): number | null {
   const boxUrl = String(item?.box_image_url ?? '').trim()
   if (!boxUrl) return null
+  /** Slide order: primary (0) → secondary? (1) → box (2) → video? */
   let idx = 0
+  if (String(item?.image_url ?? '').trim()) idx += 1
   if (String(item?.secondary_image_url ?? '').trim()) idx += 1
   return idx
 }
