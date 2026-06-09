@@ -5,10 +5,9 @@ import {
   type WholesalePricingInput,
 } from '@/lib/pricing'
 
-/** Gift-box surcharge from ERP / Excel `BoxCharges` → `web_products.box_charges`. */
+/** Extra ₹ for optional gift box (`web_products.box_charges` / Excel BoxCharges). */
 export function getProductBoxCharges(item: Item | null | undefined): number {
-  if (!item) return 0
-  const n = Number(item.box_charges ?? 0)
+  const n = Number(item?.box_charges ?? 0)
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
@@ -17,21 +16,20 @@ export function productHasBoxOption(item: Item | null | undefined): boolean {
 }
 
 /**
- * Index of the with-box slide in `DualJewelleryProductImage` / PDP gallery
- * (primary → secondary → box → video). Null when no box photo is stored yet.
+ * Gallery slide index for the with-box photo: primary(0), secondary(1), box(2), video(3).
+ * Returns null when there is no box charge or no box image URL.
  */
 export function boxImageSlideIndex(item: Item | null | undefined): number | null {
-  if (!item) return null
-  const hasBoxImg = Boolean(String(item.box_image_url ?? '').trim())
-  if (!hasBoxImg) return null
-
+  if (!productHasBoxOption(item)) return null
+  const hasBoxImage = Boolean(String(item?.box_image_url ?? '').trim())
+  if (!hasBoxImage) return null
   let idx = 0
-  if (String(item.image_url ?? '').trim()) idx++
-  if (String(item.secondary_image_url ?? '').trim()) idx++
+  if (String(item?.image_url ?? '').trim()) idx += 1
+  if (String(item?.secondary_image_url ?? '').trim()) idx += 1
   return idx
 }
 
-/** Gifting fixed price incl. optional box surcharge (used on cards, PDP, shared catalogue). */
+/** Gifting fixed price + optional box charge (incl. GST rules from admin toggle). */
 export function giftingDisplayTotal(
   item: Item,
   liveRates: unknown,
@@ -47,5 +45,5 @@ export function giftingDisplayTotal(
     pricingOptions,
   )
   const box = includeBox ? getProductBoxCharges(item) : 0
-  return b.total + box
+  return Math.round(b.total + box)
 }

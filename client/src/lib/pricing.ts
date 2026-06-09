@@ -21,6 +21,8 @@ export type Item = {
   stone_charges?: number
   /** Gift packaging add-on (₹) — shown as optional "with box" price on storefront. */
   box_charges?: number | string | null
+  /** Excel AvgWeight range label e.g. "145-155" — shown on PDP when set. */
+  weight_display?: string | null
   box_image_url?: string | null
   video_url?: string | null
   design_group?: string | null
@@ -250,6 +252,16 @@ export function getCustomerDisplayWeight(item: Item | null | undefined): number 
     return w
   }
   return w
+}
+
+/** Weight line for UI/PDF/WhatsApp — prefers `weight_display` range from Excel AvgWeight. */
+export function getCustomerDisplayWeightLabel(item: Item | null | undefined): string | null {
+  if (!item) return null
+  const range = String(item.weight_display ?? '').trim()
+  if (range) return `${range} gm`
+  const w = getCustomerDisplayWeight(item)
+  if (w == null) return null
+  return `${Number(w).toFixed(2)} gm`
 }
 
 /**

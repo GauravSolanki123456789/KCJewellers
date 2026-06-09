@@ -1,23 +1,21 @@
 'use client'
 
-import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import {
-  getProductBoxCharges,
-  giftingDisplayTotal,
-  productHasBoxOption,
-} from '@/lib/product-box-pricing'
-import type { CatalogPricingOptions, Item, WholesalePricingInput } from '@/lib/pricing'
+  calculateBreakdown,
+  type Item,
+} from '@/lib/pricing'
+import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
+import { useCustomerTier } from '@/context/CustomerTierContext'
+import { getProductBoxCharges, productHasBoxOption } from '@/lib/product-box-pricing'
 
-type Props = {
+type BoxOptionToggleProps = {
   item: Item
   includeBox: boolean
   onChange: (withBox: boolean) => void
   density?: 'card' | 'detail'
   className?: string
   rates?: unknown[]
-  wholesalePricing?: WholesalePricingInput | null
-  pricingOptions?: CatalogPricingOptions
 }
 
 function formatInr(n: number): string {
@@ -31,88 +29,60 @@ export default function BoxOptionToggle({
   density = 'card',
   className,
   rates = [],
-  wholesalePricing = null,
-  pricingOptions,
-}: Props) {
+}: BoxOptionToggleProps) {
+  const { wholesalePricing } = useCustomerTier()
+  const { pricingOptions } = useCatalogPricingSettings()
+
+  if (!productHasBoxOption(item)) return null
+
   const boxAdd = getProductBoxCharges(item)
-  const hasBox = productHasBoxOption(item)
-  const baseTotal = useMemo(
-    () => giftingDisplayTotal(item, rates, false, wholesalePricing, pricingOptions),
-    [item, rates, wholesalePricing, pricingOptions],
-  )
-  const withBoxTotal = useMemo(
-    () => giftingDisplayTotal(item, rates, true, wholesalePricing, pricingOptions),
-    [item, rates, wholesalePricing, pricingOptions],
-  )
+  const base = calculateBreakdown(
+    item,
+    rates,
+    item.gst_rate,
+    wholesalePricing,
+    pricingOptions,
+  ).total
+  const withBoxTotal = Math.round(base + boxAdd)
+  const isDark = density === 'detail'
 
-  if (!hasBox) return null
-
-  const isDetail = density === 'detail'
+  const activeCls = isDark
+    ? 'kc-size-chip-active-dark'
+    : 'kc-size-chip-active'
+  const idleCls = isDark
+    ? 'kc-size-chip-idle-dark'
+    : 'kc-size-chip-idle'
 
   return (
-    <div className={cn('min-w-0', className)}>
-      <p
+    <div
+      className={cn('flex flex-wrap gap-1.5', className)}
+      role="group"
+      aria-label="Gift box packaging"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        aria-pressed={!includeBox}
+        onClick={() => onChange(false)}
         className={cn(
-          'font-medium uppercase tracking-wider',
-          isDetail ? 'mb-2 text-xs text-slate-600' : 'mb-1 text-[9px] text-slate-600 sm:text-[10px]',
+          'min-h-[28px] rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition sm:min-h-[30px] sm:px-2.5 sm:text-[11px]',
+          !includeBox ? activeCls : idleCls,
         )}
       >
-        Packaging
-      </p>
-      <div
-        role="group"
-        aria-label="Choose with or without gift box"
+        Without box · {formatInr(base)}
+      </button>
+      <button
+        type="button"
+        aria-pressed={includeBox}
+        onClick={() => onChange(true)}
         className={cn(
-          'flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide',
-          isDetail ? 'flex-wrap gap-2' : 'snap-x snap-mandatory',
+          'min-h-[28px] rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition sm:min-h-[30px] sm:px-2.5 sm:text-[11px]',
+          includeBox ? activeCls : idleCls,
         )}
       >
-        <button
-          type="button"
-          aria-pressed={!includeBox}
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onChange(false)
-          }}
-          className={cn(
-            'kc-size-chip shrink-0 snap-start touch-manipulation rounded-lg border font-semibold tabular-nums transition',
-            isDetail
-              ? 'min-h-[44px] px-4 py-2.5 text-sm'
-              : 'min-h-[32px] px-2.5 py-1 text-[11px] sm:min-h-[36px] sm:px-3 sm:text-xs',
-            !includeBox ? 'kc-size-chip-active' : 'kc-size-chip-idle',
-          )}
-        >
-          {isDetail ? `Without box · ${formatInr(baseTotal)}` : 'Without box'}
-        </button>
-        <button
-          type="button"
-          aria-pressed={includeBox}
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onChange(true)
-          }}
-          className={cn(
-            'kc-size-chip shrink-0 snap-start touch-manipulation rounded-lg border font-semibold tabular-nums transition',
-            isDetail
-              ? 'min-h-[44px] px-4 py-2.5 text-sm'
-              : 'min-h-[32px] px-2.5 py-1 text-[11px] sm:min-h-[36px] sm:px-3 sm:text-xs',
-            includeBox ? 'kc-size-chip-active border-emerald-500/40 bg-emerald-500/10 text-emerald-800' : 'kc-size-chip-idle',
-          )}
-        >
-          {isDetail ? (
-            `With box · ${formatInr(withBoxTotal)}`
-          ) : (
-            <>
-              With box
-              {boxAdd > 0 ? (
-                <span className="ml-1 font-normal opacity-80">+{formatInr(boxAdd)}</span>
-              ) : null}
-            </>
-          )}
-        </button>
-      </div>
+        With box · {formatInr(withBoxTotal)}
+      </button>
     </div>
   )
 }

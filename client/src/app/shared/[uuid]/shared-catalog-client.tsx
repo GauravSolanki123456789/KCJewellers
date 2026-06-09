@@ -22,9 +22,7 @@ import {
   type SharedCatalogGroupedRow,
   type SharedCatalogPricingRow,
 } from '@/lib/shared-catalog-pricing'
-import {
-  getCustomerDisplayWeightWithGrossFallback,
-} from '@/lib/pricing'
+import { getCustomerDisplayWeightLabel } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
@@ -440,9 +438,7 @@ export default function SharedCatalogClient({
         row.item.item_name ||
         String(row.product.barcode || row.product.sku || '')
       const code = String(row.product.barcode || row.product.sku || '')
-      const wt = getCustomerDisplayWeightWithGrossFallback(sharedCatalogProductToItem(row.product))
-      const weightLabel =
-        wt != null && !Number.isNaN(Number(wt)) ? `Weight ${Number(wt).toFixed(2)} gm` : null
+      const weightLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(row.product))
       const item = sharedCatalogProductToItem(row.product)
       lines.push({
         name,
@@ -653,9 +649,7 @@ export default function SharedCatalogClient({
               )
               const MetalIc = metalIcon(String(product.metal_type || ''))
               const code = String(product.barcode || product.sku || '')
-              const wt = getCustomerDisplayWeightWithGrossFallback(sharedCatalogProductToItem(product))
-              const wtLabel =
-                wt != null && !Number.isNaN(Number(wt)) ? `${Number(wt).toFixed(2)} gm` : null
+                      const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
               const hasBox = productHasBoxOption(item)
               const includeBox = includeBoxByKey.get(key) ?? false
               const boxSlideIdx = boxImageSlideIndex(item)

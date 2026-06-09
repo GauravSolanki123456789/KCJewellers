@@ -23,6 +23,7 @@ function submissionRowToSyncItem(row) {
         barcode: row.barcode || payload.barcode,
         name: row.product_name || payload.name,
         netWeight: row.net_weight ?? payload.netWeight,
+        weightDisplay: row.weight_display ?? payload.weightDisplay,
         grossWeight: row.gross_weight ?? payload.grossWeight,
         purity: row.purity ?? payload.purity,
         mcRate: row.mc_rate ?? payload.mcRate,
@@ -98,13 +99,23 @@ function parseExcelWeight(val) {
     return m ? Number(m[1]) : null;
 }
 
+/** Keep Excel range text (e.g. "145-155") for storefront display. */
+function parseExcelWeightDisplay(val) {
+    if (val == null || String(val).trim() === '') return null;
+    const s = String(val).trim();
+    if (/\d\s*-\s*\d/.test(s)) return s.replace(/\s+/g, '');
+    return null;
+}
+
 function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
     const resolved = resolveNormalizedVariant(item);
     const payload = { ...item };
+    const rawWeight = item.netWeight ?? item.AvgWeight ?? item.net_weight;
     const netWeight =
         resolved.netWeight != null && Number.isFinite(Number(resolved.netWeight))
             ? resolved.netWeight
-            : parseExcelWeight(item.netWeight ?? item.AvgWeight ?? item.net_weight);
+            : parseExcelWeight(rawWeight);
+    const weightDisplay = parseExcelWeightDisplay(rawWeight);
     return {
         submitted_by_user_id: submittedByUserId,
         batch_id: batchId || null,
@@ -114,6 +125,7 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         product_name: resolved.name,
         size: item.size != null ? String(item.size) : item.Size != null ? String(item.Size) : null,
         net_weight: netWeight,
+        weight_display: weightDisplay,
         gross_weight: resolved.grossWeight,
         purity: resolved.purity,
         mc_rate: resolved.mcRate,

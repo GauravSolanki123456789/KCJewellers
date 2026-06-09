@@ -47,6 +47,7 @@ export type SharedCatalogPublicProduct = {
   video_url?: string | null
   box_charges?: number
   net_weight?: number
+  weight_display?: string | null
   gross_weight?: number
   purity?: number
   mc_rate?: number

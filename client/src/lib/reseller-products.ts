@@ -31,6 +31,7 @@ export type ResellerProductSubmission = {
   product_name?: string | null
   size?: string | null
   net_weight?: number | string | null
+  weight_display?: string | null
   gross_weight?: number | string | null
   purity?: string | null
   mc_rate?: number | string | null

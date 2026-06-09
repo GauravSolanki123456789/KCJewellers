@@ -31,6 +31,7 @@ export type ApiProductRow = {
   box_image_url?: string | null;
   video_url?: string | null;
   box_charges?: number | null;
+  weight_display?: string | null;
 };
 
 export type ApiCatalogCategory = {

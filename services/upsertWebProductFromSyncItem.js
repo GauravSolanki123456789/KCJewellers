@@ -93,6 +93,8 @@ function normalizeSyncItem(item) {
             trimField(item.itemCode ?? item.ItemCode ?? item.item_code) || null,
         barcode: trimField(item.barcode || item.Barcode) || null,
         size: trimField(item.size ?? item.Size) || null,
+        weightDisplay:
+            trimField(item.weightDisplay ?? item.weight_display ?? item.weightDisplayLabel) || null,
         rawPrimary:
             item.imageUrl != null
                 ? String(item.imageUrl)
@@ -258,15 +260,15 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
 
     const upsertSql = `
         INSERT INTO web_products
-            (subcategory_id, sku, barcode, name, size, gross_weight, net_weight, purity, mc_rate, metal_type,
+            (subcategory_id, sku, barcode, name, size, gross_weight, net_weight, weight_display, purity, mc_rate, metal_type,
              fixed_price, stone_charges, box_charges, design_group, image_url, secondary_image_url,
              box_image_url, video_url,
              submitted_by_user_id, reseller_submission_id, is_active, last_synced_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                CASE WHEN $16::boolean THEN $17::text ELSE NULL END,
-                CASE WHEN $18::boolean THEN $19::text ELSE NULL END,
-                CASE WHEN $20::boolean THEN $21::text ELSE NULL END,
-                $22, $23, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                CASE WHEN $17::boolean THEN $18::text ELSE NULL END,
+                CASE WHEN $19::boolean THEN $20::text ELSE NULL END,
+                CASE WHEN $21::boolean THEN $22::text ELSE NULL END,
+                $23, $24, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (sku) DO UPDATE SET
             subcategory_id  = EXCLUDED.subcategory_id,
             barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -274,6 +276,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             size            = COALESCE(NULLIF(TRIM(EXCLUDED.size), ''), web_products.size),
             gross_weight    = EXCLUDED.gross_weight,
             net_weight      = EXCLUDED.net_weight,
+            weight_display  = COALESCE(NULLIF(TRIM(EXCLUDED.weight_display), ''), web_products.weight_display),
             purity          = EXCLUDED.purity,
             mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
             metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
@@ -281,10 +284,10 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
             box_charges     = COALESCE(EXCLUDED.box_charges, web_products.box_charges),
             design_group    = EXCLUDED.design_group,
-            image_url       = CASE WHEN $24::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
-            secondary_image_url = CASE WHEN $16::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
-            box_image_url   = CASE WHEN $18::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
-            video_url       = CASE WHEN $20::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
+            image_url       = CASE WHEN $25::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
+            secondary_image_url = CASE WHEN $17::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
+            box_image_url   = CASE WHEN $19::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
+            video_url       = CASE WHEN $21::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
             submitted_by_user_id = COALESCE(EXCLUDED.submitted_by_user_id, web_products.submitted_by_user_id),
             reseller_submission_id = COALESCE(EXCLUDED.reseller_submission_id, web_products.reseller_submission_id),
             is_active       = true,
@@ -299,6 +302,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         norm.size,
         norm.grossWeight,
         norm.netWeight,
+        norm.weightDisplay || null,
         norm.purity,
         norm.mcRate,
         norm.metalType,
@@ -328,7 +332,8 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             msg.includes('"size"') ||
             msg.includes('box_charges') ||
             msg.includes('box_image_url') ||
-            msg.includes('video_url')
+            msg.includes('video_url') ||
+            msg.includes('weight_display')
         ) {
             if (msg.includes('submitted_by_user_id') || msg.includes('reseller_submission_id')) {
                 await pool.query(
@@ -349,6 +354,9 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             }
             if (msg.includes('video_url')) {
                 await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS video_url TEXT');
+            }
+            if (msg.includes('weight_display')) {
+                await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS weight_display VARCHAR(64)');
             }
             await query(upsertSql, upsertParams);
         } else {

@@ -19,7 +19,7 @@ import { ratesApiQueryForStorefront } from "@/lib/storefront-domain";
 import {
   calculateBreakdown,
   getCustomerDisplaySize,
-  getCustomerDisplayWeight,
+  getCustomerDisplayWeightLabel,
   getCustomerDisplayPurity,
   isDiamondItem,
   isFixedPriceCatalogItem,
@@ -472,7 +472,7 @@ export default function ProductDetailClient({
   const displayName = productDisplayName(product);
   const styleCode = product.style_code || "";
   const sku = product.sku || product.barcode || "";
-  const netWeight = getCustomerDisplayWeight(product)
+  const netWeightLabel = getCustomerDisplayWeightLabel(product)
   const sizeInches = getCustomerDisplaySize(product)
   const purity = getCustomerDisplayPurity(product)
   const metalType = product.metal_type ?? null;
@@ -515,7 +515,7 @@ export default function ProductDetailClient({
 
   const shareText = productShareMessage({
     name: displayName,
-    weightGm: netWeight,
+    weightGm: netWeightLabel,
     barcode,
   });
 
@@ -598,6 +598,7 @@ export default function ProductDetailClient({
                                 poster={slide.poster}
                                 className="h-full w-full object-contain"
                                 controls
+                                controlsList="nodownload"
                                 playsInline
                                 preload="metadata"
                               />
@@ -881,13 +882,13 @@ export default function ProductDetailClient({
             )}
 
             <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {netWeight != null && (
+              {netWeightLabel && (
                 <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                   <span className="text-xs text-slate-500 uppercase tracking-wider block">
-                    Net Weight
+                    Weight
                   </span>
                   <span className="text-slate-100 font-medium">
-                    {Number(netWeight).toFixed(2)} gm
+                    {netWeightLabel}
                   </span>
                 </div>
               )}

@@ -10,7 +10,6 @@ import {
   type MouseEvent,
   type TouchEvent,
 } from "react";
-import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc, catalogImageUrlAlternates } from "@/lib/normalize-image-url";
 import { catalogProductImageClass } from "@/lib/product-image-classes";
@@ -79,14 +78,10 @@ function SlideVideo({ src, poster }: { src: string; poster?: string }) {
         poster={poster}
         className="h-full w-full object-contain"
         controls
+        controlsList="nodownload"
         playsInline
         preload="metadata"
       />
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <span className="rounded-full bg-slate-950/50 p-2 text-white/80">
-          <Play className="size-6" aria-hidden />
-        </span>
-      </div>
     </div>
   );
 }

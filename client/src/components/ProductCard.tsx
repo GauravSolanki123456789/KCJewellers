@@ -10,7 +10,7 @@ import { useCatalogBuilderOptional } from '@/context/CatalogBuilderContext'
 import {
   calculateBreakdown,
   getCustomerDisplaySize,
-  getCustomerDisplayWeight,
+  getCustomerDisplayWeightLabel,
   productPriceShowsInclGst,
   type Item,
 } from '@/lib/pricing'
@@ -115,7 +115,7 @@ export default function ProductCard({
   const hasBox = productHasBoxOption(active)
   const boxSlideIdx = boxImageSlideIndex(active)
   const displayName = variantDisplayTitle(product)
-  const weight = getCustomerDisplayWeight(active)
+  const weightLabel = getCustomerDisplayWeightLabel(active)
   const barcode = getProductSelectionKey(active)
   const productHref = `/products/${encodeURIComponent(barcode)}`
 
@@ -258,8 +258,8 @@ export default function ProductCard({
         {displayName}
       </span>
 
-      {weight != null ? (
-        <span className="text-[10px] text-slate-500">{Number(weight).toFixed(2)} gm</span>
+      {weightLabel ? (
+        <span className="text-[10px] text-slate-500">{weightLabel}</span>
       ) : null}
       {hasVariants ? (
         <GiftingSizeVariantPicker

@@ -75,14 +75,17 @@ export function buildWhatsAppBusinessChatLink(
 
 export function productShareMessage(params: {
   name: string;
-  weightGm: number | null;
+  weightGm?: number | string | null;
   barcode: string;
 }): string {
   const name = params.name.trim() || "this piece";
+  const w = params.weightGm;
   const weightPart =
-    params.weightGm != null && !Number.isNaN(params.weightGm)
-      ? ` Weight: ${Number(params.weightGm).toFixed(2)} gm.`
-      : "";
+    typeof w === "string" && w.trim()
+      ? ` Weight: ${w.trim()}.`
+      : w != null && typeof w === "number" && !Number.isNaN(w)
+        ? ` Weight: ${Number(w).toFixed(2)} gm.`
+        : "";
   const url = buildProductShareUrl(params.barcode);
   return `Check out this stunning ${name} at ${BRAND}!${weightPart} See it here: ${url}`;
 }
