@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, Link2, FileText, Copy, Check, Share2 } from 'lucide-react'
 import { pdf } from '@react-pdf/renderer'
 import { useCatalogData } from '@/app/catalog/catalog-data-context'
@@ -79,6 +79,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const [copied, setCopied] = useState(false)
   const [pdfShareOpen, setPdfShareOpen] = useState(false)
   const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const linkResultRef = useRef<HTMLDivElement>(null)
 
   const expiresAtIso = useMemo(() => {
     const h = EXPIRY_OPTIONS.find((o) => o.hours === expiryHours)?.hours ?? 24
@@ -123,6 +125,20 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
       setCopied(false)
     }
   }, [open])
+
+  useEffect(() => {
+    if (!shareUrl) return
+    const scrollToLink = () => {
+      linkResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      const area = scrollAreaRef.current
+      if (area) {
+        area.scrollTo({ top: area.scrollHeight, behavior: 'smooth' })
+      }
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToLink)
+    })
+  }, [shareUrl])
 
   const handleSubmit = useCallback(async () => {
     setError(null)
@@ -300,7 +316,10 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           </button>
         </div>
 
-        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-5">
+        <div
+          ref={scrollAreaRef}
+          className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-5"
+        >
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Output format</p>
             <div className="grid grid-cols-2 gap-2">
@@ -431,7 +450,10 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           )}
 
           {shareUrl && (
-            <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3">
+            <div
+              ref={linkResultRef}
+              className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3"
+            >
               <p className="text-sm font-medium text-slate-100">Your link is ready — share it on WhatsApp or copy it.</p>
               <p className="break-all rounded-lg bg-slate-900/80 px-2 py-1.5 font-mono text-[11px] text-slate-300">
                 {shareUrl}

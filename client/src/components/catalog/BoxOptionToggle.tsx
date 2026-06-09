@@ -16,6 +16,8 @@ type Props = {
   includeBox: boolean
   onChange: (withBox: boolean) => void
   density?: 'card' | 'detail'
+  /** When false, chips show labels only (price shown elsewhere — e.g. shared catalogue). */
+  showChipPrices?: boolean
   className?: string
 }
 
@@ -29,6 +31,7 @@ export default function BoxOptionToggle({
   includeBox,
   onChange,
   density = 'card',
+  showChipPrices = true,
   className,
 }: Props) {
   const { wholesalePricing } = useCustomerTier()
@@ -48,7 +51,9 @@ export default function BoxOptionToggle({
     'kc-size-chip shrink-0 touch-manipulation rounded-lg border font-semibold transition',
     isDetail
       ? 'min-h-[48px] flex-1 px-3 py-2.5 text-sm'
-      : 'min-h-[32px] px-2 py-1 text-[10px] sm:min-h-[36px] sm:px-2.5 sm:text-[11px]',
+      : showChipPrices
+        ? 'min-h-[32px] px-2 py-1 text-[10px] sm:min-h-[36px] sm:px-2.5 sm:text-[11px]'
+        : 'min-h-[28px] flex-1 px-2 py-1 text-[10px] sm:min-h-[30px] sm:text-[11px]',
   )
 
   return (
@@ -80,14 +85,16 @@ export default function BoxOptionToggle({
           className={cn(chipBase, !includeBox ? activeCls : idleCls)}
         >
           <span className="block leading-tight">Without box</span>
-          <span
-            className={cn(
-              'mt-0.5 block font-normal tabular-nums',
-              isDetail ? 'text-[11px] opacity-90' : 'text-[9px] opacity-80',
-            )}
-          >
-            ₹{Math.round(withoutTotal).toLocaleString('en-IN')}
-          </span>
+          {showChipPrices ? (
+            <span
+              className={cn(
+                'mt-0.5 block font-normal tabular-nums',
+                isDetail ? 'text-[11px] opacity-90' : 'text-[9px] opacity-80',
+              )}
+            >
+              ₹{Math.round(withoutTotal).toLocaleString('en-IN')}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
@@ -99,14 +106,16 @@ export default function BoxOptionToggle({
           className={cn(chipBase, includeBox ? activeCls : idleCls)}
         >
           <span className="block leading-tight">With box</span>
-          <span
-            className={cn(
-              'mt-0.5 block font-normal tabular-nums',
-              isDetail ? 'text-[11px] opacity-90' : 'text-[9px] opacity-80',
-            )}
-          >
-            ₹{Math.round(withTotal).toLocaleString('en-IN')}
-          </span>
+          {showChipPrices ? (
+            <span
+              className={cn(
+                'mt-0.5 block font-normal tabular-nums',
+                isDetail ? 'text-[11px] opacity-90' : 'text-[9px] opacity-80',
+              )}
+            >
+              ₹{Math.round(withTotal).toLocaleString('en-IN')}
+            </span>
+          ) : null}
         </button>
       </div>
     </div>

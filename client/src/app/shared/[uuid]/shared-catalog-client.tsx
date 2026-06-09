@@ -745,7 +745,7 @@ export default function SharedCatalogClient({
                       )}
                     </div>
 
-                    <div className="flex flex-1 flex-col gap-1 p-2.5 sm:p-3">
+                    <div className="flex flex-col gap-1 p-2.5 sm:p-3">
                       {product.style_name ? (
                         <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
                           {String(product.style_name)}
@@ -805,6 +805,7 @@ export default function SharedCatalogClient({
                           <BoxOptionToggle
                             item={item}
                             includeBox={includeBox}
+                            showChipPrices={false}
                             onChange={(withBox) => {
                               setIncludeBoxByKey((prev) => {
                                 const next = new Map(prev)
@@ -830,7 +831,7 @@ export default function SharedCatalogClient({
                           />
                         </div>
                       ) : null}
-                      <div className="mt-auto space-y-2 pt-1.5">
+                      <div className="mt-1.5 space-y-2">
                         {!hidePrices ? (
                           <div className="flex min-w-0 flex-col gap-0.5">
                             {unitCompareAtInr != null && unitCompareAtInr > unitTotalInr ? (
