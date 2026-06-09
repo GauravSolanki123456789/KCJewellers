@@ -262,13 +262,21 @@ export default function ProductCard({
         <span className="text-[10px] text-slate-500">{weightLabel}</span>
       ) : null}
       {hasVariants ? (
-        <GiftingSizeVariantPicker
-          variants={variants}
-          selected={active}
-          onSelect={setActiveVariant}
-          density="card"
-          className="mt-0.5"
-        />
+        <div
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <GiftingSizeVariantPicker
+            variants={variants}
+            selected={active}
+            onSelect={setActiveVariant}
+            density="card"
+            className="mt-0.5"
+          />
+        </div>
       ) : getCustomerDisplaySize(active) ? (
         <span className="kc-size-chip-single mt-0.5 w-fit">
           {getCustomerDisplaySize(active)}
@@ -335,6 +343,7 @@ export default function ProductCard({
           className="mt-2 w-full"
           onClick={(e) => {
             e.preventDefault()
+            e.stopPropagation()
             cart.add({ ...active, include_box: includeBox })
           }}
         >
