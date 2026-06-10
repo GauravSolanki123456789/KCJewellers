@@ -64,7 +64,7 @@ import GiftingSizeVariantPicker from "@/components/catalog/GiftingSizeVariantPic
 import BoxOptionToggle from "@/components/catalog/BoxOptionToggle";
 import {
   boxImageSlideIndex,
-  giftingDisplayTotal,
+  getProductBoxCharges,
   productHasBoxOption,
 } from "@/lib/product-box-pricing";
 import {
@@ -496,9 +496,9 @@ export default function ProductDetailClient({
     activeGallerySlide?.kind === "image" ? activeGallerySlide.src : activeGallerySlide?.poster;
   const multiGallery = gallerySlides.length > 1;
 
-  const displayPrice = product
-    ? giftingDisplayTotal(product, [], includeBox, wholesalePricing, pricingOptions)
-    : b?.total || 0;
+  const displayPrice =
+    (b?.total ?? 0) +
+    (includeBox && productHasBoxOption(product) ? getProductBoxCharges(product) : 0);
 
   const handleAddToCart = () => {
     cart.add({
