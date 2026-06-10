@@ -28,15 +28,77 @@ function getMetalBuyRate(metalType, liveRates) {
 }
 
 function getNetWeight(item) {
-  const n = item?.net_wt ?? item?.weight ?? item?.netWt ?? item?.wt;
+  const n = item?.net_wt ?? item?.weight ?? item?.netWt ?? item?.wt ?? item?.net_weight ?? item?.netWeight;
   return Number(n) || 0;
+}
+
+/** Excel / ERP wastage column — percentage added to net weight for billable metal weight. */
+function parseWastagePercent(item) {
+  if (!item || typeof item !== 'object') return null;
+  const raw =
+    item.wastage ??
+    item.Wastage ??
+    item['Wastage(%)'] ??
+    item.wastage_pct ??
+    item.wastagePct ??
+    item.wastage_percent;
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = Number(String(raw).replace(/%/g, '').trim());
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Gross / billable weight — uses gross_weight when set, else net × (1 + wastage %). */
+function getBillableWeight(item) {
+  const net = getNetWeight(item);
+  const gross = Number(item?.gross_weight ?? item?.grossWeight ?? 0) || 0;
+  if (gross > net && gross > 0) return gross;
+  const wastagePct = parseWastagePercent(item);
+  if (net > 0 && wastagePct != null && wastagePct > 0) {
+    return Math.round(net * (1 + wastagePct / 100) * 1000) / 1000;
+  }
+  return net;
+}
+
+/** Gold storefront total — round to nearest rupee after GST (tag / manual billing). */
+function goldStorefrontTotal(preGstBase, gstRatePct) {
+  const gst = Number(gstRatePct) || 0;
+  return Math.round(preGstBase * (1 + gst / 100));
 }
 
 function getPurity(item) {
   const p = item?.purity ?? item?.karat ?? item?.k;
   const v = Number(p);
   if (!v || v <= 0) return 0;
-  return v > 1 && v <= 100 ? v : v * 100;
+  if (v >= 100) return v / 10; // fineness e.g. 916 → 91.6 %
+  if (v > 1) return v;
+  return v * 100;
+}
+
+/** Match client `goldRatePerGramForItem` — 22K/18K rows when set, else 24K × factor. */
+function goldRatePerGram(liveRates, item) {
+  const row24 = pickRateFromTable('gold', liveRates, 'sell');
+  const row22 = pickRateFromTable('gold_22k', liveRates, 'sell');
+  const row18 = pickRateFromTable('gold_18k', liveRates, 'sell');
+  const g24 = row24 > 0 ? row24 / 10 : 0;
+  const g22 = row22 > 0 ? row22 / 10 : g24 > 0 ? g24 * 0.916 : 0;
+  const g18 = row18 > 0 ? row18 / 10 : g24 > 0 ? g24 * 0.75 : 0;
+  const purity = getPurity(item);
+  if (purity >= 99 || purity >= 99.5) return g24;
+  if ((purity >= 90 && purity <= 93) || Math.abs(purity - 91.6) < 1.5) return g22;
+  if ((purity >= 74 && purity <= 76) || Math.abs(purity - 75) < 1.5) return g18;
+  if (g24 > 0 && purity > 0) return g24 * (purity / 100);
+  return g24 || g22 || g18;
+}
+
+function getMetalSellRatePerGram(metalType, liveRates, item) {
+  const mt = String(metalType || 'gold').toLowerCase();
+  if (mt.startsWith('silver')) {
+    const row = pickRateFromTable('silver', liveRates, 'sell');
+    return row > 0 ? row / 1000 : 0;
+  }
+  if (mt.startsWith('gold') && !mt.includes('diamond') && item) return goldRatePerGram(liveRates, item);
+  const row = pickRateFromTable(mt.startsWith('gold') ? 'gold' : mt, liveRates, 'sell');
+  return row > 0 ? row / 10 : 0;
 }
 
 function getMc(item) {
@@ -51,18 +113,33 @@ function getStoneCharges(item) {
 }
 
 function calculateItemPrice(item, liveRates, gstRatePct) {
-  const metalRate = getMetalSellRate(item?.metal_type ?? item?.metalType, liveRates);
+  const metalType = item?.metal_type ?? item?.metalType ?? 'gold';
   const netWt = getNetWeight(item);
+  const billWt = getBillableWeight(item);
   const purity = getPurity(item);
-  const metalValue = netWt * metalRate * (purity / 100);
-  const mcAmount = getMc(item);
-  const stoneAmount = getStoneCharges(item);
+  const mt = String(metalType).toLowerCase();
+  const isGold = mt.startsWith('gold') && !mt.includes('diamond');
+  const isSilver = mt.startsWith('silver');
+  const metalRate = getMetalSellRatePerGram(metalType, liveRates, item);
+  let metalValue;
+  if (isGold && metalRate > 0) {
+    metalValue = Math.floor(billWt * metalRate);
+  } else if (isSilver && metalRate > 0) {
+    const effPurity = purity >= 90 && purity <= 100 ? 100 : purity;
+    metalValue = billWt * metalRate * (effPurity / 100);
+  } else {
+    metalValue = billWt * metalRate * (purity / 100);
+  }
+  const mcAmount = isGold ? Math.round(getMc(item)) : getMc(item);
+  const stoneAmount = isGold ? Math.round(getStoneCharges(item)) : getStoneCharges(item);
   const taxable = metalValue + mcAmount + stoneAmount;
   const gstRate = Number(gstRatePct ?? item?.gst_rate) || 0;
   const cgst = gstRate ? taxable * (gstRate / 200) : 0;
   const sgst = gstRate ? taxable * (gstRate / 200) : 0;
   const totalGst = cgst + sgst;
-  const netTotal = taxable + totalGst;
+  const netTotal = isGold && gstRate > 0
+    ? goldStorefrontTotal(taxable, gstRate)
+    : taxable + totalGst;
   return {
     metalValue,
     mcAmount,

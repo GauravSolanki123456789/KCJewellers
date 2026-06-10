@@ -2,6 +2,7 @@
  * Reseller product uploads — same ERP/sync field names as POST /api/sync/receive.
  * DB: `reseller_product_submissions`, live catalog: `web_products`.
  */
+import type { Item } from '@/lib/pricing'
 
 export type ResellerSubmissionStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'withdrawn'
 
@@ -128,6 +129,28 @@ export function submissionStatusTone(status: ResellerSubmissionStatus): string {
       return 'bg-slate-500/15 text-slate-600 border-slate-500/30'
     default:
       return 'bg-slate-500/10 text-slate-600'
+  }
+}
+
+export function submissionToCatalogItem(row: ResellerProductSubmission): Item {
+  const net = row.net_weight != null ? Number(row.net_weight) : undefined
+  const gross = row.gross_weight != null ? Number(row.gross_weight) : undefined
+  const mc = row.mc_rate != null && String(row.mc_rate).trim() !== '' ? Number(row.mc_rate) : undefined
+  return {
+    barcode: row.barcode ?? undefined,
+    sku: row.sku ?? undefined,
+    item_name: row.product_name ?? undefined,
+    metal_type: row.metal_type ?? 'silver',
+    net_weight: Number.isFinite(net) ? net : undefined,
+    gross_weight: Number.isFinite(gross) ? gross : undefined,
+    weight_display: row.weight_display ?? undefined,
+    purity: row.purity ?? undefined,
+    mc_rate: Number.isFinite(mc) ? mc : undefined,
+    mc_type: row.mc_type ?? (mc != null && mc > 0 ? 'PER_GRAM' : undefined),
+    fixed_price: row.fixed_price != null ? Number(row.fixed_price) : undefined,
+    stone_charges: row.stone_charges != null ? Number(row.stone_charges) : undefined,
+    box_charges: row.box_charges != null ? Number(row.box_charges) : undefined,
+    gst_rate: 3,
   }
 }
 

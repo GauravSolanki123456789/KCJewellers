@@ -9,6 +9,8 @@ const {
     upsertWebProductFromSyncItem,
     normalizeSyncItem,
     resolveNormalizedVariant,
+    parseWastagePercent,
+    resolveGrossWeight,
     styleSlugFromCode,
 } = require('./upsertWebProductFromSyncItem');
 
@@ -25,6 +27,7 @@ function submissionRowToSyncItem(row) {
         netWeight: row.net_weight ?? payload.netWeight,
         weightDisplay: row.weight_display ?? payload.weightDisplay,
         grossWeight: row.gross_weight ?? payload.grossWeight,
+        wastage: payload.wastage ?? payload['Wastage(%)'] ?? payload.wastage_pct,
         purity: row.purity ?? payload.purity,
         mcRate: row.mc_rate ?? payload.mcRate,
         metalType: row.metal_type ?? payload.metalType,
@@ -64,6 +67,7 @@ function excelRowToSyncItem(row) {
         size: get('Size', 'size', 'Size (inches)', 'size_inches', 'SizeInches'),
         netWeight: get('AvgWeight', 'netWeight', 'net_weight'),
         grossWeight: get('grossWeight', 'gross_weight'),
+        wastage: get('Wastage(%)', 'Wastage', 'wastage', 'wastage_pct'),
         purity: get('Purity', 'purity'),
         mcRate: get('MCRate', 'mcRate', 'mc_rate'),
         mcType: get('MCType', 'mc_type'),
@@ -116,6 +120,26 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
             ? resolved.netWeight
             : parseExcelWeight(rawWeight);
     const weightDisplay = parseExcelWeightDisplay(rawWeight);
+    const wastagePct = parseWastagePercent(item);
+    const grossWeight = resolveGrossWeight(
+        netWeight,
+        resolved.grossWeight != null && Number.isFinite(Number(resolved.grossWeight))
+            ? Number(resolved.grossWeight)
+            : null,
+        wastagePct,
+    );
+    const mcRateNum =
+        resolved.mcRate != null && Number.isFinite(Number(resolved.mcRate)) ? Number(resolved.mcRate) : null;
+    const mcTypeRaw =
+        item.mcType != null ? String(item.mcType) : item.MCType != null ? String(item.MCType) : null;
+    const mcType =
+        mcTypeRaw && mcTypeRaw.trim()
+            ? mcTypeRaw.trim().toUpperCase()
+            : mcRateNum != null && mcRateNum > 0
+              ? 'PER_GRAM'
+              : null;
+    if (wastagePct != null) payload.wastage_pct = wastagePct;
+    if (payload.wastage == null && wastagePct != null) payload.wastage = wastagePct;
     return {
         submitted_by_user_id: submittedByUserId,
         batch_id: batchId || null,
@@ -126,10 +150,10 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         size: item.size != null ? String(item.size) : item.Size != null ? String(item.Size) : null,
         net_weight: netWeight,
         weight_display: weightDisplay,
-        gross_weight: resolved.grossWeight,
+        gross_weight: grossWeight,
         purity: resolved.purity,
         mc_rate: resolved.mcRate,
-        mc_type: item.mcType != null ? String(item.mcType) : item.MCType != null ? String(item.MCType) : null,
+        mc_type: mcType,
         metal_type: resolved.metalType,
         fixed_price: resolved.fixedPrice ?? 0,
         stone_charges: resolved.stoneCharges ?? 0,

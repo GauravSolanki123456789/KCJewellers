@@ -29,6 +29,36 @@ function trimField(value) {
     return String(value).trim();
 }
 
+/** Excel / ERP wastage column — percentage added to net weight for billable metal weight. */
+function parseWastagePercent(item) {
+    if (!item || typeof item !== 'object') return null;
+    const raw =
+        item.wastage ??
+        item.Wastage ??
+        item['Wastage(%)'] ??
+        item.wastage_pct ??
+        item.wastagePct ??
+        item.wastage_percent;
+    if (raw == null || String(raw).trim() === '') return null;
+    const n = Number(String(raw).replace(/%/g, '').trim());
+    return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Gross (billable) weight from explicit gross or net + wastage %. */
+function resolveGrossWeight(netWeight, grossWeight, wastagePct) {
+    const gross =
+        grossWeight != null && Number.isFinite(Number(grossWeight)) && Number(grossWeight) > 0
+            ? Number(grossWeight)
+            : null;
+    if (gross != null) return gross;
+    const net =
+        netWeight != null && Number.isFinite(Number(netWeight)) && Number(netWeight) > 0
+            ? Number(netWeight)
+            : null;
+    if (net == null || wastagePct == null || wastagePct <= 0) return null;
+    return Math.round(net * (1 + wastagePct / 100) * 1000) / 1000;
+}
+
 function normalizeSyncItem(item) {
     const prodSku = trimField(item.barcode || item.sku || item.Barcode || item.SKU);
     return {
@@ -47,12 +77,22 @@ function normalizeSyncItem(item) {
                   : item.AvgWeight != null
                     ? Number(item.AvgWeight)
                     : null,
-        grossWeight:
+        wastagePct: parseWastagePercent(item),
+        grossWeight: resolveGrossWeight(
+            item.netWeight != null
+                ? Number(item.netWeight)
+                : item.net_weight != null
+                  ? Number(item.net_weight)
+                  : item.AvgWeight != null
+                    ? Number(item.AvgWeight)
+                    : null,
             item.grossWeight != null
                 ? Number(item.grossWeight)
                 : item.gross_weight != null
                   ? Number(item.gross_weight)
                   : null,
+            parseWastagePercent(item),
+        ),
         purity: item.purity || item.Purity ? String(item.purity || item.Purity) : null,
         mcRate:
             item.mcRate != null
@@ -422,6 +462,8 @@ module.exports = {
     upsertWebProductFromSyncItem,
     normalizeSyncItem,
     resolveNormalizedVariant,
+    parseWastagePercent,
+    resolveGrossWeight,
     styleSlugFromCode,
     resolveVariantIdentity,
     isLegacySharedDesignGroupImageUrl,

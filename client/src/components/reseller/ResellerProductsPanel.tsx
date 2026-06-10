@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import axios from '@/lib/axios'
 import {
   emptyProductPayload,
+  submissionToCatalogItem,
   submissionImageDiskKey,
   submissionPreviewImageUrl,
   RESELLER_EXCEL_ACCEPT,
@@ -20,6 +21,7 @@ import {
   type ResellerProductSubmission,
   type ResellerSubmissionStatus,
 } from '@/lib/reseller-products'
+import { calculateBreakdown, isFixedPriceCatalogItem } from '@/lib/pricing'
 import { FileSpreadsheet, ImagePlus, Loader2, Package, Plus, Send, Upload } from 'lucide-react'
 
 type Tab = 'add' | 'batches' | 'list'
@@ -94,6 +96,7 @@ export function ResellerProductsPanel() {
   const [batchProducts, setBatchProducts] = useState<ResellerProductSubmission[]>([])
   const [batchProductsLoading, setBatchProductsLoading] = useState(false)
   const [submittingBatchId, setSubmittingBatchId] = useState<string | null>(null)
+  const [liveRates, setLiveRates] = useState<unknown>(null)
   const excelInputRef = useRef<HTMLInputElement>(null)
   const primaryInputRef = useRef<HTMLInputElement>(null)
   const secondaryInputRef = useRef<HTMLInputElement>(null)
@@ -116,6 +119,22 @@ export function ResellerProductsPanel() {
   useEffect(() => {
     if (tab === 'list') void load()
   }, [tab, load])
+
+  useEffect(() => {
+    if (tab !== 'batches' && tab !== 'add') return
+    let cancelled = false
+    void axios
+      .get<{ rates?: unknown }>('/api/rates/display')
+      .then((res) => {
+        if (!cancelled) setLiveRates(res.data?.rates ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setLiveRates(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tab])
 
   const pendingCount = useMemo(() => rows.filter((r) => r.submission_status === 'pending').length, [rows])
   const draftBatchCount = useMemo(
@@ -628,10 +647,16 @@ export function ResellerProductsPanel() {
             <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk Excel import</h2>
             <p className="kc-upload-hint mt-2 text-sm leading-relaxed">
               Barcode, SKU, StyleCode, ProductName, <strong>Size</strong> (e.g. 3x2.5), MetalType
-              (gifting), <strong>FixedPrice</strong>, optional <strong>BoxCharges</strong>,{' '}
-              <strong>ItemCode</strong> (design group). One row per size; same ItemCode + different Size =
-              size options on the shop. <strong>SKU</strong> = subcategory (e.g. IDOLS). Import first —
-              then add <strong>front</strong>, <strong>back</strong>, optional <strong>with-box photo</strong>,
+              (<strong>gold</strong> / silver / gifting), <strong>AvgWeight</strong> (net g),{' '}
+              <strong>Wastage(%)</strong>, <strong>Purity</strong> (916 / 750 / 999), optional{' '}
+              <strong>MCRate</strong> (making ₹/g on net weight), optional{' '}
+              <strong>MCType</strong> (PER_GRAM or FIXED), optional{' '}
+              <strong>StoneCharges</strong>, <strong>FixedPrice</strong> (gifting only), optional{' '}
+              <strong>BoxCharges</strong>, <strong>ItemCode</strong> (design group).{' '}
+              <strong>Gold price</strong> = floor(live 22K/18K rate × billable weight) + optional making + stone, then 3%
+              GST (e.g. 7.9 g × 112 × ₹14,200 × 103 / 10,000). One row per size; same ItemCode + different Size = size options on the shop.{' '}
+              <strong>SKU</strong> = subcategory (e.g. IDOLS). Import first — then add{' '}
+              <strong>front</strong>, <strong>back</strong>, optional <strong>with-box photo</strong>,
               and optional <strong>product video</strong> per row — then send for KC review.
             </p>
             <input
@@ -726,7 +751,12 @@ export function ResellerProductsPanel() {
                         ) : (
                           <ul className="mt-4 space-y-3">
                             {batchProducts.map((p) => (
-                              <BatchProductPhotoRow key={p.id} row={p} onSave={uploadPhotos} />
+                              <BatchProductPhotoRow
+                                key={p.id}
+                                row={p}
+                                rates={liveRates}
+                                onSave={uploadPhotos}
+                              />
                             ))}
                           </ul>
                         )}
@@ -799,11 +829,36 @@ function ImageUploadTile({
   )
 }
 
+function formatLivePrice(total: number): string {
+  return `₹${Math.round(total).toLocaleString('en-IN')}`
+}
+
+function submissionLivePriceHint(row: ResellerProductSubmission, rates: unknown): string | null {
+  const item = submissionToCatalogItem(row)
+  if (isFixedPriceCatalogItem(item)) {
+    const fp = Number(item.fixed_price ?? 0)
+    return fp > 0 ? `${formatLivePrice(fp * 1.03)} incl. GST (fixed)` : null
+  }
+  const mt = String(row.metal_type || '').toLowerCase()
+  if (!mt.startsWith('gold') && !mt.startsWith('silver')) return null
+  const net = Number(row.net_weight ?? 0)
+  if (!Number.isFinite(net) || net <= 0) return null
+  const b = calculateBreakdown(item, rates, 3)
+  const parts: string[] = [formatLivePrice(b.total)]
+  if (mt.startsWith('gold')) {
+    const gross = Number(row.gross_weight ?? 0)
+    if (gross > net) parts.push(`bill ${gross.toFixed(3)} g`)
+  }
+  return parts.join(' · ')
+}
+
 function BatchProductPhotoRow({
   row,
+  rates,
   onSave,
 }: {
   row: ResellerProductSubmission
+  rates: unknown
   onSave: (
     id: number,
     primary: File | null,
@@ -828,6 +883,7 @@ function BatchProductPhotoRow({
   const existingBox = row.box_image_url || ''
   const existingVideo = row.video_url || ''
   const hasBoxCharge = Number(row.box_charges ?? 0) > 0
+  const livePriceHint = submissionLivePriceHint(row, rates)
 
   const save = async () => {
     if (!primary && !secondary && !boxImage && !video) return
@@ -871,6 +927,9 @@ function BatchProductPhotoRow({
             {row.fixed_price != null && Number(row.fixed_price) > 0 ? ` · ₹${row.fixed_price}` : ''}
             {hasBoxCharge ? ` · box +₹${Number(row.box_charges).toLocaleString('en-IN')}` : ''}
           </p>
+          {livePriceHint ? (
+            <p className="mt-1 text-xs font-medium tabular-nums text-emerald-800">{livePriceHint}</p>
+          ) : null}
         </div>
         <div className="flex shrink-0 gap-2">
           <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
