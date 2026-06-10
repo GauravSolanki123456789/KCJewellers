@@ -645,20 +645,6 @@ export function ResellerProductsPanel() {
         <div className="space-y-4">
           <div className="kc-upload-card rounded-2xl p-4 shadow-sm sm:p-6">
             <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk Excel import</h2>
-            <p className="kc-upload-hint mt-2 text-sm leading-relaxed">
-              Barcode, SKU, StyleCode, ProductName, <strong>Size</strong> (e.g. 3x2.5), MetalType
-              (<strong>gold</strong> / silver / gifting), <strong>AvgWeight</strong> (net g),{' '}
-              <strong>Wastage(%)</strong>, <strong>Purity</strong> (916 / 750 / 999), optional{' '}
-              <strong>MCRate</strong> (making ₹/g on net weight), optional{' '}
-              <strong>MCType</strong> (PER_GRAM or FIXED), optional{' '}
-              <strong>StoneCharges</strong>, <strong>FixedPrice</strong> (gifting only), optional{' '}
-              <strong>BoxCharges</strong>, <strong>ItemCode</strong> (design group).{' '}
-              <strong>Gold price</strong> = floor(live 22K/18K rate × billable weight) + optional making + stone, then 3%
-              GST (e.g. 7.9 g × 112 × ₹14,200 × 103 / 10,000). One row per size; same ItemCode + different Size = size options on the shop.{' '}
-              <strong>SKU</strong> = subcategory (e.g. IDOLS). Import first — then add{' '}
-              <strong>front</strong>, <strong>back</strong>, optional <strong>with-box photo</strong>,
-              and optional <strong>product video</strong> per row — then send for KC review.
-            </p>
             <input
               ref={excelInputRef}
               type="file"
@@ -673,7 +659,7 @@ export function ResellerProductsPanel() {
               type="button"
               disabled={bulkParsing}
               onClick={() => excelInputRef.current?.click()}
-              className="mt-5 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--color-slate-700,#d6d3d1)] bg-[var(--color-slate-900,#f7f4ef)] px-4 py-4 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/40 hover:bg-white disabled:opacity-60"
+              className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--color-slate-700,#d6d3d1)] bg-[var(--color-slate-900,#f7f4ef)] px-4 py-4 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/40 hover:bg-white disabled:opacity-60"
             >
               {bulkParsing ? (
                 <Loader2 className="size-5 animate-spin" />
@@ -844,12 +830,7 @@ function submissionLivePriceHint(row: ResellerProductSubmission, rates: unknown)
   const net = Number(row.net_weight ?? 0)
   if (!Number.isFinite(net) || net <= 0) return null
   const b = calculateBreakdown(item, rates, 3)
-  const parts: string[] = [formatLivePrice(b.total)]
-  if (mt.startsWith('gold')) {
-    const gross = Number(row.gross_weight ?? 0)
-    if (gross > net) parts.push(`bill ${gross.toFixed(3)} g`)
-  }
-  return parts.join(' · ')
+  return `${formatLivePrice(b.total)} · ${net.toFixed(3)} g`
 }
 
 function BatchProductPhotoRow({
