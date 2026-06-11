@@ -41,12 +41,12 @@ export function buildProductTitleMiddleSegment(product: Item): string | undefine
   return undefined;
 }
 
-/** SEO <title> — format: Name | Weight/Purity | KC Jewellers */
-export function buildProductSeoTitle(product: Item): string {
+/** SEO <title> — format: Name | Weight/Purity | brand */
+export function buildProductSeoTitle(product: Item, brand = BRAND): string {
   const name = productDisplayName(product);
   const mid = buildProductTitleMiddleSegment(product);
-  if (mid) return `${name} | ${mid} | ${BRAND}`;
-  return `${name} | ${BRAND}`;
+  if (mid) return `${name} | ${mid} | ${brand}`;
+  return `${name} | ${brand}`;
 }
 
 function formatInr(n: number): string {
@@ -56,7 +56,8 @@ function formatInr(n: number): string {
 /** Meta description: product summary, indicative live price, brand. */
 export function buildProductMetaDescription(
   product: Item,
-  liveRates: unknown
+  liveRates: unknown,
+  brand = BRAND,
 ): string {
   const name = productDisplayName(product);
   const w = getCustomerDisplayWeight(product);
@@ -67,17 +68,20 @@ export function buildProductMetaDescription(
   const weightPhrase =
     w != null ? ` Net weight ${Number(w).toFixed(2)} gm.` : "";
   const metalPhrase = metal ? ` ${metal}.` : "";
-  const full = `${name}.${metalPhrase}${weightPhrase} ${pricePhrase} Available at ${BRAND}.`;
+  const full = `${name}.${metalPhrase}${weightPhrase} ${pricePhrase} Available at ${brand}.`;
   const cleaned = full.replace(/\s+/g, " ").trim();
   if (cleaned.length <= 165) return cleaned;
   return `${cleaned.slice(0, 162)}…`;
 }
 
 /** Meta keywords from DB-backed fields only (metal_type, name). */
-export function buildProductMetadataKeywords(product: Item): string[] {
+export function buildProductMetadataKeywords(
+  product: Item,
+  brand = "KC Jewellers",
+): string[] {
   const name = productDisplayName(product);
   const mt = (product.metal_type || "").toLowerCase();
-  const base = ["KC Jewellers", "jewellery India", "GST inclusive"];
+  const base = [brand, "jewellery India", "GST inclusive"];
   if (mt.includes("gold")) base.push("gold jewellery");
   if (mt.includes("silver")) base.push("silver jewellery");
   if (mt.includes("diamond")) base.push("diamond jewellery");

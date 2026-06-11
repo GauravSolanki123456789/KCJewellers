@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import CatalogStructuredData from "../catalog-structured-data";
 import CatalogRootStructuredData from "../catalog-root-structured-data";
-import { getSiteUrl } from "@/lib/site";
 import { resolveCatalogImageUrlForMeta } from "@/lib/normalize-image-url";
-import { fetchCatalogJson, resolveCatalogView } from "@/lib/server-data";
+import {
+  fetchCatalogJson,
+  resolveCatalogView,
+} from "@/lib/server-data";
+import { getStorefrontDomainFromHeaders } from "@/lib/storefront-domain-server";
 import { parseCatalogSlugSegments } from "@/lib/catalog-paths";
 import {
   buildCatalogBaseDescription,
@@ -12,8 +15,11 @@ import {
   buildCatalogPillarTitle,
   metadataKeywordsForPillar,
 } from "@/lib/seo-catalog";
-
-const BRAND = "KC Jewellers";
+import {
+  getStorefrontSeoContext,
+  storefrontIconMetadata,
+  storefrontOgImages,
+} from "@/lib/storefront-seo";
 
 export async function generateMetadata({
   params,
@@ -21,14 +27,21 @@ export async function generateMetadata({
   params: Promise<{ slug?: string[] }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const site = getSiteUrl();
+  const seo = await getStorefrontSeoContext();
+  const { origin, brandLabel, isResellerHost } = seo;
   const segments = parseCatalogSlugSegments(slug);
-  const categories = await fetchCatalogJson();
+  const storefrontDomain = await getStorefrontDomainFromHeaders();
+  const categories = await fetchCatalogJson(storefrontDomain);
 
   if (!segments) {
-    const titleBase = `Product Catalogue · ${BRAND}`;
-    const description = buildCatalogBaseDescription();
+    const titleBase = isResellerHost
+      ? `Product Catalogue · ${brandLabel}`
+      : `Product Catalogue · KC Jewellers`;
+    const description = buildCatalogBaseDescription(brandLabel);
+    const pageUrl = `${origin}/catalog`;
+    const ogImages = storefrontOgImages(brandLabel, seo.logoUrl);
     return {
+      metadataBase: seo.metadataBase,
       title: { absolute: titleBase },
       description,
       keywords: [
@@ -36,7 +49,7 @@ export async function generateMetadata({
         "silver jewellery",
         "diamond jewellery",
         "gifting",
-        BRAND,
+        brandLabel,
         "India",
         "GST",
         "live rates",
@@ -51,20 +64,23 @@ export async function generateMetadata({
           "max-snippet": -1,
         },
       },
-      alternates: { canonical: `${site}/catalog` },
+      alternates: { canonical: pageUrl },
       openGraph: {
         type: "website",
-        url: `${site}/catalog`,
-        siteName: BRAND,
+        url: pageUrl,
+        siteName: brandLabel,
         title: titleBase,
         description,
         locale: "en_IN",
+        images: ogImages,
       },
       twitter: {
         card: "summary_large_image",
         title: titleBase,
         description,
+        images: ogImages.map((i) => i.url),
       },
+      ...storefrontIconMetadata(seo.logoUrl),
     };
   }
 
@@ -74,28 +90,45 @@ export async function generateMetadata({
     { style: styleSlug, sku: skuSlug, metal },
   );
 
-  const titleBase = buildCatalogPillarTitle(cat?.name, sub?.name, metalLabel);
+  const titleBase = buildCatalogPillarTitle(
+    cat?.name,
+    sub?.name,
+    metalLabel,
+    brandLabel,
+  );
   const description = buildCatalogPillarDescription(
     itemCount,
     cat?.name,
     sub?.name,
     metalLabel,
+    brandLabel,
   );
   const titleParts = [cat?.name, sub?.name].filter(Boolean);
 
-  const ogImage =
+  const productOgImage =
     resolveCatalogImageUrlForMeta(cat?.image_url) ||
     resolveCatalogImageUrlForMeta(
       (sub?.products?.[0] as { image_url?: string } | undefined)?.image_url,
     );
 
   const pathSeg = `${metal}/${encodeURIComponent(styleSlug)}/${encodeURIComponent(skuSlug)}`;
-  const canonical = `${site}/catalog/${pathSeg}`;
+  const canonical = `${origin}/catalog/${pathSeg}`;
+
+  const ogImages = isResellerHost
+    ? storefrontOgImages(brandLabel, seo.logoUrl)
+    : storefrontOgImages(
+        brandLabel,
+        seo.logoUrl,
+        productOgImage
+          ? { url: productOgImage, alt: titleParts.join(" › ") || brandLabel }
+          : null,
+      );
 
   return {
+    metadataBase: seo.metadataBase,
     title: { absolute: titleBase },
     description,
-    keywords: metadataKeywordsForPillar(cat?.name, sub?.name, metalLabel),
+    keywords: metadataKeywordsForPillar(cat?.name, sub?.name, metalLabel, brandLabel),
     robots: {
       index: true,
       follow: true,
@@ -110,27 +143,19 @@ export async function generateMetadata({
     openGraph: {
       type: "website",
       url: canonical,
-      siteName: BRAND,
+      siteName: brandLabel,
       title: titleBase,
       description,
       locale: "en_IN",
-      images: ogImage
-        ? [
-            {
-              url: ogImage,
-              width: 1200,
-              height: 630,
-              alt: titleParts.join(" › ") || BRAND,
-            },
-          ]
-        : undefined,
+      images: ogImages,
     },
     twitter: {
       card: "summary_large_image",
       title: titleBase,
       description,
-      images: ogImage ? [ogImage] : undefined,
+      images: ogImages.map((i) => i.url),
     },
+    ...storefrontIconMetadata(seo.logoUrl),
   };
 }
 
@@ -140,14 +165,16 @@ export default async function CatalogPage({
   params: Promise<{ slug?: string[] }>;
 }) {
   const { slug } = await params;
-  const site = getSiteUrl();
+  const seo = await getStorefrontSeoContext();
+  const { origin, brandLabel } = seo;
   const segments = parseCatalogSlugSegments(slug);
-  const categories = await fetchCatalogJson();
+  const storefrontDomain = await getStorefrontDomainFromHeaders();
+  const categories = await fetchCatalogJson(storefrontDomain);
 
   if (!segments) {
     return (
       <>
-        <CatalogRootStructuredData siteUrl={site} />
+        <CatalogRootStructuredData siteUrl={origin} brandLabel={brandLabel} />
       </>
     );
   }
@@ -158,19 +185,25 @@ export default async function CatalogPage({
     { style: styleSlug, sku: skuSlug, metal },
   );
 
-  const pageName = buildCatalogPillarTitle(cat?.name, sub?.name, metalLabel);
+  const pageName = buildCatalogPillarTitle(
+    cat?.name,
+    sub?.name,
+    metalLabel,
+    brandLabel,
+  );
   const pageDescription = buildCatalogPillarDescription(
     itemCount,
     cat?.name,
     sub?.name,
     metalLabel,
+    brandLabel,
   );
   const pathSeg = `${metal}/${encodeURIComponent(styleSlug)}/${encodeURIComponent(skuSlug)}`;
-  const canonical = `${site}/catalog/${pathSeg}`;
-  const listItems = buildCatalogItemListElements(products, site);
+  const canonical = `${origin}/catalog/${pathSeg}`;
+  const listItems = buildCatalogItemListElements(products, origin);
   const breadcrumbItems = [
-    { position: 1, name: "Home", item: `${site}/` },
-    { position: 2, name: "Catalogue", item: `${site}/catalog` },
+    { position: 1, name: "Home", item: `${origin}/` },
+    { position: 2, name: "Catalogue", item: `${origin}/catalog` },
     {
       position: 3,
       name: [metalLabel, sub?.name || cat?.name].filter(Boolean).join(" — ") || "Collection",
@@ -181,7 +214,8 @@ export default async function CatalogPage({
   return (
     <>
       <CatalogStructuredData
-        siteUrl={site}
+        siteUrl={origin}
+        brandLabel={brandLabel}
         pageUrl={canonical}
         pageName={pageName}
         pageDescription={pageDescription}

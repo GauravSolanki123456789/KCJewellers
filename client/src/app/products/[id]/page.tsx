@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import ProductDetailClient from "./product-detail-client";
 import ProductJsonLd from "./product-json-ld";
-import { getSiteUrl } from "@/lib/site";
 import { resolveCatalogImageUrlForMeta } from "@/lib/normalize-image-url";
 import {
   fetchDisplayRates,
@@ -16,8 +15,11 @@ import {
 import { normalizeStorefrontProductId } from "@/lib/catalog-product-filters";
 import type { Item } from "@/lib/pricing";
 import { getStorefrontDomainFromHeaders } from "@/lib/storefront-domain-server";
-
-const BRAND = "KC Jewellers";
+import {
+  getStorefrontSeoContext,
+  storefrontIconMetadata,
+  storefrontOgImages,
+} from "@/lib/storefront-seo";
 
 export async function generateMetadata({
   params,
@@ -26,8 +28,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   const safeId = normalizeStorefrontProductId(id);
-  const site = getSiteUrl();
+  const seo = await getStorefrontSeoContext();
+  const { origin, brandLabel } = seo;
   const productPath = `/products/${encodeURIComponent(safeId)}`;
+  const canonical = `${origin}${productPath}`;
   const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [product, liveRates] = await Promise.all([
     fetchProductByBarcode(safeId),
@@ -36,27 +40,35 @@ export async function generateMetadata({
 
   if (!product) {
     return {
-      title: { absolute: `Product · ${BRAND}` },
-      description: `View this piece on ${BRAND}.`,
-      alternates: { canonical: `${site}${productPath}` },
+      metadataBase: seo.metadataBase,
+      title: { absolute: `Product · ${brandLabel}` },
+      description: `View this piece on ${brandLabel}.`,
+      alternates: { canonical },
       robots: { index: false, follow: true },
+      ...storefrontIconMetadata(seo.logoUrl),
     };
   }
 
   const item = product as Item;
-  const absTitle = buildProductSeoTitle(item);
-  const description = buildProductMetaDescription(item, liveRates);
+  const absTitle = buildProductSeoTitle(item, brandLabel);
+  const description = buildProductMetaDescription(item, liveRates, brandLabel);
   const ogImage = resolveCatalogImageUrlForMeta(product.image_url);
   const name =
     (product.name || "").trim() ||
     item.item_name ||
     item.short_name ||
     "Jewellery";
+  const ogImages = storefrontOgImages(
+    brandLabel,
+    seo.logoUrl,
+    ogImage ? { url: ogImage, width: 1200, height: 1200, alt: name } : null,
+  );
 
   return {
+    metadataBase: seo.metadataBase,
     title: { absolute: absTitle },
     description,
-    keywords: buildProductMetadataKeywords(item),
+    keywords: buildProductMetadataKeywords(item, brandLabel),
     robots: {
       index: true,
       follow: true,
@@ -67,33 +79,23 @@ export async function generateMetadata({
         "max-snippet": -1,
       },
     },
-    alternates: {
-      canonical: `${site}${productPath}`,
-    },
+    alternates: { canonical },
     openGraph: {
       type: "website",
-      url: `${site}${productPath}`,
-      siteName: BRAND,
+      url: canonical,
+      siteName: brandLabel,
       title: absTitle,
       description,
       locale: "en_IN",
-      images: ogImage
-        ? [
-            {
-              url: ogImage,
-              width: 1200,
-              height: 1200,
-              alt: name,
-            },
-          ]
-        : undefined,
+      images: ogImages,
     },
     twitter: {
       card: "summary_large_image",
       title: absTitle,
       description,
-      images: ogImage ? [ogImage] : undefined,
+      images: ogImages.map((i) => i.url),
     },
+    ...storefrontIconMetadata(seo.logoUrl),
   };
 }
 

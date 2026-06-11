@@ -7,6 +7,7 @@ import { useResellerBranding } from "@/context/ResellerBrandingContext";
 import type { WholesaleUserFields } from "@/lib/customer-tier";
 import { resolveCatalogShareBrand } from "@/lib/catalog-share";
 import { buildWhatsAppBusinessChatLink } from "@/lib/whatsapp";
+import { toWhatsAppWaMeDigits } from "@/lib/cart-order-whatsapp";
 
 type Props = {
   className?: string;
@@ -26,7 +27,12 @@ function contactPrompt(brand: string): string {
 export default function WhatsAppContactLink({ className = "", compact = false }: Props) {
   const auth = useAuth();
   const { customerTier } = useCustomerTier();
-  const { active: brandingActive, businessName: brandingBusinessName } = useResellerBranding();
+  const {
+    active: brandingActive,
+    businessName: brandingBusinessName,
+    contactPhoneDigits,
+    customDomainHost,
+  } = useResellerBranding();
   const user = auth.user as WholesaleUserFields | undefined;
   const brand = resolveCatalogShareBrand({
     brandingActive,
@@ -34,7 +40,11 @@ export default function WhatsAppContactLink({ className = "", compact = false }:
     customerTier,
     userBusinessName: user?.business_name,
   });
-  const href = buildWhatsAppBusinessChatLink(contactPrompt(brand));
+  const waPhone =
+    customDomainHost && contactPhoneDigits
+      ? toWhatsAppWaMeDigits(contactPhoneDigits)
+      : undefined;
+  const href = buildWhatsAppBusinessChatLink(contactPrompt(brand), waPhone);
   if (!href) return null;
 
   return (

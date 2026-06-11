@@ -14,6 +14,21 @@ pm2 restart all
 To add a domain as reseller:
 sudo nano /etc/nginx/sites-available/kcjewellers
 
+
+# FRONTEND - Reseller: Silver Lining Jewels
+server {
+    server_name silverliningjewels.com www.silverliningjewels.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
 sudo nginx -t
 sudo systemctl reload nginx
 sudo certbot --nginx -d gauravsoftwares.tech -d www.gauravsoftwares.tech

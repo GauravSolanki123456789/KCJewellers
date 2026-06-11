@@ -3,6 +3,7 @@
  */
 export default function CatalogStructuredData({
   siteUrl,
+  brandLabel = "KC Jewellers",
   pageUrl,
   pageName,
   pageDescription,
@@ -10,6 +11,7 @@ export default function CatalogStructuredData({
   breadcrumbItems,
 }: {
   siteUrl: string;
+  brandLabel?: string;
   pageUrl: string;
   pageName: string;
   pageDescription: string;
@@ -24,7 +26,7 @@ export default function CatalogStructuredData({
     url: pageUrl,
     isPartOf: {
       "@type": "WebSite",
-      name: "KC Jewellers",
+      name: brandLabel,
       url: siteUrl,
     },
     numberOfItems: listItems.length,
