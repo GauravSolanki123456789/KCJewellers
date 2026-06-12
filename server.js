@@ -90,6 +90,14 @@ const {
     isStorefrontInvestAllowed,
     assertStorefrontInvestAllowed,
 } = require('./services/storefrontInvest');
+const {
+    classifyCatalogMetalFamily,
+    sqlProductMatchesCatalogMetal,
+    parseDiscountByMetal,
+    resolveCategoryDiscountPct,
+    resolveCategoryDiscountForMetalTab,
+    CATALOG_METAL_KEYS,
+} = require('./services/catalogMetalFamily');
 
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
 const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
@@ -2525,7 +2533,9 @@ app.get('/api/products', async (req, res) => {
                 wp.diamond_color,
                 wp.diamond_clarity,
                 wp.certificate_url,
-                COALESCE(GREATEST(COALESCE(wc.discount_percentage, 0), COALESCE(wp.discount_percentage, 0)), 0)::float AS discount_percentage,
+                COALESCE(wp.discount_percentage, 0)::float AS product_discount_percentage,
+                COALESCE(wc.discount_percentage, 0)::float AS category_discount_percentage,
+                COALESCE(wc.discount_by_metal, '{}'::jsonb) AS category_discount_by_metal,
                 wp.subcategory_id,
                 wp.is_active,
                 wp.last_synced_at,
@@ -2586,18 +2596,8 @@ app.get('/api/products', async (req, res) => {
         }
         if (req.query.metal_type) {
             const mt = String(req.query.metal_type).toLowerCase();
-            if (mt === 'diamond') {
-                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')`);
-            } else if (mt === 'gifting') {
-                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%')`);
-            } else if (mt === 'gold') {
-                whereClauses.push(`(LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%' OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%')`);
-            } else if (mt === 'silver') {
-                // Match public /api/catalog: NULL/empty metal_type is treated as silver in JSON (COALESCE(..., 'silver')).
-                whereClauses.push(`(
-                    LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE 'silver%'
-                    OR LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE '%silver%'
-                )`);
+            if (['gold', 'silver', 'diamond', 'gifting'].includes(mt)) {
+                whereClauses.push(`(${sqlProductMatchesCatalogMetal('wp.metal_type', mt)})`);
             }
         }
 
@@ -2618,7 +2618,28 @@ app.get('/api/products', async (req, res) => {
             paginationParams.push(parseInt(offset));
         }
 
-        const result = await query(`${baseSelect} ${whereSQL} ${paginationSQL}`, paginationParams);
+        const rawResult = await query(`${baseSelect} ${whereSQL} ${paginationSQL}`, paginationParams);
+        const mapProductRowDiscount = (row) => {
+            const categoryDisc = resolveCategoryDiscountPct(
+                {
+                    discount_percentage: row.category_discount_percentage,
+                    discount_by_metal: row.category_discount_by_metal,
+                },
+                row.metal_type,
+            );
+            const productDisc = Number(row.product_discount_percentage || 0) || 0;
+            const {
+                product_discount_percentage: _pd,
+                category_discount_percentage: _cd,
+                category_discount_by_metal: _cbm,
+                ...rest
+            } = row;
+            return {
+                ...rest,
+                discount_percentage: Math.max(categoryDisc, productDisc),
+            };
+        };
+        const result = rawResult.map(mapProductRowDiscount);
 
         let size_variants = [];
         if (barcode && result.length > 0) {
@@ -2634,10 +2655,11 @@ app.get('/api/products', async (req, res) => {
                     AND (wp.is_active IS NULL OR wp.is_active = true)
                     AND LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%'
                 `;
-                size_variants = await query(
+                const rawVariants = await query(
                     `${baseSelect} ${variantWhere} ORDER BY wp.size NULLS LAST, wp.name ASC, wp.id ASC`,
                     variantParams,
                 );
+                size_variants = rawVariants.map(mapProductRowDiscount);
             }
         }
 
@@ -6212,7 +6234,9 @@ function mapSubcategoryRetailTags(s) {
 app.get('/api/catalog', async (req, res) => {
     try {
         const cats = await query(`
-            SELECT id, name, slug, image_url, COALESCE(discount_percentage, 0)::float AS discount_percentage
+            SELECT id, name, slug, image_url,
+                   COALESCE(discount_percentage, 0)::float AS discount_percentage,
+                   COALESCE(discount_by_metal, '{}'::jsonb) AS discount_by_metal
             FROM web_categories
             WHERE is_published = true
             ORDER BY sort_order, name
@@ -6244,10 +6268,13 @@ app.get('/api/catalog', async (req, res) => {
                     WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
                     ORDER BY updated_at DESC
                 `, [s.id]);
-                const productsWithDiscount = products.map(p => ({
-                    ...p,
-                    discount_percentage: c.discount_percentage ?? 0,
-                }));
+                const productsWithDiscount = products.map((p) => {
+                    const categoryDisc = resolveCategoryDiscountPct(c, p.metal_type);
+                    return {
+                        ...p,
+                        discount_percentage: categoryDisc,
+                    };
+                });
                 const mapped = mapSubcategoryRetailTags(s);
                 mapped.products = productsWithDiscount;
                 subcategories.push(mapped);
@@ -6639,7 +6666,9 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 wp.size,
                 wp.design_group,
                 wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,
-                COALESCE(GREATEST(COALESCE(wc.discount_percentage, 0), COALESCE(wp.discount_percentage, 0)), 0)::float AS discount_percentage,
+                COALESCE(wp.discount_percentage, 0)::float AS product_discount_percentage,
+                COALESCE(wc.discount_percentage, 0)::float AS category_discount_percentage,
+                COALESCE(wc.discount_by_metal, '{}'::jsonb) AS category_discount_by_metal,
                 wc.name AS style_name,
                 ws.id AS subcategory_id,
                 ws.name AS subcategory_name,
@@ -6653,6 +6682,26 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             ORDER BY array_position($1::text[], wp.barcode::text)`,
             [barcodes],
         );
+        const brochureProducts = products.map((p) => {
+            const categoryDisc = resolveCategoryDiscountPct(
+                {
+                    discount_percentage: p.category_discount_percentage,
+                    discount_by_metal: p.category_discount_by_metal,
+                },
+                p.metal_type,
+            );
+            const productDisc = Number(p.product_discount_percentage || 0) || 0;
+            const {
+                product_discount_percentage: _pd,
+                category_discount_percentage: _cd,
+                category_discount_by_metal: _cbm,
+                ...rest
+            } = p;
+            return {
+                ...rest,
+                discount_percentage: Math.max(categoryDisc, productDisc),
+            };
+        });
 
         res.json({
             expired: false,
@@ -6664,7 +6713,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             creatorWholesalePricing: cwPricing,
             selectionWhatsAppDigits,
             creatorCustomerTier,
-            products,
+            products: brochureProducts,
             rates: ratesForBrochure,
             ratesFrozenAtShare,
             kc_theme_id,
@@ -6681,7 +6730,8 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
     try {
         const cats = await query(`
             SELECT id, name, slug, image_url, COALESCE(is_published, false) as is_published,
-                   COALESCE(discount_percentage, 0)::float AS discount_percentage
+                   COALESCE(discount_percentage, 0)::float AS discount_percentage,
+                   COALESCE(discount_by_metal, '{}'::jsonb) AS discount_by_metal
             FROM web_categories ORDER BY sort_order, name
         `);
         /** Per-style metal presence (matches storefront filtering; not limited by /api/products LIMIT). */
@@ -6691,22 +6741,16 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                     WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
                 )::int AS product_count,
                 COALESCE(BOOL_OR(
-                    wp.id IS NOT NULL AND (
-                        LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%'
-                        OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%'
-                    )
+                    wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gold')})
                 ), false) AS has_gold,
                 COALESCE(BOOL_OR(
-                    wp.id IS NOT NULL AND (
-                        LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE 'silver%'
-                        OR LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE '%silver%'
-                    )
+                    wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'silver')})
                 ), false) AS has_silver,
                 COALESCE(BOOL_OR(
-                    wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')
+                    wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'diamond')})
                 ), false) AS has_diamond,
                 COALESCE(BOOL_OR(
-                    wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%')
+                    wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gifting')})
                 ), false) AS has_gifting
             FROM web_categories wc
             LEFT JOIN web_subcategories ws ON ws.category_id = wc.id
@@ -6723,22 +6767,16 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                         WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
                     )::int AS product_count,
                     COALESCE(BOOL_OR(
-                        wp.id IS NOT NULL AND (
-                            LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%'
-                            OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%'
-                        )
+                        wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gold')})
                     ), false) AS has_gold,
                     COALESCE(BOOL_OR(
-                        wp.id IS NOT NULL AND (
-                            LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE 'silver%'
-                            OR LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE '%silver%'
-                        )
+                        wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'silver')})
                     ), false) AS has_silver,
                     COALESCE(BOOL_OR(
-                        wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')
+                        wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'diamond')})
                     ), false) AS has_diamond,
                     COALESCE(BOOL_OR(
-                        wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%')
+                        wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gifting')})
                     ), false) AS has_gifting
                 FROM web_subcategories ws
                 LEFT JOIN web_products wp ON wp.subcategory_id = ws.id
@@ -6798,15 +6836,45 @@ app.put('/api/admin/catalog/reorder-categories', requireJson, isAdminStrict, asy
     }
 });
 
-// Admin: update web_category (Style) discount percentage
+// Admin: update web_category (Style) discount percentage — scoped per metal tab (gold/silver/diamond/gifting)
 app.put('/api/admin/catalog/:id/discount', requireJson, isAdminStrict, async (req, res) => {
     try {
         const { id } = req.params;
-        const { discount_percentage } = req.body || {};
+        const { discount_percentage, metal_type: metalTypeRaw } = req.body || {};
         const pct = Math.max(0, Math.min(100, Number(discount_percentage) || 0));
+        const metalKey = String(metalTypeRaw || '').trim().toLowerCase();
+        const categoryId = parseInt(id, 10);
+        if (!Number.isFinite(categoryId)) return res.status(400).json({ error: 'Invalid category id' });
+
+        if (CATALOG_METAL_KEYS.includes(metalKey)) {
+            const existing = await query(
+                `SELECT COALESCE(discount_by_metal, '{}'::jsonb) AS discount_by_metal
+                 FROM web_categories WHERE id = $1`,
+                [categoryId],
+            );
+            if (!existing.length) return res.status(404).json({ error: 'Category not found' });
+            const merged = {
+                ...parseDiscountByMetal(existing[0].discount_by_metal),
+                [metalKey]: pct,
+            };
+            const result = await query(
+                `UPDATE web_categories
+                 SET discount_by_metal = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $2
+                 RETURNING id, discount_by_metal`,
+                [JSON.stringify(merged), categoryId],
+            );
+            return res.json({
+                success: true,
+                metal_type: metalKey,
+                discount_percentage: pct,
+                discount_by_metal: parseDiscountByMetal(result[0].discount_by_metal),
+            });
+        }
+
         const result = await query(
             'UPDATE web_categories SET discount_percentage = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id',
-            [pct, parseInt(id)]
+            [pct, categoryId],
         );
         if (result.length === 0) return res.status(404).json({ error: 'Category not found' });
         res.json({ success: true, discount_percentage: pct });

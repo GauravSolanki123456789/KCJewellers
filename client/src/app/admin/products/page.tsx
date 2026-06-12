@@ -41,6 +41,11 @@ import {
   normalizeCatalogAudience,
   normalizeCatalogProductType,
 } from '@/lib/catalog-retail-tags'
+import {
+  productMatchesCatalogMetal,
+  resolveCategoryDiscountForMetalTab,
+  type CatalogMetalKey,
+} from '@/lib/catalog-metal-family'
 
 /** Metal types — values match backend metal_type (lowercase) */
 const METAL_TABS = [
@@ -53,12 +58,7 @@ const METAL_TABS = [
 type MetalKey = (typeof METAL_TABS)[number]['key']
 
 function productMatchesMetal(p: { metal_type?: string }, metal: MetalKey): boolean {
-  const m = (p.metal_type || '').toLowerCase()
-  if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
-  if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
-  if (metal === 'diamond') return m.startsWith('diamond') || m.includes('diamond')
-  if (metal === 'gifting') return m.startsWith('gifting') || m.includes('gifting')
-  return false
+  return productMatchesCatalogMetal(p.metal_type, metal as CatalogMetalKey)
 }
 
 type Product = Item & {
@@ -149,6 +149,7 @@ type WebCategory = {
   slug: string
   is_published: boolean
   discount_percentage?: number
+  discount_by_metal?: Partial<Record<CatalogMetalKey, number>>
   subcategories?: SubcategoryInfo[]
   /** From /api/admin/catalog — which metals have ≥1 active product in this style */
   has_gold?: boolean
@@ -553,12 +554,16 @@ export default function AdminProductsPage() {
     return b.total
   }
 
-  const handleCategoryDiscountSave = async (categoryId: number, discountPct: number) => {
+  const handleCategoryDiscountSave = async (
+    categoryId: number,
+    discountPct: number,
+    metal: MetalKey,
+  ) => {
     setSavingDiscount(categoryId)
     try {
       await axios.put(
         `${url}/api/admin/catalog/${categoryId}/discount`,
-        { discount_percentage: discountPct },
+        { discount_percentage: discountPct, metal_type: metal },
         { withCredentials: true },
       )
       await loadCatalog()
@@ -572,6 +577,12 @@ export default function AdminProductsPage() {
 
   const getCategoryForStyle = (styleCode: string) =>
     catalogCategories.find((c) => c.name === styleCode)
+
+  const getCategoryDiscountForStyle = (styleCode: string, metal: MetalKey) => {
+    const cat = getCategoryForStyle(styleCode)
+    if (!cat) return 0
+    return resolveCategoryDiscountForMetalTab(cat, metal as CatalogMetalKey)
+  }
 
   const groupedCatalog = (): GroupedCatalog[] => {
     const byStyle: Record<string, Record<string, Product[]>> = {}
@@ -1076,22 +1087,21 @@ export default function AdminProductsPage() {
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <label className="text-xs text-slate-500 whitespace-nowrap">
-                                  Discount %
+                                  {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} discount %
                                 </label>
                                 <input
+                                  key={`${getCategoryForStyle(styleCode)?.id ?? styleCode}-${selectedMetal}`}
                                   type="number"
                                   min={0}
                                   max={100}
                                   step={0.5}
-                                  defaultValue={
-                                    getCategoryForStyle(styleCode)?.discount_percentage ?? 0
-                                  }
+                                  defaultValue={getCategoryDiscountForStyle(styleCode, selectedMetal)}
                                   onBlur={(e) => {
                                     const cat = getCategoryForStyle(styleCode)
                                     if (!cat) return
                                     const v = parseFloat(e.target.value)
                                     if (!isNaN(v) && v >= 0 && v <= 100) {
-                                      handleCategoryDiscountSave(cat.id, v)
+                                      void handleCategoryDiscountSave(cat.id, v, selectedMetal)
                                     }
                                   }}
                                   className="w-14 sm:w-16 px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-sm text-right focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"

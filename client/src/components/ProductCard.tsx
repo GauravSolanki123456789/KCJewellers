@@ -117,7 +117,10 @@ export default function ProductCard({
   const displayName = variantDisplayTitle(product)
   const weightLabel = getCustomerDisplayWeightLabel(active)
   const barcode = getProductSelectionKey(active)
-  const productHref = `/products/${encodeURIComponent(barcode)}${includeBox ? '?box=1' : ''}`
+  const productHref =
+    includeBox && hasBox
+      ? `/products/${encodeURIComponent(barcode)}?box=1`
+      : `/products/${encodeURIComponent(barcode)}`
 
   const imageSrc = normalizeCatalogImageSrc(
     active.image_url || product.image_url,

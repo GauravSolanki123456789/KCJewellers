@@ -29,6 +29,18 @@ export function sortSizeVariants(variants: Item[]): Item[] {
   return [...variants].sort(compareVariantBySize)
 }
 
+/**
+ * Which size chips to show around the selection (prev · current · next) — no horizontal scroll.
+ */
+export function visibleSizeVariantIndices(total: number, selectedIdx: number): number[] {
+  if (total <= 0) return []
+  if (total <= 2) return [...Array(total).keys()]
+  const idx = Math.max(0, Math.min(selectedIdx, total - 1))
+  if (idx <= 0) return [0, 1]
+  if (idx >= total - 1) return [total - 2, total - 1]
+  return [idx - 1, idx, idx + 1]
+}
+
 export function getAttachedVariants(product: ItemWithVariants): Item[] {
   const list = product.variants
   if (Array.isArray(list) && list.length > 0) return sortSizeVariants(list)

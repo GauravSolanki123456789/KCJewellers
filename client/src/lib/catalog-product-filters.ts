@@ -1,3 +1,4 @@
+import { productMatchesCatalogMetal } from '@/lib/catalog-metal-family'
 import {
   CATALOG_METAL_KEYS,
   type CatalogMetalKey,
@@ -94,12 +95,7 @@ export function wholesaleRowMatchesSearch(row: WholesaleProductRow, query: strin
 }
 
 export function productMatchesMetal(product: Item, metal: CatalogMetalKey): boolean {
-  const m = (product.metal_type || '').toLowerCase()
-  if (metal === 'gold') return m.startsWith('gold') || m.includes('gold')
-  if (metal === 'silver') return m.startsWith('silver') || m.includes('silver')
-  if (metal === 'diamond') return m.startsWith('diamond') || m.includes('diamond')
-  if (metal === 'gifting') return m.startsWith('gifting') || m.includes('gifting')
-  return false
+  return productMatchesCatalogMetal(product.metal_type, metal)
 }
 
 /** Stable id for selection state — matches ProductCard `data-product-id` (barcode preferred). */

@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { getCustomerDisplaySize, type Item } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
-import { sortSizeVariants } from '@/lib/product-variants'
+import { sortSizeVariants, visibleSizeVariantIndices } from '@/lib/product-variants'
 
 type Props = {
   variants: Item[]
@@ -27,33 +27,14 @@ export default function GiftingSizeVariantPicker({
   className,
 }: Props) {
   const sorted = useMemo(() => sortSizeVariants(variants), [variants])
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const chipRefs = useRef<(HTMLButtonElement | null)[]>([])
   const selectedKey = getProductSelectionKey(selected)
   const selectedIdx = sorted.findIndex((v) => getProductSelectionKey(v) === selectedKey)
   const isDetail = density === 'detail'
 
-  /** Keep selected size centered so the next (or previous) inch chip scrolls into view on tap. */
-  useEffect(() => {
-    if (sorted.length <= 1 || selectedIdx < 0) return
-    const active = chipRefs.current[selectedIdx]
-    const next = chipRefs.current[selectedIdx + 1]
-    const prev = chipRefs.current[selectedIdx - 1]
-    const container = scrollRef.current
-    if (!container) return
-
-    const scrollToChip = (chip: HTMLButtonElement, inline: ScrollLogicalPosition) => {
-      chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline })
-    }
-
-    if (next) {
-      scrollToChip(next, 'end')
-    } else if (prev) {
-      scrollToChip(prev, 'start')
-    } else if (active) {
-      scrollToChip(active, 'center')
-    }
-  }, [selectedIdx, selectedKey, sorted.length])
+  const visibleIndices = useMemo(
+    () => visibleSizeVariantIndices(sorted.length, selectedIdx < 0 ? 0 : selectedIdx),
+    [sorted.length, selectedIdx],
+  )
 
   if (sorted.length <= 1) return null
 
@@ -68,24 +49,18 @@ export default function GiftingSizeVariantPicker({
         Size
       </p>
       <div
-        ref={scrollRef}
         role="listbox"
         aria-label="Choose size"
-        className={cn(
-          'flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide',
-          isDetail ? 'flex-wrap gap-2' : 'snap-x snap-mandatory',
-        )}
+        className={cn('flex min-w-0 gap-1.5', isDetail ? 'gap-2' : '')}
       >
-        {sorted.map((v, i) => {
+        {visibleIndices.map((i) => {
+          const v = sorted[i]
           const key = getProductSelectionKey(v)
           const active = key === selectedKey
           const label = sizeLabel(v)
           return (
             <button
               key={key || label}
-              ref={(el) => {
-                chipRefs.current[i] = el
-              }}
               type="button"
               role="option"
               aria-selected={active}
@@ -95,10 +70,10 @@ export default function GiftingSizeVariantPicker({
                 onSelect(v)
               }}
               className={cn(
-                'kc-size-chip shrink-0 snap-start touch-manipulation rounded-lg border font-semibold tabular-nums transition',
+                'kc-size-chip min-w-0 flex-1 touch-manipulation rounded-lg border font-semibold tabular-nums transition',
                 isDetail
-                  ? 'min-h-[44px] px-4 py-2.5 text-sm'
-                  : 'min-h-[32px] px-2.5 py-1 text-[11px] sm:min-h-[36px] sm:px-3 sm:text-xs',
+                  ? 'min-h-[44px] max-w-[10rem] px-4 py-2.5 text-sm'
+                  : 'min-h-[32px] px-2 py-1 text-[11px] sm:min-h-[36px] sm:px-2.5 sm:text-xs',
                 active ? 'kc-size-chip-active' : 'kc-size-chip-idle',
               )}
             >
