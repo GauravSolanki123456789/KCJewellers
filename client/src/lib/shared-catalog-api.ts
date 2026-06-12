@@ -97,6 +97,8 @@ export type SharedCatalogPublicResponse =
       /** `users.customer_tier` of brochure creator (e.g. RESELLER); used for WhatsApp fallback messaging. */
       creatorCustomerTier?: string | null
       products: SharedCatalogPublicProduct[]
+      /** Barcodes explicitly chosen when the link was created (before size-variant expansion). */
+      selectedProductIds?: string[]
       rates: unknown[]
       /** Site-wide gift GST toggle from `app_settings.gifting_gst_enabled`. */
       gifting_gst_enabled?: boolean

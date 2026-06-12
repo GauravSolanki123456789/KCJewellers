@@ -6386,6 +6386,72 @@ function parseSharedDiscountPct(raw) {
     return Math.max(0, Math.min(100, n));
 }
 
+/** Brochure product row — include all gifting size variants for each selected design_group. */
+async function expandGiftingSizeVariantsForBrochure(products) {
+    if (!Array.isArray(products) || products.length === 0) return products;
+
+    const knownBarcodes = new Set(
+        products.map((p) => String(p.barcode || '').trim()).filter(Boolean),
+    );
+    const pairKeys = new Map();
+    for (const p of products) {
+        const dg = String(p.design_group || '').trim();
+        const subId = p.subcategory_id;
+        if (!dg || subId == null) continue;
+        if (classifyCatalogMetalFamily(p.metal_type) !== 'gifting') continue;
+        pairKeys.set(`${subId}\0${dg}`, { subId, dg });
+    }
+    if (pairKeys.size === 0) return products;
+
+    const pairs = [...pairKeys.values()];
+    const valuesSql = pairs
+        .map((_, i) => `($${i * 2 + 1}::int, $${i * 2 + 2}::text)`)
+        .join(', ');
+    const pairParams = pairs.flatMap((x) => [x.subId, x.dg]);
+
+    const siblingRows = await query(
+        `SELECT
+            wp.id, wp.sku, wp.barcode, wp.name AS name, wp.image_url, wp.secondary_image_url,
+            wp.box_image_url, wp.video_url,
+            wp.gross_weight::float AS gross_weight,
+            wp.net_weight::float AS net_weight,
+            wp.weight_display,
+            wp.purity::float AS purity,
+            wp.mc_rate::float AS mc_rate,
+            COALESCE(wp.fixed_price, 0)::float AS fixed_price,
+            COALESCE(wp.stone_charges, 0)::float AS stone_charges,
+            COALESCE(wp.box_charges, 0)::float AS box_charges,
+            COALESCE(wp.metal_type, 'silver') AS metal_type,
+            wp.size,
+            wp.design_group,
+            wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,
+            COALESCE(wp.discount_percentage, 0)::float AS product_discount_percentage,
+            COALESCE(wc.discount_percentage, 0)::float AS category_discount_percentage,
+            COALESCE(wc.discount_by_metal, '{}'::jsonb) AS category_discount_by_metal,
+            wc.name AS style_name,
+            ws.id AS subcategory_id,
+            ws.name AS subcategory_name,
+            ws.slug AS subcategory_slug,
+            COALESCE(ws.sort_order, 0)::int AS subcategory_sort_order
+        FROM web_products wp
+        JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+        JOIN web_categories wc ON wc.id = ws.category_id
+        WHERE (wp.is_active IS NULL OR wp.is_active = true)
+        AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gifting')})
+        AND (wp.subcategory_id, TRIM(COALESCE(wp.design_group, ''))) IN (VALUES ${valuesSql})`,
+        pairParams,
+    );
+
+    const merged = [...products];
+    for (const row of siblingRows) {
+        const bc = String(row.barcode || '').trim();
+        if (!bc || knownBarcodes.has(bc)) continue;
+        knownBarcodes.add(bc);
+        merged.push(row);
+    }
+    return merged;
+}
+
 /** Parse frozen live rates from shared_catalogs.rates_snapshot (JSONB). */
 function parseSharedCatalogRatesSnapshot(raw) {
     if (raw == null) return null;
@@ -6709,7 +6775,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             ORDER BY array_position($1::text[], wp.barcode::text)`,
             [barcodes],
         );
-        const brochureProducts = products.map((p) => {
+        const productsWithSizeVariants = await expandGiftingSizeVariantsForBrochure(products);
+        const brochureProducts = productsWithSizeVariants.map((p) => {
             const categoryDisc = resolveCategoryDiscountPct(
                 {
                     discount_percentage: p.category_discount_percentage,
@@ -6741,6 +6808,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             selectionWhatsAppDigits,
             creatorCustomerTier,
             products: brochureProducts,
+            selectedProductIds: barcodes,
             rates: ratesForBrochure,
             ratesFrozenAtShare,
             kc_theme_id,

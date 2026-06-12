@@ -22,7 +22,7 @@ import {
   type SharedCatalogGroupedRow,
   type SharedCatalogPricingRow,
 } from '@/lib/shared-catalog-pricing'
-import { getCustomerDisplayWeightLabel } from '@/lib/pricing'
+import { getCustomerDisplaySize, getCustomerDisplayWeightLabel } from '@/lib/pricing'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
@@ -203,6 +203,13 @@ export default function SharedCatalogClient({
     return m
   }, [rows, rowKeys])
 
+  const selectedBarcodeSet = useMemo(() => {
+    if (!isLoadedBrochure(payload)) return new Set<string>()
+    const ids = payload.selectedProductIds
+    if (!Array.isArray(ids)) return new Set<string>()
+    return new Set(ids.map((id) => String(id).trim()).filter(Boolean))
+  }, [payload])
+
   const [activeVariantByGroup, setActiveVariantByGroup] = useState<Map<string, string>>(
     () => new Map(),
   )
@@ -213,11 +220,20 @@ export default function SharedCatalogClient({
       for (const g of groupedRows) {
         const keys = g.variants.map((v) => rowKeyByRow.get(v) ?? '').filter(Boolean)
         const kept = prev.get(g.groupKey)
-        next.set(g.groupKey, kept && keys.includes(kept) ? kept : keys[0] ?? g.groupKey)
+        if (kept && keys.includes(kept)) {
+          next.set(g.groupKey, kept)
+          continue
+        }
+        const preferred = g.variants.find((v) => {
+          const bc = String(v.product.barcode ?? '').trim()
+          return bc && selectedBarcodeSet.has(bc)
+        })
+        const preferredKey = preferred ? rowKeyByRow.get(preferred) : undefined
+        next.set(g.groupKey, preferredKey ?? keys[0] ?? g.groupKey)
       }
       return next
     })
-  }, [groupedRows, rowKeyByRow])
+  }, [groupedRows, rowKeyByRow, selectedBarcodeSet])
 
   const resolveActiveVariant = useCallback(
     (group: SharedCatalogGroupedRow): SharedCatalogPricingRow => {
@@ -649,7 +665,8 @@ export default function SharedCatalogClient({
               )
               const MetalIc = metalIcon(String(product.metal_type || ''))
               const code = String(product.barcode || product.sku || '')
-                      const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
+              const sizeLabel = getCustomerDisplaySize(item)
+              const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
               const hasBox = productHasBoxOption(item)
               const includeBox = includeBoxByKey.get(key) ?? false
               const boxSlideIdx = boxImageSlideIndex(item)
@@ -754,7 +771,9 @@ export default function SharedCatalogClient({
                       <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-slate-100">
                         {name}
                       </h2>
-                      {!hasVariants && code ? (
+                      {!hasVariants && sizeLabel ? (
+                        <span className="kc-size-chip-single mt-0.5 w-fit">{sizeLabel}</span>
+                      ) : !hasVariants && code ? (
                         <p className="truncate font-mono text-[11px] text-slate-500">{code}</p>
                       ) : null}
                       {hasVariants ? (
