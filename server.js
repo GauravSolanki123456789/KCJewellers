@@ -6199,6 +6199,11 @@ function mapSubcategoryRetailTags(s) {
         design_group_order: normalizeDesignGroupOrder(s.design_group_order),
         audience: normalizeCatalogAudienceDb(s.audience),
         product_type: normalizeCatalogProductTypeDb(s.product_type),
+        product_count: Number(s.product_count ?? 0) || 0,
+        has_gold: !!s.has_gold,
+        has_silver: !!s.has_silver,
+        has_diamond: !!s.has_diamond,
+        has_gifting: !!s.has_gifting,
     };
 }
 
@@ -6713,8 +6718,34 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
         const categories = [];
         for (const c of cats) {
             const subs = await query(`
-                SELECT id, name, slug, design_group_order, audience, product_type FROM web_subcategories
-                WHERE category_id = $1 ORDER BY sort_order, name
+                SELECT ws.id, ws.name, ws.slug, ws.design_group_order, ws.audience, ws.product_type,
+                    COUNT(wp.id) FILTER (
+                        WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
+                    )::int AS product_count,
+                    COALESCE(BOOL_OR(
+                        wp.id IS NOT NULL AND (
+                            LOWER(COALESCE(wp.metal_type, '')) LIKE 'gold%'
+                            OR LOWER(COALESCE(wp.metal_type, '')) LIKE '%gold%'
+                        )
+                    ), false) AS has_gold,
+                    COALESCE(BOOL_OR(
+                        wp.id IS NOT NULL AND (
+                            LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE 'silver%'
+                            OR LOWER(COALESCE(NULLIF(TRIM(wp.metal_type), ''), 'silver')) LIKE '%silver%'
+                        )
+                    ), false) AS has_silver,
+                    COALESCE(BOOL_OR(
+                        wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'diamond%')
+                    ), false) AS has_diamond,
+                    COALESCE(BOOL_OR(
+                        wp.id IS NOT NULL AND (LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%')
+                    ), false) AS has_gifting
+                FROM web_subcategories ws
+                LEFT JOIN web_products wp ON wp.subcategory_id = ws.id
+                    AND (wp.is_active IS NULL OR wp.is_active = true)
+                WHERE ws.category_id = $1
+                GROUP BY ws.id
+                ORDER BY ws.sort_order, ws.name
             `, [c.id]);
             const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false, has_gifting: false };
             categories.push({

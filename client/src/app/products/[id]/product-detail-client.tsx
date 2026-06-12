@@ -89,9 +89,12 @@ function productDisplayName(p: Item | null): string {
 export default function ProductDetailClient({
   id,
   initialProduct = null,
+  initialIncludeBox = false,
 }: {
   id: string;
   initialProduct?: Item | null;
+  /** From catalog card `?box=1` — open PDP on with-box photo + packaging selected. */
+  initialIncludeBox?: boolean;
 }) {
   const router = useRouter();
   const [product, setProduct] = useState<Item | null>(initialProduct ?? null);
@@ -112,7 +115,7 @@ export default function ProductDetailClient({
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
   const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(true);
-  const [includeBox, setIncludeBox] = useState(false);
+  const [includeBox, setIncludeBox] = useState(initialIncludeBox);
 
   useEffect(() => {
     setImageAnalysis(null);
@@ -120,8 +123,8 @@ export default function ProductDetailClient({
   }, [id, product?.image_url, product?.secondary_image_url, product?.box_image_url, product?.video_url]);
 
   useEffect(() => {
-    setIncludeBox(false);
-  }, [id, product?.barcode, product?.sku]);
+    if (!initialIncludeBox) setIncludeBox(false);
+  }, [id, initialIncludeBox]);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,9 +283,10 @@ export default function ProductDetailClient({
       if (!key) return;
       setProduct(v);
       productRef.current = v;
-      router.replace(`/products/${encodeURIComponent(key)}`, { scroll: false });
+      const boxQ = includeBox && productHasBoxOption(v) ? "?box=1" : "";
+      router.replace(`/products/${encodeURIComponent(key)}${boxQ}`, { scroll: false });
     },
-    [router],
+    [router, includeBox],
   );
 
   useEffect(() => {
@@ -412,13 +416,37 @@ export default function ProductDetailClient({
   }, []);
 
   useEffect(() => {
+    const wantBox = initialIncludeBox && product && productHasBoxOption(product);
+    const boxIdx = wantBox ? boxImageSlideIndex(product) : null;
+    if (boxIdx != null && boxIdx >= 0) {
+      setGalleryIdx(boxIdx);
+      setIncludeBox(true);
+      requestAnimationFrame(() => {
+        const el = galleryScrollRef.current;
+        if (el && el.clientWidth > 0) {
+          el.scrollTo({ left: boxIdx * el.clientWidth, behavior: "auto" });
+        }
+      });
+      return;
+    }
     setGalleryIdx(0);
     galleryScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
-  }, [id, product?.image_url, product?.secondary_image_url, product?.box_image_url, product?.video_url]);
+  }, [
+    id,
+    product?.image_url,
+    product?.secondary_image_url,
+    product?.box_image_url,
+    product?.video_url,
+    initialIncludeBox,
+    product,
+  ]);
 
   const galleryLen = gallerySlides.length;
+  const prevGalleryIdxRef = useRef(galleryIdx);
 
   useEffect(() => {
+    if (prevGalleryIdxRef.current === galleryIdx) return;
+    prevGalleryIdxRef.current = galleryIdx;
     if (boxSlideIdx != null && galleryIdx === boxSlideIdx) setIncludeBox(true);
     else if (productHasBoxOption(product)) setIncludeBox(false);
   }, [galleryIdx, boxSlideIdx, product]);

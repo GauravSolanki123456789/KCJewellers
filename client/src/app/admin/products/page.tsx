@@ -109,6 +109,39 @@ type SubcategoryInfo = {
   design_group_order?: string[] | null
   audience?: string | null
   product_type?: string | null
+  /** Per-SKU metal presence — avoids mixing e.g. Gold CBT vs Silver PREMIUM under Chain Pendant */
+  has_gold?: boolean
+  has_silver?: boolean
+  has_diamond?: boolean
+  has_gifting?: boolean
+}
+
+function subcategoryMatchesMetalTab(sub: SubcategoryInfo, metal: MetalKey): boolean {
+  const hasMeta =
+    sub.has_gold !== undefined ||
+    sub.has_silver !== undefined ||
+    sub.has_diamond !== undefined ||
+    sub.has_gifting !== undefined
+  if (!hasMeta) return true
+  if (metal === 'gold') return !!sub.has_gold
+  if (metal === 'silver') return !!sub.has_silver
+  if (metal === 'diamond') return !!sub.has_diamond
+  if (metal === 'gifting') return !!sub.has_gifting
+  return false
+}
+
+function filterCatalogTreeForMetalTab(
+  categories: WebCategory[],
+  metal: MetalKey,
+): WebCategory[] {
+  return categories
+    .map((cat) => ({
+      ...cat,
+      subcategories: (cat.subcategories || []).filter((sub) =>
+        subcategoryMatchesMetalTab(sub, metal),
+      ),
+    }))
+    .filter((cat) => (cat.subcategories?.length ?? 0) > 0)
 }
 type WebCategory = {
   id: number
@@ -583,25 +616,11 @@ export default function AdminProductsPage() {
 
   const catalog = groupedCatalog()
 
-  /** Styles that have ≥1 active catalogue product for the selected metal (prefer server flags; else fall back to loaded products). */
-  const categoriesWithProducts = useMemo(() => {
-    const styleSet = new Set(
-      products.map((p) => (p as { style_code?: string }).style_code).filter(Boolean),
-    )
-    return orderedCategories.filter((c) => {
-      const hasMeta =
-        c.has_gold !== undefined ||
-        c.has_silver !== undefined ||
-        c.has_diamond !== undefined ||
-        c.has_gifting !== undefined
-      if (!hasMeta) return styleSet.has(c.name)
-      if (selectedMetal === 'gold') return !!c.has_gold
-      if (selectedMetal === 'silver') return !!c.has_silver
-      if (selectedMetal === 'diamond') return !!c.has_diamond
-      if (selectedMetal === 'gifting') return !!c.has_gifting
-      return false
-    })
-  }, [orderedCategories, selectedMetal, products])
+  /** Styles + SKUs scoped to the active metal tab (Chain Pendant CBT ≠ Silver PREMIUM/EXCLUSIVE). */
+  const categoriesWithProducts = useMemo(
+    () => filterCatalogTreeForMetalTab(orderedCategories, selectedMetal),
+    [orderedCategories, selectedMetal],
+  )
 
   const retailTagRows = useMemo(() => {
     const rows: { cat: WebCategory; sub: SubcategoryInfo }[] = []

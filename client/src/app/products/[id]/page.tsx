@@ -101,10 +101,14 @@ export async function generateMetadata({
 
 export default async function ProductPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ box?: string; with_box?: string }>;
 }) {
   const { id } = await params;
+  const sp = searchParams ? await searchParams : {};
+  const initialIncludeBox = sp?.box === '1' || sp?.with_box === '1';
   const safeId = normalizeStorefrontProductId(id);
   const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [product, liveRates] = await Promise.all([
@@ -125,6 +129,7 @@ export default async function ProductPage({
       <ProductDetailClient
         id={id}
         initialProduct={product ? (product as Item) : null}
+        initialIncludeBox={initialIncludeBox}
       />
     </>
   );

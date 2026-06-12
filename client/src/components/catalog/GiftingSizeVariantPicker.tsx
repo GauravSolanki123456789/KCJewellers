@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { getCustomerDisplaySize, type Item } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
@@ -27,10 +27,35 @@ export default function GiftingSizeVariantPicker({
   className,
 }: Props) {
   const sorted = useMemo(() => sortSizeVariants(variants), [variants])
-  if (sorted.length <= 1) return null
-
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const chipRefs = useRef<(HTMLButtonElement | null)[]>([])
   const selectedKey = getProductSelectionKey(selected)
+  const selectedIdx = sorted.findIndex((v) => getProductSelectionKey(v) === selectedKey)
   const isDetail = density === 'detail'
+
+  /** Keep selected size centered so the next (or previous) inch chip scrolls into view on tap. */
+  useEffect(() => {
+    if (sorted.length <= 1 || selectedIdx < 0) return
+    const active = chipRefs.current[selectedIdx]
+    const next = chipRefs.current[selectedIdx + 1]
+    const prev = chipRefs.current[selectedIdx - 1]
+    const container = scrollRef.current
+    if (!container) return
+
+    const scrollToChip = (chip: HTMLButtonElement, inline: ScrollLogicalPosition) => {
+      chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline })
+    }
+
+    if (next) {
+      scrollToChip(next, 'end')
+    } else if (prev) {
+      scrollToChip(prev, 'start')
+    } else if (active) {
+      scrollToChip(active, 'center')
+    }
+  }, [selectedIdx, selectedKey, sorted.length])
+
+  if (sorted.length <= 1) return null
 
   return (
     <div className={cn('min-w-0', className)}>
@@ -43,6 +68,7 @@ export default function GiftingSizeVariantPicker({
         Size
       </p>
       <div
+        ref={scrollRef}
         role="listbox"
         aria-label="Choose size"
         className={cn(
@@ -50,13 +76,16 @@ export default function GiftingSizeVariantPicker({
           isDetail ? 'flex-wrap gap-2' : 'snap-x snap-mandatory',
         )}
       >
-        {sorted.map((v) => {
+        {sorted.map((v, i) => {
           const key = getProductSelectionKey(v)
           const active = key === selectedKey
           const label = sizeLabel(v)
           return (
             <button
               key={key || label}
+              ref={(el) => {
+                chipRefs.current[i] = el
+              }}
               type="button"
               role="option"
               aria-selected={active}
