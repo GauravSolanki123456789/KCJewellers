@@ -254,33 +254,95 @@ async function resolveCategoryIdForStyle(query, styleCode) {
     return rows[0]?.id ?? null;
 }
 
-async function assertResellerStyleAllowed(query, userId, styleCode) {
+/** gold / silver / diamond / gifting — used for multi-style Excel (e.g. Necklace + Chain Pendant). */
+function normalizeMetalFamily(metalType) {
+    const mt = String(metalType || '').trim().toLowerCase();
+    if (!mt) return null;
+    if (mt.startsWith('gold')) return 'gold';
+    if (mt.startsWith('silver')) return 'silver';
+    if (mt.startsWith('diamond')) return 'diamond';
+    if (mt.startsWith('gift') || mt === 'gifting') return 'gifting';
+    return mt;
+}
+
+async function resellerAllowedMetalFamilies(query, allowedCategoryIds) {
+    if (!allowedCategoryIds?.length) return null;
+    const rows = await query(
+        `SELECT DISTINCT LOWER(TRIM(COALESCE(wp.metal_type, ''))) AS mt
+         FROM web_products wp
+         INNER JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+         WHERE ws.category_id = ANY($1::int[])
+           AND (wp.is_active IS NULL OR wp.is_active = true)`,
+        [allowedCategoryIds],
+    );
+    const families = new Set();
+    for (const row of rows) {
+        const family = normalizeMetalFamily(row.mt);
+        if (family) families.add(family);
+    }
+    return families;
+}
+
+async function assertResellerStyleAllowed(query, userId, styleCode, opts = {}) {
     const u = await loadResellerUploadUser(query, userId);
     const allowed = u?.allowed_category_ids;
     if (!allowed || !Array.isArray(allowed) || allowed.length === 0) return;
     const catId = await resolveCategoryIdForStyle(query, styleCode);
     // New StyleCode rows are allowed in draft; category is created when KC approves.
     if (catId == null) return;
-    if (!allowed.includes(catId)) {
-        const er = new Error(`Style "${styleCode}" is outside your allowed catalogue categories`);
-        er.status = 403;
-        er.code = 'RESELLER_CATEGORY_DENIED';
-        throw er;
+    if (allowed.includes(catId)) return;
+
+    const metalFamily = normalizeMetalFamily(opts.metalType);
+    if (metalFamily) {
+        const families = await resellerAllowedMetalFamilies(query, allowed);
+        if (families?.has(metalFamily)) return;
     }
+
+    const er = new Error(`Style "${styleCode}" is outside your allowed catalogue categories`);
+    er.status = 403;
+    er.code = 'RESELLER_CATEGORY_DENIED';
+    throw er;
+}
+
+/** After KC approves a batch, add new StyleCode categories to a restricted reseller allow-list. */
+async function expandResellerAllowedCategoriesForBatch(query, submitterUserId, batchId) {
+    const u = await loadResellerUploadUser(query, submitterUserId);
+    const allowed = u?.allowed_category_ids;
+    if (!allowed || !Array.isArray(allowed) || allowed.length === 0) return;
+    const styleRows = await query(
+        `SELECT DISTINCT TRIM(style_code) AS style_code
+         FROM reseller_product_submissions
+         WHERE batch_id = $1::uuid AND submission_status = 'approved'`,
+        [batchId],
+    );
+    const toAdd = [];
+    for (const row of styleRows) {
+        const styleCode = String(row.style_code || '').trim();
+        if (!styleCode) continue;
+        const catId = await resolveCategoryIdForStyle(query, styleCode);
+        if (catId != null && !allowed.includes(catId)) toAdd.push(catId);
+    }
+    if (!toAdd.length) return;
+    const merged = [...new Set([...allowed, ...toAdd])].sort((a, b) => a - b);
+    await query(`UPDATE users SET allowed_category_ids = $1 WHERE id = $2`, [merged, submitterUserId]);
 }
 
 /** Enforce allowed catalogue scope when a batch is submitted (not during draft Excel import). */
 async function assertResellerBatchStylesAllowed(query, userId, batchId) {
     const rows = await query(
-        `SELECT DISTINCT TRIM(style_code) AS style_code
+        `SELECT TRIM(style_code) AS style_code,
+                MAX(TRIM(COALESCE(metal_type, ''))) AS metal_type
          FROM reseller_product_submissions
-         WHERE batch_id = $1::uuid AND submitted_by_user_id = $2 AND submission_status = 'draft'`,
+         WHERE batch_id = $1::uuid AND submitted_by_user_id = $2 AND submission_status = 'draft'
+         GROUP BY TRIM(style_code)`,
         [batchId, userId],
     );
     for (const row of rows) {
         const styleCode = String(row.style_code || '').trim();
         if (!styleCode) continue;
-        await assertResellerStyleAllowed(query, userId, styleCode);
+        await assertResellerStyleAllowed(query, userId, styleCode, {
+            metalType: row.metal_type,
+        });
     }
 }
 
@@ -580,7 +642,15 @@ function registerResellerProductRoutes(app, deps) {
             if (typeof item === 'string') item = JSON.parse(item);
             if (req.body?.payload) item = JSON.parse(req.body.payload);
             const styleCode = String(item.styleCode || item.style_code || existing[0].style_code || '').trim();
-            if (styleCode) await assertResellerStyleAllowed(query, req.user.id, styleCode);
+            const metalType =
+                item.metalType ||
+                item.metal_type ||
+                existing[0].metal_type ||
+                submissionRowToSyncItem(existing[0]).metalType;
+            // Draft batches: add/replace photos without blocking on sibling StyleCodes (e.g. Chain Pendant).
+            if (styleCode && st !== 'draft') {
+                await assertResellerStyleAllowed(query, req.user.id, styleCode, { metalType });
+            }
             const mergedItem = { ...submissionRowToSyncItem(existing[0]), ...item };
             const resolved = resolveNormalizedVariant(mergedItem);
             const fields = buildSubmissionFieldsFromItem(mergedItem, req.user.id, existing[0].batch_id);
@@ -753,6 +823,9 @@ function registerResellerProductRoutes(app, deps) {
                 } catch (e) {
                     errors.push({ id: row.id, error: e.message });
                 }
+            }
+            if (approved.length > 0 && rows[0]?.submitted_by_user_id) {
+                await expandResellerAllowedCategoriesForBatch(query, rows[0].submitted_by_user_id, batchId);
             }
             res.json({ success: approved.length > 0, approved, errors });
         } catch (e) {
@@ -1037,4 +1110,6 @@ module.exports = {
     buildSubmissionFieldsFromItem,
     summarizeImportByStyle,
     summarizeRawExcelByStyle,
+    normalizeMetalFamily,
+    assertResellerStyleAllowed,
 };

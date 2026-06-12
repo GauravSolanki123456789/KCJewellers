@@ -387,10 +387,26 @@ export function ResellerProductsPanel() {
     const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
     const fd = new FormData()
     fd.append('payload', JSON.stringify({}))
-    if (primary) fd.append('primaryImage', primary)
-    if (secondary) fd.append('secondaryImage', secondary)
-    if (boxImage) fd.append('boxImage', boxImage)
-    if (video) fd.append('productVideo', video)
+    if (primary) {
+      const imgErr = validateImage(primary)
+      if (imgErr) throw new Error(imgErr)
+      fd.append('primaryImage', primary, primary.name || 'front.webp')
+    }
+    if (secondary) {
+      const imgErr = validateImage(secondary)
+      if (imgErr) throw new Error(imgErr)
+      fd.append('secondaryImage', secondary, secondary.name || 'back.webp')
+    }
+    if (boxImage) {
+      const imgErr = validateImage(boxImage)
+      if (imgErr) throw new Error(imgErr)
+      fd.append('boxImage', boxImage, boxImage.name || 'box.webp')
+    }
+    if (video) {
+      const vErr = validateVideo(video)
+      if (vErr) throw new Error(vErr)
+      fd.append('productVideo', video, video.name || 'video.mp4')
+    }
     const res = await axios.put<{ success?: boolean; submission?: ResellerProductSubmission }>(
       `/api/reseller/product-submissions/${submissionId}`,
       fd,
@@ -927,8 +943,14 @@ function BatchProductPhotoRow({
       if (secondaryRef.current) secondaryRef.current.value = ''
       if (boxRef.current) boxRef.current.value = ''
       if (videoRef.current) videoRef.current.value = ''
-    } catch {
-      alert('Could not save photos')
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : e && typeof e === 'object' && 'response' in e
+            ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+            : null
+      alert(msg || 'Could not save photos')
     } finally {
       setSaving(false)
     }
