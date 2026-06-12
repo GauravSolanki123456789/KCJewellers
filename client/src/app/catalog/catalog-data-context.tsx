@@ -22,6 +22,7 @@ import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
 import { KC_RATES_UPDATED_EVENT } from "@/lib/reseller-rates-events";
 import { catalogApiQueryForStorefront, ratesApiQueryForStorefront } from "@/lib/storefront-domain";
 import { useResellerBranding } from "@/context/ResellerBrandingContext";
+import { filterCatalogForResellerScope } from "@/lib/reseller-catalog-scope";
 
 export type CatalogTreeCategory = {
   id: number;
@@ -41,15 +42,6 @@ export type CatalogTreeCategory = {
     products: Item[];
   }[];
 };
-
-function filterCategoriesForReseller(
-  cats: CatalogTreeCategory[],
-  allowedIds: number[] | null | undefined,
-): CatalogTreeCategory[] {
-  if (allowedIds === null || allowedIds === undefined || allowedIds.length === 0) return cats;
-  const set = new Set(allowedIds);
-  return cats.filter((c) => set.has(c.id));
-}
 
 type CatalogDataContextValue = {
   categories: CatalogTreeCategory[];
@@ -91,7 +83,11 @@ export function CatalogDataProvider({
   );
   const auth = useAuth();
   const { customerTier, tierReady } = useCustomerTier();
-  const { customDomainHost, allowedCategoryIds: hostAllowedCategoryIds } = useResellerBranding();
+  const {
+    customDomainHost,
+    allowedCategoryIds: hostAllowedCategoryIds,
+    allowedCategoryMetals: hostAllowedCategoryMetals,
+  } = useResellerBranding();
   const applyRetailSettings = useCallback((data: { retail_browse_by_metal?: unknown; retail_browse_enabled?: boolean }) => {
     const byMetal = parseCatalogRetailBrowseByMetal(data?.retail_browse_by_metal);
     if (
@@ -112,10 +108,18 @@ export function CatalogDataProvider({
   const categories = useMemo(() => {
     if (!tierReady) return rawCategories;
     if (customerTier === CUSTOMER_TIER.RESELLER) {
-      return filterCategoriesForReseller(rawCategories, wholesaleUser?.allowed_category_ids ?? null);
+      return filterCatalogForResellerScope(
+        rawCategories,
+        wholesaleUser?.allowed_category_ids ?? null,
+        wholesaleUser?.allowed_category_metals,
+      ) as CatalogTreeCategory[];
     }
     if (customDomainHost && hostAllowedCategoryIds?.length) {
-      return filterCategoriesForReseller(rawCategories, hostAllowedCategoryIds);
+      return filterCatalogForResellerScope(
+        rawCategories,
+        hostAllowedCategoryIds,
+        hostAllowedCategoryMetals,
+      ) as CatalogTreeCategory[];
     }
     return rawCategories;
   }, [
@@ -123,8 +127,10 @@ export function CatalogDataProvider({
     rawCategories,
     customerTier,
     wholesaleUser?.allowed_category_ids,
+    wholesaleUser?.allowed_category_metals,
     customDomainHost,
     hostAllowedCategoryIds,
+    hostAllowedCategoryMetals,
   ]);
 
   const bootstrap = useCallback(async () => {

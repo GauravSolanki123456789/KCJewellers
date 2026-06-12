@@ -122,7 +122,7 @@ async function findResellerByDomain(domain) {
     const rows = await query(
         `SELECT id, customer_tier, business_name,
                 COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
-                custom_domain, allowed_category_ids
+                custom_domain, allowed_category_ids, allowed_category_metals
          FROM users
          WHERE UPPER(TRIM(COALESCE(customer_tier::text, ''))) = 'RESELLER'
            AND NULLIF(TRIM(custom_domain), '') IS NOT NULL

@@ -12,6 +12,14 @@ import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 import { userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { useAuth } from '@/hooks/useAuth'
+import type { CatalogMetalKey } from '@/lib/catalog-metal-family'
+import {
+  expandResellerCategoryScopes,
+  isResellerScopeChecked,
+  parseAllowedCategoryMetals,
+  toggleResellerCategoryScope,
+  type ResellerCategoryScopeRow,
+} from '@/lib/reseller-catalog-scope'
 
 type AdminUser = {
   id: number
@@ -26,6 +34,7 @@ type AdminUser = {
   custom_domain?: string | null
   logo_url?: string | null
   allowed_category_ids?: number[] | null
+  allowed_category_metals?: Record<string, string[]> | null
   kc_theme_id?: string | null
   /** Admin toggle: shared catalogue links/PDFs show weight only (matches `users.reseller_hide_prices`). */
   reseller_hide_prices?: boolean
@@ -58,17 +67,10 @@ type CatalogCategoryRow = {
   has_silver?: boolean
   has_diamond?: boolean
   has_gifting?: boolean
-}
-
-function resellerCategoryHint(c: CatalogCategoryRow): string {
-  const metals: string[] = []
-  if (c.has_gifting) metals.push('Gift Items')
-  if (c.has_gold) metals.push('Gold')
-  if (c.has_silver) metals.push('Silver')
-  if (c.has_diamond) metals.push('Diamond')
-  const n = c.product_count ?? 0
-  const countLabel = n === 1 ? '1 product' : `${n} products`
-  return metals.length ? `${metals.join(', ')} · ${countLabel}` : countLabel
+  gold_product_count?: number
+  silver_product_count?: number
+  diamond_product_count?: number
+  gifting_product_count?: number
 }
 
 const TIERS = ['B2C_CUSTOMER', 'B2B_WHOLESALE', 'RESELLER', 'ADMIN'] as const
@@ -108,6 +110,7 @@ function B2BAdminContent() {
     custom_domain: '',
     logo_url: '',
     allowed_category_ids: [] as number[],
+    allowed_category_metals: {} as Record<string, CatalogMetalKey[]>,
     contact_mobile: '',
     kc_theme_id: '',
     reseller_hide_prices: false,
@@ -175,6 +178,9 @@ function B2BAdminContent() {
         custom_domain: resellerModalUser.custom_domain ?? '',
         logo_url: resellerModalUser.logo_url ?? '',
         allowed_category_ids: Array.isArray(ids) ? [...ids] : [],
+        allowed_category_metals: parseAllowedCategoryMetals(
+          resellerModalUser.allowed_category_metals,
+        ),
         contact_mobile: resellerModalUser.mobile_number ?? '',
         kc_theme_id:
           resellerModalUser.kc_theme_id != null && String(resellerModalUser.kc_theme_id).trim()
@@ -277,6 +283,7 @@ function B2BAdminContent() {
         custom_domain: resellerForm.custom_domain.trim() || null,
         logo_url: logoUrl,
         allowed_category_ids: resellerForm.allowed_category_ids,
+        allowed_category_metals: resellerForm.allowed_category_metals,
         mobile_number: rawMob ? mobDigits : null,
         kc_theme_id: resellerForm.kc_theme_id.trim() ? resellerForm.kc_theme_id.trim() : null,
         reseller_hide_prices: resellerForm.reseller_hide_prices,
@@ -320,12 +327,24 @@ function B2BAdminContent() {
     }
   }
 
-  const toggleCategoryId = (id: number) => {
+  const resellerCategoryScopes = useMemo((): ResellerCategoryScopeRow[] => {
+    const rows: ResellerCategoryScopeRow[] = []
+    for (const c of catalogCategories) {
+      rows.push(...expandResellerCategoryScopes(c))
+    }
+    return rows
+  }, [catalogCategories])
+
+  const toggleCategoryScope = (categoryId: number, metal: CatalogMetalKey) => {
     setResellerForm((f) => {
-      const set = new Set(f.allowed_category_ids)
-      if (set.has(id)) set.delete(id)
-      else set.add(id)
-      return { ...f, allowed_category_ids: [...set].sort((a, b) => a - b) }
+      const next = toggleResellerCategoryScope(
+        categoryId,
+        metal,
+        f.allowed_category_ids,
+        f.allowed_category_metals,
+        resellerCategoryScopes,
+      )
+      return { ...f, ...next }
     })
   }
 
@@ -909,29 +928,33 @@ function B2BAdminContent() {
                     {catalogCategories.length === 0 && !categoriesLoading ? (
                       <p className="text-xs text-slate-500">No published categories found.</p>
                     ) : (
-                      catalogCategories.map((c) => (
+                      resellerCategoryScopes.map((scope) => (
                         <label
-                          key={c.id}
+                          key={scope.key}
                           className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.04]"
                         >
                           <input
                             type="checkbox"
-                            checked={resellerForm.allowed_category_ids.includes(c.id)}
-                            onChange={() => toggleCategoryId(c.id)}
+                            checked={isResellerScopeChecked(
+                              scope.categoryId,
+                              scope.metal,
+                              resellerForm.allowed_category_ids,
+                              resellerForm.allowed_category_metals,
+                            )}
+                            onChange={() => toggleCategoryScope(scope.categoryId, scope.metal)}
                             className="mt-0.5 size-4 rounded border-slate-600"
                           />
                           <span className="text-sm text-slate-200">
-                            {c.name}{' '}
-                            <span className="text-[11px] text-slate-500">
-                              ({resellerCategoryHint(c)})
-                            </span>
+                            {scope.label}{' '}
+                            <span className="text-[11px] text-slate-500">({scope.hint})</span>
                           </span>
                         </label>
                       ))
                     )}
                   </div>
                   <p className="mt-2 text-[11px] text-slate-500">
-                    Leave none checked to allow all categories. Select specific styles to restrict the reseller catalogue.
+                    Leave none checked to allow all categories. Gold and Silver under the same style (e.g. Chain Pendant)
+                    are listed separately so you can allow one without the other.
                   </p>
                 </div>
               </div>

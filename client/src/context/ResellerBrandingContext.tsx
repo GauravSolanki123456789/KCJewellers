@@ -22,6 +22,7 @@ export type EffectiveResellerBranding = {
   contactPhoneDigits: string | null
   /** Reseller-allowed web_categories on vanity domain (null = all). */
   allowedCategoryIds: number[] | null
+  allowedCategoryMetals: Record<string, string[]> | null
   /** Invest (SIP) available to customers on this host (`reseller_invest_enabled`). */
   investEnabled: boolean
 }
@@ -33,6 +34,7 @@ const defaultBranding: EffectiveResellerBranding = {
   customDomainHost: false,
   contactPhoneDigits: null,
   allowedCategoryIds: null,
+  allowedCategoryMetals: null,
   investEnabled: true,
 }
 
@@ -61,6 +63,7 @@ export function ResellerBrandingProvider({
         customDomainHost,
         contactPhoneDigits: initialFromHost.contactPhoneDigits || null,
         allowedCategoryIds: initialFromHost.allowedCategoryIds ?? null,
+        allowedCategoryMetals: initialFromHost.allowedCategoryMetals ?? null,
         investEnabled: initialFromHost.investEnabled,
       }
     }
@@ -77,6 +80,7 @@ export function ResellerBrandingProvider({
           customDomainHost: false,
           contactPhoneDigits,
           allowedCategoryIds: null,
+          allowedCategoryMetals: null,
           investEnabled: true,
         }
       }
@@ -88,6 +92,7 @@ export function ResellerBrandingProvider({
       customDomainHost: false,
       contactPhoneDigits: null,
       allowedCategoryIds: null,
+      allowedCategoryMetals: null,
       investEnabled: true,
     }
   }, [initialFromHost, customDomainHost, customerTier, auth.isAuthenticated, user])

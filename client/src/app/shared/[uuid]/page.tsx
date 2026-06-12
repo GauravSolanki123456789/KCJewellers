@@ -87,6 +87,7 @@ function mergeSharedBranding(
     contactPhoneDigits: digits,
     kcThemeId,
     allowedCategoryIds: domainBranding?.allowedCategoryIds ?? null,
+    allowedCategoryMetals: domainBranding?.allowedCategoryMetals ?? null,
     investEnabled: domainBranding?.investEnabled ?? false,
   };
 }

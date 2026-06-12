@@ -14,6 +14,8 @@ export type PublicResellerBranding = {
   kcThemeId: string;
   /** Restricted web_categories for this reseller storefront (empty/null = all). */
   allowedCategoryIds: number[] | null;
+  /** Per-category metal scope (e.g. Chain Pendant → gold only). */
+  allowedCategoryMetals: Record<string, string[]> | null;
   /** Customer Invest (SIP) on this vanity domain — `users.reseller_invest_enabled`. */
   investEnabled: boolean;
 };
@@ -40,6 +42,7 @@ export async function fetchPublicResellerBranding(
       contact_phone?: string | null;
       kc_theme_id?: string | null;
       allowed_category_ids?: number[] | null;
+      allowed_category_metals?: Record<string, string[]> | null;
       reseller_invest_enabled?: boolean;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
@@ -56,6 +59,10 @@ export async function fetchPublicResellerBranding(
       contactPhoneDigits,
       kcThemeId: normalizeKcThemeId(data?.kc_theme_id, DEFAULT_KC_THEME_ID),
       allowedCategoryIds: allowedCategoryIds?.length ? allowedCategoryIds : null,
+      allowedCategoryMetals:
+        data?.allowed_category_metals && typeof data.allowed_category_metals === 'object'
+          ? (data.allowed_category_metals as Record<string, string[]>)
+          : null,
       investEnabled: !!data?.reseller_invest_enabled,
     };
   } catch {

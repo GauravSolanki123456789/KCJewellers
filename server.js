@@ -98,6 +98,10 @@ const {
     resolveCategoryDiscountForMetalTab,
     CATALOG_METAL_KEYS,
 } = require('./services/catalogMetalFamily');
+const {
+    parseAllowedCategoryMetals,
+    filterCatalogForResellerScope,
+} = require('./services/resellerCatalogScope');
 
 // Multer config for ERP sync: save images to public/uploads/web_products/ with barcode as filename
 const uploadsWebProductsDir = path.join(__dirname, 'public', 'uploads', 'web_products');
@@ -667,6 +671,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         const allowedCategoryIds = Array.isArray(catIds)
             ? catIds.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n))
             : null;
+        const allowedCategoryMetals = parseAllowedCategoryMetals(resolvedUser.allowed_category_metals);
         const kc_theme_id = await resolveUserKcThemeId(resolvedUser);
         /** Fresh from DB — session deserialize can lag new columns until re-login on some hosts. */
         let resellerProductUploadsEnabled = !!resolvedUser.reseller_product_uploads_enabled;
@@ -720,6 +725,9 @@ app.get('/api/auth/current_user', async (req, res) => {
                 custom_domain: resolvedUser.custom_domain ?? null,
                 logo_url: resolvedUser.logo_url ?? null,
                 allowed_category_ids: allowedCategoryIds,
+                allowed_category_metals: Object.keys(allowedCategoryMetals).length
+                    ? allowedCategoryMetals
+                    : null,
                 reseller_hide_prices: !!resolvedUser.reseller_hide_prices,
                 reseller_invite_code: resolvedUser.reseller_invite_code
                     ? normalizeResellerInviteCode(resolvedUser.reseller_invite_code)
@@ -983,6 +991,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
         }
         const rows = await query(
             `SELECT business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids,
+                    COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
                     COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled
              FROM users
              WHERE customer_tier = 'RESELLER'
@@ -998,6 +1007,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
                 contact_phone: null,
                 kc_theme_id: null,
                 allowed_category_ids: null,
+                allowed_category_metals: null,
                 reseller_invest_enabled: false,
             });
         }
@@ -1010,12 +1020,16 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
         const allowed_category_ids = Array.isArray(rawCatIds)
             ? rawCatIds.map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n) && n > 0)
             : null;
+        const allowed_category_metals = parseAllowedCategoryMetals(rows[0].allowed_category_metals);
         res.json({
             business_name: rows[0].business_name || null,
             logo_url: rows[0].logo_url || null,
             contact_phone,
             kc_theme_id,
             allowed_category_ids: allowed_category_ids?.length ? allowed_category_ids : null,
+            allowed_category_metals: Object.keys(allowed_category_metals).length
+                ? allowed_category_metals
+                : null,
             reseller_invest_enabled: !!rows[0].reseller_invest_enabled,
         });
     } catch (error) {
@@ -2141,6 +2155,9 @@ async function checkAndMigrateResellerWhiteLabel() {
         await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255)');
         await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS logo_url TEXT');
         await dbPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_category_ids INTEGER[]');
+        await dbPool.query(
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_category_metals JSONB NOT NULL DEFAULT '{}'::jsonb`,
+        );
         await dbPool.query(
             'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_hide_prices BOOLEAN NOT NULL DEFAULT false',
         );
@@ -3695,7 +3712,9 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                 SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
                        account_status, phone_number, mobile_number,
                        customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
-                       business_name, custom_domain, logo_url, allowed_category_ids, kc_theme_id,
+                       business_name, custom_domain, logo_url, allowed_category_ids,
+                       COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
+                       kc_theme_id,
                        COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                        COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
                        COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
@@ -4112,6 +4131,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             const ints = [...new Set(ids.map((x) => parseInt(String(x), 10)).filter((n) => !Number.isNaN(n)))];
             updates.push(`allowed_category_ids = $${paramIndex++}`);
             params.push(ints.length ? ints : null);
+        }
+        if (req.body.allowed_category_metals !== undefined) {
+            const parsed = parseAllowedCategoryMetals(req.body.allowed_category_metals);
+            updates.push(`allowed_category_metals = $${paramIndex++}::jsonb`);
+            params.push(JSON.stringify(parsed));
         }
 
         if (reseller_hide_prices !== undefined) {
@@ -6290,8 +6314,11 @@ app.get('/api/catalog', async (req, res) => {
             const reseller = await findResellerByDomain(domain);
             const allowed = reseller?.allowed_category_ids;
             if (Array.isArray(allowed) && allowed.length > 0) {
-                const set = new Set(allowed.map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n)));
-                filtered = categories.filter((cat) => set.has(cat.id));
+                filtered = filterCatalogForResellerScope(
+                    categories,
+                    allowed,
+                    reseller?.allowed_category_metals,
+                );
             }
         }
         res.json({ categories: filtered });
@@ -6740,6 +6767,22 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                 COUNT(wp.id) FILTER (
                     WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
                 )::int AS product_count,
+                COUNT(wp.id) FILTER (
+                    WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
+                    AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gold')})
+                )::int AS gold_product_count,
+                COUNT(wp.id) FILTER (
+                    WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
+                    AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'silver')})
+                )::int AS silver_product_count,
+                COUNT(wp.id) FILTER (
+                    WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
+                    AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'diamond')})
+                )::int AS diamond_product_count,
+                COUNT(wp.id) FILTER (
+                    WHERE wp.id IS NOT NULL AND (wp.is_active IS NULL OR wp.is_active = true)
+                    AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gifting')})
+                )::int AS gifting_product_count,
                 COALESCE(BOOL_OR(
                     wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gold')})
                 ), false) AS has_gold,
@@ -6785,10 +6828,23 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                 GROUP BY ws.id
                 ORDER BY ws.sort_order, ws.name
             `, [c.id]);
-            const m = metalById.get(c.id) || { has_gold: false, has_silver: false, has_diamond: false, has_gifting: false };
+            const m = metalById.get(c.id) || {
+                has_gold: false,
+                has_silver: false,
+                has_diamond: false,
+                has_gifting: false,
+                gold_product_count: 0,
+                silver_product_count: 0,
+                diamond_product_count: 0,
+                gifting_product_count: 0,
+            };
             categories.push({
                 ...c,
                 product_count: Number(m.product_count ?? 0) || 0,
+                gold_product_count: Number(m.gold_product_count ?? 0) || 0,
+                silver_product_count: Number(m.silver_product_count ?? 0) || 0,
+                diamond_product_count: Number(m.diamond_product_count ?? 0) || 0,
+                gifting_product_count: Number(m.gifting_product_count ?? 0) || 0,
                 has_gold: !!m.has_gold,
                 has_silver: !!m.has_silver,
                 has_diamond: !!m.has_diamond,

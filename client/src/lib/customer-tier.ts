@@ -19,6 +19,8 @@ export type WholesaleUserFields = {
   wholesale_making_charge_discount_percent?: number
   wholesale_markup_percent?: number
   allowed_category_ids?: number[] | null
+  /** Per-style metal scope — e.g. Chain Pendant Gold only, not Silver. */
+  allowed_category_metals?: Record<string, string[]> | null
   business_name?: string | null
   custom_domain?: string | null
   /** Saved from Admin B2B row — used for reseller storefront WhatsApp orders when set. */
