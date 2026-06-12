@@ -51,6 +51,25 @@ function trimExcelCell(value) {
     return s === '' ? undefined : s;
 }
 
+/** Count imported rows per StyleCode — helps multi-style Excel files (e.g. Necklace + Chain Pendant). */
+function summarizeImportByStyle(rows, styleKey = 'style_code') {
+    const summary = Object.create(null);
+    for (const row of rows || []) {
+        const style = String(row?.[styleKey] || row?.styleCode || row?.StyleCode || 'Uncategorized').trim() || 'Uncategorized';
+        summary[style] = (summary[style] || 0) + 1;
+    }
+    return summary;
+}
+
+function summarizeRawExcelByStyle(rawRows) {
+    const summary = Object.create(null);
+    for (const raw of rawRows || []) {
+        const style = String(raw?.StyleCode || raw?.styleCode || raw?.style_code || 'Uncategorized').trim() || 'Uncategorized';
+        summary[style] = (summary[style] || 0) + 1;
+    }
+    return summary;
+}
+
 function excelRowToSyncItem(row) {
     if (!row || typeof row !== 'object') return null;
     const get = (...keys) => {
@@ -481,6 +500,7 @@ function registerResellerProductRoutes(app, deps) {
                 batch_id: batchId,
                 created_count: created.length,
                 expected_count: products.length,
+                style_summary: summarizeImportByStyle(created),
                 submissions: created,
                 errors,
             });
@@ -532,6 +552,8 @@ function registerResellerProductRoutes(app, deps) {
                     success: created.length > 0,
                     batch_id: batchId,
                     created_count: created.length,
+                    expected_count: products.length,
+                    style_summary: summarizeImportByStyle(created),
                     submissions: created,
                     errors,
                 });
@@ -657,7 +679,12 @@ function registerResellerProductRoutes(app, deps) {
                         COUNT(*) FILTER (WHERE submission_status = 'pending')::int AS pending_count,
                         COUNT(*) FILTER (WHERE submission_status = 'approved')::int AS approved_count,
                         COUNT(*) FILTER (WHERE image_url IS NOT NULL AND TRIM(image_url) <> '')::int AS with_primary_image,
-                        COUNT(*) FILTER (WHERE secondary_image_url IS NOT NULL AND TRIM(secondary_image_url) <> '')::int AS with_secondary_image
+                        COUNT(*) FILTER (WHERE secondary_image_url IS NOT NULL AND TRIM(secondary_image_url) <> '')::int AS with_secondary_image,
+                        COALESCE(
+                            array_agg(DISTINCT NULLIF(TRIM(style_code), ''))
+                                FILTER (WHERE NULLIF(TRIM(style_code), '') IS NOT NULL),
+                            ARRAY[]::text[]
+                        ) AS style_codes
                  FROM reseller_product_submissions
                  WHERE submitted_by_user_id = $1 AND batch_id IS NOT NULL
                  GROUP BY batch_id
@@ -1008,4 +1035,6 @@ module.exports = {
     submissionRowToSyncItem,
     excelRowToSyncItem,
     buildSubmissionFieldsFromItem,
+    summarizeImportByStyle,
+    summarizeRawExcelByStyle,
 };

@@ -282,6 +282,13 @@ export function ResellerProductsPanel() {
     return rows.filter(rowHasData)
   }
 
+  const formatStyleSummary = (summary?: Record<string, number>) => {
+    if (!summary || !Object.keys(summary).length) return ''
+    return Object.entries(summary)
+      .map(([style, n]) => `${style} (${n})`)
+      .join(' · ')
+  }
+
   const handleBulkExcel = async (file: File) => {
     setBulkParsing(true)
     setBulkResult(null)
@@ -296,6 +303,7 @@ export function ResellerProductsPanel() {
         created_count: number
         expected_count?: number
         batch_id?: string
+        style_summary?: Record<string, number>
         errors?: { row: number; error: string; styleCode?: string; barcode?: string }[]
       }>('/api/reseller/product-submissions/bulk', { products })
       const n = res.data.created_count ?? 0
@@ -322,8 +330,9 @@ export function ResellerProductsPanel() {
           : errN
             ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)`
             : ''
+      const styleHint = formatStyleSummary(res.data.style_summary)
       setBulkResult(
-        `${n} product${n === 1 ? '' : 's'} imported — add photos, then send the batch for KC review.${partialHint}`,
+        `${n} product${n === 1 ? '' : 's'} imported${styleHint ? ` — ${styleHint}` : ''}. Add photos for each barcode, then send the batch for KC review. Multi-style files create separate catalogue sections (e.g. Necklace and Chain Pendant).${partialHint}`,
       )
       if (res.data.batch_id) {
         setExpandedBatchId(res.data.batch_id)
@@ -712,7 +721,11 @@ export function ResellerProductsPanel() {
                           {b.batch_label || 'Excel import'}
                         </p>
                         <p className="kc-upload-hint mt-1 text-xs">
-                          {b.product_count} items · {b.with_primary_image}/{b.product_count} with front photo
+                          {b.product_count} items
+                          {b.style_codes?.length
+                            ? ` · ${b.style_codes.join(' · ')}`
+                            : ''}{' '}
+                          · {b.with_primary_image}/{b.product_count} with front photo
                           {b.draft_count ? ` · ${b.draft_count} draft` : ''}
                           {b.pending_count ? ` · ${b.pending_count} in review` : ''}
                         </p>
@@ -747,14 +760,30 @@ export function ResellerProductsPanel() {
                             <Loader2 className="size-6 animate-spin" />
                           </div>
                         ) : (
-                          <ul className="mt-4 space-y-3">
-                            {batchProducts.map((p) => (
-                              <BatchProductPhotoRow
-                                key={p.id}
-                                row={p}
-                                rates={liveRates}
-                                onSave={uploadPhotos}
-                              />
+                          <ul className="mt-4 space-y-4">
+                            {Object.entries(
+                              batchProducts.reduce<Record<string, typeof batchProducts>>((acc, p) => {
+                                const key = String(p.style_code || 'Uncategorized').trim() || 'Uncategorized'
+                                if (!acc[key]) acc[key] = []
+                                acc[key].push(p)
+                                return acc
+                              }, {}),
+                            ).map(([styleCode, rows]) => (
+                              <li key={styleCode}>
+                                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                                  {styleCode} · {rows.length} item{rows.length === 1 ? '' : 's'}
+                                </p>
+                                <ul className="space-y-3">
+                                  {rows.map((p) => (
+                                    <BatchProductPhotoRow
+                                      key={p.id}
+                                      row={p}
+                                      rates={liveRates}
+                                      onSave={uploadPhotos}
+                                    />
+                                  ))}
+                                </ul>
+                              </li>
                             ))}
                           </ul>
                         )}

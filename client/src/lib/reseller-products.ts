@@ -17,6 +17,8 @@ export type ResellerProductBatch = {
   approved_count: number
   with_primary_image: number
   with_secondary_image: number
+  /** Distinct StyleCode values in this batch (e.g. Necklace + Chain Pendant). */
+  style_codes?: string[]
 }
 
 export type ResellerProductSubmission = {

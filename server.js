@@ -66,7 +66,11 @@ const {
     getResellerDefaultKcThemeId,
     resolveUserKcThemeId,
 } = require('./services/kcThemeSettings');
-const { registerResellerProductRoutes, excelRowToSyncItem } = require('./services/resellerProductSubmissions');
+const {
+    registerResellerProductRoutes,
+    excelRowToSyncItem,
+    summarizeRawExcelByStyle,
+} = require('./services/resellerProductSubmissions');
 const { upsertWebProductFromSyncItem } = require('./services/upsertWebProductFromSyncItem');
 const {
     registerResellerRatesRoutes,
@@ -9288,6 +9292,7 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
         let subcategoriesUpserted = 0;
         let productsUpserted = 0;
         const errors = [];
+        const styleSummary = Object.create(null);
 
         // Cache lookups within this request to avoid redundant DB hits
         const catIdCache = new Map();   // styleSlug -> id
@@ -9317,6 +9322,10 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
                 if (catIdCache.size > catBefore) categoriesUpserted += catIdCache.size - catBefore;
                 if (subIdCache.size > subBefore) subcategoriesUpserted += subIdCache.size - subBefore;
                 productsUpserted++;
+                const styleLabel = String(
+                    raw?.StyleCode || raw?.styleCode || raw?.style_code || 'Uncategorized',
+                ).trim() || 'Uncategorized';
+                styleSummary[styleLabel] = (styleSummary[styleLabel] || 0) + 1;
             } catch (rowErr) {
                 const styleHint = String(
                     raw?.StyleCode || raw?.styleCode || raw?.style_code || '',
@@ -9335,6 +9344,8 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
             categoriesUpserted,
             subcategoriesUpserted,
             productsUpserted,
+            expected_count: items.length,
+            style_summary: Object.keys(styleSummary).length > 0 ? styleSummary : summarizeRawExcelByStyle(items),
             ...(errors.length > 0 && { errors }),
         });
     } catch (error) {
