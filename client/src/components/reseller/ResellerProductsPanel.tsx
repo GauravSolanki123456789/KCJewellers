@@ -294,24 +294,36 @@ export function ResellerProductsPanel() {
       }
       const res = await axios.post<{
         created_count: number
+        expected_count?: number
         batch_id?: string
-        errors?: { row: number; error: string }[]
+        errors?: { row: number; error: string; styleCode?: string; barcode?: string }[]
       }>('/api/reseller/product-submissions/bulk', { products })
       const n = res.data.created_count ?? 0
+      const expected = res.data.expected_count ?? products.length
       const errs = res.data.errors ?? []
       const errN = errs.length
+      const formatRowErr = (e: (typeof errs)[number]) => {
+        const rowNo = e.row != null ? e.row + 1 : '?'
+        const label = [e.styleCode, e.barcode].filter(Boolean).join(' · ')
+        return `Row ${rowNo}${label ? ` (${label})` : ''}: ${e.error}`
+      }
       if (n === 0) {
-        const first = errs[0]?.error
-        const rowHint = errs[0]?.row != null ? ` (row ${errs[0].row + 1})` : ''
+        const first = errs[0] ? formatRowErr(errs[0]) : null
         setError(
           first
-            ? `No rows imported${rowHint}: ${first}${errN > 1 ? ` — and ${errN - 1} more` : ''}`
+            ? `No rows imported — ${first}${errN > 1 ? ` — and ${errN - 1} more` : ''}`
             : 'No rows imported. Check Barcode, StyleCode, and MetalType (use gifting for gift items).',
         )
         return
       }
+      const partialHint =
+        n < expected
+          ? ` Expected ${expected} — ${errN} row${errN === 1 ? '' : 's'} skipped.${errs[0] ? ` First: ${formatRowErr(errs[0])}` : ''}`
+          : errN
+            ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)`
+            : ''
       setBulkResult(
-        `${n} product${n === 1 ? '' : 's'} imported — add photos, then send the batch for KC review.${errN ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)` : ''}`,
+        `${n} product${n === 1 ? '' : 's'} imported — add photos, then send the batch for KC review.${partialHint}`,
       )
       if (res.data.batch_id) {
         setExpandedBatchId(res.data.batch_id)

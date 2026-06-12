@@ -66,7 +66,8 @@ const {
     getResellerDefaultKcThemeId,
     resolveUserKcThemeId,
 } = require('./services/kcThemeSettings');
-const { registerResellerProductRoutes } = require('./services/resellerProductSubmissions');
+const { registerResellerProductRoutes, excelRowToSyncItem } = require('./services/resellerProductSubmissions');
+const { upsertWebProductFromSyncItem } = require('./services/upsertWebProductFromSyncItem');
 const {
     registerResellerRatesRoutes,
     resolveDisplayRatesForRequest,
@@ -9292,158 +9293,39 @@ app.post('/api/sync/receive', SYNC_RECEIVE_UPLOAD, validateApiKey, async (req, r
         const catIdCache = new Map();   // styleSlug -> id
         const subIdCache = new Map();   // skuSlug   -> id
 
+        const syncUpsertDeps = {
+            query,
+            pool,
+            getPublicApiBaseUrl,
+            lookUpSecondaryDisk,
+            resolveSecondaryUrlFromPayload,
+            uploadsWebProductsDir,
+        };
+
         for (let i = 0; i < items.length; i++) {
-            const item = items[i];
+            const raw = items[i];
             try {
-                // ---- STYLE → web_categories ----
-                const styleCode = String(item.styleCode || item.style_code || 'Uncategorized').trim();
-                const styleSlug = styleCode.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'uncategorized';
-
-                if (!catIdCache.has(styleSlug)) {
-                    await query(`
-                        INSERT INTO web_categories (name, slug, updated_at)
-                        VALUES ($1, $2, CURRENT_TIMESTAMP)
-                        ON CONFLICT (slug) DO UPDATE SET name = $1, updated_at = CURRENT_TIMESTAMP
-                    `, [styleCode, styleSlug]);
-                    const catRows = await query('SELECT id FROM web_categories WHERE slug = $1', [styleSlug]);
-                    catIdCache.set(styleSlug, catRows[0]?.id);
-                    categoriesUpserted++;
-                }
-
-                const catId = catIdCache.get(styleSlug);
-                if (!catId) { errors.push(`Row ${i}: could not resolve category for style "${styleCode}"`); continue; }
-
-                // ---- SKU → web_subcategories ----
-                const skuCode = String(item.sku || item.barcode || 'N/A').trim();
-                const skuSlug = `${styleSlug}-${skuCode.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'na'}`;
-                const skuCacheKey = `${styleSlug}::${skuSlug}`;
-
-                if (!subIdCache.has(skuCacheKey)) {
-                    await query(`
-                        INSERT INTO web_subcategories (category_id, name, slug, updated_at)
-                        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-                        ON CONFLICT (slug) DO UPDATE SET name = $2, category_id = $1, updated_at = CURRENT_TIMESTAMP
-                    `, [catId, skuCode, skuSlug]);
-                    const subRows = await query('SELECT id FROM web_subcategories WHERE slug = $1', [skuSlug]);
-                    subIdCache.set(skuCacheKey, subRows[0]?.id);
-                    subcategoriesUpserted++;
-                }
-
-                const subId = subIdCache.get(skuCacheKey);
-                if (!subId) { errors.push(`Row ${i}: could not resolve subcategory for SKU "${skuCode}"`); continue; }
-
-                // ---- PRODUCT → web_products ----
-                const prodSku = String(item.barcode || item.sku || '').trim();
-                if (!prodSku) { errors.push(`Row ${i}: missing barcode/sku — skipped`); continue; }
-
-                const name        = String(item.name || item.item_name || item.short_name || prodSku).trim();
-                const netWeight   = item.netWeight   != null ? Number(item.netWeight)   : (item.net_weight   != null ? Number(item.net_weight)   : null);
-                const grossWeight = item.grossWeight != null ? Number(item.grossWeight) : (item.gross_weight != null ? Number(item.gross_weight) : null);
-                const purity      = item.purity   ? String(item.purity)    : null;
-                const mcRate      = item.mcRate   != null ? Number(item.mcRate)   : (item.mc_rate != null ? Number(item.mc_rate) : null);
-                const metalType   = String(item.metalType || item.metal_type || 'silver').toLowerCase().trim();
-                const fixedPrice  = item.fixedPrice != null ? Number(item.fixedPrice) : (item.fixed_price != null ? Number(item.fixed_price) : null);
-                const stoneCharges = item.stoneCharges != null ? Number(item.stoneCharges) : (item.stone_charges != null ? Number(item.stone_charges) : 0);
-                const designGroup = item.itemCode == null ? null : (String(item.itemCode).trim() || null);
-
-                const imageUrl = `${getPublicApiBaseUrl()}/uploads/web_products/${prodSku}.webp`;
-
-                const barcode = String(item.barcode || '').trim() || null;
-
-                const hasSecFalse =
-                    item.hasSecondaryImage === false ||
-                    item.has_secondary_image === false;
-                const hasSecTrue =
-                    item.hasSecondaryImage === true ||
-                    item.has_secondary_image === true;
-                const rawSec =
-                    item.secondaryImageUrl != null
-                        ? String(item.secondaryImageUrl)
-                        : item.secondary_image_url != null
-                          ? String(item.secondary_image_url)
-                          : '';
-
-                const barcodeStemLc = prodSku.trim().toLowerCase();
-                /** Prefer exact multipart filename match (fixes casing / ERP vs barcode spacing mismatches). */
-                const uploadedSecondaryDisk = lookUpSecondaryDisk(
+                const item = excelRowToSyncItem(raw) || raw;
+                const catBefore = catIdCache.size;
+                const subBefore = subIdCache.size;
+                await upsertWebProductFromSyncItem(syncUpsertDeps, item, {
+                    catIdCache,
+                    subIdCache,
                     secondaryUploadMap,
-                    prodSku.trim(),
-                );
-
-                let secondaryTouch = false;
-                let secondaryVal = null;
-                if (hasSecFalse) {
-                    secondaryTouch = true;
-                    secondaryVal = null;
-                } else if (uploadedSecondaryDisk) {
-                    secondaryTouch = true;
-                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${uploadedSecondaryDisk}`;
-                } else if (rawSec.trim() !== '') {
-                    secondaryTouch = true;
-                    secondaryVal = resolveSecondaryUrlFromPayload(rawSec.trim(), getPublicApiBaseUrl());
-                } else if (hasSecTrue) {
-                    const fileStemCompact = barcodeStemLc.replace(/\s+/g, '');
-                    secondaryTouch = true;
-                    secondaryVal = `${getPublicApiBaseUrl()}/uploads/web_products/${fileStemCompact}_secondary.webp`;
-                }
-
-                const upsertSql = `
-                    INSERT INTO web_products
-                        (subcategory_id, sku, barcode, name, gross_weight, net_weight, purity, mc_rate, metal_type, fixed_price, stone_charges, design_group, image_url, secondary_image_url, is_active, last_synced_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $14::boolean THEN $15::text ELSE NULL END, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    ON CONFLICT (sku) DO UPDATE SET
-                        subcategory_id  = EXCLUDED.subcategory_id,
-                        barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
-                        name            = EXCLUDED.name,
-                        gross_weight    = EXCLUDED.gross_weight,
-                        net_weight      = EXCLUDED.net_weight,
-                        purity          = EXCLUDED.purity,
-                        mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
-                        metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
-                        fixed_price     = COALESCE(EXCLUDED.fixed_price, web_products.fixed_price),
-                        stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
-                        design_group    = EXCLUDED.design_group,
-                        image_url       = COALESCE(EXCLUDED.image_url, web_products.image_url),
-                        secondary_image_url = CASE WHEN $14::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
-                        is_active       = true,
-                        last_synced_at  = CURRENT_TIMESTAMP,
-                        updated_at      = CURRENT_TIMESTAMP
-                `;
-                const upsertParams = [subId, prodSku, barcode, name, grossWeight, netWeight, purity, mcRate, metalType, fixedPrice ?? 0, stoneCharges ?? 0, designGroup, imageUrl, secondaryTouch, secondaryVal];
-
-                try {
-                    await query(upsertSql, upsertParams);
-                } catch (upsertErr) {
-                    const msg = upsertErr.message || '';
-                    if (msg.includes('column "barcode" does not exist')) {
-                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS barcode VARCHAR(255)');
-                        await query(upsertSql, upsertParams);
-                    } else if (msg.includes('column "mc_rate" does not exist')) {
-                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS mc_rate NUMERIC(12,2)');
-                        await query(upsertSql, upsertParams);
-                    } else if (msg.includes('column "metal_type" does not exist')) {
-                        await pool.query("ALTER TABLE web_products ADD COLUMN IF NOT EXISTS metal_type VARCHAR(50) DEFAULT 'silver'");
-                        await query(upsertSql, upsertParams);
-                    } else if (msg.includes('column "fixed_price" does not exist')) {
-                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS fixed_price NUMERIC(12,2) DEFAULT 0');
-                        await query(upsertSql, upsertParams);
-                    } else if (msg.includes('column "stone_charges" does not exist')) {
-                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS stone_charges NUMERIC(12,2) DEFAULT 0');
-                        await query(upsertSql, upsertParams);
-                    } else if (msg.includes('column "design_group" does not exist')) {
-                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS design_group VARCHAR(255)');
-                        await query(upsertSql, upsertParams);
-                    } else if (msg.includes('secondary_image_url')) {
-                        await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS secondary_image_url TEXT');
-                        await query(upsertSql, upsertParams);
-                    } else {
-                        throw upsertErr;
-                    }
-                }
-
+                    publishCategory: true,
+                });
+                if (catIdCache.size > catBefore) categoriesUpserted += catIdCache.size - catBefore;
+                if (subIdCache.size > subBefore) subcategoriesUpserted += subIdCache.size - subBefore;
                 productsUpserted++;
             } catch (rowErr) {
-                errors.push(`Row ${i}: ${rowErr.message}`);
+                const styleHint = String(
+                    raw?.StyleCode || raw?.styleCode || raw?.style_code || '',
+                ).trim();
+                const barcodeHint = String(raw?.Barcode || raw?.barcode || raw?.sku || '').trim();
+                const label = [styleHint, barcodeHint].filter(Boolean).join(' · ');
+                errors.push(
+                    `Row ${i + 1}${label ? ` (${label})` : ''}: ${rowErr.message}`,
+                );
             }
         }
 

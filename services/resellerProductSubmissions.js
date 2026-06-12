@@ -250,6 +250,21 @@ async function assertResellerStyleAllowed(query, userId, styleCode) {
     }
 }
 
+/** Enforce allowed catalogue scope when a batch is submitted (not during draft Excel import). */
+async function assertResellerBatchStylesAllowed(query, userId, batchId) {
+    const rows = await query(
+        `SELECT DISTINCT TRIM(style_code) AS style_code
+         FROM reseller_product_submissions
+         WHERE batch_id = $1::uuid AND submitted_by_user_id = $2 AND submission_status = 'draft'`,
+        [batchId, userId],
+    );
+    for (const row of rows) {
+        const styleCode = String(row.style_code || '').trim();
+        if (!styleCode) continue;
+        await assertResellerStyleAllowed(query, userId, styleCode);
+    }
+}
+
 async function insertSubmission(query, fields) {
     const cols = Object.keys(fields);
     const vals = Object.values(fields);
@@ -437,7 +452,6 @@ function registerResellerProductRoutes(app, deps) {
                     const item = excelRowToSyncItem(raw) || raw;
                     const styleCode = String(item.styleCode || '').trim();
                     if (!styleCode) throw new Error('StyleCode required');
-                    await assertResellerStyleAllowed(query, req.user.id, styleCode);
                     const resolved = resolveNormalizedVariant(item);
                     if (!resolved.prodSku) throw new Error('Barcode/SKU required');
                     const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
@@ -449,13 +463,24 @@ function registerResellerProductRoutes(app, deps) {
                     const row = await insertSubmission(query, fields);
                     created.push(row);
                 } catch (rowErr) {
-                    errors.push({ row: i, error: rowErr.message });
+                    const raw = products[i];
+                    const styleCode = String(
+                        raw?.StyleCode || raw?.styleCode || raw?.style_code || '',
+                    ).trim();
+                    const barcode = String(raw?.Barcode || raw?.barcode || raw?.sku || '').trim();
+                    errors.push({
+                        row: i,
+                        styleCode: styleCode || undefined,
+                        barcode: barcode || undefined,
+                        error: rowErr.message,
+                    });
                 }
             }
             res.status(201).json({
                 success: created.length > 0,
                 batch_id: batchId,
                 created_count: created.length,
+                expected_count: products.length,
                 submissions: created,
                 errors,
             });
@@ -484,7 +509,6 @@ function registerResellerProductRoutes(app, deps) {
                         const item = excelRowToSyncItem(products[i]) || products[i];
                         const styleCode = String(item.styleCode || '').trim();
                         if (!styleCode) throw new Error('StyleCode required');
-                        await assertResellerStyleAllowed(query, req.user.id, styleCode);
                         const resolved = resolveNormalizedVariant(item);
                         if (!resolved.prodSku) throw new Error('Barcode/SKU required');
                         const secDisk = lookUpSecondaryDisk(secondaryUploadMap, resolved.prodSku);
@@ -659,6 +683,14 @@ function registerResellerProductRoutes(app, deps) {
             );
             if (!draftRows.length) {
                 return res.status(400).json({ error: 'No draft products in this batch to submit' });
+            }
+            try {
+                await assertResellerBatchStylesAllowed(query, req.user.id, batchId);
+            } catch (ve) {
+                if (ve.code === 'RESELLER_CATEGORY_DENIED') {
+                    return res.status(403).json({ error: ve.message });
+                }
+                throw ve;
             }
             const updated = await query(
                 `UPDATE reseller_product_submissions SET
