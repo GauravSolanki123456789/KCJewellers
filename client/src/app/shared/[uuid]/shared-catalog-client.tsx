@@ -326,11 +326,12 @@ export default function SharedCatalogClient({
     () =>
       buildSharedCatalogSelectionPicks(
         groupedRows,
+        resolveActiveVariant,
         rowKeyByRow,
         selections,
         includeBoxByKey,
       ),
-    [groupedRows, rowKeyByRow, selections, includeBoxByKey],
+    [groupedRows, resolveActiveVariant, rowKeyByRow, selections, includeBoxByKey],
   )
 
   const handleSharePicksPdf = useCallback(async () => {
@@ -548,7 +549,7 @@ export default function SharedCatalogClient({
         </h1>
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
-            Tap anywhere on a card to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
+            Tap any product card to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
@@ -629,22 +630,9 @@ export default function SharedCatalogClient({
           <ul className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
             {visibleGroupedRows.map((group) => {
               const activeRow = resolveActiveVariant(group)
-              const activeKey = rowKeyByRow.get(activeRow) ?? group.groupKey
-              let selectionKey = activeKey
-              let qty = selections.get(activeKey) ?? 0
-              if (qty === 0) {
-                for (const variant of group.variants) {
-                  const variantKey = rowKeyByRow.get(variant)
-                  const variantQty = variantKey ? selections.get(variantKey) : undefined
-                  if (variantKey && variantQty) {
-                    selectionKey = variantKey
-                    qty = variantQty
-                    break
-                  }
-                }
-              }
+              const key = rowKeyByRow.get(activeRow) ?? group.groupKey
+              const qty = selections.get(key) ?? 0
               const selected = qty > 0
-              const toggleTargetKey = selected ? selectionKey : activeKey
               const hasVariants = group.variants.length > 1
               const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst } =
                 activeRow
@@ -657,25 +645,26 @@ export default function SharedCatalogClient({
               const sizeLabel = getCustomerDisplaySize(item)
               const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
               const hasBox = productHasBoxOption(item)
-              const includeBox = includeBoxByKey.get(selectionKey) ?? false
+              const includeBox = includeBoxByKey.get(key) ?? false
               const boxSlideIdx = boxImageSlideIndex(item)
               const displayUnitInr = unitTotalInr + (includeBox ? getProductBoxCharges(item) : 0)
-              const galleryScroll = galleryScrollByKey.get(activeKey) ?? null
+              const galleryScroll = galleryScrollByKey.get(key) ?? null
               return (
                 <li key={group.groupKey}>
                   <article
                     role="button"
                     tabIndex={0}
                     aria-pressed={selected}
-                    onClick={() => toggleKey(toggleTargetKey)}
+                    aria-label={selected ? `Remove ${name} from shortlist` : `Add ${name} to shortlist`}
+                    onClick={() => toggleKey(key)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        toggleKey(toggleTargetKey)
+                        toggleKey(key)
                       }
                     }}
                     className={cn(
-                      'flex h-full cursor-pointer touch-manipulation flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition outline-none',
+                      'flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50',
                       selected
                         ? 'border-amber-500/70 ring-2 ring-amber-500/25'
                         : 'border-slate-700/80 hover:border-slate-600',
@@ -691,7 +680,7 @@ export default function SharedCatalogClient({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          toggleKey(toggleTargetKey)
+                          toggleKey(key)
                         }}
                         aria-pressed={selected}
                         aria-label={selected ? 'Remove from shortlist' : 'Add to shortlist'}
@@ -728,23 +717,22 @@ export default function SharedCatalogClient({
                             unoptimized
                             scrollToIndex={galleryScroll}
                             onActiveIndexChange={(idx) => {
-                              const boxKey = selected ? selectionKey : activeKey
                               if (boxSlideIdx != null && idx === boxSlideIdx) {
                                 setIncludeBoxByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(boxKey, true)
+                                  next.set(key, true)
                                   return next
                                 })
                               } else if (hasBox) {
                                 setIncludeBoxByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(boxKey, false)
+                                  next.set(key, false)
                                   return next
                                 })
                               }
                             }}
                           />
-                          <SharedCatalogZoomHint onZoom={() => openLightboxForKey(activeKey)} />
+                          <SharedCatalogZoomHint onZoom={() => openLightboxForKey(key)} />
                         </>
                       ) : (
                         <div className="flex h-full items-center justify-center bg-slate-800/50">
@@ -789,19 +777,19 @@ export default function SharedCatalogClient({
                                   return next
                                 })
                                 setSelections((prev) => {
-                                  const existingQty = prev.get(selectionKey)
-                                  if (!existingQty || variantKey === selectionKey) return prev
+                                  const qty = prev.get(key)
+                                  if (!qty || key === variantKey) return prev
                                   const next = new Map(prev)
-                                  next.delete(selectionKey)
-                                  next.set(variantKey, existingQty)
+                                  next.delete(key)
+                                  next.set(variantKey, qty)
                                   return next
                                 })
                                 setIncludeBoxByKey((prev) => {
-                                  const withBox = prev.get(selectionKey)
-                                  if (withBox == null || variantKey === selectionKey) return prev
+                                  const withBox = prev.get(key)
+                                  if (withBox == null || key === variantKey) return prev
                                   const next = new Map(prev)
-                                  next.delete(selectionKey)
-                                  if (withBox) next.set(variantKey, true)
+                                  next.delete(key)
+                                  next.set(variantKey, withBox)
                                   return next
                                 })
                               }
@@ -833,22 +821,21 @@ export default function SharedCatalogClient({
                             includeBox={includeBox}
                             showChipPrices={false}
                             onChange={(withBox) => {
-                              const boxKey = selected ? selectionKey : activeKey
                               setIncludeBoxByKey((prev) => {
                                 const next = new Map(prev)
-                                next.set(boxKey, withBox)
+                                next.set(key, withBox)
                                 return next
                               })
                               if (withBox && boxSlideIdx != null) {
                                 setGalleryScrollByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(activeKey, boxSlideIdx)
+                                  next.set(key, boxSlideIdx)
                                   return next
                                 })
                               } else {
                                 setGalleryScrollByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(activeKey, 0)
+                                  next.set(key, 0)
                                   return next
                                 })
                               }
@@ -895,20 +882,20 @@ export default function SharedCatalogClient({
                                 type="button"
                                 aria-label="Decrease quantity"
                                 disabled={qty <= 1}
-                                onClick={() => setQty(selectionKey, qty - 1)}
+                                onClick={() => setQty(key, qty - 1)}
                                 className="kc-qty-stepper-btn"
                               >
-                                <Minus className="size-4 stroke-[2.5]" aria-hidden />
+                                <Minus className="size-4" aria-hidden />
                               </button>
                               <span className="kc-qty-stepper-value">{qty}</span>
                               <button
                                 type="button"
                                 aria-label="Increase quantity"
                                 disabled={qty >= MAX_PIECE_QTY}
-                                onClick={() => setQty(selectionKey, qty + 1)}
+                                onClick={() => setQty(key, qty + 1)}
                                 className="kc-qty-stepper-btn"
                               >
-                                <Plus className="size-4 stroke-[2.5]" aria-hidden />
+                                <Plus className="size-4" aria-hidden />
                               </button>
                             </div>
                           </div>

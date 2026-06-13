@@ -3,6 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/render
 import {
   getCustomerDisplaySize,
   getCustomerDisplayWeightLabel,
+  getCustomerDisplayWeightWithGrossFallback,
   type Item,
   type WholesalePricingInput,
 } from "@/lib/pricing";
@@ -92,11 +93,11 @@ function buildCatalogPdfStyles(p: KcPdfPalette) {
     },
     orderColNo: { width: "5%" },
     orderColName: { width: "22%" },
-    orderColSize: { width: "14%" },
+    orderColSize: { width: "13%" },
     orderColWeight: { width: "12%" },
-    orderColQty: { width: "11%" },
-    orderColUnit: { width: "14%" },
-    orderColLine: { width: "14%" },
+    orderColQty: { width: "10%" },
+    orderColUnit: { width: "17%" },
+    orderColLine: { width: "21%" },
     orderCell: { fontSize: 8, color: p.textPrimary },
     orderCellQty: {
       fontSize: 10,
@@ -280,6 +281,16 @@ export type CatalogPdfDocumentProps = {
 
 const PHOTOS_PER_PAGE = 6;
 
+function pdfWeightLabel(p: Item): string | null {
+  const preset = (p as { shareCatalogWeightLabel?: string }).shareCatalogWeightLabel;
+  if (preset && String(preset).trim()) return String(preset).trim();
+  const fromItem = getCustomerDisplayWeightLabel(p);
+  if (fromItem) return fromItem;
+  const w = getCustomerDisplayWeightWithGrossFallback(p);
+  if (w == null) return null;
+  return `${Number(w).toFixed(2)} gm`;
+}
+
 type PdfLineMeta = {
   index: number;
   name: string;
@@ -289,12 +300,6 @@ type PdfLineMeta = {
   unitPriceStr: string | null;
   lineTotalStr: string | null;
 };
-
-function resolvePdfWeightLabel(p: ItemWithPdfImage): string | null {
-  const preset = (p as { shareCatalogWeightLabel?: string }).shareCatalogWeightLabel;
-  if (preset && String(preset).trim()) return String(preset).trim();
-  return getCustomerDisplayWeightLabel(p);
-}
 
 function resolvePdfLineMeta(
   raw: ItemWithPdfImage,
@@ -308,11 +313,11 @@ function resolvePdfLineMeta(
     (p as { shareCatalogSize?: string }).shareCatalogSize?.trim() ||
     getCustomerDisplaySize(p) ||
     null;
-  const weightText = resolvePdfWeightLabel(p);
   const shareQty = Math.max(
     1,
     Math.floor(Number((p as { shareCatalogQty?: number }).shareCatalogQty) || 1),
   );
+  const weightText = pdfWeightLabel(p);
 
   const presetLine = (p as { shareCatalogLineTotalInr?: number }).shareCatalogLineTotalInr;
   const presetUnit = (p as { shareCatalogUnitTotalInr?: number }).shareCatalogUnitTotalInr;
@@ -369,12 +374,6 @@ export function CatalogPdfDocument({
     [products, hidePrices, resellerPdfPricing],
   );
 
-  const photoChunks: ItemWithPdfImage[][] = [];
-  for (let i = 0; i < products.length; i += PHOTOS_PER_PAGE) {
-    photoChunks.push(products.slice(i, i + PHOTOS_PER_PAGE));
-  }
-  if (photoChunks.length === 0) photoChunks.push([]);
-
   const totalPieces =
     orderSummary?.totalPieces ??
     lineMeta.reduce((sum, row) => sum + row.shareQty, 0);
@@ -385,6 +384,12 @@ export function CatalogPdfDocument({
       if (!row.lineTotalStr) return sum;
       return sum + Number(row.lineTotalStr.replace(/,/g, ""));
     }, 0);
+
+  const photoChunks: ItemWithPdfImage[][] = [];
+  for (let i = 0; i < products.length; i += PHOTOS_PER_PAGE) {
+    photoChunks.push(products.slice(i, i + PHOTOS_PER_PAGE));
+  }
+  if (photoChunks.length === 0) photoChunks.push([]);
 
   const totalPages = 1 + photoChunks.length;
 
@@ -398,8 +403,8 @@ export function CatalogPdfDocument({
     const barcodeText =
       barcode && String(barcode).trim() !== "" ? String(barcode) : "-";
     const sizeText = meta?.sizeText ?? null;
-    const weightText = meta?.weightText ?? resolvePdfWeightLabel(p);
     const shareQty = meta?.shareQty ?? 1;
+    const weightText = meta?.weightText ?? pdfWeightLabel(p);
     const showPrices =
       !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
     let lineTotalStr = meta?.lineTotalStr ?? null;
@@ -450,7 +455,9 @@ export function CatalogPdfDocument({
         </View>
         <Text style={styles.productName}>{name}</Text>
         {sizeText ? <Text style={styles.sizeLine}>Size · {sizeText}</Text> : null}
-        {weightText ? <Text style={styles.weightLine}>Weight · {weightText}</Text> : null}
+        {weightText ? (
+          <Text style={styles.weightLine}>Weight · {weightText}</Text>
+        ) : null}
         <Text style={styles.refLine}>Ref · {barcodeText}</Text>
         {lineTotalStr ? (
           <>
@@ -463,8 +470,12 @@ export function CatalogPdfDocument({
               <Text style={styles.priceCompare}>Rs. {compareAtStr}</Text>
             ) : null}
             <Text style={styles.priceLine}>Rs. {lineTotalStr}</Text>
-            {withBoxNote ? <Text style={styles.weightLine}>{withBoxNote}</Text> : null}
-            {showInclGst ? <Text style={styles.priceGst}>incl. GST</Text> : null}
+            {withBoxNote ? (
+              <Text style={styles.weightLine}>{withBoxNote}</Text>
+            ) : null}
+            {showInclGst ? (
+              <Text style={styles.priceGst}>incl. GST</Text>
+            ) : null}
           </>
         ) : null}
       </View>
@@ -473,6 +484,7 @@ export function CatalogPdfDocument({
 
   return (
     <Document>
+      {/* Page 1 — order summary table (all lines, never clipped) */}
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <Text style={styles.brand}>{brandName}</Text>
@@ -520,7 +532,7 @@ export function CatalogPdfDocument({
                   <Text style={[styles.orderTableHeadCell, styles.orderColLine]}>Line</Text>
                 </>
               ) : (
-                <Text style={[styles.orderTableHeadCell, { width: "22%" }]}>Ref</Text>
+                <Text style={[styles.orderTableHeadCell, { width: "38%" }]}>Ref</Text>
               )}
             </View>
             {lineMeta.map((row, i) => {
@@ -552,7 +564,7 @@ export function CatalogPdfDocument({
                       </Text>
                     </>
                   ) : (
-                    <Text style={[styles.orderCell, { width: "22%", fontSize: 7 }]}>
+                    <Text style={[styles.orderCell, { width: "38%", fontSize: 7 }]}>
                       {barcode || "—"}
                     </Text>
                   )}
@@ -578,19 +590,19 @@ export function CatalogPdfDocument({
         </Text>
       </Page>
 
-      {photoChunks.map((chunk, pageIndex) => (
-        <Page key={`photos-${pageIndex}`} size="A4" style={styles.page}>
+      {/* Photo pages — each page fits up to PHOTOS_PER_PAGE cards without clipping */}
+      {photoChunks.map((chunk, photoPageIndex) => (
+        <Page key={`photos-${photoPageIndex}`} size="A4" style={styles.page}>
           <Text style={styles.photosTitle}>
-            Product photos · page {pageIndex + 1} of {photoChunks.length}
+            Product photos · page {photoPageIndex + 1} of {photoChunks.length}
           </Text>
           <View style={styles.grid}>
-            {chunk.map((raw, i) => {
-              const globalIndex = pageIndex * PHOTOS_PER_PAGE + i;
-              return renderPhotoCard(raw, globalIndex, pageIndex + 1, i);
-            })}
+            {chunk.map((raw, i) =>
+              renderPhotoCard(raw, photoPageIndex * PHOTOS_PER_PAGE + i, photoPageIndex + 1, i),
+            )}
           </View>
           <Text style={styles.footer} fixed>
-            {brandName} · Page {pageIndex + 2} of {totalPages}
+            {brandName} · Page {photoPageIndex + 2} of {totalPages}
           </Text>
         </Page>
       ))}
