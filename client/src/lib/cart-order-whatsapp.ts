@@ -38,10 +38,10 @@ export function buildCartWhatsAppMessage(params: {
   const body = lines
     .map(
       (l, i) =>
-        `${i + 1}. ${l.name}\n   SKU/Barcode: ${l.skuOrBarcode}\n   Qty: ${l.qty}\n   Line total: ₹${Math.round(l.lineTotalInr).toLocaleString("en-IN")} incl. GST\n`,
+        `${i + 1}. *${l.name}*\n   Ref: ${l.skuOrBarcode}\n   *Qty: ${l.qty} pc${l.qty === 1 ? "" : "s"}*\n   Line total: ₹${Math.round(l.lineTotalInr).toLocaleString("en-IN")} incl. GST\n`,
     )
     .join("\n");
-  const footer = `\n—\nOrder total: ₹${Math.round(orderTotalInr).toLocaleString("en-IN")} incl. GST\n\nPlease confirm availability and next steps. Thank you.`;
+  const footer = `\n—\n*Order total: ₹${Math.round(orderTotalInr).toLocaleString("en-IN")}* incl. GST\n\nPlease confirm availability and next steps. Thank you.`;
   return `${header}${body}${footer}`;
 }
 
@@ -65,6 +65,8 @@ export type SharedCatalogPickLineForWhatsApp = {
   /** List price before link/style discount — shown as "Was ₹X, now ₹Y" when higher than priceInr. */
   compareAtInr?: number | null
   qty?: number
+  /** Formatted size e.g. "3x2.5 in" */
+  sizeLabel?: string | null
   weightLabel?: string | null
   /** When false, omit "incl. GST" on price lines (e.g. gift items with GST toggle off). */
   showInclGst?: boolean
@@ -80,41 +82,91 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
   hidePrices?: boolean
 }): string {
   const { brandLabel, lines, catalogueUrl, hidePrices } = params
-  const header = hidePrices
-    ? `Hi ${brandLabel},\n\nI'd love to know more about these pieces from your catalogue (weights below):\n\n`
-    : `Hi ${brandLabel},\n\nI'd love to know more about these pieces from your shared catalogue:\n\n`
+  const totalPcs = lines.reduce((sum, l) => sum + Math.max(1, Number(l.qty) || 1), 0)
+  const designCount = lines.length
+  const pcsWord = totalPcs === 1 ? "pc" : "pcs"
+  const designWord = designCount === 1 ? "design" : "designs"
+  const divider = "────────────────"
+
+  let orderTotal = 0
+  if (!hidePrices) {
+    for (const l of lines) {
+      const qty = Math.max(1, Number(l.qty) || 1)
+      orderTotal += Math.round(l.priceInr) * qty
+    }
+  }
+
+  const summaryTitle = hidePrices ? "SHORTLIST" : "ORDER"
+  const summaryLines = [
+    `*${summaryTitle} — ${totalPcs} ${pcsWord} · ${designCount} ${designWord}*`,
+  ]
+  if (!hidePrices && orderTotal > 0) {
+    summaryLines.push(`*Estimated total: ₹${Math.round(orderTotal).toLocaleString("en-IN")}* incl. GST`)
+  }
+
+  const intro = hidePrices
+    ? `Hi ${brandLabel},\n\n${summaryLines.join("\n")}\n\nPlease find my shortlisted pieces below (qty & weight for each line):\n`
+    : `Hi ${brandLabel},\n\n${summaryLines.join("\n")}\n\nPlease find my order below — *quantities are highlighted* on every line:\n`
+
   const body = lines
     .map((l, i) => {
-      const wt = l.weightLabel
-        ? hidePrices
-          ? `\n   ${l.weightLabel}`
-          : ` · ${l.weightLabel}`
-        : ''
       const qty = Math.max(1, Number(l.qty) || 1)
-      const qtyLine = qty > 1 ? `\n   Qty: ${qty}` : ''
+      const qtyLine = `*QTY: ${qty} ${qty === 1 ? "pc" : "pcs"}*`
+      const sizeLine = l.sizeLabel?.trim() ? `Size: ${l.sizeLabel.trim()}` : null
+      const refLine = `Ref: ${l.skuOrBarcode}`
+      const wtLine = l.weightLabel ? `Weight: ${l.weightLabel}` : null
+
       if (hidePrices) {
-        return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}${wt}\n`
+        return [
+          divider,
+          `*${i + 1}. ${l.name}*`,
+          qtyLine,
+          sizeLine,
+          refLine,
+          wtLine,
+        ]
+          .filter(Boolean)
+          .join("\n")
       }
+
       const unit = Math.round(l.priceInr)
       const lineTotal = unit * qty
-      const gstSuffix = l.showInclGst === false ? '' : ' incl. GST'
+      const gstSuffix = l.showInclGst === false ? "" : " incl. GST"
       const compareAt =
         l.compareAtInr != null && l.compareAtInr > unit ? Math.round(l.compareAtInr) : null
       const unitLabel = compareAt
-        ? `Was ₹${compareAt.toLocaleString('en-IN')}, now ₹${unit.toLocaleString('en-IN')}${gstSuffix}`
-        : `₹${unit.toLocaleString('en-IN')}${gstSuffix}`
-      const priceLine =
+        ? `Unit: Was ₹${compareAt.toLocaleString("en-IN")}, now ₹${unit.toLocaleString("en-IN")}${gstSuffix}`
+        : `Unit: ₹${unit.toLocaleString("en-IN")}${gstSuffix}`
+      const lineTotalLabel =
         qty > 1
-          ? `${unitLabel} · line ₹${lineTotal.toLocaleString('en-IN')}`
-          : unitLabel
+          ? `*Line total: ₹${lineTotal.toLocaleString("en-IN")}* (${qty} × ₹${unit.toLocaleString("en-IN")})`
+          : `*Line total: ₹${lineTotal.toLocaleString("en-IN")}*`
       const boxLine =
         l.withBoxPriceInr != null && l.withBoxPriceInr > unit
-          ? `\n   With box · ₹${Math.round(l.withBoxPriceInr * qty).toLocaleString('en-IN')}${qty > 1 ? ` (${Math.round(l.withBoxPriceInr).toLocaleString('en-IN')} each)` : ''}`
-          : ''
-      return `${i + 1}. ${l.name}\n   Ref: ${l.skuOrBarcode}${qtyLine}\n   ${priceLine}${boxLine}${wt}\n`
+          ? `With box · ₹${Math.round(l.withBoxPriceInr).toLocaleString("en-IN")}${gstSuffix}`
+          : null
+
+      return [
+        divider,
+        `*${i + 1}. ${l.name}*`,
+        qtyLine,
+        sizeLine,
+        refLine,
+        unitLabel,
+        lineTotalLabel,
+        boxLine,
+        wtLine,
+      ]
+        .filter(Boolean)
+        .join("\n")
     })
-    .join('\n')
-  const link = catalogueUrl ? `\n—\nFor reference — catalogue link:\n${catalogueUrl}\n` : "";
-  const footer = `\nWhenever it's convenient, could you confirm availability and suggest next steps?\n\nThank you.`;
-  return `${header}${body}${link}${footer}`;
+    .join("\n")
+
+  const closing = hidePrices
+    ? "\n\nCould you confirm availability and share next steps? Thank you."
+    : "\n\nPlease confirm availability and share next steps for this order. Thank you."
+
+  const link = catalogueUrl ? `\n\n${divider}\nCatalogue reference:\n${catalogueUrl}` : ""
+
+  return `${intro}\n${body}${link}${closing}`
 }

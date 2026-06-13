@@ -51,8 +51,13 @@ import {
   normalizeIndianMobileDigits,
   openWhatsAppOrder,
   toWhatsAppWaMeDigits,
-  type SharedCatalogPickLineForWhatsApp,
 } from '@/lib/cart-order-whatsapp'
+import {
+  buildSharedCatalogSelectionPicks,
+  picksToPdfItems,
+  sharedCatalogPickToWhatsAppLine,
+  summarizeSharedCatalogPicks,
+} from '@/lib/shared-catalog-picks'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
 import {
   sharePdfBlob,
@@ -317,6 +322,18 @@ export default function SharedCatalogClient({
   const selectedCount = selections.size
   const totalPieces = totalSelectedPieces(selections)
 
+  const selectionPicks = useMemo(
+    () =>
+      buildSharedCatalogSelectionPicks(
+        groupedRows,
+        resolveActiveVariant,
+        rowKeyByRow,
+        selections,
+        includeBoxByKey,
+      ),
+    [groupedRows, resolveActiveVariant, rowKeyByRow, selections, includeBoxByKey],
+  )
+
   const handleSharePicksPdf = useCallback(async () => {
     if (!isLoadedBrochure(payload)) return
     if (selectedCount === 0) return
@@ -326,18 +343,8 @@ export default function SharedCatalogClient({
     const digits10 = fromApi ?? fromBranding ?? getDefaultStoreWhatsAppDigits()
     const wa = digits10 ? toWhatsAppWaMeDigits(digits10) : ''
 
-    const pickedItems: Array<ReturnType<typeof sharedCatalogProductToItem> & { shareCatalogQty?: number }> =
-      []
-    rows.forEach((row, i) => {
-      const key = rowKeys[i]
-      const qty = selections.get(key)
-      if (!qty) return
-      pickedItems.push({
-        ...sharedCatalogProductToItem(row.product),
-        shareCatalogQty: qty,
-      })
-    })
-    if (pickedItems.length === 0) return
+    if (selectionPicks.length === 0) return
+    const orderSummary = summarizeSharedCatalogPicks(selectionPicks)
 
     const markup = parseMarkupPercentage(payload.markupPercentage)
     const discount = parseDiscountPercentage(payload.discountPercentage)
@@ -350,7 +357,7 @@ export default function SharedCatalogClient({
 
     setPdfBusy(true)
     try {
-      const itemsForPdf = await resolveItemsForPdf(pickedItems)
+      const itemsForPdf = await resolveItemsForPdf(picksToPdfItems(selectionPicks))
       const blob = await pdf(
         <CatalogPdfDocument
           products={itemsForPdf}
@@ -358,6 +365,11 @@ export default function SharedCatalogClient({
           kcThemeId={kcThemeId}
           itemsLabel={hidePricesPdf ? 'Weight catalogue shortlist' : 'Shared catalogue shortlist'}
           hidePrices={hidePricesPdf}
+          orderSummary={{
+            totalPieces: orderSummary.totalPieces,
+            designCount: orderSummary.designCount,
+            orderTotalInr: hidePricesPdf ? null : orderSummary.orderTotalInr,
+          }}
           resellerPdfPricing={
             hidePricesPdf
               ? null
@@ -412,13 +424,12 @@ export default function SharedCatalogClient({
     }
   }, [
     payload,
-    selections,
+    selectionPicks,
     selectedCount,
-    rows,
-    rowKeys,
     brandLabel,
     initialBranding?.contactPhoneDigits,
     initialBranding?.kcThemeId,
+    giftingGstEnabled,
   ])
 
   const handleSharePicks = useCallback(() => {
@@ -444,32 +455,7 @@ export default function SharedCatalogClient({
       return
     }
 
-    const lines: SharedCatalogPickLineForWhatsApp[] = []
-    rows.forEach((row, i) => {
-      const key = rowKeys[i]
-      const qty = selections.get(key)
-      if (!qty) return
-      const name =
-        (row.product.name as string) ||
-        row.item.item_name ||
-        String(row.product.barcode || row.product.sku || '')
-      const code = String(row.product.barcode || row.product.sku || '')
-      const weightLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(row.product))
-      const item = sharedCatalogProductToItem(row.product)
-      lines.push({
-        name,
-        skuOrBarcode: code || key,
-        priceInr: row.unitTotalInr,
-        compareAtInr: row.unitCompareAtInr,
-        qty,
-        weightLabel,
-        showInclGst: row.showInclGst,
-        withBoxPriceInr:
-          productHasBoxOption(item) && getProductBoxCharges(item) > 0
-            ? row.unitTotalInr + getProductBoxCharges(item)
-            : null,
-      })
-    })
+    const lines = selectionPicks.map((pick) => sharedCatalogPickToWhatsAppLine(pick))
 
     const msg = buildSharedCatalogSelectionWhatsAppMessage({
       brandLabel,
@@ -478,16 +464,7 @@ export default function SharedCatalogClient({
       hidePrices: !!payload.hidePrices,
     })
     openWhatsAppOrder(wa, msg)
-  }, [
-    payload,
-    selections,
-    selectedCount,
-    rows,
-    rowKeys,
-    brandLabel,
-    initialBranding?.contactPhoneDigits,
-    includeBoxByKey,
-  ])
+  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits])
 
   if (loading) {
     return (
@@ -877,24 +854,24 @@ export default function SharedCatalogClient({
                         ) : null}
                         {selected ? (
                           <div
-                            className="flex items-center justify-between gap-2 rounded-xl border border-slate-700/80 bg-slate-950/60 px-2 py-1.5"
+                            className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/50 bg-amber-500/15 px-2.5 py-2"
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => e.stopPropagation()}
                           >
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-amber-400">
                               Qty
                             </span>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
                                 aria-label="Decrease quantity"
                                 disabled={qty <= 1}
                                 onClick={() => setQty(key, qty - 1)}
-                                className="flex size-8 items-center justify-center rounded-lg border border-slate-600 bg-slate-900 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+                                className="flex size-9 items-center justify-center rounded-lg border border-amber-500/45 bg-slate-900/80 text-amber-200 transition hover:bg-slate-800 disabled:opacity-40"
                               >
-                                <Minus className="size-3.5" aria-hidden />
+                                <Minus className="size-4" aria-hidden />
                               </button>
-                              <span className="min-w-[1.75rem] text-center text-sm font-semibold tabular-nums text-slate-100">
+                              <span className="min-w-[2rem] rounded-lg bg-amber-500 px-2 py-1 text-center text-base font-bold tabular-nums text-slate-950">
                                 {qty}
                               </span>
                               <button
@@ -902,9 +879,9 @@ export default function SharedCatalogClient({
                                 aria-label="Increase quantity"
                                 disabled={qty >= MAX_PIECE_QTY}
                                 onClick={() => setQty(key, qty + 1)}
-                                className="flex size-8 items-center justify-center rounded-lg border border-slate-600 bg-slate-900 text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+                                className="flex size-9 items-center justify-center rounded-lg border border-amber-500/45 bg-slate-900/80 text-amber-200 transition hover:bg-slate-800 disabled:opacity-40"
                               >
-                                <Plus className="size-3.5" aria-hidden />
+                                <Plus className="size-4" aria-hidden />
                               </button>
                             </div>
                           </div>
@@ -922,11 +899,11 @@ export default function SharedCatalogClient({
       {showPickerChrome ? (
         <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-300/90 bg-white/98 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-md">
           <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
-            <p className="min-w-0 flex-1 truncate text-xs text-neutral-600 sm:text-sm">
+            <p className="min-w-0 flex-1 truncate text-sm sm:text-base">
               {selectedCount === 0 ? (
-                <>Shortlist items to share</>
+                <span className="text-neutral-600">Shortlist items to share</span>
               ) : (
-                <span className="font-semibold text-neutral-900">
+                <span className="font-bold text-amber-900">
                   {totalPieces} {totalPieces === 1 ? 'pc' : 'pcs'} · {selectedCount}{' '}
                   {selectedCount === 1 ? 'design' : 'designs'}
                 </span>
