@@ -326,12 +326,11 @@ export default function SharedCatalogClient({
     () =>
       buildSharedCatalogSelectionPicks(
         groupedRows,
-        resolveActiveVariant,
         rowKeyByRow,
         selections,
         includeBoxByKey,
       ),
-    [groupedRows, resolveActiveVariant, rowKeyByRow, selections, includeBoxByKey],
+    [groupedRows, rowKeyByRow, selections, includeBoxByKey],
   )
 
   const handleSharePicksPdf = useCallback(async () => {
@@ -549,7 +548,7 @@ export default function SharedCatalogClient({
         </h1>
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
-            Tap to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
+            Tap anywhere on a card to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
@@ -630,9 +629,22 @@ export default function SharedCatalogClient({
           <ul className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
             {visibleGroupedRows.map((group) => {
               const activeRow = resolveActiveVariant(group)
-              const key = rowKeyByRow.get(activeRow) ?? group.groupKey
-              const qty = selections.get(key) ?? 0
+              const activeKey = rowKeyByRow.get(activeRow) ?? group.groupKey
+              let selectionKey = activeKey
+              let qty = selections.get(activeKey) ?? 0
+              if (qty === 0) {
+                for (const variant of group.variants) {
+                  const variantKey = rowKeyByRow.get(variant)
+                  const variantQty = variantKey ? selections.get(variantKey) : undefined
+                  if (variantKey && variantQty) {
+                    selectionKey = variantKey
+                    qty = variantQty
+                    break
+                  }
+                }
+              }
               const selected = qty > 0
+              const toggleTargetKey = selected ? selectionKey : activeKey
               const hasVariants = group.variants.length > 1
               const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst } =
                 activeRow
@@ -645,32 +657,33 @@ export default function SharedCatalogClient({
               const sizeLabel = getCustomerDisplaySize(item)
               const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
               const hasBox = productHasBoxOption(item)
-              const includeBox = includeBoxByKey.get(key) ?? false
+              const includeBox = includeBoxByKey.get(selectionKey) ?? false
               const boxSlideIdx = boxImageSlideIndex(item)
               const displayUnitInr = unitTotalInr + (includeBox ? getProductBoxCharges(item) : 0)
-              const galleryScroll = galleryScrollByKey.get(key) ?? null
+              const galleryScroll = galleryScrollByKey.get(activeKey) ?? null
               return (
                 <li key={group.groupKey}>
                   <article
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selected}
+                    onClick={() => toggleKey(toggleTargetKey)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleKey(toggleTargetKey)
+                      }
+                    }}
                     className={cn(
-                      'flex h-full flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition',
+                      'flex h-full cursor-pointer touch-manipulation flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition outline-none',
                       selected
                         ? 'border-amber-500/70 ring-2 ring-amber-500/25'
                         : 'border-slate-700/80 hover:border-slate-600',
                     )}
                   >
                     <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleKey(key)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          toggleKey(key)
-                        }
-                      }}
                       className={cn(
-                        'group relative isolate aspect-[4/5] cursor-pointer overflow-hidden outline-none',
+                        'group relative isolate aspect-[4/5] overflow-hidden',
                         productImageWellClass,
                       )}
                     >
@@ -678,7 +691,7 @@ export default function SharedCatalogClient({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          toggleKey(key)
+                          toggleKey(toggleTargetKey)
                         }}
                         aria-pressed={selected}
                         aria-label={selected ? 'Remove from shortlist' : 'Add to shortlist'}
@@ -715,22 +728,23 @@ export default function SharedCatalogClient({
                             unoptimized
                             scrollToIndex={galleryScroll}
                             onActiveIndexChange={(idx) => {
+                              const boxKey = selected ? selectionKey : activeKey
                               if (boxSlideIdx != null && idx === boxSlideIdx) {
                                 setIncludeBoxByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(key, true)
+                                  next.set(boxKey, true)
                                   return next
                                 })
                               } else if (hasBox) {
                                 setIncludeBoxByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(key, false)
+                                  next.set(boxKey, false)
                                   return next
                                 })
                               }
                             }}
                           />
-                          <SharedCatalogZoomHint onZoom={() => openLightboxForKey(key)} />
+                          <SharedCatalogZoomHint onZoom={() => openLightboxForKey(activeKey)} />
                         </>
                       ) : (
                         <div className="flex h-full items-center justify-center bg-slate-800/50">
@@ -774,6 +788,22 @@ export default function SharedCatalogClient({
                                   next.set(group.groupKey, variantKey)
                                   return next
                                 })
+                                setSelections((prev) => {
+                                  const existingQty = prev.get(selectionKey)
+                                  if (!existingQty || variantKey === selectionKey) return prev
+                                  const next = new Map(prev)
+                                  next.delete(selectionKey)
+                                  next.set(variantKey, existingQty)
+                                  return next
+                                })
+                                setIncludeBoxByKey((prev) => {
+                                  const withBox = prev.get(selectionKey)
+                                  if (withBox == null || variantKey === selectionKey) return prev
+                                  const next = new Map(prev)
+                                  next.delete(selectionKey)
+                                  if (withBox) next.set(variantKey, true)
+                                  return next
+                                })
                               }
                             }}
                             density="card"
@@ -803,21 +833,22 @@ export default function SharedCatalogClient({
                             includeBox={includeBox}
                             showChipPrices={false}
                             onChange={(withBox) => {
+                              const boxKey = selected ? selectionKey : activeKey
                               setIncludeBoxByKey((prev) => {
                                 const next = new Map(prev)
-                                next.set(key, withBox)
+                                next.set(boxKey, withBox)
                                 return next
                               })
                               if (withBox && boxSlideIdx != null) {
                                 setGalleryScrollByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(key, boxSlideIdx)
+                                  next.set(activeKey, boxSlideIdx)
                                   return next
                                 })
                               } else {
                                 setGalleryScrollByKey((prev) => {
                                   const next = new Map(prev)
-                                  next.set(key, 0)
+                                  next.set(activeKey, 0)
                                   return next
                                 })
                               }
@@ -854,34 +885,30 @@ export default function SharedCatalogClient({
                         ) : null}
                         {selected ? (
                           <div
-                            className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/50 bg-amber-500/15 px-2.5 py-2"
+                            className="kc-qty-stepper"
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => e.stopPropagation()}
                           >
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-amber-400">
-                              Qty
-                            </span>
+                            <span className="kc-qty-stepper-label">Qty</span>
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
                                 aria-label="Decrease quantity"
                                 disabled={qty <= 1}
-                                onClick={() => setQty(key, qty - 1)}
-                                className="flex size-9 items-center justify-center rounded-lg border border-amber-500/45 bg-slate-900/80 text-amber-200 transition hover:bg-slate-800 disabled:opacity-40"
+                                onClick={() => setQty(selectionKey, qty - 1)}
+                                className="kc-qty-stepper-btn"
                               >
-                                <Minus className="size-4" aria-hidden />
+                                <Minus className="size-4 stroke-[2.5]" aria-hidden />
                               </button>
-                              <span className="min-w-[2rem] rounded-lg bg-amber-500 px-2 py-1 text-center text-base font-bold tabular-nums text-slate-950">
-                                {qty}
-                              </span>
+                              <span className="kc-qty-stepper-value">{qty}</span>
                               <button
                                 type="button"
                                 aria-label="Increase quantity"
                                 disabled={qty >= MAX_PIECE_QTY}
-                                onClick={() => setQty(key, qty + 1)}
-                                className="flex size-9 items-center justify-center rounded-lg border border-amber-500/45 bg-slate-900/80 text-amber-200 transition hover:bg-slate-800 disabled:opacity-40"
+                                onClick={() => setQty(selectionKey, qty + 1)}
+                                className="kc-qty-stepper-btn"
                               >
-                                <Plus className="size-4" aria-hidden />
+                                <Plus className="size-4 stroke-[2.5]" aria-hidden />
                               </button>
                             </div>
                           </div>

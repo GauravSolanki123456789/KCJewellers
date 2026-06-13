@@ -779,6 +779,63 @@ body {
     }
   }
 
+  /* Shared catalogue qty stepper — high contrast on light KC themes */
+  .kc-qty-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--kc-accent, var(--color-emerald-600)) 38%, var(--color-slate-700, #e8e4df));
+    background: color-mix(in oklab, var(--kc-accent, var(--color-emerald-600)) 10%, var(--color-slate-900, #f7f4ef));
+    padding: 0.5rem 0.625rem;
+  }
+
+  .kc-qty-stepper-label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--kc-accent, var(--color-emerald-600));
+  }
+
+  .kc-qty-stepper-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in oklab, var(--kc-accent, var(--color-emerald-600)) 45%, var(--color-slate-700, #e8e4df));
+    background: var(--color-slate-950, #ffffff);
+    color: var(--kc-accent, var(--color-emerald-600));
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+
+  .kc-qty-stepper-btn:hover:not(:disabled) {
+    border-color: var(--kc-accent, var(--color-emerald-600));
+    background: color-mix(in oklab, var(--kc-accent, var(--color-emerald-600)) 8%, var(--color-slate-950, #ffffff));
+  }
+
+  .kc-qty-stepper-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .kc-qty-stepper-value {
+    min-width: 2.5rem;
+    border-radius: 0.5rem;
+    background: var(--kc-accent, var(--color-emerald-600));
+    padding: 0.25rem 0.5rem;
+    text-align: center;
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--kc-accent-foreground, #ffffff);
+  }
+
   @media (min-width: 640px) {
     .kc-product-card-body {
       padding: 0.75rem 0.875rem 0.875rem;

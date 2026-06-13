@@ -22,7 +22,6 @@ export type SharedCatalogSelectionPick = {
 
 export function buildSharedCatalogSelectionPicks(
   groupedRows: SharedCatalogGroupedRow[],
-  resolveActiveVariant: (group: SharedCatalogGroupedRow) => SharedCatalogPricingRow,
   rowKeyByRow: Map<SharedCatalogPricingRow, string>,
   selections: Map<string, number>,
   includeBoxByKey: Map<string, boolean>,
@@ -30,26 +29,38 @@ export function buildSharedCatalogSelectionPicks(
   const picks: SharedCatalogSelectionPick[] = []
 
   for (const group of groupedRows) {
-    const active = resolveActiveVariant(group)
-    const key = rowKeyByRow.get(active)
-    if (!key) continue
-    const qty = selections.get(key)
-    if (!qty) continue
+    let matchedRow: SharedCatalogPricingRow | null = null
+    let matchedKey: string | null = null
+    let matchedQty: number | null = null
 
-    const item = active.item
-    const includeBox = includeBoxByKey.get(key) ?? false
+    for (const variant of group.variants) {
+      const key = rowKeyByRow.get(variant)
+      if (!key) continue
+      const qty = selections.get(key)
+      if (qty) {
+        matchedRow = variant
+        matchedKey = key
+        matchedQty = qty
+        break
+      }
+    }
+
+    if (!matchedRow || !matchedKey || matchedQty == null) continue
+
+    const item = matchedRow.item
+    const includeBox = includeBoxByKey.get(matchedKey) ?? false
     const boxAdd = includeBox && productHasBoxOption(item) ? getProductBoxCharges(item) : 0
-    const unitTotalInr = active.unitTotalInr + boxAdd
-    const lineTotalInr = unitTotalInr * qty
+    const unitTotalInr = matchedRow.unitTotalInr + boxAdd
+    const lineTotalInr = unitTotalInr * matchedQty
 
     picks.push({
-      row: active,
-      key,
-      qty,
+      row: matchedRow,
+      key: matchedKey,
+      qty: matchedQty,
       includeBox,
       displayTitle: group.displayTitle,
       sizeLabel: getCustomerDisplaySize(item),
-      weightLabel: getCustomerDisplayWeightLabel(sharedCatalogProductToItem(active.product)),
+      weightLabel: getCustomerDisplayWeightLabel(sharedCatalogProductToItem(matchedRow.product)),
       unitTotalInr,
       lineTotalInr,
     })
@@ -82,6 +93,7 @@ export function sharedCatalogPickToPdfItem(
   shareCatalogQty: number
   shareCatalogDisplayTitle: string
   shareCatalogSize: string | null
+  shareCatalogWeightLabel: string | null
   shareCatalogLineTotalInr: number
   shareCatalogUnitTotalInr: number
 } {
@@ -90,6 +102,7 @@ export function sharedCatalogPickToPdfItem(
     shareCatalogQty: pick.qty,
     shareCatalogDisplayTitle: pick.displayTitle,
     shareCatalogSize: pick.sizeLabel,
+    shareCatalogWeightLabel: pick.weightLabel,
     shareCatalogLineTotalInr: pick.lineTotalInr,
     shareCatalogUnitTotalInr: pick.unitTotalInr,
   }

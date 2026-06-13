@@ -33,7 +33,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 sudo certbot --nginx -d gauravsoftwares.tech -d www.gauravsoftwares.tech
 
-command to kill one drive error 
+command to kill one drive error     
 Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
 
 Database access query :

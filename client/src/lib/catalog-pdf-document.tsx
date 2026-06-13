@@ -90,12 +90,13 @@ function buildCatalogPdfStyles(p: KcPdfPalette) {
     orderTableRowAlt: {
       backgroundColor: p.cardBg,
     },
-    orderColNo: { width: "6%" },
-    orderColName: { width: "28%" },
-    orderColSize: { width: "18%" },
-    orderColQty: { width: "14%" },
-    orderColUnit: { width: "17%" },
-    orderColLine: { width: "17%" },
+    orderColNo: { width: "5%" },
+    orderColName: { width: "22%" },
+    orderColSize: { width: "14%" },
+    orderColWeight: { width: "12%" },
+    orderColQty: { width: "11%" },
+    orderColUnit: { width: "14%" },
+    orderColLine: { width: "14%" },
     orderCell: { fontSize: 8, color: p.textPrimary },
     orderCellQty: {
       fontSize: 10,
@@ -277,16 +278,23 @@ export type CatalogPdfDocumentProps = {
   orderSummary?: CatalogPdfOrderSummary | null;
 };
 
-const PER_PAGE = 9;
+const PHOTOS_PER_PAGE = 6;
 
 type PdfLineMeta = {
   index: number;
   name: string;
   sizeText: string | null;
+  weightText: string | null;
   shareQty: number;
   unitPriceStr: string | null;
   lineTotalStr: string | null;
 };
+
+function resolvePdfWeightLabel(p: ItemWithPdfImage): string | null {
+  const preset = (p as { shareCatalogWeightLabel?: string }).shareCatalogWeightLabel;
+  if (preset && String(preset).trim()) return String(preset).trim();
+  return getCustomerDisplayWeightLabel(p);
+}
 
 function resolvePdfLineMeta(
   raw: ItemWithPdfImage,
@@ -300,6 +308,7 @@ function resolvePdfLineMeta(
     (p as { shareCatalogSize?: string }).shareCatalogSize?.trim() ||
     getCustomerDisplaySize(p) ||
     null;
+  const weightText = resolvePdfWeightLabel(p);
   const shareQty = Math.max(
     1,
     Math.floor(Number((p as { shareCatalogQty?: number }).shareCatalogQty) || 1),
@@ -337,7 +346,7 @@ function resolvePdfLineMeta(
     }
   }
 
-  return { index, name, sizeText, shareQty, unitPriceStr, lineTotalStr };
+  return { index, name, sizeText, weightText, shareQty, unitPriceStr, lineTotalStr };
 }
 
 export function CatalogPdfDocument({
@@ -360,11 +369,11 @@ export function CatalogPdfDocument({
     [products, hidePrices, resellerPdfPricing],
   );
 
-  const chunks: ItemWithPdfImage[][] = [];
-  for (let i = 0; i < products.length; i += PER_PAGE) {
-    chunks.push(products.slice(i, i + PER_PAGE));
+  const photoChunks: ItemWithPdfImage[][] = [];
+  for (let i = 0; i < products.length; i += PHOTOS_PER_PAGE) {
+    photoChunks.push(products.slice(i, i + PHOTOS_PER_PAGE));
   }
-  if (chunks.length === 0) chunks.push([]);
+  if (photoChunks.length === 0) photoChunks.push([]);
 
   const totalPieces =
     orderSummary?.totalPieces ??
@@ -377,206 +386,211 @@ export function CatalogPdfDocument({
       return sum + Number(row.lineTotalStr.replace(/,/g, ""));
     }, 0);
 
+  const totalPages = 1 + photoChunks.length;
+
+  const renderPhotoCard = (raw: ItemWithPdfImage, globalIndex: number, pageIndex: number, i: number) => {
+    const p = raw as ItemWithPdfImage;
+    const meta = lineMeta[globalIndex];
+    const name = meta?.name ?? displayName(p);
+    const img = p.pdfImageSrc;
+    const barcode = getProductSelectionKey(p);
+    const key = `${barcode || String(p.id ?? globalIndex)}-${pageIndex}-${i}`;
+    const barcodeText =
+      barcode && String(barcode).trim() !== "" ? String(barcode) : "-";
+    const sizeText = meta?.sizeText ?? null;
+    const weightText = meta?.weightText ?? resolvePdfWeightLabel(p);
+    const shareQty = meta?.shareQty ?? 1;
+    const showPrices =
+      !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
+    let lineTotalStr = meta?.lineTotalStr ?? null;
+    let unitPriceStr = meta?.unitPriceStr ?? null;
+    let compareAtStr: string | null = null;
+    let showInclGst = false;
+    if (showPrices && resellerPdfPricing) {
+      const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
+      const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
+      const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
+      const price = computeSharedCatalogUnitPrice(
+        p,
+        resellerPdfPricing.rates,
+        mk,
+        resellerPdfPricing.wholesale ?? undefined,
+        giftingGstEnabled,
+        disc,
+      );
+      showInclGst = price.showInclGst;
+      if (
+        price.unitCompareAtInr != null &&
+        price.unitCompareAtInr > price.unitTotalInr
+      ) {
+        compareAtStr = price.unitCompareAtInr.toLocaleString("en-IN");
+      }
+      if (!lineTotalStr) {
+        const unitInr = price.unitTotalInr;
+        lineTotalStr = (unitInr * shareQty).toLocaleString("en-IN");
+        unitPriceStr = unitInr.toLocaleString("en-IN");
+      }
+    }
+    const boxAdd = getProductBoxCharges(p as Item);
+    const withBoxNote =
+      showPrices && boxAdd > 0 && lineTotalStr
+        ? `With box · Rs. ${(Number(lineTotalStr.replace(/,/g, "")) + boxAdd * shareQty).toLocaleString("en-IN")}`
+        : null;
+    return (
+      <View key={key} style={styles.card}>
+        <View style={styles.thumbWrap}>
+          {img ? (
+            <Image style={styles.thumb} src={img} />
+          ) : (
+            <Text style={styles.thumbPlaceholder}>{name.charAt(0)}</Text>
+          )}
+          <View style={styles.qtyOverlay}>
+            <Text style={styles.qtyOverlayText}>×{shareQty}</Text>
+          </View>
+        </View>
+        <Text style={styles.productName}>{name}</Text>
+        {sizeText ? <Text style={styles.sizeLine}>Size · {sizeText}</Text> : null}
+        {weightText ? <Text style={styles.weightLine}>Weight · {weightText}</Text> : null}
+        <Text style={styles.refLine}>Ref · {barcodeText}</Text>
+        {lineTotalStr ? (
+          <>
+            {shareQty > 1 && unitPriceStr ? (
+              <Text style={styles.unitPriceLine}>
+                {shareQty} × Rs. {unitPriceStr} each
+              </Text>
+            ) : null}
+            {compareAtStr ? (
+              <Text style={styles.priceCompare}>Rs. {compareAtStr}</Text>
+            ) : null}
+            <Text style={styles.priceLine}>Rs. {lineTotalStr}</Text>
+            {withBoxNote ? <Text style={styles.weightLine}>{withBoxNote}</Text> : null}
+            {showInclGst ? <Text style={styles.priceGst}>incl. GST</Text> : null}
+          </>
+        ) : null}
+      </View>
+    );
+  };
+
   return (
     <Document>
-      {chunks.map((chunk, pageIndex) => (
-        <Page key={pageIndex} size="A4" style={styles.page}>
-          {pageIndex === 0 && (
-            <View style={styles.header}>
-              <Text style={styles.brand}>{brandName}</Text>
-              <Text style={styles.sub}>
-                {itemsLabel} · {designCount} design{designCount !== 1 ? "s" : ""} · {totalPieces}{" "}
-                pc{totalPieces !== 1 ? "s" : ""}
+      <Page size="A4" style={styles.page}>
+        <View style={styles.header}>
+          <Text style={styles.brand}>{brandName}</Text>
+          <Text style={styles.sub}>
+            {itemsLabel} · {designCount} design{designCount !== 1 ? "s" : ""} · {totalPieces}{" "}
+            pc{totalPieces !== 1 ? "s" : ""}
+          </Text>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryBadge}>
+              <Text style={styles.summaryBadgeText}>
+                {totalPieces} pc{totalPieces !== 1 ? "s" : ""}
               </Text>
-              <View style={styles.summaryRow}>
-                <View style={styles.summaryBadge}>
-                  <Text style={styles.summaryBadgeText}>
-                    {totalPieces} pc{totalPieces !== 1 ? "s" : ""}
-                  </Text>
-                </View>
-                <View style={styles.summaryBadge}>
-                  <Text style={styles.summaryBadgeText}>
-                    {designCount} design{designCount !== 1 ? "s" : ""}
-                  </Text>
-                </View>
-                {!hidePrices && orderTotalInr > 0 ? (
-                  <View style={styles.summaryBadge}>
-                    <Text style={styles.summaryBadgeText}>
-                      Est. Rs. {Math.round(orderTotalInr).toLocaleString("en-IN")}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
             </View>
-          )}
-
-          {pageIndex === 0 && lineMeta.length > 0 ? (
-            <View style={styles.orderTable}>
-              <View style={styles.orderTableTitle}>
-                <Text style={styles.orderTableTitleText}>
-                  {hidePrices ? "Shortlist summary" : "Order summary — quantities"}
+            <View style={styles.summaryBadge}>
+              <Text style={styles.summaryBadgeText}>
+                {designCount} design{designCount !== 1 ? "s" : ""}
+              </Text>
+            </View>
+            {!hidePrices && orderTotalInr > 0 ? (
+              <View style={styles.summaryBadge}>
+                <Text style={styles.summaryBadgeText}>
+                  Est. Rs. {Math.round(orderTotalInr).toLocaleString("en-IN")}
                 </Text>
               </View>
-              <View style={styles.orderTableHead}>
-                <Text style={[styles.orderTableHeadCell, styles.orderColNo]}>#</Text>
-                <Text style={[styles.orderTableHeadCell, styles.orderColName]}>Design</Text>
-                <Text style={[styles.orderTableHeadCell, styles.orderColSize]}>Size</Text>
-                <Text style={[styles.orderTableHeadCell, styles.orderColQty]}>Qty</Text>
-                {!hidePrices ? (
-                  <>
-                    <Text style={[styles.orderTableHeadCell, styles.orderColUnit]}>Unit</Text>
-                    <Text style={[styles.orderTableHeadCell, styles.orderColLine]}>Line</Text>
-                  </>
-                ) : (
-                  <Text style={[styles.orderTableHeadCell, { width: "34%" }]}>Ref</Text>
-                )}
-              </View>
-              {lineMeta.map((row, i) => {
-                const raw = products[i] as ItemWithPdfImage;
-                const barcode = getProductSelectionKey(raw);
-                return (
-                  <View
-                    key={`line-${row.index}`}
-                    style={[styles.orderTableRow, i % 2 === 1 ? styles.orderTableRowAlt : {}]}
-                  >
-                    <Text style={[styles.orderCell, styles.orderColNo]}>{i + 1}</Text>
-                    <Text style={[styles.orderCell, styles.orderColName]}>{row.name}</Text>
-                    <Text style={[styles.orderCell, styles.orderColSize]}>
-                      {row.sizeText || "—"}
-                    </Text>
-                    <Text style={[styles.orderCellQty, styles.orderColQty]}>
-                      {row.shareQty} pc{row.shareQty !== 1 ? "s" : ""}
-                    </Text>
-                    {!hidePrices ? (
-                      <>
-                        <Text style={[styles.orderCell, styles.orderColUnit]}>
-                          {row.unitPriceStr ? `Rs. ${row.unitPriceStr}` : "—"}
-                        </Text>
-                        <Text style={[styles.orderCellLine, styles.orderColLine]}>
-                          {row.lineTotalStr ? `Rs. ${row.lineTotalStr}` : "—"}
-                        </Text>
-                      </>
-                    ) : (
-                      <Text style={[styles.orderCell, { width: "34%", fontSize: 7 }]}>
-                        {barcode || "—"}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
-              <View style={styles.orderTableFoot}>
-                <Text style={styles.orderTableFootText}>
-                  Total · {totalPieces} pc{totalPieces !== 1 ? "s" : ""} · {designCount} design
-                  {designCount !== 1 ? "s" : ""}
-                </Text>
-                {!hidePrices && orderTotalInr > 0 ? (
-                  <Text style={styles.orderTableFootTotal}>
-                    Rs. {Math.round(orderTotalInr).toLocaleString("en-IN")}
-                  </Text>
-                ) : null}
-              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {lineMeta.length > 0 ? (
+          <View style={styles.orderTable}>
+            <View style={styles.orderTableTitle}>
+              <Text style={styles.orderTableTitleText}>
+                {hidePrices ? "Shortlist summary" : "Order summary — quantities"}
+              </Text>
             </View>
-          ) : null}
-
-          {pageIndex === 0 && chunk.length > 0 ? (
-            <Text style={styles.photosTitle}>Product photos</Text>
-          ) : null}
-
-          <View style={styles.grid}>
-            {chunk.map((raw, i) => {
-              const globalIndex = pageIndex * PER_PAGE + i;
-              const p = raw as ItemWithPdfImage;
-              const meta = lineMeta[globalIndex];
-              const name = meta?.name ?? displayName(p);
-              const img = p.pdfImageSrc;
-              const barcode = getProductSelectionKey(p);
-              const key = `${barcode || String(p.id ?? globalIndex)}-${pageIndex}-${i}`;
-              const barcodeText =
-                barcode && String(barcode).trim() !== "" ? String(barcode) : "-";
-              const sizeText = meta?.sizeText ?? null;
-              const shareQty = meta?.shareQty ?? 1;
-              const weightText = getCustomerDisplayWeightLabel(p);
-              const showPrices =
-                !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
-              let lineTotalStr = meta?.lineTotalStr ?? null;
-              let unitPriceStr = meta?.unitPriceStr ?? null;
-              let compareAtStr: string | null = null;
-              let showInclGst = false;
-              if (showPrices && resellerPdfPricing) {
-                const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
-                const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
-                const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
-                const price = computeSharedCatalogUnitPrice(
-                  p,
-                  resellerPdfPricing.rates,
-                  mk,
-                  resellerPdfPricing.wholesale ?? undefined,
-                  giftingGstEnabled,
-                  disc,
-                );
-                showInclGst = price.showInclGst;
-                if (
-                  price.unitCompareAtInr != null &&
-                  price.unitCompareAtInr > price.unitTotalInr
-                ) {
-                  compareAtStr = price.unitCompareAtInr.toLocaleString("en-IN");
-                }
-                if (!lineTotalStr) {
-                  const unitInr = price.unitTotalInr;
-                  lineTotalStr = (unitInr * shareQty).toLocaleString("en-IN");
-                  unitPriceStr = unitInr.toLocaleString("en-IN");
-                }
-              }
-              const boxAdd = getProductBoxCharges(p as Item);
-              const withBoxNote =
-                showPrices && boxAdd > 0 && lineTotalStr
-                  ? `With box · Rs. ${(Number(lineTotalStr.replace(/,/g, "")) + boxAdd * shareQty).toLocaleString("en-IN")}`
-                  : null;
+            <View style={styles.orderTableHead}>
+              <Text style={[styles.orderTableHeadCell, styles.orderColNo]}>#</Text>
+              <Text style={[styles.orderTableHeadCell, styles.orderColName]}>Design</Text>
+              <Text style={[styles.orderTableHeadCell, styles.orderColSize]}>Size</Text>
+              <Text style={[styles.orderTableHeadCell, styles.orderColWeight]}>Weight</Text>
+              <Text style={[styles.orderTableHeadCell, styles.orderColQty]}>Qty</Text>
+              {!hidePrices ? (
+                <>
+                  <Text style={[styles.orderTableHeadCell, styles.orderColUnit]}>Unit</Text>
+                  <Text style={[styles.orderTableHeadCell, styles.orderColLine]}>Line</Text>
+                </>
+              ) : (
+                <Text style={[styles.orderTableHeadCell, { width: "22%" }]}>Ref</Text>
+              )}
+            </View>
+            {lineMeta.map((row, i) => {
+              const raw = products[i] as ItemWithPdfImage;
+              const barcode = getProductSelectionKey(raw);
               return (
-                <View key={key} style={styles.card}>
-                  <View style={styles.thumbWrap}>
-                    {img ? (
-                      <Image style={styles.thumb} src={img} />
-                    ) : (
-                      <Text style={styles.thumbPlaceholder}>{name.charAt(0)}</Text>
-                    )}
-                    <View style={styles.qtyOverlay}>
-                      <Text style={styles.qtyOverlayText}>
-                        ×{shareQty}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.productName}>{name}</Text>
-                  {sizeText ? <Text style={styles.sizeLine}>Size · {sizeText}</Text> : null}
-                  <Text style={styles.refLine}>Ref · {barcodeText}</Text>
-                  {weightText ? (
-                    <Text style={styles.weightLine}>Weight · {weightText}</Text>
-                  ) : null}
-                  {lineTotalStr ? (
+                <View
+                  key={`line-${row.index}`}
+                  style={[styles.orderTableRow, i % 2 === 1 ? styles.orderTableRowAlt : {}]}
+                >
+                  <Text style={[styles.orderCell, styles.orderColNo]}>{i + 1}</Text>
+                  <Text style={[styles.orderCell, styles.orderColName]}>{row.name}</Text>
+                  <Text style={[styles.orderCell, styles.orderColSize]}>
+                    {row.sizeText || "—"}
+                  </Text>
+                  <Text style={[styles.orderCell, styles.orderColWeight]}>
+                    {row.weightText || "—"}
+                  </Text>
+                  <Text style={[styles.orderCellQty, styles.orderColQty]}>
+                    {row.shareQty} pc{row.shareQty !== 1 ? "s" : ""}
+                  </Text>
+                  {!hidePrices ? (
                     <>
-                      {shareQty > 1 && unitPriceStr ? (
-                        <Text style={styles.unitPriceLine}>
-                          {shareQty} × Rs. {unitPriceStr} each
-                        </Text>
-                      ) : null}
-                      {compareAtStr ? (
-                        <Text style={styles.priceCompare}>Rs. {compareAtStr}</Text>
-                      ) : null}
-                      <Text style={styles.priceLine}>Rs. {lineTotalStr}</Text>
-                      {withBoxNote ? (
-                        <Text style={styles.weightLine}>{withBoxNote}</Text>
-                      ) : null}
-                      {showInclGst ? (
-                        <Text style={styles.priceGst}>incl. GST</Text>
-                      ) : null}
+                      <Text style={[styles.orderCell, styles.orderColUnit]}>
+                        {row.unitPriceStr ? `Rs. ${row.unitPriceStr}` : "—"}
+                      </Text>
+                      <Text style={[styles.orderCellLine, styles.orderColLine]}>
+                        {row.lineTotalStr ? `Rs. ${row.lineTotalStr}` : "—"}
+                      </Text>
                     </>
-                  ) : null}
+                  ) : (
+                    <Text style={[styles.orderCell, { width: "22%", fontSize: 7 }]}>
+                      {barcode || "—"}
+                    </Text>
+                  )}
                 </View>
               );
             })}
+            <View style={styles.orderTableFoot}>
+              <Text style={styles.orderTableFootText}>
+                Total · {totalPieces} pc{totalPieces !== 1 ? "s" : ""} · {designCount} design
+                {designCount !== 1 ? "s" : ""}
+              </Text>
+              {!hidePrices && orderTotalInr > 0 ? (
+                <Text style={styles.orderTableFootTotal}>
+                  Rs. {Math.round(orderTotalInr).toLocaleString("en-IN")}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        <Text style={styles.footer} fixed>
+          {brandName} · Page 1 of {totalPages}
+        </Text>
+      </Page>
+
+      {photoChunks.map((chunk, pageIndex) => (
+        <Page key={`photos-${pageIndex}`} size="A4" style={styles.page}>
+          <Text style={styles.photosTitle}>
+            Product photos · page {pageIndex + 1} of {photoChunks.length}
+          </Text>
+          <View style={styles.grid}>
+            {chunk.map((raw, i) => {
+              const globalIndex = pageIndex * PHOTOS_PER_PAGE + i;
+              return renderPhotoCard(raw, globalIndex, pageIndex + 1, i);
+            })}
           </View>
           <Text style={styles.footer} fixed>
-            {brandName} · Page {pageIndex + 1} of {chunks.length}
+            {brandName} · Page {pageIndex + 2} of {totalPages}
           </Text>
         </Page>
       ))}
