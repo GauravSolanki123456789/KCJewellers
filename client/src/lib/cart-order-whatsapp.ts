@@ -85,7 +85,7 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
   const totalPcs = lines.reduce((sum, l) => sum + Math.max(1, Number(l.qty) || 1), 0)
   const designCount = lines.length
   const pcsWord = totalPcs === 1 ? "pc" : "pcs"
-  const designWord = designCount === 1 ? "design" : "designs"
+  const designWord = designCount === 1 ? "line" : "lines"
   const divider = "────────────────"
 
   let orderTotal = 0

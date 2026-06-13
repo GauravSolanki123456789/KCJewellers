@@ -293,6 +293,7 @@ export function SharedCatalogZoomHint({
   return (
     <button
       type="button"
+      data-no-card-toggle
       onClick={(e) => {
         e.stopPropagation()
         onZoom()

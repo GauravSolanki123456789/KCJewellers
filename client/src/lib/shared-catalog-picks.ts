@@ -22,7 +22,6 @@ export type SharedCatalogSelectionPick = {
 
 export function buildSharedCatalogSelectionPicks(
   groupedRows: SharedCatalogGroupedRow[],
-  resolveActiveVariant: (group: SharedCatalogGroupedRow) => SharedCatalogPricingRow,
   rowKeyByRow: Map<SharedCatalogPricingRow, string>,
   selections: Map<string, number>,
   includeBoxByKey: Map<string, boolean>,
@@ -30,29 +29,30 @@ export function buildSharedCatalogSelectionPicks(
   const picks: SharedCatalogSelectionPick[] = []
 
   for (const group of groupedRows) {
-    const active = resolveActiveVariant(group)
-    const key = rowKeyByRow.get(active)
-    if (!key) continue
-    const qty = selections.get(key)
-    if (!qty) continue
+    for (const variant of group.variants) {
+      const key = rowKeyByRow.get(variant)
+      if (!key) continue
+      const qty = selections.get(key)
+      if (!qty) continue
 
-    const item = active.item
-    const includeBox = includeBoxByKey.get(key) ?? false
-    const boxAdd = includeBox && productHasBoxOption(item) ? getProductBoxCharges(item) : 0
-    const unitTotalInr = active.unitTotalInr + boxAdd
-    const lineTotalInr = unitTotalInr * qty
+      const item = variant.item
+      const includeBox = includeBoxByKey.get(key) ?? false
+      const boxAdd = includeBox && productHasBoxOption(item) ? getProductBoxCharges(item) : 0
+      const unitTotalInr = variant.unitTotalInr + boxAdd
+      const lineTotalInr = unitTotalInr * qty
 
-    picks.push({
-      row: active,
-      key,
-      qty,
-      includeBox,
-      displayTitle: group.displayTitle,
-      sizeLabel: getCustomerDisplaySize(item),
-      weightLabel: getCustomerDisplayWeightLabel(sharedCatalogProductToItem(active.product)),
-      unitTotalInr,
-      lineTotalInr,
-    })
+      picks.push({
+        row: variant,
+        key,
+        qty,
+        includeBox,
+        displayTitle: group.displayTitle,
+        sizeLabel: getCustomerDisplaySize(item),
+        weightLabel: getCustomerDisplayWeightLabel(sharedCatalogProductToItem(variant.product)),
+        unitTotalInr,
+        lineTotalInr,
+      })
+    }
   }
 
   return picks

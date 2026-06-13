@@ -12,6 +12,8 @@ type Props = {
   onSelect: (variant: Item) => void
   /** Compact row for product cards; roomy chips on PDP. */
   density?: 'card' | 'detail'
+  /** Keys (barcode/sku) of variants already shortlisted — shows a dot on size chips. */
+  shortlistedKeys?: Set<string>
   className?: string
 }
 
@@ -24,6 +26,7 @@ export default function GiftingSizeVariantPicker({
   selected,
   onSelect,
   density = 'card',
+  shortlistedKeys,
   className,
 }: Props) {
   const sorted = useMemo(() => sortSizeVariants(variants), [variants])
@@ -57,6 +60,7 @@ export default function GiftingSizeVariantPicker({
           const v = sorted[i]
           const key = getProductSelectionKey(v)
           const active = key === selectedKey
+          const shortlisted = !!(key && shortlistedKeys?.has(key))
           const label = sizeLabel(v)
           return (
             <button
@@ -70,14 +74,21 @@ export default function GiftingSizeVariantPicker({
                 onSelect(v)
               }}
               className={cn(
-                'kc-size-chip min-w-0 flex-1 touch-manipulation rounded-lg border font-semibold tabular-nums transition',
+                'kc-size-chip relative min-w-0 flex-1 touch-manipulation rounded-lg border font-semibold tabular-nums transition',
                 isDetail
                   ? 'min-h-[44px] max-w-[10rem] px-4 py-2.5 text-sm'
                   : 'min-h-[32px] px-2 py-1 text-[11px] sm:min-h-[36px] sm:px-2.5 sm:text-xs',
                 active ? 'kc-size-chip-active' : 'kc-size-chip-idle',
+                shortlisted && !active ? 'kc-size-chip-shortlisted' : '',
               )}
             >
               {label}
+              {shortlisted ? (
+                <span
+                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-[var(--kc-accent,var(--color-emerald-600))] ring-2 ring-white"
+                  aria-hidden
+                />
+              ) : null}
             </button>
           )
         })}

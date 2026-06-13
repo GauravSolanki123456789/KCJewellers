@@ -779,6 +779,11 @@ body {
     }
   }
 
+  .kc-size-chip-shortlisted {
+    border-color: color-mix(in oklab, var(--kc-accent, #c41e3a) 55%, #cbd5e1);
+    background: color-mix(in oklab, var(--kc-accent, #c41e3a) 12%, #ffffff);
+  }
+
   /* Shared catalogue qty stepper — high contrast on light KC themes */
   .kc-qty-stepper {
     display: flex;

@@ -42,6 +42,7 @@ import {
   getProductBoxCharges,
   productHasBoxOption,
 } from '@/lib/product-box-pricing'
+import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
 import {
@@ -326,12 +327,11 @@ export default function SharedCatalogClient({
     () =>
       buildSharedCatalogSelectionPicks(
         groupedRows,
-        resolveActiveVariant,
         rowKeyByRow,
         selections,
         includeBoxByKey,
       ),
-    [groupedRows, resolveActiveVariant, rowKeyByRow, selections, includeBoxByKey],
+    [groupedRows, rowKeyByRow, selections, includeBoxByKey],
   )
 
   const handleSharePicksPdf = useCallback(async () => {
@@ -549,7 +549,7 @@ export default function SharedCatalogClient({
         </h1>
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
-            Tap any product card to shortlist · adjust quantities · zoom photos · then share on WhatsApp or PDF.
+            Tap any card to shortlist · pick a size · set quantities per size · then share on WhatsApp or PDF.
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
@@ -633,6 +633,20 @@ export default function SharedCatalogClient({
               const key = rowKeyByRow.get(activeRow) ?? group.groupKey
               const qty = selections.get(key) ?? 0
               const selected = qty > 0
+              const anySelected = group.variants.some((v) => {
+                const k = rowKeyByRow.get(v)
+                return k ? selections.has(k) : false
+              })
+              const shortlistedKeys = (() => {
+                const set = new Set<string>()
+                for (const v of group.variants) {
+                  const k = rowKeyByRow.get(v)
+                  if (!k || !selections.has(k)) continue
+                  const itemKey = getProductSelectionKey(v.item)
+                  if (itemKey) set.add(itemKey)
+                }
+                return set
+              })()
               const hasVariants = group.variants.length > 1
               const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst } =
                 activeRow
@@ -652,32 +666,34 @@ export default function SharedCatalogClient({
               return (
                 <li key={group.groupKey}>
                   <article
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={selected}
-                    aria-label={selected ? `Remove ${name} from shortlist` : `Add ${name} to shortlist`}
-                    onClick={() => toggleKey(key)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        toggleKey(key)
-                      }
-                    }}
                     className={cn(
-                      'flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50',
-                      selected
+                      'flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-md transition select-none',
+                      anySelected
                         ? 'border-amber-500/70 ring-2 ring-amber-500/25'
                         : 'border-slate-700/80 hover:border-slate-600',
                     )}
+                    onClick={(e) => {
+                      const t = e.target as HTMLElement
+                      if (t.closest('[data-no-card-toggle]')) return
+                      toggleKey(key)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return
+                      const t = e.target as HTMLElement
+                      if (t.closest('[data-no-card-toggle]')) return
+                      e.preventDefault()
+                      toggleKey(key)
+                    }}
                   >
                     <div
                       className={cn(
-                        'group relative isolate aspect-[4/5] overflow-hidden',
+                        'group relative isolate aspect-[4/5] overflow-hidden outline-none',
                         productImageWellClass,
                       )}
                     >
                       <button
                         type="button"
+                        data-no-card-toggle
                         onClick={(e) => {
                           e.stopPropagation()
                           toggleKey(key)
@@ -688,10 +704,14 @@ export default function SharedCatalogClient({
                           'absolute left-2 top-2 z-40 flex size-10 shrink-0 items-center justify-center rounded-full border-2 shadow-lg transition',
                           selected
                             ? 'border-emerald-300 bg-emerald-600 text-white'
-                            : 'border-slate-400/80 bg-white text-slate-800 hover:bg-slate-50',
+                            : anySelected
+                              ? 'border-amber-400/80 bg-amber-500/90 text-white'
+                              : 'border-slate-400/80 bg-white text-slate-800 hover:bg-slate-50',
                         )}
                       >
-                        {selected ? <Check className="size-4 shrink-0 stroke-[2.5]" aria-hidden /> : null}
+                        {selected || anySelected ? (
+                          <Check className="size-4 shrink-0 stroke-[2.5]" aria-hidden />
+                        ) : null}
                       </button>
                       {discountBadge ? (
                         <span className="kc-discount-badge right-2 left-auto">{discountBadge}</span>
@@ -756,13 +776,11 @@ export default function SharedCatalogClient({
                         <p className="truncate font-mono text-[11px] text-slate-500">{code}</p>
                       ) : null}
                       {hasVariants ? (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        >
+                        <div data-no-card-toggle onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                           <GiftingSizeVariantPicker
                             variants={group.variants.map((v) => v.item)}
                             selected={item}
+                            shortlistedKeys={shortlistedKeys}
                             onSelect={(v) => {
                               const match = group.variants.find(
                                 (row) =>
@@ -774,22 +792,6 @@ export default function SharedCatalogClient({
                                 setActiveVariantByGroup((prev) => {
                                   const next = new Map(prev)
                                   next.set(group.groupKey, variantKey)
-                                  return next
-                                })
-                                setSelections((prev) => {
-                                  const qty = prev.get(key)
-                                  if (!qty || key === variantKey) return prev
-                                  const next = new Map(prev)
-                                  next.delete(key)
-                                  next.set(variantKey, qty)
-                                  return next
-                                })
-                                setIncludeBoxByKey((prev) => {
-                                  const withBox = prev.get(key)
-                                  if (withBox == null || key === variantKey) return prev
-                                  const next = new Map(prev)
-                                  next.delete(key)
-                                  next.set(variantKey, withBox)
                                   return next
                                 })
                               }
@@ -813,6 +815,7 @@ export default function SharedCatalogClient({
                       ) : null}
                       {hasBox && !hidePrices ? (
                         <div
+                          data-no-card-toggle
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => e.stopPropagation()}
                         >
@@ -873,6 +876,7 @@ export default function SharedCatalogClient({
                         {selected ? (
                           <div
                             className="kc-qty-stepper"
+                            data-no-card-toggle
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => e.stopPropagation()}
                           >
@@ -880,22 +884,22 @@ export default function SharedCatalogClient({
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
+                                className="kc-qty-stepper-btn"
                                 aria-label="Decrease quantity"
                                 disabled={qty <= 1}
                                 onClick={() => setQty(key, qty - 1)}
-                                className="kc-qty-stepper-btn"
                               >
-                                <Minus className="size-4" aria-hidden />
+                                <Minus className="size-4 stroke-[2.5]" aria-hidden />
                               </button>
                               <span className="kc-qty-stepper-value">{qty}</span>
                               <button
                                 type="button"
+                                className="kc-qty-stepper-btn"
                                 aria-label="Increase quantity"
                                 disabled={qty >= MAX_PIECE_QTY}
                                 onClick={() => setQty(key, qty + 1)}
-                                className="kc-qty-stepper-btn"
                               >
-                                <Plus className="size-4" aria-hidden />
+                                <Plus className="size-4 stroke-[2.5]" aria-hidden />
                               </button>
                             </div>
                           </div>
@@ -918,8 +922,8 @@ export default function SharedCatalogClient({
                 <span className="text-neutral-600">Shortlist items to share</span>
               ) : (
                 <span className="font-bold text-amber-900">
-                  {totalPieces} {totalPieces === 1 ? 'pc' : 'pcs'} · {selectedCount}{' '}
-                  {selectedCount === 1 ? 'design' : 'designs'}
+                  {totalPieces} {totalPieces === 1 ? 'pc' : 'pcs'} · {selectionPicks.length}{' '}
+                  {selectionPicks.length === 1 ? 'line' : 'lines'}
                 </span>
               )}
             </p>
