@@ -264,14 +264,16 @@ export function formatProductSizeInches(raw: string | null | undefined): string 
 }
 
 export function getCustomerDisplaySize(item: Item | null | undefined): string | null {
-  if (!item || !isGiftingItem(item)) return null
+  if (!item) return null
   const raw =
     item.size != null
       ? String(item.size)
       : (item as { Size?: string }).Size != null
         ? String((item as { Size?: string }).Size)
         : ''
-  return formatProductSizeInches(raw)
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  return formatProductSizeInches(trimmed)
 }
 
 /** Storefront weight: gifting rows hide 0 / missing net weight. */

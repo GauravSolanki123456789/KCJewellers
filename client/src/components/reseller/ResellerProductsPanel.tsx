@@ -21,7 +21,7 @@ import {
   type ResellerProductSubmission,
   type ResellerSubmissionStatus,
 } from '@/lib/reseller-products'
-import { calculateBreakdown, isFixedPriceCatalogItem } from '@/lib/pricing'
+import { calculateBreakdown, getCustomerDisplaySize, isFixedPriceCatalogItem } from '@/lib/pricing'
 import { FileSpreadsheet, ImagePlus, Loader2, Package, Plus, Send, Upload } from 'lucide-react'
 
 type Tab = 'add' | 'batches' | 'list'
@@ -968,6 +968,7 @@ function BatchProductPhotoRow({
           </p>
           <p className="kc-upload-hint text-xs">
             {row.style_code} › {row.sku}
+            {row.size?.trim() ? ` · ${getCustomerDisplaySize(submissionToCatalogItem(row)) ?? row.size}` : ''}
             {row.fixed_price != null && Number(row.fixed_price) > 0 ? ` · ₹${row.fixed_price}` : ''}
             {hasBoxCharge ? ` · box +₹${Number(row.box_charges).toLocaleString('en-IN')}` : ''}
           </p>

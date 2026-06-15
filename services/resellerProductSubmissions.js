@@ -83,7 +83,7 @@ function excelRowToSyncItem(row) {
         sku: get('SKU', 'sku'),
         barcode: get('Barcode', 'barcode'),
         name: get('ProductName', 'product_name', 'name'),
-        size: get('Size', 'size', 'Size (inches)', 'size_inches', 'SizeInches'),
+        size: get('Size', 'size', 'Size (inches)', 'Size (inc)', 'Size (in)', 'size_inches', 'SizeInches', 'SIZE'),
         netWeight: get('AvgWeight', 'netWeight', 'net_weight'),
         grossWeight: get('grossWeight', 'gross_weight'),
         wastage: get('Wastage(%)', 'Wastage', 'wastage', 'wastage_pct'),

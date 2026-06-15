@@ -152,6 +152,8 @@ export function submissionToCatalogItem(row: ResellerProductSubmission): Item {
     fixed_price: row.fixed_price != null ? Number(row.fixed_price) : undefined,
     stone_charges: row.stone_charges != null ? Number(row.stone_charges) : undefined,
     box_charges: row.box_charges != null ? Number(row.box_charges) : undefined,
+    size: row.size != null && String(row.size).trim() !== '' ? String(row.size).trim() : undefined,
+    design_group: row.design_group ?? undefined,
     gst_rate: 3,
   }
 }
