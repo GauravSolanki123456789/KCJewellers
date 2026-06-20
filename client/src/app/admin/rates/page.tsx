@@ -17,10 +17,6 @@ export default function AdminRatesPage() {
   const [advanceAmount, setAdvanceAmount] = useState(5000)
   const [goldWeightsInput, setGoldWeightsInput] = useState('1, 5, 10, 50')
   const [silverWeightsInput, setSilverWeightsInput] = useState('10, 100, 1000')
-  const [digiSilver, setDigiSilver] = useState('')
-  const [digiGold24, setDigiGold24] = useState('')
-  const [digiGold22, setDigiGold22] = useState('')
-  const [digiGold18, setDigiGold18] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -42,16 +38,6 @@ export default function AdminRatesPage() {
         setSilverWeightsInput(Array.isArray(bw.silver) ? bw.silver.join(', ') : '10, 100, 1000')
       } catch {
         // keep defaults
-      }
-      try {
-        const digi = await axios.get(`${url}/api/admin/settings/digi-invest-rates`, { withCredentials: true })
-        const app = digi.data?.app || {}
-        setDigiSilver(app.digi_silver_per_gram != null ? String(app.digi_silver_per_gram) : '')
-        setDigiGold24(app.digi_gold_24k_per_gram != null ? String(app.digi_gold_24k_per_gram) : '')
-        setDigiGold22(app.digi_gold_22k_per_gram != null ? String(app.digi_gold_22k_per_gram) : '')
-        setDigiGold18(app.digi_gold_18k_per_gram != null ? String(app.digi_gold_18k_per_gram) : '')
-      } catch {
-        // optional
       } finally {
         setLoading(false)
       }
@@ -80,16 +66,6 @@ export default function AdminRatesPage() {
       )
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-      await axios.put(
-        `${url}/api/admin/settings/digi-invest-rates`,
-        {
-          digi_silver_per_gram: digiSilver.trim() ? Number(digiSilver) : null,
-          digi_gold_24k_per_gram: digiGold24.trim() ? Number(digiGold24) : null,
-          digi_gold_22k_per_gram: digiGold22.trim() ? Number(digiGold22) : null,
-          digi_gold_18k_per_gram: digiGold18.trim() ? Number(digiGold18) : null,
-        },
-        { withCredentials: true },
-      )
     } catch {
       alert('Failed to save settings')
     } finally {
@@ -152,37 +128,6 @@ export default function AdminRatesPage() {
                         placeholder="e.g. 12"
                       />
                     </div>
-                  </div>
-                </section>
-
-                <section className="rounded-xl bg-violet-950/30 border border-violet-500/25 p-5">
-                  <h2 className="text-lg font-semibold text-violet-200 mb-1">DigiGold / DigiSilver (Invest)</h2>
-                  <p className="text-slate-500 text-sm mb-4">
-                    Preferential ₹/g for monthly SIP gram accumulation. Resellers can override when rate updates are
-                    enabled.
-                  </p>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    {(
-                      [
-                        ['DigiSilver (999) / g', digiSilver, setDigiSilver],
-                        ['DigiGold 24K / g', digiGold24, setDigiGold24],
-                        ['DigiGold 22K / g', digiGold22, setDigiGold22],
-                        ['DigiGold 18K / g', digiGold18, setDigiGold18],
-                      ] as const
-                    ).map(([label, val, setVal]) => (
-                      <div key={label}>
-                        <label className="block text-sm font-medium text-slate-400 mb-2">{label}</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={val}
-                          onChange={(e) => setVal(e.target.value)}
-                          className={INPUT_CLASS}
-                          placeholder="e.g. 263"
-                        />
-                      </div>
-                    ))}
                   </div>
                 </section>
 

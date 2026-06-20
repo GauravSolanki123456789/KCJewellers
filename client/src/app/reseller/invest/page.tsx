@@ -1,11 +1,6 @@
-import type { Metadata } from 'next'
-import ResellerInvestPageClient from './page-client'
-
-export const metadata: Metadata = {
-  title: 'Record Invest payments',
-  robots: { index: false, follow: false },
-}
+import { redirect } from 'next/navigation'
+import { PROFILE_PATH } from '@/lib/routes'
 
 export default function ResellerInvestPage() {
-  return <ResellerInvestPageClient />
+  redirect(PROFILE_PATH)
 }

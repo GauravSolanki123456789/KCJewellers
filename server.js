@@ -81,11 +81,10 @@ const {
     normalizeDomain,
 } = require('./services/resellerMetalRates');
 const {
-    registerDigiInvestRoutes,
     resolveSipMetalRatePerGram,
     gramsFromInstallment,
 } = require('./services/digiInvestRates');
-const { registerResellerInvestRoutes } = require('./services/resellerInvestStaff');
+const { registerResellerLoginEmailRoutes } = require('./services/resellerLoginEmails');
 const {
     isStorefrontInvestAllowed,
     assertStorefrontInvestAllowed,
@@ -1398,8 +1397,7 @@ registerResellerProductRoutes(app, {
 });
 
 registerResellerRatesRoutes(app, { checkAuth, liveRateService, io });
-registerDigiInvestRoutes(app, { checkAuth, isAdminStrict, liveRateService });
-registerResellerInvestRoutes(app, { checkAuth, liveRateService });
+registerResellerLoginEmailRoutes(app, { isAdminStrict, requireJson });
 
 // ==========================================
 // B2B WHOLESALE — client ledger (Khata) & admin ledger lines

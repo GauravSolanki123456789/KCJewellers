@@ -1,11 +1,9 @@
 /**
- * Invest (SIP) availability — KC main site always; reseller vanity domains only when
- * `users.reseller_invest_enabled` (public API: reseller_invest_enabled).
+ * Invest (SIP) availability — KC main site only; hidden on reseller custom domains.
  */
 export function isStorefrontInvestAvailable(
   customDomainHost: boolean,
-  resellerInvestEnabled: boolean,
+  _resellerInvestEnabled?: boolean,
 ): boolean {
-  if (!customDomainHost) return true
-  return resellerInvestEnabled
+  return !customDomainHost
 }

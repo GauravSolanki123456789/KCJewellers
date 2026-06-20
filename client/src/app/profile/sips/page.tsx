@@ -8,7 +8,6 @@ import { PROFILE_SIPS_PATH, CATALOG_PATH } from '@/lib/routes'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
-import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 import {
   ArrowLeft,
   Wallet,
@@ -38,7 +37,7 @@ type UserSip = {
 export default function ProfileSipsPage() {
   const auth = useAuth()
   const router = useRouter()
-  const { customDomainHost, investEnabled } = useResellerBranding()
+  const { customDomainHost } = useResellerBranding()
   const { open: openLoginModal } = useLoginModal()
   const [sips, setSips] = useState<UserSip[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,10 +68,10 @@ export default function ProfileSipsPage() {
   }, [auth.isAuthenticated])
 
   useEffect(() => {
-    if (customDomainHost && !isStorefrontInvestAvailable(customDomainHost, investEnabled)) {
+    if (customDomainHost) {
       router.replace(CATALOG_PATH)
     }
-  }, [customDomainHost, investEnabled, router])
+  }, [customDomainHost, router])
 
   useEffect(() => {
     load()

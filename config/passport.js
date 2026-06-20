@@ -4,6 +4,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { pool } = require('./database');
 const { resolveUserRole, SUPER_ADMIN_EMAIL } = require('../services/authService');
+const { findResellerOwnerByLoginEmail } = require('../services/resellerLoginEmails');
 
 passport.serializeUser((user, done) => {
     done(null, user.id);
@@ -44,10 +45,18 @@ passport.use(new GoogleStrategy({
         const emailLower = String(email || '').toLowerCase().trim();
         const isSuperAdmin = emailLower === SUPER_ADMIN_EMAIL.toLowerCase().trim();
         
-        let result = await pool.query('SELECT * FROM users WHERE email = $1', [emailLower]);
+        let result = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1', [emailLower]);
+
+        if (result.rows.length === 0) {
+            const aliasOwner = await findResellerOwnerByLoginEmail(emailLower);
+            if (aliasOwner) {
+                result = { rows: [aliasOwner] };
+                console.log(`🔗 Reseller alias login: ${emailLower} → brand user #${aliasOwner.id}`);
+            }
+        }
 
         if (result.rows.length > 0) {
-            // Existing user
+            // Existing user (primary email or reseller alias)
             const user = result.rows[0];
             
             // Check account status
@@ -65,8 +74,8 @@ passport.use(new GoogleStrategy({
                          allowed_tabs = ARRAY['all']::text[], 
                          account_status = 'active',
                          updated_at = CURRENT_TIMESTAMP 
-                     WHERE email = $1`,
-                    [emailLower]
+                     WHERE id = $1`,
+                    [user.id]
                 );
                 user.role = 'super_admin';
                 user.allowed_tabs = ['all'];
@@ -78,27 +87,27 @@ passport.use(new GoogleStrategy({
                     `UPDATE users 
                      SET role = 'customer', 
                          updated_at = CURRENT_TIMESTAMP 
-                     WHERE email = $1`,
-                    [emailLower]
+                     WHERE id = $1`,
+                    [user.id]
                 );
                 user.role = 'customer';
             }
             
-            // Update google_id if missing
+            // Update google_id if missing (on brand owner row)
             if (!user.google_id) {
                 await pool.query(
-                    'UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
-                    [googleId, emailLower]
+                    'UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                    [googleId, user.id]
                 );
                 user.google_id = googleId;
             }
             
-            // Update name if changed
+            // Update name if changed (owner profile)
             if (user.name !== displayName && displayName) {
                 const safeName = String(displayName || '').slice(0, 255);
                 await pool.query(
-                    'UPDATE users SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2',
-                    [safeName, emailLower]
+                    'UPDATE users SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                    [safeName, user.id]
                 );
                 user.name = safeName;
             }

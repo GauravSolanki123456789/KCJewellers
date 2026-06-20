@@ -16,10 +16,6 @@ type RateForm = {
   gold_24k_per_gram: string
   gold_22k_per_gram: string
   gold_18k_per_gram: string
-  digi_silver_per_gram: string
-  digi_gold_24k_per_gram: string
-  digi_gold_22k_per_gram: string
-  digi_gold_18k_per_gram: string
 }
 
 type MarketRates = {
@@ -43,10 +39,6 @@ const EMPTY: RateForm = {
   gold_24k_per_gram: '',
   gold_22k_per_gram: '',
   gold_18k_per_gram: '',
-  digi_silver_per_gram: '',
-  digi_gold_24k_per_gram: '',
-  digi_gold_22k_per_gram: '',
-  digi_gold_18k_per_gram: '',
 }
 
 export function ResellerRatesPanel() {
@@ -88,14 +80,6 @@ export function ResellerRatesPanel() {
           gold_24k_per_gram: String(data.rates.gold_24k_per_gram ?? ''),
           gold_22k_per_gram: String(data.rates.gold_22k_per_gram ?? ''),
           gold_18k_per_gram: String(data.rates.gold_18k_per_gram ?? ''),
-          digi_silver_per_gram:
-            data.rates.digi_silver_per_gram != null ? String(data.rates.digi_silver_per_gram) : '',
-          digi_gold_24k_per_gram:
-            data.rates.digi_gold_24k_per_gram != null ? String(data.rates.digi_gold_24k_per_gram) : '',
-          digi_gold_22k_per_gram:
-            data.rates.digi_gold_22k_per_gram != null ? String(data.rates.digi_gold_22k_per_gram) : '',
-          digi_gold_18k_per_gram:
-            data.rates.digi_gold_18k_per_gram != null ? String(data.rates.digi_gold_18k_per_gram) : '',
         })
       } else if (data.market) {
         const m = data.market
@@ -104,10 +88,6 @@ export function ResellerRatesPanel() {
           gold_24k_per_gram: m.gold24k_10g ? String(Math.round(m.gold24k_10g / 10)) : '',
           gold_22k_per_gram: m.gold22k_10g ? String(Math.round(m.gold22k_10g / 10)) : '',
           gold_18k_per_gram: m.gold18k_10g ? String(Math.round(m.gold18k_10g / 10)) : '',
-          digi_silver_per_gram: '',
-          digi_gold_24k_per_gram: '',
-          digi_gold_22k_per_gram: '',
-          digi_gold_18k_per_gram: '',
         })
       }
       setMarket(data.market ?? null)
@@ -151,10 +131,6 @@ export function ResellerRatesPanel() {
       gold_24k_per_gram: market.gold24k_10g ? String(Math.round(market.gold24k_10g / 10)) : '',
       gold_22k_per_gram: market.gold22k_10g ? String(Math.round(market.gold22k_10g / 10)) : '',
       gold_18k_per_gram: market.gold18k_10g ? String(Math.round(market.gold18k_10g / 10)) : '',
-      digi_silver_per_gram: form.digi_silver_per_gram,
-      digi_gold_24k_per_gram: form.digi_gold_24k_per_gram,
-      digi_gold_22k_per_gram: form.digi_gold_22k_per_gram,
-      digi_gold_18k_per_gram: form.digi_gold_18k_per_gram,
     })
   }
 
@@ -168,10 +144,6 @@ export function ResellerRatesPanel() {
         gold_24k_per_gram: parseField(form.gold_24k_per_gram),
         gold_22k_per_gram: parseField(form.gold_22k_per_gram),
         gold_18k_per_gram: parseField(form.gold_18k_per_gram),
-        digi_silver_per_gram: form.digi_silver_per_gram.trim() ? parseField(form.digi_silver_per_gram) : null,
-        digi_gold_24k_per_gram: form.digi_gold_24k_per_gram.trim() ? parseField(form.digi_gold_24k_per_gram) : null,
-        digi_gold_22k_per_gram: form.digi_gold_22k_per_gram.trim() ? parseField(form.digi_gold_22k_per_gram) : null,
-        digi_gold_18k_per_gram: form.digi_gold_18k_per_gram.trim() ? parseField(form.digi_gold_18k_per_gram) : null,
       })
       setSavedFlash(true)
       dispatchRatesUpdated()
@@ -381,60 +353,6 @@ export function ResellerRatesPanel() {
               1 kg → <span className="font-medium tabular-nums">{formatInr(preview.silver1kg)}</span>
             </p>
           </div>
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-500/[0.06] to-transparent shadow-sm">
-        <div className="border-b border-violet-500/20 bg-violet-500/[0.08] px-4 py-3">
-          <h3 className="text-sm font-semibold text-violet-800">DigiGold / DigiSilver (Invest)</h3>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-            Preferential rates for monthly Invest (SIP) — e.g. silver ₹263/g when today&apos;s rate is ₹270/g.
-            Leave blank to use KC admin defaults.
-          </p>
-        </div>
-        <div className="divide-y divide-[var(--color-slate-700,#e8e4df)] px-4 py-2">
-          {(
-            [
-              ['DigiSilver (999)', 'digi_silver_per_gram', preview.silver1g, 'silver'],
-              ['DigiGold 24K', 'digi_gold_24k_per_gram', preview.g24_1g, 'gold'],
-              ['DigiGold 22K', 'digi_gold_22k_per_gram', preview.g22_1g, 'gold'],
-              ['DigiGold 18K', 'digi_gold_18k_per_gram', preview.g18_1g, 'gold'],
-            ] as const
-          ).map(([label, key, retailRef]) => (
-            <div key={key} className="grid gap-3 py-4 sm:grid-cols-[1fr_auto] sm:items-center">
-              <div>
-                <label className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
-                  {label}
-                </label>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-[var(--color-jewelry-black,#1a1814)]/45">₹</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step={1}
-                    value={form[key]}
-                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                    className="w-full max-w-[10rem] rounded-xl border border-violet-300/50 bg-white px-3 py-2.5 text-base font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
-                    placeholder="optional"
-                  />
-                  <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/45">/ g</span>
-                </div>
-              </div>
-              <div className="text-right text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                <p>
-                  Today:{' '}
-                  <span className="font-medium tabular-nums">{formatInr(retailRef)}</span>/g
-                </p>
-                {form[key].trim() ? (
-                  <p className="mt-0.5 text-violet-700">
-                    Invest:{' '}
-                    <span className="font-semibold tabular-nums">{formatInr(parseField(form[key]))}</span>/g
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ))}
         </div>
       </section>
 
