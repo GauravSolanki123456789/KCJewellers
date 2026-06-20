@@ -4,9 +4,11 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { ShoppingCart, ArrowLeft, Package, Calendar, User, CreditCard, MoreVertical, ChevronRight, Phone, MessageCircle, Trash2 } from 'lucide-react'
+import { ShoppingCart, ArrowLeft, Package, Calendar, User, CreditCard, MoreVertical, ChevronRight, Trash2 } from 'lucide-react'
 import { OrderItemsColumnPeek } from '@/components/orders/OrderFulfillmentLines'
 import { AdminOrderPdfActions } from '@/components/AdminOrderPdfActions'
+import AdminCustomerContactActions, { adminOrderWhatsAppMessage } from '@/components/admin/AdminCustomerContactActions'
+import { formatIndianMobileDisplay } from '@/lib/customer-contact'
 import { parseOrderItemsSnapshot, snapshotItemsQtySum } from '@/lib/order-snapshot'
 
 const ORDER_TABS = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'] as const
@@ -27,14 +29,6 @@ type Order = {
 }
 
 const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'https://kcjewellers.co.in')
-
-function normalizeMobile(m: string | undefined): string {
-  if (!m) return ''
-  const digits = m.replace(/\D/g, '')
-  if (digits.length === 10) return '91' + digits
-  if (digits.length === 12 && digits.startsWith('91')) return digits
-  return digits
-}
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -93,17 +87,8 @@ export default function AdminOrdersPage() {
     }
   }
 
-  const getWhatsAppUrl = (o: Order) => {
-    const mobile = normalizeMobile(o.customer_mobile)
-    if (!mobile) return null
-    const name = o.customer_name || 'Customer'
-    const amount = Number(o.total_amount || 0).toLocaleString('en-IN')
-    const invoiceUrl = `${getBaseUrl()}/orders/${o.id}`
-    const text = encodeURIComponent(
-      `Hello ${name}, your order #${o.id} for ₹${amount} has been confirmed! View your invoice here: ${invoiceUrl}`
-    )
-    return `https://wa.me/${mobile}?text=${text}`
-  }
+  const orderWhatsAppText = (o: Order) =>
+    adminOrderWhatsAppMessage(o, `${getBaseUrl()}/orders/${o.id}`)
 
   const formatDate = (d: string) => {
     try {
@@ -175,32 +160,20 @@ export default function AdminOrdersPage() {
           <User className="size-4 text-slate-500 shrink-0" />
           <div>
             <div className="text-slate-200 font-medium">{o.customer_name || 'Guest'}</div>
-            <div className="text-xs text-slate-500">{o.customer_mobile || o.customer_email || '—'}</div>
+            <div className="text-xs text-slate-500">
+              {o.customer_mobile
+                ? formatIndianMobileDisplay(o.customer_mobile)
+                : o.customer_email || 'No contact number'}
+            </div>
           </div>
         </div>
         <AdminOrderPdfActions order={o} className="w-full" />
-        {/* Action buttons - mobile */}
+        <AdminCustomerContactActions
+          order={o}
+          whatsAppMessage={orderWhatsAppText(o)}
+          className="w-full"
+        />
         <div className="flex flex-wrap gap-2">
-          {o.customer_mobile && (
-            <>
-              <a
-                href={`tel:+${normalizeMobile(o.customer_mobile)}`}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-700/50 text-slate-200 hover:bg-slate-600/50 text-xs font-medium border border-white/5"
-              >
-                <Phone className="size-3.5" /> Contact
-              </a>
-              {getWhatsAppUrl(o) && (
-                <a
-                  href={getWhatsAppUrl(o)!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600/40 text-xs font-medium border border-emerald-500/20"
-                >
-                  <MessageCircle className="size-3.5" /> WhatsApp
-                </a>
-              )}
-            </>
-          )}
           <button
             onClick={() => setDeleteModalOrderId(o.id)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs font-medium border border-red-500/20"
@@ -392,7 +365,9 @@ export default function AdminOrdersPage() {
                                   <div>
                                     <div className="text-slate-200 font-medium">{o.customer_name || 'Guest'}</div>
                                     <div className="text-xs text-slate-500">
-                                      {o.customer_mobile || o.customer_email || '—'}
+                                      {o.customer_mobile
+                                        ? formatIndianMobileDisplay(o.customer_mobile)
+                                        : o.customer_email || 'No contact number'}
                                     </div>
                                   </div>
                                 </div>
@@ -462,30 +437,11 @@ export default function AdminOrdersPage() {
                               <td className="py-4 px-5">
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
                                   <AdminOrderPdfActions order={o} compact />
-                                  {o.customer_mobile && (
-                                    <>
-                                      <a
-                                        href={`tel:+${normalizeMobile(o.customer_mobile)}`}
-                                        className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors"
-                                        aria-label="Contact buyer"
-                                        title="Contact buyer"
-                                      >
-                                        <Phone className="size-4" />
-                                      </a>
-                                      {getWhatsAppUrl(o) && (
-                                        <a
-                                          href={getWhatsAppUrl(o)!}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="p-2 rounded-lg hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 transition-colors"
-                                          aria-label="Send order via WhatsApp"
-                                          title="Send order via WhatsApp"
-                                        >
-                                          <MessageCircle className="size-4" />
-                                        </a>
-                                      )}
-                                    </>
-                                  )}
+                                  <AdminCustomerContactActions
+                                    order={o}
+                                    whatsAppMessage={orderWhatsAppText(o)}
+                                    compact
+                                  />
                                   <button
                                     onClick={() => setDeleteModalOrderId(o.id)}
                                     className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"

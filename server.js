@@ -5728,6 +5728,58 @@ app.get('/api/admin/sip-payouts', isAdminStrict, (req, res) => res.json({ succes
 const ORDER_STATUSES = ['New', 'Accepted', 'Ready', 'Dispatched', 'Delivered', 'Cancelled'];
 const STATUS_TO_DB = { New: ['PENDING', 'NEW'], Accepted: 'ACCEPTED', Ready: 'READY', Dispatched: 'DISPATCHED', Delivered: 'DELIVERED', Cancelled: 'CANCELLED' };
 
+function normalizeCheckoutMobile(raw) {
+    return String(raw || '').replace(/\D/g, '').slice(-10);
+}
+
+function parseCheckoutContact(body) {
+    const src = body && typeof body === 'object' ? body : {};
+    const name = String(
+        src.checkout_contact_name || src.contact_name || src.name || '',
+    ).trim();
+    const mobile = normalizeCheckoutMobile(
+        src.checkout_contact_mobile || src.contact_mobile || src.mobile_number || src.mobile,
+    );
+    return { name, mobile };
+}
+
+function validateCheckoutContact(contact) {
+    if (!contact || contact.name.length < 2) {
+        return 'Enter your full name (at least 2 characters)';
+    }
+    if (contact.mobile.length !== 10) {
+        return 'Valid 10-digit mobile / WhatsApp number required';
+    }
+    if (!/^[6-9]/.test(contact.mobile)) {
+        return 'Mobile number should start with 6, 7, 8, or 9';
+    }
+    return null;
+}
+
+async function persistCheckoutContact(userId, contact) {
+    if (!userId || !contact?.mobile) return;
+    await query(
+        `UPDATE users SET
+            name = COALESCE(NULLIF(TRIM($1), ''), name),
+            mobile_number = COALESCE(NULLIF(TRIM($2), ''), mobile_number),
+            updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [contact.name, contact.mobile, userId],
+    );
+}
+
+function mergeOrderCustomerFields(row) {
+    if (!row || typeof row !== 'object') return row;
+    const checkoutName = String(row.checkout_contact_name || '').trim();
+    const checkoutMobile = String(row.checkout_contact_mobile || '').trim();
+    if (!checkoutName && !checkoutMobile) return row;
+    return {
+        ...row,
+        customer_name: checkoutName || row.customer_name || null,
+        customer_mobile: checkoutMobile || row.customer_mobile || null,
+    };
+}
+
 /** Merge `web_products` into `items_snapshot_json` when lines lack name / image / style / SKU (legacy orders). */
 async function enrichManyOrderRows(rows) {
     if (!Array.isArray(rows) || rows.length === 0) return rows;
@@ -5824,14 +5876,15 @@ async function enrichManyOrderRows(rows) {
     };
 
     return rows.map((row) => {
-        const arr = row.items_snapshot_json;
-        if (arr == null) return row;
+        let next = mergeOrderCustomerFields(row);
+        const arr = next.items_snapshot_json;
+        if (arr == null) return next;
         let parsed = arr;
         if (typeof parsed === 'string') {
-            try { parsed = JSON.parse(parsed); } catch { return row; }
+            try { parsed = JSON.parse(parsed); } catch { return next; }
         }
-        if (!Array.isArray(parsed)) return row;
-        return { ...row, items_snapshot_json: parsed.map(mergeLine) };
+        if (!Array.isArray(parsed)) return next;
+        return { ...next, items_snapshot_json: parsed.map(mergeLine) };
     });
 }
 
@@ -5842,7 +5895,7 @@ app.get('/api/admin/orders', isAdminStrict, async (req, res) => {
         let q = `
             SELECT o.id, o.user_id, o.total_amount, o.payment_status, o.payment_method,
                    o.delivery_status, o.items_snapshot_json, o.razorpay_order_id, o.created_at,
-                   o.order_channel,
+                   o.order_channel, o.checkout_contact_name, o.checkout_contact_mobile,
                    u.name as customer_name, u.email as customer_email, u.mobile_number as customer_mobile
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.id
@@ -5879,6 +5932,7 @@ app.get('/api/admin/orders/detail/:id', isAdminStrict, async (req, res) => {
             LEFT JOIN users u ON o.user_id = u.id
             WHERE o.id = $1
         `, [id]);
+        /* checkout_contact_* merged in enrichManyOrderRows via mergeOrderCustomerFields */
         if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
         const enriched = await enrichManyOrderRows([rows[0]]);
         res.json({ success: true, data: enriched[0] });
@@ -7493,8 +7547,33 @@ function buildCatalogOrderSnapshotLine(ci) {
     return line;
 }
 
+app.patch('/api/user/checkout-contact', checkAuth, requireJson, async (req, res) => {
+    try {
+        const contact = parseCheckoutContact(req.body);
+        const err = validateCheckoutContact(contact);
+        if (err) return res.status(400).json({ error: err });
+        await persistCheckoutContact(req.user?.id, contact);
+        if (req.user) {
+            req.user.name = contact.name;
+            req.user.mobile_number = contact.mobile;
+        }
+        res.json({
+            success: true,
+            name: contact.name,
+            mobile_number: contact.mobile,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) => {
     try {
+        const contact = parseCheckoutContact(req.body);
+        const contactErr = validateCheckoutContact(contact);
+        if (contactErr) return res.status(400).json({ error: contactErr });
+        await persistCheckoutContact(req.user?.id, contact);
+
         const items = req.body.items || [];
         const sipUserSipId = req.body.sip_user_sip_id ? parseInt(req.body.sip_user_sip_id, 10) : null;
         const sipRedemptionAmount = sipUserSipId ? Math.max(0, Number(req.body.sip_redemption_amount || 0)) : 0;
@@ -7564,8 +7643,8 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
         if (amountToCharge === 0) razorpayOrderId = razorpayOrderId || `order_${Date.now()}`;
 
         const [row] = await query(`
-            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, sip_redemption_amount, sip_user_sip_id, amount_paid_via_pg, promo_code_id, promo_discount_amount, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP) RETURNING *
+            INSERT INTO orders (user_id, total_amount, payment_status, payment_method, razorpay_order_id, delivery_status, items_snapshot_json, sip_redemption_amount, sip_user_sip_id, amount_paid_via_pg, promo_code_id, promo_discount_amount, checkout_contact_name, checkout_contact_mobile, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP) RETURNING *
         `, [
             req.user?.id || null,
             grandTotal,
@@ -7578,6 +7657,8 @@ app.post('/api/checkout/create-order', checkAuth, requireJson, async (req, res) 
             amountToCharge > 0 ? amountToCharge : null,
             finalPromoDiscount > 0 ? promoCodeId : null,
             finalPromoDiscount,
+            contact.name,
+            contact.mobile,
         ]);
 
         if (finalSipRedemption > 0 && sipUserSipId) {
@@ -7620,6 +7701,11 @@ app.get('/api/config/b2b-bank', (req, res) => {
 // B2B wholesale checkout — no Razorpay; creates PENDING_APPROVAL purchase order
 app.post('/api/checkout/b2b-create-order', checkAuth, requireB2BWholesale, requireJson, async (req, res) => {
     try {
+        const contact = parseCheckoutContact(req.body);
+        const contactErr = validateCheckoutContact(contact);
+        if (contactErr) return res.status(400).json({ error: contactErr });
+        await persistCheckoutContact(req.user?.id, contact);
+
         const rawType = String(req.body.b2b_checkout_type || '').toUpperCase();
         if (rawType !== 'NEFT' && rawType !== 'LEDGER') {
             return res.status(400).json({ error: 'b2b_checkout_type must be NEFT or LEDGER' });
@@ -7641,10 +7727,10 @@ app.post('/api/checkout/b2b-create-order', checkAuth, requireB2BWholesale, requi
                 user_id, total_amount, payment_status, payment_method, razorpay_order_id,
                 delivery_status, items_snapshot_json, order_channel, b2b_checkout_type,
                 sip_redemption_amount, sip_user_sip_id, amount_paid_via_pg, promo_code_id, promo_discount_amount,
-                created_at
+                checkout_contact_name, checkout_contact_mobile, created_at
             )
             VALUES ($1, $2, 'PENDING_APPROVAL', $3, $4, 'PENDING', $5, 'B2B_WHOLESALE', $6,
-                0, NULL, NULL, NULL, NULL, CURRENT_TIMESTAMP) RETURNING *
+                0, NULL, NULL, NULL, NULL, $7, $8, CURRENT_TIMESTAMP) RETURNING *
         `, [
             req.user.id,
             grandTotal,
@@ -7652,6 +7738,8 @@ app.post('/api/checkout/b2b-create-order', checkAuth, requireB2BWholesale, requi
             refId,
             JSON.stringify(itemsSnapshot),
             rawType,
+            contact.name,
+            contact.mobile,
         ]);
 
         res.json({
@@ -7671,7 +7759,7 @@ app.get('/api/admin/orders/b2b-pending', isAdminStrict, async (req, res) => {
         const rows = await query(`
             SELECT o.id, o.user_id, o.total_amount, o.payment_status, o.payment_method,
                    o.delivery_status, o.items_snapshot_json, o.razorpay_order_id, o.created_at,
-                   o.order_channel, o.b2b_checkout_type,
+                   o.order_channel, o.b2b_checkout_type, o.checkout_contact_name, o.checkout_contact_mobile,
                    u.name AS customer_name, u.email AS customer_email, u.mobile_number AS customer_mobile
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.id

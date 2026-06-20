@@ -692,6 +692,57 @@ body {
     transform: scale(0.98);
   }
 
+  /** Checkout / catalog — WhatsApp order (readable on light KC themes) */
+  .kc-btn-whatsapp {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in oklab, #25d366 42%, transparent);
+    background: color-mix(in oklab, #25d366 14%, var(--color-slate-950));
+    padding: 0.875rem 1rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-slate-100);
+    transition: background-color 200ms, border-color 200ms, transform 100ms, box-shadow 200ms;
+    box-shadow: 0 1px 3px color-mix(in oklab, #25d366 18%, transparent);
+  }
+
+  .kc-btn-whatsapp:hover {
+    background: color-mix(in oklab, #25d366 22%, var(--color-slate-950));
+    border-color: color-mix(in oklab, #25d366 55%, transparent);
+  }
+
+  .kc-btn-whatsapp:active {
+    transform: scale(0.98);
+  }
+
+  .kc-btn-whatsapp--solid {
+    border-color: color-mix(in oklab, #20bd5a 35%, transparent);
+    background: linear-gradient(165deg, #25d366, #20bd5a);
+    color: #ffffff;
+    box-shadow: 0 4px 14px color-mix(in oklab, #25d366 28%, transparent);
+  }
+
+  .kc-btn-whatsapp--solid:hover {
+    filter: brightness(1.04);
+    background: linear-gradient(165deg, #25d366, #20bd5a);
+  }
+
+  /** Admin orders — WhatsApp contact chip */
+  .kc-admin-wa-btn {
+    border: 1px solid color-mix(in oklab, #25d366 40%, transparent);
+    background: color-mix(in oklab, #25d366 16%, var(--color-slate-900));
+    color: var(--color-slate-100);
+  }
+
+  .kc-admin-wa-btn:hover {
+    background: color-mix(in oklab, #25d366 28%, var(--color-slate-900));
+    color: var(--color-slate-50);
+  }
+
   .kc-product-card {
     display: flex;
     flex-direction: column;

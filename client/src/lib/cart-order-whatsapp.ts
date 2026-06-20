@@ -32,9 +32,15 @@ export function buildCartWhatsAppMessage(params: {
   brandLabel: string;
   lines: CartLineForWhatsApp[];
   orderTotalInr: number;
+  buyerName?: string;
+  buyerMobile?: string;
 }): string {
-  const { brandLabel, lines, orderTotalInr } = params;
+  const { brandLabel, lines, orderTotalInr, buyerName, buyerMobile } = params;
   const header = `Hello ${brandLabel}! I'd like to place an order:\n\n`;
+  const buyerBlock =
+    buyerName?.trim() && buyerMobile?.trim()
+      ? `*Customer:* ${buyerName.trim()}\n*WhatsApp / Mobile:* +91 ${buyerMobile.replace(/\D/g, "").slice(-10)}\n\n`
+      : "";
   const body = lines
     .map(
       (l, i) =>
@@ -42,7 +48,7 @@ export function buildCartWhatsAppMessage(params: {
     )
     .join("\n");
   const footer = `\n—\n*Order total: ₹${Math.round(orderTotalInr).toLocaleString("en-IN")}* incl. GST\n\nPlease confirm availability and next steps. Thank you.`;
-  return `${header}${body}${footer}`;
+  return `${header}${buyerBlock}${body}${footer}`;
 }
 
 export function buildWhatsAppOrderUrl(digitsForWaMe: string, message: string): string | null {

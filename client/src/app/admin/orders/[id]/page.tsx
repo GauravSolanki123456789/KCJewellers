@@ -8,6 +8,8 @@ import AdminGuard from '@/components/AdminGuard'
 import { OrderFulfillmentLines } from '@/components/orders/OrderFulfillmentLines'
 import { ArrowLeft, Calendar, CreditCard, Package, User } from 'lucide-react'
 import { AdminOrderPdfActions } from '@/components/AdminOrderPdfActions'
+import AdminCustomerContactActions, { adminOrderWhatsAppMessage } from '@/components/admin/AdminCustomerContactActions'
+import { formatIndianMobileDisplay } from '@/lib/customer-contact'
 import { snapshotItemsQtySum, parseOrderItemsSnapshot } from '@/lib/order-snapshot'
 
 type OrderRow = {
@@ -109,6 +111,10 @@ export default function AdminOrderDetailPage() {
   }
 
   const qtySum = snapshotItemsQtySum(parseOrderItemsSnapshot(order.items_snapshot_json))
+  const invoiceUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/orders/${order.id}`
+      : `${process.env.NEXT_PUBLIC_SITE_URL || 'https://kcjewellers.co.in'}/orders/${order.id}`
 
   return (
     <AdminGuard>
@@ -160,7 +166,19 @@ export default function AdminOrderDetailPage() {
                 Customer
               </h2>
               <p className="text-slate-100 font-medium">{order.customer_name || '—'}</p>
-              <p className="text-sm text-slate-500 mt-1">{order.customer_email || order.customer_mobile || '—'}</p>
+              {order.customer_mobile ? (
+                <p className="text-sm text-slate-400 mt-1 tabular-nums">
+                  {formatIndianMobileDisplay(order.customer_mobile)}
+                </p>
+              ) : null}
+              {order.customer_email ? (
+                <p className="text-sm text-slate-500 mt-1">{order.customer_email}</p>
+              ) : null}
+              <AdminCustomerContactActions
+                order={order}
+                whatsAppMessage={adminOrderWhatsAppMessage(order, invoiceUrl)}
+                className="mt-4"
+              />
             </div>
 
             <div className="p-5 sm:p-6">

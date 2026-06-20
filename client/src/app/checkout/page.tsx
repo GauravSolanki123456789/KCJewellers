@@ -22,6 +22,12 @@ import {
   openWhatsAppOrder,
   toWhatsAppWaMeDigits,
 } from '@/lib/cart-order-whatsapp'
+import CheckoutContactForm from '@/components/checkout/CheckoutContactForm'
+import {
+  type CheckoutContact,
+  checkoutContactFromUser,
+  validateCheckoutContact,
+} from '@/lib/customer-contact'
 
 declare global {
   interface Window {
@@ -63,7 +69,46 @@ function CheckoutContent() {
     discount_amount: number
     description?: string | null
   } | null>(null)
+  const [contact, setContact] = useState<CheckoutContact>({ name: '', mobile: '' })
+  const [contactInitialized, setContactInitialized] = useState(false)
+  const [contactTouched, setContactTouched] = useState(false)
+  const [savingContact, setSavingContact] = useState(false)
 
+  useEffect(() => {
+    if (!auth.hasChecked || !auth.isAuthenticated || contactInitialized) return
+    setContact(checkoutContactFromUser(auth.user))
+    setContactInitialized(true)
+  }, [auth.hasChecked, auth.isAuthenticated, auth.user, contactInitialized])
+
+  const contactValid = validateCheckoutContact(contact) === null
+
+  const ensureCheckoutContact = useCallback(async (): Promise<boolean> => {
+    setContactTouched(true)
+    const err = validateCheckoutContact(contact)
+    if (err) return false
+    setSavingContact(true)
+    try {
+      await axios.patch('/api/user/checkout-contact', {
+        checkout_contact_name: contact.name.trim(),
+        checkout_contact_mobile: contact.mobile,
+      })
+      return true
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : 'Could not save contact details'
+      alert(msg || 'Could not save contact details')
+      return false
+    } finally {
+      setSavingContact(false)
+    }
+  }, [contact])
+
+  const checkoutContactPayload = {
+    checkout_contact_name: contact.name.trim(),
+    checkout_contact_mobile: contact.mobile.replace(/\D/g, '').slice(-10),
+  }
   const grandTotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
   const isWholesaleCheckout = Boolean(auth.isAuthenticated && hasB2bPortalAccess && tierReady)
 
@@ -168,10 +213,12 @@ function CheckoutContent() {
   const handleB2bPlace = async (checkoutType: 'NEFT' | 'LEDGER') => {
     if (items.length === 0) return
     if (payDisabledRates) return
+    if (!(await ensureCheckoutContact())) return
     setLoading(true)
     try {
       const res = await axios.post<{ order_id: number }>('/api/checkout/b2b-create-order', {
         b2b_checkout_type: checkoutType,
+        ...checkoutContactPayload,
         items: items.map((ci) => ({
           id: ci.id,
           item: ci.item,
@@ -200,6 +247,7 @@ function CheckoutContent() {
     if (!canApplySip && applySipId) {
       return
     }
+    if (!(await ensureCheckoutContact())) return
     if (finalPayableAmount > 0 && (!scriptLoaded || !RAZORPAY_KEY)) {
       alert('Payment is loading. Please try again in a moment.')
       return
@@ -212,7 +260,10 @@ function CheckoutContent() {
         sip_redemption_amount?: number
         promo_code_id?: number
         promo_discount_amount?: number
+        checkout_contact_name: string
+        checkout_contact_mobile: string
       } = {
+        ...checkoutContactPayload,
         items: items.map((ci) => ({
           id: ci.id,
           item: ci.item,
@@ -276,12 +327,13 @@ function CheckoutContent() {
     }
   }
 
-  const handleWhatsAppOrder = useCallback(() => {
+  const handleWhatsAppOrder = useCallback(async () => {
     if (items.length === 0) return
     if (payDisabledRates && items.some((ci) => !isFixedPriceCatalogItem(ci.item))) {
       alert('Prices are still loading or unavailable for some items. Wait and try again.')
       return
     }
+    if (!(await ensureCheckoutContact())) return
     const digits10 = isResellerStorefront ? rb.contactPhoneDigits : getDefaultStoreWhatsAppDigits()
     const wa = digits10 ? toWhatsAppWaMeDigits(digits10) : ''
     if (!wa) {
@@ -304,6 +356,8 @@ function CheckoutContent() {
       brandLabel,
       lines,
       orderTotalInr: totalOrder,
+      buyerName: contact.name.trim(),
+      buyerMobile: checkoutContactPayload.checkout_contact_mobile,
     })
     if (openWhatsAppOrder(wa, msg)) clearAll()
   }, [
@@ -315,6 +369,9 @@ function CheckoutContent() {
     rb.contactPhoneDigits,
     finalPayableAmount,
     clearAll,
+    ensureCheckoutContact,
+    contact.name,
+    checkoutContactPayload.checkout_contact_mobile,
   ])
 
   if (!auth.hasChecked) {
@@ -415,6 +472,13 @@ function CheckoutContent() {
             )
           })}
         </div>
+
+        <CheckoutContactForm
+          value={contact}
+          onChange={setContact}
+          showErrors={contactTouched}
+          disabled={loading || savingContact}
+        />
 
         {/* Redeem SIP Balance Card — retail only */}
         {auth.isAuthenticated && !isWholesaleCheckout && !sipsLoading && redeemableSips.length > 0 && (
@@ -565,7 +629,7 @@ function CheckoutContent() {
             <button
               type="button"
               onClick={() => handleB2bPlace('NEFT')}
-              disabled={loading || payDisabledRates}
+              disabled={loading || savingContact || payDisabledRates || !contactValid}
               className="w-full py-3.5 min-h-[48px] rounded-xl border border-emerald-700/55 bg-emerald-500/30 hover:bg-emerald-500/40 text-neutral-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
             >
               <Landmark className="size-5 shrink-0" aria-hidden />
@@ -574,7 +638,7 @@ function CheckoutContent() {
             <button
               type="button"
               onClick={() => handleB2bPlace('LEDGER')}
-              disabled={loading || payDisabledRates}
+              disabled={loading || savingContact || payDisabledRates || !contactValid}
               className="w-full py-3.5 min-h-[48px] rounded-xl border border-amber-700/50 bg-amber-500/30 hover:bg-amber-500/40 text-neutral-950 font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
             >
               <BookMarked className="size-5 shrink-0" aria-hidden />
@@ -587,13 +651,15 @@ function CheckoutContent() {
               <button
                 type="button"
                 onClick={handlePay}
-                disabled={loading || payDisabledRates || (applySipId !== null && !canApplySip)}
+                disabled={loading || savingContact || payDisabledRates || (applySipId !== null && !canApplySip) || !contactValid}
                 className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2"
               >
-                {loading ? (
+                {loading || savingContact ? (
                   <>Processing…</>
                 ) : payDisabledRates && hasMetalItems ? (
                   <>Loading prices…</>
+                ) : !contactValid ? (
+                  <>Add contact details to pay</>
                 ) : isFullSipRedemption ? (
                   <>
                     <Sparkles className="size-5" />
@@ -608,16 +674,14 @@ function CheckoutContent() {
             )}
             <button
               type="button"
-              onClick={handleWhatsAppOrder}
-              disabled={loading}
-              className={`w-full py-3.5 rounded-xl font-semibold disabled:opacity-60 transition-all flex items-center justify-center gap-2 ${
-                isResellerStorefront
-                  ? 'bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-lg shadow-emerald-950/30'
-                  : 'border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-100'
+              onClick={() => void handleWhatsAppOrder()}
+              disabled={loading || savingContact || !contactValid}
+              className={`kc-btn-whatsapp disabled:opacity-60 ${
+                isResellerStorefront ? 'kc-btn-whatsapp--solid' : ''
               }`}
             >
               <MessageCircle className="size-5 shrink-0" aria-hidden />
-              Send Order via WhatsApp
+              {contactValid ? 'Send Order via WhatsApp' : 'Add contact details for WhatsApp'}
             </button>
           </div>
         )}
