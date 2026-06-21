@@ -21,8 +21,14 @@ import {
   type ResellerProductSubmission,
   type ResellerSubmissionStatus,
 } from '@/lib/reseller-products'
+import {
+  bulkPhotoKindLabel,
+  submissionPhotoFilenames,
+  uploadBatchPhotosBulk,
+  type BulkPhotoKind,
+} from '@/lib/reseller-bulk-photos'
 import { calculateBreakdown, getCustomerDisplaySize, isFixedPriceCatalogItem } from '@/lib/pricing'
-import { FileSpreadsheet, ImagePlus, Loader2, Package, Plus, Send, Upload } from 'lucide-react'
+import { FileSpreadsheet, ImagePlus, Images, Loader2, Package, Plus, Send, Upload } from 'lucide-react'
 
 type Tab = 'add' | 'batches' | 'list'
 
@@ -332,7 +338,7 @@ export function ResellerProductsPanel() {
             : ''
       const styleHint = formatStyleSummary(res.data.style_summary)
       setBulkResult(
-        `${n} product${n === 1 ? '' : 's'} imported${styleHint ? ` — ${styleHint}` : ''}. Add photos for each barcode, then send the batch for KC review. Multi-style files create separate catalogue sections (e.g. Necklace and Chain Pendant).${partialHint}`,
+        `${n} product${n === 1 ? '' : 's'} imported${styleHint ? ` — ${styleHint}` : ''}. Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,
       )
       if (res.data.batch_id) {
         setExpandedBatchId(res.data.batch_id)
@@ -771,6 +777,16 @@ export function ResellerProductsPanel() {
                             {b.pending_count ? 'This batch is with KC admin for review.' : 'All items processed.'}
                           </p>
                         )}
+                        {batchProducts.length > 0 ? (
+                          <BatchBulkPhotoUpload
+                            batchId={b.batch_id}
+                            products={batchProducts}
+                            onComplete={async () => {
+                              await loadBatchProducts(b.batch_id, { silent: true })
+                              await loadBatches({ silent: true })
+                            }}
+                          />
+                        ) : null}
                         {batchProductsLoading ? (
                           <div className="flex justify-center py-8">
                             <Loader2 className="size-6 animate-spin" />
@@ -876,6 +892,187 @@ function formatLivePrice(total: number): string {
   return `₹${Math.round(total).toLocaleString('en-IN')}`
 }
 
+function BatchBulkPhotoUpload({
+  batchId,
+  products,
+  onComplete,
+}: {
+  batchId: string
+  products: ResellerProductSubmission[]
+  onComplete: () => Promise<void>
+}) {
+  const frontRef = useRef<HTMLInputElement>(null)
+  const backRef = useRef<HTMLInputElement>(null)
+  const boxRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState<BulkPhotoKind | null>(null)
+  const [result, setResult] = useState<string | null>(null)
+  const [showNames, setShowNames] = useState(false)
+
+  const hasBoxProducts = useMemo(
+    () => products.some((p) => Number(p.box_charges ?? 0) > 0),
+    [products],
+  )
+
+  const filenameRows = useMemo(
+    () =>
+      products
+        .map((p) => {
+          const names = submissionPhotoFilenames(p)
+          const label = p.product_name || submissionImageDiskKey(p) || p.barcode || `#${p.id}`
+          return names ? { id: p.id, label, names } : null
+        })
+        .filter(Boolean) as {
+        id: number
+        label: string
+        names: { front: string; back: string; box: string }
+      }[],
+    [products],
+  )
+
+  const handleBulk = async (kind: BulkPhotoKind, files: FileList | null) => {
+    if (!files?.length) return
+    setUploading(kind)
+    setResult(null)
+    try {
+      const list = Array.from(files)
+      const data = await uploadBatchPhotosBulk(batchId, kind, list)
+      const unmatchedHint =
+        data.unmatched.length > 0
+          ? ` ${data.unmatched.length} file${data.unmatched.length === 1 ? '' : 's'} not matched (${data.unmatched.slice(0, 3).join(', ')}${data.unmatched.length > 3 ? '…' : ''}).`
+          : ''
+      const errHint =
+        data.errors.length > 0 ? ` ${data.errors.length} error${data.errors.length === 1 ? '' : 's'}.` : ''
+      setResult(
+        `${data.matched} ${bulkPhotoKindLabel(kind)} photo${data.matched === 1 ? '' : 's'} linked.${unmatchedHint}${errHint}`,
+      )
+      await onComplete()
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : e && typeof e === 'object' && 'response' in e
+            ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+            : null
+      setResult(msg || 'Bulk upload failed')
+    } finally {
+      setUploading(null)
+      if (frontRef.current) frontRef.current.value = ''
+      if (backRef.current) backRef.current.value = ''
+      if (boxRef.current) boxRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white ring-1 ring-[var(--color-slate-700,#e8e4df)]">
+          <Images className="size-5 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk upload photos</p>
+          <p className="kc-upload-hint mt-1 text-xs leading-relaxed">
+            Rename each image file to the product barcode shown below — e.g.{' '}
+            <span className="font-mono text-[var(--kc-accent,#c41e3a)]">BAANI-01.webp</span> for front,{' '}
+            <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]/80">BAANI-01_secondary.webp</span>{' '}
+            for back. Then pick many files at once on phone or laptop. One-by-one upload still works below.
+          </p>
+        </div>
+      </div>
+
+      <input
+        ref={frontRef}
+        type="file"
+        accept={RESELLER_PRODUCT_IMAGE_ACCEPT}
+        multiple
+        className="sr-only"
+        onChange={(e) => void handleBulk('front', e.target.files)}
+      />
+      <input
+        ref={backRef}
+        type="file"
+        accept={RESELLER_PRODUCT_IMAGE_ACCEPT}
+        multiple
+        className="sr-only"
+        onChange={(e) => void handleBulk('back', e.target.files)}
+      />
+      <input
+        ref={boxRef}
+        type="file"
+        accept={RESELLER_PRODUCT_IMAGE_ACCEPT}
+        multiple
+        className="sr-only"
+        onChange={(e) => void handleBulk('box', e.target.files)}
+      />
+
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          disabled={Boolean(uploading)}
+          onClick={() => frontRef.current?.click()}
+          className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[var(--kc-accent,#c41e3a)]/25 bg-white px-3 py-2.5 text-sm font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/5 disabled:opacity-60"
+        >
+          {uploading === 'front' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+          Bulk upload front images
+        </button>
+        <button
+          type="button"
+          disabled={Boolean(uploading)}
+          onClick={() => backRef.current?.click()}
+          className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/30 disabled:opacity-60"
+        >
+          {uploading === 'back' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+          Bulk upload back images
+        </button>
+        {hasBoxProducts ? (
+          <button
+            type="button"
+            disabled={Boolean(uploading)}
+            onClick={() => boxRef.current?.click()}
+            className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100/80 disabled:opacity-60 sm:col-span-2"
+          >
+            {uploading === 'box' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+            Bulk upload with-box images
+          </button>
+        ) : null}
+      </div>
+
+      {result ? (
+        <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
+          {result}
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setShowNames((v) => !v)}
+        className="mt-3 text-xs font-semibold text-[var(--kc-accent,#c41e3a)] underline-offset-2 hover:underline"
+      >
+        {showNames ? 'Hide barcode filename list' : `Show barcode filenames (${filenameRows.length})`}
+      </button>
+
+      {showNames ? (
+        <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
+          <ul className="divide-y divide-[var(--color-slate-700,#e8e4df)]">
+            {filenameRows.map((row) => (
+              <li key={row.id} className="px-3 py-2 text-[11px] leading-relaxed">
+                <p className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{row.label}</p>
+                <p className="mt-0.5 font-mono text-[var(--color-jewelry-black,#1a1814)]/70">
+                  Front: <span className="text-[var(--kc-accent,#c41e3a)]">{row.names.front}</span>
+                  {' · '}
+                  Back: {row.names.back}
+                  {hasBoxProducts && Number(products.find((p) => p.id === row.id)?.box_charges ?? 0) > 0
+                    ? ` · Box: ${row.names.box}`
+                    : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function submissionLivePriceHint(row: ResellerProductSubmission, rates: unknown): string | null {
   const item = submissionToCatalogItem(row)
   if (isFixedPriceCatalogItem(item)) {
@@ -921,6 +1118,7 @@ function BatchProductPhotoRow({
   const existingBox = row.box_image_url || ''
   const existingVideo = row.video_url || ''
   const hasBoxCharge = Number(row.box_charges ?? 0) > 0
+  const photoNames = submissionPhotoFilenames(row)
   const livePriceHint = submissionLivePriceHint(row, rates)
 
   const save = async () => {
@@ -974,6 +1172,24 @@ function BatchProductPhotoRow({
           </p>
           {livePriceHint ? (
             <p className="mt-1 text-xs font-medium tabular-nums text-emerald-800">{livePriceHint}</p>
+          ) : null}
+          {photoNames ? (
+            <div className="mt-2 rounded-lg border border-[var(--kc-accent,#c41e3a)]/15 bg-[var(--color-slate-900,#f7f4ef)] px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                Rename files to
+              </p>
+              <p className="mt-1 break-all font-mono text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/85">
+                <span className="text-[var(--kc-accent,#c41e3a)]">{photoNames.front}</span>
+                {' · '}
+                {photoNames.back}
+                {hasBoxCharge ? (
+                  <>
+                    {' · '}
+                    <span className="text-emerald-800">{photoNames.box}</span>
+                  </>
+                ) : null}
+              </p>
+            </div>
           ) : null}
         </div>
         <div className="flex shrink-0 gap-2">

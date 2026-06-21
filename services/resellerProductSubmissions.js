@@ -381,6 +381,57 @@ async function approveSubmissionToCatalog(deps, submissionRow, reviewerUserId) {
     return result;
 }
 
+function normalizeBulkPhotoStem(stem) {
+    let s = String(stem || '').trim().toLowerCase();
+    if (!s) return '';
+    s = s.replace(/\s+/g, '-');
+    return s;
+}
+
+function registerBulkPhotoStemKey(map, stem, entry) {
+    const s = normalizeBulkPhotoStem(stem);
+    if (!s || !entry) return;
+    map[s] = entry;
+    const compact = s.replace(/-/g, '');
+    if (compact && compact !== s) map[compact] = entry;
+}
+
+function buildBatchPhotoLookup(rows) {
+    const map = Object.create(null);
+    for (const row of rows || []) {
+        const enriched = enrichSubmissionRow(row);
+        const prodSku = String(enriched.web_product_sku || '').trim();
+        if (!prodSku) continue;
+        const entry = { id: row.id, prodSku };
+        registerBulkPhotoStemKey(map, prodSku, entry);
+        const barcode = String(enriched.barcode || row.barcode || '').trim();
+        if (barcode && barcode.toLowerCase() !== prodSku.toLowerCase()) {
+            registerBulkPhotoStemKey(map, barcode, entry);
+        }
+    }
+    return map;
+}
+
+function lookUpBatchPhotoEntry(map, stem) {
+    const s = normalizeBulkPhotoStem(stem);
+    if (!s) return null;
+    const compact = s.replace(/-/g, '');
+    return map[s] || map[compact] || null;
+}
+
+function parseBulkUploadStemFromFilename(filename, photoType) {
+    const base = path.basename(String(filename || ''), path.extname(String(filename || '')));
+    let stem = normalizeBulkPhotoStem(base);
+    if (photoType === 'back') {
+        stem = stem.replace(/(_secondary|-secondary|-back|_back)$/, '');
+    } else if (photoType === 'box') {
+        stem = stem.replace(/(_box|-box)$/, '');
+    } else if (photoType === 'front') {
+        stem = stem.replace(/(-front|_front)$/, '');
+    }
+    return stem;
+}
+
 function createResellerProductUploadMulter(uploadsDir) {
     fs.mkdirSync(uploadsDir, { recursive: true });
     return multer({
@@ -767,6 +818,110 @@ function registerResellerProductRoutes(app, deps) {
             res.status(500).json({ error: e.message });
         }
     });
+
+    // ---- Reseller: bulk photo upload for an Excel batch (match filename stem to web_product_sku) ----
+    app.post(
+        '/api/reseller/product-batches/:batchId/bulk-photos',
+        RESELLER_PRODUCT_UPLOAD,
+        requireResellerUpload,
+        async (req, res) => {
+            try {
+                const batchId = String(req.params.batchId || '').trim();
+                if (!batchId) return res.status(400).json({ error: 'batchId required' });
+                const photoType = String(req.body?.photoType || req.query?.photoType || 'front')
+                    .trim()
+                    .toLowerCase();
+                if (!['front', 'back', 'box'].includes(photoType)) {
+                    return res.status(400).json({ error: 'photoType must be front, back, or box' });
+                }
+                const draftRows = await query(
+                    `SELECT * FROM reseller_product_submissions
+                     WHERE batch_id = $1::uuid AND submitted_by_user_id = $2 AND submission_status = 'draft'`,
+                    [batchId, req.user.id],
+                );
+                if (!draftRows.length) {
+                    return res.status(404).json({ error: 'No draft products in this batch' });
+                }
+                const lookup = buildBatchPhotoLookup(draftRows);
+                const files = req.files || {};
+                const uploads = [
+                    ...(files.images || []),
+                    ...(files.primaryImage || []),
+                    ...(files.secondaryImage || []),
+                    ...(files.secondaryImages || []),
+                    ...(files.secondary_images || []),
+                    ...(files.boxImage || []),
+                    ...(files.boxImages || []),
+                ];
+                if (!uploads.length) {
+                    return res.status(400).json({ error: 'No image files received' });
+                }
+                const apiBase = getPublicApiBaseUrl();
+                const matched = [];
+                const unmatched = [];
+                const errors = [];
+                const updatedIds = new Set();
+                for (const file of uploads) {
+                    const originalName = String(file.originalname || file.filename || '').trim();
+                    try {
+                        const stem = parseBulkUploadStemFromFilename(originalName, photoType);
+                        const entry = lookUpBatchPhotoEntry(lookup, stem);
+                        if (!entry) {
+                            unmatched.push(originalName || file.filename);
+                            continue;
+                        }
+                        const ext = path.extname(file.filename) || '.webp';
+                        let target;
+                        let urlField;
+                        if (photoType === 'front') {
+                            target = `${entry.prodSku}${ext}`;
+                            urlField = 'image_url';
+                        } else if (photoType === 'back') {
+                            target = `${entry.prodSku}_secondary${ext}`;
+                            urlField = 'secondary_image_url';
+                        } else {
+                            target = `${entry.prodSku}_box${ext}`;
+                            urlField = 'box_image_url';
+                        }
+                        const srcPath = path.join(uploadsWebProductsDir, file.filename);
+                        const destPath = path.join(uploadsWebProductsDir, target);
+                        if (file.filename !== target) {
+                            if (fs.existsSync(destPath)) {
+                                try {
+                                    fs.unlinkSync(destPath);
+                                } catch (_) {
+                                    /* ignore */
+                                }
+                            }
+                            fs.renameSync(srcPath, destPath);
+                        }
+                        const url = `${apiBase}/uploads/web_products/${target}`;
+                        await query(
+                            `UPDATE reseller_product_submissions SET ${urlField} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                            [url, entry.id],
+                        );
+                        matched.push(originalName || target);
+                        updatedIds.add(entry.id);
+                    } catch (fileErr) {
+                        errors.push({
+                            file: originalName || file.filename,
+                            error: fileErr.message,
+                        });
+                    }
+                }
+                res.json({
+                    matched: matched.length,
+                    skipped: unmatched.length + errors.length,
+                    unmatched,
+                    updated_ids: [...updatedIds],
+                    errors,
+                });
+            } catch (e) {
+                console.error('reseller batch bulk photos:', e);
+                res.status(500).json({ error: e.message });
+            }
+        },
+    );
 
     // ---- Reseller: submit Excel batch for KC admin review ----
     app.post('/api/reseller/product-batches/:batchId/submit-for-review', requireResellerUpload, async (req, res) => {
