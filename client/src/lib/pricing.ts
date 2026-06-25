@@ -23,6 +23,12 @@ export type Item = {
   box_charges?: number | string | null
   /** Excel AvgWeight range label e.g. "145-155" — shown on PDP when set. */
   weight_display?: string | null
+  /** ERP wastage % — used for billable weight when gross not stored. */
+  wastage_pct?: number | null
+  /** Optional component weights from Excel (chain + pendant + earring sets). */
+  chain_weight?: number | null
+  pendant_weight?: number | null
+  earring_weight?: number | null
   box_image_url?: string | null
   video_url?: string | null
   design_group?: string | null
@@ -145,7 +151,7 @@ function netWeight(item: Item): number {
 }
 
 /** Excel / ERP wastage column — percentage added to net weight for billable metal weight. */
-function parseWastagePercent(item: Item): number | null {
+export function parseWastagePercent(item: Item): number | null {
   const raw =
     item.wastage ??
     item.wastage_pct ??
@@ -156,16 +162,35 @@ function parseWastagePercent(item: Item): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
-/** Billable metal weight — gross (net + wastage %) when stored, else net × (1 + wastage%). */
-function billableWeight(item: Item): number {
+/** Wastage % from explicit column or derived gross/net (legacy rows). */
+export function resolveProductWastagePercent(item: Item | null | undefined): number {
+  if (!item || isFixedPriceCatalogItem(item)) return 0
+  const explicit = parseWastagePercent(item)
+  if (explicit != null && explicit > 0) return explicit
   const net = netWeight(item)
+  const gross = Number(item.gross_weight ?? (item as { grossWeight?: number }).grossWeight ?? 0) || 0
+  if (net > 0 && gross > net) {
+    return Math.round((gross / net - 1) * 10000) / 100
+  }
+  return 0
+}
+
+/** Gold/silver billable weight for metal ₹ — full precision (no 3 dp round before × rate). */
+function metalBillableWeight(item: Item): number {
+  const net = netWeight(item)
+  const w = resolveProductWastagePercent(item)
+  if (w > 0 && net > 0) return net * (1 + w / 100)
   const gross =
     Number(item.gross_weight ?? (item as { grossWeight?: number }).grossWeight ?? 0) || 0
   if (gross > net && gross > 0) return gross
-  const wastagePct = parseWastagePercent(item)
-  if (net > 0 && wastagePct != null && wastagePct > 0) {
-    return Math.round(net * (1 + wastagePct / 100) * 1000) / 1000
-  }
+  return net
+}
+
+/** Billable metal weight — display / filters; keeps 3 dp round for legacy gross labels. */
+function billableWeight(item: Item): number {
+  const net = netWeight(item)
+  const bill = metalBillableWeight(item)
+  if (bill > net) return Math.round(bill * 1000) / 1000
   return net
 }
 
@@ -337,9 +362,56 @@ type BreakdownResult = {
   discountPercent?: number
   rate_per_gram?: number
   net_weight?: number
+  billable_weight_gm?: number
+  wastage_pct?: number
+  wastage_weight_gm?: number
+  wastage_amount?: number
+  net_metal?: number
   /** Standard retail total incl. GST (for B2B strikethrough) */
   wholesale_retail_total?: number
   is_wholesale_price?: boolean
+}
+
+export type PriceBreakdown = BreakdownResult
+
+function goldTagFormulaTotal(
+  netWt: number,
+  metalRate: number,
+  wastagePct: number,
+  gstPct: number,
+  mcPart: number,
+  stoneAmt: number,
+): number {
+  if (mcPart === 0 && stoneAmt === 0 && wastagePct > 0) {
+    return Math.round(
+      (netWt * metalRate * (100 + wastagePct) * (100 + gstPct)) / 10000,
+    )
+  }
+  const metalPart = Math.floor((netWt * metalRate * (100 + wastagePct)) / 100)
+  return goldStorefrontTotal(metalPart + mcPart + stoneAmt, gstPct)
+}
+
+function attachWastageFields(
+  item: Item,
+  isGold: boolean,
+  netWt: number,
+  metalRate: number,
+  metalPart: number,
+  row: BreakdownResult,
+): BreakdownResult {
+  if (!isGold || isFixedPriceCatalogItem(item)) return row
+  const w = resolveProductWastagePercent(item)
+  const netMetal = Math.floor(netWt * metalRate)
+  const wastageAmount = Math.max(0, metalPart - netMetal)
+  const billable = metalBillableWeight(item)
+  return {
+    ...row,
+    billable_weight_gm: billable,
+    net_metal: netMetal,
+    wastage_pct: w > 0 ? w : undefined,
+    wastage_weight_gm: w > 0 ? Math.max(0, billable - netWt) : undefined,
+    wastage_amount: wastageAmount > 0 ? wastageAmount : undefined,
+  }
 }
 
 /**
@@ -422,18 +494,20 @@ export function calculateBreakdown(
   }
 
   const netWt = netWeight(item)
-  const billWt = billableWeight(item)
   const purity = purityPct(item)
   const isSilver = metal.startsWith('silver')
   const isGold = !isSilver && !metal.startsWith('diamond') && !metal.startsWith('gifting')
+  const billWt = isGold || isSilver ? metalBillableWeight(item) : billableWeight(item)
   const rate = ratePerGram(liveRates, metal, isGold ? item : undefined)
 
   if ((isGold || isSilver) && rate > 0 && netWt > 0 && billWt > 0) {
     const effectivePurity =
       isSilver && purity >= 90 && purity <= 100 ? 100 : isGold ? 100 : purity
     const metalRate = isGold ? rate : rate * (effectivePurity > 0 ? effectivePurity / 100 : 1)
-    // Gold: floor metal ₹ line, then GST — matches manual billing (weight × 112 × rate × 103 / 10000).
-    const metalPart = isGold ? Math.floor(metalRate * billWt) : metalRate * billWt
+    const wastagePct = isGold ? resolveProductWastagePercent(item) : 0
+    const metalPart = isGold
+      ? Math.floor((netWt * metalRate * (100 + wastagePct)) / 100)
+      : metalRate * billWt
     const mcPart = isGold ? Math.round(mcAmount(item)) : mcAmount(item)
     const stoneAmt = isGold ? Math.round(stone(item)) : stone(item)
     const baseRetail = metalPart + mcPart + stoneAmt
@@ -442,11 +516,11 @@ export function calculateBreakdown(
 
     if (categoryDisc > 0) {
       const totalBeforeDiscount = isGold
-        ? goldStorefrontTotal(baseRetail, gstPct)
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPart, stoneAmt)
         : baseRetail * (1 + gstPct / 100)
       const total = totalBeforeDiscount * (1 - categoryDisc / 100)
       const gstAmt = totalBeforeDiscount - baseRetail
-      return {
+      return attachWastageFields(item, isGold, netWt, metalRate, metalPart, {
         metal: metalPart,
         mc: mcPart,
         stone: stoneAmt,
@@ -460,23 +534,29 @@ export function calculateBreakdown(
         net_weight: netWt,
         wholesale_retail_total: undefined,
         is_wholesale_price: false,
-      }
+      })
     }
 
     const markup = accountMarkupPct(wIn, 0)
     const acctDisc = accountDiscountPct(wIn, 0)
     const base = baseRetail * (1 + markup / 100)
+    const useGoldTagFormula =
+      isGold && !wIn && Math.abs(markup) < 1e-6 && mcPart === 0 && stoneAmt === 0
     const totalBeforeDiscount = isGold
-      ? goldStorefrontTotal(base, gstPct)
+      ? useGoldTagFormula
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0)
+        : goldStorefrontTotal(base, gstPct)
       : base * (1 + gstPct / 100)
     const total =
       acctDisc > 0 ? totalBeforeDiscount * (1 - acctDisc / 100) : totalBeforeDiscount
     const retailBeforePromo = isGold
-      ? goldStorefrontTotal(baseRetail, gstPct)
+      ? mcPart === 0 && stoneAmt === 0
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0)
+        : goldStorefrontTotal(baseRetail, gstPct)
       : baseRetail * (1 + gstPct / 100)
     const gstAmt = totalBeforeDiscount - base
     const wholesaleActive = !!wIn && (acctDisc > 0 || Math.abs(markup) > 1e-6)
-    return {
+    return attachWastageFields(item, isGold, netWt, metalRate, metalPart, {
       metal: metalPart,
       mc: mcPart,
       stone: stoneAmt,
@@ -490,7 +570,7 @@ export function calculateBreakdown(
       net_weight: netWt,
       wholesale_retail_total: wholesaleActive ? retailBeforePromo : undefined,
       is_wholesale_price: wholesaleActive,
-    }
+    })
   }
 
   // Legacy path (platinum and other metals, or missing live rate)

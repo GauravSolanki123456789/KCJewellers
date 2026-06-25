@@ -49,6 +49,10 @@ export type SharedCatalogPublicProduct = {
   net_weight?: number
   weight_display?: string | null
   gross_weight?: number
+  wastage_pct?: number
+  chain_weight?: number
+  pendant_weight?: number
+  earring_weight?: number
   purity?: number
   mc_rate?: number
   fixed_price?: number

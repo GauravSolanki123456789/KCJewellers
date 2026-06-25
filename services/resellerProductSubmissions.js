@@ -27,7 +27,10 @@ function submissionRowToSyncItem(row) {
         netWeight: row.net_weight ?? payload.netWeight,
         weightDisplay: row.weight_display ?? payload.weightDisplay,
         grossWeight: row.gross_weight ?? payload.grossWeight,
-        wastage: payload.wastage ?? payload['Wastage(%)'] ?? payload.wastage_pct,
+        wastage: payload.wastage ?? payload['Wastage(%)'] ?? payload.wastage_pct ?? row.wastage_pct,
+        chainWeight: row.chain_weight ?? payload.chainWeight ?? payload.ChainWtOnly,
+        pendantWeight: row.pendant_weight ?? payload.pendantWeight ?? payload.PendantWtOnly,
+        earringWeight: row.earring_weight ?? payload.earringWeight ?? payload.EarringWtOnly,
         purity: row.purity ?? payload.purity,
         mcRate: row.mc_rate ?? payload.mcRate,
         metalType: row.metal_type ?? payload.metalType,
@@ -99,6 +102,9 @@ function excelRowToSyncItem(row) {
         imageUrl: get('ImageUrl', 'imageUrl', 'image_url'),
         attrColor: get('Attr:Color', 'attr_color', 'AttrColor'),
         attrStone: get('Attr:Stone', 'attr_stone', 'AttrStone'),
+        chainWeight: get('ChainWtOnly', 'chain_wt_only', 'chain_weight', 'ChainWeight'),
+        pendantWeight: get('PendantWtOnly', 'pendant_wt_only', 'pendant_weight', 'PendantWeight'),
+        earringWeight: get('EarringWtOnly', 'earring_wt_only', 'earring_weight', 'EarringWeight'),
     };
 }
 
@@ -159,6 +165,9 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
               : null;
     if (wastagePct != null) payload.wastage_pct = wastagePct;
     if (payload.wastage == null && wastagePct != null) payload.wastage = wastagePct;
+    const chainWeight = parseExcelWeight(item.chainWeight ?? item.ChainWtOnly ?? item.chain_weight);
+    const pendantWeight = parseExcelWeight(item.pendantWeight ?? item.PendantWtOnly ?? item.pendant_weight);
+    const earringWeight = parseExcelWeight(item.earringWeight ?? item.EarringWtOnly ?? item.earring_weight);
     return {
         submitted_by_user_id: submittedByUserId,
         batch_id: batchId || null,
@@ -170,6 +179,10 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         net_weight: netWeight,
         weight_display: weightDisplay,
         gross_weight: grossWeight,
+        wastage_pct: wastagePct,
+        chain_weight: chainWeight,
+        pendant_weight: pendantWeight,
+        earring_weight: earringWeight,
         purity: resolved.purity,
         mc_rate: resolved.mcRate,
         mc_type: mcType,

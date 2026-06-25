@@ -14,6 +14,12 @@ type Breakdown = {
   total?: number
   originalTotal?: number
   discountPercent?: number
+  wastage_pct?: number
+  wastage_amount?: number
+  net_metal?: number
+  billable_weight_gm?: number
+  rate_per_gram?: number
+  net_weight?: number
   items?: unknown[]
 }
 
@@ -51,6 +57,9 @@ export default function BreakdownModal({
   if (!breakdown) return null
 
   const metal = Math.round(breakdown.metal ?? 0)
+  const netMetal = Math.round(breakdown.net_metal ?? 0)
+  const wastageAmt = Math.round(breakdown.wastage_amount ?? 0)
+  const wastagePct = breakdown.wastage_pct
   const mc = Math.round(breakdown.mc ?? 0)
   const stone = Math.round(breakdown.stone ?? 0)
   const cgst = Math.round(breakdown.cgst ?? 0)
@@ -156,6 +165,18 @@ export default function BreakdownModal({
               <div className="divide-y divide-slate-700/60">
                 {!showFixedPrice && (
                   <>
+                    {netMetal > 0 && wastageAmt > 0 ? (
+                      <>
+                        <div className="flex justify-between items-center px-4 py-3">
+                          <span className="text-slate-300">Net metal</span>
+                          <span className="font-medium tabular-nums text-slate-100">₹{netMetal.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="flex justify-between items-center px-4 py-3">
+                          <span className="text-slate-300">Wastage ({wastagePct}%)</span>
+                          <span className="font-medium tabular-nums text-slate-100">₹{wastageAmt.toLocaleString('en-IN')}</span>
+                        </div>
+                      </>
+                    ) : null}
                     <div className="flex justify-between items-center px-4 py-3">
                       <span className="text-slate-300">Metal Cost</span>
                       <span className="font-medium tabular-nums text-slate-100">₹{metal.toLocaleString('en-IN')}</span>

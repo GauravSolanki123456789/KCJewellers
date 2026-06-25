@@ -47,16 +47,40 @@ function parseWastagePercent(item) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-/** Gross / billable weight — uses gross_weight when set, else net × (1 + wastage %). */
-function getBillableWeight(item) {
+function resolveWastagePercent(item) {
+  const explicit = parseWastagePercent(item);
+  if (explicit != null && explicit > 0) return explicit;
   const net = getNetWeight(item);
   const gross = Number(item?.gross_weight ?? item?.grossWeight ?? 0) || 0;
+  if (net > 0 && gross > net) return Math.round((gross / net - 1) * 10000) / 100;
+  return 0;
+}
+
+function getMetalBillableWeight(item) {
+  const net = getNetWeight(item);
+  const w = resolveWastagePercent(item);
+  if (w > 0 && net > 0) return net * (1 + w / 100);
+  const gross = Number(item?.gross_weight ?? item?.grossWeight ?? 0) || 0;
   if (gross > net && gross > 0) return gross;
-  const wastagePct = parseWastagePercent(item);
-  if (net > 0 && wastagePct != null && wastagePct > 0) {
-    return Math.round(net * (1 + wastagePct / 100) * 1000) / 1000;
-  }
   return net;
+}
+
+/** Gross / billable weight — display; metal calc uses full precision via getMetalBillableWeight. */
+function getBillableWeight(item) {
+  const net = getNetWeight(item);
+  const bill = getMetalBillableWeight(item);
+  if (bill > net) return Math.round(bill * 1000) / 1000;
+  return net;
+}
+
+function goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcAmount, stoneAmount) {
+  const mc = Number(mcAmount) || 0;
+  const stone = Number(stoneAmount) || 0;
+  if (mc === 0 && stone === 0 && wastagePct > 0) {
+    return Math.round((netWt * metalRate * (100 + wastagePct) * (100 + gstPct)) / 10000);
+  }
+  const metalPart = Math.floor((netWt * metalRate * (100 + wastagePct)) / 100);
+  return goldStorefrontTotal(metalPart + mc + stone, gstPct);
 }
 
 /** Gold storefront total — round to nearest rupee after GST (tag / manual billing). */
@@ -115,15 +139,16 @@ function getStoneCharges(item) {
 function calculateItemPrice(item, liveRates, gstRatePct) {
   const metalType = item?.metal_type ?? item?.metalType ?? 'gold';
   const netWt = getNetWeight(item);
-  const billWt = getBillableWeight(item);
+  const billWt = getMetalBillableWeight(item);
   const purity = getPurity(item);
   const mt = String(metalType).toLowerCase();
   const isGold = mt.startsWith('gold') && !mt.includes('diamond');
   const isSilver = mt.startsWith('silver');
   const metalRate = getMetalSellRatePerGram(metalType, liveRates, item);
+  const wastagePct = isGold ? resolveWastagePercent(item) : 0;
   let metalValue;
   if (isGold && metalRate > 0) {
-    metalValue = Math.floor(billWt * metalRate);
+    metalValue = Math.floor((netWt * metalRate * (100 + wastagePct)) / 100);
   } else if (isSilver && metalRate > 0) {
     const effPurity = purity >= 90 && purity <= 100 ? 100 : purity;
     metalValue = billWt * metalRate * (effPurity / 100);
@@ -138,7 +163,9 @@ function calculateItemPrice(item, liveRates, gstRatePct) {
   const sgst = gstRate ? taxable * (gstRate / 200) : 0;
   const totalGst = cgst + sgst;
   const netTotal = isGold && gstRate > 0
-    ? goldStorefrontTotal(taxable, gstRate)
+    ? (mcAmount === 0 && stoneAmount === 0 && wastagePct > 0
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstRate, 0, 0)
+        : goldStorefrontTotal(taxable, gstRate))
     : taxable + totalGst;
   return {
     metalValue,

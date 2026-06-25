@@ -9,6 +9,7 @@ import {
 import { computeSharedCatalogUnitPrice } from "@/lib/shared-catalog-pricing";
 import { getProductBoxCharges } from "@/lib/product-box-pricing";
 import { getProductSelectionKey } from "@/lib/catalog-product-filters";
+import { formatProductMetalSpecSummary } from "@/lib/product-metal-specs";
 import type { ItemWithPdfImage } from "@/lib/pdf-embed-images";
 import { getKcPdfPalette, type KcPdfPalette } from "@/lib/kc-pdf-palette";
 
@@ -285,6 +286,7 @@ type PdfLineMeta = {
   name: string;
   sizeText: string | null;
   weightText: string | null;
+  specText: string | null;
   shareQty: number;
   unitPriceStr: string | null;
   lineTotalStr: string | null;
@@ -305,6 +307,10 @@ function resolvePdfLineMeta(
   const weightText =
     (p as { shareCatalogWeightLabel?: string }).shareCatalogWeightLabel?.trim() ||
     getCustomerDisplayWeightLabel(p) ||
+    null;
+  const specText =
+    (p as { shareCatalogMetalSpecSummary?: string }).shareCatalogMetalSpecSummary?.trim() ||
+    formatProductMetalSpecSummary(p, resellerPdfPricing?.rates ?? null) ||
     null;
   const shareQty = Math.max(
     1,
@@ -343,7 +349,7 @@ function resolvePdfLineMeta(
     }
   }
 
-  return { index, name, sizeText, weightText, shareQty, unitPriceStr, lineTotalStr };
+  return { index, name, sizeText, weightText, specText, shareQty, unitPriceStr, lineTotalStr };
 }
 
 export function CatalogPdfDocument({
@@ -448,7 +454,9 @@ export function CatalogPdfDocument({
             <Text style={[styles.orderCell, styles.orderColNo]}>{i + 1}</Text>
             <Text style={[styles.orderCell, styles.orderColName]}>{row.name}</Text>
             <Text style={[styles.orderCell, styles.orderColSize]}>{row.sizeText || "—"}</Text>
-            <Text style={[styles.orderCell, styles.orderColWeight]}>{row.weightText || "—"}</Text>
+            <Text style={[styles.orderCell, styles.orderColWeight]}>
+              {row.specText || row.weightText || "—"}
+            </Text>
             <Text style={[styles.orderCellQty, styles.orderColQty]}>
               {row.shareQty} pc{row.shareQty !== 1 ? "s" : ""}
             </Text>
@@ -566,6 +574,9 @@ export function CatalogPdfDocument({
                   <Text style={styles.refLine}>Ref · {barcodeText}</Text>
                   {weightText ? (
                     <Text style={styles.weightLine}>Weight · {weightText}</Text>
+                  ) : null}
+                  {meta?.specText ? (
+                    <Text style={styles.weightLine}>{meta.specText}</Text>
                   ) : null}
                   {lineTotalStr ? (
                     <>

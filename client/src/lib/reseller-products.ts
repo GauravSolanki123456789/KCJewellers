@@ -43,6 +43,10 @@ export type ResellerProductSubmission = {
   fixed_price?: number | string | null
   stone_charges?: number | string | null
   box_charges?: number | string | null
+  wastage_pct?: number | string | null
+  chain_weight?: number | string | null
+  pendant_weight?: number | string | null
+  earring_weight?: number | string | null
   quantity?: number | null
   design_group?: string | null
   attr_color?: string | null
@@ -152,6 +156,10 @@ export function submissionToCatalogItem(row: ResellerProductSubmission): Item {
     fixed_price: row.fixed_price != null ? Number(row.fixed_price) : undefined,
     stone_charges: row.stone_charges != null ? Number(row.stone_charges) : undefined,
     box_charges: row.box_charges != null ? Number(row.box_charges) : undefined,
+    wastage_pct: row.wastage_pct != null ? Number(row.wastage_pct) : undefined,
+    chain_weight: row.chain_weight != null ? Number(row.chain_weight) : undefined,
+    pendant_weight: row.pendant_weight != null ? Number(row.pendant_weight) : undefined,
+    earring_weight: row.earring_weight != null ? Number(row.earring_weight) : undefined,
     size: row.size != null && String(row.size).trim() !== '' ? String(row.size).trim() : undefined,
     design_group: row.design_group ?? undefined,
     gst_rate: 3,

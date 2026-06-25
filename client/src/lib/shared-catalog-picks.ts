@@ -1,4 +1,5 @@
 import { getCustomerDisplaySize, getCustomerDisplayWeightLabel } from '@/lib/pricing'
+import { formatProductMetalSpecSummary } from '@/lib/product-metal-specs'
 import { getProductBoxCharges, productHasBoxOption } from '@/lib/product-box-pricing'
 import type { SharedCatalogPickLineForWhatsApp } from '@/lib/cart-order-whatsapp'
 import {
@@ -60,8 +61,10 @@ export function buildSharedCatalogSelectionPicks(
 
 export function sharedCatalogPickToWhatsAppLine(
   pick: SharedCatalogSelectionPick,
+  rates?: unknown,
 ): SharedCatalogPickLineForWhatsApp {
   const code = String(pick.row.product.barcode || pick.row.product.sku || pick.key)
+  const item = sharedCatalogProductToItem(pick.row.product)
   return {
     name: pick.displayTitle,
     skuOrBarcode: code,
@@ -70,6 +73,7 @@ export function sharedCatalogPickToWhatsAppLine(
     qty: pick.qty,
     sizeLabel: pick.sizeLabel,
     weightLabel: pick.weightLabel,
+    metalSpecSummary: formatProductMetalSpecSummary(item, rates),
     showInclGst: pick.row.showInclGst,
     withBoxPriceInr:
       pick.includeBox && productHasBoxOption(pick.row.item) ? pick.unitTotalInr : null,
@@ -83,6 +87,7 @@ export function sharedCatalogPickToPdfItem(
   shareCatalogDisplayTitle: string
   shareCatalogSize: string | null
   shareCatalogWeightLabel: string | null
+  shareCatalogMetalSpecSummary: string | null
   shareCatalogLineTotalInr: number
   shareCatalogUnitTotalInr: number
 } {
@@ -92,6 +97,9 @@ export function sharedCatalogPickToPdfItem(
     shareCatalogDisplayTitle: pick.displayTitle,
     shareCatalogSize: pick.sizeLabel,
     shareCatalogWeightLabel: pick.weightLabel,
+    shareCatalogMetalSpecSummary: formatProductMetalSpecSummary(
+      sharedCatalogProductToItem(pick.row.product),
+    ),
     shareCatalogLineTotalInr: pick.lineTotalInr,
     shareCatalogUnitTotalInr: pick.unitTotalInr,
   }

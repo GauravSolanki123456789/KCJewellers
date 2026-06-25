@@ -14,6 +14,7 @@ import {
   productPriceShowsInclGst,
   type Item,
 } from '@/lib/pricing'
+import { getProductMetalSpecLines } from '@/lib/product-metal-specs'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
@@ -144,6 +145,7 @@ export default function ProductCard({
   )
   const showInclGst = productPriceShowsInclGst(active, pricingOptions)
   const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown
+  const metalSpecLines = getProductMetalSpecLines(active, rates, breakdown)
   const hasDiscount = (discountPercent ?? 0) > 0
   const showWholesale =
     hasWholesaleAccess &&
@@ -264,6 +266,11 @@ export default function ProductCard({
       {weightLabel ? (
         <span className="text-[10px] text-slate-500">{weightLabel}</span>
       ) : null}
+      {metalSpecLines.map((line) => (
+        <span key={line.label} className="text-[10px] text-slate-500">
+          {line.label}: {line.value}
+        </span>
+      ))}
       {hasVariants ? (
         <div
           onClick={(e) => {

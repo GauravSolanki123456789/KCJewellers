@@ -246,11 +246,15 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                               <span>
                                 Metal Cost
                                 {(() => {
-                                  const br = b as { rate_per_gram?: number; net_weight?: number }
+                                  const br = b as {
+                                    rate_per_gram?: number
+                                    net_weight?: number
+                                    billable_weight_gm?: number
+                                  }
                                   const rpg = br?.rate_per_gram
-                                  const nw = br?.net_weight
-                                  return rpg != null && nw != null && rpg > 0
-                                    ? ` (₹${Math.round(rpg).toLocaleString('en-IN')}/g × ${Number(nw).toFixed(2)}g)`
+                                  const bw = br?.billable_weight_gm ?? br?.net_weight
+                                  return rpg != null && bw != null && rpg > 0
+                                    ? ` (₹${Math.round(rpg).toLocaleString('en-IN')}/g × ${Number(bw).toFixed(2)}g)`
                                     : ''
                                 })()}
                               </span>
@@ -260,6 +264,23 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                                 )}
                               </span>
                             </div>
+                            {(b as { wastage_amount?: number }).wastage_amount != null &&
+                            (b as { wastage_amount?: number }).wastage_amount! > 0 ? (
+                              <div className="flex justify-between text-slate-200">
+                                <span>
+                                  Wastage
+                                  {(b as { wastage_pct?: number }).wastage_pct
+                                    ? ` (${(b as { wastage_pct?: number }).wastage_pct}%)`
+                                    : ''}
+                                </span>
+                                <span className="tabular-nums">
+                                  ₹
+                                  {Math.round(
+                                    ((b as { wastage_amount?: number }).wastage_amount || 0) * ci.qty,
+                                  ).toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            ) : null}
                             <div className="flex justify-between text-slate-200">
                               <span>Making Charges</span>
                               <span className="tabular-nums">₹{Math.round((b.mc || 0) * ci.qty).toLocaleString('en-IN')}</span>

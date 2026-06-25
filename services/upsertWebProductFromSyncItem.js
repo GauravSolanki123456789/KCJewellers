@@ -56,7 +56,7 @@ function resolveGrossWeight(netWeight, grossWeight, wastagePct) {
             ? Number(netWeight)
             : null;
     if (net == null || wastagePct == null || wastagePct <= 0) return null;
-    return Math.round(net * (1 + wastagePct / 100) * 1000) / 1000;
+    return net * (1 + wastagePct / 100);
 }
 
 function normalizeSyncItem(item) {
@@ -135,6 +135,30 @@ function normalizeSyncItem(item) {
         size: trimField(item.size ?? item.Size) || null,
         weightDisplay:
             trimField(item.weightDisplay ?? item.weight_display ?? item.weightDisplayLabel) || null,
+        chainWeight:
+            item.chainWeight != null
+                ? Number(item.chainWeight)
+                : item.chain_weight != null
+                  ? Number(item.chain_weight)
+                  : item.ChainWtOnly != null
+                    ? Number(item.ChainWtOnly)
+                    : null,
+        pendantWeight:
+            item.pendantWeight != null
+                ? Number(item.pendantWeight)
+                : item.pendant_weight != null
+                  ? Number(item.pendant_weight)
+                  : item.PendantWtOnly != null
+                    ? Number(item.PendantWtOnly)
+                    : null,
+        earringWeight:
+            item.earringWeight != null
+                ? Number(item.earringWeight)
+                : item.earring_weight != null
+                  ? Number(item.earring_weight)
+                  : item.EarringWtOnly != null
+                    ? Number(item.EarringWtOnly)
+                    : null,
         rawPrimary:
             item.imageUrl != null
                 ? String(item.imageUrl)
@@ -300,15 +324,17 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
 
     const upsertSql = `
         INSERT INTO web_products
-            (subcategory_id, sku, barcode, name, size, gross_weight, net_weight, weight_display, purity, mc_rate, metal_type,
+            (subcategory_id, sku, barcode, name, size, gross_weight, net_weight, weight_display,
+             wastage_pct, chain_weight, pendant_weight, earring_weight,
+             purity, mc_rate, metal_type,
              fixed_price, stone_charges, box_charges, design_group, image_url, secondary_image_url,
              box_image_url, video_url,
              submitted_by_user_id, reseller_submission_id, is_active, last_synced_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                CASE WHEN $17::boolean THEN $18::text ELSE NULL END,
-                CASE WHEN $19::boolean THEN $20::text ELSE NULL END,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 CASE WHEN $21::boolean THEN $22::text ELSE NULL END,
-                $23, $24, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                CASE WHEN $23::boolean THEN $24::text ELSE NULL END,
+                CASE WHEN $25::boolean THEN $26::text ELSE NULL END,
+                $27, $28, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (sku) DO UPDATE SET
             subcategory_id  = EXCLUDED.subcategory_id,
             barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -317,6 +343,10 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             gross_weight    = EXCLUDED.gross_weight,
             net_weight      = EXCLUDED.net_weight,
             weight_display  = COALESCE(NULLIF(TRIM(EXCLUDED.weight_display), ''), web_products.weight_display),
+            wastage_pct     = COALESCE(EXCLUDED.wastage_pct, web_products.wastage_pct),
+            chain_weight    = COALESCE(EXCLUDED.chain_weight, web_products.chain_weight),
+            pendant_weight  = COALESCE(EXCLUDED.pendant_weight, web_products.pendant_weight),
+            earring_weight  = COALESCE(EXCLUDED.earring_weight, web_products.earring_weight),
             purity          = EXCLUDED.purity,
             mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
             metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
@@ -324,10 +354,10 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
             box_charges     = COALESCE(EXCLUDED.box_charges, web_products.box_charges),
             design_group    = EXCLUDED.design_group,
-            image_url       = CASE WHEN $25::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
-            secondary_image_url = CASE WHEN $17::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
-            box_image_url   = CASE WHEN $19::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
-            video_url       = CASE WHEN $21::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
+            image_url       = CASE WHEN $29::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
+            secondary_image_url = CASE WHEN $21::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
+            box_image_url   = CASE WHEN $23::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
+            video_url       = CASE WHEN $25::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
             submitted_by_user_id = COALESCE(EXCLUDED.submitted_by_user_id, web_products.submitted_by_user_id),
             reseller_submission_id = COALESCE(EXCLUDED.reseller_submission_id, web_products.reseller_submission_id),
             is_active       = true,
@@ -343,6 +373,10 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         norm.grossWeight,
         norm.netWeight,
         norm.weightDisplay || null,
+        norm.wastagePct,
+        Number.isFinite(norm.chainWeight) ? norm.chainWeight : null,
+        Number.isFinite(norm.pendantWeight) ? norm.pendantWeight : null,
+        Number.isFinite(norm.earringWeight) ? norm.earringWeight : null,
         norm.purity,
         norm.mcRate,
         norm.metalType,

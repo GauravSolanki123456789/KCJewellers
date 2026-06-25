@@ -74,6 +74,8 @@ export type SharedCatalogPickLineForWhatsApp = {
   /** Formatted size e.g. "3x2.5 in" */
   sizeLabel?: string | null
   weightLabel?: string | null
+  /** Wastage + component weights for WhatsApp text lines. */
+  metalSpecSummary?: string | null
   /** When false, omit "incl. GST" on price lines (e.g. gift items with GST toggle off). */
   showInclGst?: boolean
   /** When set, append "With box · ₹X" after the base price line. */
@@ -121,6 +123,7 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
       const sizeLine = l.sizeLabel?.trim() ? `Size: ${l.sizeLabel.trim()}` : null
       const refLine = `Ref: ${l.skuOrBarcode}`
       const wtLine = l.weightLabel ? `Weight: ${l.weightLabel}` : null
+      const specLine = l.metalSpecSummary?.trim() ? l.metalSpecSummary.trim() : null
 
       if (hidePrices) {
         return [
@@ -130,6 +133,7 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
           sizeLine,
           refLine,
           wtLine,
+          specLine,
         ]
           .filter(Boolean)
           .join("\n")
@@ -162,6 +166,7 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
         lineTotalLabel,
         boxLine,
         wtLine,
+        specLine,
       ]
         .filter(Boolean)
         .join("\n")
