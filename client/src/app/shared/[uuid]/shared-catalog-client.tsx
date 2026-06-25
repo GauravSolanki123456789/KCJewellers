@@ -810,10 +810,10 @@ export default function SharedCatalogClient({
                             'tabular-nums',
                             hidePrices
                               ? 'text-sm font-semibold text-amber-500/95 sm:text-[15px]'
-                              : 'text-[11px] text-slate-500 sm:text-xs',
+                              : 'kc-product-card-weight',
                           )}
                         >
-                          {hidePrices ? wtLabel : `Weight · ${wtLabel}`}
+                          {wtLabel}
                         </p>
                       ) : null}
                       <ProductMetalSpecExtras

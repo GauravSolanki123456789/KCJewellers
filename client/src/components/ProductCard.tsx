@@ -263,7 +263,7 @@ export default function ProductCard({
       </span>
 
       {weightLabel ? (
-        <span className="text-[10px] text-slate-500">{weightLabel}</span>
+        <span className="kc-product-card-weight">{weightLabel}</span>
       ) : null}
       <ProductMetalSpecExtras item={active} rates={rates} breakdown={breakdown} density="card" />
       {hasVariants ? (

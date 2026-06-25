@@ -772,6 +772,22 @@ body {
     padding: 0.625rem 0.75rem 0.75rem;
   }
 
+  /** Net / range weight on catalogue cards — readable at a glance, below title, above wastage. */
+  .kc-product-card-weight {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    line-height: 1.35;
+    color: var(--color-slate-300);
+  }
+
+  @media (min-width: 640px) {
+    .kc-product-card-weight {
+      font-size: 0.75rem;
+    }
+  }
+
   /* Gift size chips — readable on light product cards and dark PDP */
   .kc-size-chip-active {
     border-color: color-mix(in oklab, var(--kc-accent, #c41e3a) 55%, #cbd5e1);
