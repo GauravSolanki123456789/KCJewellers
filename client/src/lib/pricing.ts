@@ -166,13 +166,21 @@ export function parseWastagePercent(item: Item): number | null {
 export function resolveProductWastagePercent(item: Item | null | undefined): number {
   if (!item || isFixedPriceCatalogItem(item)) return 0
   const explicit = parseWastagePercent(item)
-  if (explicit != null && explicit > 0) return explicit
+  if (explicit != null && explicit > 0) return snapWastagePercent(explicit)
   const net = netWeight(item)
   const gross = Number(item.gross_weight ?? (item as { grossWeight?: number }).grossWeight ?? 0) || 0
   if (net > 0 && gross > net) {
-    return Math.round((gross / net - 1) * 10000) / 100
+    return snapWastagePercent(Math.round((gross / net - 1) * 10000) / 100)
   }
   return 0
+}
+
+/** Snap 5.01 / 4.99 → 5 — shared with product-metal-specs display. */
+export function snapWastagePercent(pct: number): number {
+  if (!Number.isFinite(pct) || pct <= 0) return 0
+  const rounded = Math.round(pct)
+  if (Math.abs(pct - rounded) <= 0.05) return rounded
+  return Math.round(pct * 100) / 100
 }
 
 /** Gold/silver billable weight for metal ₹ — full precision (no 3 dp round before × rate). */

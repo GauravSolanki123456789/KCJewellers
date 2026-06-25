@@ -47,12 +47,19 @@ function parseWastagePercent(item) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+function snapWastagePercent(pct) {
+  if (!Number.isFinite(pct) || pct <= 0) return 0;
+  const rounded = Math.round(pct);
+  if (Math.abs(pct - rounded) <= 0.05) return rounded;
+  return Math.round(pct * 100) / 100;
+}
+
 function resolveWastagePercent(item) {
   const explicit = parseWastagePercent(item);
-  if (explicit != null && explicit > 0) return explicit;
+  if (explicit != null && explicit > 0) return snapWastagePercent(explicit);
   const net = getNetWeight(item);
   const gross = Number(item?.gross_weight ?? item?.grossWeight ?? 0) || 0;
-  if (net > 0 && gross > net) return Math.round((gross / net - 1) * 10000) / 100;
+  if (net > 0 && gross > net) return snapWastagePercent(Math.round((gross / net - 1) * 10000) / 100);
   return 0;
 }
 

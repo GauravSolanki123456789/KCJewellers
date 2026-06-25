@@ -26,7 +26,7 @@ import {
   productPriceShowsInclGst,
   type Item,
 } from "@/lib/pricing";
-import { getComponentWeightLines, getWastageSpecLine } from "@/lib/product-metal-specs";
+import { ProductMetalSpecExtras } from "@/components/catalog/ProductMetalSpecExtras";
 import { useCatalogPricingSettings } from "@/context/CatalogPricingSettingsContext";
 import { detailProductImageClass } from "@/lib/product-image-classes";
 import {
@@ -502,8 +502,6 @@ export default function ProductDetailClient({
   const styleCode = product.style_code || "";
   const sku = product.sku || product.barcode || "";
   const netWeightLabel = getCustomerDisplayWeightLabel(product)
-  const wastageSpec = getWastageSpecLine(product, b)
-  const componentWeights = getComponentWeightLines(product)
   const sizeInches = getCustomerDisplaySize(product)
   const purity = getCustomerDisplayPurity(product)
   const metalType = product.metal_type ?? null;
@@ -923,27 +921,7 @@ export default function ProductDetailClient({
                   </span>
                 </div>
               )}
-              {wastageSpec ? (
-                <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
-                  <span className="text-xs text-slate-500 uppercase tracking-wider block">
-                    {wastageSpec.label}
-                  </span>
-                  <span className="text-slate-100 font-medium tabular-nums">
-                    {wastageSpec.value}
-                  </span>
-                </div>
-              ) : null}
-              {componentWeights.map((line) => (
-                <div
-                  key={line.label}
-                  className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3"
-                >
-                  <span className="text-xs text-slate-500 uppercase tracking-wider block">
-                    {line.label}
-                  </span>
-                  <span className="text-slate-100 font-medium">{line.value}</span>
-                </div>
-              ))}
+              <ProductMetalSpecExtras item={product} breakdown={b} density="detail" />
               {purity != null && (
                 <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                   <span className="text-xs text-slate-500 uppercase tracking-wider block">

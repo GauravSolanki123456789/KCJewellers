@@ -23,7 +23,7 @@ import {
   type SharedCatalogPricingRow,
 } from '@/lib/shared-catalog-pricing'
 import { getCustomerDisplaySize, getCustomerDisplayWeightLabel } from '@/lib/pricing'
-import { getProductMetalSpecLines } from '@/lib/product-metal-specs'
+import { ProductMetalSpecExtras } from '@/components/catalog/ProductMetalSpecExtras'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { getSiteUrl } from '@/lib/site'
 import { CATALOG_PATH } from '@/lib/routes'
@@ -661,7 +661,6 @@ export default function SharedCatalogClient({
               const code = String(product.barcode || product.sku || '')
               const sizeLabel = getCustomerDisplaySize(item)
               const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
-              const metalSpecs = getProductMetalSpecLines(item, payload.rates ?? [])
               const hasBox = productHasBoxOption(item)
               const includeBox = includeBoxByKey.get(key) ?? false
               const boxSlideIdx = boxImageSlideIndex(item)
@@ -817,14 +816,11 @@ export default function SharedCatalogClient({
                           {hidePrices ? wtLabel : `Weight · ${wtLabel}`}
                         </p>
                       ) : null}
-                      {metalSpecs.map((line) => (
-                        <p
-                          key={line.label}
-                          className="text-[10px] text-slate-500 sm:text-[11px]"
-                        >
-                          {line.label} · {line.value}
-                        </p>
-                      ))}
+                      <ProductMetalSpecExtras
+                        item={item}
+                        rates={payload.rates ?? []}
+                        density="shared"
+                      />
                       {hasBox && !hidePrices ? (
                         <div
                           data-no-card-toggle

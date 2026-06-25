@@ -9,6 +9,7 @@ import { useLoginModal } from '@/context/LoginModalContext'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getItemWeight, isFixedPriceCatalogItem } from '@/lib/pricing'
+import { formatWastagePercentLabel } from '@/lib/product-metal-specs'
 import { cn } from '@/lib/utils'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { productImageSurfaceClass, productImageWellClass } from '@/lib/product-image-theme'
@@ -270,7 +271,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                                 <span>
                                   Wastage
                                   {(b as { wastage_pct?: number }).wastage_pct
-                                    ? ` (${(b as { wastage_pct?: number }).wastage_pct}%)`
+                                    ? ` (${formatWastagePercentLabel((b as { wastage_pct?: number }).wastage_pct!)})`
                                     : ''}
                                 </span>
                                 <span className="tabular-nums">

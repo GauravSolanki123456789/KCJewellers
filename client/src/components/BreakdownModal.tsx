@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { X, FileDown, User, Phone } from 'lucide-react'
+import { formatWastagePercentLabel } from '@/lib/product-metal-specs'
 
 type Breakdown = {
   metal?: number
@@ -172,7 +173,9 @@ export default function BreakdownModal({
                           <span className="font-medium tabular-nums text-slate-100">₹{netMetal.toLocaleString('en-IN')}</span>
                         </div>
                         <div className="flex justify-between items-center px-4 py-3">
-                          <span className="text-slate-300">Wastage ({wastagePct}%)</span>
+                          <span className="text-slate-300">
+                            Wastage ({wastagePct != null ? formatWastagePercentLabel(wastagePct) : ''})
+                          </span>
                           <span className="font-medium tabular-nums text-slate-100">₹{wastageAmt.toLocaleString('en-IN')}</span>
                         </div>
                       </>
