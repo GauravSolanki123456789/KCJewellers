@@ -809,7 +809,7 @@ export default function SharedCatalogClient({
                           className={cn(
                             'tabular-nums',
                             hidePrices
-                              ? 'text-sm font-semibold text-amber-500/95 sm:text-[15px]'
+                              ? 'text-sm font-bold text-amber-600 sm:text-[15px]'
                               : 'kc-product-card-weight',
                           )}
                         >

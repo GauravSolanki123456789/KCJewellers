@@ -46,7 +46,6 @@ import CatalogSelectionFab from '@/components/catalog/CatalogSelectionFab'
 import WhatsAppCatalogModal from '@/components/catalog/WhatsAppCatalogModal'
 import {
   productMatchesMetal,
-  productPassesCatalogFilters,
   getProductSelectionKey,
 } from '@/lib/catalog-product-filters'
 import { mergeDesignGroupOrder } from '@/lib/design-group-order'
@@ -153,58 +152,35 @@ function firstAvailableMetal(categories: Category[]): MetalKey {
   return 'gold'
 }
 
+/**
+ * Bulk-select scope for a whole style — all products in the tree (metal + retail filters
+ * already applied via `filteredCategories`). Weight/price sliders only filter the active
+ * SKU grid, not sibling subcategories (fixes PITARA / SILVER PLATED missing SKUs).
+ */
 function collectFilteredIdsForStyle(
   filteredCategories: Category[],
   styleId: number,
-  selectedMetal: MetalKey,
-  weightLow: number,
-  weightHigh: number,
-  priceLow: number,
-  priceHigh: number,
-  rates: unknown,
-  wholesale: import('@/lib/pricing').WholesalePricingInput | null,
-  pricingOptions?: import('@/lib/pricing').CatalogPricingOptions,
 ): string[] {
   const cat = filteredCategories.find((c) => c.id === styleId)
   if (!cat) return []
   const out: string[] = []
   for (const sub of cat.subcategories) {
     for (const p of sub.products) {
-      if (
-        productPassesCatalogFilters(
-          p,
-          selectedMetal,
-          weightLow,
-          weightHigh,
-          priceLow,
-          priceHigh,
-          rates,
-          wholesale,
-          pricingOptions,
-        )
-      ) {
-        const k = getProductSelectionKey(p)
-        if (k) out.push(k)
-      }
+      const k = getProductSelectionKey(p)
+      if (k) out.push(k)
     }
   }
   return [...new Set(out)]
 }
 
+/**
+ * Bulk-select scope for one SKU. Optional design_group narrows to the active grid chip only.
+ */
 function collectFilteredIdsForSku(
   filteredCategories: Category[],
   styleId: number,
   skuId: number,
-  selectedMetal: MetalKey,
-  weightLow: number,
-  weightHigh: number,
-  priceLow: number,
-  priceHigh: number,
-  rates: unknown,
-  wholesale: import('@/lib/pricing').WholesalePricingInput | null,
-  /** When set, only products with this `design_group` (same as grid chips) — must match active SKU row only. */
   restrictDesignGroup?: string,
-  pricingOptions?: import('@/lib/pricing').CatalogPricingOptions,
 ): string[] {
   const cat = filteredCategories.find((c) => c.id === styleId)
   if (!cat) return []
@@ -213,26 +189,12 @@ function collectFilteredIdsForSku(
   const out: string[] = []
   const dg = restrictDesignGroup ? String(restrictDesignGroup).trim() : ''
   for (const p of sub.products) {
-    if (
-      productPassesCatalogFilters(
-        p,
-        selectedMetal,
-        weightLow,
-        weightHigh,
-        priceLow,
-        priceHigh,
-        rates,
-        wholesale,
-        pricingOptions,
-      )
-    ) {
-      if (dg) {
-        const g = String((p as { design_group?: string | null }).design_group ?? '').trim()
-        if (g !== dg) continue
-      }
-      const k = getProductSelectionKey(p)
-      if (k) out.push(k)
+    if (dg) {
+      const g = String((p as { design_group?: string | null }).design_group ?? '').trim()
+      if (g !== dg) continue
     }
+    const k = getProductSelectionKey(p)
+    if (k) out.push(k)
   }
   return [...new Set(out)]
 }
@@ -1053,18 +1015,7 @@ export default function CatalogPageClient() {
   }
 
   const toggleStyleSelectAll = (styleId: number) => {
-    const ids = collectFilteredIdsForStyle(
-      filteredCategories,
-      styleId,
-      selectedMetal,
-      weightLow,
-      weightHigh,
-      priceLow,
-      priceHigh,
-      rates,
-      wholesalePricing,
-      pricingOptions,
-    )
+    const ids = collectFilteredIdsForStyle(filteredCategories, styleId)
     if (ids.length === 0) return
     const allOn = ids.every((id) => selectedProductIds.includes(id))
     if (allOn) removeProductIds(ids)
@@ -1078,20 +1029,7 @@ export default function CatalogPageClient() {
       hasDesignGroupFilter,
       activeDesignGroup,
     )
-    const ids = collectFilteredIdsForSku(
-      filteredCategories,
-      styleId,
-      skuId,
-      selectedMetal,
-      weightLow,
-      weightHigh,
-      priceLow,
-      priceHigh,
-      rates,
-      wholesalePricing,
-      dg,
-      pricingOptions,
-    )
+    const ids = collectFilteredIdsForSku(filteredCategories, styleId, skuId, dg)
     if (ids.length === 0) return
     const allOn = ids.every((id) => selectedProductIds.includes(id))
     if (allOn) removeProductIds(ids)
@@ -1658,17 +1596,7 @@ export default function CatalogPageClient() {
               {filteredCategories.length === 0 ? (
                 <p className="text-slate-500 text-sm py-2">No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} styles</p>
               ) : filteredCategories.map((cat) => {
-                const styleScopeIds = collectFilteredIdsForStyle(
-                  filteredCategories,
-                  cat.id,
-                  selectedMetal,
-                  weightLow,
-                  weightHigh,
-                  priceLow,
-                  priceHigh,
-                  rates,
-                  wholesalePricing,
-                )
+                const styleScopeIds = collectFilteredIdsForStyle(filteredCategories, cat.id)
                 const sn = styleScopeIds.filter((id) => selectedProductIds.includes(id)).length
                 const allStyle = styleScopeIds.length > 0 && sn === styleScopeIds.length
                 const someStyle = sn > 0 && sn < styleScopeIds.length
@@ -1679,7 +1607,7 @@ export default function CatalogPageClient() {
                         allSelected={allStyle}
                         someSelected={someStyle}
                         onToggle={() => toggleStyleSelectAll(cat.id)}
-                        ariaLabel={`Select all filtered items in style ${cat.name}`}
+                        ariaLabel={`Select all items in style ${cat.name}`}
                       />
                     )}
                     <button
@@ -1722,15 +1650,7 @@ export default function CatalogPageClient() {
                     filteredCategories,
                     activeStyle.id,
                     sub.id,
-                    selectedMetal,
-                    weightLow,
-                    weightHigh,
-                    priceLow,
-                    priceHigh,
-                    rates,
-                    wholesalePricing,
                     skuDg,
-                    pricingOptions,
                   )
                   const kn = skuScopeIds.filter((id) => selectedProductIds.includes(id)).length
                   const allSku = skuScopeIds.length > 0 && kn === skuScopeIds.length
@@ -1738,7 +1658,7 @@ export default function CatalogPageClient() {
                   const skuBulkAria =
                     skuDg != null
                       ? `Select all visible (${skuDg}) items in ${sub.name}`
-                      : `Select all filtered items in SKU ${sub.name}`
+                      : `Select all items in SKU ${sub.name}`
                   return (
                     <div key={sub.id} className="flex shrink-0 items-center gap-1.5">
                       {catalogBuilderMode && canUseCatalogBuilder && (
@@ -1838,17 +1758,7 @@ export default function CatalogPageClient() {
                     activeStyleId === cat.id &&
                     !(styleNavSubmenuCollapsed && cat.subcategories.length > 0)
                   const isActive = activeStyleId === cat.id
-                  const styleScopeIds = collectFilteredIdsForStyle(
-                    filteredCategories,
-                    cat.id,
-                    selectedMetal,
-                    weightLow,
-                    weightHigh,
-                    priceLow,
-                    priceHigh,
-                    rates,
-                    wholesalePricing,
-                  )
+                  const styleScopeIds = collectFilteredIdsForStyle(filteredCategories, cat.id)
                   const sn = styleScopeIds.filter((id) => selectedProductIds.includes(id)).length
                   const allStyle = styleScopeIds.length > 0 && sn === styleScopeIds.length
                   const someStyle = sn > 0 && sn < styleScopeIds.length
@@ -1864,7 +1774,7 @@ export default function CatalogPageClient() {
                             allSelected={allStyle}
                             someSelected={someStyle}
                             onToggle={() => toggleStyleSelectAll(cat.id)}
-                            ariaLabel={`Select all filtered items in style ${cat.name}`}
+                            ariaLabel={`Select all items in style ${cat.name}`}
                           />
                         )}
                         <button
@@ -1922,15 +1832,7 @@ export default function CatalogPageClient() {
                                 filteredCategories,
                                 cat.id,
                                 sub.id,
-                                selectedMetal,
-                                weightLow,
-                                weightHigh,
-                                priceLow,
-                                priceHigh,
-                                rates,
-                                wholesalePricing,
                                 skuDg,
-                                pricingOptions,
                               )
                               const kn = skuScopeIds.filter((id) =>
                                 selectedProductIds.includes(id),
@@ -1940,7 +1842,7 @@ export default function CatalogPageClient() {
                               const skuBulkAria =
                                 skuDg != null
                                   ? `Select all visible (${skuDg}) items in ${sub.name}`
-                                  : `Select all filtered items in SKU ${sub.name}`
+                                  : `Select all items in SKU ${sub.name}`
                               return (
                                 <div
                                   key={sub.id}

@@ -73,20 +73,17 @@ export function ProductMetalSpecExtras({
     )
   }
 
-  const textCls =
-    density === 'shared'
-      ? 'text-[10px] text-slate-500 sm:text-[11px]'
-      : 'text-[10px] text-slate-500 sm:text-[11px]'
+  const specCls = 'kc-product-card-spec'
 
   return (
     <div className={cn('space-y-0.5', className)}>
       {extras.wastage ? (
-        <p className={cn(textCls, 'tabular-nums')}>
+        <p className={cn(specCls, 'tabular-nums')}>
           {extras.wastage.label}: {extras.wastage.value}
         </p>
       ) : null}
       {extras.componentSummary ? (
-        <p className={cn(textCls, 'leading-snug text-slate-500/90')}>{extras.componentSummary}</p>
+        <p className={cn(specCls, 'leading-snug')}>{extras.componentSummary}</p>
       ) : null}
     </div>
   )

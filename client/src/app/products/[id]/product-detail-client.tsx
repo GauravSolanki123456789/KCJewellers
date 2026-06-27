@@ -916,7 +916,7 @@ export default function ProductDetailClient({
                   <span className="text-xs text-slate-500 uppercase tracking-wider block">
                     Weight
                   </span>
-                  <span className="text-slate-100 text-base font-semibold tabular-nums sm:text-lg">
+                  <span className="text-slate-100 text-base font-bold tabular-nums sm:text-lg">
                     {netWeightLabel}
                   </span>
                 </div>

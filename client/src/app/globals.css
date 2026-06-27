@@ -768,23 +768,38 @@ body {
     display: flex;
     flex: 1;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: 0.1875rem;
     padding: 0.625rem 0.75rem 0.75rem;
   }
 
-  /** Net / range weight on catalogue cards — readable at a glance, below title, above wastage. */
+  /** Net / range weight on catalogue cards — bold, scannable; sits below title, above wastage. */
   .kc-product-card-weight {
-    font-size: 0.6875rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.01em;
+    letter-spacing: 0.015em;
     line-height: 1.35;
-    color: var(--color-slate-300);
+    color: var(--color-slate-100);
   }
 
   @media (min-width: 640px) {
     .kc-product-card-weight {
-      font-size: 0.75rem;
+      font-size: 0.8125rem;
+    }
+  }
+
+  /** Wastage / set-weight extras — secondary detail, stays muted on cards. */
+  .kc-product-card-spec {
+    font-size: 0.625rem;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+    color: var(--color-slate-500);
+  }
+
+  @media (min-width: 640px) {
+    .kc-product-card-spec {
+      font-size: 0.6875rem;
     }
   }
 
