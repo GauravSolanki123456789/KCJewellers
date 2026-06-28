@@ -869,12 +869,12 @@ export default function SharedCatalogClient({
                         {!hidePrices ? (
                           <div className="flex min-w-0 flex-col gap-0.5">
                             {unitCompareAtInr != null && unitCompareAtInr > unitTotalInr ? (
-                              <span className="text-[11px] tabular-nums line-through text-slate-500 sm:text-xs">
+                              <span className="kc-shared-price-compare">
                                 ₹{unitCompareAtInr.toLocaleString('en-IN')}
                               </span>
                             ) : null}
                             <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
-                              <span className="text-base font-bold tabular-nums text-amber-600 sm:text-lg">
+                              <span className="kc-shared-price-final">
                                 ₹{displayUnitInr.toLocaleString('en-IN')}
                               </span>
                               {includeBox && hasBox ? (

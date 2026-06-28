@@ -10,6 +10,7 @@ import {
   metalBillableWeight,
   netWeight,
   purityPct,
+  silverEffectivePurityPercent,
   resolveItemGstRate,
   resolveProductWastagePercent,
   snapWastagePercent,
@@ -135,8 +136,7 @@ function goldRateForItem(live: unknown, item: Item): number {
 }
 
 function silverEffectivePurity(purity: number): number {
-  if (purity >= 90 && purity <= 100) return 100
-  return purity > 0 ? purity : 100
+  return silverEffectivePurityPercent(purity)
 }
 
 function mcPart(item: Item, mcDiscountPct: number): number {

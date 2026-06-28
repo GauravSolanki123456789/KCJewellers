@@ -342,9 +342,22 @@ export function getCustomerDisplayWeightWithGrossFallback(
 export function purityPct(item: Item): number {
   const p = Number(item.purity || 0)
   if (!p || p <= 0) return 0
-  if (p >= 100) return p / 10   // fineness e.g. 916 → 91.6 %
-  if (p > 1) return p            // already a percentage e.g. 92.5
+  if (p >= 100) return p / 10   // fineness e.g. 916 → 91.6 %, 925 → 92.5, 800 → 80, 750 → 75
+  if (p > 1) return p            // already a percentage e.g. 92.5, 80, 75
   return p * 100                 // decimal e.g. 0.916 → 91.6
+}
+
+/**
+ * Silver metal line uses live 999 ₹/g × billable weight × (this ÷ 100).
+ * 925 / 80 / 800 → full fine rate; 75 / 750 → 75% of fine rate.
+ */
+export function silverEffectivePurityPercent(purityPercent: number): number {
+  const p = purityPercent
+  if (!p || p <= 0) return 100
+  if ((p >= 74 && p <= 76) || Math.abs(p - 75) < 1.5) return 75
+  if ((p >= 79 && p <= 81) || Math.abs(p - 80) < 1.5) return 100
+  if (p >= 90 && p <= 100) return 100
+  return p
 }
 
 function mcAmount(item: Item): number {
@@ -509,8 +522,11 @@ export function calculateBreakdown(
   const rate = ratePerGram(liveRates, metal, isGold ? item : undefined)
 
   if ((isGold || isSilver) && rate > 0 && netWt > 0 && billWt > 0) {
-    const effectivePurity =
-      isSilver && purity >= 90 && purity <= 100 ? 100 : isGold ? 100 : purity
+    const effectivePurity = isSilver
+      ? silverEffectivePurityPercent(purity)
+      : isGold
+        ? 100
+        : purity
     const metalRate = isGold ? rate : rate * (effectivePurity > 0 ? effectivePurity / 100 : 1)
     const wastagePct = isGold ? resolveProductWastagePercent(item) : 0
     const metalPart = isGold

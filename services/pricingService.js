@@ -143,6 +143,16 @@ function getStoneCharges(item) {
   return Number(item?.stone_charges ?? item?.stoneCharges ?? 0) || 0;
 }
 
+/** Silver billable metal — 925/80/800 at full fine rate; 75/750 at 75%. */
+function silverEffectivePurityPercent(purity) {
+  const p = purity;
+  if (!p || p <= 0) return 100;
+  if ((p >= 74 && p <= 76) || Math.abs(p - 75) < 1.5) return 75;
+  if ((p >= 79 && p <= 81) || Math.abs(p - 80) < 1.5) return 100;
+  if (p >= 90 && p <= 100) return 100;
+  return p;
+}
+
 function calculateItemPrice(item, liveRates, gstRatePct) {
   const metalType = item?.metal_type ?? item?.metalType ?? 'gold';
   const netWt = getNetWeight(item);
@@ -157,7 +167,7 @@ function calculateItemPrice(item, liveRates, gstRatePct) {
   if (isGold && metalRate > 0) {
     metalValue = Math.floor((netWt * metalRate * (100 + wastagePct)) / 100);
   } else if (isSilver && metalRate > 0) {
-    const effPurity = purity >= 90 && purity <= 100 ? 100 : purity;
+    const effPurity = silverEffectivePurityPercent(purity);
     metalValue = billWt * metalRate * (effPurity / 100);
   } else {
     metalValue = billWt * metalRate * (purity / 100);

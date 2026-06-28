@@ -31,6 +31,13 @@ import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 
+const SLAB_OPTIONS: { value: CatalogSlabKind; label: string }[] = [
+  { value: 'standard', label: 'Standard — live rates + markup / discount' },
+  { value: 'slab_r', label: 'Slab R — retail MC discount + silver rate offset' },
+  { value: 'slab_w', label: 'Slab W — wholesale MC discount + your metal rate' },
+  { value: 'slab_f', label: 'Slab F — wholesale rate + wastage + MC discount' },
+]
+
 const EXPIRY_OPTIONS = [
   { label: '1 hour', hours: 1 },
   { label: '2 hours', hours: 2 },
@@ -383,7 +390,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         aria-label="Close dialog backdrop"
         onClick={resetAndClose}
       />
-      <div className="relative z-10 flex max-h-[min(92vh,720px)] w-full max-w-md flex-col rounded-t-2xl border border-slate-700/80 bg-slate-950 shadow-2xl sm:rounded-2xl">
+      <div className="relative z-10 flex max-h-[min(92vh,720px)] w-full max-w-md flex-col rounded-t-2xl kc-share-modal-panel sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 sm:px-5">
           <h2 id="whatsapp-catalog-modal-title" className="text-base font-semibold text-slate-100">
             WhatsApp catalogue
@@ -391,7 +398,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           <button
             type="button"
             onClick={resetAndClose}
-            className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-800 hover:text-slate-300"
+            className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-800/80 hover:text-slate-300 touch-manipulation"
             aria-label="Close"
           >
             <X className="size-5" />
@@ -400,18 +407,16 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
         <div
           ref={scrollAreaRef}
-          className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-5"
+          className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5"
         >
           <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Output format</p>
+            <p className="kc-share-field-label">Output format</p>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setOutputFormat('temporary_web_link')}
-                className={`flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                  outputFormat === 'temporary_web_link'
-                    ? 'border-amber-500/65 bg-amber-500/12 text-slate-100 [&_svg]:text-amber-600'
-                    : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                className={`kc-share-format-btn touch-manipulation ${
+                  outputFormat === 'temporary_web_link' ? 'kc-share-format-btn--active' : ''
                 }`}
               >
                 <Link2 className="size-4" />
@@ -421,10 +426,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
               <button
                 type="button"
                 onClick={() => setOutputFormat('pdf')}
-                className={`flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                  outputFormat === 'pdf'
-                    ? 'border-amber-500/65 bg-amber-500/12 text-slate-100 [&_svg]:text-amber-600'
-                    : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                className={`kc-share-format-btn touch-manipulation ${
+                  outputFormat === 'pdf' ? 'kc-share-format-btn--active' : ''
                 }`}
               >
                 <FileText className="size-4" />
@@ -433,7 +436,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
               </button>
             </div>
             {outputFormat === 'pdf' && (
-              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              <p className="kc-share-hint">
                 {isReseller && resellerHidePrices ? (
                   <>Weight-only mode — PDF shows barcode, name, and net weight. No prices.</>
                 ) : isReseller ? (
@@ -460,39 +463,27 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
 
           {isReseller && !resellerHidePrices && (
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+              <label htmlFor="pricing-slab" className="kc-share-field-label">
                 Pricing slab
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {(
-                  [
-                    ['standard', 'Standard', 'Live rates + markup / discount'],
-                    ['slab_r', 'Slab R', 'Retail MC off + silver −₹/g'],
-                    ['slab_w', 'Slab W', 'Wholesale MC off + your rate'],
-                    ['slab_f', 'Slab F', 'Wholesale + wastage + MC off'],
-                  ] as const
-                ).map(([kind, title, hint]) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => setPricingSlab(kind)}
-                    className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                      pricingSlab === kind
-                        ? 'border-amber-500/65 bg-amber-500/12 text-slate-100'
-                        : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className="font-medium">{title}</span>
-                    <span className="text-[10px] leading-snug text-slate-500">{hint}</span>
-                  </button>
+              </label>
+              <select
+                id="pricing-slab"
+                value={pricingSlab}
+                onChange={(e) => setPricingSlab(e.target.value as CatalogSlabKind)}
+                className="kc-share-select touch-manipulation"
+              >
+                {SLAB_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
-              </div>
+              </select>
               {pricingSlab === 'slab_r' && (
-                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                <p className="kc-share-hint">
                   MC discount{' '}
-                  <span className="text-amber-200/90">{activeSlabTier.mc_discount_pct ?? 0}%</span>
+                  <span className="kc-share-hint-accent">{activeSlabTier.mc_discount_pct ?? 0}%</span>
                   {activeSlabTier.silver_rate_offset_per_g
-                    ? ` · Silver rate − ₹${activeSlabTier.silver_rate_offset_per_g}/g from today’s rate`
+                    ? ` · Silver − ₹${activeSlabTier.silver_rate_offset_per_g}/g from today’s rate`
                     : ''}
                   {activeSlabTier.gift_discount_pct
                     ? ` · Gift items −${activeSlabTier.gift_discount_pct}%`
@@ -500,9 +491,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 </p>
               )}
               {pricingSlab === 'slab_w' && (
-                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                <p className="kc-share-hint">
                   MC discount{' '}
-                  <span className="text-amber-200/90">{activeSlabTier.mc_discount_pct ?? 0}%</span>
+                  <span className="kc-share-hint-accent">{activeSlabTier.mc_discount_pct ?? 0}%</span>
                   {' · '}
                   Uses your wholesale ₹/g (not today’s live rate).
                   {activeSlabTier.gift_discount_pct
@@ -511,16 +502,18 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 </p>
               )}
               {pricingSlab === 'slab_f' && (
-                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                  Wastage −{activeSlabTier.wastage_discount_pct ?? 0} pts · MC −
-                  {activeSlabTier.mc_discount_pct ?? 0}% · wholesale ₹/g you enter below.
+                <p className="kc-share-hint">
+                  Wastage −<span className="kc-share-hint-accent">{activeSlabTier.wastage_discount_pct ?? 0}</span>{' '}
+                  pts · MC −
+                  <span className="kc-share-hint-accent">{activeSlabTier.mc_discount_pct ?? 0}%</span> · wholesale ₹/g
+                  below.
                   {activeSlabTier.gift_discount_pct
                     ? ` Gift items −${activeSlabTier.gift_discount_pct}%.`
                     : ''}
                 </p>
               )}
               {(pricingSlab === 'slab_w' || pricingSlab === 'slab_f') && (
-                <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                <div className="kc-share-info-panel space-y-3">
                   <p className="text-[11px] font-medium text-slate-400">Wholesale metal rate (₹/g fine)</p>
                   {metalsNeeded.needsGold && (
                     <div>
@@ -532,10 +525,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                         type="number"
                         min={1}
                         step={1}
+                        inputMode="decimal"
                         value={wholesaleGoldRate}
                         onChange={(e) => setWholesaleGoldRate(e.target.value)}
                         placeholder="e.g. 13200"
-                        className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                        className="kc-share-input touch-manipulation"
                       />
                     </div>
                   )}
@@ -549,10 +543,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                         type="number"
                         min={1}
                         step={0.5}
+                        inputMode="decimal"
                         value={wholesaleSilverRate}
                         onChange={(e) => setWholesaleSilverRate(e.target.value)}
                         placeholder="e.g. 220"
-                        className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                        className="kc-share-input touch-manipulation"
                       />
                     </div>
                   )}
@@ -567,7 +562,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           {(outputFormat === 'temporary_web_link' || isReseller) && !resellerHidePrices && (
             <div className="space-y-5">
               <div>
-                <label htmlFor="markup-pct" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                <label htmlFor="markup-pct" className="kc-share-field-label">
                   Global markup (%)
                 </label>
                 <input
@@ -576,11 +571,12 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   min={0}
                   max={500}
                   step={0.5}
+                  inputMode="decimal"
                   value={markupPercentage}
                   onChange={(e) => setMarkupPercentage(Number(e.target.value) || 0)}
-                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none ring-amber-500/0 transition focus:border-[var(--kc-accent,#c41e3a)]/50 focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/30 sm:min-h-0 sm:text-sm"
+                  className="kc-share-input touch-manipulation"
                 />
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="kc-share-hint">
                   {outputFormat === 'temporary_web_link'
                     ? giftingGstEnabled
                       ? 'Added on top of the live price incl. GST (e.g. 10 = +10%).'
@@ -591,7 +587,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 </p>
               </div>
               <div>
-                <label htmlFor="discount-pct" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                <label htmlFor="discount-pct" className="kc-share-field-label">
                   Customer discount (%)
                 </label>
                 <input
@@ -600,25 +596,26 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   min={0}
                   max={100}
                   step={0.5}
+                  inputMode="decimal"
                   value={discountPercentage}
                   onChange={(e) => setDiscountPercentage(Number(e.target.value) || 0)}
-                  className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none transition focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/30 sm:min-h-0 sm:text-sm"
+                  className="kc-share-input touch-manipulation"
                 />
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="kc-share-hint">
                   Applied after markup on the shared link (e.g. 5 = −5% for your customer). Stored as{' '}
                   <code className="text-slate-400">discountPercentage</code>.
                 </p>
               </div>
               {outputFormat === 'temporary_web_link' ? (
                 <div>
-                  <label htmlFor="expiry" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <label htmlFor="expiry" className="kc-share-field-label">
                     Link expires in
                   </label>
                   <select
                     id="expiry"
                     value={expiryHours}
                     onChange={(e) => setExpiryHours(Number(e.target.value))}
-                    className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                    className="kc-share-select touch-manipulation"
                   >
                     {EXPIRY_OPTIONS.map((o) => (
                       <option key={o.hours} value={o.hours}>
@@ -671,12 +668,12 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           )}
         </div>
 
-        <div className="border-t border-slate-800 p-4 sm:px-5">
+        <div className="border-t border-slate-800 p-4 safe-area-pb sm:px-5">
           <button
             type="button"
             disabled={busy}
             onClick={shareUrl ? resetAndClose : handleSubmit}
-            className="min-h-[48px] w-full rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-900/20 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
+            className="kc-btn-theme min-h-[48px] w-full touch-manipulation disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
           >
             {busy
               ? 'Working…'

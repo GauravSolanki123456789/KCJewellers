@@ -15,6 +15,7 @@ import {
 import {
   calculateBreakdownWithSlab,
   parseResellerSlabSettings,
+  slabLabel,
   tierSettingsForSlab,
   type CatalogSlabKind,
   type ResellerSlabSettings,
@@ -115,7 +116,36 @@ export function computeSharedCatalogUnitPrice(
   let unitCompareAtInr: number | null = null
   let discountBadge: string | null = null
 
-  if (disc > 0 && listAfterMarkup > finalInr) {
+  if (slab && slab.kind !== 'standard') {
+    const bStandard = breakdownForSharedCatalog(
+      item,
+      rates,
+      gst,
+      wholesale,
+      pricingOptions,
+      null,
+    )
+    const stdAfterMarkup = bStandard.total * (1 + mk / 100)
+    const stdFinal = Math.round(stdAfterMarkup * (1 - disc / 100))
+    if (stdFinal > finalInr) {
+      unitCompareAtInr = stdFinal
+      const savePct = Math.round((1 - finalInr / stdFinal) * 100)
+      discountBadge = savePct >= 1 ? `${savePct}% off` : slabLabel(slab.kind)
+    } else if (
+      b.originalTotal != null &&
+      b.discountPercent != null &&
+      b.discountPercent > 0
+    ) {
+      const slabList = Math.round(b.originalTotal * (1 + mk / 100) * (1 - disc / 100))
+      const slabPreGift = Math.round(b.originalTotal * (1 + mk / 100))
+      if (slabPreGift > slabList) {
+        unitCompareAtInr = slabPreGift
+        discountBadge = `${Math.round(b.discountPercent)}% off`
+      }
+    }
+  }
+
+  if (unitCompareAtInr == null && disc > 0 && listAfterMarkup > finalInr) {
     unitCompareAtInr = listAfterMarkup
     discountBadge = `${Math.round(disc)}% off`
   } else if (
