@@ -6,7 +6,8 @@ import {
   type Item,
   type WholesalePricingInput,
 } from "@/lib/pricing";
-import { computeSharedCatalogUnitPrice } from "@/lib/shared-catalog-pricing";
+import { computeSharedCatalogUnitPrice, buildSharedCatalogSlabContext } from "@/lib/shared-catalog-pricing";
+import type { SharedCatalogSlabPayload } from "@/lib/shared-catalog-pricing";
 import { getProductBoxCharges } from "@/lib/product-box-pricing";
 import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 import { formatProductMetalSpecSummary } from "@/lib/product-metal-specs";
@@ -258,6 +259,8 @@ export type CatalogPdfResellerPricing = {
   wholesale?: WholesalePricingInput | null;
   /** Site-wide gift GST toggle — same as shared catalogue API. */
   giftingGstEnabled?: boolean;
+  /** SLABR / SLABW / SLABF pricing — same snapshot as shared web link. */
+  slabPayload?: SharedCatalogSlabPayload | null;
 };
 
 export type CatalogPdfOrderSummary = {
@@ -278,6 +281,11 @@ export type CatalogPdfDocumentProps = {
   hidePrices?: boolean;
   orderSummary?: CatalogPdfOrderSummary | null;
 };
+
+function pdfSlabFromPricing(pricing: CatalogPdfResellerPricing | null) {
+  if (!pricing?.slabPayload) return null;
+  return buildSharedCatalogSlabContext(pricing.slabPayload);
+}
 
 const PER_PAGE = 9;
 
@@ -335,13 +343,15 @@ function resolvePdfLineMeta(
       const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
       const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
       const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
+      const slab = pdfSlabFromPricing(resellerPdfPricing);
       const price = computeSharedCatalogUnitPrice(
         p,
         resellerPdfPricing.rates,
         mk,
-        resellerPdfPricing.wholesale ?? undefined,
+        slab ? null : resellerPdfPricing.wholesale ?? undefined,
         giftingGstEnabled,
         disc,
+        slab,
       );
       const unitInr = price.unitTotalInr;
       lineTotalStr = (unitInr * shareQty).toLocaleString("en-IN");
@@ -529,13 +539,15 @@ export function CatalogPdfDocument({
                 const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
                 const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
                 const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
+                const slab = pdfSlabFromPricing(resellerPdfPricing);
                 const price = computeSharedCatalogUnitPrice(
                   p,
                   resellerPdfPricing.rates,
                   mk,
-                  resellerPdfPricing.wholesale ?? undefined,
+                  slab ? null : resellerPdfPricing.wholesale ?? undefined,
                   giftingGstEnabled,
                   disc,
+                  slab,
                 );
                 showInclGst = price.showInclGst;
                 if (

@@ -13,6 +13,14 @@ import {
   type WholesalePricingInput,
 } from '@/lib/pricing'
 import {
+  calculateBreakdownWithSlab,
+  parseResellerSlabSettings,
+  tierSettingsForSlab,
+  type CatalogSlabKind,
+  type ResellerSlabSettings,
+  type SharedCatalogSlabContext,
+} from '@/lib/catalog-slab-pricing'
+import {
   compareVariantBySize,
   getDesignGroupKey,
   variantDisplayTitle,
@@ -85,10 +93,18 @@ export function computeSharedCatalogUnitPrice(
   wholesale?: WholesalePricingInput | null,
   giftingGstEnabled?: boolean,
   discountPercentage = 0,
+  slab?: SharedCatalogSlabContext | null,
 ): SharedCatalogUnitPrice {
   const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
   const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
-  const b = calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
+  const b = breakdownForSharedCatalog(
+    item,
+    rates,
+    gst,
+    wholesale,
+    pricingOptions,
+    slab ?? null,
+  )
   const mk = parseMarkupPercentage(markupPercentage)
   const disc = parseDiscountPercentage(discountPercentage)
 
@@ -148,6 +164,51 @@ export function wholesaleInputFromBrochure(
     return null
   }
   return w
+}
+
+export type SharedCatalogSlabPayload = {
+  pricingSlab?: CatalogSlabKind
+  slabSettingsSnapshot?: ResellerSlabSettings | null
+  wholesaleGoldRatePerG?: number | null
+  wholesaleSilverRatePerG?: number | null
+}
+
+export function buildSharedCatalogSlabContext(
+  payload: SharedCatalogSlabPayload | null | undefined,
+): SharedCatalogSlabContext | null {
+  if (!payload?.pricingSlab || payload.pricingSlab === 'standard') return null
+  const kind = payload.pricingSlab
+  const settings = tierSettingsForSlab(
+    parseResellerSlabSettings(payload.slabSettingsSnapshot),
+    kind,
+  )
+  return {
+    kind,
+    settings,
+    wholesaleGoldRatePerG: payload.wholesaleGoldRatePerG,
+    wholesaleSilverRatePerG: payload.wholesaleSilverRatePerG,
+  }
+}
+
+function breakdownForSharedCatalog(
+  item: Item,
+  rates: unknown,
+  gst: number,
+  wholesale: WholesalePricingInput | null | undefined,
+  pricingOptions: CatalogPricingOptions | undefined,
+  slab: SharedCatalogSlabContext | null,
+): ReturnType<typeof calculateBreakdown> {
+  if (slab) {
+    return calculateBreakdownWithSlab(
+      item,
+      rates,
+      gst,
+      slab,
+      null,
+      pricingOptions,
+    )
+  }
+  return calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
 }
 
 function sharedCatalogPricingOptions(
@@ -275,10 +336,14 @@ export function buildSharedCatalogPricingRows(
   creatorWholesale: SharedCatalogCreatorWholesale | null | undefined,
   giftingGstEnabled?: boolean,
   discountPercentage = 0,
+  slabPayload?: SharedCatalogSlabPayload | null,
 ): SharedCatalogPricingRow[] {
   const mk = parseMarkupPercentage(markupPercentage)
   const disc = parseDiscountPercentage(discountPercentage)
-  const wholesale = wholesaleInputFromBrochure(creatorWholesale ?? null)
+  const wholesale = slabPayload?.pricingSlab && slabPayload.pricingSlab !== 'standard'
+    ? null
+    : wholesaleInputFromBrochure(creatorWholesale ?? null)
+  const slab = buildSharedCatalogSlabContext(slabPayload ?? null)
   return products.map((p) => {
     const item = sharedCatalogProductToItem(p)
     const price = computeSharedCatalogUnitPrice(
@@ -288,6 +353,7 @@ export function buildSharedCatalogPricingRows(
       wholesale,
       giftingGstEnabled,
       disc,
+      slab,
     )
     return {
       item,

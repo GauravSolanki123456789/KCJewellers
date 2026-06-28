@@ -17,6 +17,12 @@ import {
 import { resolveCatalogShareBrand } from '@/lib/catalog-share'
 import { createSharedCatalog } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
+import {
+  type CatalogSlabKind,
+  metalsNeedingWholesaleRate,
+  parseResellerSlabSettings,
+  tierSettingsForSlab,
+} from '@/lib/catalog-slab-pricing'
 import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
 import { shareCatalogPdfBlob, shouldPresentPdfShareSheet, type PdfShareSheetPayload } from '@/lib/pdf-share'
@@ -70,6 +76,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const { active: brandingActive, businessName: brandingBusinessName } = useResellerBranding()
   const { giftingGstEnabled } = useCatalogPricingSettings()
   const [outputFormat, setOutputFormat] = useState<'temporary_web_link' | 'pdf'>('temporary_web_link')
+  const [pricingSlab, setPricingSlab] = useState<CatalogSlabKind>('standard')
+  const [wholesaleGoldRate, setWholesaleGoldRate] = useState('')
+  const [wholesaleSilverRate, setWholesaleSilverRate] = useState('')
   const [markupPercentage, setMarkupPercentage] = useState(0)
   const [discountPercentage, setDiscountPercentage] = useState(0)
   const [expiryHours, setExpiryHours] = useState<number>(24)
@@ -111,6 +120,43 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     [discountPercentage],
   )
 
+  const slabSettings = useMemo(
+    () => parseResellerSlabSettings((auth.user as WholesaleUserFields)?.reseller_slab_settings),
+    [auth.user],
+  )
+
+  const selectedItems = useMemo(() => {
+    if (selectedProductIds.length === 0) return []
+    const set = new Set(selectedProductIds)
+    return findProductsByBarcodes(categories, set, selectedProductIds)
+  }, [categories, selectedProductIds])
+
+  const metalsNeeded = useMemo(
+    () => metalsNeedingWholesaleRate(selectedItems),
+    [selectedItems],
+  )
+
+  const activeSlabTier = useMemo(
+    () => tierSettingsForSlab(slabSettings, pricingSlab),
+    [slabSettings, pricingSlab],
+  )
+
+  const slabPayloadForPricing = useMemo(() => {
+    if (pricingSlab === 'standard') return null
+    return {
+      pricingSlab,
+      slabSettingsSnapshot: slabSettings,
+      wholesaleGoldRatePerG:
+        pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
+          ? Number(wholesaleGoldRate) || null
+          : null,
+      wholesaleSilverRatePerG:
+        pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
+          ? Number(wholesaleSilverRate) || null
+          : null,
+    }
+  }, [pricingSlab, slabSettings, wholesaleGoldRate, wholesaleSilverRate])
+
   const resetAndClose = useCallback(() => {
     setError(null)
     setShareUrl(null)
@@ -149,6 +195,25 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     }
     setBusy(true)
     try {
+      if (
+        (pricingSlab === 'slab_w' || pricingSlab === 'slab_f') &&
+        metalsNeeded.needsGold &&
+        !(Number(wholesaleGoldRate) > 0)
+      ) {
+        setError('Enter wholesale gold rate (₹/g) for the selected products.')
+        setBusy(false)
+        return
+      }
+      if (
+        (pricingSlab === 'slab_w' || pricingSlab === 'slab_f') &&
+        metalsNeeded.needsSilver &&
+        !(Number(wholesaleSilverRate) > 0)
+      ) {
+        setError('Enter wholesale silver rate (₹/g) for the selected products.')
+        setBusy(false)
+        return
+      }
+
       if (outputFormat === 'pdf') {
         const set = new Set(selectedProductIds)
         const items = findProductsByBarcodes(categories, set, selectedProductIds)
@@ -163,9 +228,10 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           return
         }
         const itemsForPdf = await resolveItemsForPdf(items)
-        const wholesalePdf = isReseller
-          ? buildWholesalePricingInput(auth.user as WholesaleUserFields)
-          : null
+        const wholesalePdf =
+          isReseller && pricingSlab === 'standard'
+            ? buildWholesalePricingInput(auth.user as WholesaleUserFields)
+            : null
         const kcThemeId =
           typeof document !== 'undefined'
             ? normalizeKcThemeId(document.documentElement.dataset.kcTheme)
@@ -184,6 +250,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                     discountPercentage: clampedDiscount,
                     wholesale: wholesalePdf,
                     giftingGstEnabled,
+                    slabPayload: slabPayloadForPricing,
                   },
                 }
               : isReseller
@@ -225,6 +292,15 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         discountPercentage: resellerHidePrices ? 0 : clampedDiscount,
         format: 'temporary_web_link',
         expiresAt: expiresAtIso,
+        pricingSlab,
+        wholesaleGoldRatePerG:
+          pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
+            ? Number(wholesaleGoldRate) || null
+            : null,
+        wholesaleSilverRatePerG:
+          pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
+            ? Number(wholesaleSilverRate) || null
+            : null,
       })
       if (res.success && res.format === 'temporary_web_link') {
         setShareUrl(res.shareUrl)
@@ -256,6 +332,12 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     isBootstrapping,
     auth.user,
     resellerHidePrices,
+    pricingSlab,
+    wholesaleGoldRate,
+    wholesaleSilverRate,
+    metalsNeeded,
+    slabPayloadForPricing,
+    giftingGstEnabled,
   ])
 
   const copyLink = useCallback(async () => {
@@ -375,6 +457,112 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
               weights — not prices.
             </div>
           ) : null}
+
+          {isReseller && !resellerHidePrices && (
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                Pricing slab
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ['standard', 'Standard', 'Live rates + markup / discount'],
+                    ['slab_r', 'Slab R', 'Retail MC off + silver −₹/g'],
+                    ['slab_w', 'Slab W', 'Wholesale MC off + your rate'],
+                    ['slab_f', 'Slab F', 'Wholesale + wastage + MC off'],
+                  ] as const
+                ).map(([kind, title, hint]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => setPricingSlab(kind)}
+                    className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                      pricingSlab === kind
+                        ? 'border-amber-500/65 bg-amber-500/12 text-slate-100'
+                        : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="font-medium">{title}</span>
+                    <span className="text-[10px] leading-snug text-slate-500">{hint}</span>
+                  </button>
+                ))}
+              </div>
+              {pricingSlab === 'slab_r' && (
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  MC discount{' '}
+                  <span className="text-amber-200/90">{activeSlabTier.mc_discount_pct ?? 0}%</span>
+                  {activeSlabTier.silver_rate_offset_per_g
+                    ? ` · Silver rate − ₹${activeSlabTier.silver_rate_offset_per_g}/g from today’s rate`
+                    : ''}
+                  {activeSlabTier.gift_discount_pct
+                    ? ` · Gift items −${activeSlabTier.gift_discount_pct}%`
+                    : ''}
+                </p>
+              )}
+              {pricingSlab === 'slab_w' && (
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  MC discount{' '}
+                  <span className="text-amber-200/90">{activeSlabTier.mc_discount_pct ?? 0}%</span>
+                  {' · '}
+                  Uses your wholesale ₹/g (not today’s live rate).
+                  {activeSlabTier.gift_discount_pct
+                    ? ` Gift items −${activeSlabTier.gift_discount_pct}%.`
+                    : ''}
+                </p>
+              )}
+              {pricingSlab === 'slab_f' && (
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                  Wastage −{activeSlabTier.wastage_discount_pct ?? 0} pts · MC −
+                  {activeSlabTier.mc_discount_pct ?? 0}% · wholesale ₹/g you enter below.
+                  {activeSlabTier.gift_discount_pct
+                    ? ` Gift items −${activeSlabTier.gift_discount_pct}%.`
+                    : ''}
+                </p>
+              )}
+              {(pricingSlab === 'slab_w' || pricingSlab === 'slab_f') && (
+                <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                  <p className="text-[11px] font-medium text-slate-400">Wholesale metal rate (₹/g fine)</p>
+                  {metalsNeeded.needsGold && (
+                    <div>
+                      <label htmlFor="wholesale-gold" className="mb-1 block text-[11px] text-slate-500">
+                        Gold ₹/g
+                      </label>
+                      <input
+                        id="wholesale-gold"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={wholesaleGoldRate}
+                        onChange={(e) => setWholesaleGoldRate(e.target.value)}
+                        placeholder="e.g. 13200"
+                        className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                      />
+                    </div>
+                  )}
+                  {metalsNeeded.needsSilver && (
+                    <div>
+                      <label htmlFor="wholesale-silver" className="mb-1 block text-[11px] text-slate-500">
+                        Silver ₹/g (999 fine)
+                      </label>
+                      <input
+                        id="wholesale-silver"
+                        type="number"
+                        min={1}
+                        step={0.5}
+                        value={wholesaleSilverRate}
+                        onChange={(e) => setWholesaleSilverRate(e.target.value)}
+                        placeholder="e.g. 220"
+                        className="w-full min-h-[44px] rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/30 sm:min-h-0 sm:text-sm"
+                      />
+                    </div>
+                  )}
+                  {!metalsNeeded.needsGold && !metalsNeeded.needsSilver && (
+                    <p className="text-[11px] text-slate-500">Selected items are gift / fixed-price only.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {(outputFormat === 'temporary_web_link' || isReseller) && !resellerHidePrices && (
             <div className="space-y-5">

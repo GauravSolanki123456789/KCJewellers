@@ -31,6 +31,8 @@ export type WholesaleUserFields = {
   reseller_product_uploads_enabled?: boolean
   /** Admin enables staff live rate updates at `/reseller/rates`. */
   reseller_rates_update_enabled?: boolean
+  /** Per-slab MC / wastage / gift discounts for shared catalogue (users.reseller_slab_settings). */
+  reseller_slab_settings?: import('@/lib/catalog-slab-pricing').ResellerSlabSettings | null
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

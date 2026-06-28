@@ -145,7 +145,7 @@ function ratePerGram(live: unknown, metal: string, item?: Item): number {
   return displayRatePerGram(live, 'gold', 10)
 }
 
-function netWeight(item: Item): number {
+export function netWeight(item: Item): number {
   const n = item.net_weight ?? item.net_wt ?? item.weight ?? (item as { avg_wt?: number }).avg_wt ?? 0
   return Number(n) || 0
 }
@@ -184,7 +184,7 @@ export function snapWastagePercent(pct: number): number {
 }
 
 /** Gold/silver billable weight for metal ₹ — full precision (no 3 dp round before × rate). */
-function metalBillableWeight(item: Item): number {
+export function metalBillableWeight(item: Item): number {
   const net = netWeight(item)
   const w = resolveProductWastagePercent(item)
   if (w > 0 && net > 0) return net * (1 + w / 100)
@@ -203,7 +203,7 @@ function billableWeight(item: Item): number {
 }
 
 /** Gold storefront total — round to nearest rupee after GST (tag / manual billing). */
-function goldStorefrontTotal(preGstBase: number, gstPct: number): number {
+export function goldStorefrontTotal(preGstBase: number, gstPct: number): number {
   return Math.round(preGstBase * (1 + gstPct / 100))
 }
 
@@ -339,7 +339,7 @@ export function getCustomerDisplayWeightWithGrossFallback(
   return getItemWeightWithGrossFallback(item)
 }
 
-function purityPct(item: Item): number {
+export function purityPct(item: Item): number {
   const p = Number(item.purity || 0)
   if (!p || p <= 0) return 0
   if (p >= 100) return p / 10   // fineness e.g. 916 → 91.6 %

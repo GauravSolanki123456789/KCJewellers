@@ -1,4 +1,5 @@
 import axios from '@/lib/axios'
+import type { CatalogSlabKind, ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 
 export type CreateSharedCatalogPayload = {
   selectedProductIds: string[]
@@ -6,6 +7,9 @@ export type CreateSharedCatalogPayload = {
   discountPercentage?: number
   format: 'temporary_web_link' | 'pdf'
   expiresAt?: string | null
+  pricingSlab?: CatalogSlabKind
+  wholesaleGoldRatePerG?: number | null
+  wholesaleSilverRatePerG?: number | null
 }
 
 export type CreateSharedCatalogResponse =
@@ -19,6 +23,10 @@ export type CreateSharedCatalogResponse =
       markupPercentage: number
       discountPercentage?: number
       hidePrices?: boolean
+      pricingSlab?: CatalogSlabKind
+      wholesaleGoldRatePerG?: number | null
+      wholesaleSilverRatePerG?: number | null
+      slabSettingsSnapshot?: ResellerSlabSettings | null
     }
   | {
       success: true
@@ -75,8 +83,15 @@ export type SharedCatalogCreatorWholesale = {
   wholesale_making_charge_discount_percent: number
 }
 
+export type SharedCatalogSlabFields = {
+  pricingSlab?: CatalogSlabKind
+  slabSettingsSnapshot?: ResellerSlabSettings | null
+  wholesaleGoldRatePerG?: number | null
+  wholesaleSilverRatePerG?: number | null
+}
+
 export type SharedCatalogPublicResponse =
-  | {
+  | ({
       expired: true
       expiresAt: string
       markupPercentage: number
@@ -86,8 +101,8 @@ export type SharedCatalogPublicResponse =
       products: SharedCatalogPublicProduct[]
       /** Site-wide gift GST toggle from `app_settings.gifting_gst_enabled`. */
       gifting_gst_enabled?: boolean
-    }
-  | {
+    } & SharedCatalogSlabFields)
+  | ({
       expired: false
       expiresAt: string
       createdAt?: string
@@ -110,7 +125,7 @@ export type SharedCatalogPublicResponse =
   kc_theme_id?: string | null
   /** True when prices use live rates frozen at link creation (not current ticker). */
   ratesFrozenAtShare?: boolean
-}
+    } & SharedCatalogSlabFields)
   | { error?: string }
 
 export async function fetchSharedCatalogByUuid(
@@ -118,6 +133,21 @@ export async function fetchSharedCatalogByUuid(
 ): Promise<SharedCatalogPublicResponse> {
   const { data } = await axios.get<SharedCatalogPublicResponse>(`/api/shared-catalog/${uuid}`)
   return data
+}
+
+/** Build slab pricing payload from shared catalogue API response. */
+export function sharedCatalogSlabPayloadFromResponse(
+  payload: SharedCatalogPublicResponse | null | undefined,
+): import('@/lib/shared-catalog-pricing').SharedCatalogSlabPayload | null {
+  if (!payload || typeof payload !== 'object' || !('pricingSlab' in payload)) return null
+  const p = payload as SharedCatalogSlabFields
+  if (!p.pricingSlab || p.pricingSlab === 'standard') return null
+  return {
+    pricingSlab: p.pricingSlab,
+    slabSettingsSnapshot: p.slabSettingsSnapshot ?? null,
+    wholesaleGoldRatePerG: p.wholesaleGoldRatePerG ?? null,
+    wholesaleSilverRatePerG: p.wholesaleSilverRatePerG ?? null,
+  }
 }
 
 /** Gift-item GST toggle from shared-catalog API (`app_settings.gifting_gst_enabled`). */

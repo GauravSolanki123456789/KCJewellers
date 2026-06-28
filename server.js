@@ -676,11 +676,13 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerProductUploadsEnabled = !!resolvedUser.reseller_product_uploads_enabled;
         let resellerRatesUpdateEnabled = !!resolvedUser.reseller_rates_update_enabled;
         let resellerInvestManageEnabled = !!resolvedUser.reseller_invest_manage_enabled;
+        let resellerSlabSettings = parseResellerSlabSettingsServer(resolvedUser.reseller_slab_settings);
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
                         COALESCE(reseller_rates_update_enabled, false) AS rates_update,
-                        COALESCE(reseller_invest_manage_enabled, false) AS invest_manage
+                        COALESCE(reseller_invest_manage_enabled, false) AS invest_manage,
+                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
             );
@@ -688,6 +690,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerProductUploadsEnabled = !!fresh[0].product_uploads;
                 resellerRatesUpdateEnabled = !!fresh[0].rates_update;
                 resellerInvestManageEnabled = !!fresh[0].invest_manage;
+                resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
             }
         } catch (e) {
             const msg = String(e.message || '');
@@ -704,6 +707,11 @@ app.get('/api/auth/current_user', async (req, res) => {
             if (msg.includes('reseller_invest_manage_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_invest_manage_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_slab_settings')) {
+                await pool.query(
+                    `ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_slab_settings JSONB NOT NULL DEFAULT '{}'::jsonb`,
                 );
             }
         }
@@ -734,6 +742,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_product_uploads_enabled: resellerProductUploadsEnabled,
                 reseller_rates_update_enabled: resellerRatesUpdateEnabled,
                 reseller_invest_manage_enabled: resellerInvestManageEnabled,
+                reseller_slab_settings: resellerSlabSettings,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
                     ? String(resolvedUser.kc_theme_id).trim()
@@ -3722,6 +3731,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
+                       COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
                        reseller_invite_code, referred_by_user_id,
                        created_at, updated_at 
                 FROM users 
@@ -4163,6 +4173,12 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_invest_enabled !== undefined) {
             updates.push(`reseller_invest_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_invest_enabled);
+        }
+
+        if (req.body.reseller_slab_settings !== undefined) {
+            const parsed = parseResellerSlabSettingsServer(req.body.reseller_slab_settings);
+            updates.push(`reseller_slab_settings = $${paramIndex++}::jsonb`);
+            params.push(JSON.stringify(parsed));
         }
 
         if (reseller_invite_code !== undefined) {
@@ -6446,6 +6462,100 @@ function parseSharedDiscountPct(raw) {
     return Math.max(0, Math.min(100, n));
 }
 
+const PRICING_SLAB_KINDS = new Set(['standard', 'slab_r', 'slab_w', 'slab_f']);
+
+function parsePricingSlab(raw) {
+    const s = String(raw || 'standard').trim().toLowerCase();
+    return PRICING_SLAB_KINDS.has(s) ? s : 'standard';
+}
+
+function clampSlabPct(n, lo = 0, hi = 100) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return 0;
+    return Math.max(lo, Math.min(hi, v));
+}
+
+/** Sanitize admin/reseller slab defaults stored on users.reseller_slab_settings. */
+function parseResellerSlabSettingsServer(raw) {
+    if (!raw || typeof raw !== 'object') return {};
+    const tier = (key) => {
+        const t = raw[key];
+        if (!t || typeof t !== 'object') return undefined;
+        const row = {
+            mc_discount_pct: clampSlabPct(t.mc_discount_pct),
+            silver_rate_offset_per_g: Math.max(0, Number(t.silver_rate_offset_per_g) || 0),
+            wastage_discount_pct: clampSlabPct(t.wastage_discount_pct),
+            gift_discount_pct: clampSlabPct(t.gift_discount_pct),
+        };
+        const hasAny =
+            row.mc_discount_pct > 0 ||
+            row.silver_rate_offset_per_g > 0 ||
+            row.wastage_discount_pct > 0 ||
+            row.gift_discount_pct > 0;
+        return hasAny ? row : row;
+    };
+    return {
+        slab_r: tier('slab_r'),
+        slab_w: tier('slab_w'),
+        slab_f: tier('slab_f'),
+    };
+}
+
+function parseWholesaleRatePerG(raw) {
+    if (raw == null || raw === '') return null;
+    const n =
+        typeof raw === 'number' && Number.isFinite(raw)
+            ? raw
+            : parseFloat(String(raw).replace(/,/g, '').trim());
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.min(n, 999999);
+}
+
+/** Which fine-metal wholesale ₹/g inputs a shared catalogue slab link requires. */
+async function sharedCatalogSlabMetalRequirements(barcodes) {
+    const needs = { gold: false, silver: false };
+    if (!Array.isArray(barcodes) || barcodes.length === 0) return needs;
+    const rows = await query(
+        `SELECT DISTINCT LOWER(COALESCE(metal_type, 'silver')) AS metal_type,
+                COALESCE(fixed_price, 0)::float AS fixed_price
+         FROM web_products
+         WHERE barcode = ANY($1::text[])
+         AND (is_active IS NULL OR is_active = true)`,
+        [barcodes],
+    );
+    for (const row of rows) {
+        if (Number(row.fixed_price) > 0) continue;
+        const mt = String(row.metal_type || '').toLowerCase();
+        if (mt.startsWith('gold')) needs.gold = true;
+        if (mt.startsWith('silver')) needs.silver = true;
+    }
+    return needs;
+}
+
+function sharedCatalogSlabJsonFields(row) {
+    const pricingSlab = parsePricingSlab(row?.pricing_slab);
+    let slabSettingsSnapshot = row?.slab_settings_snapshot ?? null;
+    if (typeof slabSettingsSnapshot === 'string') {
+        try {
+            slabSettingsSnapshot = JSON.parse(slabSettingsSnapshot);
+        } catch {
+            slabSettingsSnapshot = null;
+        }
+    }
+    return {
+        pricingSlab,
+        slabSettingsSnapshot: slabSettingsSnapshot || null,
+        wholesaleGoldRatePerG:
+            row?.slab_wholesale_gold_rate_per_g != null
+                ? Number(row.slab_wholesale_gold_rate_per_g)
+                : null,
+        wholesaleSilverRatePerG:
+            row?.slab_wholesale_silver_rate_per_g != null
+                ? Number(row.slab_wholesale_silver_rate_per_g)
+                : null,
+    };
+}
+
 /** Brochure product row — include all gifting size variants for each selected design_group. */
 async function expandGiftingSizeVariantsForBrochure(products) {
     if (!Array.isArray(products) || products.length === 0) return products;
@@ -6573,7 +6683,7 @@ function selectionWhatsAppDigitsFromBrochureRow(row) {
  */
 app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
     try {
-        const { selectedProductIds, markupPercentage, discountPercentage, format, expiresAt } = req.body || {};
+        const { selectedProductIds, markupPercentage, discountPercentage, format, expiresAt, pricingSlab, wholesaleGoldRatePerG, wholesaleSilverRatePerG } = req.body || {};
         const ids = Array.isArray(selectedProductIds)
             ? [...new Set(selectedProductIds.map((x) => String(x).trim()).filter(Boolean))]
             : [];
@@ -6585,6 +6695,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         }
         const markup = parseSharedMarkupPct(markupPercentage);
         const discount = parseSharedDiscountPct(discountPercentage);
+        const slabKind = parsePricingSlab(pricingSlab);
         const fmt = format === 'pdf' ? 'pdf' : 'temporary_web_link';
 
         if (fmt === 'pdf') {
@@ -6613,8 +6724,42 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             throw ve;
         }
 
-        const id = randomUUID();
         const creatorUid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        let slabSettingsSnapshot = {};
+        if (Number.isFinite(creatorUid) && creatorUid > 0) {
+            try {
+                const urows = await query(
+                    `SELECT COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings FROM users WHERE id = $1`,
+                    [creatorUid],
+                );
+                if (urows.length) {
+                    slabSettingsSnapshot = parseResellerSlabSettingsServer(urows[0].reseller_slab_settings);
+                }
+            } catch (e) {
+                const msg = String(e.message || '');
+                if (msg.includes('reseller_slab_settings')) {
+                    await pool.query(
+                        `ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_slab_settings JSONB NOT NULL DEFAULT '{}'::jsonb`,
+                    );
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        const wholesaleGold = parseWholesaleRatePerG(wholesaleGoldRatePerG);
+        const wholesaleSilver = parseWholesaleRatePerG(wholesaleSilverRatePerG);
+        if (slabKind === 'slab_w' || slabKind === 'slab_f') {
+            const metalReq = await sharedCatalogSlabMetalRequirements(ids);
+            if (metalReq.gold && wholesaleGold == null) {
+                return res.status(400).json({ error: 'Enter wholesale gold rate (₹/g) for Slab W / Slab F.' });
+            }
+            if (metalReq.silver && wholesaleSilver == null) {
+                return res.status(400).json({ error: 'Enter wholesale silver rate (₹/g) for Slab W / Slab F.' });
+            }
+        }
+
+        const id = randomUUID();
         const hidePrices =
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHidePricesForUser(creatorUid)
@@ -6623,20 +6768,64 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await getRatesSnapshotForSharedCatalogCreator(creatorUid, liveRateService)
                 : (await liveRateService.getCurrentPayload())?.rates ?? [];
-        await query(
-            `INSERT INTO shared_catalogs (id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id, rates_snapshot, hide_prices)
-             VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8)`,
-            [
-                id,
-                ids,
-                markup,
-                discount,
-                exp,
-                Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
-                JSON.stringify(ratesSnapshot),
-                hidePrices,
-            ],
-        );
+        try {
+            await query(
+                `INSERT INTO shared_catalogs (
+                    id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
+                    rates_snapshot, hide_prices, pricing_slab, slab_wholesale_gold_rate_per_g,
+                    slab_wholesale_silver_rate_per_g, slab_settings_snapshot
+                 )
+                 VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb)`,
+                [
+                    id,
+                    ids,
+                    markup,
+                    discount,
+                    exp,
+                    Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
+                    JSON.stringify(ratesSnapshot),
+                    hidePrices,
+                    slabKind,
+                    wholesaleGold,
+                    wholesaleSilver,
+                    JSON.stringify(slabSettingsSnapshot),
+                ],
+            );
+        } catch (insErr) {
+            const msg = String(insErr.message || '');
+            if (msg.includes('pricing_slab') || msg.includes('slab_settings_snapshot')) {
+                await pool.query(`
+                    ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS pricing_slab VARCHAR(16) NOT NULL DEFAULT 'standard';
+                    ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS slab_wholesale_gold_rate_per_g NUMERIC(12, 4);
+                    ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS slab_wholesale_silver_rate_per_g NUMERIC(12, 4);
+                    ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS slab_settings_snapshot JSONB;
+                `);
+                await query(
+                    `INSERT INTO shared_catalogs (
+                        id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
+                        rates_snapshot, hide_prices, pricing_slab, slab_wholesale_gold_rate_per_g,
+                        slab_wholesale_silver_rate_per_g, slab_settings_snapshot
+                     )
+                     VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb)`,
+                    [
+                        id,
+                        ids,
+                        markup,
+                        discount,
+                        exp,
+                        Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
+                        JSON.stringify(ratesSnapshot),
+                        hidePrices,
+                        slabKind,
+                        wholesaleGold,
+                        wholesaleSilver,
+                        JSON.stringify(slabSettingsSnapshot),
+                    ],
+                );
+            } else {
+                throw insErr;
+            }
+        }
 
         const creator = resolveUserRole(req.user);
         const tier = String(creator?.customer_tier || '').toUpperCase();
@@ -6667,6 +6856,10 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             markupPercentage: markup,
             discountPercentage: discount,
             hidePrices,
+            pricingSlab: slabKind,
+            wholesaleGoldRatePerG: wholesaleGold,
+            wholesaleSilverRatePerG: wholesaleSilver,
+            slabSettingsSnapshot,
         });
     } catch (error) {
         console.error('shared-catalog create:', error);
@@ -6735,6 +6928,10 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             `SELECT sc.id, sc.product_ids, sc.markup_percentage, sc.discount_percentage, sc.expires_at, sc.created_at,
                     sc.created_by_user_id, sc.rates_snapshot,
                     COALESCE(sc.hide_prices, false) AS hide_prices,
+                    COALESCE(sc.pricing_slab, 'standard') AS pricing_slab,
+                    sc.slab_wholesale_gold_rate_per_g,
+                    sc.slab_wholesale_silver_rate_per_g,
+                    sc.slab_settings_snapshot,
                     u.customer_tier AS creator_customer_tier,
                     u.mobile_number AS creator_mobile_number,
                     u.wholesale_markup_percent AS creator_wholesale_markup_pct,
@@ -6751,6 +6948,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         const row = rows[0];
         const gifting_gst_enabled = await getGiftingGstEnabled();
         const hidePrices = !!row.hide_prices;
+        const slabFields = sharedCatalogSlabJsonFields(row);
         const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
         const discountPctJson = parseSharedDiscountPct(row.discount_percentage);
         const cwPricing = creatorWholesaleForBrochure(row);
@@ -6778,6 +6976,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 products: [],
                 kc_theme_id,
                 gifting_gst_enabled,
+                ...slabFields,
             });
         }
 
@@ -6804,6 +7003,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 ratesFrozenAtShare,
                 kc_theme_id,
                 gifting_gst_enabled,
+                ...slabFields,
             });
         }
 
@@ -6881,6 +7081,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             ratesFrozenAtShare,
             kc_theme_id,
             gifting_gst_enabled,
+            ...slabFields,
         });
     } catch (error) {
         console.error('shared-catalog get:', error);

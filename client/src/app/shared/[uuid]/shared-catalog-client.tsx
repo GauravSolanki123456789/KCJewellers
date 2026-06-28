@@ -9,6 +9,7 @@ import { Check, Clock, FileText, Gem, Loader2, MessageCircle, Minus, Plus, Spark
 import {
   fetchSharedCatalogByUuid,
   sharedCatalogGiftingGstEnabled,
+  sharedCatalogSlabPayloadFromResponse,
   type SharedCatalogPublicProduct,
   type SharedCatalogPublicResponse,
 } from '@/lib/shared-catalog-api'
@@ -173,6 +174,11 @@ export default function SharedCatalogClient({
 
   const giftingGstEnabled = sharedCatalogGiftingGstEnabled(payload)
 
+  const slabPayload = useMemo(
+    () => sharedCatalogSlabPayloadFromResponse(payload),
+    [payload],
+  )
+
   const rows = useMemo(() => {
     if (!isLoadedBrochure(payload)) return []
     return buildSharedCatalogPricingRows(
@@ -182,8 +188,9 @@ export default function SharedCatalogClient({
       payload.creatorWholesalePricing ?? null,
       giftingGstEnabled,
       parseDiscountPercentage(payload.discountPercentage),
+      slabPayload,
     )
-  }, [payload, giftingGstEnabled])
+  }, [payload, giftingGstEnabled, slabPayload])
 
   const groupedRows = useMemo(() => groupSharedCatalogPricingRows(rows), [rows])
 
@@ -378,8 +385,9 @@ export default function SharedCatalogClient({
                   rates: payload.rates,
                   markupPercentage: markup,
                   discountPercentage: discount,
-                  wholesale,
+                  wholesale: slabPayload ? null : wholesale,
                   giftingGstEnabled,
+                  slabPayload,
                 }
           }
         />,
@@ -431,6 +439,7 @@ export default function SharedCatalogClient({
     initialBranding?.contactPhoneDigits,
     initialBranding?.kcThemeId,
     giftingGstEnabled,
+    slabPayload,
   ])
 
   const handleSharePicks = useCallback(() => {
