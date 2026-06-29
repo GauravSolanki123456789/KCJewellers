@@ -660,7 +660,7 @@ export default function SharedCatalogClient({
                 return set
               })()
               const hasVariants = group.variants.length > 1
-              const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst } =
+              const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst, slabDiscountLines, savingsInr } =
                 activeRow
               const name = group.displayTitle
               const img = normalizeCatalogImageSrc(
@@ -674,6 +674,10 @@ export default function SharedCatalogClient({
               const includeBox = includeBoxByKey.get(key) ?? false
               const boxSlideIdx = boxImageSlideIndex(item)
               const displayUnitInr = unitTotalInr + (includeBox ? getProductBoxCharges(item) : 0)
+              const displayCompareAtInr =
+                unitCompareAtInr != null
+                  ? unitCompareAtInr + (includeBox ? getProductBoxCharges(item) : 0)
+                  : null
               const galleryScroll = galleryScrollByKey.get(key) ?? null
               return (
                 <li key={group.groupKey}>
@@ -868,17 +872,17 @@ export default function SharedCatalogClient({
                       <div className="mt-1.5 space-y-2">
                         {!hidePrices ? (
                           <div className="flex min-w-0 flex-col gap-0.5">
-                            {unitCompareAtInr != null && unitCompareAtInr > unitTotalInr ? (
-                              <span className="kc-shared-price-compare">
-                                ₹{unitCompareAtInr.toLocaleString('en-IN')}
+                            {displayCompareAtInr != null && displayCompareAtInr > displayUnitInr ? (
+                              <span className="kc-price-compare">
+                                ₹{displayCompareAtInr.toLocaleString('en-IN')}
                               </span>
                             ) : null}
                             <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
-                              <span className="kc-shared-price-final">
+                              <span className="kc-price-current">
                                 ₹{displayUnitInr.toLocaleString('en-IN')}
                               </span>
                               {includeBox && hasBox ? (
-                                <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-emerald-500/90 sm:text-[10px]">
+                                <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-[var(--kc-accent,var(--color-emerald-600))] sm:text-[10px]">
                                   with box
                                 </span>
                               ) : null}
@@ -888,6 +892,20 @@ export default function SharedCatalogClient({
                                 </span>
                               ) : null}
                             </div>
+                            {slabDiscountLines.length > 0 ? (
+                              <ul className="mt-1 space-y-0.5">
+                                {slabDiscountLines.map((line) => (
+                                  <li key={line} className="kc-slab-savings">
+                                    ✓ {line}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            {savingsInr != null && savingsInr > 0 ? (
+                              <p className="kc-slab-savings font-semibold">
+                                You save ₹{savingsInr.toLocaleString('en-IN')}
+                              </p>
+                            ) : null}
                           </div>
                         ) : null}
                         {selected ? (

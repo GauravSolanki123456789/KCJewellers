@@ -14,8 +14,8 @@ import {
 } from '@/lib/pricing'
 import {
   calculateBreakdownWithSlab,
+  formatSlabDiscountLines,
   parseResellerSlabSettings,
-  slabLabel,
   tierSettingsForSlab,
   type CatalogSlabKind,
   type ResellerSlabSettings,
@@ -79,11 +79,15 @@ export function sharedCatalogMarkedUpBeforeLinkDiscountInr(
 
 export type SharedCatalogUnitPrice = {
   unitTotalInr: number
-  /** Strikethrough list price when a link or style discount applies. */
+  /** Strikethrough list price when a link, style, or slab discount applies. */
   unitCompareAtInr: number | null
   /** Badge label e.g. "25% off" — link discount takes precedence over style promo. */
   discountBadge: string | null
   showInclGst: boolean
+  /** Slab-specific savings lines (MC / wastage / rate) for brochure, PDF, WhatsApp. */
+  slabDiscountLines: string[]
+  /** Rupees saved vs retail (before slab) after markup + link discount. */
+  savingsInr: number | null
 }
 
 /** Final + compare-at prices for one shared brochure line (markup → link discount). */
@@ -115,37 +119,21 @@ export function computeSharedCatalogUnitPrice(
 
   let unitCompareAtInr: number | null = null
   let discountBadge: string | null = null
+  let slabDiscountLines: string[] = []
+  let savingsInr: number | null = null
 
-  if (slab && slab.kind !== 'standard') {
-    const bStandard = breakdownForSharedCatalog(
-      item,
-      rates,
-      gst,
-      wholesale,
-      pricingOptions,
-      null,
-    )
-    const stdAfterMarkup = bStandard.total * (1 + mk / 100)
-    const stdFinal = Math.round(stdAfterMarkup * (1 - disc / 100))
-    if (stdFinal > finalInr) {
-      unitCompareAtInr = stdFinal
-      const savePct = Math.round((1 - finalInr / stdFinal) * 100)
-      discountBadge = savePct >= 1 ? `${savePct}% off` : slabLabel(slab.kind)
-    } else if (
-      b.originalTotal != null &&
-      b.discountPercent != null &&
-      b.discountPercent > 0
-    ) {
-      const slabList = Math.round(b.originalTotal * (1 + mk / 100) * (1 - disc / 100))
-      const slabPreGift = Math.round(b.originalTotal * (1 + mk / 100))
-      if (slabPreGift > slabList) {
-        unitCompareAtInr = slabPreGift
-        discountBadge = `${Math.round(b.discountPercent)}% off`
-      }
+  const slabActive = slab && slab.kind !== 'standard'
+
+  if (slabActive) {
+    slabDiscountLines = formatSlabDiscountLines(slab, item)
+    const bRetail = calculateBreakdown(item, rates, gst, null, pricingOptions)
+    const retailFinal = Math.round(bRetail.total * (1 + mk / 100) * (1 - disc / 100))
+    if (retailFinal > finalInr) {
+      unitCompareAtInr = retailFinal
+      savingsInr = retailFinal - finalInr
+      discountBadge = `${Math.round(100 * (1 - finalInr / retailFinal))}% off`
     }
-  }
-
-  if (unitCompareAtInr == null && disc > 0 && listAfterMarkup > finalInr) {
+  } else if (disc > 0 && listAfterMarkup > finalInr) {
     unitCompareAtInr = listAfterMarkup
     discountBadge = `${Math.round(disc)}% off`
   } else if (
@@ -165,6 +153,8 @@ export function computeSharedCatalogUnitPrice(
     unitCompareAtInr,
     discountBadge,
     showInclGst: productPriceShowsInclGst(item, pricingOptions),
+    slabDiscountLines,
+    savingsInr,
   }
 }
 
@@ -291,6 +281,8 @@ export type SharedCatalogPricingRow = {
   unitCompareAtInr: number | null
   discountBadge: string | null
   showInclGst: boolean
+  slabDiscountLines: string[]
+  savingsInr: number | null
   markupPercentage: number
   discountPercentage: number
 }
@@ -392,6 +384,8 @@ export function buildSharedCatalogPricingRows(
       unitCompareAtInr: price.unitCompareAtInr,
       discountBadge: price.discountBadge,
       showInclGst: price.showInclGst,
+      slabDiscountLines: price.slabDiscountLines,
+      savingsInr: price.savingsInr,
       markupPercentage: mk,
       discountPercentage: disc,
     }

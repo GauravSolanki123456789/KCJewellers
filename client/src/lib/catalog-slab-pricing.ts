@@ -7,12 +7,13 @@ import {
   goldStorefrontTotal,
   isFixedPriceCatalogItem,
   isGiftingItem,
+  isMcPerPiece,
   metalBillableWeight,
   netWeight,
   purityPct,
-  silverEffectivePurityPercent,
   resolveItemGstRate,
   resolveProductWastagePercent,
+  silverEffectivePurityPct,
   snapWastagePercent,
   type CatalogPricingOptions,
   type Item,
@@ -136,14 +137,59 @@ function goldRateForItem(live: unknown, item: Item): number {
 }
 
 function silverEffectivePurity(purity: number): number {
-  return silverEffectivePurityPercent(purity)
+  return silverEffectivePurityPct(purity)
+}
+
+/** Customer-facing lines explaining slab savings on a line item. */
+export function formatSlabDiscountLines(
+  slab: SharedCatalogSlabContext | null | undefined,
+  item: Item,
+): string[] {
+  if (!slab || slab.kind === 'standard') return []
+  const s = slab.settings ?? {}
+  const lines: string[] = []
+  const mc = clampPct(s.mc_discount_pct, 0, 100)
+  const wastageDisc = clampPct(s.wastage_discount_pct, 0, 100)
+  const giftDisc = clampPct(s.gift_discount_pct, 0, 100)
+
+  if (isFixedPriceCatalogItem(item)) {
+    if (giftDisc > 0) lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
+    return lines
+  }
+
+  if (mc > 0) lines.push(`Making charges ${Math.round(mc)}% off`)
+  if (slab.kind === 'slab_f' && wastageDisc > 0) {
+    const w = resolveProductWastagePercent(item)
+    if (w > 0) {
+      const after = snapWastagePercent(Math.max(0, w - wastageDisc))
+      lines.push(`Wastage ${Math.round(w)}% → ${after}% (−${Math.round(wastageDisc)} pts)`)
+    }
+  }
+  if (slab.kind === 'slab_r') {
+    const offset = Math.max(0, Number(s.silver_rate_offset_per_g) || 0)
+    const metal = String(item.metal_type || '').toLowerCase()
+    if (offset > 0 && metal.startsWith('silver')) {
+      lines.push(`Silver rate −₹${offset}/g vs today`)
+    }
+  }
+  if (slab.kind === 'slab_w' || slab.kind === 'slab_f') {
+    const metal = String(item.metal_type || '').toLowerCase()
+    if (metal.startsWith('silver')) {
+      const wr = Number(slab.wholesaleSilverRatePerG)
+      if (Number.isFinite(wr) && wr > 0) lines.push(`Wholesale silver ₹${wr}/g`)
+    } else if (metal.startsWith('gold')) {
+      const wr = Number(slab.wholesaleGoldRatePerG)
+      if (Number.isFinite(wr) && wr > 0) lines.push(`Wholesale gold ₹${wr}/g`)
+    }
+  }
+  if (giftDisc > 0) lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
+  return lines
 }
 
 function mcPart(item: Item, mcDiscountPct: number): number {
-  const type = (item.mc_type || 'PER_GRAM').toUpperCase()
   const val = Number(item.mc_rate ?? item.mc_value ?? 0) || 0
   const wt = netWeight(item)
-  const raw = type === 'FIXED' ? val : wt * val
+  const raw = isMcPerPiece(item.mc_type) ? val : wt * val
   const disc = clampPct(mcDiscountPct, 0, 100)
   return raw * (1 - disc / 100)
 }

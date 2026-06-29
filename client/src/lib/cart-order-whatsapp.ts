@@ -80,6 +80,9 @@ export type SharedCatalogPickLineForWhatsApp = {
   showInclGst?: boolean
   /** When set, append "With box · ₹X" after the base price line. */
   withBoxPriceInr?: number | null
+  /** Slab savings breakdown — MC / wastage / rate lines. */
+  slabDiscountLines?: string[]
+  savingsInr?: number | null
 }
 
 export function buildSharedCatalogSelectionWhatsAppMessage(params: {
@@ -155,6 +158,14 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
         l.withBoxPriceInr != null && l.withBoxPriceInr > unit
           ? `With box · ₹${Math.round(l.withBoxPriceInr).toLocaleString("en-IN")}${gstSuffix}`
           : null
+      const slabLines =
+        l.slabDiscountLines && l.slabDiscountLines.length > 0
+          ? l.slabDiscountLines.map((line) => `✓ ${line}`).join("\n")
+          : null
+      const savingsLine =
+        l.savingsInr != null && l.savingsInr > 0
+          ? `You save ₹${Math.round(l.savingsInr).toLocaleString("en-IN")} on this piece`
+          : null
 
       return [
         divider,
@@ -165,6 +176,8 @@ export function buildSharedCatalogSelectionWhatsAppMessage(params: {
         unitLabel,
         lineTotalLabel,
         boxLine,
+        slabLines,
+        savingsLine,
         wtLine,
         specLine,
       ]

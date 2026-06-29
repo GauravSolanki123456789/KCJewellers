@@ -13,6 +13,7 @@ const {
     resolveGrossWeight,
     styleSlugFromCode,
 } = require('./upsertWebProductFromSyncItem');
+const { defaultMcTypeWhenRatePresent } = require('./mcTypeUtils');
 
 const SUBMISSION_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected', 'withdrawn']);
 
@@ -33,6 +34,7 @@ function submissionRowToSyncItem(row) {
         earringWeight: row.earring_weight ?? payload.earringWeight ?? payload.EarringWtOnly,
         purity: row.purity ?? payload.purity,
         mcRate: row.mc_rate ?? payload.mcRate,
+        mcType: row.mc_type ?? payload.mcType ?? payload.mc_type ?? payload.MCType,
         metalType: row.metal_type ?? payload.metalType,
         fixedPrice: row.fixed_price ?? payload.fixedPrice,
         stoneCharges: row.stone_charges ?? payload.stoneCharges,
@@ -156,13 +158,14 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
     const mcRateNum =
         resolved.mcRate != null && Number.isFinite(Number(resolved.mcRate)) ? Number(resolved.mcRate) : null;
     const mcTypeRaw =
-        item.mcType != null ? String(item.mcType) : item.MCType != null ? String(item.MCType) : null;
-    const mcType =
-        mcTypeRaw && mcTypeRaw.trim()
-            ? mcTypeRaw.trim().toUpperCase()
-            : mcRateNum != null && mcRateNum > 0
-              ? 'PER_GRAM'
-              : null;
+        item.mcType != null
+            ? String(item.mcType)
+            : item.MCType != null
+              ? String(item.MCType)
+              : item.mc_type != null
+                ? String(item.mc_type)
+                : null;
+    const mcType = defaultMcTypeWhenRatePresent(mcRateNum, mcTypeRaw);
     if (wastagePct != null) payload.wastage_pct = wastagePct;
     if (payload.wastage == null && wastagePct != null) payload.wastage = wastagePct;
     const chainWeight = parseExcelWeight(item.chainWeight ?? item.ChainWtOnly ?? item.chain_weight);

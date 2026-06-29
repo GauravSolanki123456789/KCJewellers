@@ -227,6 +227,12 @@ function buildCatalogPdfStyles(p: KcPdfPalette) {
       color: p.textSecondary,
       marginBottom: 2,
     },
+    slabNoteLine: {
+      fontSize: 7,
+      color: p.accent,
+      marginBottom: 3,
+      lineHeight: 1.35,
+    },
     footer: {
       position: "absolute",
       bottom: 20,
@@ -295,9 +301,11 @@ type PdfLineMeta = {
   sizeText: string | null;
   weightText: string | null;
   specText: string | null;
+  slabNoteText: string | null;
   shareQty: number;
   unitPriceStr: string | null;
   lineTotalStr: string | null;
+  compareAtStr: string | null;
 };
 
 function resolvePdfLineMeta(
@@ -330,6 +338,8 @@ function resolvePdfLineMeta(
 
   let lineTotalStr: string | null = null;
   let unitPriceStr: string | null = null;
+  let compareAtStr: string | null = null;
+  let slabNoteText: string | null = null;
 
   if (!hidePrices) {
     if (presetLine != null && Number.isFinite(presetLine)) {
@@ -356,10 +366,34 @@ function resolvePdfLineMeta(
       const unitInr = price.unitTotalInr;
       lineTotalStr = (unitInr * shareQty).toLocaleString("en-IN");
       unitPriceStr = unitInr.toLocaleString("en-IN");
+      if (
+        price.unitCompareAtInr != null &&
+        price.unitCompareAtInr > price.unitTotalInr
+      ) {
+        compareAtStr = (price.unitCompareAtInr * shareQty).toLocaleString("en-IN");
+      }
+      if (price.slabDiscountLines.length > 0) {
+        const savings =
+          price.savingsInr != null && price.savingsInr > 0
+            ? `Save Rs. ${Math.round(price.savingsInr * shareQty).toLocaleString("en-IN")}. `
+            : "";
+        slabNoteText = `${savings}${price.slabDiscountLines.join(" · ")}`;
+      }
     }
   }
 
-  return { index, name, sizeText, weightText, specText, shareQty, unitPriceStr, lineTotalStr };
+  return {
+    index,
+    name,
+    sizeText,
+    weightText,
+    specText,
+    slabNoteText,
+    shareQty,
+    unitPriceStr,
+    lineTotalStr,
+    compareAtStr,
+  };
 }
 
 export function CatalogPdfDocument({
@@ -533,7 +567,8 @@ export function CatalogPdfDocument({
                 !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
               let lineTotalStr = meta?.lineTotalStr ?? null;
               let unitPriceStr = meta?.unitPriceStr ?? null;
-              let compareAtStr: string | null = null;
+              let compareAtStr = meta?.compareAtStr ?? null;
+              let slabNoteText = meta?.slabNoteText ?? null;
               let showInclGst = false;
               if (showPrices && resellerPdfPricing) {
                 const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
@@ -554,7 +589,14 @@ export function CatalogPdfDocument({
                   price.unitCompareAtInr != null &&
                   price.unitCompareAtInr > price.unitTotalInr
                 ) {
-                  compareAtStr = price.unitCompareAtInr.toLocaleString("en-IN");
+                  compareAtStr = (price.unitCompareAtInr * shareQty).toLocaleString("en-IN");
+                }
+                if (price.slabDiscountLines.length > 0) {
+                  const savings =
+                    price.savingsInr != null && price.savingsInr > 0
+                      ? `Save Rs. ${Math.round(price.savingsInr * shareQty).toLocaleString("en-IN")}. `
+                      : "";
+                  slabNoteText = `${savings}${price.slabDiscountLines.join(" · ")}`;
                 }
                 if (!lineTotalStr) {
                   const unitInr = price.unitTotalInr;
@@ -589,6 +631,9 @@ export function CatalogPdfDocument({
                   ) : null}
                   {meta?.specText ? (
                     <Text style={styles.weightLine}>{meta.specText}</Text>
+                  ) : null}
+                  {slabNoteText ? (
+                    <Text style={styles.slabNoteLine}>{slabNoteText}</Text>
                   ) : null}
                   {lineTotalStr ? (
                     <>

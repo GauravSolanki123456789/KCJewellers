@@ -13,6 +13,7 @@ const {
     defaultVideoUrl,
     imageUrlBasename,
 } = require('./productImagePaths');
+const { defaultMcTypeWhenRatePresent } = require('./mcTypeUtils');
 
 function styleSlugFromCode(styleCode) {
     const s = String(styleCode || 'Uncategorized').trim();
@@ -102,6 +103,16 @@ function normalizeSyncItem(item) {
                   : item.MCRate != null
                     ? Number(item.MCRate)
                     : null,
+        mcType: defaultMcTypeWhenRatePresent(
+            item.mcRate != null
+                ? Number(item.mcRate)
+                : item.mc_rate != null
+                  ? Number(item.mc_rate)
+                  : item.MCRate != null
+                    ? Number(item.MCRate)
+                    : null,
+            item.mcType ?? item.mc_type ?? item.MCType ?? null,
+        ),
         metalType: String(item.metalType || item.metal_type || item.MetalType || 'silver')
             .toLowerCase()
             .trim(),
@@ -326,15 +337,15 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         INSERT INTO web_products
             (subcategory_id, sku, barcode, name, size, gross_weight, net_weight, weight_display,
              wastage_pct, chain_weight, pendant_weight, earring_weight,
-             purity, mc_rate, metal_type,
+             purity, mc_rate, mc_type, metal_type,
              fixed_price, stone_charges, box_charges, design_group, image_url, secondary_image_url,
              box_image_url, video_url,
              submitted_by_user_id, reseller_submission_id, is_active, last_synced_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                CASE WHEN $21::boolean THEN $22::text ELSE NULL END,
-                CASE WHEN $23::boolean THEN $24::text ELSE NULL END,
-                CASE WHEN $25::boolean THEN $26::text ELSE NULL END,
-                $27, $28, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+                CASE WHEN $22::boolean THEN $23::text ELSE NULL END,
+                CASE WHEN $24::boolean THEN $25::text ELSE NULL END,
+                CASE WHEN $26::boolean THEN $27::text ELSE NULL END,
+                $28, $29, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (sku) DO UPDATE SET
             subcategory_id  = EXCLUDED.subcategory_id,
             barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -349,15 +360,16 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             earring_weight  = COALESCE(EXCLUDED.earring_weight, web_products.earring_weight),
             purity          = EXCLUDED.purity,
             mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
+            mc_type         = COALESCE(EXCLUDED.mc_type, web_products.mc_type),
             metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
             fixed_price     = COALESCE(EXCLUDED.fixed_price, web_products.fixed_price),
             stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
             box_charges     = COALESCE(EXCLUDED.box_charges, web_products.box_charges),
             design_group    = EXCLUDED.design_group,
-            image_url       = CASE WHEN $29::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
-            secondary_image_url = CASE WHEN $21::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
-            box_image_url   = CASE WHEN $23::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
-            video_url       = CASE WHEN $25::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
+            image_url       = CASE WHEN $30::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
+            secondary_image_url = CASE WHEN $22::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
+            box_image_url   = CASE WHEN $24::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
+            video_url       = CASE WHEN $26::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
             submitted_by_user_id = COALESCE(EXCLUDED.submitted_by_user_id, web_products.submitted_by_user_id),
             reseller_submission_id = COALESCE(EXCLUDED.reseller_submission_id, web_products.reseller_submission_id),
             is_active       = true,
@@ -379,6 +391,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         Number.isFinite(norm.earringWeight) ? norm.earringWeight : null,
         norm.purity,
         norm.mcRate,
+        norm.mcType,
         norm.metalType,
         norm.fixedPrice ?? 0,
         norm.stoneCharges ?? 0,
@@ -407,7 +420,8 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             msg.includes('box_charges') ||
             msg.includes('box_image_url') ||
             msg.includes('video_url') ||
-            msg.includes('weight_display')
+            msg.includes('weight_display') ||
+            msg.includes('mc_type')
         ) {
             if (msg.includes('submitted_by_user_id') || msg.includes('reseller_submission_id')) {
                 await pool.query(
@@ -431,6 +445,9 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             }
             if (msg.includes('weight_display')) {
                 await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS weight_display VARCHAR(64)');
+            }
+            if (msg.includes('mc_type')) {
+                await pool.query('ALTER TABLE web_products ADD COLUMN IF NOT EXISTS mc_type VARCHAR(32)');
             }
             await query(upsertSql, upsertParams);
         } else {

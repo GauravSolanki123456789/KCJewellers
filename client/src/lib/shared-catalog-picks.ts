@@ -77,6 +77,9 @@ export function sharedCatalogPickToWhatsAppLine(
     showInclGst: pick.row.showInclGst,
     withBoxPriceInr:
       pick.includeBox && productHasBoxOption(pick.row.item) ? pick.unitTotalInr : null,
+    slabDiscountLines:
+      pick.row.slabDiscountLines.length > 0 ? pick.row.slabDiscountLines : undefined,
+    savingsInr: pick.row.savingsInr ?? undefined,
   }
 }
 

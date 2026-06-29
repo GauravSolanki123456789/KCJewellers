@@ -1,3 +1,5 @@
+const { isMcPerPieceType } = require('./mcTypeUtils');
+
 function pickRateFromTable(metalType, liveRates, mode) {
   const t = (metalType || 'gold').toLowerCase();
   if (!liveRates) return 0;
@@ -105,6 +107,15 @@ function getPurity(item) {
   return v * 100;
 }
 
+/** Match client `silverEffectivePurityPct` — 925/80/800 full fine; 75/750 at 75%. */
+function silverEffectivePurityPct(purity) {
+  if (!purity || purity <= 0) return 100;
+  if ((purity >= 74 && purity <= 76) || Math.abs(purity - 75) < 1.5) return 75;
+  if (purity >= 90 && purity <= 100) return 100;
+  if ((purity >= 79 && purity <= 81) || Math.abs(purity - 80) < 1.5) return 100;
+  return purity;
+}
+
 /** Match client `goldRatePerGramForItem` — 22K/18K rows when set, else 24K × factor. */
 function goldRatePerGram(liveRates, item) {
   const row24 = pickRateFromTable('gold', liveRates, 'sell');
@@ -133,24 +144,14 @@ function getMetalSellRatePerGram(metalType, liveRates, item) {
 }
 
 function getMc(item) {
-  const type = (item?.mc_type ?? item?.mcType ?? 'PER_GRAM').toUpperCase();
   const val = Number(item?.mc_rate ?? item?.mc_value ?? item?.mc) || 0;
+  if (isMcPerPieceType(item?.mc_type ?? item?.mcType)) return val;
   const netWt = getNetWeight(item);
-  return type === 'FIXED' ? val : netWt * val;
+  return netWt * val;
 }
 
 function getStoneCharges(item) {
   return Number(item?.stone_charges ?? item?.stoneCharges ?? 0) || 0;
-}
-
-/** Silver billable metal — 925/80/800 at full fine rate; 75/750 at 75%. */
-function silverEffectivePurityPercent(purity) {
-  const p = purity;
-  if (!p || p <= 0) return 100;
-  if ((p >= 74 && p <= 76) || Math.abs(p - 75) < 1.5) return 75;
-  if ((p >= 79 && p <= 81) || Math.abs(p - 80) < 1.5) return 100;
-  if (p >= 90 && p <= 100) return 100;
-  return p;
 }
 
 function calculateItemPrice(item, liveRates, gstRatePct) {
@@ -167,7 +168,7 @@ function calculateItemPrice(item, liveRates, gstRatePct) {
   if (isGold && metalRate > 0) {
     metalValue = Math.floor((netWt * metalRate * (100 + wastagePct)) / 100);
   } else if (isSilver && metalRate > 0) {
-    const effPurity = silverEffectivePurityPercent(purity);
+    const effPurity = silverEffectivePurityPct(purity);
     metalValue = billWt * metalRate * (effPurity / 100);
   } else {
     metalValue = billWt * metalRate * (purity / 100);
