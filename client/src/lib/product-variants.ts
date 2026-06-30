@@ -12,6 +12,23 @@ export function getDesignGroupKey(item: Item | null | undefined): string {
   return String(item?.design_group ?? '').trim()
 }
 
+/**
+ * Unique variant family key — design_group alone is not enough (GANESH exists in IDOLS and L_STAND).
+ */
+export function getVariantGroupKey(item: Item | null | undefined): string {
+  const dg = getDesignGroupKey(item)
+  if (!dg) return ''
+  const subId = (item as { subcategory_id?: unknown }).subcategory_id
+  if (subId != null && String(subId).trim() !== '') {
+    return `${String(subId).trim()}\0${dg}`
+  }
+  const subSlug = String(
+    (item as { subcategory_slug?: unknown }).subcategory_slug ?? '',
+  ).trim()
+  if (subSlug) return `${subSlug.toLowerCase()}\0${dg}`
+  return dg
+}
+
 export function variantDisplayTitle(item: Item): string {
   const dg = getDesignGroupKey(item)
   if (dg) return dg
@@ -53,14 +70,14 @@ export function collapseGiftingVariantRows(products: Item[]): ItemWithVariants[]
   const byGroup = new Map<string, Item[]>()
 
   for (const p of products) {
-    const dg = getDesignGroupKey(p)
-    if (!dg || !isGiftingItem(p)) {
+    const groupKey = getVariantGroupKey(p)
+    if (!groupKey || !isGiftingItem(p)) {
       singles.push(p)
       continue
     }
-    const bucket = byGroup.get(dg) ?? []
+    const bucket = byGroup.get(groupKey) ?? []
     bucket.push(p)
-    byGroup.set(dg, bucket)
+    byGroup.set(groupKey, bucket)
   }
 
   const grouped: ItemWithVariants[] = []

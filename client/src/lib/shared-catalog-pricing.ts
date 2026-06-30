@@ -23,7 +23,7 @@ import {
 } from '@/lib/catalog-slab-pricing'
 import {
   compareVariantBySize,
-  getDesignGroupKey,
+  getVariantGroupKey,
   variantDisplayTitle,
 } from '@/lib/product-variants'
 import type {
@@ -131,7 +131,14 @@ export function computeSharedCatalogUnitPrice(
     if (retailFinal > finalInr) {
       unitCompareAtInr = retailFinal
       savingsInr = retailFinal - finalInr
-      discountBadge = `${Math.round(100 * (1 - finalInr / retailFinal))}% off`
+      const configuredPct =
+        b.discountPercent != null && b.discountPercent > 0
+          ? Math.round(b.discountPercent)
+          : null
+      discountBadge =
+        configuredPct != null
+          ? `${configuredPct}% off`
+          : `${Math.round(100 * (1 - finalInr / retailFinal))}% off`
     }
   } else if (disc > 0 && listAfterMarkup > finalInr) {
     unitCompareAtInr = listAfterMarkup
@@ -302,22 +309,22 @@ function sharedCatalogRowKey(row: SharedCatalogPricingRow, index: number): strin
   return `i:${index}`
 }
 
-/** One grid card per `design_group` for gifting rows with multiple sizes (shared brochure). */
+/** One grid card per subcategory + `design_group` for gifting size variants (shared brochure). */
 export function groupSharedCatalogPricingRows(
   rows: SharedCatalogPricingRow[],
 ): SharedCatalogGroupedRow[] {
   const groupBuckets = new Map<string, SharedCatalogPricingRow[]>()
   for (const row of rows) {
-    const dg = getDesignGroupKey(row.item)
-    if (!dg || !isGiftingItem(row.item)) continue
-    const bucket = groupBuckets.get(dg) ?? []
+    const groupKey = getVariantGroupKey(row.item)
+    if (!groupKey || !isGiftingItem(row.item)) continue
+    const bucket = groupBuckets.get(groupKey) ?? []
     bucket.push(row)
-    groupBuckets.set(dg, bucket)
+    groupBuckets.set(groupKey, bucket)
   }
 
-  for (const [dg, list] of groupBuckets) {
+  for (const [groupKey, list] of groupBuckets) {
     groupBuckets.set(
-      dg,
+      groupKey,
       [...list].sort((a, b) => compareVariantBySize(a.item, b.item)),
     )
   }
@@ -326,13 +333,13 @@ export function groupSharedCatalogPricingRows(
   const grouped: SharedCatalogGroupedRow[] = []
 
   rows.forEach((row, index) => {
-    const dg = getDesignGroupKey(row.item)
-    if (dg && isGiftingItem(row.item)) {
-      if (seenGroups.has(dg)) return
-      seenGroups.add(dg)
-      const variants = groupBuckets.get(dg) ?? [row]
+    const groupKey = getVariantGroupKey(row.item)
+    if (groupKey && isGiftingItem(row.item)) {
+      if (seenGroups.has(groupKey)) return
+      seenGroups.add(groupKey)
+      const variants = groupBuckets.get(groupKey) ?? [row]
       grouped.push({
-        groupKey: dg,
+        groupKey,
         displayTitle: variantDisplayTitle(variants[0].item),
         variants,
       })
