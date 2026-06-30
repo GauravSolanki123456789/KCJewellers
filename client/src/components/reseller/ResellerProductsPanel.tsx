@@ -28,6 +28,7 @@ import {
   type BulkPhotoKind,
 } from '@/lib/reseller-bulk-photos'
 import { calculateBreakdown, getCustomerDisplaySize, isFixedPriceCatalogItem } from '@/lib/pricing'
+import { ResellerBatchExcelEditor } from '@/components/reseller/ResellerBatchExcelEditor'
 import { FileSpreadsheet, ImagePlus, Images, Loader2, Package, Plus, Send, Upload } from 'lucide-react'
 
 type Tab = 'add' | 'batches' | 'list'
@@ -164,7 +165,7 @@ export function ResellerProductsPanel() {
     if (!opts?.silent) setBatchProductsLoading(true)
     try {
       const res = await axios.get<ResellerProductSubmission[]>('/api/reseller/product-submissions', {
-        params: { batch_id: batchId, submission_status: 'draft' },
+        params: { batch_id: batchId },
       })
       setBatchProducts(Array.isArray(res.data) ? res.data : [])
     } catch {
@@ -469,7 +470,7 @@ export function ResellerProductsPanel() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className={`mx-auto w-full ${tab === 'batches' ? 'max-w-6xl' : 'max-w-3xl'}`}>
       <div className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white/80 p-1 scrollbar-none">
         {(
           [
@@ -774,9 +775,32 @@ export function ResellerProductsPanel() {
                           </button>
                         ) : (
                           <p className="kc-upload-hint mt-4 text-xs">
-                            {b.pending_count ? 'This batch is with KC admin for review.' : 'All items processed.'}
+                            {b.pending_count
+                              ? 'Batch submitted — you can still fix Excel fields below until KC approves.'
+                              : 'All items processed.'}
                           </p>
                         )}
+                        {!batchProductsLoading &&
+                        batchProducts.some(
+                          (p) =>
+                            p.submission_status === 'draft' || p.submission_status === 'pending',
+                        ) ? (
+                          <ResellerBatchExcelEditor
+                            batchId={b.batch_id}
+                            products={batchProducts.filter(
+                              (p) =>
+                                p.submission_status === 'draft' ||
+                                p.submission_status === 'pending',
+                            )}
+                            rates={liveRates}
+                            onSaved={(updated) => {
+                              const byId = new Map(updated.map((r) => [r.id, r]))
+                              setBatchProducts((prev) =>
+                                prev.map((p) => byId.get(p.id) ?? p),
+                              )
+                            }}
+                          />
+                        ) : null}
                         {batchProducts.length > 0 ? (
                           <BatchBulkPhotoUpload
                             batchId={b.batch_id}

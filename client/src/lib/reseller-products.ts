@@ -81,6 +81,9 @@ export type ResellerProductPayload = {
   fixedPrice?: number | string
   stoneCharges?: number | string
   boxCharges?: number | string
+  wastage?: number | string
+  wastage_pct?: number | string
+  'Wastage(%)'?: number | string
   quantity?: number
   itemCode?: string
   attrColor?: string
@@ -182,6 +185,9 @@ export function submissionToPayload(row: ResellerProductSubmission): ResellerPro
     fixedPrice: row.fixed_price ?? undefined,
     stoneCharges: row.stone_charges ?? undefined,
     boxCharges: row.box_charges ?? undefined,
+    wastage: row.wastage_pct ?? undefined,
+    wastage_pct: row.wastage_pct ?? undefined,
+    'Wastage(%)': row.wastage_pct ?? undefined,
     quantity: row.quantity ?? undefined,
     itemCode: row.design_group || undefined,
     attrColor: row.attr_color || undefined,

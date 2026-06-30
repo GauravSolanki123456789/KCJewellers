@@ -1153,6 +1153,36 @@ body {
     color: #57534e;
   }
 
+  .kc-reseller-upload-panel .kc-batch-excel-editor {
+    color: var(--color-jewelry-black, #1a1814);
+  }
+
+  .kc-reseller-upload-panel .kc-batch-grid-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .kc-reseller-upload-panel .kc-batch-sticky-col {
+    position: sticky;
+    left: 0;
+    background: inherit;
+    box-shadow: 2px 0 6px -2px rgba(26, 24, 20, 0.08);
+  }
+
+  .kc-reseller-upload-panel thead .kc-batch-sticky-col {
+    background: var(--color-slate-900, #f7f4ef);
+  }
+
+  .kc-reseller-upload-panel .kc-batch-cell-input,
+  .kc-reseller-upload-panel .kc-batch-cell-input option {
+    color: var(--color-jewelry-black, #1a1814) !important;
+    -webkit-text-fill-color: var(--color-jewelry-black, #1a1814) !important;
+  }
+
+  .kc-reseller-upload-panel .kc-batch-cell-input:focus {
+    background-color: #ffffff !important;
+  }
+
   /* Profile page — readable on reseller light themes */
   .kc-profile-page {
     color: var(--color-jewelry-black, #1a1814);

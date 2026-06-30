@@ -835,6 +835,76 @@ function registerResellerProductRoutes(app, deps) {
         }
     });
 
+    // ---- Reseller: bulk row edit for Excel batch (MCType, weights, wastage, etc.) ----
+    app.put('/api/reseller/product-batches/:batchId/rows', requireResellerUpload, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            if (!batchId) return res.status(400).json({ error: 'batchId required' });
+            const patches = req.body?.rows;
+            if (!Array.isArray(patches) || patches.length === 0) {
+                return res.status(400).json({ error: 'rows array required' });
+            }
+            if (patches.length > 300) {
+                return res.status(400).json({ error: 'Too many rows (max 300 per save)' });
+            }
+            const batchRows = await query(
+                `SELECT * FROM reseller_product_submissions
+                 WHERE batch_id = $1::uuid AND submitted_by_user_id = $2`,
+                [batchId, req.user.id],
+            );
+            if (!batchRows.length) {
+                return res.status(404).json({ error: 'Batch not found' });
+            }
+            const byId = new Map(batchRows.map((r) => [r.id, r]));
+            const updated = [];
+            const errors = [];
+            for (const patch of patches) {
+                const id = parseInt(patch?.id, 10);
+                if (!Number.isFinite(id)) {
+                    errors.push({ id: patch?.id, error: 'Invalid id' });
+                    continue;
+                }
+                const existing = byId.get(id);
+                if (!existing) {
+                    errors.push({ id, error: 'Row not in this batch' });
+                    continue;
+                }
+                const st = existing.submission_status;
+                if (st !== 'draft' && st !== 'pending') {
+                    errors.push({ id, error: `Cannot edit ${st} submission` });
+                    continue;
+                }
+                try {
+                    const { id: _dropId, ...itemPatch } = patch;
+                    const mergedItem = { ...submissionRowToSyncItem(existing), ...itemPatch };
+                    const fields = buildSubmissionFieldsFromItem(mergedItem, req.user.id, batchId);
+                    const sets = [];
+                    const params = [id];
+                    let idx = 2;
+                    for (const [k, v] of Object.entries(fields)) {
+                        if (k === 'submitted_by_user_id') continue;
+                        sets.push(`${k} = $${idx++}`);
+                        params.push(v);
+                    }
+                    sets.push('updated_at = CURRENT_TIMESTAMP');
+                    const rows = await query(
+                        `UPDATE reseller_product_submissions SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+                        params,
+                    );
+                    updated.push(enrichSubmissionRow(rows[0]));
+                } catch (e) {
+                    errors.push({ id, error: e.message });
+                }
+            }
+            if (!updated.length && errors.length) {
+                return res.status(400).json({ error: errors[0].error, errors });
+            }
+            res.json({ success: true, submissions: updated, errors: errors.length ? errors : undefined });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
     // ---- Reseller: bulk photo upload for an Excel batch (match filename stem to web_product_sku) ----
     app.post(
         '/api/reseller/product-batches/:batchId/bulk-photos',
