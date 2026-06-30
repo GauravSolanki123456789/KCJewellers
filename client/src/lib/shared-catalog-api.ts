@@ -63,6 +63,7 @@ export type SharedCatalogPublicProduct = {
   earring_weight?: number
   purity?: number
   mc_rate?: number
+  mc_type?: string
   fixed_price?: number
   stone_charges?: number
   metal_type?: string

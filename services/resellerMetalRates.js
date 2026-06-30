@@ -416,10 +416,10 @@ async function saveResellerRates(userId, body, updatedByUserId, io) {
     };
 }
 
-/** Snapshot rates array for shared catalogue links (creator is reseller). */
-async function getRatesSnapshotForSharedCatalogCreator(userId, liveRateService) {
-    const payload = await getResellerRatesPayloadForUserId(userId);
-    if (payload?.rates) return payload.rates;
+/** Snapshot rates array for shared catalogue links — same source as GET /api/rates/display on kcjewellers.co.in. */
+async function getRatesSnapshotForSharedCatalogCreator(_userId, liveRateService) {
+    const globalPayload = await getGlobalResellerRatesPayload();
+    if (globalPayload?.rates) return globalPayload.rates;
     const global = await liveRateService.getCurrentPayload();
     return global?.rates ?? [];
 }

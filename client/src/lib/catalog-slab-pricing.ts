@@ -182,7 +182,9 @@ export function formatSlabDiscountLines(
       if (Number.isFinite(wr) && wr > 0) lines.push(`Wholesale gold ₹${wr}/g`)
     }
   }
-  if (giftDisc > 0) lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
+  if (giftDisc > 0 && isFixedPriceCatalogItem(item)) {
+    lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
+  }
   return lines
 }
 
