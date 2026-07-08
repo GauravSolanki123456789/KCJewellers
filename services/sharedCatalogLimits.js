@@ -26,6 +26,22 @@ function istDayBoundsUtc() {
     };
 }
 
+/** Resolve analytics window from `period` query (today | 7 | 30 | 90). */
+function analyticsWindow(periodRaw) {
+    const p = String(periodRaw || '30').trim().toLowerCase();
+    if (p === 'today') {
+        const { start, end } = istDayBoundsUtc();
+        return { since: start, until: end, label: 'today', days: 1 };
+    }
+    const days = clampInt(p, 1, 365);
+    return {
+        since: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+        until: null,
+        label: String(days),
+        days,
+    };
+}
+
 async function ensureSharedCatalogLimitColumns(pool) {
     await pool.query(`
         ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_catalog_max_products INTEGER NOT NULL DEFAULT 50;
@@ -175,8 +191,16 @@ async function logSharedCatalogInquiry(query, payload) {
 }
 
 async function getAdminResellerCatalogAnalytics(query, opts = {}) {
-    const days = clampInt(opts.days ?? 30, 1, 365);
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const win = analyticsWindow(opts.period ?? opts.days ?? 30);
+    const since = win.since;
+    const until = win.until;
+    const timeParams = until ? [since, until] : [since];
+    const inquiryTimeSql = until
+        ? 'sci.created_at >= $1 AND sci.created_at <= $2'
+        : 'sci.created_at >= $1';
+    const catalogTimeSql = until
+        ? 'sc.created_at >= $1 AND sc.created_at <= $2'
+        : 'sc.created_at >= $1';
 
     const summary = await query(
         `SELECT
@@ -184,8 +208,8 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
             COUNT(*) FILTER (WHERE expires_at <= NOW())::int AS links_expired,
             COUNT(DISTINCT created_by_user_id)::int AS resellers_active
          FROM shared_catalogs
-         WHERE created_at >= $1`,
-        [since],
+         WHERE ${catalogTimeSql.replace(/\bsc\./g, '')}`,
+        timeParams,
     );
 
     const inquiryAgg = await query(
@@ -194,45 +218,66 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
             COALESCE(SUM(total_pieces), 0)::int AS total_pieces,
             COALESCE(SUM(total_inr), 0)::float AS total_inr
          FROM shared_catalog_inquiries
-         WHERE created_at >= $1`,
-        [since],
+         WHERE ${inquiryTimeSql.replace(/\bsci\./g, '')}`,
+        timeParams,
     );
 
+    // Separate sub-aggregates — never JOIN links + inquiries (Cartesian product inflated totals).
     const byReseller = await query(
         `SELECT
             u.id AS reseller_id,
             COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
             u.custom_domain,
-            COUNT(DISTINCT sc.id)::int AS links_created,
-            COUNT(sci.id)::int AS inquiry_count,
-            COALESCE(SUM(sci.total_pieces), 0)::int AS total_pieces,
-            COALESCE(SUM(sci.total_inr), 0)::float AS total_inr,
-            MAX(sci.created_at) AS last_inquiry_at
+            COALESCE(sc_stats.links_created, 0)::int AS links_created,
+            COALESCE(sci_stats.inquiry_count, 0)::int AS inquiry_count,
+            COALESCE(sci_stats.total_pieces, 0)::int AS total_pieces,
+            COALESCE(sci_stats.total_inr, 0)::float AS total_inr,
+            sci_stats.last_inquiry_at
          FROM users u
-         LEFT JOIN shared_catalogs sc ON sc.created_by_user_id = u.id AND sc.created_at >= $1
-         LEFT JOIN shared_catalog_inquiries sci ON sci.reseller_user_id = u.id AND sci.created_at >= $1
+         LEFT JOIN (
+            SELECT created_by_user_id, COUNT(*)::int AS links_created
+            FROM shared_catalogs
+            WHERE ${catalogTimeSql.replace(/\bsc\./g, '')}
+            GROUP BY created_by_user_id
+         ) sc_stats ON sc_stats.created_by_user_id = u.id
+         LEFT JOIN (
+            SELECT reseller_user_id,
+                   COUNT(*)::int AS inquiry_count,
+                   COALESCE(SUM(total_pieces), 0)::int AS total_pieces,
+                   COALESCE(SUM(total_inr), 0)::float AS total_inr,
+                   MAX(created_at) AS last_inquiry_at
+            FROM shared_catalog_inquiries
+            WHERE ${inquiryTimeSql.replace(/\bsci\./g, '')}
+            GROUP BY reseller_user_id
+         ) sci_stats ON sci_stats.reseller_user_id = u.id
          WHERE UPPER(COALESCE(u.customer_tier, '')) = 'RESELLER'
-         GROUP BY u.id, u.business_name, u.email, u.custom_domain
-         HAVING COUNT(DISTINCT sc.id) > 0 OR COUNT(sci.id) > 0
-         ORDER BY COALESCE(SUM(sci.total_inr), 0) DESC, COUNT(sci.id) DESC`,
-        [since],
+           AND (
+             COALESCE(sc_stats.links_created, 0) > 0
+             OR COALESCE(sci_stats.inquiry_count, 0) > 0
+           )
+         ORDER BY COALESCE(sci_stats.total_inr, 0) DESC, COALESCE(sci_stats.inquiry_count, 0) DESC`,
+        timeParams,
     );
 
     const recentInquiries = await query(
         `SELECT sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
-                sci.line_count, sci.total_pieces, sci.total_inr, sci.created_at,
-                COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label
+                sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
+                sci.catalog_url, sci.created_at,
+                COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
+                u.custom_domain AS reseller_domain
          FROM shared_catalog_inquiries sci
          LEFT JOIN users u ON u.id = sci.reseller_user_id
-         WHERE sci.created_at >= $1
+         WHERE ${inquiryTimeSql}
          ORDER BY sci.created_at DESC
-         LIMIT 100`,
-        [since],
+         LIMIT 200`,
+        timeParams,
     );
 
     return {
-        days,
+        period: win.label,
+        days: win.days,
         since: since.toISOString(),
+        until: until ? until.toISOString() : null,
         summary: {
             linksCreated: summary[0]?.links_created ?? 0,
             linksExpired: summary[0]?.links_expired ?? 0,
@@ -242,8 +287,67 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
             totalInr: inquiryAgg[0]?.total_inr ?? 0,
         },
         byReseller,
-        recentInquiries,
+        recentInquiries: recentInquiries.map((row) => ({
+            ...row,
+            total_inr: row.total_inr != null ? Number(row.total_inr) : null,
+            lines: Array.isArray(row.lines_json)
+                ? row.lines_json
+                : row.lines_json && typeof row.lines_json === 'object'
+                  ? row.lines_json
+                  : [],
+        })),
     };
+}
+
+async function getAdminResellerCatalogInquiries(query, opts = {}) {
+    const win = analyticsWindow(opts.period ?? opts.days ?? 30);
+    const since = win.since;
+    const until = win.until;
+    const params = until ? [since, until] : [since];
+    let paramIdx = params.length + 1;
+    const timeSql = until
+        ? 'sci.created_at >= $1 AND sci.created_at <= $2'
+        : 'sci.created_at >= $1';
+    let resellerFilter = '';
+    if (opts.resellerId != null) {
+        const rid = parseInt(String(opts.resellerId), 10);
+        if (Number.isFinite(rid) && rid > 0) {
+            resellerFilter = ` AND sci.reseller_user_id = $${paramIdx++}`;
+            params.push(rid);
+        }
+    }
+    const limit = clampInt(opts.limit ?? 100, 1, 500);
+    params.push(limit);
+
+    const rows = await query(
+        `SELECT sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
+                sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
+                sci.catalog_url, sci.created_at,
+                COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
+                u.custom_domain AS reseller_domain
+         FROM shared_catalog_inquiries sci
+         LEFT JOIN users u ON u.id = sci.reseller_user_id
+         WHERE ${timeSql}${resellerFilter}
+         ORDER BY sci.created_at DESC
+         LIMIT $${paramIdx}`,
+        params,
+    );
+
+    return rows.map((row) => ({
+        ...row,
+        total_inr: row.total_inr != null ? Number(row.total_inr) : null,
+        lines: Array.isArray(row.lines_json)
+            ? row.lines_json
+            : typeof row.lines_json === 'string'
+              ? (() => {
+                    try {
+                        return JSON.parse(row.lines_json);
+                    } catch {
+                        return [];
+                    }
+                })()
+              : [],
+    }));
 }
 
 module.exports = {
@@ -257,4 +361,6 @@ module.exports = {
     assertResellerCanCreateCatalog,
     logSharedCatalogInquiry,
     getAdminResellerCatalogAnalytics,
+    getAdminResellerCatalogInquiries,
+    analyticsWindow,
 };

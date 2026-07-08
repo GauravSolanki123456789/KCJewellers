@@ -86,6 +86,7 @@ const {
     assertResellerCanCreateCatalog,
     logSharedCatalogInquiry,
     getAdminResellerCatalogAnalytics,
+    getAdminResellerCatalogInquiries,
     PLATFORM_MAX_PRODUCTS,
 } = require('./services/sharedCatalogLimits');
 const {
@@ -7208,12 +7209,30 @@ app.get('/api/reseller/catalog-limits', requireSharedCatalogCreator, async (req,
 app.get('/api/admin/reseller-catalog-analytics', isAdminStrict, async (req, res) => {
     try {
         await ensureSharedCatalogLimitColumns(pool);
-        const days = parseInt(String(req.query.days || '30'), 10) || 30;
-        const data = await getAdminResellerCatalogAnalytics(query, { days });
+        const period = String(req.query.period || req.query.days || '30').trim();
+        const data = await getAdminResellerCatalogAnalytics(query, { period });
         res.json(data);
     } catch (error) {
         console.error('reseller-catalog-analytics:', error);
         res.status(500).json({ error: error.message || 'Failed to load analytics' });
+    }
+});
+
+/** Admin: list individual WhatsApp/PDF shortlist inquiries with line items. */
+app.get('/api/admin/reseller-catalog-inquiries', isAdminStrict, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const period = String(req.query.period || req.query.days || '30').trim();
+        const resellerId = req.query.reseller_id ?? req.query.resellerId;
+        const rows = await getAdminResellerCatalogInquiries(query, {
+            period,
+            resellerId,
+            limit: req.query.limit,
+        });
+        res.json({ inquiries: rows });
+    } catch (error) {
+        console.error('reseller-catalog-inquiries:', error);
+        res.status(500).json({ error: error.message || 'Failed to load inquiries' });
     }
 });
 
