@@ -31,6 +31,13 @@ export type WholesaleUserFields = {
   reseller_product_uploads_enabled?: boolean
   /** Admin enables staff live rate updates at `/reseller/rates`. */
   reseller_rates_update_enabled?: boolean
+  /** Max products per shared catalogue link (0 = unlimited up to platform cap). */
+  reseller_catalog_max_products?: number
+  /** Max catalogue links per IST day (0 = unlimited). */
+  reseller_catalog_daily_limit?: number
+  reseller_catalog_generations_today?: number
+  reseller_catalog_generations_remaining?: number | null
+  reseller_catalog_can_generate?: boolean
   /** Per-slab MC / wastage / gift discounts for shared catalogue (users.reseller_slab_settings). */
   reseller_slab_settings?: import('@/lib/catalog-slab-pricing').ResellerSlabSettings | null
 }

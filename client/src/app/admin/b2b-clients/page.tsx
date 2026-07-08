@@ -92,6 +92,8 @@ type AdminUser = {
   reseller_invite_code?: string | null
   referred_by_user_id?: number | null
   reseller_slab_settings?: ResellerSlabSettings | null
+  reseller_catalog_max_products?: number
+  reseller_catalog_daily_limit?: number
 }
 
 type ThemePick = {
@@ -161,6 +163,8 @@ function B2BAdminContent() {
     reseller_product_uploads_enabled: false,
     reseller_rates_update_enabled: false,
     reseller_invite_code: '',
+    reseller_catalog_max_products: '50',
+    reseller_catalog_daily_limit: '10',
     slab_r: emptySlabTierForm(),
     slab_w: emptySlabTierForm(),
     slab_f: emptySlabTierForm(),
@@ -238,6 +242,12 @@ function B2BAdminContent() {
         reseller_invite_code: resellerModalUser.reseller_invite_code
           ? normalizeResellerInviteCode(resellerModalUser.reseller_invite_code)
           : '',
+        reseller_catalog_max_products: String(
+          resellerModalUser.reseller_catalog_max_products ?? 50,
+        ),
+        reseller_catalog_daily_limit: String(
+          resellerModalUser.reseller_catalog_daily_limit ?? 10,
+        ),
         slab_r: slabTierFormFromSettings(slabParsed.slab_r),
         slab_w: slabTierFormFromSettings(slabParsed.slab_w),
         slab_f: slabTierFormFromSettings(slabParsed.slab_f),
@@ -344,6 +354,14 @@ function B2BAdminContent() {
           slab_w: resellerForm.slab_w,
           slab_f: resellerForm.slab_f,
         }),
+        reseller_catalog_max_products: Math.max(
+          0,
+          Math.min(500, parseInt(resellerForm.reseller_catalog_max_products, 10) || 50),
+        ),
+        reseller_catalog_daily_limit: Math.max(
+          0,
+          Math.min(1000, parseInt(resellerForm.reseller_catalog_daily_limit, 10) || 10),
+        ),
       })
       await load()
       setResellerModalUser(null)
@@ -800,6 +818,46 @@ function B2BAdminContent() {
                     Keyword stored as <code className="text-slate-400">kc_theme_id</code> — applies on this
                     reseller&apos;s custom domain and their temporary shared catalogue pages.
                   </p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-300">Max products per catalogue</span>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                      Selection cap when generating WhatsApp / shared links. Use <strong>0</strong> for unlimited (up to 500).
+                    </p>
+                    <input
+                      type="number"
+                      min={0}
+                      max={500}
+                      className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                      value={resellerForm.reseller_catalog_max_products}
+                      onChange={(e) =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_catalog_max_products: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-300">Max catalogues per day</span>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                      IST calendar day. Use <strong>0</strong> for unlimited generations.
+                    </p>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1000}
+                      className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                      value={resellerForm.reseller_catalog_daily_limit}
+                      onChange={(e) =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_catalog_daily_limit: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">

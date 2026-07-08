@@ -72,6 +72,7 @@ import SharedCatalogImageLightbox, {
   SharedCatalogZoomHint,
   type SharedCatalogLightboxSlide,
 } from '@/components/shared-catalog/SharedCatalogImageLightbox'
+import { logSharedCatalogInquiry } from '@/lib/shared-catalog-inquiries'
 
 const MAX_PIECE_QTY = 99
 
@@ -342,6 +343,32 @@ export default function SharedCatalogClient({
     [groupedRows, rowKeyByRow, selections, includeBoxByKey],
   )
 
+  const logInquiry = useCallback(
+    (source: 'whatsapp' | 'pdf') => {
+      if (!uuid || selectionPicks.length === 0) return
+      const summary = summarizeSharedCatalogPicks(selectionPicks)
+      void logSharedCatalogInquiry(uuid, {
+        source,
+        lineCount: selectionPicks.length,
+        totalPieces: summary.totalPieces,
+        totalInr: hidePricesForLog(payload) ? null : summary.orderTotalInr,
+        lines: selectionPicks.map((pick) => ({
+          name: pick.displayTitle,
+          code: String(pick.row.product.barcode || pick.row.product.sku || pick.key),
+          qty: pick.qty,
+          unitInr: pick.unitTotalInr,
+          lineTotalInr: pick.lineTotalInr,
+        })),
+        catalogUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+      })
+    },
+    [uuid, selectionPicks, payload],
+  )
+
+  function hidePricesForLog(p: SharedCatalogPublicResponse | null): boolean {
+    return !!(p && typeof p === 'object' && 'hidePrices' in p && p.hidePrices)
+  }
+
   const handleSharePicksPdf = useCallback(async () => {
     if (!isLoadedBrochure(payload)) return
     if (selectedCount === 0) return
@@ -425,6 +452,7 @@ export default function SharedCatalogClient({
           fallbackWhatsAppHref: sheetPayload.fallbackWhatsAppHref,
         })
       }
+      logInquiry('pdf')
     } catch (e) {
       console.error(e)
       alert('Could not create the PDF. Check your connection and try again.')
@@ -440,6 +468,7 @@ export default function SharedCatalogClient({
     initialBranding?.kcThemeId,
     giftingGstEnabled,
     slabPayload,
+    logInquiry,
   ])
 
   const handleSharePicks = useCallback(() => {
@@ -476,7 +505,8 @@ export default function SharedCatalogClient({
       hidePrices: !!payload.hidePrices,
     })
     openWhatsAppOrder(wa, msg)
-  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits])
+    logInquiry('whatsapp')
+  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits, logInquiry])
 
   if (loading) {
     return (
@@ -523,7 +553,20 @@ export default function SharedCatalogClient({
   }
 
   if (!isLoadedBrochure(payload)) {
-    return null
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-6 text-center text-slate-100">
+        <p className="text-lg font-medium text-slate-200">Could not open this catalogue.</p>
+        <p className="mt-2 max-w-md text-sm text-slate-400">
+          The link may be invalid or temporarily unavailable. Ask {brandLabel} for a fresh link.
+        </p>
+        <Link
+          href={CATALOG_PATH}
+          className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white"
+        >
+          Browse full catalogue
+        </Link>
+      </div>
+    )
   }
 
   const expiresAt = payload.expiresAt
@@ -642,6 +685,7 @@ export default function SharedCatalogClient({
           <ul className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
             {visibleGroupedRows.map((group) => {
               const activeRow = resolveActiveVariant(group)
+              if (!activeRow) return null
               const key = rowKeyByRow.get(activeRow) ?? group.groupKey
               const qty = selections.get(key) ?? 0
               const selected = qty > 0

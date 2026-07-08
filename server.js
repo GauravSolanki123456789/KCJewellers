@@ -81,6 +81,14 @@ const {
     normalizeDomain,
 } = require('./services/resellerMetalRates');
 const {
+    ensureSharedCatalogLimitColumns,
+    getResellerCatalogLimitStatus,
+    assertResellerCanCreateCatalog,
+    logSharedCatalogInquiry,
+    getAdminResellerCatalogAnalytics,
+    PLATFORM_MAX_PRODUCTS,
+} = require('./services/sharedCatalogLimits');
+const {
     resolveSipMetalRatePerGram,
     gramsFromInstallment,
 } = require('./services/digiInvestRates');
@@ -715,6 +723,15 @@ app.get('/api/auth/current_user', async (req, res) => {
                 );
             }
         }
+        let catalogLimits = null;
+        if (tier === 'RESELLER') {
+            try {
+                await ensureSharedCatalogLimitColumns(pool);
+                catalogLimits = await getResellerCatalogLimitStatus(query, resolvedUser.id);
+            } catch (e) {
+                console.warn('catalog limits:', e.message);
+            }
+        }
         res.json({
             isAuthenticated: true,
             kc_theme_id,
@@ -749,7 +766,16 @@ app.get('/api/auth/current_user', async (req, res) => {
                     : null,
                 account_status: resolvedUser.account_status,
                 allowed_tabs: resolvedUser.allowed_tabs || [],
-                permissions: resolvedUser.permissions || {}
+                permissions: resolvedUser.permissions || {},
+                ...(catalogLimits
+                    ? {
+                          reseller_catalog_max_products: catalogLimits.maxProducts,
+                          reseller_catalog_daily_limit: catalogLimits.dailyLimit,
+                          reseller_catalog_generations_today: catalogLimits.generationsToday,
+                          reseller_catalog_generations_remaining: catalogLimits.generationsRemaining,
+                          reseller_catalog_can_generate: catalogLimits.canGenerate,
+                      }
+                    : {}),
             },
             has_wholesale_access: hasWholesaleCatalogAccess(resolvedUser),
             has_b2b_portal_access: hasB2bWholesalePortalAccess(resolvedUser),
@@ -3733,6 +3759,8 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
+                       COALESCE(reseller_catalog_max_products, 50) AS reseller_catalog_max_products,
+                       COALESCE(reseller_catalog_daily_limit, 10) AS reseller_catalog_daily_limit,
                        reseller_invite_code, referred_by_user_id,
                        created_at, updated_at 
                 FROM users 
@@ -4180,6 +4208,18 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             const parsed = parseResellerSlabSettingsServer(req.body.reseller_slab_settings);
             updates.push(`reseller_slab_settings = $${paramIndex++}::jsonb`);
             params.push(JSON.stringify(parsed));
+        }
+
+        if (req.body.reseller_catalog_max_products !== undefined) {
+            const n = parseInt(String(req.body.reseller_catalog_max_products), 10);
+            updates.push(`reseller_catalog_max_products = $${paramIndex++}`);
+            params.push(Number.isFinite(n) ? Math.max(0, Math.min(PLATFORM_MAX_PRODUCTS, n)) : 50);
+        }
+
+        if (req.body.reseller_catalog_daily_limit !== undefined) {
+            const n = parseInt(String(req.body.reseller_catalog_daily_limit), 10);
+            updates.push(`reseller_catalog_daily_limit = $${paramIndex++}`);
+            params.push(Number.isFinite(n) ? Math.max(0, Math.min(1000, n)) : 10);
         }
 
         if (reseller_invite_code !== undefined) {
@@ -6693,8 +6733,8 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         if (ids.length === 0) {
             return res.status(400).json({ error: 'selectedProductIds is required and must be non-empty' });
         }
-        if (ids.length > 500) {
-            return res.status(400).json({ error: 'Too many products (max 500)' });
+        if (ids.length > PLATFORM_MAX_PRODUCTS) {
+            return res.status(400).json({ error: `Too many products (max ${PLATFORM_MAX_PRODUCTS})` });
         }
         const markup = parseSharedMarkupPct(markupPercentage);
         const discount = parseSharedDiscountPct(discountPercentage);
@@ -6728,6 +6768,21 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         }
 
         const creatorUid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        if (Number.isFinite(creatorUid) && creatorUid > 0) {
+            const creatorTier = String(resolveUserRole(req.user)?.customer_tier || '').toUpperCase();
+            if (creatorTier === 'RESELLER') {
+                try {
+                    await ensureSharedCatalogLimitColumns(pool);
+                    await assertResellerCanCreateCatalog(query, creatorUid, ids.length);
+                } catch (le) {
+                    return res.status(le.status || 403).json({
+                        error: le.message,
+                        code: le.code || 'CATALOG_LIMIT',
+                    });
+                }
+            }
+        }
+
         let slabSettingsSnapshot = {};
         if (Number.isFinite(creatorUid) && creatorUid > 0) {
             try {
@@ -7090,6 +7145,75 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
     } catch (error) {
         console.error('shared-catalog get:', error);
         res.status(500).json({ error: error.message || 'Failed to load shared catalog' });
+    }
+});
+
+/** Public: log customer shortlist handoff (WhatsApp / PDF) from shared brochure — admin analytics. */
+app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async (req, res) => {
+    try {
+        const uuid = String(req.params.uuid || '').trim();
+        if (!UUID_RE.test(uuid)) {
+            return res.status(400).json({ error: 'Invalid catalog id' });
+        }
+        await ensureSharedCatalogLimitColumns(pool);
+        const rows = await query(
+            `SELECT sc.id, sc.created_by_user_id, sc.expires_at
+             FROM shared_catalogs sc WHERE sc.id = $1::uuid`,
+            [uuid],
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Catalog not found' });
+        const row = rows[0];
+        if (new Date(row.expires_at).getTime() <= Date.now()) {
+            return res.status(410).json({ error: 'Catalog link expired' });
+        }
+        const body = req.body || {};
+        const source = String(body.source || 'whatsapp').trim().toLowerCase();
+        if (!['whatsapp', 'pdf'].includes(source)) {
+            return res.status(400).json({ error: 'source must be whatsapp or pdf' });
+        }
+        const lineCount = parseInt(String(body.lineCount ?? body.line_count ?? 0), 10) || 0;
+        const totalPieces = parseInt(String(body.totalPieces ?? body.total_pieces ?? 0), 10) || 0;
+        const totalInr = body.totalInr ?? body.total_inr ?? null;
+        const lines = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
+        const catalogUrl = body.catalogUrl ?? body.catalog_url ?? null;
+        const saved = await logSharedCatalogInquiry(query, {
+            sharedCatalogId: uuid,
+            resellerUserId: row.created_by_user_id,
+            source,
+            lineCount,
+            totalPieces,
+            totalInr,
+            lines,
+            catalogUrl,
+        });
+        res.json({ success: true, id: saved.id, createdAt: saved.created_at });
+    } catch (error) {
+        console.error('shared-catalog inquiry:', error);
+        res.status(500).json({ error: error.message || 'Failed to record inquiry' });
+    }
+});
+
+/** Reseller: current catalogue generation limits + usage today. */
+app.get('/api/reseller/catalog-limits', requireSharedCatalogCreator, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const status = await getResellerCatalogLimitStatus(query, req.user.id);
+        res.json(status);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/** Admin: reseller shared catalogue analytics (links + WhatsApp/PDF inquiries). */
+app.get('/api/admin/reseller-catalog-analytics', isAdminStrict, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const days = parseInt(String(req.query.days || '30'), 10) || 30;
+        const data = await getAdminResellerCatalogAnalytics(query, { days });
+        res.json(data);
+    } catch (error) {
+        console.error('reseller-catalog-analytics:', error);
+        res.status(500).json({ error: error.message || 'Failed to load analytics' });
     }
 });
 

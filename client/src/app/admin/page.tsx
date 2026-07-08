@@ -62,6 +62,12 @@ const ADMIN_GROUPS: { heading: string; items: AdminLink[] }[] = [
         icon: Building2,
       },
       {
+        title: 'Reseller catalogue analytics',
+        description: 'Shared links, WhatsApp/PDF inquiries, quoted pieces & value',
+        href: '/admin/reseller-catalog-analytics',
+        icon: BarChart3,
+      },
+      {
         title: 'Rate bookings',
         description: 'Gold & silver rate-lock bookings',
         href: '/admin/bookings',

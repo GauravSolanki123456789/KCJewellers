@@ -373,28 +373,34 @@ export function buildSharedCatalogPricingRows(
     ? null
     : wholesaleInputFromBrochure(creatorWholesale ?? null)
   const slab = buildSharedCatalogSlabContext(slabPayload ?? null)
-  return products.map((p) => {
-    const item = sharedCatalogProductToItem(p)
-    const price = computeSharedCatalogUnitPrice(
-      item,
-      rates,
-      mk,
-      wholesale,
-      giftingGstEnabled,
-      disc,
-      slab,
-    )
-    return {
-      item,
-      product: p,
-      unitTotalInr: price.unitTotalInr,
-      unitCompareAtInr: price.unitCompareAtInr,
-      discountBadge: price.discountBadge,
-      showInclGst: price.showInclGst,
-      slabDiscountLines: price.slabDiscountLines,
-      savingsInr: price.savingsInr,
-      markupPercentage: mk,
-      discountPercentage: disc,
+  const rows: SharedCatalogPricingRow[] = []
+  for (const p of products) {
+    try {
+      const item = sharedCatalogProductToItem(p)
+      const price = computeSharedCatalogUnitPrice(
+        item,
+        rates,
+        mk,
+        wholesale,
+        giftingGstEnabled,
+        disc,
+        slab,
+      )
+      rows.push({
+        item,
+        product: p,
+        unitTotalInr: Number.isFinite(price.unitTotalInr) ? price.unitTotalInr : 0,
+        unitCompareAtInr: price.unitCompareAtInr,
+        discountBadge: price.discountBadge,
+        showInclGst: price.showInclGst,
+        slabDiscountLines: price.slabDiscountLines,
+        savingsInr: price.savingsInr,
+        markupPercentage: mk,
+        discountPercentage: disc,
+      })
+    } catch (e) {
+      console.warn('shared catalog pricing row skipped', p?.barcode ?? p?.sku, e)
     }
-  })
+  }
+  return rows
 }

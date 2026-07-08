@@ -124,7 +124,11 @@ function resolveBreakdown(
 ): PriceBreakdown | null {
   if (breakdown) return breakdown
   if (rates != null && !isFixedPriceCatalogItem(item)) {
-    return calculateBreakdown(item, rates, item.gst_rate ?? 3)
+    try {
+      return calculateBreakdown(item, rates, item.gst_rate ?? 3)
+    } catch {
+      return null
+    }
   }
   return null
 }

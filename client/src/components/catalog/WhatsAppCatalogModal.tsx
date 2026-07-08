@@ -70,7 +70,7 @@ function findProductsByBarcodes(
 
 export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const { categories, rates, isBootstrapping } = useCatalogData()
-  const { selectedProductIds, clearSelection } = useCatalogBuilder()
+  const { selectedProductIds, clearSelection, catalogLimits, maxSelectable } = useCatalogBuilder()
   const auth = useAuth()
   const { customerTier } = useCustomerTier()
   const { active: brandingActive, businessName: brandingBusinessName } = useResellerBranding()
@@ -191,6 +191,21 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     setShareUrl(null)
     if (selectedProductIds.length === 0) {
       setError('No products selected.')
+      return
+    }
+    if (isReseller && outputFormat === 'temporary_web_link' && !catalogLimits.canGenerate) {
+      setError(
+        `Daily catalogue limit reached (${catalogLimits.dailyLimit} per day). Try again tomorrow or ask KC admin to increase your limit.`,
+      )
+      return
+    }
+    if (
+      isReseller &&
+      maxSelectable != null &&
+      maxSelectable > 0 &&
+      selectedProductIds.length > maxSelectable
+    ) {
+      setError(`You can include at most ${maxSelectable} products per catalogue.`)
       return
     }
     setBusy(true)
@@ -338,6 +353,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     metalsNeeded,
     slabPayloadForPricing,
     giftingGstEnabled,
+    catalogLimits,
+    maxSelectable,
   ])
 
   const copyLink = useCallback(async () => {
