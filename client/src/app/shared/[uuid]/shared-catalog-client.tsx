@@ -110,6 +110,28 @@ function totalSelectedPieces(selections: Map<string, number>): number {
   return n
 }
 
+function patchIncludeBoxByKey(
+  prev: Map<string, boolean>,
+  key: string,
+  value: boolean,
+): Map<string, boolean> {
+  if ((prev.get(key) ?? false) === value) return prev
+  const next = new Map(prev)
+  next.set(key, value)
+  return next
+}
+
+function patchGalleryScrollByKey(
+  prev: Map<string, number | null>,
+  key: string,
+  value: number | null,
+): Map<string, number | null> {
+  if ((prev.get(key) ?? null) === value) return prev
+  const next = new Map(prev)
+  next.set(key, value)
+  return next
+}
+
 export default function SharedCatalogClient({
   initialBranding,
 }: {
@@ -245,6 +267,16 @@ export default function SharedCatalogClient({
         })
         const preferredKey = preferred ? rowKeyByRow.get(preferred) : undefined
         next.set(g.groupKey, preferredKey ?? keys[0] ?? g.groupKey)
+      }
+      if (prev.size === next.size) {
+        let unchanged = true
+        for (const [k, v] of next) {
+          if (prev.get(k) !== v) {
+            unchanged = false
+            break
+          }
+        }
+        if (unchanged) return prev
       }
       return next
     })
@@ -798,17 +830,9 @@ export default function SharedCatalogClient({
                             scrollToIndex={galleryScroll}
                             onActiveIndexChange={(idx) => {
                               if (boxSlideIdx != null && idx === boxSlideIdx) {
-                                setIncludeBoxByKey((prev) => {
-                                  const next = new Map(prev)
-                                  next.set(key, true)
-                                  return next
-                                })
+                                setIncludeBoxByKey((prev) => patchIncludeBoxByKey(prev, key, true))
                               } else if (hasBox) {
-                                setIncludeBoxByKey((prev) => {
-                                  const next = new Map(prev)
-                                  next.set(key, false)
-                                  return next
-                                })
+                                setIncludeBoxByKey((prev) => patchIncludeBoxByKey(prev, key, false))
                               }
                             }}
                           />
@@ -889,23 +913,15 @@ export default function SharedCatalogClient({
                             includeBox={includeBox}
                             showChipPrices={false}
                             onChange={(withBox) => {
-                              setIncludeBoxByKey((prev) => {
-                                const next = new Map(prev)
-                                next.set(key, withBox)
-                                return next
-                              })
+                              setIncludeBoxByKey((prev) => patchIncludeBoxByKey(prev, key, withBox))
                               if (withBox && boxSlideIdx != null) {
-                                setGalleryScrollByKey((prev) => {
-                                  const next = new Map(prev)
-                                  next.set(key, boxSlideIdx)
-                                  return next
-                                })
+                                setGalleryScrollByKey((prev) =>
+                                  patchGalleryScrollByKey(prev, key, boxSlideIdx),
+                                )
                               } else {
-                                setGalleryScrollByKey((prev) => {
-                                  const next = new Map(prev)
-                                  next.set(key, 0)
-                                  return next
-                                })
+                                setGalleryScrollByKey((prev) =>
+                                  patchGalleryScrollByKey(prev, key, 0),
+                                )
                               }
                             }}
                             density="card"

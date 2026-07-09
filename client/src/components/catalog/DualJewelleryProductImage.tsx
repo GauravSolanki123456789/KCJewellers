@@ -160,6 +160,11 @@ export default function DualJewelleryProductImage({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const touchRef = useRef({ x: 0, y: 0, moved: false, axis: null as "x" | "y" | null });
+  const onActiveIndexChangeRef = useRef(onActiveIndexChange);
+
+  useEffect(() => {
+    onActiveIndexChangeRef.current = onActiveIndexChange;
+  }, [onActiveIndexChange]);
 
   const [primErr, setPrimErr] = useState(false);
   const [secErr, setSecErr] = useState(false);
@@ -245,8 +250,8 @@ export default function DualJewelleryProductImage({
   }, [primarySrc, secondaryNorm, boxNorm, videoNorm]);
 
   useEffect(() => {
-    onActiveIndexChange?.(mobileIdx);
-  }, [mobileIdx, onActiveIndexChange]);
+    onActiveIndexChangeRef.current?.(mobileIdx);
+  }, [mobileIdx]);
 
   useEffect(() => {
     if (scrollToIndex == null || scrollToIndex < 0) return;
@@ -433,11 +438,11 @@ export default function DualJewelleryProductImage({
           className="absolute inset-0 z-[3] hidden md:block"
           onMouseEnter={() => {
             setHoverBack(true);
-            onActiveIndexChange?.(1);
+            onActiveIndexChangeRef.current?.(1);
           }}
           onMouseLeave={() => {
             setHoverBack(false);
-            onActiveIndexChange?.(0);
+            onActiveIndexChangeRef.current?.(0);
           }}
         >
           <div
