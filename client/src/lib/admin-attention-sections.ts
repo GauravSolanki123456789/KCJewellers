@@ -12,6 +12,7 @@ export const ADMIN_ATTENTION_SECTION_KEY = {
   customer_insights: 'customer_insights',
   reseller_applications: 'reseller_applications',
   reseller_product_submissions: 'reseller_product_submissions',
+  reseller_catalog_inquiries: 'reseller_catalog_inquiries',
 } as const
 
 export type AdminAttentionSectionKey =
@@ -27,5 +28,7 @@ export function getAdminAttentionSectionKeyFromPathname(pathname: string | null)
   if (pathname.startsWith('/admin/insights')) return ADMIN_ATTENTION_SECTION_KEY.customer_insights
   if (pathname.startsWith('/admin/b2b-clients')) return ADMIN_ATTENTION_SECTION_KEY.reseller_applications
   if (pathname.startsWith('/admin/products')) return ADMIN_ATTENTION_SECTION_KEY.reseller_product_submissions
+  if (pathname.startsWith('/admin/reseller-catalog-analytics'))
+    return ADMIN_ATTENTION_SECTION_KEY.reseller_catalog_inquiries
   return null
 }

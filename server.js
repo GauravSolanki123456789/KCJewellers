@@ -87,6 +87,9 @@ const {
     logSharedCatalogInquiry,
     getAdminResellerCatalogAnalytics,
     getAdminResellerCatalogInquiries,
+    updateSharedCatalogInquiryStatus,
+    countCatalogInquiriesAttention,
+    getResellerCatalogInquiriesSummary,
     PLATFORM_MAX_PRODUCTS,
 } = require('./services/sharedCatalogLimits');
 const {
@@ -6039,6 +6042,7 @@ const KC_ADMIN_ATTENTION_SECTION_KEYS = new Set([
     'customer_insights',
     'reseller_applications',
     'reseller_product_submissions',
+    'reseller_catalog_inquiries',
 ]);
 
 async function loadAdminAttentionLastSeenMap(userId) {
@@ -6095,6 +6099,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
         const seenInsights = seenMap.customer_insights || null;
         const seenResellerApps = seenMap.reseller_applications || null;
         const seenResellerProducts = seenMap.reseller_product_submissions || null;
+        const seenResellerCatalog = seenMap.reseller_catalog_inquiries || null;
 
         const insightsUserExclusion = `LOWER(TRIM(COALESCE(email, ''))) <> 'jaigaurav56789@gmail.com' AND COALESCE(role, '') NOT IN ('admin', 'super_admin')`;
 
@@ -6108,6 +6113,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             activityRows,
             resellerAppPendingRows,
             resellerProductPendingRows,
+            resellerCatalogPendingRows,
         ] = await Promise.all([
             query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'B2B_WHOLESALE' AND payment_status = 'PENDING_APPROVAL'`),
             query(`SELECT COUNT(*)::int AS n FROM orders WHERE order_channel = 'RETAIL' AND payment_status = 'PENDING'`),
@@ -6118,6 +6124,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             query(`SELECT COUNT(*)::int AS n FROM user_activity_logs WHERE created_at >= NOW() - INTERVAL '24 hours'`),
             query(`SELECT COUNT(*)::int AS n FROM reseller_applications WHERE application_status = 'pending'`).catch(() => [{ n: 0 }]),
             query(`SELECT COUNT(*)::int AS n FROM reseller_product_submissions WHERE submission_status = 'pending'`).catch(() => [{ n: 0 }]),
+            query(`SELECT COUNT(*)::int AS n FROM shared_catalog_inquiries WHERE inquiry_status = 'pending' AND created_at >= NOW() - INTERVAL '30 days'`).catch(() => [{ n: 0 }]),
         ]);
 
         const b2bOrdersPendingApproval = Number(b2bRows[0]?.n || 0);
@@ -6129,6 +6136,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
         const customerActivityEvents24h = Number(activityRows[0]?.n || 0);
         const resellerApplicationsPending = Number(resellerAppPendingRows[0]?.n || 0);
         const resellerProductSubmissionsPending = Number(resellerProductPendingRows[0]?.n || 0);
+        const resellerCatalogInquiriesPending = Number(resellerCatalogPendingRows[0]?.n || 0);
 
         let insightsAttentionOperational = newCustomersLast7Days;
         if (insightsAttentionOperational === 0 && customerActivityEvents24h > 0) {
@@ -6213,6 +6221,8 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             ).catch(() => [{ n: resellerProductSubmissionsPending }]);
         const resellerProductSubmissionsUnread = Number(resellerProductUnreadRows[0]?.n || 0);
 
+        const resellerCatalogUnread = await countCatalogInquiriesAttention(query, seenResellerCatalog).catch(() => resellerCatalogInquiriesPending);
+
         const insights = {
             newSignupsLast7Days: newCustomersLast7Days,
             hasVisitorActivity24h: customerActivityEvents24h > 0,
@@ -6229,6 +6239,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             '/admin/orders': retailOrdersUnread,
             '/admin/orders/b2b': b2bOrdersUnread,
             '/admin/b2b-clients': resellerApplicationsUnread,
+            '/admin/reseller-catalog-analytics': resellerCatalogUnread,
             '/admin/promos': 0,
             '/admin/insights': insightsUnread,
             '/admin/developer': 0,
@@ -6241,7 +6252,8 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             sipPayoutsPending +
             rateBookingsRecentBooked +
             resellerApplicationsPending +
-            resellerProductSubmissionsPending;
+            resellerProductSubmissionsPending +
+            resellerCatalogInquiriesPending;
 
         const unreadSum =
             retailOrdersUnread +
@@ -6250,7 +6262,8 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
             rateBookingsUnread +
             insightsUnread +
             resellerApplicationsUnread +
-            resellerProductSubmissionsUnread;
+            resellerProductSubmissionsUnread +
+            resellerCatalogUnread;
         const navAttentionCount = Math.min(99, unreadSum);
 
         res.json({
@@ -6266,6 +6279,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
                     customerActivityEvents24h,
                     resellerApplicationsPending,
                     resellerProductSubmissionsPending,
+                    resellerCatalogInquiriesPending,
                 },
                 insights,
                 badgesByHref,
@@ -6279,6 +6293,7 @@ app.get('/api/admin/inbox-summary', async (req, res) => {
                     customer_insights: insightsUnread,
                     reseller_applications: resellerApplicationsUnread,
                     reseller_product_submissions: resellerProductSubmissionsUnread,
+                    reseller_catalog_inquiries: resellerCatalogUnread,
                 },
                 generatedAt: new Date().toISOString(),
             },
@@ -7210,11 +7225,27 @@ app.get('/api/admin/reseller-catalog-analytics', isAdminStrict, async (req, res)
     try {
         await ensureSharedCatalogLimitColumns(pool);
         const period = String(req.query.period || req.query.days || '30').trim();
-        const data = await getAdminResellerCatalogAnalytics(query, { period });
+        const resellerId = req.query.reseller_id ?? req.query.resellerId ?? null;
+        const data = await getAdminResellerCatalogAnalytics(query, { period, resellerId });
         res.json(data);
     } catch (error) {
         console.error('reseller-catalog-analytics:', error);
         res.status(500).json({ error: error.message || 'Failed to load analytics' });
+    }
+});
+
+/** Admin: update inquiry workflow status. */
+app.patch('/api/admin/reseller-catalog-inquiries/:id/status', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const id = req.params.id;
+        const status = req.body?.status ?? req.body?.inquiry_status;
+        const note = req.body?.note ?? req.body?.status_note;
+        const row = await updateSharedCatalogInquiryStatus(query, id, status, { note });
+        res.json({ success: true, inquiry: row });
+    } catch (error) {
+        const code = error.status || 500;
+        res.status(code).json({ error: error.message || 'Failed to update status' });
     }
 });
 
@@ -7233,6 +7264,38 @@ app.get('/api/admin/reseller-catalog-inquiries', isAdminStrict, async (req, res)
     } catch (error) {
         console.error('reseller-catalog-inquiries:', error);
         res.status(500).json({ error: error.message || 'Failed to load inquiries' });
+    }
+});
+
+/** Reseller: own catalogue WhatsApp/PDF inquiries + summary. */
+app.get('/api/reseller/catalog-inquiries', requireSharedCatalogCreator, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const period = String(req.query.period || req.query.days || '30').trim();
+        const data = await getResellerCatalogInquiriesSummary(query, req.user.id, {
+            period,
+            limit: req.query.limit,
+        });
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to load inquiries' });
+    }
+});
+
+/** Reseller: mark own inquiry completed / no sale / pending. */
+app.patch('/api/reseller/catalog-inquiries/:id/status', requireSharedCatalogCreator, requireJson, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const status = req.body?.status ?? req.body?.inquiry_status;
+        const note = req.body?.note ?? req.body?.status_note;
+        const row = await updateSharedCatalogInquiryStatus(query, req.params.id, status, {
+            note,
+            resellerUserId: req.user.id,
+        });
+        res.json({ success: true, inquiry: row });
+    } catch (error) {
+        const code = error.status || 500;
+        res.status(code).json({ error: error.message || 'Failed to update status' });
     }
 });
 

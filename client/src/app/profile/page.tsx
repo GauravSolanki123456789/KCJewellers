@@ -14,6 +14,7 @@ import {
   PROFILE_SIPS_PATH,
   RESELLER_PRODUCTS_PATH,
   RESELLER_RATES_PATH,
+  RESELLER_INQUIRIES_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -37,6 +38,7 @@ import {
   ReceiptIndianRupee,
   Truck,
   Upload,
+  ShoppingBag,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -269,7 +271,17 @@ function ProfilePageContent() {
                     primary
                   />
                 ) : null}
-                {isReseller ? <ResellerInvitePanel embedded /> : null}
+                {isReseller ? (
+                  <>
+                    <ProfileActionCard
+                      href={RESELLER_INQUIRIES_PATH}
+                      icon={ShoppingBag}
+                      title="Catalogue inquiries"
+                      subtitle="WhatsApp & PDF shortlists — mark completed sales or no sale"
+                    />
+                    <ResellerInvitePanel embedded />
+                  </>
+                ) : null}
               </section>
             )}
 

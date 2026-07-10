@@ -5,6 +5,15 @@ const PLATFORM_MAX_PRODUCTS = 500;
 const DEFAULT_MAX_PRODUCTS = 50;
 const DEFAULT_DAILY_LIMIT = 10;
 
+const INQUIRY_STATUS = {
+    PENDING: 'pending',
+    COMPLETED: 'completed',
+    NO_SALE: 'no_sale',
+};
+
+/** Count in quoted totals — excludes no_sale. */
+const COUNTABLE_INQUIRY_STATUS_SQL = `COALESCE(inquiry_status, 'pending') IN ('pending', 'completed')`;
+
 function clampInt(n, lo, hi) {
     const v = parseInt(String(n), 10);
     if (!Number.isFinite(v)) return lo;
@@ -65,6 +74,43 @@ async function ensureSharedCatalogLimitColumns(pool) {
         CREATE INDEX IF NOT EXISTS idx_shared_catalog_inquiries_catalog
             ON shared_catalog_inquiries (shared_catalog_id);
     `);
+    await pool.query(`
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS inquiry_status VARCHAR(24) NOT NULL DEFAULT 'pending';
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS status_note TEXT;
+    `);
+}
+
+function normalizeInquiryStatus(raw) {
+    const s = String(raw || INQUIRY_STATUS.PENDING).trim().toLowerCase();
+    if (s === INQUIRY_STATUS.COMPLETED) return INQUIRY_STATUS.COMPLETED;
+    if (s === INQUIRY_STATUS.NO_SALE) return INQUIRY_STATUS.NO_SALE;
+    return INQUIRY_STATUS.PENDING;
+}
+
+function mapInquiryRow(row) {
+    if (!row) return row;
+    return {
+        ...row,
+        inquiry_status: normalizeInquiryStatus(row.inquiry_status),
+        total_inr: row.total_inr != null ? Number(row.total_inr) : null,
+        lines: Array.isArray(row.lines_json)
+            ? row.lines_json
+            : row.lines_json && typeof row.lines_json === 'object'
+              ? row.lines_json
+              : typeof row.lines_json === 'string'
+                ? (() => {
+                      try {
+                          return JSON.parse(row.lines_json);
+                      } catch {
+                          return [];
+                      }
+                  })()
+                : [],
+    };
 }
 
 function resolveResellerCatalogLimits(userRow) {
@@ -214,9 +260,12 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
 
     const inquiryAgg = await query(
         `SELECT
-            COUNT(*)::int AS inquiry_count,
-            COALESCE(SUM(total_pieces), 0)::int AS total_pieces,
-            COALESCE(SUM(total_inr), 0)::float AS total_inr
+            COUNT(*) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL})::int AS inquiry_count,
+            COUNT(*) FILTER (WHERE inquiry_status = 'completed')::int AS completed_count,
+            COALESCE(SUM(total_pieces) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL}), 0)::int AS total_pieces,
+            COALESCE(SUM(total_inr) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL}), 0)::float AS total_inr,
+            COALESCE(SUM(total_inr) FILTER (WHERE inquiry_status = 'completed'), 0)::float AS completed_inr,
+            COUNT(*) FILTER (WHERE inquiry_status = 'no_sale')::int AS no_sale_count
          FROM shared_catalog_inquiries
          WHERE ${inquiryTimeSql.replace(/\bsci\./g, '')}`,
         timeParams,
@@ -230,8 +279,10 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
             u.custom_domain,
             COALESCE(sc_stats.links_created, 0)::int AS links_created,
             COALESCE(sci_stats.inquiry_count, 0)::int AS inquiry_count,
+            COALESCE(sci_stats.completed_count, 0)::int AS completed_count,
             COALESCE(sci_stats.total_pieces, 0)::int AS total_pieces,
             COALESCE(sci_stats.total_inr, 0)::float AS total_inr,
+            COALESCE(sci_stats.completed_inr, 0)::float AS completed_inr,
             sci_stats.last_inquiry_at
          FROM users u
          LEFT JOIN (
@@ -242,9 +293,11 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
          ) sc_stats ON sc_stats.created_by_user_id = u.id
          LEFT JOIN (
             SELECT reseller_user_id,
-                   COUNT(*)::int AS inquiry_count,
-                   COALESCE(SUM(total_pieces), 0)::int AS total_pieces,
-                   COALESCE(SUM(total_inr), 0)::float AS total_inr,
+                   COUNT(*) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL})::int AS inquiry_count,
+                   COUNT(*) FILTER (WHERE inquiry_status = 'completed')::int AS completed_count,
+                   COALESCE(SUM(total_pieces) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL}), 0)::int AS total_pieces,
+                   COALESCE(SUM(total_inr) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL}), 0)::float AS total_inr,
+                   COALESCE(SUM(total_inr) FILTER (WHERE inquiry_status = 'completed'), 0)::float AS completed_inr,
                    MAX(created_at) AS last_inquiry_at
             FROM shared_catalog_inquiries
             WHERE ${inquiryTimeSql.replace(/\bsci\./g, '')}
@@ -262,7 +315,8 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
     const recentInquiries = await query(
         `SELECT sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
                 sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
-                sci.catalog_url, sci.created_at,
+                sci.catalog_url, sci.created_at, sci.inquiry_status, sci.status_updated_at,
+                sci.status_note,
                 COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
                 u.custom_domain AS reseller_domain
          FROM shared_catalog_inquiries sci
@@ -272,6 +326,29 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
          LIMIT 200`,
         timeParams,
     );
+
+    let resellerDetail = null;
+    const filterResellerId = parseInt(String(opts.resellerId ?? ''), 10);
+    if (Number.isFinite(filterResellerId) && filterResellerId > 0) {
+        const urows = await query(
+            `SELECT id, COALESCE(NULLIF(TRIM(business_name), ''), email) AS reseller_label, custom_domain
+             FROM users WHERE id = $1`,
+            [filterResellerId],
+        );
+        const row = byReseller.find((r) => Number(r.reseller_id) === filterResellerId);
+        resellerDetail = {
+            resellerId: filterResellerId,
+            resellerLabel: urows[0]?.reseller_label ?? row?.reseller_label ?? 'Reseller',
+            customDomain: urows[0]?.custom_domain ?? row?.custom_domain ?? null,
+            linksCreated: row?.links_created ?? 0,
+            inquiryCount: row?.inquiry_count ?? 0,
+            completedCount: row?.completed_count ?? 0,
+            totalPieces: row?.total_pieces ?? 0,
+            totalInr: row?.total_inr ?? 0,
+            completedInr: row?.completed_inr ?? 0,
+            lastInquiryAt: row?.last_inquiry_at ?? null,
+        };
+    }
 
     return {
         period: win.label,
@@ -283,19 +360,20 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
             linksExpired: summary[0]?.links_expired ?? 0,
             resellersActive: summary[0]?.resellers_active ?? 0,
             inquiryCount: inquiryAgg[0]?.inquiry_count ?? 0,
+            completedCount: inquiryAgg[0]?.completed_count ?? 0,
             totalPieces: inquiryAgg[0]?.total_pieces ?? 0,
             totalInr: inquiryAgg[0]?.total_inr ?? 0,
+            completedInr: inquiryAgg[0]?.completed_inr ?? 0,
+            noSaleCount: inquiryAgg[0]?.no_sale_count ?? 0,
         },
         byReseller,
-        recentInquiries: recentInquiries.map((row) => ({
-            ...row,
-            total_inr: row.total_inr != null ? Number(row.total_inr) : null,
-            lines: Array.isArray(row.lines_json)
-                ? row.lines_json
-                : row.lines_json && typeof row.lines_json === 'object'
-                  ? row.lines_json
-                  : [],
-        })),
+        resellerDetail,
+        recentInquiries: recentInquiries
+            .filter((row) => {
+                if (!Number.isFinite(filterResellerId) || filterResellerId <= 0) return true;
+                return Number(row.reseller_user_id) === filterResellerId;
+            })
+            .map(mapInquiryRow),
     };
 }
 
@@ -322,7 +400,8 @@ async function getAdminResellerCatalogInquiries(query, opts = {}) {
     const rows = await query(
         `SELECT sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
                 sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
-                sci.catalog_url, sci.created_at,
+                sci.catalog_url, sci.created_at, sci.inquiry_status, sci.status_updated_at,
+                sci.status_note,
                 COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
                 u.custom_domain AS reseller_domain
          FROM shared_catalog_inquiries sci
@@ -333,21 +412,97 @@ async function getAdminResellerCatalogInquiries(query, opts = {}) {
         params,
     );
 
-    return rows.map((row) => ({
-        ...row,
-        total_inr: row.total_inr != null ? Number(row.total_inr) : null,
-        lines: Array.isArray(row.lines_json)
-            ? row.lines_json
-            : typeof row.lines_json === 'string'
-              ? (() => {
-                    try {
-                        return JSON.parse(row.lines_json);
-                    } catch {
-                        return [];
-                    }
-                })()
-              : [],
-    }));
+    return rows.map(mapInquiryRow);
+}
+
+async function updateSharedCatalogInquiryStatus(query, inquiryId, status, opts = {}) {
+    const id = parseInt(String(inquiryId), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+        const err = new Error('Invalid inquiry id');
+        err.status = 400;
+        throw err;
+    }
+    const normalized = normalizeInquiryStatus(status);
+    const note =
+        opts.note != null && String(opts.note).trim()
+            ? String(opts.note).trim().slice(0, 500)
+            : null;
+    let ownerFilter = '';
+    const params = [normalized, note, id];
+    if (opts.resellerUserId != null) {
+        ownerFilter = ' AND reseller_user_id = $4';
+        params.push(parseInt(String(opts.resellerUserId), 10));
+    }
+    const rows = await query(
+        `UPDATE shared_catalog_inquiries
+         SET inquiry_status = $1,
+             status_note = COALESCE($2, status_note),
+             status_updated_at = NOW()
+         WHERE id = $3${ownerFilter}
+         RETURNING id, inquiry_status, status_updated_at, status_note, reseller_user_id`,
+        params,
+    );
+    if (!rows.length) {
+        const err = new Error('Inquiry not found');
+        err.status = 404;
+        throw err;
+    }
+    return rows[0];
+}
+
+async function countCatalogInquiriesAttention(query, since = null) {
+    const base = `SELECT COUNT(*)::int AS n FROM shared_catalog_inquiries
+                  WHERE inquiry_status = 'pending' AND created_at >= NOW() - INTERVAL '30 days'`;
+    if (since) {
+        const rows = await query(`${base} AND created_at > $1`, [since]);
+        return rows[0]?.n ?? 0;
+    }
+    const rows = await query(base);
+    return rows[0]?.n ?? 0;
+}
+
+async function getResellerCatalogInquiriesSummary(query, resellerUserId, opts = {}) {
+    const win = analyticsWindow(opts.period ?? opts.days ?? 30);
+    const since = win.since;
+    const until = win.until;
+    const params = until ? [since, until, resellerUserId] : [since, resellerUserId];
+    const timeSql = until
+        ? 'created_at >= $1 AND created_at <= $2 AND reseller_user_id = $3'
+        : 'created_at >= $1 AND reseller_user_id = $2';
+
+    const agg = await query(
+        `SELECT
+            COUNT(*) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL})::int AS inquiry_count,
+            COUNT(*) FILTER (WHERE inquiry_status = 'completed')::int AS completed_count,
+            COUNT(*) FILTER (WHERE inquiry_status = 'pending')::int AS pending_count,
+            COALESCE(SUM(total_pieces) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL}), 0)::int AS total_pieces,
+            COALESCE(SUM(total_inr) FILTER (WHERE ${COUNTABLE_INQUIRY_STATUS_SQL}), 0)::float AS quoted_inr,
+            COALESCE(SUM(total_inr) FILTER (WHERE inquiry_status = 'completed'), 0)::float AS completed_inr
+         FROM shared_catalog_inquiries
+         WHERE ${timeSql}`,
+        params,
+    );
+
+    const inquiries = await getAdminResellerCatalogInquiries(query, {
+        period: opts.period ?? opts.days ?? 30,
+        resellerId: resellerUserId,
+        limit: opts.limit ?? 100,
+    });
+
+    return {
+        period: win.label,
+        since: since.toISOString(),
+        until: until ? until.toISOString() : null,
+        summary: {
+            inquiryCount: agg[0]?.inquiry_count ?? 0,
+            completedCount: agg[0]?.completed_count ?? 0,
+            pendingCount: agg[0]?.pending_count ?? 0,
+            totalPieces: agg[0]?.total_pieces ?? 0,
+            quotedInr: agg[0]?.quoted_inr ?? 0,
+            completedInr: agg[0]?.completed_inr ?? 0,
+        },
+        inquiries,
+    };
 }
 
 module.exports = {
@@ -362,5 +517,10 @@ module.exports = {
     logSharedCatalogInquiry,
     getAdminResellerCatalogAnalytics,
     getAdminResellerCatalogInquiries,
+    updateSharedCatalogInquiryStatus,
+    countCatalogInquiriesAttention,
+    getResellerCatalogInquiriesSummary,
     analyticsWindow,
+    INQUIRY_STATUS,
+    normalizeInquiryStatus,
 };

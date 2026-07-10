@@ -212,6 +212,10 @@ function InboxSummaryStrip({ inbox }: { inbox: AdminInboxSummaryData | null }) {
     parts.push(`${c.sipPayoutsPending} payout${c.sipPayoutsPending === 1 ? '' : 's'}`)
   if (c.rateBookingsRecentBooked > 0)
     parts.push(`${c.rateBookingsRecentBooked} booking${c.rateBookingsRecentBooked === 1 ? '' : 's'} (7d)`)
+  if (c.resellerCatalogInquiriesPending > 0)
+    parts.push(
+      `${c.resellerCatalogInquiriesPending} catalogue inquir${c.resellerCatalogInquiriesPending === 1 ? 'y' : 'ies'}`,
+    )
   if (c.resellerApplicationsPending > 0)
     parts.push(
       `${c.resellerApplicationsPending} reseller application${c.resellerApplicationsPending === 1 ? '' : 's'}`,

@@ -32,6 +32,8 @@ export const JOIN_RESELLER_PATH = '/join-reseller'
 export const RESELLER_PRODUCTS_PATH = '/reseller/products'
 /** RESELLER tier — staff update silver + gold live rates (per custom domain storefront). */
 export const RESELLER_RATES_PATH = '/reseller/rates'
+/** RESELLER tier — WhatsApp/PDF shortlist inquiries from shared catalogues. */
+export const RESELLER_INQUIRIES_PATH = '/reseller/inquiries'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const
