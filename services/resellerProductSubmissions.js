@@ -230,6 +230,103 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
     };
 }
 
+/** When size/barcode changes, retire the previous live `web_products` row so only one variant shows. */
+async function deactivateSupersededWebProductSku(query, oldSku, newSku) {
+    const prev = String(oldSku || '').trim();
+    const next = String(newSku || '').trim();
+    if (!prev || !next || prev.toLowerCase() === next.toLowerCase()) return;
+    await query(
+        `UPDATE web_products
+         SET is_active = false, updated_at = CURRENT_TIMESTAMP
+         WHERE (LOWER(TRIM(sku)) = LOWER($1) OR LOWER(TRIM(barcode)) = LOWER($1))
+           AND (is_active IS NULL OR is_active = true)`,
+        [prev],
+    );
+}
+
+/** One submission = one live sku — retire siblings after size/barcode edits. */
+async function deactivateSiblingSkusForSubmission(query, submissionId, keepSku) {
+    const sid = parseInt(String(submissionId), 10);
+    const keep = String(keepSku || '').trim();
+    if (!Number.isFinite(sid) || sid <= 0 || !keep) return;
+    await query(
+        `UPDATE web_products
+         SET is_active = false, updated_at = CURRENT_TIMESTAMP
+         WHERE reseller_submission_id = $1
+           AND LOWER(TRIM(sku)) <> LOWER($2)
+           AND (is_active IS NULL OR is_active = true)`,
+        [sid, keep],
+    );
+}
+
+const PRODUCT_MEDIA_IMAGE_EXTS = ['.webp', '.jpg', '.jpeg', '.png', '.gif'];
+const PRODUCT_MEDIA_VIDEO_EXTS = ['.mp4', '.webm', '.mov'];
+
+/** Move on-disk photos/videos when variant stem changes (e.g. size 8.5 → 8). */
+function renameProductMediaStem(uploadsDir, oldStem, newStem) {
+    const oldS = String(oldStem || '').trim();
+    const newS = String(newStem || '').trim();
+    if (!oldS || !newS || oldS.toLowerCase() === newS.toLowerCase()) return;
+    const pairs = [
+        { suf: '', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_secondary', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_box', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_video', exts: PRODUCT_MEDIA_VIDEO_EXTS },
+    ];
+    for (const { suf, exts } of pairs) {
+        for (const ext of exts) {
+            const from = path.join(uploadsDir, `${oldS}${suf}${ext}`);
+            const to = path.join(uploadsDir, `${newS}${suf}${ext}`);
+            if (!fs.existsSync(from)) continue;
+            if (fs.existsSync(to)) fs.unlinkSync(to);
+            fs.renameSync(from, to);
+        }
+    }
+}
+
+function rewriteMediaUrlStem(url, oldStem, newStem) {
+    const u = String(url || '');
+    const o = String(oldStem || '');
+    const n = String(newStem || '');
+    if (!u || !o || !n || o.toLowerCase() === n.toLowerCase()) return u;
+    return u.split(o).join(n);
+}
+
+function applyVariantStemChangeToFields(fields, existingRow, resolved, uploadsDir) {
+    const oldStem = String(existingRow.web_product_sku || '').trim();
+    const newStem = String(resolved.prodSku || '').trim();
+    if (!oldStem || !newStem || oldStem.toLowerCase() === newStem.toLowerCase()) return;
+    renameProductMediaStem(uploadsDir, oldStem, newStem);
+    if (fields.image_url) fields.image_url = rewriteMediaUrlStem(fields.image_url, oldStem, newStem);
+    if (fields.secondary_image_url) {
+        fields.secondary_image_url = rewriteMediaUrlStem(fields.secondary_image_url, oldStem, newStem);
+    }
+    if (fields.box_image_url) {
+        fields.box_image_url = rewriteMediaUrlStem(fields.box_image_url, oldStem, newStem);
+    }
+    if (fields.video_url) fields.video_url = rewriteMediaUrlStem(fields.video_url, oldStem, newStem);
+}
+
+async function syncLiveProductAfterResellerEdit(deps, existingRow, updatedRow, resolved) {
+    const { query } = deps;
+    const oldStem = String(existingRow.web_product_sku || '').trim();
+    const newStem = String(resolved.prodSku || updatedRow.web_product_sku || '').trim();
+    if (!newStem) return;
+
+    if (oldStem && newStem && oldStem.toLowerCase() !== newStem.toLowerCase()) {
+        await deactivateSupersededWebProductSku(query, oldStem, newStem);
+    }
+    if (updatedRow.id) {
+        await deactivateSiblingSkusForSubmission(query, updatedRow.id, newStem);
+    }
+
+    await upsertWebProductFromSyncItem(deps, submissionRowToSyncItem(updatedRow), {
+        submittedByUserId: updatedRow.submitted_by_user_id,
+        resellerSubmissionId: updatedRow.id,
+        publishCategory: true,
+    });
+}
+
 async function loadResellerUploadUser(query, userId) {
     try {
         const rows = await query(
@@ -810,6 +907,9 @@ function registerResellerProductRoutes(app, deps) {
                 fs.renameSync(path.join(uploadsWebProductsDir, video.filename), path.join(uploadsWebProductsDir, target));
                 fields.video_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
+            if (isLiveEdit) {
+                applyVariantStemChangeToFields(fields, existing[0], resolved, uploadsWebProductsDir);
+            }
             const sets = [];
             const params = [id];
             let idx = 2;
@@ -824,11 +924,12 @@ function registerResellerProductRoutes(app, deps) {
                 params,
             );
             if (isLiveEdit && rows[0]?.web_product_sku) {
-                await upsertWebProductFromSyncItem(upsertDeps, submissionRowToSyncItem(rows[0]), {
-                    submittedByUserId: rows[0].submitted_by_user_id,
-                    resellerSubmissionId: rows[0].id,
-                    publishCategory: true,
-                });
+                await syncLiveProductAfterResellerEdit(
+                    { ...upsertDeps, uploadsWebProductsDir, getPublicApiBaseUrl },
+                    existing[0],
+                    rows[0],
+                    resolved,
+                );
             }
             res.json({ success: true, submission: enrichSubmissionRow(rows[0]) });
         } catch (e) {
@@ -1255,6 +1356,9 @@ function registerResellerProductRoutes(app, deps) {
                 fs.renameSync(path.join(uploadsWebProductsDir, secondary.filename), path.join(uploadsWebProductsDir, target));
                 fields.secondary_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
+            if (existing[0].submission_status === 'approved') {
+                applyVariantStemChangeToFields(fields, existing[0], resolved, uploadsWebProductsDir);
+            }
             const sets = [];
             const params = [id];
             let idx = 2;
@@ -1273,11 +1377,12 @@ function registerResellerProductRoutes(app, deps) {
                 params,
             );
             if (existing[0].submission_status === 'approved' && rows[0]?.web_product_sku) {
-                await upsertWebProductFromSyncItem(upsertDeps, submissionRowToSyncItem(rows[0]), {
-                    submittedByUserId: rows[0].submitted_by_user_id,
-                    resellerSubmissionId: rows[0].id,
-                    publishCategory: true,
-                });
+                await syncLiveProductAfterResellerEdit(
+                    { ...upsertDeps, uploadsWebProductsDir, getPublicApiBaseUrl },
+                    existing[0],
+                    rows[0],
+                    resolved,
+                );
             }
             res.json({ success: true, submission: rows[0] });
         } catch (e) {
