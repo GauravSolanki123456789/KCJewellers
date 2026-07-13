@@ -231,16 +231,29 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
 }
 
 async function loadResellerUploadUser(query, userId) {
-    const rows = await query(
-        `SELECT id, customer_tier, account_status, allowed_category_ids, reseller_product_uploads_enabled, business_name
-         FROM users WHERE id = $1`,
-        [userId],
-    );
-    return rows[0] || null;
+    try {
+        const rows = await query(
+            `SELECT id, customer_tier, account_status, allowed_category_ids,
+                    COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
+                    COALESCE(reseller_product_edits_enabled, false) AS reseller_product_edits_enabled,
+                    business_name
+             FROM users WHERE id = $1`,
+            [userId],
+        );
+        return rows[0] || null;
+    } catch (e) {
+        const msg = String(e.message || '');
+        if (msg.includes('reseller_product_edits_enabled')) {
+            await query(
+                'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_edits_enabled BOOLEAN NOT NULL DEFAULT false',
+            );
+            return loadResellerUploadUser(query, userId);
+        }
+        throw e;
+    }
 }
 
-async function assertResellerCanUpload(query, userId) {
-    const u = await loadResellerUploadUser(query, userId);
+function assertResellerTierActive(u) {
     if (!u) {
         const er = new Error('User not found');
         er.status = 404;
@@ -256,6 +269,24 @@ async function assertResellerCanUpload(query, userId) {
         er.status = 403;
         throw er;
     }
+    return u;
+}
+
+/** Uploads and/or live edits portal — list & edit own submissions. */
+async function assertResellerProductPortal(query, userId) {
+    const u = assertResellerTierActive(await loadResellerUploadUser(query, userId));
+    if (!u.reseller_product_uploads_enabled && !u.reseller_product_edits_enabled) {
+        const er = new Error(
+            'Product uploads and live edits are not enabled for your account. Contact KC admin.',
+        );
+        er.status = 403;
+        throw er;
+    }
+    return u;
+}
+
+async function assertResellerCanUpload(query, userId) {
+    const u = assertResellerTierActive(await loadResellerUploadUser(query, userId));
     if (!u.reseller_product_uploads_enabled) {
         const er = new Error('Product uploads are not enabled for your account. Contact KC admin.');
         er.status = 403;
@@ -504,8 +535,18 @@ function registerResellerProductRoutes(app, deps) {
         }
     }
 
+    async function requireResellerProductPortal(req, res, next) {
+        try {
+            if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+            req.resellerUploadUser = await assertResellerProductPortal(query, req.user.id);
+            next();
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    }
+
     // ---- Reseller: list own submissions ----
-    app.get('/api/reseller/product-submissions', requireResellerUpload, async (req, res) => {
+    app.get('/api/reseller/product-submissions', requireResellerProductPortal, async (req, res) => {
         try {
             const status = String(req.query.submission_status || '').trim().toLowerCase();
             const batchId = String(req.query.batch_id || '').trim();
@@ -692,8 +733,12 @@ function registerResellerProductRoutes(app, deps) {
         },
     );
 
-    // ---- Reseller: edit pending submission ----
-    app.put('/api/reseller/product-submissions/:id', RESELLER_PRODUCT_UPLOAD, requireResellerUpload, async (req, res) => {
+    // ---- Reseller: edit submission (draft/pending) or live approved product when enabled ----
+    app.put(
+        '/api/reseller/product-submissions/:id',
+        RESELLER_PRODUCT_UPLOAD,
+        requireResellerProductPortal,
+        async (req, res) => {
         try {
             const id = parseInt(req.params.id, 10);
             const existing = await query(
@@ -702,8 +747,18 @@ function registerResellerProductRoutes(app, deps) {
             );
             if (!existing.length) return res.status(404).json({ error: 'Submission not found' });
             const st = existing[0].submission_status;
-            if (st !== 'pending' && st !== 'draft') {
-                return res.status(400).json({ error: 'Only draft or pending submissions can be edited' });
+            const isLiveEdit = st === 'approved';
+            if (isLiveEdit) {
+                if (!req.resellerUploadUser?.reseller_product_edits_enabled) {
+                    return res.status(403).json({
+                        error: 'Live product edits are not enabled for your account. Contact KC admin.',
+                    });
+                }
+            } else if (st !== 'pending' && st !== 'draft') {
+                return res.status(400).json({ error: 'Only draft, pending, or approved (live) submissions can be edited' });
+            }
+            if (!isLiveEdit && st !== 'draft' && !req.resellerUploadUser?.reseller_product_uploads_enabled) {
+                return res.status(403).json({ error: 'Product uploads are not enabled for your account. Contact KC admin.' });
             }
             let item = req.body?.product || req.body;
             if (typeof item === 'string') item = JSON.parse(item);
@@ -768,11 +823,19 @@ function registerResellerProductRoutes(app, deps) {
                 `UPDATE reseller_product_submissions SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
                 params,
             );
+            if (isLiveEdit && rows[0]?.web_product_sku) {
+                await upsertWebProductFromSyncItem(upsertDeps, submissionRowToSyncItem(rows[0]), {
+                    submittedByUserId: rows[0].submitted_by_user_id,
+                    resellerSubmissionId: rows[0].id,
+                    publishCategory: true,
+                });
+            }
             res.json({ success: true, submission: enrichSubmissionRow(rows[0]) });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message });
         }
-    });
+    },
+    );
 
     // ---- Reseller: withdraw pending / delete draft ----
     app.delete('/api/reseller/product-submissions/:id', requireResellerUpload, async (req, res) => {

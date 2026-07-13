@@ -29,7 +29,8 @@ import {
 } from '@/lib/reseller-bulk-photos'
 import { calculateBreakdown, getCustomerDisplaySize, isFixedPriceCatalogItem } from '@/lib/pricing'
 import { ResellerBatchExcelEditor } from '@/components/reseller/ResellerBatchExcelEditor'
-import { FileSpreadsheet, ImagePlus, Images, Loader2, Package, Plus, Send, Upload } from 'lucide-react'
+import { ResellerProductEditModal } from '@/components/reseller/ResellerProductEditModal'
+import { FileSpreadsheet, ImagePlus, Images, Loader2, Package, Pencil, Plus, Send, Upload } from 'lucide-react'
 
 type Tab = 'add' | 'batches' | 'list'
 
@@ -82,8 +83,14 @@ function Field({
 const inputCls =
   'kc-upload-input w-full rounded-xl px-3 py-2.5 text-sm shadow-sm outline-none transition'
 
-export function ResellerProductsPanel() {
-  const [tab, setTab] = useState<Tab>('add')
+export function ResellerProductsPanel({
+  uploadsEnabled = true,
+  editsEnabled = false,
+}: {
+  uploadsEnabled?: boolean
+  editsEnabled?: boolean
+}) {
+  const [tab, setTab] = useState<Tab>(uploadsEnabled ? 'add' : 'list')
   const [form, setForm] = useState<ResellerProductPayload>(emptyProductPayload())
   const [primaryFile, setPrimaryFile] = useState<File | null>(null)
   const [secondaryFile, setSecondaryFile] = useState<File | null>(null)
@@ -93,7 +100,7 @@ export function ResellerProductsPanel() {
 
   const [rows, setRows] = useState<ResellerProductSubmission[]>([])
   const [listLoading, setListLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState<string>('pending')
+  const [statusFilter, setStatusFilter] = useState<string>(uploadsEnabled ? 'pending' : 'approved')
 
   const [bulkParsing, setBulkParsing] = useState(false)
   const [bulkResult, setBulkResult] = useState<string | null>(null)
@@ -107,6 +114,17 @@ export function ResellerProductsPanel() {
   const excelInputRef = useRef<HTMLInputElement>(null)
   const primaryInputRef = useRef<HTMLInputElement>(null)
   const secondaryInputRef = useRef<HTMLInputElement>(null)
+  const [editRow, setEditRow] = useState<ResellerProductSubmission | null>(null)
+
+  const canEditRow = useCallback(
+    (row: ResellerProductSubmission) => {
+      const st = row.submission_status
+      if (st === 'approved') return editsEnabled
+      if (st === 'pending' || st === 'draft') return uploadsEnabled
+      return false
+    },
+    [editsEnabled, uploadsEnabled],
+  )
 
   const load = useCallback(async () => {
     setListLoading(true)
@@ -474,13 +492,21 @@ export function ResellerProductsPanel() {
       <div className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white/80 p-1 scrollbar-none">
         {(
           [
-            { id: 'add' as Tab, label: 'Add product', icon: Plus },
+            ...(uploadsEnabled
+              ? [
+                  { id: 'add' as Tab, label: 'Add product', icon: Plus },
+                  {
+                    id: 'batches' as Tab,
+                    label: `Excel batches${draftBatchCount ? ` (${draftBatchCount})` : ''}`,
+                    icon: FileSpreadsheet,
+                  },
+                ]
+              : []),
             {
-              id: 'batches' as Tab,
-              label: `Excel batches${draftBatchCount ? ` (${draftBatchCount})` : ''}`,
-              icon: FileSpreadsheet,
+              id: 'list' as Tab,
+              label: `My uploads${pendingCount ? ` (${pendingCount})` : ''}`,
+              icon: Package,
             },
-            { id: 'list' as Tab, label: `My uploads${pendingCount ? ` (${pendingCount})` : ''}`, icon: Package },
           ] as const
         ).map(({ id, label, icon: Icon }) => (
           <button
@@ -673,17 +699,40 @@ export function ResellerProductsPanel() {
             </div>
           ) : rows.length === 0 ? (
             <div className="kc-upload-card rounded-2xl border-dashed px-6 py-12 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-              No submissions yet. Add a product or import Excel.
+              {editsEnabled && !uploadsEnabled
+                ? 'No live products yet. Approved uploads will appear here for editing.'
+                : 'No submissions yet. Add a product or import Excel.'}
             </div>
           ) : (
             <ul className="space-y-3">
               {rows.map((row) => (
-                <SubmissionCard key={row.id} row={row} onWithdraw={withdraw} />
+                <SubmissionCard
+                  key={row.id}
+                  row={row}
+                  onWithdraw={withdraw}
+                  canEdit={canEditRow(row)}
+                  onEdit={() => setEditRow(row)}
+                />
               ))}
             </ul>
           )}
         </div>
       ) : null}
+
+      <ResellerProductEditModal
+        open={editRow != null}
+        row={editRow}
+        isLiveEdit={editRow?.submission_status === 'approved'}
+        onClose={() => setEditRow(null)}
+        onSaved={(updated) => {
+          setRows((prev) => prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)))
+          setMessage(
+            updated.submission_status === 'approved'
+              ? 'Product updated — changes are live across the site.'
+              : 'Changes saved.',
+          )
+        }}
+      />
 
       {tab === 'batches' ? (
         <div className="space-y-4">
@@ -1335,9 +1384,13 @@ function BatchProductPhotoRow({
 function SubmissionCard({
   row,
   onWithdraw,
+  canEdit,
+  onEdit,
 }: {
   row: ResellerProductSubmission
   onWithdraw: (id: number) => void
+  canEdit?: boolean
+  onEdit?: () => void
 }) {
   const diskKey = submissionImageDiskKey(row)
   const displayCode = diskKey || row.barcode || row.sku || ''
@@ -1372,15 +1425,27 @@ function SubmissionCard({
         </div>
         <p className="kc-upload-hint mt-1 text-xs">{formatWhen(row.created_at)}</p>
         {row.review_notes ? <p className="mt-2 text-xs text-rose-600">{row.review_notes}</p> : null}
-        {status === 'pending' ? (
-          <button
-            type="button"
-            onClick={() => onWithdraw(row.id)}
-            className="mt-2 text-xs font-medium text-slate-500 underline-offset-2 hover:text-rose-600 hover:underline"
-          >
-            Withdraw
-          </button>
-        ) : null}
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {canEdit && onEdit ? (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[var(--kc-accent,#c41e3a)]/30 bg-[var(--kc-accent,#c41e3a)]/8 px-3 py-1.5 text-xs font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/12"
+            >
+              <Pencil className="size-3.5" aria-hidden />
+              {status === 'approved' ? 'Edit live product' : 'Edit'}
+            </button>
+          ) : null}
+          {status === 'pending' ? (
+            <button
+              type="button"
+              onClick={() => onWithdraw(row.id)}
+              className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-rose-600 hover:underline"
+            >
+              Withdraw
+            </button>
+          ) : null}
+        </div>
       </div>
     </li>
   )

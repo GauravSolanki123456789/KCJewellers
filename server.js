@@ -686,12 +686,16 @@ app.get('/api/auth/current_user', async (req, res) => {
         const kc_theme_id = await resolveUserKcThemeId(resolvedUser);
         /** Fresh from DB — session deserialize can lag new columns until re-login on some hosts. */
         let resellerProductUploadsEnabled = !!resolvedUser.reseller_product_uploads_enabled;
+        let resellerProductEditsEnabled = !!resolvedUser.reseller_product_edits_enabled;
+        let resellerHideSharedCatalogPdf = !!resolvedUser.reseller_hide_shared_catalog_pdf;
         let resellerRatesUpdateEnabled = !!resolvedUser.reseller_rates_update_enabled;
         let resellerInvestManageEnabled = !!resolvedUser.reseller_invest_manage_enabled;
         let resellerSlabSettings = parseResellerSlabSettingsServer(resolvedUser.reseller_slab_settings);
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
+                        COALESCE(reseller_product_edits_enabled, false) AS product_edits,
+                        COALESCE(reseller_hide_shared_catalog_pdf, false) AS hide_shared_catalog_pdf,
                         COALESCE(reseller_rates_update_enabled, false) AS rates_update,
                         COALESCE(reseller_invest_manage_enabled, false) AS invest_manage,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
@@ -700,6 +704,8 @@ app.get('/api/auth/current_user', async (req, res) => {
             );
             if (fresh.length) {
                 resellerProductUploadsEnabled = !!fresh[0].product_uploads;
+                resellerProductEditsEnabled = !!fresh[0].product_edits;
+                resellerHideSharedCatalogPdf = !!fresh[0].hide_shared_catalog_pdf;
                 resellerRatesUpdateEnabled = !!fresh[0].rates_update;
                 resellerInvestManageEnabled = !!fresh[0].invest_manage;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
@@ -709,6 +715,16 @@ app.get('/api/auth/current_user', async (req, res) => {
             if (msg.includes('reseller_product_uploads_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_product_edits_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_edits_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_hide_shared_catalog_pdf')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_hide_shared_catalog_pdf BOOLEAN NOT NULL DEFAULT false',
                 );
             }
             if (msg.includes('reseller_rates_update_enabled')) {
@@ -761,6 +777,8 @@ app.get('/api/auth/current_user', async (req, res) => {
                     ? normalizeResellerInviteCode(resolvedUser.reseller_invite_code)
                     : null,
                 reseller_product_uploads_enabled: resellerProductUploadsEnabled,
+                reseller_product_edits_enabled: resellerProductEditsEnabled,
+                reseller_hide_shared_catalog_pdf: resellerHideSharedCatalogPdf,
                 reseller_rates_update_enabled: resellerRatesUpdateEnabled,
                 reseller_invest_manage_enabled: resellerInvestManageEnabled,
                 reseller_slab_settings: resellerSlabSettings,
@@ -3759,6 +3777,8 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        kc_theme_id,
                        COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                        COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
+                       COALESCE(reseller_product_edits_enabled, false) AS reseller_product_edits_enabled,
+                       COALESCE(reseller_hide_shared_catalog_pdf, false) AS reseller_hide_shared_catalog_pdf,
                        COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
@@ -4191,6 +4211,16 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_product_uploads_enabled !== undefined) {
             updates.push(`reseller_product_uploads_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_product_uploads_enabled);
+        }
+
+        if (req.body.reseller_product_edits_enabled !== undefined) {
+            updates.push(`reseller_product_edits_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_product_edits_enabled);
+        }
+
+        if (req.body.reseller_hide_shared_catalog_pdf !== undefined) {
+            updates.push(`reseller_hide_shared_catalog_pdf = $${paramIndex++}`);
+            params.push(!!req.body.reseller_hide_shared_catalog_pdf);
         }
 
         if (req.body.reseller_rates_update_enabled !== undefined) {
@@ -6714,6 +6744,31 @@ async function resellerHidePricesForUser(userId) {
     return !!rows[0].reseller_hide_prices;
 }
 
+/** RESELLER accounts with admin `reseller_hide_shared_catalog_pdf` — snapshot on shared_catalogs.hide_pdf. */
+async function resellerHideSharedCatalogPdfForUser(userId) {
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid) || uid <= 0) return false;
+    try {
+        const rows = await query(
+            `SELECT customer_tier, COALESCE(reseller_hide_shared_catalog_pdf, false) AS reseller_hide_shared_catalog_pdf
+             FROM users WHERE id = $1`,
+            [uid],
+        );
+        if (!rows.length) return false;
+        if (String(rows[0].customer_tier || '').toUpperCase() !== 'RESELLER') return false;
+        return !!rows[0].reseller_hide_shared_catalog_pdf;
+    } catch (e) {
+        const msg = String(e.message || '');
+        if (msg.includes('reseller_hide_shared_catalog_pdf')) {
+            await pool.query(
+                'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_hide_shared_catalog_pdf BOOLEAN NOT NULL DEFAULT false',
+            );
+            return resellerHideSharedCatalogPdfForUser(userId);
+        }
+        throw e;
+    }
+}
+
 /** When brochure creator is RESELLER, mirror catalogue wholesale pricing before link markup. */
 function creatorWholesaleForBrochure(row) {
     if (!row || !row.created_by_user_id) return null;
@@ -6838,6 +6893,10 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHidePricesForUser(creatorUid)
                 : false;
+        const hidePdf =
+            Number.isFinite(creatorUid) && creatorUid > 0
+                ? await resellerHideSharedCatalogPdfForUser(creatorUid)
+                : false;
         const ratesSnapshot =
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await getRatesSnapshotForSharedCatalogCreator(creatorUid, liveRateService)
@@ -6846,10 +6905,10 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             await query(
                 `INSERT INTO shared_catalogs (
                     id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
-                    rates_snapshot, hide_prices, pricing_slab, slab_wholesale_gold_rate_per_g,
+                    rates_snapshot, hide_prices, hide_pdf, pricing_slab, slab_wholesale_gold_rate_per_g,
                     slab_wholesale_silver_rate_per_g, slab_settings_snapshot
                  )
-                 VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb)`,
+                 VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb)`,
                 [
                     id,
                     ids,
@@ -6859,6 +6918,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                     Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
                     JSON.stringify(ratesSnapshot),
                     hidePrices,
+                    hidePdf,
                     slabKind,
                     wholesaleGold,
                     wholesaleSilver,
@@ -6890,6 +6950,33 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                         Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
                         JSON.stringify(ratesSnapshot),
                         hidePrices,
+                        slabKind,
+                        wholesaleGold,
+                        wholesaleSilver,
+                        JSON.stringify(slabSettingsSnapshot),
+                    ],
+                );
+            } else if (msg.includes('hide_pdf')) {
+                await pool.query(
+                    'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS hide_pdf BOOLEAN NOT NULL DEFAULT false',
+                );
+                await query(
+                    `INSERT INTO shared_catalogs (
+                        id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
+                        rates_snapshot, hide_prices, hide_pdf, pricing_slab, slab_wholesale_gold_rate_per_g,
+                        slab_wholesale_silver_rate_per_g, slab_settings_snapshot
+                     )
+                     VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb)`,
+                    [
+                        id,
+                        ids,
+                        markup,
+                        discount,
+                        exp,
+                        Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
+                        JSON.stringify(ratesSnapshot),
+                        hidePrices,
+                        hidePdf,
                         slabKind,
                         wholesaleGold,
                         wholesaleSilver,
@@ -6930,6 +7017,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             markupPercentage: markup,
             discountPercentage: discount,
             hidePrices,
+            hidePdf,
             pricingSlab: slabKind,
             wholesaleGoldRatePerG: wholesaleGold,
             wholesaleSilverRatePerG: wholesaleSilver,
@@ -7002,6 +7090,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             `SELECT sc.id, sc.product_ids, sc.markup_percentage, sc.discount_percentage, sc.expires_at, sc.created_at,
                     sc.created_by_user_id, sc.rates_snapshot,
                     COALESCE(sc.hide_prices, false) AS hide_prices,
+                    COALESCE(sc.hide_pdf, false) AS hide_pdf,
                     COALESCE(sc.pricing_slab, 'standard') AS pricing_slab,
                     sc.slab_wholesale_gold_rate_per_g,
                     sc.slab_wholesale_silver_rate_per_g,
@@ -7022,6 +7111,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         const row = rows[0];
         const gifting_gst_enabled = await getGiftingGstEnabled();
         const hidePrices = !!row.hide_prices;
+        const hidePdf = !!row.hide_pdf;
         const slabFields = sharedCatalogSlabJsonFields(row);
         const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
         const discountPctJson = parseSharedDiscountPct(row.discount_percentage);
@@ -7046,6 +7136,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 markupPercentage: markupPctJson,
                 discountPercentage: discountPctJson,
                 hidePrices,
+                hidePdf,
                 creatorWholesalePricing: cwPricing,
                 products: [],
                 kc_theme_id,
@@ -7069,6 +7160,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 markupPercentage: markupPctJson,
                 discountPercentage: discountPctJson,
                 hidePrices,
+                hidePdf,
                 creatorWholesalePricing: cwPricing,
                 selectionWhatsAppDigits,
                 creatorCustomerTier,
@@ -7147,6 +7239,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             markupPercentage: markupPctJson,
             discountPercentage: discountPctJson,
             hidePrices,
+            hidePdf,
             creatorWholesalePricing: cwPricing,
             selectionWhatsAppDigits,
             creatorCustomerTier,

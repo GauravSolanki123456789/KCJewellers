@@ -23,6 +23,8 @@ export type CreateSharedCatalogResponse =
       markupPercentage: number
       discountPercentage?: number
       hidePrices?: boolean
+      /** Snapshot: PDF shortlist hidden for this brochure's customers. */
+      hidePdf?: boolean
       pricingSlab?: CatalogSlabKind
       wholesaleGoldRatePerG?: number | null
       wholesaleSilverRatePerG?: number | null
@@ -111,6 +113,8 @@ export type SharedCatalogPublicResponse =
       discountPercentage?: number
       /** Snapshot from `shared_catalogs.hide_prices` — weight-only brochure (no prices). */
       hidePrices?: boolean
+      /** Snapshot from `shared_catalogs.hide_pdf` — customers can use WhatsApp text only. */
+      hidePdf?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
       /** RESELLER creator mobile (10 digits) when set — share selection targets this WhatsApp. */
       selectionWhatsAppDigits?: string | null

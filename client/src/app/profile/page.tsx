@@ -180,6 +180,12 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_product_uploads_enabled?: boolean }).reseller_product_uploads_enabled,
   )
+  const resellerEditsEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_product_edits_enabled?: boolean }).reseller_product_edits_enabled,
+  )
   const resellerRatesEnabled = Boolean(
     auth.isAuthenticated &&
       isReseller &&
@@ -250,7 +256,7 @@ function ProfilePageContent() {
         ) : (
           <>
             {/* ——— Reseller quick actions (most important first) ——— */}
-            {(resellerUploadsEnabled || resellerRatesEnabled || isReseller) && (
+            {(resellerUploadsEnabled || resellerEditsEnabled || resellerRatesEnabled || isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
                 {resellerRatesEnabled ? (
@@ -259,15 +265,21 @@ function ProfilePageContent() {
                     icon={LineChart}
                     title="Update today rates"
                     subtitle="Silver & gold 18K / 22K / 24K — updates prices for all KC visitors"
-                    primary={!resellerUploadsEnabled}
+                    primary={!resellerUploadsEnabled && !resellerEditsEnabled}
                   />
                 ) : null}
-                {resellerUploadsEnabled ? (
+                {resellerUploadsEnabled || resellerEditsEnabled ? (
                   <ProfileActionCard
                     href={RESELLER_PRODUCTS_PATH}
                     icon={Upload}
-                    title="Upload products"
-                    subtitle="Add items, photos & Excel — send batches for KC review"
+                    title={resellerUploadsEnabled ? 'Upload products' : 'Manage products'}
+                    subtitle={
+                      resellerUploadsEnabled && resellerEditsEnabled
+                        ? 'Add items, edit live products, photos & Excel'
+                        : resellerEditsEnabled
+                          ? 'Edit weight, MC, photos on your live catalogue'
+                          : 'Add items, photos & Excel — send batches for KC review'
+                    }
                     primary
                   />
                 ) : null}

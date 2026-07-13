@@ -87,6 +87,10 @@ type AdminUser = {
   reseller_hide_prices?: boolean
   /** Admin enables reseller staff product uploads (`users.reseller_product_uploads_enabled`). */
   reseller_product_uploads_enabled?: boolean
+  /** Admin enables live product edits without re-review (`users.reseller_product_edits_enabled`). */
+  reseller_product_edits_enabled?: boolean
+  /** Admin hides PDF on shared catalogues — customers use WhatsApp text only. */
+  reseller_hide_shared_catalog_pdf?: boolean
   /** Admin enables staff live rate updates (`users.reseller_rates_update_enabled`). */
   reseller_rates_update_enabled?: boolean
   reseller_invite_code?: string | null
@@ -161,6 +165,8 @@ function B2BAdminContent() {
     kc_theme_id: '',
     reseller_hide_prices: false,
     reseller_product_uploads_enabled: false,
+    reseller_product_edits_enabled: false,
+    reseller_hide_shared_catalog_pdf: false,
     reseller_rates_update_enabled: false,
     reseller_invite_code: '',
     reseller_catalog_max_products: '50',
@@ -238,6 +244,8 @@ function B2BAdminContent() {
             : '',
         reseller_hide_prices: !!resellerModalUser.reseller_hide_prices,
         reseller_product_uploads_enabled: !!resellerModalUser.reseller_product_uploads_enabled,
+        reseller_product_edits_enabled: !!resellerModalUser.reseller_product_edits_enabled,
+        reseller_hide_shared_catalog_pdf: !!resellerModalUser.reseller_hide_shared_catalog_pdf,
         reseller_rates_update_enabled: !!resellerModalUser.reseller_rates_update_enabled,
         reseller_invite_code: resellerModalUser.reseller_invite_code
           ? normalizeResellerInviteCode(resellerModalUser.reseller_invite_code)
@@ -345,6 +353,8 @@ function B2BAdminContent() {
         kc_theme_id: resellerForm.kc_theme_id.trim() ? resellerForm.kc_theme_id.trim() : null,
         reseller_hide_prices: resellerForm.reseller_hide_prices,
         reseller_product_uploads_enabled: resellerForm.reseller_product_uploads_enabled,
+        reseller_product_edits_enabled: resellerForm.reseller_product_edits_enabled,
+        reseller_hide_shared_catalog_pdf: resellerForm.reseller_hide_shared_catalog_pdf,
         reseller_rates_update_enabled: resellerForm.reseller_rates_update_enabled,
         reseller_invite_code: resellerForm.reseller_invite_code.trim()
           ? normalizeResellerInviteCode(resellerForm.reseller_invite_code)
@@ -922,6 +932,76 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_product_uploads_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Allow live product edits</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        When enabled, this reseller&apos;s staff can update weight, MC, photos, and other details on
+                        products already live on the site — changes apply immediately without admin review (
+                        <code className="text-slate-400">reseller_product_edits_enabled</code>).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_product_edits_enabled}
+                      aria-label="Allow reseller live product edits"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_product_edits_enabled: !f.reseller_product_edits_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_product_edits_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_product_edits_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">WhatsApp-only shared catalogues</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        When enabled, customers opening this reseller&apos;s shared catalogue links can shortlist and
+                        share via WhatsApp (text) only — the &quot;PDF with photos&quot; option is hidden (
+                        <code className="text-slate-400">reseller_hide_shared_catalog_pdf</code>).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_hide_shared_catalog_pdf}
+                      aria-label="Hide PDF on shared catalogues"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_hide_shared_catalog_pdf: !f.reseller_hide_shared_catalog_pdf,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_hide_shared_catalog_pdf
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_hide_shared_catalog_pdf ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

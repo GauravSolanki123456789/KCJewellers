@@ -109,6 +109,14 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const isReseller = normalizeCustomerTier(customerTier) === CUSTOMER_TIER.RESELLER
   const resellerHidePrices =
     isReseller && !!(auth.user as WholesaleUserFields)?.reseller_hide_prices
+  const resellerHideSharedCatalogPdf =
+    isReseller && !!(auth.user as WholesaleUserFields)?.reseller_hide_shared_catalog_pdf
+
+  useEffect(() => {
+    if (resellerHideSharedCatalogPdf && outputFormat === 'pdf') {
+      setOutputFormat('temporary_web_link')
+    }
+  }, [resellerHideSharedCatalogPdf, outputFormat])
 
   const clampedMarkup = useMemo(
     () => Math.max(0, Math.min(1000, Number(markupPercentage) || 0)),
@@ -230,6 +238,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
       }
 
       if (outputFormat === 'pdf') {
+        if (resellerHideSharedCatalogPdf) {
+          setError('PDF catalogues are disabled for your account. Use a share link instead.')
+          setBusy(false)
+          return
+        }
         const set = new Set(selectedProductIds)
         const items = findProductsByBarcodes(categories, set, selectedProductIds)
         if (items.length === 0) {
@@ -421,7 +434,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         >
           <div>
             <p className="kc-catalog-modal-label mb-2">Output format</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid gap-2 ${resellerHideSharedCatalogPdf ? 'grid-cols-1' : 'grid-cols-2'}`}>
               <button
                 type="button"
                 onClick={() => setOutputFormat('temporary_web_link')}
@@ -435,6 +448,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 <span className="font-medium">Temporary web link</span>
                 <span className="text-[11px] text-slate-500">Share a brochure URL</span>
               </button>
+              {!resellerHideSharedCatalogPdf ? (
               <button
                 type="button"
                 onClick={() => setOutputFormat('pdf')}
@@ -448,8 +462,14 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 <span className="font-medium">PDF document</span>
                 <span className="text-[11px] text-slate-500">Download a printable PDF</span>
               </button>
+              ) : null}
             </div>
-            {outputFormat === 'pdf' && (
+            {resellerHideSharedCatalogPdf ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                PDF catalogues are disabled for your account. Customers on shared links can use WhatsApp (text) only.
+              </p>
+            ) : null}
+            {outputFormat === 'pdf' && !resellerHideSharedCatalogPdf ? (
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
                 {isReseller && resellerHidePrices ? (
                   <>Weight-only mode — PDF shows barcode, name, and net weight. No prices.</>
@@ -465,7 +485,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   <>PDF includes product image, name, barcode, and net weight — prices are not shown.</>
                 )}
               </p>
-            )}
+            ) : null}
           </div>
 
           {resellerHidePrices ? (

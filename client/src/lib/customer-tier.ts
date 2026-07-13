@@ -29,6 +29,10 @@ export type WholesaleUserFields = {
   reseller_hide_prices?: boolean
   /** Admin enables staff product uploads at `/reseller/products`. */
   reseller_product_uploads_enabled?: boolean
+  /** Admin enables staff to edit live (approved) products without re-review. */
+  reseller_product_edits_enabled?: boolean
+  /** Admin hides PDF shortlist option on shared catalogues — WhatsApp text only. */
+  reseller_hide_shared_catalog_pdf?: boolean
   /** Admin enables staff live rate updates at `/reseller/rates`. */
   reseller_rates_update_enabled?: boolean
   /** Max products per shared catalogue link (0 = unlimited up to platform cap). */

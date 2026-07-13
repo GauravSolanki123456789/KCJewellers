@@ -604,6 +604,7 @@ export default function SharedCatalogClient({
   const expiresAt = payload.expiresAt
   const expDate = expiresAt ? new Date(expiresAt) : null
   const hidePrices = !!payload.hidePrices
+  const hidePdf = !!payload.hidePdf
   const showPickerChrome = groupedRows.length > 0
 
   return (
@@ -636,7 +637,8 @@ export default function SharedCatalogClient({
         </h1>
         {showPickerChrome ? (
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-slate-500">
-            Tap any card to shortlist · pick a size · set quantities per size · then share on WhatsApp or PDF.
+            Tap any card to shortlist · pick a size · set quantities per size · then share on WhatsApp
+            {hidePdf ? '' : ' or PDF'}.
           </p>
         ) : null}
         {expDate && !Number.isNaN(expDate.getTime()) && (
@@ -1023,6 +1025,7 @@ export default function SharedCatalogClient({
               )}
             </p>
             <div className="flex shrink-0 items-center gap-2">
+              {!hidePdf ? (
               <button
                 type="button"
                 disabled={selectedCount === 0 || pdfBusy}
@@ -1043,6 +1046,7 @@ export default function SharedCatalogClient({
                   {pdfBusy ? 'PDF…' : 'PDF with photos'}
                 </span>
               </button>
+              ) : null}
               <button
                 type="button"
                 disabled={selectedCount === 0}
