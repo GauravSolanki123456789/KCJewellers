@@ -209,6 +209,24 @@ export function emptyProductPayload(): ResellerProductPayload {
   }
 }
 
+/** Billable gross from net + wastage % (matches ERP / `resolveGrossWeight` on save). */
+export function grossWeightFromNetAndWastage(
+  net: number | string | null | undefined,
+  wastage: number | string | null | undefined,
+): number | null {
+  const n = Number(net)
+  const w = Number(wastage)
+  if (!Number.isFinite(n) || n <= 0 || !Number.isFinite(w) || w <= 0) return null
+  return Math.round(n * (1 + w / 100) * 1000) / 1000
+}
+
+export function applyDerivedGrossWeight<T extends ResellerProductPayload>(payload: T): T {
+  const wastage = payload.wastage ?? payload.wastage_pct ?? payload['Wastage(%)']
+  const derived = grossWeightFromNetAndWastage(payload.netWeight, wastage)
+  if (derived == null) return payload
+  return { ...payload, grossWeight: derived }
+}
+
 export function productImageUrl(skuOrBarcode: string, apiBase?: string): string {
   const base = (apiBase || process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
   const code = String(skuOrBarcode || '').trim()

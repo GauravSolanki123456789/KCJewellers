@@ -148,13 +148,16 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
             : parseExcelWeight(rawWeight);
     const weightDisplay = parseExcelWeightDisplay(rawWeight);
     const wastagePct = parseWastagePercent(item);
-    const grossWeight = resolveGrossWeight(
-        netWeight,
-        resolved.grossWeight != null && Number.isFinite(Number(resolved.grossWeight))
-            ? Number(resolved.grossWeight)
-            : null,
-        wastagePct,
-    );
+    const grossWeight =
+        wastagePct != null && wastagePct > 0 && netWeight != null && Number.isFinite(Number(netWeight))
+            ? resolveGrossWeight(netWeight, null, wastagePct)
+            : resolveGrossWeight(
+                  netWeight,
+                  resolved.grossWeight != null && Number.isFinite(Number(resolved.grossWeight))
+                      ? Number(resolved.grossWeight)
+                      : null,
+                  wastagePct,
+              );
     const mcRateNum =
         resolved.mcRate != null && Number.isFinite(Number(resolved.mcRate)) ? Number(resolved.mcRate) : null;
     const mcTypeRaw =

@@ -5,6 +5,7 @@ import axios from '@/lib/axios'
 import {
   emptyProductPayload,
   submissionToPayload,
+  applyDerivedGrossWeight,
   submissionPreviewImageUrl,
   RESELLER_PRODUCT_IMAGE_ACCEPT,
   RESELLER_PRODUCT_IMAGE_MAX_BYTES,
@@ -116,7 +117,7 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
 
   useEffect(() => {
     if (!open || !row) return
-    setForm(submissionToPayload(row))
+    setForm(applyDerivedGrossWeight(submissionToPayload(row)))
     setPrimaryFile(null)
     setSecondaryFile(null)
     setBoxFile(null)
@@ -124,9 +125,19 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
     setError(null)
   }, [open, row])
 
-  const setField = useCallback(<K extends keyof ResellerProductPayload>(key: K, value: ResellerProductPayload[K]) => {
-    setForm((f) => ({ ...f, [key]: value }))
+  const syncGrossFromNetWastage = useCallback((draft: ResellerProductPayload): ResellerProductPayload => {
+    return applyDerivedGrossWeight(draft)
   }, [])
+
+  const setField = useCallback(<K extends keyof ResellerProductPayload>(key: K, value: ResellerProductPayload[K]) => {
+    setForm((f) => {
+      const next = { ...f, [key]: value }
+      if (key === 'netWeight' || key === 'wastage' || key === 'wastage_pct') {
+        return syncGrossFromNetWastage(next)
+      }
+      return next
+    })
+  }, [syncGrossFromNetWastage])
 
   if (!open || !row) return null
 
@@ -162,7 +173,7 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
     setSaving(true)
     try {
       const fd = new FormData()
-      fd.append('payload', JSON.stringify(form))
+      fd.append('payload', JSON.stringify(applyDerivedGrossWeight(form)))
       if (primaryFile) fd.append('primaryImage', primaryFile, primaryFile.name || 'front.webp')
       if (secondaryFile) fd.append('secondaryImage', secondaryFile, secondaryFile.name || 'back.webp')
       if (boxFile) fd.append('boxImage', boxFile, boxFile.name || 'box.webp')
@@ -285,7 +296,7 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
                 onChange={(e) => setField('netWeight', e.target.value)}
               />
             </Field>
-            <Field label="Gross weight (g)">
+            <Field label="Gross weight (g)" hint="Auto from net + wastage % when wastage is set">
               <input
                 className={inputCls}
                 type="number"
@@ -316,8 +327,8 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
                 step="0.01"
                 value={form.wastage ?? form.wastage_pct ?? ''}
                 onChange={(e) => {
-                  setField('wastage', e.target.value)
-                  setField('wastage_pct', e.target.value)
+                  const v = e.target.value
+                  setForm((f) => applyDerivedGrossWeight({ ...f, wastage: v, wastage_pct: v }))
                 }}
               />
             </Field>
