@@ -5,7 +5,6 @@ import axios from '@/lib/axios'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -21,14 +20,12 @@ export type SharedCatalogCustomerIdentity = {
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  brandLabel: string
   onVerified: (identity: SharedCatalogCustomerIdentity) => void
 }
 
 export default function SharedCatalogSignInModal({
   open,
   onOpenChange,
-  brandLabel,
   onVerified,
 }: Props) {
   const [step, setStep] = useState<'mobile' | 'otp'>('mobile')
@@ -113,11 +110,8 @@ export default function SharedCatalogSignInModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             <ShieldCheck className="size-5 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
-            Sign in to shortlist
+            Verify mobile
           </DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-            Enter your mobile number so {brandLabel} can follow up on your selection via WhatsApp.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-1">

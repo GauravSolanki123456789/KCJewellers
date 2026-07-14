@@ -1,11 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { pdf } from '@react-pdf/renderer'
-import { Check, ChevronLeft, ChevronRight, Clock, FileText, Gem, Loader2, MessageCircle, Minus, Plus, Smartphone, Sparkles } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Clock, FileText, Gem, Loader2, MessageCircle, Minus, Plus, Sparkles } from 'lucide-react'
 import {
   fetchSharedCatalogByUuid,
   sharedCatalogGiftingGstEnabled,
@@ -33,7 +33,6 @@ import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
 import {
   buildSharedCatalogSubcategoryTabs,
   filterSharedCatalogGroupsBySubcategory,
-  getSharedCatalogSubcategoryNav,
   SHARED_CATALOG_ALL_TAB,
 } from '@/lib/shared-catalog-categories'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
@@ -80,6 +79,24 @@ import SharedCatalogSignInModal, {
 } from '@/components/shared-catalog/SharedCatalogSignInModal'
 
 const MAX_PIECE_QTY = 99
+
+function scrollChipWithinStrip(
+  container: HTMLElement,
+  target: HTMLElement,
+  inline: 'center' | 'nearest' = 'center',
+) {
+  const cRect = container.getBoundingClientRect()
+  const tRect = target.getBoundingClientRect()
+  if (inline === 'center') {
+    container.scrollLeft += tRect.left + tRect.width / 2 - (cRect.left + cRect.width / 2)
+    return
+  }
+  if (tRect.left < cRect.left) {
+    container.scrollLeft += tRect.left - cRect.left
+  } else if (tRect.right > cRect.right) {
+    container.scrollLeft += tRect.right - cRect.right
+  }
+}
 
 function stableProductKey(p: SharedCatalogPublicProduct, index: number): string {
   const b = String(p.barcode ?? '').trim()
@@ -248,10 +265,54 @@ export default function SharedCatalogClient({
 
   const showSubcategoryTabs = subcategoryTabs.length > 1
 
-  const subcategoryNav = useMemo(
-    () => getSharedCatalogSubcategoryNav(subcategoryTabs, activeSubcategory),
-    [subcategoryTabs, activeSubcategory],
-  )
+  const categoryStripRef = useRef<HTMLDivElement>(null)
+  const categoryChipRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const [categoryStripScroll, setCategoryStripScroll] = useState({ left: false, right: false })
+
+  const registerCategoryChipRef = useCallback((key: string, el: HTMLButtonElement | null) => {
+    if (el) categoryChipRefs.current.set(key, el)
+    else categoryChipRefs.current.delete(key)
+  }, [])
+
+  const refreshCategoryStripScroll = useCallback(() => {
+    const el = categoryStripRef.current
+    if (!el) return
+    const { scrollLeft, scrollWidth, clientWidth } = el
+    setCategoryStripScroll({
+      left: scrollLeft > 4,
+      right: scrollLeft + clientWidth < scrollWidth - 4,
+    })
+  }, [])
+
+  const scrollCategoryStrip = useCallback((dir: -1 | 1) => {
+    const el = categoryStripRef.current
+    if (!el) return
+    const delta = Math.max(160, el.clientWidth * 0.75) * dir
+    el.scrollBy({ left: delta, behavior: 'smooth' })
+  }, [])
+
+  useEffect(() => {
+    refreshCategoryStripScroll()
+    const el = categoryStripRef.current
+    if (!el) return
+    el.addEventListener('scroll', refreshCategoryStripScroll, { passive: true })
+    window.addEventListener('resize', refreshCategoryStripScroll)
+    return () => {
+      el.removeEventListener('scroll', refreshCategoryStripScroll)
+      window.removeEventListener('resize', refreshCategoryStripScroll)
+    }
+  }, [subcategoryTabs, refreshCategoryStripScroll])
+
+  useLayoutEffect(() => {
+    if (!showSubcategoryTabs) return
+    const key = activeSubcategory
+    const chip = categoryChipRefs.current.get(key)
+    const strip = categoryStripRef.current
+    if (chip && strip) {
+      scrollChipWithinStrip(strip, chip, 'center')
+    }
+    refreshCategoryStripScroll()
+  }, [activeSubcategory, showSubcategoryTabs, subcategoryTabs, refreshCategoryStripScroll])
 
   const canShortlist = !!customer
 
@@ -742,20 +803,6 @@ export default function SharedCatalogClient({
         )}
         {showPickerChrome ? (
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            {!canShortlist ? (
-              <button
-                type="button"
-                onClick={() => setSignInOpen(true)}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--kc-accent,#c41e3a)]/40 bg-[var(--kc-accent,#c41e3a)]/10 px-5 py-2.5 text-sm font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/15"
-              >
-                <Smartphone className="size-4 shrink-0" aria-hidden />
-                Sign in with mobile to shortlist
-              </button>
-            ) : (
-              <p className="w-full text-center text-xs text-emerald-400/90">
-                Signed in as {customer?.name} · +91 {customer?.mobile}
-              </p>
-            )}
             <button
               type="button"
               onClick={selectAll}
@@ -785,27 +832,25 @@ export default function SharedCatalogClient({
           aria-label="Catalogue categories"
           className="mx-auto mt-6 max-w-6xl px-4 sm:px-6"
         >
-          <div className="flex items-center gap-2">
-            {subcategoryNav.prev || subcategoryNav.next ? (
+          <div className="flex items-stretch gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              aria-label="Scroll categories left"
+              disabled={!categoryStripScroll.left}
+              onClick={() => scrollCategoryStrip(-1)}
+              className={cn(
+                'kc-size-chip flex size-10 shrink-0 items-center justify-center self-center rounded-full border touch-manipulation transition sm:size-11',
+                categoryStripScroll.left ? 'kc-size-chip-idle' : 'cursor-not-allowed opacity-35',
+              )}
+            >
+              <ChevronLeft className="size-5" aria-hidden />
+            </button>
+            <div
+              ref={categoryStripRef}
+              className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide kc-scroll-contain snap-x snap-mandatory"
+            >
               <button
-                type="button"
-                disabled={!subcategoryNav.prev}
-                onClick={() => subcategoryNav.prev && goToSubcategory(subcategoryNav.prev.key)}
-                aria-label={
-                  subcategoryNav.prev
-                    ? `Previous category: ${subcategoryNav.prev.label}`
-                    : 'No previous category'
-                }
-                className={cn(
-                  'kc-size-chip flex size-10 shrink-0 items-center justify-center rounded-full border touch-manipulation transition sm:size-11',
-                  subcategoryNav.prev ? 'kc-size-chip-idle' : 'cursor-not-allowed opacity-35',
-                )}
-              >
-                <ChevronLeft className="size-5" aria-hidden />
-              </button>
-            ) : null}
-            <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
-              <button
+                ref={(el) => registerCategoryChipRef(SHARED_CATALOG_ALL_TAB, el)}
                 type="button"
                 onClick={() => goToSubcategory(SHARED_CATALOG_ALL_TAB)}
                 className={cn(
@@ -821,6 +866,7 @@ export default function SharedCatalogClient({
               {subcategoryTabs.map((tab) => (
                 <button
                   key={tab.key}
+                  ref={(el) => registerCategoryChipRef(tab.key, el)}
                   type="button"
                   onClick={() => goToSubcategory(tab.key)}
                   className={cn(
@@ -833,36 +879,23 @@ export default function SharedCatalogClient({
                 </button>
               ))}
             </div>
-            {subcategoryNav.prev || subcategoryNav.next ? (
-              <button
-                type="button"
-                disabled={!subcategoryNav.next}
-                onClick={() => subcategoryNav.next && goToSubcategory(subcategoryNav.next.key)}
-                aria-label={
-                  subcategoryNav.next
-                    ? `Next category: ${subcategoryNav.next.label}`
-                    : 'No next category'
-                }
-                className={cn(
-                  'kc-size-chip flex size-10 shrink-0 items-center justify-center rounded-full border touch-manipulation transition sm:size-11',
-                  subcategoryNav.next ? 'kc-size-chip-idle' : 'cursor-not-allowed opacity-35',
-                )}
-              >
-                <ChevronRight className="size-5" aria-hidden />
-              </button>
-            ) : null}
+            <button
+              type="button"
+              aria-label="Scroll categories right"
+              disabled={!categoryStripScroll.right}
+              onClick={() => scrollCategoryStrip(1)}
+              className={cn(
+                'kc-size-chip flex size-10 shrink-0 items-center justify-center self-center rounded-full border touch-manipulation transition sm:size-11',
+                categoryStripScroll.right ? 'kc-size-chip-idle' : 'cursor-not-allowed opacity-35',
+              )}
+            >
+              <ChevronRight className="size-5" aria-hidden />
+            </button>
           </div>
-          {subcategoryNav.current && subcategoryNav.next ? (
-            <div className="mt-3 flex justify-center sm:justify-end">
-              <button
-                type="button"
-                onClick={() => goToSubcategory(subcategoryNav.next!.key)}
-                className="inline-flex min-h-[40px] max-w-full items-center gap-2 rounded-full border border-[var(--kc-accent,#c41e3a)]/35 bg-[var(--kc-accent,#c41e3a)]/8 px-4 py-2 text-xs font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/12 sm:text-sm"
-              >
-                <span className="truncate">Next: {subcategoryNav.next.label}</span>
-                <ChevronRight className="size-4 shrink-0" aria-hidden />
-              </button>
-            </div>
+          {subcategoryTabs.length > 2 ? (
+            <p className="mt-2 text-center text-[10px] text-slate-500 sm:hidden">
+              Swipe the category row to see more
+            </p>
           ) : null}
         </nav>
       ) : null}
@@ -1166,22 +1199,6 @@ export default function SharedCatalogClient({
             })}
           </ul>
         )}
-        {subcategoryNav.current && subcategoryNav.next ? (
-          <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-center text-sm text-slate-400 sm:text-left">
-              Finished browsing{' '}
-              <span className="font-medium text-slate-200">{subcategoryNav.current.label}</span>?
-            </p>
-            <button
-              type="button"
-              onClick={() => goToSubcategory(subcategoryNav.next!.key)}
-              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl border border-[var(--kc-accent,#c41e3a)]/40 bg-[var(--kc-accent,#c41e3a)]/10 px-5 py-3 text-sm font-bold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/15 sm:w-auto"
-            >
-              Continue to {subcategoryNav.next.label}
-              <ChevronRight className="size-5 shrink-0" aria-hidden />
-            </button>
-          </div>
-        ) : null}
       </main>
 
       {showPickerChrome ? (
@@ -1255,7 +1272,6 @@ export default function SharedCatalogClient({
       <SharedCatalogSignInModal
         open={signInOpen}
         onOpenChange={setSignInOpen}
-        brandLabel={brandLabel}
         onVerified={setCustomer}
       />
     </div>
