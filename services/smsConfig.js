@@ -1,0 +1,116 @@
+/**
+ * SMS / OTP provider settings — app_settings with .env fallback.
+ */
+
+const SMS_SETTING_KEYS = [
+    'sms_provider',
+    'fast2sms_api_key',
+    'msg91_auth_key',
+    'msg91_sender_id',
+    'twilio_account_sid',
+    'twilio_auth_token',
+    'twilio_phone_number',
+];
+
+const ENV_FALLBACK = {
+    sms_provider: () => process.env.SMS_PROVIDER || '',
+    fast2sms_api_key: () => process.env.FAST2SMS_API_KEY || '',
+    msg91_auth_key: () => process.env.MSG91_AUTH_KEY || process.env.SMS_PROVIDER_API_KEY || '',
+    msg91_sender_id: () => process.env.MSG91_SENDER_ID || 'KCJEWL',
+    twilio_account_sid: () => process.env.TWILIO_ACCOUNT_SID || '',
+    twilio_auth_token: () => process.env.TWILIO_AUTH_TOKEN || '',
+    twilio_phone_number: () => process.env.TWILIO_PHONE_NUMBER || '',
+};
+
+let cachedConfig = null;
+let cacheExpiresAt = 0;
+const CACHE_MS = 60_000;
+
+function pickNonEmpty(dbVal, envVal) {
+    const d = String(dbVal ?? '').trim();
+    if (d) return d;
+    return String(envVal ?? '').trim();
+}
+
+async function loadSmsSettingsFromDb(query) {
+    const rows = await query(
+        `SELECT key, value FROM app_settings WHERE key = ANY($1::text[])`,
+        [SMS_SETTING_KEYS],
+    );
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']));
+    return {
+        sms_provider: pickNonEmpty(map.sms_provider, ENV_FALLBACK.sms_provider()),
+        fast2sms_api_key: pickNonEmpty(map.fast2sms_api_key, ENV_FALLBACK.fast2sms_api_key()),
+        msg91_auth_key: pickNonEmpty(map.msg91_auth_key, ENV_FALLBACK.msg91_auth_key()),
+        msg91_sender_id: pickNonEmpty(map.msg91_sender_id, ENV_FALLBACK.msg91_sender_id()) || 'KCJEWL',
+        twilio_account_sid: pickNonEmpty(map.twilio_account_sid, ENV_FALLBACK.twilio_account_sid()),
+        twilio_auth_token: pickNonEmpty(map.twilio_auth_token, ENV_FALLBACK.twilio_auth_token()),
+        twilio_phone_number: pickNonEmpty(map.twilio_phone_number, ENV_FALLBACK.twilio_phone_number()),
+    };
+}
+
+async function getSmsConfig(query) {
+    const now = Date.now();
+    if (cachedConfig && now < cacheExpiresAt) return cachedConfig;
+    const config = await loadSmsSettingsFromDb(query);
+    cachedConfig = config;
+    cacheExpiresAt = now + CACHE_MS;
+    return config;
+}
+
+function invalidateSmsConfigCache() {
+    cachedConfig = null;
+    cacheExpiresAt = 0;
+}
+
+function maskSecret(val) {
+    const s = String(val ?? '').trim();
+    if (!s) return '';
+    if (s.length <= 6) return '••••••';
+    return `${'•'.repeat(Math.min(28, s.length - 4))}${s.slice(-4)}`;
+}
+
+function publicSmsSettings(config) {
+    return {
+        sms_provider: config.sms_provider || '',
+        fast2sms_api_key: maskSecret(config.fast2sms_api_key),
+        fast2sms_api_key_set: !!String(config.fast2sms_api_key || '').trim(),
+        msg91_auth_key: maskSecret(config.msg91_auth_key),
+        msg91_auth_key_set: !!String(config.msg91_auth_key || '').trim(),
+        msg91_sender_id: config.msg91_sender_id || 'KCJEWL',
+        twilio_account_sid: maskSecret(config.twilio_account_sid),
+        twilio_account_sid_set: !!String(config.twilio_account_sid || '').trim(),
+        twilio_auth_token: maskSecret(config.twilio_auth_token),
+        twilio_auth_token_set: !!String(config.twilio_auth_token || '').trim(),
+        twilio_phone_number: config.twilio_phone_number || '',
+    };
+}
+
+async function upsertSmsSettings(query, body) {
+    const updates = [];
+    const allowed = new Set(SMS_SETTING_KEYS);
+    for (const [key, raw] of Object.entries(body || {})) {
+        if (!allowed.has(key)) continue;
+        const val = String(raw ?? '').trim();
+        if (val === '' || val.includes('•')) continue;
+        updates.push({ key, val });
+    }
+    for (const row of updates) {
+        await query(
+            `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`,
+            [row.key, row.val],
+        );
+    }
+    invalidateSmsConfigCache();
+    return getSmsConfig(query);
+}
+
+module.exports = {
+    SMS_SETTING_KEYS,
+    getSmsConfig,
+    invalidateSmsConfigCache,
+    publicSmsSettings,
+    upsertSmsSettings,
+    maskSecret,
+};

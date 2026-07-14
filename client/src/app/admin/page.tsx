@@ -21,6 +21,7 @@ import {
   ClipboardList,
   Bell,
   Palette,
+  Smartphone,
 } from 'lucide-react'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
@@ -101,6 +102,12 @@ const ADMIN_GROUPS: { heading: string; items: AdminLink[] }[] = [
         description: 'API keys, link ERP, push products via REST',
         href: '/admin/developer',
         icon: Code2,
+      },
+      {
+        title: 'SMS & OTP settings',
+        description: 'Fast2SMS / MSG91 keys for customer mobile sign-in on shared catalogues',
+        href: '/admin/sms-settings',
+        icon: Smartphone,
       },
     ],
   },

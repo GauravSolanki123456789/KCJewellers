@@ -1562,6 +1562,7 @@ app.post('/api/users/complete-profile', async (req, res) => {
 // OTP AUTHENTICATION
 // ==========================================
 const { sendSMS } = require('./services/smsService');
+const { getSmsConfig, publicSmsSettings, upsertSmsSettings } = require('./services/smsConfig');
 
 app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
     try {
@@ -1576,7 +1577,8 @@ app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
             [mobile_number, otp_code, expires_at]
         );
         try {
-            await sendSMS(mobile_number, otp_code);
+            const smsConfig = await getSmsConfig(query);
+            await sendSMS(mobile_number, otp_code, smsConfig);
         } catch (smsError) {
             await query('DELETE FROM otps WHERE mobile_number = $1 AND otp_code = $2', [mobile_number, otp_code]);
             throw smsError;
@@ -7285,6 +7287,19 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
         const totalInr = body.totalInr ?? body.total_inr ?? null;
         const lines = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
         const catalogUrl = body.catalogUrl ?? body.catalog_url ?? null;
+
+        if (!req.isAuthenticated || !req.isAuthenticated()) {
+            return res.status(401).json({ error: 'Sign in with mobile OTP before submitting your shortlist' });
+        }
+        const customerMobile = String(req.user?.mobile_number || '').replace(/\D/g, '').slice(-10);
+        if (customerMobile.length !== 10) {
+            return res.status(401).json({ error: 'Sign in with mobile OTP before submitting your shortlist' });
+        }
+        const customerName =
+            req.user?.name != null && String(req.user.name).trim()
+                ? String(req.user.name).trim()
+                : `Customer ${customerMobile.slice(-4)}`;
+
         const saved = await logSharedCatalogInquiry(query, {
             sharedCatalogId: uuid,
             resellerUserId: row.created_by_user_id,
@@ -7294,6 +7309,9 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
             totalInr,
             lines,
             catalogUrl,
+            customerUserId: req.user.id,
+            customerMobile,
+            customerName,
         });
         res.json({ success: true, id: saved.id, createdAt: saved.created_at });
     } catch (error) {
@@ -9982,6 +10000,27 @@ function isColumnMissingError(error) {
         (typeof error.message === 'string' && error.message.includes('does not exist'))
     );
 }
+
+/** Admin: SMS / OTP provider settings (Fast2SMS, MSG91, Twilio). Env vars remain fallback. */
+app.get('/api/admin/sms-settings', isAdminStrict, async (req, res) => {
+    try {
+        const config = await getSmsConfig(query);
+        res.json(publicSmsSettings(config));
+    } catch (error) {
+        console.error('admin sms-settings GET:', error.message);
+        res.status(500).json({ error: error.message || 'Failed to load SMS settings' });
+    }
+});
+
+app.patch('/api/admin/sms-settings', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        const config = await upsertSmsSettings(query, req.body || {});
+        res.json({ success: true, settings: publicSmsSettings(config) });
+    } catch (error) {
+        console.error('admin sms-settings PATCH:', error.message);
+        res.status(500).json({ error: error.message || 'Failed to save SMS settings' });
+    }
+});
 
 // GET /api/admin/developer/key - return the current API key (masked except last 6 chars)
 app.get('/api/admin/developer/key', isAdminStrict, async (req, res) => {

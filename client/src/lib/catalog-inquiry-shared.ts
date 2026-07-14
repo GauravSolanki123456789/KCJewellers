@@ -23,6 +23,9 @@ export type CatalogInquiryRow = {
   status_note?: string | null
   reseller_label?: string | null
   reseller_domain?: string | null
+  customer_user_id?: number | null
+  customer_mobile?: string | null
+  customer_name?: string | null
   lines?: CatalogInquiryLine[]
 }
 
@@ -81,4 +84,41 @@ export function catalogInquiryStatusMeta(status: CatalogInquiryStatus | string |
 export function countsTowardQuotedTotal(status: CatalogInquiryStatus | string | undefined): boolean {
   const s = String(status || 'pending').toLowerCase()
   return s === 'pending' || s === 'completed'
+}
+
+export function formatCustomerMobileDisplay(mobile: string | null | undefined): string | null {
+  const d = String(mobile ?? '').replace(/\D/g, '').slice(-10)
+  if (d.length !== 10) return null
+  return `+91 ${d.slice(0, 5)} ${d.slice(5)}`
+}
+
+export function customerWhatsAppHref(
+  mobile: string | null | undefined,
+  message?: string,
+): string | null {
+  const d = String(mobile ?? '').replace(/\D/g, '').slice(-10)
+  if (d.length !== 10) return null
+  const base = `https://wa.me/91${d}`
+  if (!message?.trim()) return base
+  return `${base}?text=${encodeURIComponent(message.trim())}`
+}
+
+export function buildCustomerFollowUpWhatsAppMessage(params: {
+  brandLabel: string
+  customerName?: string | null
+  totalPieces: number
+  totalInr: number | null
+  catalogUrl?: string | null
+}): string {
+  const { brandLabel, customerName, totalPieces, totalInr, catalogUrl } = params
+  const greeting = customerName?.trim() ? `Hi ${customerName.trim()},` : 'Hi,'
+  const value =
+    totalInr != null && Number.isFinite(totalInr)
+      ? `₹${Math.round(totalInr).toLocaleString('en-IN')}`
+      : 'your shortlist'
+  let msg = `${greeting}\n\nThis is ${brandLabel}. We received your catalogue inquiry (${totalPieces} pc${totalPieces === 1 ? '' : 's'}, ${value}).\n\nWould you like to proceed or need any changes?`
+  if (catalogUrl?.trim()) {
+    msg += `\n\nCatalogue:\n${catalogUrl.trim()}`
+  }
+  return msg
 }

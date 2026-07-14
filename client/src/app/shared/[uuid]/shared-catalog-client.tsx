@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { pdf } from '@react-pdf/renderer'
-import { Check, Clock, FileText, Gem, Loader2, MessageCircle, Minus, Plus, Sparkles } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Clock, FileText, Gem, Loader2, MessageCircle, Minus, Plus, Smartphone, Sparkles } from 'lucide-react'
 import {
   fetchSharedCatalogByUuid,
   sharedCatalogGiftingGstEnabled,
@@ -33,6 +33,7 @@ import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
 import {
   buildSharedCatalogSubcategoryTabs,
   filterSharedCatalogGroupsBySubcategory,
+  getSharedCatalogSubcategoryNav,
   SHARED_CATALOG_ALL_TAB,
 } from '@/lib/shared-catalog-categories'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
@@ -73,6 +74,10 @@ import SharedCatalogImageLightbox, {
   type SharedCatalogLightboxSlide,
 } from '@/components/shared-catalog/SharedCatalogImageLightbox'
 import { logSharedCatalogInquiry } from '@/lib/shared-catalog-inquiries'
+import { useAuth } from '@/hooks/useAuth'
+import SharedCatalogSignInModal, {
+  type SharedCatalogCustomerIdentity,
+} from '@/components/shared-catalog/SharedCatalogSignInModal'
 
 const MAX_PIECE_QTY = 99
 
@@ -154,6 +159,25 @@ export default function SharedCatalogClient({
   const [galleryScrollByKey, setGalleryScrollByKey] = useState<Map<string, number | null>>(
     () => new Map(),
   )
+  const auth = useAuth()
+  const [customer, setCustomer] = useState<SharedCatalogCustomerIdentity | null>(null)
+  const [signInOpen, setSignInOpen] = useState(false)
+  const [pendingSelectKey, setPendingSelectKey] = useState<string | null>(null)
+  const [pendingSelectAll, setPendingSelectAll] = useState(false)
+
+  useEffect(() => {
+    if (!auth.hasChecked || !auth.isAuthenticated) return
+    const u = auth.user as Record<string, unknown> | undefined
+    const mobile = String(u?.mobile_number ?? '').replace(/\D/g, '').slice(-10)
+    if (mobile.length !== 10) return
+    const userId = Number(u?.id)
+    if (!Number.isFinite(userId)) return
+    setCustomer({
+      userId,
+      mobile,
+      name: String(u?.name ?? `Customer ${mobile.slice(-4)}`),
+    })
+  }, [auth])
 
   useEffect(() => {
     setSelections(new Map())
@@ -223,6 +247,31 @@ export default function SharedCatalogClient({
   )
 
   const showSubcategoryTabs = subcategoryTabs.length > 1
+
+  const subcategoryNav = useMemo(
+    () => getSharedCatalogSubcategoryNav(subcategoryTabs, activeSubcategory),
+    [subcategoryTabs, activeSubcategory],
+  )
+
+  const canShortlist = !!customer
+
+  const goToSubcategory = useCallback((key: string) => {
+    setActiveSubcategory(key)
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [])
+
+  const requireSignIn = useCallback(
+    (after?: { key?: string; selectAll?: boolean }) => {
+      if (canShortlist) return true
+      if (after?.key) setPendingSelectKey(after.key)
+      if (after?.selectAll) setPendingSelectAll(true)
+      setSignInOpen(true)
+      return false
+    },
+    [canShortlist],
+  )
 
   const visibleGroupedRows = useMemo(
     () =>
@@ -335,7 +384,47 @@ export default function SharedCatalogClient({
     })
   }, [])
 
+  const guardedToggleKey = useCallback(
+    (key: string) => {
+      if (!requireSignIn({ key })) return
+      toggleKey(key)
+    },
+    [requireSignIn, toggleKey],
+  )
+
+  useEffect(() => {
+    if (!canShortlist) return
+    if (pendingSelectKey) {
+      toggleKey(pendingSelectKey)
+      setPendingSelectKey(null)
+    }
+    if (pendingSelectAll) {
+      setSelections((prev) => {
+        const next = new Map(prev)
+        for (const group of visibleGroupedRows) {
+          const active = resolveActiveVariant(group)
+          const key = rowKeyByRow.get(active)
+          if (key) next.set(key, next.get(key) ?? 1)
+        }
+        return next
+      })
+      setPendingSelectAll(false)
+    }
+  }, [
+    canShortlist,
+    pendingSelectKey,
+    pendingSelectAll,
+    toggleKey,
+    visibleGroupedRows,
+    resolveActiveVariant,
+    rowKeyByRow,
+  ])
+
   const setQty = useCallback((key: string, qty: number) => {
+    if (!canShortlist) {
+      requireSignIn({ key })
+      return
+    }
     const q = Math.max(1, Math.min(MAX_PIECE_QTY, Math.floor(qty)))
     setSelections((prev) => {
       if (!prev.has(key)) return prev
@@ -343,9 +432,10 @@ export default function SharedCatalogClient({
       next.set(key, q)
       return next
     })
-  }, [])
+  }, [canShortlist, requireSignIn])
 
   const selectAll = useCallback(() => {
+    if (!requireSignIn({ selectAll: true })) return
     setSelections((prev) => {
       const next = new Map(prev)
       for (const group of visibleGroupedRows) {
@@ -355,7 +445,7 @@ export default function SharedCatalogClient({
       }
       return next
     })
-  }, [visibleGroupedRows, resolveActiveVariant, rowKeyByRow])
+  }, [visibleGroupedRows, resolveActiveVariant, rowKeyByRow, requireSignIn])
 
   const clearSelection = useCallback(() => {
     setSelections(new Map())
@@ -404,6 +494,7 @@ export default function SharedCatalogClient({
   const handleSharePicksPdf = useCallback(async () => {
     if (!isLoadedBrochure(payload)) return
     if (selectedCount === 0) return
+    if (!requireSignIn()) return
 
     const fromApi = normalizeIndianMobileDigits(payload.selectionWhatsAppDigits ?? undefined)
     const fromBranding = normalizeIndianMobileDigits(initialBranding?.contactPhoneDigits ?? undefined)
@@ -501,11 +592,13 @@ export default function SharedCatalogClient({
     giftingGstEnabled,
     slabPayload,
     logInquiry,
+    requireSignIn,
   ])
 
   const handleSharePicks = useCallback(() => {
     if (!isLoadedBrochure(payload)) return
     if (selectedCount === 0) return
+    if (!requireSignIn()) return
 
     const fromApi = normalizeIndianMobileDigits(payload.selectionWhatsAppDigits ?? undefined)
     const fromBranding = normalizeIndianMobileDigits(initialBranding?.contactPhoneDigits ?? undefined)
@@ -538,7 +631,7 @@ export default function SharedCatalogClient({
     })
     openWhatsAppOrder(wa, msg)
     logInquiry('whatsapp')
-  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits, logInquiry])
+  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits, logInquiry, requireSignIn])
 
   if (loading) {
     return (
@@ -649,6 +742,20 @@ export default function SharedCatalogClient({
         )}
         {showPickerChrome ? (
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {!canShortlist ? (
+              <button
+                type="button"
+                onClick={() => setSignInOpen(true)}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--kc-accent,#c41e3a)]/40 bg-[var(--kc-accent,#c41e3a)]/10 px-5 py-2.5 text-sm font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/15"
+              >
+                <Smartphone className="size-4 shrink-0" aria-hidden />
+                Sign in with mobile to shortlist
+              </button>
+            ) : (
+              <p className="w-full text-center text-xs text-emerald-400/90">
+                Signed in as {customer?.name} · +91 {customer?.mobile}
+              </p>
+            )}
             <button
               type="button"
               onClick={selectAll}
@@ -678,35 +785,85 @@ export default function SharedCatalogClient({
           aria-label="Catalogue categories"
           className="mx-auto mt-6 max-w-6xl px-4 sm:px-6"
         >
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
-            <button
-              type="button"
-              onClick={() => setActiveSubcategory(SHARED_CATALOG_ALL_TAB)}
-              className={cn(
-                'kc-size-chip shrink-0 snap-start touch-manipulation rounded-full border px-4 py-2.5 text-xs font-semibold transition sm:text-sm',
-                activeSubcategory === SHARED_CATALOG_ALL_TAB
-                  ? 'kc-size-chip-active'
-                  : 'kc-size-chip-idle',
-              )}
-            >
-              All
-              <span className="ml-1.5 tabular-nums opacity-75">{rows.length}</span>
-            </button>
-            {subcategoryTabs.map((tab) => (
+          <div className="flex items-center gap-2">
+            {subcategoryNav.prev || subcategoryNav.next ? (
               <button
-                key={tab.key}
                 type="button"
-                onClick={() => setActiveSubcategory(tab.key)}
+                disabled={!subcategoryNav.prev}
+                onClick={() => subcategoryNav.prev && goToSubcategory(subcategoryNav.prev.key)}
+                aria-label={
+                  subcategoryNav.prev
+                    ? `Previous category: ${subcategoryNav.prev.label}`
+                    : 'No previous category'
+                }
                 className={cn(
-                  'kc-size-chip shrink-0 snap-start touch-manipulation rounded-full border px-4 py-2.5 text-xs font-semibold transition sm:text-sm',
-                  activeSubcategory === tab.key ? 'kc-size-chip-active' : 'kc-size-chip-idle',
+                  'kc-size-chip flex size-10 shrink-0 items-center justify-center rounded-full border touch-manipulation transition sm:size-11',
+                  subcategoryNav.prev ? 'kc-size-chip-idle' : 'cursor-not-allowed opacity-35',
                 )}
               >
-                {tab.label}
-                <span className="ml-1.5 tabular-nums opacity-75">{tab.count}</span>
+                <ChevronLeft className="size-5" aria-hidden />
               </button>
-            ))}
+            ) : null}
+            <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
+              <button
+                type="button"
+                onClick={() => goToSubcategory(SHARED_CATALOG_ALL_TAB)}
+                className={cn(
+                  'kc-size-chip shrink-0 snap-start touch-manipulation rounded-full border px-4 py-2.5 text-xs font-semibold transition sm:text-sm',
+                  activeSubcategory === SHARED_CATALOG_ALL_TAB
+                    ? 'kc-size-chip-active'
+                    : 'kc-size-chip-idle',
+                )}
+              >
+                All
+                <span className="ml-1.5 tabular-nums opacity-75">{rows.length}</span>
+              </button>
+              {subcategoryTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => goToSubcategory(tab.key)}
+                  className={cn(
+                    'kc-size-chip shrink-0 snap-start touch-manipulation rounded-full border px-4 py-2.5 text-xs font-semibold transition sm:text-sm',
+                    activeSubcategory === tab.key ? 'kc-size-chip-active' : 'kc-size-chip-idle',
+                  )}
+                >
+                  {tab.label}
+                  <span className="ml-1.5 tabular-nums opacity-75">{tab.count}</span>
+                </button>
+              ))}
+            </div>
+            {subcategoryNav.prev || subcategoryNav.next ? (
+              <button
+                type="button"
+                disabled={!subcategoryNav.next}
+                onClick={() => subcategoryNav.next && goToSubcategory(subcategoryNav.next.key)}
+                aria-label={
+                  subcategoryNav.next
+                    ? `Next category: ${subcategoryNav.next.label}`
+                    : 'No next category'
+                }
+                className={cn(
+                  'kc-size-chip flex size-10 shrink-0 items-center justify-center rounded-full border touch-manipulation transition sm:size-11',
+                  subcategoryNav.next ? 'kc-size-chip-idle' : 'cursor-not-allowed opacity-35',
+                )}
+              >
+                <ChevronRight className="size-5" aria-hidden />
+              </button>
+            ) : null}
           </div>
+          {subcategoryNav.current && subcategoryNav.next ? (
+            <div className="mt-3 flex justify-center sm:justify-end">
+              <button
+                type="button"
+                onClick={() => goToSubcategory(subcategoryNav.next!.key)}
+                className="inline-flex min-h-[40px] max-w-full items-center gap-2 rounded-full border border-[var(--kc-accent,#c41e3a)]/35 bg-[var(--kc-accent,#c41e3a)]/8 px-4 py-2 text-xs font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/12 sm:text-sm"
+              >
+                <span className="truncate">Next: {subcategoryNav.next.label}</span>
+                <ChevronRight className="size-4 shrink-0" aria-hidden />
+              </button>
+            </div>
+          ) : null}
         </nav>
       ) : null}
 
@@ -769,14 +926,14 @@ export default function SharedCatalogClient({
                     onClick={(e) => {
                       const t = e.target as HTMLElement
                       if (t.closest('[data-no-card-toggle]')) return
-                      toggleKey(key)
+                      guardedToggleKey(key)
                     }}
                     onKeyDown={(e) => {
                       if (e.key !== 'Enter' && e.key !== ' ') return
                       const t = e.target as HTMLElement
                       if (t.closest('[data-no-card-toggle]')) return
                       e.preventDefault()
-                      toggleKey(key)
+                      guardedToggleKey(key)
                     }}
                   >
                     <div
@@ -790,7 +947,7 @@ export default function SharedCatalogClient({
                         data-no-card-toggle
                         onClick={(e) => {
                           e.stopPropagation()
-                          toggleKey(key)
+                          guardedToggleKey(key)
                         }}
                         aria-pressed={selected}
                         aria-label={selected ? 'Remove from shortlist' : 'Add to shortlist'}
@@ -1009,6 +1166,22 @@ export default function SharedCatalogClient({
             })}
           </ul>
         )}
+        {subcategoryNav.current && subcategoryNav.next ? (
+          <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-center text-sm text-slate-400 sm:text-left">
+              Finished browsing{' '}
+              <span className="font-medium text-slate-200">{subcategoryNav.current.label}</span>?
+            </p>
+            <button
+              type="button"
+              onClick={() => goToSubcategory(subcategoryNav.next!.key)}
+              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl border border-[var(--kc-accent,#c41e3a)]/40 bg-[var(--kc-accent,#c41e3a)]/10 px-5 py-3 text-sm font-bold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/15 sm:w-auto"
+            >
+              Continue to {subcategoryNav.next.label}
+              <ChevronRight className="size-5 shrink-0" aria-hidden />
+            </button>
+          </div>
+        ) : null}
       </main>
 
       {showPickerChrome ? (
@@ -1077,6 +1250,13 @@ export default function SharedCatalogClient({
         open={pdfShareOpen}
         onOpenChange={setPdfShareOpen}
         payload={pdfSharePayload}
+      />
+
+      <SharedCatalogSignInModal
+        open={signInOpen}
+        onOpenChange={setSignInOpen}
+        brandLabel={brandLabel}
+        onVerified={setCustomer}
       />
     </div>
   )

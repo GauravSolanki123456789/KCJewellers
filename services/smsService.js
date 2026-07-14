@@ -1,45 +1,43 @@
 /**
  * SMS Service for OTP delivery
  *
- * Fast2SMS: Set FAST2SMS_API_KEY and SMS_PROVIDER=fast2sms (or leave unset to auto-detect when key present)
+ * Config: admin app_settings (see services/smsConfig.js) with .env fallback.
  *
- * MSG91: Set MSG91_AUTH_KEY or SMS_PROVIDER_API_KEY in .env, SMS_PROVIDER=msg91
- *   Optional: MSG91_SENDER_ID (default: KCJEWL)
- *
- * Twilio: Set SMS_PROVIDER=twilio and TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
- *
+ * Providers: fast2sms | msg91 | twilio
  * Dev: If no key set, OTP is logged to console
  */
 
-async function sendSMS(mobileNumber, otpCode) {
+function resolveProvider(config) {
+    let provider = String(config?.sms_provider || process.env.SMS_PROVIDER || '').trim().toLowerCase();
+    const fastKey = config?.fast2sms_api_key || process.env.FAST2SMS_API_KEY;
+    if (!provider && fastKey) provider = 'fast2sms';
+    if (!provider) provider = 'msg91';
+    return provider;
+}
+
+async function sendSMS(mobileNumber, otpCode, config = null) {
     const mobile = String(mobileNumber || '').replace(/\D/g, '').slice(-10);
     if (mobile.length !== 10) {
         throw new Error('Invalid mobile number');
     }
 
-    let provider = process.env.SMS_PROVIDER || '';
-    if (!provider && process.env.FAST2SMS_API_KEY) {
-        provider = 'fast2sms';
-    }
-    if (!provider) {
-        provider = 'msg91';
-    }
+    const provider = resolveProvider(config);
 
     if (provider === 'fast2sms') {
-        return sendViaFast2SMS(mobile, otpCode);
+        return sendViaFast2SMS(mobile, otpCode, config);
     }
     if (provider === 'msg91') {
-        return sendViaMSG91(mobile, otpCode);
+        return sendViaMSG91(mobile, otpCode, config);
     }
     if (provider === 'twilio') {
-        return sendViaTwilio(mobile, otpCode);
+        return sendViaTwilio(mobile, otpCode, config);
     }
     console.log(`[SMS] To: +91${mobile} | OTP: ${otpCode}`);
     return { success: true };
 }
 
-async function sendViaFast2SMS(mobile, otpCode) {
-    const apiKey = process.env.FAST2SMS_API_KEY;
+async function sendViaFast2SMS(mobile, otpCode, config) {
+    const apiKey = config?.fast2sms_api_key || process.env.FAST2SMS_API_KEY;
     if (!apiKey) {
         console.log(`[SMS] FAST2SMS_API_KEY not set. OTP for +91${mobile}: ${otpCode}`);
         return { success: true };
@@ -50,7 +48,7 @@ async function sendViaFast2SMS(mobile, otpCode) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'authorization': apiKey,
+                authorization: apiKey,
             },
             body: JSON.stringify({
                 variables_values: otpCode,
@@ -105,13 +103,13 @@ function mapFast2SMSError(msg, status) {
     return msg || 'Failed to send OTP. Please try again.';
 }
 
-async function sendViaMSG91(mobile, otpCode) {
-    const authKey = process.env.MSG91_AUTH_KEY || process.env.SMS_PROVIDER_API_KEY;
+async function sendViaMSG91(mobile, otpCode, config) {
+    const authKey = config?.msg91_auth_key || process.env.MSG91_AUTH_KEY || process.env.SMS_PROVIDER_API_KEY;
     if (!authKey) {
         console.log(`[SMS] MSG91_AUTH_KEY not set. OTP for +91${mobile}: ${otpCode}`);
         return { success: true };
     }
-    const senderId = (process.env.MSG91_SENDER_ID || 'KCJEWL').slice(0, 6);
+    const senderId = String(config?.msg91_sender_id || process.env.MSG91_SENDER_ID || 'KCJEWL').slice(0, 6);
     const message = `Your KC Jewellers verification code is ${otpCode}. Valid for 10 minutes.`;
     const params = new URLSearchParams({
         authkey: authKey,
@@ -139,10 +137,10 @@ async function sendViaMSG91(mobile, otpCode) {
     }
 }
 
-async function sendViaTwilio(mobile, otpCode) {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const from = process.env.TWILIO_PHONE_NUMBER;
+async function sendViaTwilio(mobile, otpCode, config) {
+    const accountSid = config?.twilio_account_sid || process.env.TWILIO_ACCOUNT_SID;
+    const authToken = config?.twilio_auth_token || process.env.TWILIO_AUTH_TOKEN;
+    const from = config?.twilio_phone_number || process.env.TWILIO_PHONE_NUMBER;
     if (!accountSid || !authToken || !from) {
         console.log(`[SMS] Twilio not configured. OTP for +91${mobile}: ${otpCode}`);
         return { success: true };

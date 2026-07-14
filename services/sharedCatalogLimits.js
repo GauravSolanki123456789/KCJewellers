@@ -81,6 +81,12 @@ async function ensureSharedCatalogLimitColumns(pool) {
             ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
         ALTER TABLE shared_catalog_inquiries
             ADD COLUMN IF NOT EXISTS status_note TEXT;
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS customer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS customer_mobile VARCHAR(10);
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255);
     `);
 }
 
@@ -216,11 +222,19 @@ async function logSharedCatalogInquiry(query, payload) {
         totalInr,
         lines,
         catalogUrl,
+        customerUserId,
+        customerMobile,
+        customerName,
     } = payload;
+    const mobile =
+        customerMobile != null
+            ? String(customerMobile).replace(/\D/g, '').slice(-10)
+            : '';
     const rows = await query(
         `INSERT INTO shared_catalog_inquiries (
-            shared_catalog_id, reseller_user_id, source, line_count, total_pieces, total_inr, lines_json, catalog_url
-         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8)
+            shared_catalog_id, reseller_user_id, source, line_count, total_pieces, total_inr, lines_json, catalog_url,
+            customer_user_id, customer_mobile, customer_name
+         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
          RETURNING id, created_at`,
         [
             sharedCatalogId || null,
@@ -231,6 +245,9 @@ async function logSharedCatalogInquiry(query, payload) {
             totalInr != null && Number.isFinite(Number(totalInr)) ? Number(totalInr) : null,
             JSON.stringify(Array.isArray(lines) ? lines : []),
             catalogUrl || null,
+            customerUserId != null && Number.isFinite(Number(customerUserId)) ? Number(customerUserId) : null,
+            mobile.length === 10 ? mobile : null,
+            customerName != null && String(customerName).trim() ? String(customerName).trim().slice(0, 255) : null,
         ],
     );
     return rows[0];
@@ -317,6 +334,7 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
                 sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
                 sci.catalog_url, sci.created_at, sci.inquiry_status, sci.status_updated_at,
                 sci.status_note,
+                sci.customer_user_id, sci.customer_mobile, sci.customer_name,
                 COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
                 u.custom_domain AS reseller_domain
          FROM shared_catalog_inquiries sci
@@ -402,6 +420,7 @@ async function getAdminResellerCatalogInquiries(query, opts = {}) {
                 sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
                 sci.catalog_url, sci.created_at, sci.inquiry_status, sci.status_updated_at,
                 sci.status_note,
+                sci.customer_user_id, sci.customer_mobile, sci.customer_name,
                 COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
                 u.custom_domain AS reseller_domain
          FROM shared_catalog_inquiries sci

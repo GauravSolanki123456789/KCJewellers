@@ -78,3 +78,35 @@ export function filterSharedCatalogGroupsBySubcategory(
   if (activeKey === SHARED_CATALOG_ALL_TAB) return groups
   return groups.filter((g) => sharedCatalogSubcategoryKeyForGroup(g) === activeKey)
 }
+
+export type SharedCatalogSubcategoryNav = {
+  prev: SharedCatalogSubcategoryTab | null
+  next: SharedCatalogSubcategoryTab | null
+  current: SharedCatalogSubcategoryTab | null
+  currentIndex: number
+}
+
+/** Prev/next tab within ordered subcategory list (excludes "All"). */
+export function getSharedCatalogSubcategoryNav(
+  tabs: SharedCatalogSubcategoryTab[],
+  activeKey: string,
+): SharedCatalogSubcategoryNav {
+  if (activeKey === SHARED_CATALOG_ALL_TAB || tabs.length === 0) {
+    return {
+      prev: null,
+      next: tabs[0] ?? null,
+      current: null,
+      currentIndex: -1,
+    }
+  }
+  const idx = tabs.findIndex((t) => t.key === activeKey)
+  if (idx < 0) {
+    return { prev: null, next: tabs[0] ?? null, current: null, currentIndex: -1 }
+  }
+  return {
+    prev: idx > 0 ? tabs[idx - 1] : null,
+    next: idx < tabs.length - 1 ? tabs[idx + 1] : null,
+    current: tabs[idx],
+    currentIndex: idx,
+  }
+}

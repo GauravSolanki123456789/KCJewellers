@@ -14,8 +14,11 @@ import {
 import {
   catalogInquirySourceLabel,
   catalogInquiryStatusMeta,
+  buildCustomerFollowUpWhatsAppMessage,
+  customerWhatsAppHref,
   formatCatalogInr,
   formatCatalogWhen,
+  formatCustomerMobileDisplay,
   type CatalogInquiryRow,
   type CatalogInquiryStatus,
 } from '@/lib/catalog-inquiry-shared'
@@ -44,6 +47,18 @@ export default function CatalogInquiryCard({
   const SourceIcon = inquiry.source.toLowerCase() === 'pdf' ? FileText : MessageCircle
   const statusMeta = catalogInquiryStatusMeta(inquiry.inquiry_status)
   const busy = statusBusyId === inquiry.id || localBusy
+  const customerMobileDisplay = formatCustomerMobileDisplay(inquiry.customer_mobile)
+  const followUpBrand = inquiry.reseller_label?.trim() || 'our store'
+  const customerWaHref = customerWhatsAppHref(
+    inquiry.customer_mobile,
+    buildCustomerFollowUpWhatsAppMessage({
+      brandLabel: followUpBrand,
+      customerName: inquiry.customer_name,
+      totalPieces: inquiry.total_pieces,
+      totalInr: inquiry.total_inr,
+      catalogUrl: inquiry.catalog_url,
+    }),
+  )
 
   const handleStatus = async (status: CatalogInquiryStatus) => {
     if (!onStatusChange || busy) return
@@ -90,6 +105,29 @@ export default function CatalogInquiryCard({
             </span>
             <span className="text-xs text-slate-500">{formatCatalogWhen(inquiry.created_at)}</span>
           </div>
+          {inquiry.customer_name || customerMobileDisplay ? (
+            <p
+              className={cn(
+                'mt-1 truncate text-sm font-medium',
+                theme === 'admin'
+                  ? 'text-slate-100'
+                  : 'text-[var(--color-jewelry-black,#1a1814)]',
+              )}
+            >
+              {inquiry.customer_name?.trim() || 'Customer'}
+              {customerMobileDisplay ? (
+                <span
+                  className={cn(
+                    'font-normal',
+                    theme === 'admin' ? 'text-slate-400' : 'text-[var(--color-jewelry-black,#1a1814)]/55',
+                  )}
+                >
+                  {' '}
+                  · {customerMobileDisplay}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
           {showReseller ? (
             <p className="mt-1 truncate text-sm font-medium text-slate-100">
               {inquiry.reseller_label ?? 'Unknown reseller'}
@@ -215,6 +253,24 @@ export default function CatalogInquiryCard({
                 )
               })}
             </div>
+          ) : null}
+
+          {customerWaHref ? (
+            <a
+              href={customerWaHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:w-auto',
+                theme === 'admin'
+                  ? 'bg-emerald-600 hover:bg-emerald-500'
+                  : 'bg-[var(--kc-accent,#c41e3a)] hover:opacity-90',
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MessageCircle className="size-4 shrink-0" aria-hidden />
+              WhatsApp customer
+            </a>
           ) : null}
 
           {inquiry.catalog_url ? (
