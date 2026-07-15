@@ -3,13 +3,15 @@
  *
  * Config: admin app_settings (see services/smsConfig.js) with .env fallback.
  *
- * Providers: fast2sms | msg91 | twilio
+ * Providers: o3sms | fast2sms | msg91 | twilio
  * Dev: If no key set, OTP is logged to console
  */
 
 function resolveProvider(config) {
     let provider = String(config?.sms_provider || process.env.SMS_PROVIDER || '').trim().toLowerCase();
+    const o3Key = config?.o3sms_api_key || process.env.O3SMS_API_KEY || process.env.CO3SMS_API_KEY;
     const fastKey = config?.fast2sms_api_key || process.env.FAST2SMS_API_KEY;
+    if (!provider && o3Key) provider = 'o3sms';
     if (!provider && fastKey) provider = 'fast2sms';
     if (!provider) provider = 'msg91';
     return provider;
@@ -23,6 +25,9 @@ async function sendSMS(mobileNumber, otpCode, config = null) {
 
     const provider = resolveProvider(config);
 
+    if (provider === 'o3sms' || provider === 'co3sms' || provider === 'co3') {
+        return sendViaO3SMS(mobile, otpCode, config);
+    }
     if (provider === 'fast2sms') {
         return sendViaFast2SMS(mobile, otpCode, config);
     }
@@ -93,6 +98,117 @@ function mapFast2SMSError(msg, status) {
     }
     if (s.includes('dlt') || s.includes('template') || s.includes('sender')) {
         return 'SMS could not be sent. Please try again or use another sign-in method.';
+    }
+    if (status === 429) {
+        return 'Too many attempts. Please try again after a few minutes.';
+    }
+    if (status >= 500) {
+        return 'SMS service temporarily unavailable. Please try again later.';
+    }
+    return msg || 'Failed to send OTP. Please try again.';
+}
+
+/** Co3SMS / O3SMS — api.co3.live HTTP API (key, sender, number, route, message). */
+async function sendViaO3SMS(mobile, otpCode, config) {
+    const apiKey =
+        config?.o3sms_api_key || process.env.O3SMS_API_KEY || process.env.CO3SMS_API_KEY;
+    if (!apiKey) {
+        console.log(`[SMS] O3SMS API key not set. OTP for +91${mobile}: ${otpCode}`);
+        return { success: true };
+    }
+
+    const sender = String(
+        config?.o3sms_sender_id || process.env.O3SMS_SENDER_ID || process.env.CO3SMS_SENDER_ID || 'ALERTS',
+    )
+        .trim()
+        .slice(0, 6);
+    const route = String(config?.o3sms_route || process.env.O3SMS_ROUTE || process.env.CO3SMS_ROUTE || '2').trim();
+    const templateId = String(
+        config?.o3sms_dlt_template_id ||
+            process.env.O3SMS_DLT_TEMPLATE_ID ||
+            process.env.CO3SMS_DLT_TEMPLATE_ID ||
+            '',
+    ).trim();
+    const template =
+        config?.o3sms_message_template ||
+        process.env.O3SMS_MESSAGE_TEMPLATE ||
+        process.env.CO3SMS_MESSAGE_TEMPLATE ||
+        'Your KC Jewellers verification code is {#var#}. Valid for 10 minutes.';
+    const message = String(template)
+        .replace(/\{#var#\}/gi, otpCode)
+        .replace(/\{otp\}/gi, otpCode);
+
+    const params = new URLSearchParams({
+        key: apiKey,
+        sender,
+        number: `91${mobile}`,
+        message,
+        route,
+    });
+    if (templateId) {
+        params.set('templateid', templateId);
+        params.set('DLT_TE_ID', templateId);
+        params.set('id', templateId);
+    }
+
+    const query = params.toString();
+    const getUrl = `https://api.co3.live/api/sendsms?${query}`;
+    const postUrl = 'https://api.co3.live/api/sendsms';
+
+    try {
+        let resp = await fetch(getUrl, { method: 'GET' });
+        let text = String(await resp.text()).trim();
+
+        if (!resp.ok || looksLikeO3SmsFailure(text)) {
+            resp = await fetch(postUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: query,
+            });
+            text = String(await resp.text()).trim();
+        }
+
+        if (!resp.ok) {
+            console.error('[SMS] O3SMS HTTP error:', resp.status, text);
+            throw new Error(mapO3SMSError(text, resp.status));
+        }
+
+        if (looksLikeO3SmsFailure(text)) {
+            console.error('[SMS] O3SMS API error:', text);
+            throw new Error(mapO3SMSError(text));
+        }
+
+        return { success: true, response: text };
+    } catch (error) {
+        if (error.message && !error.message.includes('SMS')) {
+            console.error('[SMS] O3SMS send error:', error.message);
+        }
+        throw error;
+    }
+}
+
+function looksLikeO3SmsFailure(text) {
+    const lower = String(text || '').toLowerCase();
+    return (
+        lower.includes('error') ||
+        lower.includes('invalid') ||
+        lower.includes('fail') ||
+        lower.includes('insufficient') ||
+        lower.includes('balance') ||
+        lower.includes('rejected')
+    );
+}
+
+function mapO3SMSError(msg, status) {
+    const s = String(msg || '').toLowerCase();
+    if (s.includes('balance') || s.includes('insufficient') || s.includes('credit')) {
+        return 'SMS service temporarily unavailable. Please try again later or contact support.';
+    }
+    if (s.includes('invalid') && (s.includes('key') || s.includes('auth'))) {
+        return 'SMS service configuration error. Please contact support.';
+    }
+    if (s.includes('sender') || s.includes('template') || s.includes('dlt')) {
+        return 'SMS could not be sent. Check sender ID and DLT template in Admin → SMS settings.';
     }
     if (status === 429) {
         return 'Too many attempts. Please try again after a few minutes.';

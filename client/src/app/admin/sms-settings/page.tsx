@@ -10,6 +10,12 @@ type SmsSettings = {
   sms_provider: string
   fast2sms_api_key: string
   fast2sms_api_key_set: boolean
+  o3sms_api_key: string
+  o3sms_api_key_set: boolean
+  o3sms_sender_id: string
+  o3sms_route: string
+  o3sms_dlt_template_id: string
+  o3sms_message_template: string
   msg91_auth_key: string
   msg91_auth_key_set: boolean
   msg91_sender_id: string
@@ -21,10 +27,18 @@ type SmsSettings = {
 }
 
 const PROVIDERS = [
-  { value: '', label: 'Auto (Fast2SMS if key set, else MSG91)' },
+  { value: '', label: 'Auto (Co3SMS if key set, else Fast2SMS, else MSG91)' },
+  { value: 'o3sms', label: 'Co3SMS / O3SMS (api.co3.live)' },
   { value: 'fast2sms', label: 'Fast2SMS' },
   { value: 'msg91', label: 'MSG91' },
   { value: 'twilio', label: 'Twilio' },
+]
+
+const O3SMS_ROUTES = [
+  { value: '1', label: '1 — Promotional' },
+  { value: '2', label: '2 — Transactional (OTP)' },
+  { value: '3', label: '3 — Service Implicit' },
+  { value: '4', label: '4 — Service Explicit' },
 ]
 
 function SmsSettingsForm() {
@@ -33,7 +47,12 @@ function SmsSettingsForm() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [form, setForm] = useState({
-    sms_provider: '',
+    sms_provider: 'o3sms',
+    o3sms_api_key: '',
+    o3sms_sender_id: 'ALERTS',
+    o3sms_route: '2',
+    o3sms_dlt_template_id: '',
+    o3sms_message_template: 'Your KC Jewellers verification code is {#var#}. Valid for 10 minutes.',
     fast2sms_api_key: '',
     msg91_auth_key: '',
     msg91_sender_id: 'KCJEWL',
@@ -42,6 +61,7 @@ function SmsSettingsForm() {
     twilio_phone_number: '',
   })
   const [flags, setFlags] = useState({
+    o3sms_api_key_set: false,
     fast2sms_api_key_set: false,
     msg91_auth_key_set: false,
     twilio_account_sid_set: false,
@@ -55,7 +75,14 @@ function SmsSettingsForm() {
       const res = await axios.get<SmsSettings>('/api/admin/sms-settings', { withCredentials: true })
       const d = res.data
       setForm({
-        sms_provider: d.sms_provider || '',
+        sms_provider: d.sms_provider || (d.o3sms_api_key_set ? 'o3sms' : ''),
+        o3sms_api_key: '',
+        o3sms_sender_id: d.o3sms_sender_id || 'ALERTS',
+        o3sms_route: d.o3sms_route || '2',
+        o3sms_dlt_template_id: d.o3sms_dlt_template_id || '',
+        o3sms_message_template:
+          d.o3sms_message_template ||
+          'Your KC Jewellers verification code is {#var#}. Valid for 10 minutes.',
         fast2sms_api_key: '',
         msg91_auth_key: '',
         msg91_sender_id: d.msg91_sender_id || 'KCJEWL',
@@ -64,6 +91,7 @@ function SmsSettingsForm() {
         twilio_phone_number: d.twilio_phone_number || '',
       })
       setFlags({
+        o3sms_api_key_set: !!d.o3sms_api_key_set,
         fast2sms_api_key_set: !!d.fast2sms_api_key_set,
         msg91_auth_key_set: !!d.msg91_auth_key_set,
         twilio_account_sid_set: !!d.twilio_account_sid_set,
@@ -87,16 +115,21 @@ function SmsSettingsForm() {
     try {
       const body: Record<string, string> = {
         sms_provider: form.sms_provider,
+        o3sms_sender_id: form.o3sms_sender_id,
+        o3sms_route: form.o3sms_route,
+        o3sms_dlt_template_id: form.o3sms_dlt_template_id,
+        o3sms_message_template: form.o3sms_message_template,
         msg91_sender_id: form.msg91_sender_id,
         twilio_phone_number: form.twilio_phone_number,
       }
+      if (form.o3sms_api_key.trim()) body.o3sms_api_key = form.o3sms_api_key.trim()
       if (form.fast2sms_api_key.trim()) body.fast2sms_api_key = form.fast2sms_api_key.trim()
       if (form.msg91_auth_key.trim()) body.msg91_auth_key = form.msg91_auth_key.trim()
       if (form.twilio_account_sid.trim()) body.twilio_account_sid = form.twilio_account_sid.trim()
       if (form.twilio_auth_token.trim()) body.twilio_auth_token = form.twilio_auth_token.trim()
 
       await axios.patch('/api/admin/sms-settings', body, { withCredentials: true })
-      setSuccess('SMS settings saved. OTP for shared catalog sign-in will use these keys.')
+      setSuccess('SMS settings saved. OTP sign-in will use these credentials.')
       await load()
     } catch (e: unknown) {
       const msg =
@@ -129,7 +162,7 @@ function SmsSettingsForm() {
           <div>
             <h1 className="text-xl font-bold text-slate-100">SMS &amp; OTP settings</h1>
             <p className="text-sm text-slate-400">
-              Configure OTP delivery for shared catalogue customer sign-in and site login.
+              Paste your Co3SMS API key here for shared catalogue and site OTP login.
             </p>
           </div>
         </div>
@@ -156,21 +189,82 @@ function SmsSettingsForm() {
                   </option>
                 ))}
               </select>
-              <p className="mt-1.5 text-xs text-slate-500">
-                Environment variables in `.env` are used as fallback when a field is left blank here.
-              </p>
             </div>
 
-            <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
-              <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-400">
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+              <p className="mb-1 flex items-center gap-2 text-sm font-semibold text-emerald-400">
                 <MessageSquare className="size-4" aria-hidden />
-                Fast2SMS
+                Co3SMS / O3SMS (recommended)
+              </p>
+              <p className="mb-4 text-xs leading-relaxed text-slate-400">
+                Copy the API key from your Co3SMS dashboard → Developer → Http API → API Key.
               </p>
               <label className="mb-1.5 block text-xs text-slate-500">API key</label>
               <input
                 type="password"
                 autoComplete="off"
-                placeholder={flags.fast2sms_api_key_set ? 'Key saved — enter new value to replace' : 'FAST2SMS API key'}
+                placeholder={
+                  flags.o3sms_api_key_set
+                    ? 'Key saved — paste new key only to replace'
+                    : 'Paste your Co3SMS API key here'
+                }
+                value={form.o3sms_api_key}
+                onChange={(e) => setForm((f) => ({ ...f, o3sms_api_key: e.target.value }))}
+                className={fieldClass}
+              />
+              <label className="mb-1.5 mt-3 block text-xs text-slate-500">Sender ID</label>
+              <input
+                type="text"
+                maxLength={6}
+                placeholder="ALERTS"
+                value={form.o3sms_sender_id}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, o3sms_sender_id: e.target.value.toUpperCase() }))
+                }
+                className={fieldClass}
+              />
+              <label className="mb-1.5 mt-3 block text-xs text-slate-500">Route</label>
+              <select
+                value={form.o3sms_route}
+                onChange={(e) => setForm((f) => ({ ...f, o3sms_route: e.target.value }))}
+                className={fieldClass}
+              >
+                {O3SMS_ROUTES.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+              <label className="mb-1.5 mt-3 block text-xs text-slate-500">
+                DLT template ID (optional — required if Co3 rejects messages)
+              </label>
+              <input
+                type="text"
+                placeholder="DLT template ID from your Co3SMS account"
+                value={form.o3sms_dlt_template_id}
+                onChange={(e) => setForm((f) => ({ ...f, o3sms_dlt_template_id: e.target.value }))}
+                className={fieldClass}
+              />
+              <label className="mb-1.5 mt-3 block text-xs text-slate-500">
+                Message template — use {'{#var#}'} where the OTP goes (must match DLT)
+              </label>
+              <textarea
+                rows={2}
+                value={form.o3sms_message_template}
+                onChange={(e) => setForm((f) => ({ ...f, o3sms_message_template: e.target.value }))}
+                className={`${fieldClass} min-h-[72px] resize-y py-2.5`}
+              />
+            </div>
+
+            <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
+              <p className="mb-3 text-sm font-semibold text-amber-400">Fast2SMS (alternate)</p>
+              <label className="mb-1.5 block text-xs text-slate-500">API key</label>
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder={
+                  flags.fast2sms_api_key_set ? 'Key saved — enter new value to replace' : 'FAST2SMS API key'
+                }
                 value={form.fast2sms_api_key}
                 onChange={(e) => setForm((f) => ({ ...f, fast2sms_api_key: e.target.value }))}
                 className={fieldClass}
@@ -178,12 +272,14 @@ function SmsSettingsForm() {
             </div>
 
             <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
-              <p className="mb-3 text-sm font-semibold text-cyan-400">MSG91</p>
+              <p className="mb-3 text-sm font-semibold text-cyan-400">MSG91 (alternate)</p>
               <label className="mb-1.5 block text-xs text-slate-500">Auth key</label>
               <input
                 type="password"
                 autoComplete="off"
-                placeholder={flags.msg91_auth_key_set ? 'Key saved — enter new value to replace' : 'MSG91 auth key'}
+                placeholder={
+                  flags.msg91_auth_key_set ? 'Key saved — enter new value to replace' : 'MSG91 auth key'
+                }
                 value={form.msg91_auth_key}
                 onChange={(e) => setForm((f) => ({ ...f, msg91_auth_key: e.target.value }))}
                 className={fieldClass}
