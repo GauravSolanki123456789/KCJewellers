@@ -123,6 +123,7 @@ function ResellerSmsSettingsForm() {
         onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
         onSave={() => void handleSave()}
         saving={saving}
+        testApiPath="/api/reseller/sms-settings/test-otp"
         intro="These settings apply only to your shared catalogue links (WhatsApp brochures). KC main-site login is controlled separately by KC admin."
       />
     </div>

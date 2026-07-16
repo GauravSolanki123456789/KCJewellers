@@ -38,7 +38,7 @@ function publicResellerSmsSettings(row) {
         o3sms_dlt_template_id: String(row?.reseller_o3sms_dlt_template_id ?? '').trim(),
         o3sms_message_template:
             String(row?.reseller_o3sms_message_template ?? '').trim() ||
-            'Dear {#var#} Your OTP for login is {#var#}. It is valid for {#var#}.',
+            'Dear {#var#} Your OTP for login is {#var#} It is valid for {#var#} B.N.MARLECHA AND SONS',
     };
 }
 
@@ -55,7 +55,7 @@ function resellerRowToSmsConfig(row) {
         o3sms_dlt_template_id: String(row.reseller_o3sms_dlt_template_id ?? '').trim(),
         o3sms_message_template:
             String(row.reseller_o3sms_message_template ?? '').trim() ||
-            'Dear {#var#} Your OTP for login is {#var#}. It is valid for {#var#}.',
+            'Dear {#var#} Your OTP for login is {#var#} It is valid for {#var#} B.N.MARLECHA AND SONS',
     };
 }
 
@@ -186,6 +186,7 @@ module.exports = {
     RESELLER_SMS_COLUMNS,
     ensureResellerSmsColumns,
     publicResellerSmsSettings,
+    resellerRowToSmsConfig,
     resellerRowToSmsConfig,
     loadResellerSmsRow,
     getResellerSmsConfigForSend,

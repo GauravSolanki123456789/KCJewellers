@@ -108,23 +108,91 @@ function mapFast2SMSError(msg, status) {
     return msg || 'Failed to send OTP. Please try again.';
 }
 
-/** Fill Co3SMS DLT templates — supports {#var#}, {#alp#}, {otp}. */
-function fillO3OtpMessage(template, otpCode) {
-    const fillers = ['Customer', String(otpCode), '10 minutes'];
+/** Approved DLT example — must match Co3 / DLT portal character-for-character (except variable values). */
+const O3_DLT_PLACEHOLDER_RE = /\{#(?:var|alp)#\}/gi;
+
+/** Fill Co3SMS DLT templates — supports {#var#}, {#alp#}, {otp}. Order: name → OTP → validity. */
+function fillO3OtpMessage(template, otpCode, customerLabel = 'Customer') {
+    const fillers = [String(customerLabel || 'Customer').trim() || 'Customer', String(otpCode), '10 minutes'];
     let i = 0;
     let msg = String(template || '');
-    msg = msg.replace(/\{#(?:var|alp)#\}/gi, () => fillers[Math.min(i++, fillers.length - 1)] ?? otpCode);
+    msg = msg.replace(O3_DLT_PLACEHOLDER_RE, () => fillers[Math.min(i++, fillers.length - 1)] ?? otpCode);
     msg = msg.replace(/\{otp\}/gi, otpCode);
-    return msg;
+    return msg.replace(/\s+/g, ' ').trim();
+}
+
+/** Extract ordered DLT variable slots from a registered template. */
+function o3TemplateVariableCount(template) {
+    const matches = String(template || '').match(O3_DLT_PLACEHOLDER_RE);
+    return matches ? matches.length : 0;
+}
+
+const O3_ERROR_CODES = {
+    101: 'Invalid SMS API key. Check your Co3SMS key in SMS settings.',
+    102: 'Invalid sender ID. Use your approved DLT header (e.g. BMSSIL).',
+    105: 'SMS message body is empty. Check your DLT message template.',
+    108: 'Wrong SMS route for this template. Try route 2 (Transactional) or contact Co3.',
+    110: 'DLT template ID is required or invalid. Paste the exact template ID from Co3.',
+};
+
+function mapO3ErrorCode(code) {
+    return O3_ERROR_CODES[code] || `SMS gateway error (code ${code}). Contact your SMS provider.`;
+}
+
+/** Co3 returns HTTP 200 for both success (long message id) and errors (101–199). */
+function parseO3SmsResponse(text) {
+    const t = String(text || '').trim();
+    if (!t) {
+        return { ok: false, error: 'Empty response from SMS gateway' };
+    }
+    const lower = t.toLowerCase();
+    if (lower.includes('error') || lower.includes('invalid') || lower.includes('fail') || lower.includes('rejected')) {
+        return { ok: false, error: t };
+    }
+    if (/^\d{1,3}$/.test(t)) {
+        const code = parseInt(t, 10);
+        if (code >= 101 && code <= 199) {
+            return { ok: false, error: mapO3ErrorCode(code) };
+        }
+    }
+    if (/^\d{4,}$/.test(t)) {
+        return { ok: true, messageId: t };
+    }
+    if (lower.includes('success') || lower.startsWith('ok')) {
+        return { ok: true, messageId: t };
+    }
+    if (t.length < 24) {
+        return { ok: false, error: t || 'SMS gateway rejected the message' };
+    }
+    return { ok: true, messageId: t };
 }
 
 /** Co3SMS / O3SMS — api.co3.live (smsapi + sendsms). */
 async function sendViaO3SMS(mobile, otpCode, config) {
+    const result = await sendViaO3SMSDetailed(mobile, otpCode, config);
+    return { success: true, response: result.gatewayResponse, messageId: result.messageId };
+}
+
+async function sendViaO3SMSDetailed(mobile, otpCode, config) {
     const apiKey =
         config?.o3sms_api_key || process.env.O3SMS_API_KEY || process.env.CO3SMS_API_KEY;
+    const template =
+        config?.o3sms_message_template ||
+        process.env.O3SMS_MESSAGE_TEMPLATE ||
+        process.env.CO3SMS_MESSAGE_TEMPLATE ||
+        'Dear {#var#} Your OTP for login is {#var#} It is valid for {#var#} B.N.MARLECHA AND SONS';
     if (!apiKey) {
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('Co3SMS API key not configured. Save your API key in SMS settings.');
+        }
         console.log(`[SMS] O3SMS API key not set. OTP for +91${mobile}: ${otpCode}`);
-        return { success: true };
+        return {
+            success: true,
+            devMode: true,
+            provider: 'o3sms',
+            filledMessage: fillO3OtpMessage(template, otpCode),
+            gatewayResponse: 'dev-mode-no-api-key',
+        };
     }
 
     const sender = String(
@@ -139,90 +207,84 @@ async function sendViaO3SMS(mobile, otpCode, config) {
             process.env.CO3SMS_DLT_TEMPLATE_ID ||
             '',
     ).trim();
-    const template =
-        config?.o3sms_message_template ||
-        process.env.O3SMS_MESSAGE_TEMPLATE ||
-        process.env.CO3SMS_MESSAGE_TEMPLATE ||
-        'Your KC Jewellers verification code is {#var#}. Valid for 10 minutes.';
     const message = fillO3OtpMessage(template, otpCode);
+    const varCount = o3TemplateVariableCount(template);
+    const varValues = ['Customer', String(otpCode), '10 minutes'].slice(0, Math.max(varCount, 3));
 
-    const smsApiParams = new URLSearchParams({
-        key: apiKey,
-        route,
-        sender,
-        number: mobile,
-        sms: message,
-    });
-    if (templateId) {
-        smsApiParams.set('templateid', templateId);
-    }
-
-    const sendsmsParams = new URLSearchParams({
-        key: apiKey,
-        sender,
-        number: `91${mobile}`,
-        message,
-        route,
-    });
-    if (templateId) {
-        sendsmsParams.set('templateid', templateId);
-        sendsmsParams.set('DLT_TE_ID', templateId);
-        sendsmsParams.set('id', templateId);
-    }
+    const buildSmsApiParams = (smsBody, extra = {}) => {
+        const p = new URLSearchParams({
+            key: apiKey,
+            route,
+            sender,
+            number: mobile,
+            sms: smsBody,
+            ...extra,
+        });
+        if (templateId) {
+            p.set('templateid', templateId);
+        }
+        return p;
+    };
 
     const attempts = [
-        { url: `https://api.co3.live/api/smsapi?${smsApiParams.toString()}`, method: 'GET' },
+        { label: 'filled-dlt', params: buildSmsApiParams(message) },
+        { label: 'template-vars', params: buildSmsApiParams(template, { variables: varValues.join('|') }) },
         {
-            url: 'https://api.co3.live/api/smsapi',
-            method: 'POST',
-            body: smsApiParams.toString(),
-            contentType: 'application/x-www-form-urlencoded',
+            label: 'template-var123',
+            params: buildSmsApiParams(template, {
+                var1: varValues[0] || '',
+                var2: varValues[1] || String(otpCode),
+                var3: varValues[2] || '10 minutes',
+            }),
         },
-        { url: `https://api.co3.live/api/sendsms?${sendsmsParams.toString()}`, method: 'GET' },
-        {
-            url: 'https://api.co3.live/api/sendsms',
-            method: 'POST',
-            body: sendsmsParams.toString(),
-            contentType: 'application/x-www-form-urlencoded',
-        },
+        { label: 'raw-template', params: buildSmsApiParams(template) },
     ];
 
     let lastText = '';
     let lastStatus = 0;
+    let lastError = '';
     for (const attempt of attempts) {
-        try {
-            const resp = await fetch(attempt.url, {
-                method: attempt.method,
-                headers: attempt.contentType
-                    ? { 'Content-Type': attempt.contentType }
-                    : undefined,
-                body: attempt.method === 'POST' ? attempt.body : undefined,
-            });
-            const text = String(await resp.text()).trim();
-            lastText = text;
-            lastStatus = resp.status;
-            if (resp.ok && !looksLikeO3SmsFailure(text)) {
-                return { success: true, response: text };
+        for (const method of ['GET', 'POST']) {
+            try {
+                const url =
+                    method === 'GET'
+                        ? `https://api.co3.live/api/smsapi?${attempt.params.toString()}`
+                        : 'https://api.co3.live/api/smsapi';
+                const resp = await fetch(url, {
+                    method,
+                    headers: method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : undefined,
+                    body: method === 'POST' ? attempt.params.toString() : undefined,
+                });
+                const text = String(await resp.text()).trim();
+                lastText = text;
+                lastStatus = resp.status;
+                const parsed = parseO3SmsResponse(text);
+                if (resp.ok && parsed.ok) {
+                    console.log(
+                        `[SMS] O3SMS sent (${attempt.label}/${method}) id=${parsed.messageId} to +91${mobile} body="${message.slice(0, 80)}…"`,
+                    );
+                    return {
+                        success: true,
+                        provider: 'o3sms',
+                        messageId: parsed.messageId,
+                        gatewayResponse: text,
+                        filledMessage: message,
+                        attempt: `${attempt.label}/${method}`,
+                    };
+                }
+                lastError = parsed.error || text;
+            } catch (err) {
+                lastText = err.message || String(err);
+                lastError = lastText;
             }
-        } catch (err) {
-            lastText = err.message || String(err);
         }
     }
 
-    console.error('[SMS] O3SMS API error:', lastStatus, lastText);
-    throw new Error(mapO3SMSError(lastText, lastStatus));
-}
-
-function looksLikeO3SmsFailure(text) {
-    const lower = String(text || '').toLowerCase();
-    return (
-        lower.includes('error') ||
-        lower.includes('invalid') ||
-        lower.includes('fail') ||
-        lower.includes('insufficient') ||
-        lower.includes('balance') ||
-        lower.includes('rejected')
-    );
+    console.error('[SMS] O3SMS API error:', lastStatus, lastText, 'filled=', message);
+    const err = new Error(mapO3SMSError(lastError || lastText, lastStatus));
+    err.gatewayResponse = lastText;
+    err.filledMessage = message;
+    throw err;
 }
 
 function mapO3SMSError(msg, status) {
@@ -302,4 +364,19 @@ async function sendViaTwilio(mobile, otpCode, config) {
     }
 }
 
-module.exports = { sendSMS };
+async function sendSMSDetailed(mobileNumber, otpCode, config = null) {
+    const mobile = String(mobileNumber || '').replace(/\D/g, '').slice(-10);
+    if (mobile.length !== 10) {
+        throw new Error('Invalid mobile number');
+    }
+
+    const provider = resolveProvider(config);
+
+    if (provider === 'o3sms' || provider === 'co3sms' || provider === 'co3') {
+        return sendViaO3SMSDetailed(mobile, otpCode, config);
+    }
+    await sendSMS(mobile, otpCode, config);
+    return { success: true, provider, gatewayResponse: 'sent', filledMessage: null };
+}
+
+module.exports = { sendSMS, sendSMSDetailed, fillO3OtpMessage };

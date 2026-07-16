@@ -147,6 +147,23 @@ async function upsertSmsSettings(query, body) {
     return getSmsConfig(query);
 }
 
+/** Merge unsaved form fields over saved config for SMS test sends. */
+function mergeO3SmsConfigFromBody(base, body) {
+    const b = base || {};
+    const bodyObj = body || {};
+    const keyRaw = String(bodyObj.o3sms_api_key ?? '').trim();
+    return {
+        sms_provider: String(bodyObj.sms_provider ?? b.sms_provider ?? 'o3sms').trim(),
+        o3sms_api_key: keyRaw && !keyRaw.includes('•') ? keyRaw : b.o3sms_api_key,
+        o3sms_sender_id: String(bodyObj.o3sms_sender_id ?? b.o3sms_sender_id ?? 'ALERTS').trim(),
+        o3sms_route: String(bodyObj.o3sms_route ?? b.o3sms_route ?? '2').trim(),
+        o3sms_dlt_template_id: String(bodyObj.o3sms_dlt_template_id ?? b.o3sms_dlt_template_id ?? '').trim(),
+        o3sms_message_template: String(
+            bodyObj.o3sms_message_template ?? b.o3sms_message_template ?? '',
+        ).trim(),
+    };
+}
+
 module.exports = {
     SMS_SETTING_KEYS,
     getSmsConfig,
@@ -155,4 +172,5 @@ module.exports = {
     upsertSmsSettings,
     maskSecret,
     parseSmsSettingBool,
+    mergeO3SmsConfigFromBody,
 };

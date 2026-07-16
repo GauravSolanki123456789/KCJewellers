@@ -6,6 +6,7 @@ import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, MessageSquare, Save, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import SmsTestOtpBlock from '@/components/sms/SmsTestOtpBlock'
 
 type SmsSettings = {
   sms_provider: string
@@ -376,6 +377,13 @@ function SmsSettingsForm() {
                 className={fieldClass}
               />
             </div>
+
+            <SmsTestOtpBlock
+              theme="admin"
+              testApiPath="/api/admin/sms-settings/test-otp"
+              form={form}
+              apiKeyReady={flags.o3sms_api_key_set}
+            />
 
             {error ? (
               <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">

@@ -906,6 +906,12 @@ async function createAndSendOtp(mobile_number, smsConfig) {
     return { success: true, message: 'OTP sent' };
 }
 
+async function sendSmsTestOtp(mobile_number, smsConfig) {
+    const otp_code = String(Math.floor(100000 + Math.random() * 900000));
+    const result = await sendSMSDetailed(mobile_number, otp_code, smsConfig);
+    return { otp_code, ...result };
+}
+
 /** Create or find customer by mobile and establish session (no OTP). Used when admin disables OTP. */
 async function loginCustomerByMobile(req, res, mobile_number) {
     let userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [mobile_number]);
@@ -1654,8 +1660,8 @@ app.post('/api/users/complete-profile', async (req, res) => {
 // ==========================================
 // OTP AUTHENTICATION
 // ==========================================
-const { sendSMS } = require('./services/smsService');
-const { getSmsConfig, publicSmsSettings, upsertSmsSettings, parseSmsSettingBool } = require('./services/smsConfig');
+const { sendSMS, sendSMSDetailed } = require('./services/smsService');
+const { getSmsConfig, publicSmsSettings, upsertSmsSettings, parseSmsSettingBool, mergeO3SmsConfigFromBody } = require('./services/smsConfig');
 const {
     ensureResellerSmsColumns,
     getResellerSmsConfigForSend,
@@ -1663,6 +1669,7 @@ const {
     upsertResellerSmsSettings,
     publicResellerSmsSettings,
     loadResellerSmsRow,
+    resellerRowToSmsConfig,
 } = require('./services/resellerSmsConfig');
 
 app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
@@ -7648,6 +7655,47 @@ app.patch('/api/reseller/sms-settings', requireSharedCatalogCreator, requireJson
     }
 });
 
+app.post('/api/reseller/sms-settings/test-otp', requireSharedCatalogCreator, requireJson, async (req, res) => {
+    try {
+        await ensureResellerSmsColumns(pool);
+        const tier = String(req.user?.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.status(403).json({ error: 'Reseller account required' });
+        }
+        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
+        if (mobile_number.length !== 10) {
+            return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
+        }
+        const row = await loadResellerSmsRow(query, req.user.id);
+        const saved = resellerRowToSmsConfig(row) || {};
+        const config = mergeO3SmsConfigFromBody(saved, req.body);
+        if (!String(config.o3sms_api_key || '').trim()) {
+            return res.status(400).json({
+                error: 'Co3SMS API key required. Paste your key above and save, or include it in the test request.',
+            });
+        }
+        const result = await sendSmsTestOtp(mobile_number, config);
+        res.json({
+            success: true,
+            message: `Test OTP sent to +91 ${mobile_number}`,
+            mobile: `+91${mobile_number}`,
+            provider: result.provider || 'o3sms',
+            messageId: result.messageId || null,
+            gatewayResponse: result.gatewayResponse || null,
+            filledMessage: result.filledMessage || null,
+            attempt: result.attempt || null,
+            hint: 'Check your phone within 1–2 minutes. If nothing arrives, verify DLT template ID and message match Co3 exactly (no extra full stops).',
+        });
+    } catch (error) {
+        console.error('reseller sms-settings test-otp:', error.message || error);
+        res.status(502).json({
+            error: error.message || 'Failed to send test OTP',
+            gatewayResponse: error.gatewayResponse || null,
+            filledMessage: error.filledMessage || null,
+        });
+    }
+});
+
 // Admin: list all catalog categories with publish status
 app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
     try {
@@ -10257,6 +10305,41 @@ app.patch('/api/admin/sms-settings', isAdminStrict, requireJson, async (req, res
     } catch (error) {
         console.error('admin sms-settings PATCH:', error.message);
         res.status(500).json({ error: error.message || 'Failed to save SMS settings' });
+    }
+});
+
+app.post('/api/admin/sms-settings/test-otp', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
+        if (mobile_number.length !== 10) {
+            return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
+        }
+        const saved = await getSmsConfig(query);
+        const config = mergeO3SmsConfigFromBody(saved, req.body);
+        if (!String(config.o3sms_api_key || '').trim()) {
+            return res.status(400).json({
+                error: 'Co3SMS API key required. Paste your key and save, or include it in the test request.',
+            });
+        }
+        const result = await sendSmsTestOtp(mobile_number, config);
+        res.json({
+            success: true,
+            message: `Test OTP sent to +91 ${mobile_number}`,
+            mobile: `+91${mobile_number}`,
+            provider: result.provider || 'o3sms',
+            messageId: result.messageId || null,
+            gatewayResponse: result.gatewayResponse || null,
+            filledMessage: result.filledMessage || null,
+            attempt: result.attempt || null,
+            hint: 'Check your phone within 1–2 minutes. If nothing arrives, verify DLT template ID and message match Co3 exactly.',
+        });
+    } catch (error) {
+        console.error('admin sms-settings test-otp:', error.message || error);
+        res.status(502).json({
+            error: error.message || 'Failed to send test OTP',
+            gatewayResponse: error.gatewayResponse || null,
+            filledMessage: error.filledMessage || null,
+        });
     }
 });
 

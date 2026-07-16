@@ -2,6 +2,7 @@
 
 import { Loader2, MessageSquare, Save, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import SmsTestOtpBlock from '@/components/sms/SmsTestOtpBlock'
 
 export type SmsOtpSettingsValues = {
   shared_catalog_otp_enabled: boolean
@@ -26,8 +27,9 @@ const O3SMS_ROUTES = [
   { value: '4', label: '4 — Service Explicit' },
 ]
 
+/** Must match DLT / Co3 portal exactly — no extra punctuation vs approved template. */
 const DEFAULT_TEMPLATE =
-  'Dear {#var#} Your OTP for login is {#var#}. It is valid for {#var#}. B.N.MARLECHA AND SONS'
+  'Dear {#var#} Your OTP for login is {#var#} It is valid for {#var#} B.N.MARLECHA AND SONS'
 
 type Props = {
   theme?: Theme
@@ -38,6 +40,8 @@ type Props = {
   saving?: boolean
   showSaveButton?: boolean
   intro?: string
+  testApiPath?: string
+  testDefaultMobile?: string
 }
 
 export function emptySmsOtpForm(): SmsOtpSettingsValues {
@@ -61,6 +65,8 @@ export default function SmsOtpSettingsPanel({
   saving = false,
   showSaveButton = true,
   intro,
+  testApiPath,
+  testDefaultMobile,
 }: Props) {
   const isAdmin = theme === 'admin'
   const cardCls = isAdmin
@@ -202,11 +208,28 @@ export default function SmsOtpSettingsPanel({
               onChange={(e) => onChange({ o3sms_message_template: e.target.value })}
             />
             <p className={cn('mt-1.5', hintCls)}>
-              OTP replaces placeholders in order: Customer → code → validity (e.g. 10 minutes).
+              Copy the DLT-approved text exactly from Co3 — same spelling, spaces, and punctuation. OTP
+              replaces placeholders in order: Customer → code → validity (e.g. 10 minutes).
             </p>
+            {/\{#(?:var|alp)#\}\./i.test(form.o3sms_message_template) ? (
+              <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-900">
+                Warning: your template has full stops after placeholders. If DLT was approved without
+                them, SMS will not arrive — remove extra &quot;.&quot; to match Co3 exactly.
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
+
+      {testApiPath ? (
+        <SmsTestOtpBlock
+          theme={theme}
+          testApiPath={testApiPath}
+          form={form}
+          apiKeyReady={flags.o3sms_api_key_set}
+          defaultMobile={testDefaultMobile}
+        />
+      ) : null}
 
       {showSaveButton && onSave ? (
         <button
