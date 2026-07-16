@@ -145,12 +145,6 @@ export default function SharedCatalogSignInModal({
         <div className="space-y-4 py-1">
           {step === 'mobile' || !otpEnabled ? (
             <div className="space-y-3">
-              {!otpEnabled ? (
-                <p className="text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/70">
-                  Enter your mobile number to shortlist items and share on WhatsApp. No OTP needed right
-                  now — the jeweller may follow up on this number.
-                </p>
-              ) : null}
               <div>
                 <label
                   htmlFor="sc-mobile"

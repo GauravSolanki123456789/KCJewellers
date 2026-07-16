@@ -57,6 +57,7 @@ export default function CatalogInquiryCard({
       totalPieces: inquiry.total_pieces,
       totalInr: inquiry.total_inr,
       catalogUrl: inquiry.catalog_url,
+      lines,
     }),
   )
 
