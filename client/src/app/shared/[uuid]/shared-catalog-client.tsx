@@ -535,14 +535,19 @@ export default function SharedCatalogClient({
   )
 
   const logInquiry = useCallback(
-    (source: 'whatsapp' | 'pdf') => {
-      if (!uuid || selectionPicks.length === 0) return
+    async (source: 'whatsapp' | 'pdf') => {
+      if (!uuid || selectionPicks.length === 0 || !customer) return { success: false as const }
       const summary = summarizeSharedCatalogPicks(selectionPicks)
-      void logSharedCatalogInquiry(uuid, {
+      return logSharedCatalogInquiry(uuid, {
         source,
         lineCount: selectionPicks.length,
         totalPieces: summary.totalPieces,
         totalInr: hidePricesForLog(payload) ? null : summary.orderTotalInr,
+        customer: {
+          userId: customer.userId,
+          mobile: customer.mobile,
+          name: customer.name,
+        },
         lines: selectionPicks.map((pick) => {
           const waLine = sharedCatalogPickToWhatsAppLine(
             pick,
@@ -567,7 +572,7 @@ export default function SharedCatalogClient({
         catalogUrl: typeof window !== 'undefined' ? window.location.href : undefined,
       })
     },
-    [uuid, selectionPicks, payload],
+    [uuid, selectionPicks, payload, customer],
   )
 
   function hidePricesForLog(p: SharedCatalogPublicResponse | null): boolean {
@@ -658,7 +663,7 @@ export default function SharedCatalogClient({
           fallbackWhatsAppHref: sheetPayload.fallbackWhatsAppHref,
         })
       }
-      logInquiry('pdf')
+      await logInquiry('pdf')
     } catch (e) {
       console.error(e)
       alert('Could not create the PDF. Check your connection and try again.')
@@ -678,7 +683,7 @@ export default function SharedCatalogClient({
     requireSignIn,
   ])
 
-  const handleSharePicks = useCallback(() => {
+  const handleSharePicks = useCallback(async () => {
     if (!isLoadedBrochure(payload)) return
     if (selectedCount === 0) return
     if (!requireSignIn()) return
@@ -712,8 +717,12 @@ export default function SharedCatalogClient({
       catalogueUrl: typeof window !== 'undefined' ? window.location.href : undefined,
       hidePrices: !!payload.hidePrices,
     })
+
+    const logged = await logInquiry('whatsapp')
+    if (!logged.success) {
+      console.warn('Inquiry was not saved — opening WhatsApp anyway')
+    }
     openWhatsAppOrder(wa, msg)
-    logInquiry('whatsapp')
   }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits, logInquiry, requireSignIn])
 
   if (loading) {

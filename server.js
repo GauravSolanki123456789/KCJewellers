@@ -85,6 +85,7 @@ const {
     getResellerCatalogLimitStatus,
     assertResellerCanCreateCatalog,
     logSharedCatalogInquiry,
+    resolveInquiryCustomerIdentity,
     getAdminResellerCatalogAnalytics,
     getAdminResellerCatalogInquiries,
     updateSharedCatalogInquiryStatus,
@@ -7385,17 +7386,13 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
         const lines = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
         const catalogUrl = body.catalogUrl ?? body.catalog_url ?? null;
 
-        if (!req.isAuthenticated || !req.isAuthenticated()) {
-            return res.status(401).json({ error: 'Enter your mobile number before submitting your shortlist' });
+        const customerIdentity = await resolveInquiryCustomerIdentity(query, req, body);
+        if (!customerIdentity) {
+            return res.status(401).json({
+                error: 'Enter your mobile number before submitting your shortlist',
+            });
         }
-        const customerMobile = String(req.user?.mobile_number || '').replace(/\D/g, '').slice(-10);
-        if (customerMobile.length !== 10) {
-            return res.status(401).json({ error: 'Enter your mobile number before submitting your shortlist' });
-        }
-        const customerName =
-            req.user?.name != null && String(req.user.name).trim()
-                ? String(req.user.name).trim()
-                : `Customer ${customerMobile.slice(-4)}`;
+        const { customerUserId, customerMobile, customerName } = customerIdentity;
 
         const saved = await logSharedCatalogInquiry(query, {
             sharedCatalogId: uuid,
@@ -7406,7 +7403,7 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
             totalInr,
             lines,
             catalogUrl,
-            customerUserId: req.user.id,
+            customerUserId,
             customerMobile,
             customerName,
         });

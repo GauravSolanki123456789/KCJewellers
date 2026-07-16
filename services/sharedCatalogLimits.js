@@ -212,6 +212,56 @@ async function assertResellerCanCreateCatalog(query, userId, productCount) {
     return status;
 }
 
+/**
+ * Session cookie may be unavailable on reseller custom domains (cross-site).
+ * Fall back to customer id + mobile from the client after OTP / register-mobile.
+ */
+async function resolveInquiryCustomerIdentity(query, req, body) {
+    if (req?.isAuthenticated && req.isAuthenticated()) {
+        const mobile = String(req.user?.mobile_number || '')
+            .replace(/\D/g, '')
+            .slice(-10);
+        if (mobile.length === 10 && req.user?.id != null) {
+            const name =
+                req.user?.name != null && String(req.user.name).trim()
+                    ? String(req.user.name).trim()
+                    : `Customer ${mobile.slice(-4)}`;
+            return {
+                customerUserId: req.user.id,
+                customerMobile: mobile,
+                customerName: name,
+            };
+        }
+    }
+
+    const userId = parseInt(String(body?.customerUserId ?? body?.customer_user_id ?? ''), 10);
+    const mobile = String(body?.customerMobile ?? body?.customer_mobile ?? '')
+        .replace(/\D/g, '')
+        .slice(-10);
+    if (!Number.isFinite(userId) || userId <= 0 || mobile.length !== 10) {
+        return null;
+    }
+
+    const rows = await query('SELECT id, mobile_number, name FROM users WHERE id = $1', [userId]);
+    if (!rows.length) return null;
+    const dbMobile = String(rows[0].mobile_number || '')
+        .replace(/\D/g, '')
+        .slice(-10);
+    if (dbMobile !== mobile) return null;
+
+    const rawName = body?.customerName ?? body?.customer_name ?? rows[0].name;
+    const customerName =
+        rawName != null && String(rawName).trim()
+            ? String(rawName).trim().slice(0, 255)
+            : `Customer ${mobile.slice(-4)}`;
+
+    return {
+        customerUserId: userId,
+        customerMobile: mobile,
+        customerName,
+    };
+}
+
 async function logSharedCatalogInquiry(query, payload) {
     const {
         sharedCatalogId,
@@ -534,6 +584,7 @@ module.exports = {
     getResellerCatalogLimitStatus,
     assertResellerCanCreateCatalog,
     logSharedCatalogInquiry,
+    resolveInquiryCustomerIdentity,
     getAdminResellerCatalogAnalytics,
     getAdminResellerCatalogInquiries,
     updateSharedCatalogInquiryStatus,
