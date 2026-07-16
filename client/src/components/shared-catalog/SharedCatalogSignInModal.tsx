@@ -23,6 +23,8 @@ type Props = {
   onVerified: (identity: SharedCatalogCustomerIdentity) => void
   /** When false, customers enter mobile only — no OTP step. */
   otpEnabled?: boolean
+  /** Brochure UUID — uses creator's SMS credentials when sending OTP. */
+  catalogUuid?: string
 }
 
 function sanitizeAuthError(raw: unknown): string {
@@ -32,7 +34,7 @@ function sanitizeAuthError(raw: unknown): string {
     'Something went wrong. Try again.'
   const s = String(msg)
   if (/<html|<!doctype/i.test(s)) {
-    return 'Could not send OTP. Check SMS settings in admin, or ask admin to turn off OTP temporarily.'
+    return 'Could not send OTP. The seller may need to finish SMS settings, or you can continue with mobile only.'
   }
   return s.length > 280 ? `${s.slice(0, 277)}…` : s
 }
@@ -42,6 +44,7 @@ export default function SharedCatalogSignInModal({
   onOpenChange,
   onVerified,
   otpEnabled = true,
+  catalogUuid,
 }: Props) {
   const [step, setStep] = useState<'mobile' | 'otp'>('mobile')
   const [mobileNumber, setMobileNumber] = useState('')
@@ -88,7 +91,10 @@ export default function SharedCatalogSignInModal({
     setLoading(true)
     try {
       if (otpEnabled) {
-        await axios.post('/api/auth/send-otp', { mobile_number: mobile }, { withCredentials: true })
+        const otpUrl = catalogUuid
+          ? `/api/shared-catalog/${encodeURIComponent(catalogUuid)}/send-otp`
+          : '/api/auth/send-otp'
+        await axios.post(otpUrl, { mobile_number: mobile }, { withCredentials: true })
         setStep('otp')
         setOtpCode('')
       } else {

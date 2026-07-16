@@ -171,7 +171,8 @@ function SmsSettingsForm() {
           <div>
             <h1 className="text-xl font-bold text-slate-100">SMS &amp; OTP settings</h1>
             <p className="text-sm text-slate-400">
-              Paste your Co3SMS API key here for shared catalogue and site OTP login.
+              KC main-site login OTP and admin-created shared links. Each reseller manages their own
+              shared-link SMS under Profile → SMS &amp; OTP.
             </p>
           </div>
         </div>
@@ -188,8 +189,9 @@ function SmsSettingsForm() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-amber-200">Shared catalogue OTP</p>
                   <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                    When off, customers enter mobile only on shared links — no SMS OTP until your
-                    gateway is ready. Mobile is still saved on inquiries for WhatsApp follow-up.
+                    Applies to KC-created shared catalogues only. Reseller brochures use each
+                    reseller&apos;s own toggle (Profile → SMS &amp; OTP). When off here, customers
+                    enter mobile only — inquiries still save for WhatsApp follow-up.
                   </p>
                 </div>
                 <button

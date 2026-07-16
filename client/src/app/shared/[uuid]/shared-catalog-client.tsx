@@ -1305,6 +1305,7 @@ export default function SharedCatalogClient({
         onOpenChange={setSignInOpen}
         onVerified={setCustomer}
         otpEnabled={sharedCatalogOtpEnabled}
+        catalogUuid={uuid}
       />
     </div>
   )

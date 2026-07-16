@@ -15,6 +15,7 @@ import {
   RESELLER_PRODUCTS_PATH,
   RESELLER_RATES_PATH,
   RESELLER_INQUIRIES_PATH,
+  RESELLER_SMS_SETTINGS_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -39,6 +40,7 @@ import {
   Truck,
   Upload,
   ShoppingBag,
+  Smartphone,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -290,6 +292,12 @@ function ProfilePageContent() {
                       icon={ShoppingBag}
                       title="Catalogue inquiries"
                       subtitle="WhatsApp & PDF shortlists — mark completed sales or no sale"
+                    />
+                    <ProfileActionCard
+                      href={RESELLER_SMS_SETTINGS_PATH}
+                      icon={Smartphone}
+                      title="SMS & OTP"
+                      subtitle="Shared catalogue sign-in — mobile only or SMS verification"
                     />
                     <ResellerInvitePanel embedded />
                   </>

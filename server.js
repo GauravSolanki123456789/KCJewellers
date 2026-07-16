@@ -886,6 +886,26 @@ async function getSharedCatalogOtpEnabled() {
     }
 }
 
+async function createAndSendOtp(mobile_number, smsConfig) {
+    const otp_code = String(Math.floor(100000 + Math.random() * 900000));
+    const expires_at = new Date(Date.now() + 10 * 60 * 1000);
+    await query('INSERT INTO otps (mobile_number, otp_code, expires_at) VALUES ($1, $2, $3)', [
+        mobile_number,
+        otp_code,
+        expires_at,
+    ]);
+    try {
+        await sendSMS(mobile_number, otp_code, smsConfig);
+    } catch (smsError) {
+        await query('DELETE FROM otps WHERE mobile_number = $1 AND otp_code = $2', [
+            mobile_number,
+            otp_code,
+        ]);
+        throw smsError;
+    }
+    return { success: true, message: 'OTP sent' };
+}
+
 /** Create or find customer by mobile and establish session (no OTP). Used when admin disables OTP. */
 async function loginCustomerByMobile(req, res, mobile_number) {
     let userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [mobile_number]);
@@ -1636,6 +1656,14 @@ app.post('/api/users/complete-profile', async (req, res) => {
 // ==========================================
 const { sendSMS } = require('./services/smsService');
 const { getSmsConfig, publicSmsSettings, upsertSmsSettings, parseSmsSettingBool } = require('./services/smsConfig');
+const {
+    ensureResellerSmsColumns,
+    getResellerSmsConfigForSend,
+    getSharedCatalogOtpForCreator,
+    upsertResellerSmsSettings,
+    publicResellerSmsSettings,
+    loadResellerSmsRow,
+} = require('./services/resellerSmsConfig');
 
 app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
     try {
@@ -1643,20 +1671,9 @@ app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
         if (mobile_number.length !== 10) {
             return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
         }
-        const otp_code = String(Math.floor(100000 + Math.random() * 900000));
-        const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-        await query(
-            'INSERT INTO otps (mobile_number, otp_code, expires_at) VALUES ($1, $2, $3)',
-            [mobile_number, otp_code, expires_at]
-        );
-        try {
-            const smsConfig = await getSmsConfig(query);
-            await sendSMS(mobile_number, otp_code, smsConfig);
-        } catch (smsError) {
-            await query('DELETE FROM otps WHERE mobile_number = $1 AND otp_code = $2', [mobile_number, otp_code]);
-            throw smsError;
-        }
-        res.json({ success: true, message: 'OTP sent' });
+        const smsConfig = await getSmsConfig(query);
+        const result = await createAndSendOtp(mobile_number, smsConfig);
+        res.json(result);
     } catch (error) {
         console.error('Send OTP error:', error.message || error);
         const userMessage = error.message || 'Failed to send OTP';
@@ -4350,6 +4367,39 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             const n = parseInt(String(req.body.reseller_catalog_daily_limit), 10);
             updates.push(`reseller_catalog_daily_limit = $${paramIndex++}`);
             params.push(Number.isFinite(n) ? Math.max(0, Math.min(1000, n)) : 10);
+        }
+
+        if (req.body.reseller_shared_catalog_otp_enabled !== undefined) {
+            updates.push(`reseller_shared_catalog_otp_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_shared_catalog_otp_enabled);
+        }
+        if (req.body.reseller_sms_provider !== undefined) {
+            updates.push(`reseller_sms_provider = $${paramIndex++}`);
+            params.push(String(req.body.reseller_sms_provider ?? '').trim().slice(0, 32));
+        }
+        const adminResellerO3Key = req.body.reseller_o3sms_api_key;
+        if (adminResellerO3Key !== undefined) {
+            const val = String(adminResellerO3Key ?? '').trim();
+            if (val && !val.includes('•')) {
+                updates.push(`reseller_o3sms_api_key = $${paramIndex++}`);
+                params.push(val);
+            }
+        }
+        if (req.body.reseller_o3sms_sender_id !== undefined) {
+            updates.push(`reseller_o3sms_sender_id = $${paramIndex++}`);
+            params.push(String(req.body.reseller_o3sms_sender_id ?? '').trim().slice(0, 16));
+        }
+        if (req.body.reseller_o3sms_route !== undefined) {
+            updates.push(`reseller_o3sms_route = $${paramIndex++}`);
+            params.push(String(req.body.reseller_o3sms_route ?? '2').trim().slice(0, 8));
+        }
+        if (req.body.reseller_o3sms_dlt_template_id !== undefined) {
+            updates.push(`reseller_o3sms_dlt_template_id = $${paramIndex++}`);
+            params.push(String(req.body.reseller_o3sms_dlt_template_id ?? '').trim().slice(0, 64));
+        }
+        if (req.body.reseller_o3sms_message_template !== undefined) {
+            updates.push(`reseller_o3sms_message_template = $${paramIndex++}`);
+            params.push(String(req.body.reseller_o3sms_message_template ?? '').trim());
         }
 
         if (reseller_invite_code !== undefined) {
@@ -7206,7 +7256,14 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         }
         const row = rows[0];
         const gifting_gst_enabled = await getGiftingGstEnabled();
-        const shared_catalog_otp_enabled = await getSharedCatalogOtpEnabled();
+        const otpMeta = await getSharedCatalogOtpForCreator(
+            query,
+            row.created_by_user_id,
+            getSharedCatalogOtpEnabled,
+        );
+        const shared_catalog_otp_enabled = otpMeta.otpEnabled;
+        const shared_catalog_otp_requested = otpMeta.otpRequested ?? otpMeta.otpEnabled;
+        const shared_catalog_otp_configured = otpMeta.otpConfigured ?? true;
         const hidePrices = !!row.hide_prices;
         const hidePdf = !!row.hide_pdf;
         const slabFields = sharedCatalogSlabJsonFields(row);
@@ -7239,6 +7296,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 kc_theme_id,
                 gifting_gst_enabled,
                 shared_catalog_otp_enabled,
+                shared_catalog_otp_requested,
+                shared_catalog_otp_configured,
                 ...slabFields,
             });
         }
@@ -7268,6 +7327,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 kc_theme_id,
                 gifting_gst_enabled,
                 shared_catalog_otp_enabled,
+                shared_catalog_otp_requested,
+                shared_catalog_otp_configured,
                 ...slabFields,
             });
         }
@@ -7349,6 +7410,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             kc_theme_id,
             gifting_gst_enabled,
             shared_catalog_otp_enabled,
+            shared_catalog_otp_requested,
+            shared_catalog_otp_configured,
             ...slabFields,
         });
     } catch (error) {
@@ -7414,7 +7477,56 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
     }
 });
 
-/** Reseller: current catalogue generation limits + usage today. */
+/** Shared catalogue: send OTP using brochure creator's SMS credentials (reseller or KC admin). */
+app.post('/api/shared-catalog/:uuid/send-otp', authLimiter, requireJson, async (req, res) => {
+    try {
+        const uuid = String(req.params.uuid || '').trim();
+        if (!UUID_RE.test(uuid)) {
+            return res.status(400).json({ error: 'Invalid catalog id' });
+        }
+        await ensureResellerSmsColumns(pool);
+        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
+        if (mobile_number.length !== 10) {
+            return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
+        }
+        const rows = await query(
+            `SELECT sc.id, sc.created_by_user_id, sc.expires_at FROM shared_catalogs sc WHERE sc.id = $1::uuid`,
+            [uuid],
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Catalog not found' });
+        const row = rows[0];
+        if (new Date(row.expires_at).getTime() <= Date.now()) {
+            return res.status(410).json({ error: 'Catalog link expired' });
+        }
+        const otpMeta = await getSharedCatalogOtpForCreator(
+            query,
+            row.created_by_user_id,
+            getSharedCatalogOtpEnabled,
+        );
+        if (!otpMeta.otpEnabled) {
+            if (otpMeta.otpRequested && !otpMeta.otpConfigured) {
+                return res.status(503).json({
+                    error: 'OTP is enabled but SMS is not configured yet. Use mobile-only sign-in.',
+                });
+            }
+            return res.status(403).json({ error: 'OTP verification is not enabled for this catalogue.' });
+        }
+        let smsConfig = null;
+        if (otpMeta.usesResellerConfig) {
+            smsConfig = await getResellerSmsConfigForSend(query, row.created_by_user_id);
+        }
+        if (!smsConfig) {
+            smsConfig = await getSmsConfig(query);
+        }
+        const result = await createAndSendOtp(mobile_number, smsConfig);
+        res.json(result);
+    } catch (error) {
+        console.error('shared-catalog send-otp:', error.message || error);
+        res.status(500).json({ error: error.message || 'Failed to send OTP' });
+    }
+});
+
+/** Reseller: own catalogue WhatsApp/PDF inquiries + summary. */
 app.get('/api/reseller/catalog-limits', requireSharedCatalogCreator, async (req, res) => {
     try {
         await ensureSharedCatalogLimitColumns(pool);
@@ -7501,6 +7613,38 @@ app.patch('/api/reseller/catalog-inquiries/:id/status', requireSharedCatalogCrea
     } catch (error) {
         const code = error.status || 500;
         res.status(code).json({ error: error.message || 'Failed to update status' });
+    }
+});
+
+/** Reseller: SMS / OTP settings for own shared catalogue links. */
+app.get('/api/reseller/sms-settings', requireSharedCatalogCreator, async (req, res) => {
+    try {
+        await ensureResellerSmsColumns(pool);
+        const tier = String(req.user?.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.status(403).json({ error: 'Reseller account required' });
+        }
+        const row = await loadResellerSmsRow(query, req.user.id);
+        res.json(publicResellerSmsSettings(row));
+    } catch (error) {
+        console.error('reseller sms-settings GET:', error.message);
+        res.status(500).json({ error: error.message || 'Failed to load SMS settings' });
+    }
+});
+
+app.patch('/api/reseller/sms-settings', requireSharedCatalogCreator, requireJson, async (req, res) => {
+    try {
+        await ensureResellerSmsColumns(pool);
+        const tier = String(req.user?.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.status(403).json({ error: 'Reseller account required' });
+        }
+        const settings = await upsertResellerSmsSettings(query, req.user.id, req.body || {});
+        res.json({ success: true, settings });
+    } catch (error) {
+        const code = error.status || 500;
+        console.error('reseller sms-settings PATCH:', error.message);
+        res.status(code).json({ error: error.message || 'Failed to save SMS settings' });
     }
 });
 

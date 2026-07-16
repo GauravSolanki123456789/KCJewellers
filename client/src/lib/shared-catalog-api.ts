@@ -106,6 +106,9 @@ export type SharedCatalogPublicResponse =
       gifting_gst_enabled?: boolean
       /** When false, shared catalogue collects mobile without OTP. */
       shared_catalog_otp_enabled?: boolean
+      /** Reseller turned OTP on but API key not saved yet — mobile-only until configured. */
+      shared_catalog_otp_requested?: boolean
+      shared_catalog_otp_configured?: boolean
     } & SharedCatalogSlabFields)
   | ({
       expired: false
@@ -130,6 +133,8 @@ export type SharedCatalogPublicResponse =
       gifting_gst_enabled?: boolean
       /** When false, shared catalogue collects mobile without OTP. */
       shared_catalog_otp_enabled?: boolean
+      shared_catalog_otp_requested?: boolean
+      shared_catalog_otp_configured?: boolean
   /** Palette for PDF / UX — stored as app_settings `kc_theme_id` or reseller profile. */
   kc_theme_id?: string | null
   /** True when prices use live rates frozen at link creation (not current ticker). */

@@ -425,6 +425,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/reseller/sms-settings/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/reseller/sms-settings">> = Specific
+  const handler = {} as typeof import("../../src/app/reseller/sms-settings/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/search/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/search">> = Specific

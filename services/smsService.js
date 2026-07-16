@@ -108,7 +108,17 @@ function mapFast2SMSError(msg, status) {
     return msg || 'Failed to send OTP. Please try again.';
 }
 
-/** Co3SMS / O3SMS — api.co3.live HTTP API (key, sender, number, route, message). */
+/** Fill Co3SMS DLT templates — supports {#var#}, {#alp#}, {otp}. */
+function fillO3OtpMessage(template, otpCode) {
+    const fillers = ['Customer', String(otpCode), '10 minutes'];
+    let i = 0;
+    let msg = String(template || '');
+    msg = msg.replace(/\{#(?:var|alp)#\}/gi, () => fillers[Math.min(i++, fillers.length - 1)] ?? otpCode);
+    msg = msg.replace(/\{otp\}/gi, otpCode);
+    return msg;
+}
+
+/** Co3SMS / O3SMS — api.co3.live (smsapi + sendsms). */
 async function sendViaO3SMS(mobile, otpCode, config) {
     const apiKey =
         config?.o3sms_api_key || process.env.O3SMS_API_KEY || process.env.CO3SMS_API_KEY;
@@ -134,11 +144,20 @@ async function sendViaO3SMS(mobile, otpCode, config) {
         process.env.O3SMS_MESSAGE_TEMPLATE ||
         process.env.CO3SMS_MESSAGE_TEMPLATE ||
         'Your KC Jewellers verification code is {#var#}. Valid for 10 minutes.';
-    const message = String(template)
-        .replace(/\{#var#\}/gi, otpCode)
-        .replace(/\{otp\}/gi, otpCode);
+    const message = fillO3OtpMessage(template, otpCode);
 
-    const params = new URLSearchParams({
+    const smsApiParams = new URLSearchParams({
+        key: apiKey,
+        route,
+        sender,
+        number: mobile,
+        sms: message,
+    });
+    if (templateId) {
+        smsApiParams.set('templateid', templateId);
+    }
+
+    const sendsmsParams = new URLSearchParams({
         key: apiKey,
         sender,
         number: `91${mobile}`,
@@ -146,45 +165,52 @@ async function sendViaO3SMS(mobile, otpCode, config) {
         route,
     });
     if (templateId) {
-        params.set('templateid', templateId);
-        params.set('DLT_TE_ID', templateId);
-        params.set('id', templateId);
+        sendsmsParams.set('templateid', templateId);
+        sendsmsParams.set('DLT_TE_ID', templateId);
+        sendsmsParams.set('id', templateId);
     }
 
-    const query = params.toString();
-    const getUrl = `https://api.co3.live/api/sendsms?${query}`;
-    const postUrl = 'https://api.co3.live/api/sendsms';
+    const attempts = [
+        { url: `https://api.co3.live/api/smsapi?${smsApiParams.toString()}`, method: 'GET' },
+        {
+            url: 'https://api.co3.live/api/smsapi',
+            method: 'POST',
+            body: smsApiParams.toString(),
+            contentType: 'application/x-www-form-urlencoded',
+        },
+        { url: `https://api.co3.live/api/sendsms?${sendsmsParams.toString()}`, method: 'GET' },
+        {
+            url: 'https://api.co3.live/api/sendsms',
+            method: 'POST',
+            body: sendsmsParams.toString(),
+            contentType: 'application/x-www-form-urlencoded',
+        },
+    ];
 
-    try {
-        let resp = await fetch(getUrl, { method: 'GET' });
-        let text = String(await resp.text()).trim();
-
-        if (!resp.ok || looksLikeO3SmsFailure(text)) {
-            resp = await fetch(postUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: query,
+    let lastText = '';
+    let lastStatus = 0;
+    for (const attempt of attempts) {
+        try {
+            const resp = await fetch(attempt.url, {
+                method: attempt.method,
+                headers: attempt.contentType
+                    ? { 'Content-Type': attempt.contentType }
+                    : undefined,
+                body: attempt.method === 'POST' ? attempt.body : undefined,
             });
-            text = String(await resp.text()).trim();
+            const text = String(await resp.text()).trim();
+            lastText = text;
+            lastStatus = resp.status;
+            if (resp.ok && !looksLikeO3SmsFailure(text)) {
+                return { success: true, response: text };
+            }
+        } catch (err) {
+            lastText = err.message || String(err);
         }
-
-        if (!resp.ok) {
-            console.error('[SMS] O3SMS HTTP error:', resp.status, text);
-            throw new Error(mapO3SMSError(text, resp.status));
-        }
-
-        if (looksLikeO3SmsFailure(text)) {
-            console.error('[SMS] O3SMS API error:', text);
-            throw new Error(mapO3SMSError(text));
-        }
-
-        return { success: true, response: text };
-    } catch (error) {
-        if (error.message && !error.message.includes('SMS')) {
-            console.error('[SMS] O3SMS send error:', error.message);
-        }
-        throw error;
     }
+
+    console.error('[SMS] O3SMS API error:', lastStatus, lastText);
+    throw new Error(mapO3SMSError(lastText, lastStatus));
 }
 
 function looksLikeO3SmsFailure(text) {

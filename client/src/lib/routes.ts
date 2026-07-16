@@ -34,6 +34,8 @@ export const RESELLER_PRODUCTS_PATH = '/reseller/products'
 export const RESELLER_RATES_PATH = '/reseller/rates'
 /** RESELLER tier — WhatsApp/PDF shortlist inquiries from shared catalogues. */
 export const RESELLER_INQUIRIES_PATH = '/reseller/inquiries'
+/** RESELLER tier — SMS / OTP for shared catalogue customer sign-in. */
+export const RESELLER_SMS_SETTINGS_PATH = '/reseller/sms-settings'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const
