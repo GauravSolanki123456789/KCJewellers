@@ -15,8 +15,11 @@ export type SmsTestOtpResult = {
   messageId?: string | null
   gatewayResponse?: string | null
   filledMessage?: string | null
+  dltTemplate?: string | null
+  dltVariables?: string[] | null
   attempt?: string | null
   hint?: string
+  cccHint?: string
   error?: string
 }
 
@@ -181,10 +184,26 @@ export default function SmsTestOtpBlock({
           ) : null}
           {result.filledMessage ? (
             <p className="break-words">
-              <span className="font-medium">SMS text sent:</span> {result.filledMessage}
+              <span className="font-medium">Expected SMS on phone:</span> {result.filledMessage}
+            </p>
+          ) : null}
+          {result.dltTemplate ? (
+            <p className="break-words">
+              <span className="font-medium">DLT template sent to gateway:</span> {result.dltTemplate}
+            </p>
+          ) : null}
+          {result.dltVariables?.length ? (
+            <p className="break-words">
+              <span className="font-medium">Variables (var1|var2|var3):</span>{' '}
+              {result.dltVariables.join(' | ')}
             </p>
           ) : null}
           {result.hint ? <p className="text-emerald-800/80">{result.hint}</p> : null}
+          {result.cccHint ? (
+            <p className="rounded-lg border border-amber-300/50 bg-amber-50/80 px-2 py-1.5 text-amber-950">
+              {result.cccHint}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

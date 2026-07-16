@@ -109,7 +109,26 @@ function mapFast2SMSError(msg, status) {
 }
 
 /** Approved DLT example — must match Co3 / DLT portal character-for-character (except variable values). */
-const O3_DLT_PLACEHOLDER_RE = /\{#(?:var|alp)#\}/gi;
+const O3_DLT_PLACEHOLDER_RE = /\{#(?:var|alp|numeric|alphanumeric)#\}/gi;
+
+/** Co3 CCC registers templates with {#alp#}; normalize {#var#} etc. for API calls. */
+function normalizeO3DltTemplateForApi(template) {
+    return String(template || '')
+        .replace(/\{#var#\}/gi, '{#alp#}')
+        .replace(/\{#numeric#\}/gi, '{#alp#}')
+        .replace(/\{#alphanumeric#\}/gi, '{#alp#}')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/** Variable values for DLT slots — order: customer label → OTP → validity. */
+function o3DltVariableValues(otpCode, customerLabel = 'Customer') {
+    return [
+        String(customerLabel || 'Customer').trim() || 'Customer',
+        String(otpCode),
+        '10 minutes',
+    ];
+}
 
 /** Fill Co3SMS DLT templates — supports {#var#}, {#alp#}, {otp}. Order: name → OTP → validity. */
 function fillO3OtpMessage(template, otpCode, customerLabel = 'Customer') {
@@ -130,9 +149,15 @@ function o3TemplateVariableCount(template) {
 const O3_ERROR_CODES = {
     101: 'Invalid SMS API key. Check your Co3SMS key in SMS settings.',
     102: 'Invalid sender ID. Use your approved DLT header (e.g. BMSSIL).',
-    105: 'SMS message body is empty. Check your DLT message template.',
-    108: 'Wrong SMS route for this template. Try route 2 (Transactional) or contact Co3.',
+    103: 'Invalid mobile number.',
+    104: 'Invalid SMS route. Use route 2 (Transactional) for OTP templates.',
+    105: 'SMS message body is empty or does not match DLT template.',
+    106: 'Message blocked as spam. Contact Co3SMS support.',
+    107: 'Promotional route blocked for this template.',
+    108: 'Insufficient SMS credits on your Co3 account. Recharge and retry.',
+    109: 'Promotional route only works 9 AM–8:45 PM.',
     110: 'DLT template ID is required or invalid. Paste the exact template ID from Co3.',
+    111: 'No SMS credits or message rejected by gateway.',
 };
 
 function mapO3ErrorCode(code) {
@@ -176,11 +201,12 @@ async function sendViaO3SMS(mobile, otpCode, config) {
 async function sendViaO3SMSDetailed(mobile, otpCode, config) {
     const apiKey =
         config?.o3sms_api_key || process.env.O3SMS_API_KEY || process.env.CO3SMS_API_KEY;
-    const template =
+    const rawTemplate =
         config?.o3sms_message_template ||
         process.env.O3SMS_MESSAGE_TEMPLATE ||
         process.env.CO3SMS_MESSAGE_TEMPLATE ||
-        'Dear {#var#} Your OTP for login is {#var#} It is valid for {#var#} B.N.MARLECHA AND SONS';
+        'Dear {#alp#} Your OTP for login is {#alp#} It is valid for {#alp#} B.N.MARLECHA AND SONS';
+    const dltTemplate = normalizeO3DltTemplateForApi(rawTemplate);
     if (!apiKey) {
         if (process.env.NODE_ENV === 'production') {
             throw new Error('Co3SMS API key not configured. Save your API key in SMS settings.');
@@ -190,7 +216,7 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
             success: true,
             devMode: true,
             provider: 'o3sms',
-            filledMessage: fillO3OtpMessage(template, otpCode),
+            filledMessage: fillO3OtpMessage(dltTemplate, otpCode),
             gatewayResponse: 'dev-mode-no-api-key',
         };
     }
@@ -207,9 +233,12 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
             process.env.CO3SMS_DLT_TEMPLATE_ID ||
             '',
     ).trim();
-    const message = fillO3OtpMessage(template, otpCode);
-    const varCount = o3TemplateVariableCount(template);
-    const varValues = ['Customer', String(otpCode), '10 minutes'].slice(0, Math.max(varCount, 3));
+    if (!templateId) {
+        throw new Error('DLT template ID is required. Paste the 19-digit ID from Co3 / DLT portal.');
+    }
+
+    const varValues = o3DltVariableValues(otpCode);
+    const filledPreview = fillO3OtpMessage(dltTemplate, otpCode);
 
     const buildSmsApiParams = (smsBody, extra = {}) => {
         const p = new URLSearchParams({
@@ -218,26 +247,32 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
             sender,
             number: mobile,
             sms: smsBody,
+            templateid: templateId,
             ...extra,
         });
-        if (templateId) {
-            p.set('templateid', templateId);
-        }
         return p;
     };
 
+    /** Co3 / CCC expects registered DLT template text + separate variable values — NOT pre-filled sms body. */
     const attempts = [
-        { label: 'filled-dlt', params: buildSmsApiParams(message) },
-        { label: 'template-vars', params: buildSmsApiParams(template, { variables: varValues.join('|') }) },
         {
-            label: 'template-var123',
-            params: buildSmsApiParams(template, {
-                var1: varValues[0] || '',
-                var2: varValues[1] || String(otpCode),
-                var3: varValues[2] || '10 minutes',
+            label: 'dlt-template-var123',
+            params: buildSmsApiParams(dltTemplate, {
+                var1: varValues[0],
+                var2: varValues[1],
+                var3: varValues[2],
             }),
         },
-        { label: 'raw-template', params: buildSmsApiParams(template) },
+        {
+            label: 'dlt-template-variables',
+            params: buildSmsApiParams(dltTemplate, {
+                variables: varValues.join('|'),
+            }),
+        },
+        {
+            label: 'dlt-template-raw',
+            params: buildSmsApiParams(dltTemplate),
+        },
     ];
 
     let lastText = '';
@@ -261,14 +296,16 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
                 const parsed = parseO3SmsResponse(text);
                 if (resp.ok && parsed.ok) {
                     console.log(
-                        `[SMS] O3SMS sent (${attempt.label}/${method}) id=${parsed.messageId} to +91${mobile} body="${message.slice(0, 80)}…"`,
+                        `[SMS] O3SMS sent (${attempt.label}/${method}) id=${parsed.messageId} to +91${mobile} template="${dltTemplate.slice(0, 60)}…" vars=${varValues.join('|')}`,
                     );
                     return {
                         success: true,
                         provider: 'o3sms',
                         messageId: parsed.messageId,
                         gatewayResponse: text,
-                        filledMessage: message,
+                        filledMessage: filledPreview,
+                        dltTemplate,
+                        dltVariables: varValues,
                         attempt: `${attempt.label}/${method}`,
                     };
                 }
@@ -280,10 +317,11 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
         }
     }
 
-    console.error('[SMS] O3SMS API error:', lastStatus, lastText, 'filled=', message);
+    console.error('[SMS] O3SMS API error:', lastStatus, lastText, 'template=', dltTemplate, 'vars=', varValues);
     const err = new Error(mapO3SMSError(lastError || lastText, lastStatus));
     err.gatewayResponse = lastText;
-    err.filledMessage = message;
+    err.filledMessage = filledPreview;
+    err.dltTemplate = dltTemplate;
     throw err;
 }
 
@@ -379,4 +417,9 @@ async function sendSMSDetailed(mobileNumber, otpCode, config = null) {
     return { success: true, provider, gatewayResponse: 'sent', filledMessage: null };
 }
 
-module.exports = { sendSMS, sendSMSDetailed, fillO3OtpMessage };
+module.exports = {
+    sendSMS,
+    sendSMSDetailed,
+    fillO3OtpMessage,
+    normalizeO3DltTemplateForApi,
+};

@@ -27,9 +27,9 @@ const O3SMS_ROUTES = [
   { value: '4', label: '4 — Service Explicit' },
 ]
 
-/** Must match DLT / Co3 portal exactly — no extra punctuation vs approved template. */
+/** Must match DLT / Co3 portal exactly — use {#alp#} placeholders as registered on Co3. */
 const DEFAULT_TEMPLATE =
-  'Dear {#var#} Your OTP for login is {#var#} It is valid for {#var#} B.N.MARLECHA AND SONS'
+  'Dear {#alp#} Your OTP for login is {#alp#} It is valid for {#alp#} B.N.MARLECHA AND SONS'
 
 type Props = {
   theme?: Theme
@@ -150,7 +150,7 @@ export default function SmsOtpSettingsPanel({
         </p>
         <p className={cn('mb-4 text-xs leading-relaxed', hintCls)}>
           API key from Co3SMS dashboard → Developer → Http API. Use your approved DLT template exactly as
-          {'registered (placeholders {#var#} or {#alp#}).'}
+          {'registered (use {#alp#} placeholders exactly as on Co3 / DLT portal).'}
         </p>
 
         <div className="space-y-4">
@@ -208,13 +208,13 @@ export default function SmsOtpSettingsPanel({
               onChange={(e) => onChange({ o3sms_message_template: e.target.value })}
             />
             <p className={cn('mt-1.5', hintCls)}>
-              Copy the DLT-approved text exactly from Co3 — same spelling, spaces, and punctuation. OTP
-              replaces placeholders in order: Customer → code → validity (e.g. 10 minutes).
+              Copy the DLT-approved text exactly from Co3 — same spelling, spaces, and punctuation.
+              Use {'{#alp#}'} placeholders (not {'{#var#'}). OTP replaces slots: Customer → code →
+              validity (e.g. 10 minutes).
             </p>
-            {/\{#(?:var|alp)#\}\./i.test(form.o3sms_message_template) ? (
+            {/\{#var#\}/i.test(form.o3sms_message_template) ? (
               <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-900">
-                Warning: your template has full stops after placeholders. If DLT was approved without
-                them, SMS will not arrive — remove extra &quot;.&quot; to match Co3 exactly.
+                {'Tip: Co3 uses {#alp#} placeholders — replace {#var#} in your template to match the provider.'}
               </p>
             ) : null}
           </div>

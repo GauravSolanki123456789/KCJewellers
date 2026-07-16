@@ -912,6 +912,9 @@ async function sendSmsTestOtp(mobile_number, smsConfig) {
     return { otp_code, ...result };
 }
 
+const CO3_CCC_DELIVERY_HINT =
+    'Gateway accepted the SMS (message ID returned) but if nothing arrives on the phone: (1) Log in to sms.co3.live → Manage template → add DLT ID 1701160034160122394 with the exact {#alp#} template and wait for approval. (2) Confirm transactional SMS credits are loaded. (3) Ask Co3 support to check delivery for the message ID.';
+
 /** Create or find customer by mobile and establish session (no OTP). Used when admin disables OTP. */
 async function loginCustomerByMobile(req, res, mobile_number) {
     let userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [mobile_number]);
@@ -7683,8 +7686,11 @@ app.post('/api/reseller/sms-settings/test-otp', requireSharedCatalogCreator, req
             messageId: result.messageId || null,
             gatewayResponse: result.gatewayResponse || null,
             filledMessage: result.filledMessage || null,
+            dltTemplate: result.dltTemplate || null,
+            dltVariables: result.dltVariables || null,
             attempt: result.attempt || null,
-            hint: 'Check your phone within 1–2 minutes. If nothing arrives, verify DLT template ID and message match Co3 exactly (no extra full stops).',
+            hint: 'Check your phone within 1–2 minutes.',
+            cccHint: CO3_CCC_DELIVERY_HINT,
         });
     } catch (error) {
         console.error('reseller sms-settings test-otp:', error.message || error);
@@ -7692,6 +7698,8 @@ app.post('/api/reseller/sms-settings/test-otp', requireSharedCatalogCreator, req
             error: error.message || 'Failed to send test OTP',
             gatewayResponse: error.gatewayResponse || null,
             filledMessage: error.filledMessage || null,
+            dltTemplate: error.dltTemplate || null,
+            cccHint: CO3_CCC_DELIVERY_HINT,
         });
     }
 });
@@ -10330,8 +10338,11 @@ app.post('/api/admin/sms-settings/test-otp', isAdminStrict, requireJson, async (
             messageId: result.messageId || null,
             gatewayResponse: result.gatewayResponse || null,
             filledMessage: result.filledMessage || null,
+            dltTemplate: result.dltTemplate || null,
+            dltVariables: result.dltVariables || null,
             attempt: result.attempt || null,
-            hint: 'Check your phone within 1–2 minutes. If nothing arrives, verify DLT template ID and message match Co3 exactly.',
+            hint: 'Check your phone within 1–2 minutes.',
+            cccHint: CO3_CCC_DELIVERY_HINT,
         });
     } catch (error) {
         console.error('admin sms-settings test-otp:', error.message || error);
@@ -10339,6 +10350,8 @@ app.post('/api/admin/sms-settings/test-otp', isAdminStrict, requireJson, async (
             error: error.message || 'Failed to send test OTP',
             gatewayResponse: error.gatewayResponse || null,
             filledMessage: error.filledMessage || null,
+            dltTemplate: error.dltTemplate || null,
+            cccHint: CO3_CCC_DELIVERY_HINT,
         });
     }
 });

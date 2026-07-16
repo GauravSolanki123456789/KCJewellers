@@ -3,6 +3,7 @@
  */
 
 const { maskSecret } = require('./smsConfig');
+const { normalizeO3DltTemplateForApi } = require('./smsService');
 
 const RESELLER_SMS_COLUMNS = [
     'reseller_shared_catalog_otp_enabled',
@@ -169,7 +170,9 @@ async function upsertResellerSmsSettings(query, userId, body) {
     if (body.o3sms_message_template !== undefined || body.reseller_o3sms_message_template !== undefined) {
         updates.push(`reseller_o3sms_message_template = $${idx++}`);
         params.push(
-            String(body.o3sms_message_template ?? body.reseller_o3sms_message_template ?? '').trim(),
+            normalizeO3DltTemplateForApi(
+                String(body.o3sms_message_template ?? body.reseller_o3sms_message_template ?? '').trim(),
+            ),
         );
     }
 
