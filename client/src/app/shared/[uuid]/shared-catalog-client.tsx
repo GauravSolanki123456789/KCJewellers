@@ -543,13 +543,27 @@ export default function SharedCatalogClient({
         lineCount: selectionPicks.length,
         totalPieces: summary.totalPieces,
         totalInr: hidePricesForLog(payload) ? null : summary.orderTotalInr,
-        lines: selectionPicks.map((pick) => ({
-          name: pick.displayTitle,
-          code: String(pick.row.product.barcode || pick.row.product.sku || pick.key),
-          qty: pick.qty,
-          unitInr: pick.unitTotalInr,
-          lineTotalInr: pick.lineTotalInr,
-        })),
+        lines: selectionPicks.map((pick) => {
+          const waLine = sharedCatalogPickToWhatsAppLine(
+            pick,
+            payload && typeof payload === 'object' && 'rates' in payload ? payload.rates ?? [] : [],
+          )
+          return {
+            name: waLine.name,
+            code: waLine.skuOrBarcode,
+            qty: waLine.qty,
+            unitInr: waLine.priceInr,
+            lineTotalInr: pick.lineTotalInr,
+            compareAtInr: waLine.compareAtInr ?? null,
+            sizeLabel: waLine.sizeLabel ?? null,
+            weightLabel: waLine.weightLabel ?? null,
+            metalSpecSummary: waLine.metalSpecSummary ?? null,
+            showInclGst: waLine.showInclGst,
+            withBoxPriceInr: waLine.withBoxPriceInr ?? null,
+            slabDiscountLines: waLine.slabDiscountLines,
+            savingsInr: waLine.savingsInr ?? null,
+          }
+        }),
         catalogUrl: typeof window !== 'undefined' ? window.location.href : undefined,
       })
     },

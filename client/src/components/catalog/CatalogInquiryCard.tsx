@@ -55,9 +55,10 @@ export default function CatalogInquiryCard({
       brandLabel: followUpBrand,
       customerName: inquiry.customer_name,
       totalPieces: inquiry.total_pieces,
+      lineCount: inquiry.line_count,
       totalInr: inquiry.total_inr,
+      lines: inquiry.lines,
       catalogUrl: inquiry.catalog_url,
-      lines,
     }),
   )
 

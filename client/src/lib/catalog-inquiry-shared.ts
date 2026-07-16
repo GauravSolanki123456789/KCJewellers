@@ -1,3 +1,6 @@
+import type { SharedCatalogPickLineForWhatsApp } from '@/lib/cart-order-whatsapp'
+import { formatSharedCatalogOrderWhatsAppBody } from '@/lib/cart-order-whatsapp'
+
 export type CatalogInquiryStatus = 'pending' | 'completed' | 'no_sale'
 
 export type CatalogInquiryLine = {
@@ -6,6 +9,14 @@ export type CatalogInquiryLine = {
   qty?: number
   unitInr?: number | null
   lineTotalInr?: number | null
+  compareAtInr?: number | null
+  sizeLabel?: string | null
+  weightLabel?: string | null
+  metalSpecSummary?: string | null
+  showInclGst?: boolean
+  withBoxPriceInr?: number | null
+  slabDiscountLines?: string[]
+  savingsInr?: number | null
 }
 
 export type CatalogInquiryRow = {
@@ -103,50 +114,59 @@ export function customerWhatsAppHref(
   return `${base}?text=${encodeURIComponent(message.trim())}`
 }
 
-function formatInquiryLineForWhatsApp(line: CatalogInquiryLine, index: number): string {
-  const name = line.name?.trim() || line.code?.trim() || `Item ${index + 1}`
-  const qty = Math.max(1, Math.round(Number(line.qty) || 1))
-  const lineTotal =
-    line.lineTotalInr != null && Number.isFinite(line.lineTotalInr)
-      ? line.lineTotalInr
-      : line.unitInr != null && Number.isFinite(line.unitInr)
-        ? line.unitInr * qty
-        : null
-  const qtyLabel = `${qty} pc${qty === 1 ? '' : 's'}`
-  if (lineTotal != null && Number.isFinite(lineTotal)) {
-    return `• ${name} — ${qtyLabel} (${formatCatalogInr(lineTotal)})`
+export function inquiryLineToWhatsAppLine(line: CatalogInquiryLine): SharedCatalogPickLineForWhatsApp {
+  return {
+    name: line.name ?? 'Item',
+    skuOrBarcode: line.code ?? '—',
+    priceInr: Number(line.unitInr ?? 0) || 0,
+    compareAtInr: line.compareAtInr ?? undefined,
+    qty: line.qty ?? 1,
+    sizeLabel: line.sizeLabel ?? undefined,
+    weightLabel: line.weightLabel ?? undefined,
+    metalSpecSummary: line.metalSpecSummary ?? undefined,
+    showInclGst: line.showInclGst,
+    withBoxPriceInr: line.withBoxPriceInr ?? undefined,
+    slabDiscountLines: line.slabDiscountLines,
+    savingsInr: line.savingsInr ?? undefined,
   }
-  if (line.unitInr != null && Number.isFinite(line.unitInr)) {
-    return `• ${name} — ${qtyLabel} × ${formatCatalogInr(line.unitInr)}`
-  }
-  return `• ${name} — ${qtyLabel}`
 }
 
 export function buildCustomerFollowUpWhatsAppMessage(params: {
   brandLabel: string
   customerName?: string | null
   totalPieces: number
+  lineCount: number
   totalInr: number | null
-  catalogUrl?: string | null
   lines?: CatalogInquiryLine[]
+  catalogUrl?: string | null
+  hidePrices?: boolean
 }): string {
-  const { brandLabel, customerName, totalPieces, totalInr, catalogUrl, lines } = params
+  const { brandLabel, customerName, totalPieces, lineCount, totalInr, lines, catalogUrl, hidePrices } =
+    params
   const greeting = customerName?.trim() ? `Hi ${customerName.trim()},` : 'Hi,'
+  const waLines = (lines ?? []).map(inquiryLineToWhatsAppLine)
+  const hasRichLines = waLines.length > 0
+
+  if (hasRichLines) {
+    const orderBlock = formatSharedCatalogOrderWhatsAppBody({
+      lines: waLines,
+      totalPieces,
+      lineCount,
+      totalInr,
+      catalogueUrl: catalogUrl ?? undefined,
+      hidePrices: !!hidePrices,
+      introLine: hidePrices
+        ? 'Your shortlisted pieces (qty & weight on each line):'
+        : 'Please find your order below — *quantities are highlighted* on every line:',
+    })
+    return `${greeting}\n\nThis is ${brandLabel}. We received your catalogue inquiry:\n\n${orderBlock}\n\nWould you like to proceed or need any changes? Thank you.`
+  }
+
   const value =
     totalInr != null && Number.isFinite(totalInr)
       ? `₹${Math.round(totalInr).toLocaleString('en-IN')}`
       : 'your shortlist'
-  const itemLines = (lines ?? [])
-    .map((line, i) => formatInquiryLineForWhatsApp(line, i))
-    .filter(Boolean)
-
-  let msg = `${greeting}\n\nThis is ${brandLabel}. We received your catalogue inquiry`
-  if (itemLines.length > 0) {
-    msg += `:\n\n${itemLines.join('\n')}\n\nTotal: ${totalPieces} pc${totalPieces === 1 ? '' : 's'}, ${value}`
-  } else {
-    msg += ` (${totalPieces} pc${totalPieces === 1 ? '' : 's'}, ${value})`
-  }
-  msg += '.\n\nWould you like to proceed or need any changes?'
+  let msg = `${greeting}\n\nThis is ${brandLabel}. We received your catalogue inquiry (${totalPieces} pc${totalPieces === 1 ? '' : 's'}, ${lineCount} line${lineCount === 1 ? '' : 's'}, ${value}).\n\nWould you like to proceed or need any changes?`
   if (catalogUrl?.trim()) {
     msg += `\n\nCatalogue:\n${catalogUrl.trim()}`
   }

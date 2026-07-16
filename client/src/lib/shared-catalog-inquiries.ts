@@ -1,12 +1,7 @@
 import axios from '@/lib/axios'
+import type { CatalogInquiryLine } from '@/lib/catalog-inquiry-shared'
 
-export type SharedCatalogInquiryLine = {
-  name?: string
-  code?: string
-  qty?: number
-  unitInr?: number | null
-  lineTotalInr?: number | null
-}
+export type SharedCatalogInquiryLine = CatalogInquiryLine
 
 export async function logSharedCatalogInquiry(
   catalogUuid: string,
