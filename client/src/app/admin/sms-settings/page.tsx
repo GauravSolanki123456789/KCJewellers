@@ -5,9 +5,11 @@ import axios from '@/lib/axios'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, MessageSquare, Save, Smartphone } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 type SmsSettings = {
   sms_provider: string
+  shared_catalog_otp_enabled: boolean
   fast2sms_api_key: string
   fast2sms_api_key_set: boolean
   o3sms_api_key: string
@@ -48,6 +50,7 @@ function SmsSettingsForm() {
   const [success, setSuccess] = useState<string | null>(null)
   const [form, setForm] = useState({
     sms_provider: 'o3sms',
+    shared_catalog_otp_enabled: true,
     o3sms_api_key: '',
     o3sms_sender_id: 'ALERTS',
     o3sms_route: '2',
@@ -76,6 +79,7 @@ function SmsSettingsForm() {
       const d = res.data
       setForm({
         sms_provider: d.sms_provider || (d.o3sms_api_key_set ? 'o3sms' : ''),
+        shared_catalog_otp_enabled: d.shared_catalog_otp_enabled !== false,
         o3sms_api_key: '',
         o3sms_sender_id: d.o3sms_sender_id || 'ALERTS',
         o3sms_route: d.o3sms_route || '2',
@@ -113,8 +117,9 @@ function SmsSettingsForm() {
     setError(null)
     setSuccess(null)
     try {
-      const body: Record<string, string> = {
+      const body: Record<string, string | boolean> = {
         sms_provider: form.sms_provider,
+        shared_catalog_otp_enabled: form.shared_catalog_otp_enabled,
         o3sms_sender_id: form.o3sms_sender_id,
         o3sms_route: form.o3sms_route,
         o3sms_dlt_template_id: form.o3sms_dlt_template_id,
@@ -129,7 +134,11 @@ function SmsSettingsForm() {
       if (form.twilio_auth_token.trim()) body.twilio_auth_token = form.twilio_auth_token.trim()
 
       await axios.patch('/api/admin/sms-settings', body, { withCredentials: true })
-      setSuccess('SMS settings saved. OTP sign-in will use these credentials.')
+      setSuccess(
+        form.shared_catalog_otp_enabled
+          ? 'SMS settings saved. Shared catalogue will require OTP verification.'
+          : 'SMS settings saved. Shared catalogue will collect mobile only (no OTP).',
+      )
       await load()
     } catch (e: unknown) {
       const msg =
@@ -174,6 +183,48 @@ function SmsSettingsForm() {
           </div>
         ) : (
           <div className="space-y-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-amber-200">Shared catalogue OTP</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                    When off, customers enter mobile only on shared links — no SMS OTP until your
+                    gateway is ready. Mobile is still saved on inquiries for WhatsApp follow-up.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.shared_catalog_otp_enabled}
+                  aria-label="Require OTP on shared catalogue"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      shared_catalog_otp_enabled: !f.shared_catalog_otp_enabled,
+                    }))
+                  }
+                  className={cn(
+                    'relative inline-flex h-11 w-[3.25rem] shrink-0 items-center rounded-full border-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400',
+                    form.shared_catalog_otp_enabled
+                      ? 'border-emerald-500/60 bg-emerald-600/30'
+                      : 'border-slate-600 bg-slate-800',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'inline-block size-7 rounded-full bg-white shadow transition-transform',
+                      form.shared_catalog_otp_enabled ? 'translate-x-[1.35rem]' : 'translate-x-1',
+                    )}
+                  />
+                </button>
+              </div>
+              <p className="mt-3 text-xs font-medium text-slate-500">
+                {form.shared_catalog_otp_enabled
+                  ? 'OTP required — Send OTP → verify before shortlist'
+                  : 'Mobile only — Continue without OTP'}
+              </p>
+            </div>
+
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 SMS provider

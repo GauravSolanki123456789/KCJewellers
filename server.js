@@ -876,6 +876,78 @@ async function getGiftingGstEnabled() {
     }
 }
 
+async function getSharedCatalogOtpEnabled() {
+    try {
+        const config = await getSmsConfig(query);
+        return parseSmsSettingBool(config.shared_catalog_otp_enabled);
+    } catch {
+        return true;
+    }
+}
+
+/** Create or find customer by mobile and establish session (no OTP). Used when admin disables OTP. */
+async function loginCustomerByMobile(req, res, mobile_number) {
+    let userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [mobile_number]);
+    let user;
+    if (userRows.length === 0) {
+        const insert = await query(
+            `INSERT INTO users (mobile_number, name, role, account_status, email)
+             VALUES ($1, $2, 'customer', 'active', $3) RETURNING *`,
+            [mobile_number, `Customer ${mobile_number.slice(-4)}`, null],
+        );
+        user = insert[0];
+        console.log(`📱 New mobile-only customer: ${mobile_number}`);
+    } else {
+        user = userRows[0];
+    }
+    user = resolveUserRole(user);
+    return new Promise((resolve, reject) => {
+        req.login(user, async (error) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            try {
+                await logUserActivity({ user_id: user.id, action_type: 'login' });
+                const tier = String(user.customer_tier || 'B2C_CUSTOMER').toUpperCase();
+                const rawCatIds = user.allowed_category_ids;
+                let allowed_category_ids = null;
+                if (Array.isArray(rawCatIds)) {
+                    allowed_category_ids = rawCatIds
+                        .map((x) => parseInt(String(x), 10))
+                        .filter((n) => !Number.isNaN(n));
+                }
+                resolve({
+                    success: true,
+                    has_wholesale_access: hasWholesaleCatalogAccess(user),
+                    has_b2b_portal_access: hasB2bWholesalePortalAccess(user),
+                    user: {
+                        id: user.id,
+                        email: user.email,
+                        mobile_number: user.mobile_number,
+                        name: user.name,
+                        role: user.role,
+                        customer_tier: tier,
+                        wholesale_making_charge_discount_percent: Number(
+                            user.wholesale_making_charge_discount_percent ?? 0,
+                        ),
+                        wholesale_markup_percent: Number(user.wholesale_markup_percent ?? 0),
+                        business_name: user.business_name ?? null,
+                        custom_domain: user.custom_domain ?? null,
+                        logo_url: user.logo_url ?? null,
+                        allowed_category_ids,
+                        reseller_hide_prices: !!user.reseller_hide_prices,
+                        account_status: user.account_status,
+                        allowed_tabs: user.allowed_tabs || [],
+                    },
+                });
+            } catch (err) {
+                reject(err);
+            }
+        });
+    });
+}
+
 /** Public: whether storefront adds GST on gift-item fixed prices. */
 app.get('/api/public/catalog-pricing-settings', globalLimiter, async (req, res) => {
     try {
@@ -1562,7 +1634,7 @@ app.post('/api/users/complete-profile', async (req, res) => {
 // OTP AUTHENTICATION
 // ==========================================
 const { sendSMS } = require('./services/smsService');
-const { getSmsConfig, publicSmsSettings, upsertSmsSettings } = require('./services/smsConfig');
+const { getSmsConfig, publicSmsSettings, upsertSmsSettings, parseSmsSettingBool } = require('./services/smsConfig');
 
 app.post('/api/auth/send-otp', authLimiter, requireJson, async (req, res) => {
     try {
@@ -1670,6 +1742,27 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
     } catch (error) {
         console.error('Verify OTP error:', error);
         res.status(500).json({ error: error.message || 'Verification failed' });
+    }
+});
+
+/** Shared catalogue: mobile-only sign-in when admin disables OTP verification. */
+app.post('/api/auth/register-mobile', authLimiter, requireJson, async (req, res) => {
+    try {
+        const otpEnabled = await getSharedCatalogOtpEnabled();
+        if (otpEnabled) {
+            return res.status(403).json({
+                error: 'OTP verification is required. Use Send OTP to continue.',
+            });
+        }
+        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
+        if (mobile_number.length !== 10) {
+            return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
+        }
+        const payload = await loginCustomerByMobile(req, res, mobile_number);
+        res.json(payload);
+    } catch (error) {
+        console.error('Register mobile error:', error.message || error);
+        res.status(500).json({ error: error.message || 'Could not save mobile number' });
     }
 });
 
@@ -7112,6 +7205,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         }
         const row = rows[0];
         const gifting_gst_enabled = await getGiftingGstEnabled();
+        const shared_catalog_otp_enabled = await getSharedCatalogOtpEnabled();
         const hidePrices = !!row.hide_prices;
         const hidePdf = !!row.hide_pdf;
         const slabFields = sharedCatalogSlabJsonFields(row);
@@ -7143,6 +7237,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 products: [],
                 kc_theme_id,
                 gifting_gst_enabled,
+                shared_catalog_otp_enabled,
                 ...slabFields,
             });
         }
@@ -7171,6 +7266,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 ratesFrozenAtShare,
                 kc_theme_id,
                 gifting_gst_enabled,
+                shared_catalog_otp_enabled,
                 ...slabFields,
             });
         }
@@ -7251,6 +7347,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             ratesFrozenAtShare,
             kc_theme_id,
             gifting_gst_enabled,
+            shared_catalog_otp_enabled,
             ...slabFields,
         });
     } catch (error) {
@@ -7289,11 +7386,11 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
         const catalogUrl = body.catalogUrl ?? body.catalog_url ?? null;
 
         if (!req.isAuthenticated || !req.isAuthenticated()) {
-            return res.status(401).json({ error: 'Sign in with mobile OTP before submitting your shortlist' });
+            return res.status(401).json({ error: 'Enter your mobile number before submitting your shortlist' });
         }
         const customerMobile = String(req.user?.mobile_number || '').replace(/\D/g, '').slice(-10);
         if (customerMobile.length !== 10) {
-            return res.status(401).json({ error: 'Sign in with mobile OTP before submitting your shortlist' });
+            return res.status(401).json({ error: 'Enter your mobile number before submitting your shortlist' });
         }
         const customerName =
             req.user?.name != null && String(req.user.name).trim()

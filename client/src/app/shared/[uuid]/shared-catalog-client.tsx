@@ -238,6 +238,14 @@ export default function SharedCatalogClient({
 
   const giftingGstEnabled = sharedCatalogGiftingGstEnabled(payload)
 
+  const sharedCatalogOtpEnabled = useMemo(() => {
+    if (!payload || typeof payload !== 'object') return true
+    if ('shared_catalog_otp_enabled' in payload) {
+      return (payload as { shared_catalog_otp_enabled?: boolean }).shared_catalog_otp_enabled !== false
+    }
+    return true
+  }, [payload])
+
   const slabPayload = useMemo(
     () => sharedCatalogSlabPayloadFromResponse(payload),
     [payload],
@@ -1273,6 +1281,7 @@ export default function SharedCatalogClient({
         open={signInOpen}
         onOpenChange={setSignInOpen}
         onVerified={setCustomer}
+        otpEnabled={sharedCatalogOtpEnabled}
       />
     </div>
   )

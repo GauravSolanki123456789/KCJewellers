@@ -13,7 +13,7 @@ const {
     resolveGrossWeight,
     styleSlugFromCode,
 } = require('./upsertWebProductFromSyncItem');
-const { defaultMcTypeWhenRatePresent } = require('./mcTypeUtils');
+const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
 
 const SUBMISSION_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected', 'withdrawn']);
 
@@ -83,6 +83,8 @@ function excelRowToSyncItem(row) {
         }
         return undefined;
     };
+    const mcRaw = get('MCRate', 'mcRate', 'mc_rate', 'Making Charges', 'MC');
+    const parsedMc = parseMcRateAndType(mcRaw);
     return {
         styleCode: get('StyleCode', 'styleCode', 'style_code'),
         sku: get('SKU', 'sku'),
@@ -93,8 +95,8 @@ function excelRowToSyncItem(row) {
         grossWeight: get('grossWeight', 'gross_weight'),
         wastage: get('Wastage(%)', 'Wastage', 'wastage', 'wastage_pct'),
         purity: get('Purity', 'purity'),
-        mcRate: get('MCRate', 'mcRate', 'mc_rate'),
-        mcType: get('MCType', 'mc_type'),
+        mcRate: parsedMc.mcRate != null ? parsedMc.mcRate : mcRaw,
+        mcType: get('MCType', 'mc_type') ?? parsedMc.mcType,
         metalType: get('MetalType', 'metal_type', 'metalType'),
         fixedPrice: get('FixedPrice', 'fixedPrice', 'fixed_price'),
         stoneCharges: get('StoneCharges', 'stoneCharges', 'stone_charges'),
@@ -168,7 +170,7 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
               : item.mc_type != null
                 ? String(item.mc_type)
                 : null;
-    const mcType = defaultMcTypeWhenRatePresent(mcRateNum, mcTypeRaw);
+    const mcType = defaultMcTypeWhenRatePresent(mcRateNum, mcTypeRaw, resolved.metalType);
     if (wastagePct != null) payload.wastage_pct = wastagePct;
     if (payload.wastage == null && wastagePct != null) payload.wastage = wastagePct;
     const chainWeight = parseExcelWeight(item.chainWeight ?? item.ChainWtOnly ?? item.chain_weight);

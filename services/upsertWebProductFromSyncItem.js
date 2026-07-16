@@ -13,7 +13,7 @@ const {
     defaultVideoUrl,
     imageUrlBasename,
 } = require('./productImagePaths');
-const { defaultMcTypeWhenRatePresent } = require('./mcTypeUtils');
+const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
 
 function styleSlugFromCode(styleCode) {
     const s = String(styleCode || 'Uncategorized').trim();
@@ -95,27 +95,37 @@ function normalizeSyncItem(item) {
             parseWastagePercent(item),
         ),
         purity: item.purity || item.Purity ? String(item.purity || item.Purity) : null,
-        mcRate:
-            item.mcRate != null
-                ? Number(item.mcRate)
-                : item.mc_rate != null
-                  ? Number(item.mc_rate)
-                  : item.MCRate != null
-                    ? Number(item.MCRate)
-                    : null,
-        mcType: defaultMcTypeWhenRatePresent(
-            item.mcRate != null
-                ? Number(item.mcRate)
-                : item.mc_rate != null
-                  ? Number(item.mc_rate)
-                  : item.MCRate != null
-                    ? Number(item.MCRate)
-                    : null,
-            item.mcType ?? item.mc_type ?? item.MCType ?? null,
-        ),
-        metalType: String(item.metalType || item.metal_type || item.MetalType || 'silver')
-            .toLowerCase()
-            .trim(),
+        ...(() => {
+            const rawMc =
+                item.mcRate != null
+                    ? item.mcRate
+                    : item.mc_rate != null
+                      ? item.mc_rate
+                      : item.MCRate != null
+                        ? item.MCRate
+                        : null;
+            const parsedMc = parseMcRateAndType(rawMc);
+            const mcRateNum =
+                parsedMc.mcRate != null
+                    ? parsedMc.mcRate
+                    : rawMc != null && Number.isFinite(Number(rawMc))
+                      ? Number(rawMc)
+                      : null;
+            const mcTypeHint =
+                item.mcType ??
+                item.mc_type ??
+                item.MCType ??
+                parsedMc.mcType ??
+                null;
+            const metalType = String(item.metalType || item.metal_type || item.MetalType || 'silver')
+                .toLowerCase()
+                .trim();
+            return {
+                mcRate: mcRateNum,
+                mcType: defaultMcTypeWhenRatePresent(mcRateNum, mcTypeHint, metalType),
+                metalType,
+            };
+        })(),
         fixedPrice:
             item.fixedPrice != null
                 ? Number(item.fixedPrice)

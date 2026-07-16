@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   Dialog,
@@ -21,12 +21,27 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onVerified: (identity: SharedCatalogCustomerIdentity) => void
+  /** When false, customers enter mobile only — no OTP step. */
+  otpEnabled?: boolean
+}
+
+function sanitizeAuthError(raw: unknown): string {
+  const msg =
+    (raw as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+    (raw instanceof Error ? raw.message : null) ||
+    'Something went wrong. Try again.'
+  const s = String(msg)
+  if (/<html|<!doctype/i.test(s)) {
+    return 'Could not send OTP. Check SMS settings in admin, or ask admin to turn off OTP temporarily.'
+  }
+  return s.length > 280 ? `${s.slice(0, 277)}…` : s
 }
 
 export default function SharedCatalogSignInModal({
   open,
   onOpenChange,
   onVerified,
+  otpEnabled = true,
 }: Props) {
   const [step, setStep] = useState<'mobile' | 'otp'>('mobile')
   const [mobileNumber, setMobileNumber] = useState('')
@@ -40,12 +55,30 @@ export default function SharedCatalogSignInModal({
     setError('')
   }
 
+  useEffect(() => {
+    if (!open) reset()
+  }, [open, otpEnabled])
+
   const handleClose = (next: boolean) => {
     if (!next) reset()
     onOpenChange(next)
   }
 
-  const handleSendOtp = async () => {
+  const completeSession = (user: Record<string, unknown> | undefined, fallbackMobile: string) => {
+    const userId = Number(user?.id)
+    const verifiedMobile = String(user?.mobile_number ?? fallbackMobile)
+      .replace(/\D/g, '')
+      .slice(-10)
+    const name = String(user?.name ?? `Customer ${verifiedMobile.slice(-4)}`)
+    if (!Number.isFinite(userId) || verifiedMobile.length !== 10) {
+      throw new Error('Sign-in succeeded but session is incomplete. Try again.')
+    }
+    onVerified({ userId, mobile: verifiedMobile, name })
+    reset()
+    onOpenChange(false)
+  }
+
+  const handleMobileSubmit = async () => {
     const mobile = mobileNumber.replace(/\D/g, '').slice(-10)
     if (mobile.length !== 10) {
       setError('Enter a valid 10-digit mobile number')
@@ -54,14 +87,20 @@ export default function SharedCatalogSignInModal({
     setError('')
     setLoading(true)
     try {
-      await axios.post('/api/auth/send-otp', { mobile_number: mobile }, { withCredentials: true })
-      setStep('otp')
-      setOtpCode('')
+      if (otpEnabled) {
+        await axios.post('/api/auth/send-otp', { mobile_number: mobile }, { withCredentials: true })
+        setStep('otp')
+        setOtpCode('')
+      } else {
+        const res = await axios.post(
+          '/api/auth/register-mobile',
+          { mobile_number: mobile },
+          { withCredentials: true },
+        )
+        completeSession(res.data?.user as Record<string, unknown> | undefined, mobile)
+      }
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        'Failed to send OTP'
-      setError(msg)
+      setError(sanitizeAuthError(err))
     } finally {
       setLoading(false)
     }
@@ -82,27 +121,16 @@ export default function SharedCatalogSignInModal({
         { mobile_number: mobile, otp_code: otp },
         { withCredentials: true },
       )
-      const user = res.data?.user as Record<string, unknown> | undefined
-      const userId = Number(user?.id)
-      const verifiedMobile = String(user?.mobile_number ?? mobile)
-        .replace(/\D/g, '')
-        .slice(-10)
-      const name = String(user?.name ?? `Customer ${verifiedMobile.slice(-4)}`)
-      if (!Number.isFinite(userId) || verifiedMobile.length !== 10) {
-        throw new Error('Verification succeeded but session is incomplete. Try again.')
-      }
-      onVerified({ userId, mobile: verifiedMobile, name })
-      reset()
-      onOpenChange(false)
+      completeSession(res.data?.user as Record<string, unknown> | undefined, mobile)
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        (err instanceof Error ? err.message : 'Invalid OTP')
-      setError(msg)
+      setError(sanitizeAuthError(err))
     } finally {
       setLoading(false)
     }
   }
+
+  const mobileDigits = mobileNumber.replace(/\D/g, '')
+  const mobileReady = mobileDigits.length === 10
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -110,13 +138,19 @@ export default function SharedCatalogSignInModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             <ShieldCheck className="size-5 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
-            Verify mobile
+            {otpEnabled && step === 'otp' ? 'Verify OTP' : 'Verify mobile'}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          {step === 'mobile' ? (
+          {step === 'mobile' || !otpEnabled ? (
             <div className="space-y-3">
+              {!otpEnabled ? (
+                <p className="text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/70">
+                  Enter your mobile number to shortlist items and share on WhatsApp. No OTP needed right
+                  now — the jeweller may follow up on this number.
+                </p>
+              ) : null}
               <div>
                 <label
                   htmlFor="sc-mobile"
@@ -143,11 +177,11 @@ export default function SharedCatalogSignInModal({
               </div>
               <button
                 type="button"
-                disabled={loading || mobileNumber.replace(/\D/g, '').length !== 10}
-                onClick={handleSendOtp}
+                disabled={loading || !mobileReady}
+                onClick={handleMobileSubmit}
                 className={cn(
                   'inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-white transition active:scale-[0.99]',
-                  loading || mobileNumber.replace(/\D/g, '').length !== 10
+                  loading || !mobileReady
                     ? 'cursor-not-allowed bg-neutral-300'
                     : 'bg-[var(--kc-accent,#c41e3a)] hover:opacity-90',
                 )}
@@ -157,7 +191,7 @@ export default function SharedCatalogSignInModal({
                 ) : (
                   <Smartphone className="size-4" aria-hidden />
                 )}
-                Send OTP
+                {otpEnabled ? 'Send OTP' : 'Continue'}
               </button>
             </div>
           ) : (

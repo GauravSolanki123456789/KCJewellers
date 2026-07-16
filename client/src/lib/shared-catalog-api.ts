@@ -104,6 +104,8 @@ export type SharedCatalogPublicResponse =
       products: SharedCatalogPublicProduct[]
       /** Site-wide gift GST toggle from `app_settings.gifting_gst_enabled`. */
       gifting_gst_enabled?: boolean
+      /** When false, shared catalogue collects mobile without OTP. */
+      shared_catalog_otp_enabled?: boolean
     } & SharedCatalogSlabFields)
   | ({
       expired: false
@@ -126,6 +128,8 @@ export type SharedCatalogPublicResponse =
       rates: unknown[]
       /** Site-wide gift GST toggle from `app_settings.gifting_gst_enabled`. */
       gifting_gst_enabled?: boolean
+      /** When false, shared catalogue collects mobile without OTP. */
+      shared_catalog_otp_enabled?: boolean
   /** Palette for PDF / UX — stored as app_settings `kc_theme_id` or reseller profile. */
   kc_theme_id?: string | null
   /** True when prices use live rates frozen at link creation (not current ticker). */

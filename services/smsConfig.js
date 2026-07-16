@@ -15,6 +15,7 @@ const SMS_SETTING_KEYS = [
     'twilio_account_sid',
     'twilio_auth_token',
     'twilio_phone_number',
+    'shared_catalog_otp_enabled',
 ];
 
 const ENV_FALLBACK = {
@@ -30,6 +31,7 @@ const ENV_FALLBACK = {
         process.env.O3SMS_MESSAGE_TEMPLATE ||
         process.env.CO3SMS_MESSAGE_TEMPLATE ||
         'Your KC Jewellers verification code is {#var#}. Valid for 10 minutes.',
+    shared_catalog_otp_enabled: () => process.env.SHARED_CATALOG_OTP_ENABLED || 'true',
     twilio_account_sid: () => process.env.TWILIO_ACCOUNT_SID || '',
     twilio_auth_token: () => process.env.TWILIO_AUTH_TOKEN || '',
     twilio_phone_number: () => process.env.TWILIO_PHONE_NUMBER || '',
@@ -63,6 +65,8 @@ async function loadSmsSettingsFromDb(query) {
         o3sms_message_template:
             pickNonEmpty(map.o3sms_message_template, ENV_FALLBACK.o3sms_message_template()) ||
             'Your KC Jewellers verification code is {#var#}. Valid for 10 minutes.',
+        shared_catalog_otp_enabled:
+            pickNonEmpty(map.shared_catalog_otp_enabled, ENV_FALLBACK.shared_catalog_otp_enabled()) || 'true',
         twilio_account_sid: pickNonEmpty(map.twilio_account_sid, ENV_FALLBACK.twilio_account_sid()),
         twilio_auth_token: pickNonEmpty(map.twilio_auth_token, ENV_FALLBACK.twilio_auth_token()),
         twilio_phone_number: pickNonEmpty(map.twilio_phone_number, ENV_FALLBACK.twilio_phone_number()),
@@ -90,9 +94,15 @@ function maskSecret(val) {
     return `${'•'.repeat(Math.min(28, s.length - 4))}${s.slice(-4)}`;
 }
 
+function parseSmsSettingBool(raw) {
+    const s = String(raw ?? '').trim().toLowerCase();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
 function publicSmsSettings(config) {
     return {
         sms_provider: config.sms_provider || '',
+        shared_catalog_otp_enabled: parseSmsSettingBool(config.shared_catalog_otp_enabled),
         fast2sms_api_key: maskSecret(config.fast2sms_api_key),
         fast2sms_api_key_set: !!String(config.fast2sms_api_key || '').trim(),
         msg91_auth_key: maskSecret(config.msg91_auth_key),
@@ -117,6 +127,11 @@ async function upsertSmsSettings(query, body) {
     const allowed = new Set(SMS_SETTING_KEYS);
     for (const [key, raw] of Object.entries(body || {})) {
         if (!allowed.has(key)) continue;
+        if (key === 'shared_catalog_otp_enabled') {
+            const on = parseSmsSettingBool(raw);
+            updates.push({ key, val: on ? 'true' : 'false' });
+            continue;
+        }
         const val = String(raw ?? '').trim();
         if (val === '' || val.includes('•')) continue;
         updates.push({ key, val });
@@ -139,4 +154,5 @@ module.exports = {
     publicSmsSettings,
     upsertSmsSettings,
     maskSecret,
+    parseSmsSettingBool,
 };

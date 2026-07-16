@@ -155,7 +155,7 @@ export function submissionToCatalogItem(row: ResellerProductSubmission): Item {
     weight_display: row.weight_display ?? undefined,
     purity: row.purity ?? undefined,
     mc_rate: Number.isFinite(mc) ? mc : undefined,
-    mc_type: row.mc_type ?? (mc != null && mc > 0 ? 'PER_GRAM' : undefined),
+    mc_type: row.mc_type ?? (mc != null && mc > 0 ? 'MC/PC' : undefined),
     fixed_price: row.fixed_price != null ? Number(row.fixed_price) : undefined,
     stone_charges: row.stone_charges != null ? Number(row.stone_charges) : undefined,
     box_charges: row.box_charges != null ? Number(row.box_charges) : undefined,

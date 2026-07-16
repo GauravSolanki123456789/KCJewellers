@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   emptyProductPayload,
   submissionToPayload,
   applyDerivedGrossWeight,
   submissionPreviewImageUrl,
+  submissionToCatalogItem,
   RESELLER_PRODUCT_IMAGE_ACCEPT,
   RESELLER_PRODUCT_IMAGE_MAX_BYTES,
   RESELLER_PRODUCT_IMAGE_MAX_LABEL,
@@ -16,6 +17,8 @@ import {
   type ResellerProductPayload,
   type ResellerProductSubmission,
 } from '@/lib/reseller-products'
+import { calculateBreakdown, isMcPerPiece } from '@/lib/pricing'
+import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { ImagePlus, Loader2, Save, X } from 'lucide-react'
 
 const METAL_OPTIONS = [
@@ -24,6 +27,19 @@ const METAL_OPTIONS = [
   { value: 'diamond', label: 'Diamond' },
   { value: 'gifting', label: 'Gift Items' },
 ]
+
+const MC_TYPE_OPTIONS = [
+  { value: 'MC/PC', label: 'MC/PC — per piece (flat)' },
+  { value: 'MC/GM', label: 'MC/GM — per gram × net weight' },
+]
+
+function defaultMcTypeForMetal(metalType: string | undefined, mcRate: unknown): string {
+  const rate = Number(mcRate)
+  if (!Number.isFinite(rate) || rate <= 0) return 'MC/PC'
+  const mt = String(metalType || 'silver').toLowerCase()
+  if (mt.startsWith('silver') || mt.startsWith('gift')) return 'MC/PC'
+  return 'MC/GM'
+}
 
 type Props = {
   open: boolean
@@ -110,10 +126,51 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [liveRates, setLiveRates] = useState<unknown>(null)
   const primaryRef = useRef<HTMLInputElement>(null)
   const secondaryRef = useRef<HTMLInputElement>(null)
   const boxRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await axios.get(`/api/rates/display${ratesApiQueryForStorefront()}`)
+        if (!cancelled) setLiveRates(res.data?.rates ?? res.data ?? null)
+      } catch {
+        if (!cancelled) setLiveRates(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  const pricePreview = useMemo(() => {
+    if (!row || !liveRates) return null
+    const draftRow: ResellerProductSubmission = {
+      ...row,
+      net_weight: form.netWeight != null && form.netWeight !== '' ? Number(form.netWeight) : row.net_weight,
+      gross_weight: form.grossWeight != null && form.grossWeight !== '' ? Number(form.grossWeight) : row.gross_weight,
+      purity: form.purity ?? row.purity,
+      mc_rate: form.mcRate != null && form.mcRate !== '' ? Number(form.mcRate) : row.mc_rate,
+      mc_type: form.mcType || row.mc_type || defaultMcTypeForMetal(form.metalType, form.mcRate),
+      metal_type: form.metalType || row.metal_type,
+      wastage_pct:
+        form.wastage_pct != null && form.wastage_pct !== ''
+          ? Number(form.wastage_pct)
+          : form.wastage != null && form.wastage !== ''
+            ? Number(form.wastage)
+            : row.wastage_pct,
+      fixed_price: form.fixedPrice != null && form.fixedPrice !== '' ? Number(form.fixedPrice) : row.fixed_price,
+      stone_charges: form.stoneCharges != null && form.stoneCharges !== '' ? Number(form.stoneCharges) : row.stone_charges,
+    }
+    const item = submissionToCatalogItem(draftRow)
+    const breakdown = calculateBreakdown(item, liveRates, 3)
+    return breakdown
+  }, [row, form, liveRates])
 
   useEffect(() => {
     if (!open || !row) return
@@ -320,6 +377,26 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
                 onChange={(e) => setField('mcRate', e.target.value)}
               />
             </Field>
+            <Field
+              label="MC type"
+              hint={
+                isMcPerPiece(form.mcType || row.mc_type || defaultMcTypeForMetal(form.metalType, form.mcRate))
+                  ? 'Flat making charge per piece (e.g. 700 MC/PC)'
+                  : 'Making charge × net weight in grams'
+              }
+            >
+              <select
+                className={inputCls}
+                value={form.mcType || row.mc_type || defaultMcTypeForMetal(form.metalType, form.mcRate)}
+                onChange={(e) => setField('mcType', e.target.value)}
+              >
+                {MC_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Wastage %">
               <input
                 className={inputCls}
@@ -365,6 +442,25 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
               />
             </Field>
           </div>
+
+          {pricePreview ? (
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800/80">
+                Live catalogue price (incl. GST)
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                ₹{Math.round(pricePreview.total).toLocaleString('en-IN')}
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+                Metal ₹{Math.round(pricePreview.metal).toLocaleString('en-IN')} + MC ₹
+                {Math.round(pricePreview.mc).toLocaleString('en-IN')}
+                {pricePreview.stone > 0
+                  ? ` + stones ₹${Math.round(pricePreview.stone).toLocaleString('en-IN')}`
+                  : ''}{' '}
+                + GST
+              </p>
+            </div>
+          ) : null}
 
           <div>
             <p className="kc-upload-label mb-2 text-xs font-medium">Photos &amp; video</p>
