@@ -7677,7 +7677,12 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
             customerMobile,
             customerName,
         });
-        res.json({ success: true, id: saved.id, createdAt: saved.created_at });
+        res.json({
+            success: true,
+            id: saved.id,
+            createdAt: saved.created_at,
+            deduplicated: saved.deduplicated === true,
+        });
     } catch (error) {
         console.error('shared-catalog inquiry:', error);
         res.status(500).json({ error: error.message || 'Failed to record inquiry' });

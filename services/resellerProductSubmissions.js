@@ -121,7 +121,42 @@ function enrichSubmissionRow(row) {
         barcode: resolved.barcode || row.barcode,
         web_product_sku: resolved.prodSku || row.web_product_sku,
         product_name: resolved.name || row.product_name,
+        design_group: resolved.designGroup || row.design_group,
+        size: resolved.size ?? row.size,
     };
+}
+
+/** Persist recomputed sku/barcode when Excel identity rules change (fixes stale shared stems). */
+async function reconcileSubmissionIdentity(query, row) {
+    if (!row?.id) return enrichSubmissionRow(row);
+    const enriched = enrichSubmissionRow(row);
+    const patches = {};
+    if (enriched.web_product_sku && enriched.web_product_sku !== row.web_product_sku) {
+        patches.web_product_sku = enriched.web_product_sku;
+    }
+    if (enriched.barcode && enriched.barcode !== row.barcode) {
+        patches.barcode = enriched.barcode;
+    }
+    if (enriched.design_group && enriched.design_group !== row.design_group) {
+        patches.design_group = enriched.design_group;
+    }
+    if (enriched.size != null && String(enriched.size) !== String(row.size ?? '')) {
+        patches.size = enriched.size;
+    }
+    if (!Object.keys(patches).length) return enriched;
+    const sets = [];
+    const params = [row.id];
+    let idx = 2;
+    for (const [k, v] of Object.entries(patches)) {
+        sets.push(`${k} = $${idx++}`);
+        params.push(v);
+    }
+    sets.push('updated_at = CURRENT_TIMESTAMP');
+    const updated = await query(
+        `UPDATE reseller_product_submissions SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+        params,
+    );
+    return enrichSubmissionRow(updated[0] || enriched);
 }
 
 function parseExcelWeight(val) {
@@ -668,7 +703,8 @@ function registerResellerProductRoutes(app, deps) {
             }
             sql += ' ORDER BY rps.created_at DESC LIMIT 500';
             const rows = await query(sql, params);
-            res.json(rows.map(enrichSubmissionRow));
+            const reconciled = await Promise.all(rows.map((row) => reconcileSubmissionIdentity(query, row)));
+            res.json(reconciled);
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
@@ -737,6 +773,7 @@ function registerResellerProductRoutes(app, deps) {
             const batchId = randomUUID();
             const created = [];
             const errors = [];
+            const seenSkus = new Map();
             for (let i = 0; i < products.length; i++) {
                 try {
                     const raw = products[i];
@@ -744,7 +781,16 @@ function registerResellerProductRoutes(app, deps) {
                     const styleCode = String(item.styleCode || '').trim();
                     if (!styleCode) throw new Error('StyleCode required');
                     const resolved = resolveNormalizedVariant(item);
-                    if (!resolved.prodSku) throw new Error('Barcode/SKU required');
+                    if (!resolved.prodSku) {
+                        throw new Error('ProductName or ItemCode required (SKU column is the subcategory, not the product id)');
+                    }
+                    const skuKey = String(resolved.prodSku).trim().toLowerCase();
+                    if (seenSkus.has(skuKey)) {
+                        throw new Error(
+                            `Duplicate product id "${resolved.prodSku}" (rows ${seenSkus.get(skuKey) + 1} and ${i + 1}). Use Size or unique ItemCode per variant.`,
+                        );
+                    }
+                    seenSkus.set(skuKey, i);
                     const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
                     fields.submission_status = 'draft';
                     fields.batch_label =

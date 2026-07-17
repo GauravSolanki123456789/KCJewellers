@@ -280,6 +280,44 @@ async function logSharedCatalogInquiry(query, payload) {
         customerMobile != null
             ? String(customerMobile).replace(/\D/g, '').slice(-10)
             : '';
+    const normalizedLines = Array.isArray(lines) ? lines : [];
+    const linesJson = JSON.stringify(normalizedLines);
+    const totalInrVal =
+        totalInr != null && Number.isFinite(Number(totalInr)) ? Number(totalInr) : null;
+
+    // Idempotent: same customer + catalogue + shortlist within 15 minutes → one inquiry row.
+    if (sharedCatalogId && mobile.length === 10) {
+        const dup = await query(
+            `SELECT id, created_at
+             FROM shared_catalog_inquiries
+             WHERE shared_catalog_id = $1::uuid
+               AND customer_mobile = $2
+               AND LOWER(TRIM(source)) = LOWER(TRIM($3))
+               AND line_count = $4
+               AND total_pieces = $5
+               AND (
+                 (total_inr IS NULL AND $6::float8 IS NULL)
+                 OR total_inr = $6::float8
+               )
+               AND lines_json = $7::jsonb
+               AND created_at >= NOW() - INTERVAL '15 minutes'
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [
+                sharedCatalogId,
+                mobile,
+                String(source || 'whatsapp').slice(0, 32),
+                clampInt(lineCount, 0, 9999),
+                clampInt(totalPieces, 0, 999999),
+                totalInrVal,
+                linesJson,
+            ],
+        );
+        if (dup.length) {
+            return { ...dup[0], deduplicated: true };
+        }
+    }
+
     const rows = await query(
         `INSERT INTO shared_catalog_inquiries (
             shared_catalog_id, reseller_user_id, source, line_count, total_pieces, total_inr, lines_json, catalog_url,
@@ -292,15 +330,15 @@ async function logSharedCatalogInquiry(query, payload) {
             String(source || 'whatsapp').slice(0, 32),
             clampInt(lineCount, 0, 9999),
             clampInt(totalPieces, 0, 999999),
-            totalInr != null && Number.isFinite(Number(totalInr)) ? Number(totalInr) : null,
-            JSON.stringify(Array.isArray(lines) ? lines : []),
+            totalInrVal,
+            linesJson,
             catalogUrl || null,
             customerUserId != null && Number.isFinite(Number(customerUserId)) ? Number(customerUserId) : null,
             mobile.length === 10 ? mobile : null,
             customerName != null && String(customerName).trim() ? String(customerName).trim().slice(0, 255) : null,
         ],
     );
-    return rows[0];
+    return { ...rows[0], deduplicated: false };
 }
 
 async function getAdminResellerCatalogAnalytics(query, opts = {}) {

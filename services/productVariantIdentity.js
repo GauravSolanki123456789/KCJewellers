@@ -20,6 +20,37 @@ function slugPart(value) {
     return s || 'item';
 }
 
+function stemsEqual(a, b) {
+    if (!a || !b) return false;
+    return slugPart(a) === slugPart(b);
+}
+
+/** Excel subcategory SKU (e.g. SILVER GIFT ITEMS) must never become the product image stem alone. */
+function isSubcategorySkuStem(stem, skuCode) {
+    if (!stem || !skuCode || skuCode === 'N/A') return false;
+    return stemsEqual(stem, skuCode);
+}
+
+/**
+ * Unique catalog / image stem when row has no size column (one photo per distinct product).
+ */
+function uniqueStemWithoutSize({ designGroup, name, barcodeIn, skuCode }) {
+    if (barcodeIn && !isSubcategorySkuStem(barcodeIn, skuCode)) {
+        return slugPart(barcodeIn);
+    }
+    const label = String(designGroup || name || '').trim();
+    if (!label) return slugPart(barcodeIn) || 'item';
+    const base = slugPart(label);
+    const sub = slugPart(skuCode);
+    if (skuCode && skuCode !== 'N/A' && !stemsEqual(label, skuCode)) {
+        return `${sub}-${base}`;
+    }
+    if (name && !stemsEqual(name, skuCode)) {
+        return `${sub}-${slugPart(name)}`;
+    }
+    return base;
+}
+
 /**
  * @param {object} norm - output shape from normalizeSyncItem
  * @returns {{ prodSku: string, barcode: string, imageStem: string, displayName: string }}
@@ -41,8 +72,8 @@ function resolveVariantIdentity(norm) {
         const subPrefix =
             skuCode &&
             skuCode !== 'N/A' &&
-            skuCode.toLowerCase() !== barcodeIn.toLowerCase() &&
-            skuCode.toLowerCase() !== groupLabel.toLowerCase()
+            !stemsEqual(skuCode, barcodeIn) &&
+            !stemsEqual(skuCode, groupLabel)
                 ? `${slugPart(skuCode)}-`
                 : '';
         const prodSku = `${subPrefix}${baseSlug}-${sizeSlug}`;
@@ -54,10 +85,19 @@ function resolveVariantIdentity(norm) {
         };
     }
 
-    const fallback = prodSkuIn || barcodeIn || slugPart(groupLabel);
+    let fallback = uniqueStemWithoutSize({ designGroup, name, barcodeIn, skuCode });
+    if (isSubcategorySkuStem(fallback, skuCode) && name) {
+        fallback = `${slugPart(skuCode)}-${slugPart(name)}`;
+    } else if (
+        prodSkuIn &&
+        !isSubcategorySkuStem(prodSkuIn, skuCode) &&
+        !stemsEqual(prodSkuIn, skuCode)
+    ) {
+        fallback = slugPart(prodSkuIn);
+    }
     return {
         prodSku: fallback,
-        barcode: barcodeIn || fallback,
+        barcode: barcodeIn && !isSubcategorySkuStem(barcodeIn, skuCode) ? slugPart(barcodeIn) : fallback,
         imageStem: fallback,
         displayName,
     };
@@ -65,5 +105,8 @@ function resolveVariantIdentity(norm) {
 
 module.exports = {
     slugPart,
+    stemsEqual,
+    isSubcategorySkuStem,
+    uniqueStemWithoutSize,
     resolveVariantIdentity,
 };

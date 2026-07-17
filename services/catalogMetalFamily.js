@@ -15,7 +15,7 @@ function normalizeMetalTypeRaw(value) {
 function classifyCatalogMetalFamily(metalType) {
     const m = normalizeMetalTypeRaw(metalType);
     if (!m) return 'silver';
-    if (m.startsWith('gifting') || m === 'gift') return 'gifting';
+    if (m.startsWith('gifting') || m === 'gift' || m.startsWith('gift item')) return 'gifting';
     if (m.startsWith('diamond')) return 'diamond';
     if (m.startsWith('silver')) return 'silver';
     if (m.startsWith('gold')) return 'gold';

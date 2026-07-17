@@ -167,6 +167,8 @@ export default function SharedCatalogClient({
   /** key → quantity (only keys present are shortlisted) */
   const [selections, setSelections] = useState<Map<string, number>>(() => new Map())
   const [pdfBusy, setPdfBusy] = useState(false)
+  const [waBusy, setWaBusy] = useState(false)
+  const shareInFlightRef = useRef(false)
   const [pdfShareOpen, setPdfShareOpen] = useState(false)
   const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -686,6 +688,7 @@ export default function SharedCatalogClient({
   const handleSharePicks = useCallback(async () => {
     if (!isLoadedBrochure(payload)) return
     if (selectedCount === 0) return
+    if (shareInFlightRef.current || waBusy) return
     if (!requireSignIn()) return
 
     const fromApi = normalizeIndianMobileDigits(payload.selectionWhatsAppDigits ?? undefined)
@@ -707,23 +710,30 @@ export default function SharedCatalogClient({
       return
     }
 
-    const lines = selectionPicks.map((pick) =>
-      sharedCatalogPickToWhatsAppLine(pick, payload.rates ?? []),
-    )
+    shareInFlightRef.current = true
+    setWaBusy(true)
+    try {
+      const lines = selectionPicks.map((pick) =>
+        sharedCatalogPickToWhatsAppLine(pick, payload.rates ?? []),
+      )
 
-    const msg = buildSharedCatalogSelectionWhatsAppMessage({
-      brandLabel,
-      lines,
-      catalogueUrl: typeof window !== 'undefined' ? window.location.href : undefined,
-      hidePrices: !!payload.hidePrices,
-    })
+      const msg = buildSharedCatalogSelectionWhatsAppMessage({
+        brandLabel,
+        lines,
+        catalogueUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+        hidePrices: !!payload.hidePrices,
+      })
 
-    const logged = await logInquiry('whatsapp')
-    if (!logged.success) {
-      console.warn('Inquiry was not saved — opening WhatsApp anyway')
+      const logged = await logInquiry('whatsapp')
+      if (!logged.success) {
+        console.warn('Inquiry was not saved — opening WhatsApp anyway')
+      }
+      openWhatsAppOrder(wa, msg)
+    } finally {
+      setWaBusy(false)
+      shareInFlightRef.current = false
     }
-    openWhatsAppOrder(wa, msg)
-  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits, logInquiry, requireSignIn])
+  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits, logInquiry, requireSignIn, waBusy])
 
   if (loading) {
     return (
@@ -1270,17 +1280,23 @@ export default function SharedCatalogClient({
               ) : null}
               <button
                 type="button"
-                disabled={selectedCount === 0}
-                onClick={handleSharePicks}
+                disabled={selectedCount === 0 || waBusy}
+                onClick={() => void handleSharePicks()}
                 className={cn(
                   'inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold shadow-sm transition active:scale-[0.99] sm:min-h-[46px] sm:gap-2 sm:px-4 sm:text-sm',
-                  selectedCount === 0
+                  selectedCount === 0 || waBusy
                     ? 'cursor-not-allowed bg-neutral-200 text-neutral-400'
                     : 'bg-emerald-600 text-white hover:bg-emerald-500',
                 )}
               >
-                <MessageCircle className="size-4 shrink-0 sm:size-[18px]" aria-hidden />
-                <span className="max-w-[4.5rem] truncate sm:max-w-none">WhatsApp (text)</span>
+                {waBusy ? (
+                  <Loader2 className="size-4 shrink-0 animate-spin sm:size-[18px]" aria-hidden />
+                ) : (
+                  <MessageCircle className="size-4 shrink-0 sm:size-[18px]" aria-hidden />
+                )}
+                <span className="max-w-[4.5rem] truncate sm:max-w-none">
+                  {waBusy ? 'Sending…' : 'WhatsApp (text)'}
+                </span>
               </button>
             </div>
           </div>

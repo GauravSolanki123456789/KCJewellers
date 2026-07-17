@@ -241,7 +241,13 @@ export function isDiamondItem(item: Item | null | undefined): boolean {
 /** Returns true if item metal_type is gifting (fixed-price catalogue, no live metal rate). */
 export function isGiftingItem(item: Item | null | undefined): boolean {
   const mt = (item?.metal_type ?? '').toString().toLowerCase()
-  return mt.startsWith('gifting') || mt.includes('gifting')
+  return (
+    mt.startsWith('gifting') ||
+    mt.includes('gifting') ||
+    mt.startsWith('gift item') ||
+    mt === 'gift items' ||
+    mt === 'gift item'
+  )
 }
 
 /** Diamond or gifting — uses `fixed_price` instead of live rates (cart, checkout, filters). */

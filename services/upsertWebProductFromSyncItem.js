@@ -60,16 +60,37 @@ function resolveGrossWeight(netWeight, grossWeight, wastagePct) {
     return net * (1 + wastagePct / 100);
 }
 
+/** When Size column is blank, infer from ProductName e.g. "925 FOOTWEAR PAIR (SIZE 6)". */
+function inferSizeFromProductName(name, existingSize) {
+    const size = trimField(existingSize);
+    if (size) return size;
+    const n = String(name || '').trim();
+    const paren = n.match(/\(SIZE\s*([^)]+)\)/i);
+    if (paren) return trimField(paren[1]);
+    const tail = n.match(/\bSIZE\s+(\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)?)\s*$/i);
+    if (tail) return trimField(tail[1]);
+    return '';
+}
+
 function normalizeSyncItem(item) {
-    const prodSku = trimField(item.barcode || item.sku || item.Barcode || item.SKU);
+    const barcodeExplicit = trimField(item.barcode || item.Barcode);
+    const skuSubcategory = trimField(item.sku || item.SKU) || 'N/A';
+    const itemCode = trimField(item.itemCode ?? item.ItemCode ?? item.item_code);
+    const productName = trimField(
+        item.name || item.product_name || item.ProductName || item.item_name || item.short_name,
+    );
+    const sizeRaw = inferSizeFromProductName(
+        productName,
+        trimField(item.size ?? item.Size),
+    );
+    const designGroup =
+        itemCode || (sizeRaw && productName ? productName : null) || null;
+    const displayName = productName || itemCode || barcodeExplicit || skuSubcategory || 'Item';
     return {
         styleCode: trimField(item.styleCode || item.style_code || item.StyleCode) || 'Uncategorized',
-        skuCode: trimField(item.sku || item.SKU || item.barcode || item.Barcode) || 'N/A',
-        prodSku,
-        name:
-            trimField(
-                item.name || item.product_name || item.ProductName || item.item_name || item.short_name || prodSku,
-            ) || prodSku,
+        skuCode: skuSubcategory,
+        prodSku: barcodeExplicit,
+        name: displayName,
         netWeight:
             item.netWeight != null
                 ? Number(item.netWeight)
@@ -150,10 +171,9 @@ function normalizeSyncItem(item) {
                   : item.BoxCharges != null
                     ? Number(item.BoxCharges)
                     : 0,
-        designGroup:
-            trimField(item.itemCode ?? item.ItemCode ?? item.item_code) || null,
-        barcode: trimField(item.barcode || item.Barcode) || null,
-        size: trimField(item.size ?? item.Size) || null,
+        designGroup,
+        barcode: barcodeExplicit || null,
+        size: sizeRaw || null,
         weightDisplay:
             trimField(item.weightDisplay ?? item.weight_display ?? item.weightDisplayLabel) || null,
         chainWeight:

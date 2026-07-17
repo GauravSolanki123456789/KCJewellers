@@ -992,15 +992,26 @@ function BatchBulkPhotoUpload({
         .map((p) => {
           const names = submissionPhotoFilenames(p)
           const label = p.product_name || submissionImageDiskKey(p) || p.barcode || `#${p.id}`
-          return names ? { id: p.id, label, names } : null
+          return names ? { id: p.id, label, names, diskKey: submissionImageDiskKey(p) } : null
         })
         .filter(Boolean) as {
         id: number
         label: string
+        diskKey: string
         names: { front: string; back: string; box: string }
       }[],
     [products],
   )
+
+  const duplicateDiskKeys = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const p of products) {
+      const key = submissionImageDiskKey(p)
+      if (!key) continue
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return [...counts.entries()].filter(([, n]) => n > 1).map(([k]) => k)
+  }, [products])
 
   const handleBulk = async (kind: BulkPhotoKind, files: FileList | null) => {
     if (!files?.length) return
@@ -1076,6 +1087,15 @@ function BatchBulkPhotoUpload({
         className="sr-only"
         onChange={(e) => void handleBulk('box', e.target.files)}
       />
+
+      {duplicateDiskKeys.length > 0 ? (
+        <p className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-950">
+          <span className="font-semibold">Duplicate photo filenames detected.</span> Multiple products share{' '}
+          <span className="font-mono">{duplicateDiskKeys.slice(0, 2).join(', ')}</span>
+          {duplicateDiskKeys.length > 2 ? '…' : ''}. Refresh the page — if this persists, re-import the Excel or
+          ensure each row has ItemCode / Size so every product gets a unique filename.
+        </p>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <button

@@ -34,13 +34,21 @@ function resolveFixedPrimaryUrl(row, apiBase) {
     const sku = String(row.sku || row.web_product_sku || '').trim();
     const dg = String(row.design_group || '').trim();
     const current = String(row.image_url || '').trim();
-    if (!sku || !dg || !current) return undefined;
-    if (!isLegacySharedDesignGroupImageUrl(current, dg, sku)) return undefined;
+    if (!sku || !current) return undefined;
+    const base = imageUrlBasename(current).replace(/\.(webp|jpe?g|png)$/i, '');
+    const skuStem = slugPart(sku);
+    if (base === skuStem) return undefined;
 
     if (productImageFileExists(uploadsDir, sku)) {
         return defaultProductImageUrl(apiBase, sku);
     }
-    return 'clear';
+    if (dg && isLegacySharedDesignGroupImageUrl(current, dg, sku)) {
+        return 'clear';
+    }
+    if (base === slugPart('SILVER GIFT ITEMS') || base === 'silver-gift-items') {
+        return 'clear';
+    }
+    return undefined;
 }
 
 function resolveFixedSecondaryUrl(row, apiBase) {
@@ -71,9 +79,9 @@ async function main() {
         const { rows } = await client.query(`
             SELECT id, sku, design_group, image_url, secondary_image_url
             FROM web_products
-            WHERE LOWER(COALESCE(metal_type, '')) LIKE 'gifting%'
-              AND TRIM(COALESCE(design_group, '')) <> ''
-              AND (image_url IS NOT NULL OR secondary_image_url IS NOT NULL)
+            WHERE TRIM(COALESCE(sku, '')) <> ''
+              AND image_url IS NOT NULL AND TRIM(image_url) <> ''
+              AND (is_active IS NULL OR is_active = true)
         `);
 
         for (const row of rows) {

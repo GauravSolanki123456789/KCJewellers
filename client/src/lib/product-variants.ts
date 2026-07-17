@@ -1,6 +1,5 @@
 import {
   getCustomerDisplaySize,
-  isGiftingItem,
   type Item,
 } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
@@ -64,14 +63,16 @@ export function getAttachedVariants(product: ItemWithVariants): Item[] {
   return [product]
 }
 
-/** One grid card per `design_group` for gifting rows with multiple sizes. */
+/** One grid card per `design_group` when multiple size rows share a variant family. */
 export function collapseGiftingVariantRows(products: Item[]): ItemWithVariants[] {
   const singles: ItemWithVariants[] = []
   const byGroup = new Map<string, Item[]>()
 
   for (const p of products) {
     const groupKey = getVariantGroupKey(p)
-    if (!groupKey || !isGiftingItem(p)) {
+    const hasSize = String(p.size ?? '').trim() !== ''
+    const shouldGroup = groupKey && hasSize
+    if (!shouldGroup) {
       singles.push(p)
       continue
     }
