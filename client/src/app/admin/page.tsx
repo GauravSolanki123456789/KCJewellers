@@ -22,6 +22,7 @@ import {
   Bell,
   Palette,
   Smartphone,
+  Clock,
 } from 'lucide-react'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
@@ -102,6 +103,12 @@ const ADMIN_GROUPS: { heading: string; items: AdminLink[] }[] = [
         description: 'API keys, link ERP, push products via REST',
         href: '/admin/developer',
         icon: Code2,
+      },
+      {
+        title: 'Shared catalogue links',
+        description: 'Link expiry options (1h, 24d, etc.) for WhatsApp brochures',
+        href: '/admin/shared-catalog-settings',
+        icon: Clock,
       },
       {
         title: 'SMS & OTP settings',

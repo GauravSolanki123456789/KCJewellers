@@ -424,6 +424,16 @@ async function getRatesSnapshotForSharedCatalogCreator(_userId, liveRateService)
     return global?.rates ?? [];
 }
 
+/** Live rates for an active shared catalogue — creator reseller rates, then global reseller, then market. */
+async function getLiveRatesForSharedCatalogCreator(creatorUserId, liveRateService) {
+    const uid = creatorUserId != null ? parseInt(String(creatorUserId), 10) : null;
+    if (Number.isFinite(uid) && uid > 0) {
+        const creatorPayload = await getResellerRatesPayloadForUserId(uid);
+        if (creatorPayload?.rates?.length) return creatorPayload.rates;
+    }
+    return getRatesSnapshotForSharedCatalogCreator(creatorUserId, liveRateService);
+}
+
 function registerResellerRatesRoutes(app, { checkAuth, liveRateService, io }) {
     app.get('/api/reseller/rates', checkAuth, async (req, res) => {
         try {
@@ -498,5 +508,6 @@ module.exports = {
     saveResellerRates,
     validatePerGramRates,
     getRatesSnapshotForSharedCatalogCreator,
+    getLiveRatesForSharedCatalogCreator,
     registerResellerRatesRoutes,
 };

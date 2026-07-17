@@ -97,15 +97,11 @@ export default function SmsTestOtpBlock({
     <div className={cn(cardCls, isAdmin ? 'border-violet-500/25 bg-violet-500/5' : 'border-emerald-600/20 bg-emerald-50/40')}>
       <p
         className={cn(
-          'mb-1 text-sm font-semibold',
+          'mb-4 text-sm font-semibold',
           isAdmin ? 'text-violet-300' : 'text-[var(--color-jewelry-black,#1a1814)]',
         )}
       >
         Send test OTP
-      </p>
-      <p className={cn('mb-4 leading-relaxed', hintCls)}>
-        Uses the settings above (saved key + current form fields). Gateway response is shown so you
-        can fix DLT template / sender issues before customers try.
       </p>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -165,7 +161,14 @@ export default function SmsTestOtpBlock({
       ) : null}
 
       {result?.success ? (
-        <div className="mt-4 space-y-2 rounded-xl border border-emerald-300/60 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-950">
+        <div
+          className={cn(
+            'mt-4 space-y-2 rounded-xl border px-3 py-2.5 text-xs',
+            isAdmin
+              ? 'border-emerald-500/40 bg-slate-950/80 text-slate-100'
+              : 'border-[var(--kc-accent,#c41e3a)]/25 bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]',
+          )}
+        >
           <p className="font-semibold">{result.message || 'Test OTP sent.'}</p>
           {result.messageId ? (
             <p>
@@ -198,9 +201,20 @@ export default function SmsTestOtpBlock({
               {result.dltVariables.join(' | ')}
             </p>
           ) : null}
-          {result.hint ? <p className="text-emerald-800/80">{result.hint}</p> : null}
+          {result.hint ? (
+            <p className={isAdmin ? 'text-slate-300' : 'text-[var(--color-jewelry-black,#1a1814)]/75'}>
+              {result.hint}
+            </p>
+          ) : null}
           {result.cccHint ? (
-            <p className="rounded-lg border border-amber-300/50 bg-amber-50/80 px-2 py-1.5 text-amber-950">
+            <p
+              className={cn(
+                'rounded-lg border px-2 py-1.5',
+                isAdmin
+                  ? 'border-amber-500/40 bg-amber-950/40 text-amber-100'
+                  : 'border-amber-300/60 bg-amber-50 text-amber-950',
+              )}
+            >
               {result.cccHint}
             </p>
           ) : null}
@@ -208,7 +222,14 @@ export default function SmsTestOtpBlock({
       ) : null}
 
       {result?.error ? (
-        <div className="mt-4 space-y-2 rounded-xl border border-rose-300/60 bg-rose-50 px-3 py-2.5 text-xs text-rose-950">
+        <div
+          className={cn(
+            'mt-4 space-y-2 rounded-xl border px-3 py-2.5 text-xs',
+            isAdmin
+              ? 'border-rose-500/40 bg-rose-950/40 text-rose-100'
+              : 'border-rose-300/60 bg-rose-50 text-rose-950',
+          )}
+        >
           <p className="font-semibold">{result.error}</p>
           {result.gatewayResponse ? (
             <p className="break-all">
@@ -220,7 +241,7 @@ export default function SmsTestOtpBlock({
               <span className="font-medium">Attempted SMS text:</span> {result.filledMessage}
             </p>
           ) : null}
-          <p className="text-rose-800/80">
+          <p className={isAdmin ? 'text-rose-200/90' : 'text-rose-800/80'}>
             Common fixes: use exact DLT template ID from Co3, match message character-for-character
             (no extra full stops), sender ID must be approved (e.g. BMSSIL).
           </p>

@@ -77,6 +77,7 @@ const {
     resolveDisplayRatesForRequest,
     resolveLiveRatesForRequest,
     getRatesSnapshotForSharedCatalogCreator,
+    getLiveRatesForSharedCatalogCreator,
     findResellerByDomain,
     normalizeDomain,
 } = require('./services/resellerMetalRates');
@@ -93,6 +94,12 @@ const {
     getResellerCatalogInquiriesSummary,
     PLATFORM_MAX_PRODUCTS,
 } = require('./services/sharedCatalogLimits');
+const {
+    getSharedCatalogExpiryOptions,
+    getSharedCatalogMaxExpiryDays,
+    upsertSharedCatalogExpiryOptions,
+    upsertSharedCatalogMaxExpiryDays,
+} = require('./services/sharedCatalogSettings');
 const {
     resolveSipMetalRatePerGram,
     gramsFromInstallment,
@@ -6684,6 +6691,40 @@ const { randomUUID } = require('crypto');
 const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const KC_SUPER_ADMIN_EMAIL = 'jaigaurav56789@gmail.com';
+
+function userHasAdminDashboardAccess(user) {
+    if (!user) return false;
+    const email = String(user.email || '')
+        .toLowerCase()
+        .trim();
+    const role = String(user.role || '');
+    return email === KC_SUPER_ADMIN_EMAIL || role === 'super_admin' || role === 'admin';
+}
+
+async function buildSharedCatalogShareUrl(catalogUuid, creatorUserId) {
+    let clientSite =
+        (process.env.NEXT_PUBLIC_SITE_URL || process.env.CLIENT_URL || '').trim().replace(/\/$/, '') ||
+        'https://kcjewellers.co.in';
+    const uid = creatorUserId != null ? parseInt(String(creatorUserId), 10) : null;
+    if (Number.isFinite(uid) && uid > 0) {
+        const urows = await query(`SELECT customer_tier, custom_domain FROM users WHERE id = $1`, [uid]);
+        const tier = String(urows[0]?.customer_tier || '').toUpperCase();
+        if (tier === 'RESELLER') {
+            const cd = String(urows[0]?.custom_domain || '')
+                .trim()
+                .replace(/^https?:\/\//i, '')
+                .split('/')[0]
+                .split(':')[0]
+                .toLowerCase();
+            if (cd) {
+                clientSite = `https://${cd}`;
+            }
+        }
+    }
+    return `${clientSite}/shared/${catalogUuid}`;
+}
+
 /** Persist & retrieve brochure markup % reliably (handles numeric strings from JSON/forms). */
 function parseSharedMarkupPct(raw) {
     if (raw == null || raw === '') return 0;
@@ -6980,9 +7021,10 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         if (Number.isNaN(exp.getTime()) || exp.getTime() <= Date.now()) {
             return res.status(400).json({ error: 'expiresAt must be a future date' });
         }
-        const maxExp = Date.now() + 30 * 24 * 60 * 60 * 1000;
+        const maxExpDays = await getSharedCatalogMaxExpiryDays(query);
+        const maxExp = Date.now() + maxExpDays * 24 * 60 * 60 * 1000;
         if (exp.getTime() > maxExp) {
-            return res.status(400).json({ error: 'expiresAt cannot be more than 30 days ahead' });
+            return res.status(400).json({ error: `expiresAt cannot be more than ${maxExpDays} days ahead` });
         }
 
         try {
@@ -7185,6 +7227,161 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
     }
 });
 
+/** Public: link expiry options configured by admin (for WhatsApp catalogue modal). */
+app.get('/api/shared-catalog/expiry-options', globalLimiter, async (req, res) => {
+    try {
+        const options = await getSharedCatalogExpiryOptions(query);
+        const maxExpiryDays = await getSharedCatalogMaxExpiryDays(query);
+        res.json({ options, maxExpiryDays });
+    } catch (error) {
+        console.error('shared-catalog expiry-options:', error);
+        res.status(500).json({ error: error.message || 'Failed to load expiry options' });
+    }
+});
+
+/** Admin: shared catalogue link settings (expiry dropdown options). */
+app.get('/api/admin/shared-catalog-settings', isAdminStrict, async (req, res) => {
+    try {
+        const options = await getSharedCatalogExpiryOptions(query);
+        const maxExpiryDays = await getSharedCatalogMaxExpiryDays(query);
+        res.json({ options, maxExpiryDays });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to load settings' });
+    }
+});
+
+app.patch('/api/admin/shared-catalog-settings', isAdminStrict, requireJson, async (req, res) => {
+    try {
+        let options = await getSharedCatalogExpiryOptions(query);
+        let maxExpiryDays = await getSharedCatalogMaxExpiryDays(query);
+        if (req.body?.options !== undefined) {
+            options = await upsertSharedCatalogExpiryOptions(query, req.body.options);
+        }
+        if (req.body?.maxExpiryDays !== undefined) {
+            maxExpiryDays = await upsertSharedCatalogMaxExpiryDays(query, req.body.maxExpiryDays);
+        }
+        res.json({ success: true, options, maxExpiryDays });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to save settings' });
+    }
+});
+
+/** Active (non-expired) shared catalogues for the logged-in creator — add products to existing links. */
+app.get('/api/reseller/shared-catalogs/active', requireSharedCatalogCreator, async (req, res) => {
+    try {
+        const uid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        if (!Number.isFinite(uid) || uid <= 0) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+        const rows = await query(
+            `SELECT id, product_ids, expires_at, created_at, markup_percentage, discount_percentage,
+                    COALESCE(pricing_slab, 'standard') AS pricing_slab
+             FROM shared_catalogs
+             WHERE created_by_user_id = $1 AND expires_at > NOW()
+             ORDER BY created_at DESC
+             LIMIT 20`,
+            [uid],
+        );
+        const catalogs = rows.map((r) => ({
+            id: String(r.id),
+            productCount: Array.isArray(r.product_ids) ? r.product_ids.length : 0,
+            expiresAt: new Date(r.expires_at).toISOString(),
+            createdAt: new Date(r.created_at).toISOString(),
+            markupPercentage: parseSharedMarkupPct(r.markup_percentage),
+            discountPercentage: parseSharedDiscountPct(r.discount_percentage),
+            pricingSlab: String(r.pricing_slab || 'standard'),
+        }));
+        res.json({ catalogs });
+    } catch (error) {
+        console.error('active shared-catalogs:', error);
+        res.status(500).json({ error: error.message || 'Failed to load catalogues' });
+    }
+});
+
+/** Append products to an existing shared catalogue link (same UUID, extended product list). */
+app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
+    try {
+        const uuid = String(req.params.uuid || '').trim();
+        if (!UUID_RE.test(uuid)) {
+            return res.status(400).json({ error: 'Invalid catalog id' });
+        }
+        const addIds = Array.isArray(req.body?.addProductIds)
+            ? [...new Set(req.body.addProductIds.map((x) => String(x).trim()).filter(Boolean))]
+            : [];
+        if (addIds.length === 0) {
+            return res.status(400).json({ error: 'addProductIds is required and must be non-empty' });
+        }
+
+        const rows = await query(
+            `SELECT id, product_ids, expires_at, created_by_user_id,
+                    COALESCE(pricing_slab, 'standard') AS pricing_slab
+             FROM shared_catalogs WHERE id = $1::uuid`,
+            [uuid],
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Catalog not found' });
+        const row = rows[0];
+        if (new Date(row.expires_at).getTime() <= Date.now()) {
+            return res.status(410).json({ error: 'Catalog link has expired. Create a new link.' });
+        }
+
+        const creatorUid = row.created_by_user_id != null ? parseInt(String(row.created_by_user_id), 10) : null;
+        const requesterUid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        const isAdminUser = userHasAdminDashboardAccess(req.user);
+        if (!isAdminUser && (!Number.isFinite(requesterUid) || requesterUid !== creatorUid)) {
+            return res.status(403).json({ error: 'You can only edit your own shared catalogues' });
+        }
+
+        const validateUid = isAdminUser && Number.isFinite(creatorUid) ? creatorUid : requesterUid;
+        try {
+            await validateResellerSharedProducts(validateUid, addIds);
+        } catch (ve) {
+            if (ve.code === 'RESELLER_CATEGORY_DENIED') {
+                return res.status(403).json({ error: ve.message });
+            }
+            throw ve;
+        }
+
+        const existing = Array.isArray(row.product_ids) ? row.product_ids.map(String) : [];
+        const merged = [...existing];
+        for (const id of addIds) {
+            if (!merged.includes(id)) merged.push(id);
+        }
+        if (merged.length > PLATFORM_MAX_PRODUCTS) {
+            return res.status(400).json({ error: `Too many products (max ${PLATFORM_MAX_PRODUCTS})` });
+        }
+
+        const tier = String(resolveUserRole(req.user)?.customer_tier || '').toUpperCase();
+        if (tier === 'RESELLER' && Number.isFinite(requesterUid)) {
+            const maxProducts = await query(
+                `SELECT COALESCE(reseller_catalog_max_products, 50)::int AS max_products FROM users WHERE id = $1`,
+                [requesterUid],
+            );
+            const cap = maxProducts[0]?.max_products ?? 50;
+            const effectiveCap = cap === 0 ? PLATFORM_MAX_PRODUCTS : Math.min(cap, PLATFORM_MAX_PRODUCTS);
+            if (merged.length > effectiveCap) {
+                return res.status(400).json({
+                    error: `Catalogue limit is ${effectiveCap} products. Remove items or ask KC admin to increase your cap.`,
+                });
+            }
+        }
+
+        await query(`UPDATE shared_catalogs SET product_ids = $1::text[] WHERE id = $2::uuid`, [merged, uuid]);
+
+        const shareUrl = await buildSharedCatalogShareUrl(uuid, creatorUid);
+        res.json({
+            success: true,
+            id: uuid,
+            shareUrl,
+            addedCount: merged.length - existing.length,
+            productCount: merged.length,
+            expiresAt: new Date(row.expires_at).toISOString(),
+        });
+    } catch (error) {
+        console.error('shared-catalog append products:', error);
+        res.status(500).json({ error: error.message || 'Failed to update catalogue' });
+    }
+});
+
 /**
  * Public: minimal brochure metadata for Open Graph / WhatsApp (no product payload).
  */
@@ -7313,11 +7510,11 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         }
 
         const barcodes = Array.isArray(row.product_ids) ? row.product_ids.map(String) : [];
-        const payload = await liveRateService.getCurrentPayload();
-        const frozenRates = parseSharedCatalogRatesSnapshot(row.rates_snapshot);
-        const ratesForBrochure =
-            frozenRates && frozenRates.length > 0 ? frozenRates : payload?.rates ?? [];
-        const ratesFrozenAtShare = !!(frozenRates && frozenRates.length > 0);
+        const ratesForBrochure = await getLiveRatesForSharedCatalogCreator(
+            row.created_by_user_id,
+            liveRateService,
+        );
+        const ratesFrozenAtShare = false;
 
         if (barcodes.length === 0) {
             return res.json({

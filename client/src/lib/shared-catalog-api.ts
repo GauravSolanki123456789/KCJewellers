@@ -46,6 +46,62 @@ export async function createSharedCatalog(
   return data
 }
 
+export type SharedCatalogExpiryOption = {
+  label: string
+  hours: number
+}
+
+export type SharedCatalogExpiryOptionsResponse = {
+  options: SharedCatalogExpiryOption[]
+  maxExpiryDays: number
+}
+
+export async function fetchSharedCatalogExpiryOptions(): Promise<SharedCatalogExpiryOptionsResponse> {
+  const { data } = await axios.get<SharedCatalogExpiryOptionsResponse>(
+    '/api/shared-catalog/expiry-options',
+  )
+  return data
+}
+
+export type ActiveSharedCatalog = {
+  id: string
+  productCount: number
+  expiresAt: string
+  createdAt: string
+  markupPercentage: number
+  discountPercentage: number
+  pricingSlab: string
+}
+
+export async function fetchActiveSharedCatalogs(): Promise<ActiveSharedCatalog[]> {
+  const { data } = await axios.get<{ catalogs: ActiveSharedCatalog[] }>(
+    '/api/reseller/shared-catalogs/active',
+    { withCredentials: true },
+  )
+  return data.catalogs ?? []
+}
+
+export type AppendSharedCatalogResponse = {
+  success: true
+  id: string
+  shareUrl: string
+  addedCount: number
+  productCount: number
+  expiresAt: string
+}
+
+export async function appendToSharedCatalog(
+  uuid: string,
+  addProductIds: string[],
+): Promise<AppendSharedCatalogResponse> {
+  const { data } = await axios.patch<AppendSharedCatalogResponse>(
+    `/api/admin/shared-catalog/${uuid}/products`,
+    { addProductIds },
+    { withCredentials: true },
+  )
+  return data
+}
+
 export type SharedCatalogPublicProduct = {
   id?: number | string
   sku?: string

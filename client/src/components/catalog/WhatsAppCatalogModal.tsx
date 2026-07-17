@@ -15,7 +15,7 @@ import {
   type WholesaleUserFields,
 } from '@/lib/customer-tier'
 import { resolveCatalogShareBrand } from '@/lib/catalog-share'
-import { createSharedCatalog } from '@/lib/shared-catalog-api'
+import { createSharedCatalog, fetchSharedCatalogExpiryOptions, fetchActiveSharedCatalogs, appendToSharedCatalog, type ActiveSharedCatalog, type SharedCatalogExpiryOption } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
 import {
   type CatalogSlabKind,
@@ -31,13 +31,14 @@ import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 
-const EXPIRY_OPTIONS = [
-  { label: '1 hour', hours: 1 },
-  { label: '2 hours', hours: 2 },
-  { label: '12 hours', hours: 12 },
+const DEFAULT_EXPIRY_OPTIONS: SharedCatalogExpiryOption[] = [
   { label: '24 hours', hours: 24 },
   { label: '2 days', hours: 48 },
-] as const
+  { label: '7 days', hours: 168 },
+  { label: '24 days', hours: 576 },
+]
+
+type LinkMode = 'new' | 'existing'
 
 type Props = {
   open: boolean
@@ -82,6 +83,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const [markupPercentage, setMarkupPercentage] = useState(0)
   const [discountPercentage, setDiscountPercentage] = useState(0)
   const [expiryHours, setExpiryHours] = useState<number>(24)
+  const [expiryOptions, setExpiryOptions] = useState<SharedCatalogExpiryOption[]>(DEFAULT_EXPIRY_OPTIONS)
+  const [linkMode, setLinkMode] = useState<LinkMode>('new')
+  const [activeCatalogs, setActiveCatalogs] = useState<ActiveSharedCatalog[]>([])
+  const [activeCatalogsLoading, setActiveCatalogsLoading] = useState(false)
+  const [selectedCatalogId, setSelectedCatalogId] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
@@ -92,9 +98,23 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const linkResultRef = useRef<HTMLDivElement>(null)
 
   const expiresAtIso = useMemo(() => {
-    const h = EXPIRY_OPTIONS.find((o) => o.hours === expiryHours)?.hours ?? 24
+    const h = expiryOptions.find((o) => o.hours === expiryHours)?.hours ?? expiryHours
     return new Date(Date.now() + h * 60 * 60 * 1000).toISOString()
-  }, [expiryHours])
+  }, [expiryHours, expiryOptions])
+
+  const formatCatalogExpiry = useCallback((iso: string) => {
+    try {
+      return new Date(iso).toLocaleString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    } catch {
+      return iso
+    }
+  }, [])
 
   const shareBrandLabel = useMemo(() => {
     const user = auth.user as WholesaleUserFields | undefined
@@ -177,8 +197,33 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
       setError(null)
       setShareUrl(null)
       setCopied(false)
+      setLinkMode('new')
+      setSelectedCatalogId('')
     }
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    void fetchSharedCatalogExpiryOptions()
+      .then((data) => {
+        const opts = data.options?.length ? data.options : DEFAULT_EXPIRY_OPTIONS
+        setExpiryOptions(opts)
+        setExpiryHours((prev) => (opts.some((o) => o.hours === prev) ? prev : opts[0]?.hours ?? 24))
+      })
+      .catch(() => setExpiryOptions(DEFAULT_EXPIRY_OPTIONS))
+  }, [open])
+
+  useEffect(() => {
+    if (!open || outputFormat !== 'temporary_web_link' || linkMode !== 'existing') return
+    setActiveCatalogsLoading(true)
+    void fetchActiveSharedCatalogs()
+      .then((catalogs) => {
+        setActiveCatalogs(catalogs)
+        setSelectedCatalogId((prev) => prev || catalogs[0]?.id || '')
+      })
+      .catch(() => setActiveCatalogs([]))
+      .finally(() => setActiveCatalogsLoading(false))
+  }, [open, outputFormat, linkMode])
 
   useEffect(() => {
     if (!shareUrl) return
@@ -201,7 +246,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
       setError('No products selected.')
       return
     }
-    if (isReseller && outputFormat === 'temporary_web_link' && !catalogLimits.canGenerate) {
+    if (isReseller && outputFormat === 'temporary_web_link' && linkMode === 'new' && !catalogLimits.canGenerate) {
       setError(
         `Daily catalogue limit reached (${catalogLimits.dailyLimit} per day). Try again tomorrow or ask KC admin to increase your limit.`,
       )
@@ -314,6 +359,22 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         return
       }
 
+      if (outputFormat === 'temporary_web_link' && linkMode === 'existing') {
+        if (!selectedCatalogId) {
+          setError('Choose an active catalogue link to add products to.')
+          setBusy(false)
+          return
+        }
+        const res = await appendToSharedCatalog(selectedCatalogId, selectedProductIds)
+        if (res.success) {
+          setShareUrl(res.shareUrl)
+          clearSelection()
+        } else {
+          setError('Could not update catalogue.')
+        }
+        return
+      }
+
       const res = await createSharedCatalog({
         selectedProductIds,
         markupPercentage: resellerHidePrices ? 0 : clampedMarkup,
@@ -368,6 +429,8 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     giftingGstEnabled,
     catalogLimits,
     maxSelectable,
+    linkMode,
+    selectedCatalogId,
   ])
 
   const copyLink = useCallback(async () => {
@@ -645,23 +708,83 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 </p>
               </div>
               {outputFormat === 'temporary_web_link' ? (
-                <div>
-                  <label htmlFor="expiry" className="kc-catalog-modal-label mb-1.5 block">
-                    Link expires in
-                  </label>
-                  <select
-                    id="expiry"
-                    value={expiryHours}
-                    onChange={(e) => setExpiryHours(Number(e.target.value))}
-                    className="kc-catalog-modal-select"
-                  >
-                    {EXPIRY_OPTIONS.map((o) => (
-                      <option key={o.hours} value={o.hours}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <>
+                  <div>
+                    <p className="kc-catalog-modal-label mb-2">Link action</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLinkMode('new')}
+                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition touch-manipulation min-h-[56px] ${
+                          linkMode === 'new'
+                            ? 'border-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_55%,transparent)] bg-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_12%,transparent)] text-slate-100'
+                            : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="font-medium">New link</span>
+                        <span className="mt-0.5 block text-[11px] text-slate-500">Create a fresh brochure URL</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLinkMode('existing')}
+                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition touch-manipulation min-h-[56px] ${
+                          linkMode === 'existing'
+                            ? 'border-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_55%,transparent)] bg-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_12%,transparent)] text-slate-100'
+                            : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="font-medium">Add to existing</span>
+                        <span className="mt-0.5 block text-[11px] text-slate-500">Same URL, more products</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {linkMode === 'existing' ? (
+                    <div>
+                      <label htmlFor="existing-catalog" className="kc-catalog-modal-label mb-1.5 block">
+                        Active catalogue link
+                      </label>
+                      {activeCatalogsLoading ? (
+                        <p className="text-xs text-slate-500">Loading your active links…</p>
+                      ) : activeCatalogs.length === 0 ? (
+                        <p className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-3 py-2.5 text-xs text-amber-100/90">
+                          No active links found. Create a new link first, or your previous links may have expired.
+                        </p>
+                      ) : (
+                        <select
+                          id="existing-catalog"
+                          value={selectedCatalogId}
+                          onChange={(e) => setSelectedCatalogId(e.target.value)}
+                          className="kc-catalog-modal-select"
+                        >
+                          {activeCatalogs.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.productCount} items · valid until {formatCatalogExpiry(c.expiresAt)}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <label htmlFor="expiry" className="kc-catalog-modal-label mb-1.5 block">
+                        Link expires in
+                      </label>
+                      <select
+                        id="expiry"
+                        value={expiryHours}
+                        onChange={(e) => setExpiryHours(Number(e.target.value))}
+                        className="kc-catalog-modal-select"
+                      >
+                        {expiryOptions.map((o) => (
+                          <option key={o.hours} value={o.hours}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
               ) : null}
             </div>
           )}
@@ -719,7 +842,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 ? 'Done'
                 : outputFormat === 'pdf'
                   ? 'Generate PDF & share'
-                  : 'Create share link'}
+                  : linkMode === 'existing'
+                    ? 'Add to catalogue link'
+                    : 'Create share link'}
           </button>
         </div>
       </div>

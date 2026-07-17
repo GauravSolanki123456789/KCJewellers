@@ -82,8 +82,6 @@ export default function SmsOtpSettingsPanel({
 
   return (
     <div className="space-y-5">
-      {intro ? <p className={cn('text-sm leading-relaxed', hintCls)}>{intro}</p> : null}
-
       <div
         className={cn(
           cardCls,
@@ -100,10 +98,6 @@ export default function SmsOtpSettingsPanel({
             >
               <Smartphone className="size-4 shrink-0 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
               Shared catalogue OTP
-            </p>
-            <p className={cn('mt-1 text-xs leading-relaxed', hintCls)}>
-              When on, customers on your shared links verify mobile with SMS OTP. When off, they enter
-              mobile only — inquiries still save for WhatsApp follow-up.
             </p>
           </div>
           <button
@@ -129,13 +123,6 @@ export default function SmsOtpSettingsPanel({
             />
           </button>
         </div>
-        <p className={cn('mt-3 text-xs font-medium', hintCls)}>
-          {form.shared_catalog_otp_enabled
-            ? flags.o3sms_api_key_set
-              ? 'OTP required — customers receive SMS code'
-              : 'OTP on — paste API key below and save'
-            : 'Mobile only — Continue without OTP'}
-        </p>
       </div>
 
       <div className={cardCls}>
@@ -148,12 +135,7 @@ export default function SmsOtpSettingsPanel({
           <MessageSquare className="size-4" aria-hidden />
           Co3SMS / O3SMS
         </p>
-        <p className={cn('mb-4 text-xs leading-relaxed', hintCls)}>
-          API key from Co3SMS dashboard → Developer → Http API. Use your approved DLT template exactly as
-          {'registered (use {#alp#} placeholders exactly as on Co3 / DLT portal).'}
-        </p>
-
-        <div className="space-y-4">
+        <div className="space-y-4 mt-3">
           <div>
             <label className={labelCls}>API key</label>
             <input
@@ -207,11 +189,6 @@ export default function SmsOtpSettingsPanel({
               value={form.o3sms_message_template}
               onChange={(e) => onChange({ o3sms_message_template: e.target.value })}
             />
-            <p className={cn('mt-1.5', hintCls)}>
-              Copy the DLT-approved text exactly from Co3 — same spelling, spaces, and punctuation.
-              Use {'{#alp#}'} placeholders (not {'{#var#'}). OTP replaces slots: Customer → code →
-              validity (e.g. 10 minutes).
-            </p>
             {/\{#var#\}/i.test(form.o3sms_message_template) ? (
               <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-900">
                 {'Tip: Co3 uses {#alp#} placeholders — replace {#var#} in your template to match the provider.'}
