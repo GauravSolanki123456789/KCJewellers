@@ -48,7 +48,10 @@ import {
   productMatchesMetal,
   getProductSelectionKey,
 } from '@/lib/catalog-product-filters'
-import { mergeDesignGroupOrder } from '@/lib/design-group-order'
+import {
+  mergeDesignGroupOrderWithRecency,
+  sortCatalogProductsByDesignGroupOrder,
+} from '@/lib/catalog-product-order'
 import {
   CATALOG_SHOP_FOR_TABS,
   catalogProductTypeLabel,
@@ -768,11 +771,16 @@ export default function CatalogPageClient() {
     [activeStyle, activeSkuId],
   )
 
-  const rawProducts = activeSku?.products ?? []
   const savedDgOrderKey = useMemo(
     () => JSON.stringify(activeSku?.design_group_order ?? null),
     [activeSku?.design_group_order],
   )
+
+  const rawProducts = useMemo(() => {
+    const list = activeSku?.products ?? []
+    return sortCatalogProductsByDesignGroupOrder(list, activeSku?.design_group_order) as typeof list
+  }, [activeSku?.products, activeSku?.design_group_order, savedDgOrderKey])
+
   const designGroups = useMemo(() => {
     const seen = new Set<string>()
     for (const p of rawProducts) {
@@ -780,8 +788,12 @@ export default function CatalogPageClient() {
       if (group) seen.add(group)
     }
     const discovered = [...seen]
-    return mergeDesignGroupOrder(activeSku?.design_group_order, discovered)
-  }, [rawProducts, activeSku?.id, savedDgOrderKey])
+    return mergeDesignGroupOrderWithRecency(
+      activeSku?.design_group_order,
+      discovered,
+      rawProducts,
+    )
+  }, [rawProducts, activeSku?.design_group_order, savedDgOrderKey])
   const hasDesignGroupFilter = designGroups.length > 0
 
   useEffect(() => {

@@ -118,6 +118,10 @@ const {
     CATALOG_METAL_KEYS,
 } = require('./services/catalogMetalFamily');
 const {
+    sortCatalogProductsByDesignGroupOrder,
+    compareCatalogProductRows,
+} = require('./services/catalogProductOrder');
+const {
     parseAllowedCategoryMetals,
     filterCatalogForResellerScope,
 } = require('./services/resellerCatalogScope');
@@ -2974,13 +2978,19 @@ app.get('/api/products/neighbors', async (req, res) => {
         if (subId == null) {
             return res.json({ prev: null, next: null });
         }
-        const siblings = await query(
-            `SELECT barcode, sku FROM web_products
-             WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
-             ORDER BY updated_at DESC, id ASC`,
-            [subId]
+        const subRows = await query(
+            `SELECT design_group_order FROM web_subcategories WHERE id = $1`,
+            [subId],
         );
-        const keys = siblings.map((s) => String(s.barcode || s.sku || '').trim()).filter(Boolean);
+        const dgOrder = normalizeDesignGroupOrder(subRows[0]?.design_group_order);
+        const siblings = await query(
+            `SELECT barcode, sku, design_group, size, updated_at, id
+             FROM web_products
+             WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)`,
+            [subId],
+        );
+        const ordered = sortCatalogProductsByDesignGroupOrder(siblings, dgOrder);
+        const keys = ordered.map((s) => String(s.barcode || s.sku || '').trim()).filter(Boolean);
         const norm = (k) => String(k || '').trim().toLowerCase();
         const curKey = norm(row.barcode || row.sku || raw);
         const idx = keys.findIndex((k) => norm(k) === curKey);
@@ -6637,12 +6647,14 @@ app.get('/api/catalog', async (req, res) => {
                         COALESCE(box_charges, 0)::float AS box_charges,
                         design_group,
                         COALESCE(metal_type, 'silver') AS metal_type,
-                        diamond_carat, diamond_cut, diamond_color, diamond_clarity, certificate_url
-                    FROM web_products
-                    WHERE subcategory_id = $1 AND (is_active IS NULL OR is_active = true)
-                    ORDER BY updated_at DESC
+                        diamond_carat, diamond_cut, diamond_color, diamond_clarity, certificate_url,
+                        wp.updated_at
+                    FROM web_products wp
+                    WHERE wp.subcategory_id = $1 AND (wp.is_active IS NULL OR wp.is_active = true)
                 `, [s.id]);
-                const productsWithDiscount = products.map((p) => {
+                const dgOrder = normalizeDesignGroupOrder(s.design_group_order);
+                const productsOrdered = sortCatalogProductsByDesignGroupOrder(products, dgOrder);
+                const productsWithDiscount = productsOrdered.map((p) => {
                     const categoryDisc = resolveCategoryDiscountPct(c, p.metal_type);
                     return {
                         ...p,
@@ -6864,21 +6876,6 @@ function sharedCatalogSlabJsonFields(row) {
     };
 }
 
-function compareCatalogSizeLabel(a, b) {
-    const sa = String(a ?? '').trim();
-    const sb = String(b ?? '').trim();
-    return sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' });
-}
-
-function designGroupCatalogSortIndex(dgOrderRaw, designGroup) {
-    const key = String(designGroup ?? '').trim();
-    if (!key) return 999999;
-    const order = normalizeDesignGroupOrder(dgOrderRaw);
-    if (!order || !order.length) return 999998;
-    const idx = order.findIndex((x) => x.toLowerCase() === key.toLowerCase());
-    return idx >= 0 ? idx : 999997;
-}
-
 /** Sort shared-catalog barcodes to match public catalogue order (style → SKU → design group → size). */
 async function sortSharedCatalogProductIds(barcodes) {
     const ids = [...new Set((barcodes || []).map((x) => String(x).trim()).filter(Boolean))];
@@ -6904,26 +6901,7 @@ async function sortSharedCatalogProductIds(barcodes) {
     const byBarcode = new Map(rows.map((r) => [String(r.barcode), r]));
     const sorted = ids
         .filter((id) => byBarcode.has(id))
-        .sort((a, b) => {
-            const ra = byBarcode.get(a);
-            const rb = byBarcode.get(b);
-            if (!ra || !rb) return 0;
-            if (ra.category_sort !== rb.category_sort) return ra.category_sort - rb.category_sort;
-            if (ra.subcategory_sort !== rb.subcategory_sort) return ra.subcategory_sort - rb.subcategory_sort;
-            const dgIdxA = designGroupCatalogSortIndex(ra.design_group_order, ra.design_group);
-            const dgIdxB = designGroupCatalogSortIndex(rb.design_group_order, rb.design_group);
-            if (dgIdxA !== dgIdxB) return dgIdxA - dgIdxB;
-            const dgCmp = String(ra.design_group || '').localeCompare(String(rb.design_group || ''), undefined, {
-                sensitivity: 'base',
-            });
-            if (dgCmp !== 0) return dgCmp;
-            const sizeCmp = compareCatalogSizeLabel(ra.size, rb.size);
-            if (sizeCmp !== 0) return sizeCmp;
-            const ta = ra.updated_at ? new Date(ra.updated_at).getTime() : 0;
-            const tb = rb.updated_at ? new Date(rb.updated_at).getTime() : 0;
-            if (tb !== ta) return tb - ta;
-            return Number(ra.id) - Number(rb.id);
-        });
+        .sort((a, b) => compareCatalogProductRows(byBarcode.get(a), byBarcode.get(b)));
     for (const id of ids) {
         if (!sorted.includes(id)) sorted.push(id);
     }

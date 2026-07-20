@@ -26,7 +26,7 @@ import { calculateBreakdown, type Item } from '@/lib/pricing'
 import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
 import { ResellerProductSubmissionsPanel } from '@/components/admin/ResellerProductSubmissionsPanel'
 import CatalogOrderDragList from '@/components/admin/CatalogOrderDragList'
-import { mergeDesignGroupOrder } from '@/lib/design-group-order'
+import { mergeDesignGroupOrderWithRecency } from '@/lib/catalog-product-order'
 import {
   CATALOG_AUDIENCE_OPTIONS,
   CATALOG_METAL_LABELS,
@@ -836,20 +836,24 @@ export default function AdminProductsPage() {
             orderCatalogProducts,
             selectedMetal,
           )
-          const serverMerged = mergeDesignGroupOrder(
+          const subProducts = orderCatalogProducts.filter(
+            (p) => Number((p as { subcategory_id?: number }).subcategory_id) === sub.id,
+          )
+          const serverMerged = mergeDesignGroupOrderWithRecency(
             sub.design_group_order,
             discovered,
+            subProducts,
           )
           if (versionChanged || prev[sub.id] == null) {
             next[sub.id] = serverMerged
           } else {
-            const have = new Set(prev[sub.id])
-            const missing = discovered.filter((g) => !have.has(g))
+            const have = new Set(prev[sub.id].map((g) => g.toLowerCase()))
+            const missing = discovered.filter((g) => !have.has(g.toLowerCase()))
             next[sub.id] =
               missing.length > 0
                 ? [
+                    ...missing.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
                     ...prev[sub.id],
-                    ...missing.sort((a, b) => a.localeCompare(b)),
                   ]
                 : prev[sub.id]
           }
