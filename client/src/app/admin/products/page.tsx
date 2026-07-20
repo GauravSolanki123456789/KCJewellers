@@ -12,9 +12,6 @@ import {
   Globe,
   Check,
   CheckCircle2,
-  ArrowUp,
-  ArrowDown,
-  GripVertical,
   ListOrdered,
   X,
   Tags,
@@ -67,6 +64,10 @@ type Product = Item & {
   barcode?: string
   sku?: string
   style_code?: string
+  category_id?: number
+  category_slug?: string
+  sku_code?: string
+  subcategory_slug?: string
   short_name?: string
   item_name?: string
   net_weight?: number
@@ -134,12 +135,84 @@ function subcategoryMatchesMetalTab(sub: SubcategoryInfo, metal: MetalKey): bool
   return false
 }
 
-const GIFT_CATALOG_STYLE_RE = /gift|plated|utsav/i
+const GIFT_CATALOG_STYLE_RE = /gift|plated|utsav|silver-gift/i
 
 function isGiftCatalogStyle(cat: { slug?: string; name?: string }): boolean {
   const slug = String(cat.slug || '').toLowerCase()
   const name = String(cat.name || '').toUpperCase()
   return GIFT_CATALOG_STYLE_RE.test(slug) || GIFT_CATALOG_STYLE_RE.test(name)
+}
+
+/** Ensure SILVER GIFT / GIFT ITEM (metal_type gift items) appear under Gift Items tab. */
+function enrichGiftingCatalogTree(
+  categories: WebCategory[],
+  orderProducts: Product[],
+): WebCategory[] {
+  const byId = new Map<number, WebCategory>()
+  for (const c of categories) {
+    byId.set(c.id, { ...c, subcategories: [...(c.subcategories || [])] })
+  }
+
+  for (const p of orderProducts) {
+    if (!productMatchesMetal(p, 'gifting')) continue
+    const catId = (p as { category_id?: number }).category_id
+    const styleCode = (p as { style_code?: string }).style_code
+    const subId = (p as { subcategory_id?: number }).subcategory_id
+    const skuName = (p as { sku_code?: string }).sku_code
+    if (!catId || !subId || !styleCode) continue
+
+    if (!byId.has(catId)) {
+      byId.set(catId, {
+        id: catId,
+        name: styleCode,
+        slug: String((p as { category_slug?: string }).category_slug || ''),
+        is_published: false,
+        has_gifting: true,
+        subcategories: [],
+      })
+    }
+
+    const cat = byId.get(catId)!
+    cat.has_gifting = true
+    const subs = [...(cat.subcategories || [])]
+    const idx = subs.findIndex((s) => s.id === subId)
+    const count = orderProducts.filter(
+      (x) =>
+        (x as { subcategory_id?: number }).subcategory_id === subId &&
+        productMatchesMetal(x, 'gifting'),
+    ).length
+
+    if (idx < 0) {
+      subs.push({
+        id: subId,
+        name: skuName || 'SKU',
+        slug: String((p as { subcategory_slug?: string }).subcategory_slug || ''),
+        product_count: count,
+        has_gifting: true,
+      })
+    } else {
+      subs[idx] = {
+        ...subs[idx],
+        has_gifting: true,
+        product_count: Math.max(subs[idx].product_count ?? 0, count),
+      }
+    }
+    cat.subcategories = subs
+  }
+
+  const seen = new Set<number>()
+  const result: WebCategory[] = []
+  for (const c of categories) {
+    const merged = byId.get(c.id)
+    if (merged) {
+      result.push(merged)
+      seen.add(c.id)
+    }
+  }
+  for (const [id, c] of byId) {
+    if (!seen.has(id)) result.push(c)
+  }
+  return result
 }
 
 function subcategoryVisibleOnMetalTab(
@@ -344,13 +417,23 @@ export default function AdminProductsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      const productParams: Record<string, string | number> = { limit: 5000 }
+      if (selectedMetal !== 'gifting') {
+        productParams.metal_type = selectedMetal
+      }
       const [productsRes, ratesRes] = await Promise.all([
-        axios.get(`${url}/api/products`, { params: { limit: 5000, metal_type: selectedMetal } }),
+        axios.get(`${url}/api/products`, { params: productParams }),
         axios.get(`${url}/api/rates/display`),
       ])
-      const items =
+      let items: Product[] =
         productsRes.data?.products ?? productsRes.data?.items ?? []
-      setProducts(Array.isArray(items) ? items : [])
+      if (!Array.isArray(items)) items = []
+      if (selectedMetal === 'gifting') {
+        items = items.filter((p) => productMatchesMetal(p, 'gifting'))
+      } else {
+        items = items.filter((p) => productMatchesMetal(p, selectedMetal))
+      }
+      setProducts(items)
       setRates(ratesRes.data?.rates ?? [])
     } catch {
       setProducts([])
@@ -374,6 +457,21 @@ export default function AdminProductsPage() {
   useEffect(() => {
     loadGiftingGstSetting()
   }, [loadGiftingGstSetting])
+
+  useEffect(() => {
+    if (selectedMetal !== 'gifting' || orderCatalogProducts.length === 0) return
+    setProducts((prev) => {
+      const byId = new Map<number | string, Product>()
+      for (const p of prev) {
+        if (p.id != null) byId.set(p.id, p)
+      }
+      for (const p of orderCatalogProducts) {
+        if (!productMatchesMetal(p, 'gifting')) continue
+        if (p.id != null) byId.set(p.id, p)
+      }
+      return [...byId.values()]
+    })
+  }, [orderCatalogProducts, selectedMetal])
 
   const togglePublish = (id: number) => {
     setPublishedIds((prev) => {
@@ -531,49 +629,28 @@ export default function AdminProductsPage() {
     }
   }
 
-  // ─── Reorder helpers ───
-  const moveCategoryUp = (idx: number) => {
-    if (idx <= 0) return
+  // ─── Reorder helpers (drag-and-drop) ───
+  const handleReorderVisibleCategories = (nextVisible: WebCategory[]) => {
     setOrderedCategories((prev) => {
-      const arr = [...prev]
-      ;[arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]
-      return arr
+      const visibleIds = new Set(nextVisible.map((c) => c.id))
+      const result: WebCategory[] = []
+      let vi = 0
+      for (const c of prev) {
+        if (visibleIds.has(c.id)) {
+          if (vi < nextVisible.length) result.push(nextVisible[vi++])
+        } else {
+          result.push(c)
+        }
+      }
+      while (vi < nextVisible.length) result.push(nextVisible[vi++])
+      return result
     })
   }
 
-  const moveCategoryDown = (idx: number) => {
-    setOrderedCategories((prev) => {
-      if (idx >= prev.length - 1) return prev
-      const arr = [...prev]
-      ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
-      return arr
-    })
-  }
-
-  const moveSubUp = (catIdx: number, subIdx: number) => {
-    if (subIdx <= 0) return
-    setOrderedCategories((prev) => {
-      const arr = prev.map((c, i) => {
-        if (i !== catIdx || !c.subcategories) return c
-        const subs = [...c.subcategories]
-        ;[subs[subIdx - 1], subs[subIdx]] = [subs[subIdx], subs[subIdx - 1]]
-        return { ...c, subcategories: subs }
-      })
-      return arr
-    })
-  }
-
-  const moveSubDown = (catIdx: number, subIdx: number) => {
-    setOrderedCategories((prev) => {
-      const arr = prev.map((c, i) => {
-        if (i !== catIdx || !c.subcategories) return c
-        if (subIdx >= c.subcategories.length - 1) return c
-        const subs = [...c.subcategories]
-        ;[subs[subIdx], subs[subIdx + 1]] = [subs[subIdx + 1], subs[subIdx]]
-        return { ...c, subcategories: subs }
-      })
-      return arr
-    })
+  const handleReorderSubcategories = (catId: number, nextSubs: SubcategoryInfo[]) => {
+    setOrderedCategories((prev) =>
+      prev.map((c) => (c.id === catId ? { ...c, subcategories: nextSubs } : c)),
+    )
   }
 
   const handleSaveOrder = async () => {
@@ -701,9 +778,17 @@ export default function AdminProductsPage() {
   const catalog = groupedCatalog()
 
   /** Styles + SKUs scoped to the active metal tab (Chain Pendant CBT ≠ Silver PREMIUM/EXCLUSIVE). */
+  const enrichedCategories = useMemo(
+    () =>
+      selectedMetal === 'gifting'
+        ? enrichGiftingCatalogTree(orderedCategories, orderCatalogProducts)
+        : orderedCategories,
+    [orderedCategories, orderCatalogProducts, selectedMetal],
+  )
+
   const categoriesWithProducts = useMemo(
-    () => filterCatalogTreeForMetalTab(orderedCategories, selectedMetal, orderCatalogProducts),
-    [orderedCategories, selectedMetal, orderCatalogProducts],
+    () => filterCatalogTreeForMetalTab(enrichedCategories, selectedMetal, orderCatalogProducts),
+    [enrichedCategories, selectedMetal, orderCatalogProducts],
   )
 
   const retailTagRows = useMemo(() => {
@@ -726,7 +811,7 @@ export default function AdminProductsPage() {
   const designGroupCatalogVersion = useMemo(
     () =>
       JSON.stringify(
-        orderedCategories.map((c) => ({
+        enrichedCategories.map((c) => ({
           id: c.id,
           subs: (c.subcategories || []).map((s) => ({
             id: s.id,
@@ -734,7 +819,7 @@ export default function AdminProductsPage() {
           })),
         })),
       ),
-    [orderedCategories],
+    [enrichedCategories],
   )
 
   useEffect(() => {
@@ -744,7 +829,7 @@ export default function AdminProductsPage() {
 
     setDesignGroupOrderDraft((prev) => {
       const next: Record<number, string[]> = {}
-      for (const cat of orderedCategories) {
+      for (const cat of enrichedCategories) {
         for (const sub of cat.subcategories || []) {
           const discovered = discoverDesignGroupsForSubcategory(
             sub,
@@ -772,7 +857,7 @@ export default function AdminProductsPage() {
       }
       return next
     })
-  }, [designGroupCatalogVersion, orderedCategories, orderCatalogProducts, selectedMetal])
+  }, [designGroupCatalogVersion, enrichedCategories, orderCatalogProducts, selectedMetal])
 
   const toggleDesignGroupPanel = (subId: number) => {
     setExpandedDesignGroupSubs((prev) => {
@@ -1609,103 +1694,69 @@ export default function AdminProductsPage() {
                     No {METAL_TABS.find((t) => t.key === selectedMetal)?.label ?? selectedMetal} catalogues. Sync products from ERP first.
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {categoriesWithProducts.map((cat, catIdx) => {
+                  <div className="space-y-4">
+                    <CatalogOrderDragList
+                      items={categoriesWithProducts}
+                      getKey={(c) => String(c.id)}
+                      onReorder={handleReorderVisibleCategories}
+                      renderLabel={(c) => (
+                        <span className="font-semibold text-slate-200">{c.name}</span>
+                      )}
+                      mobileHint="Long-press a style row, then drag up or down to reorder"
+                      className="mb-2"
+                    />
+                    {categoriesWithProducts.map((cat) => {
                       const fullIdx = orderedCategories.findIndex((c) => c.id === cat.id)
+                      const subs = cat.subcategories || []
                       return (
                       <div
                         key={cat.id}
                         className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
                       >
-                        {/* Category row */}
-                        <div className="flex items-center gap-2 p-3 sm:p-4">
-                          <GripVertical className="size-4 text-slate-600 shrink-0 hidden sm:block" />
+                        <div className="flex items-center gap-2 p-3 sm:p-4 border-b border-white/5">
                           <span className="font-semibold text-slate-200 flex-1 min-w-0 truncate">
                             {cat.name}
                           </span>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={() => moveCategoryUp(fullIdx)}
-                              disabled={fullIdx <= 0}
-                              className="p-1.5 rounded-md hover:bg-white/10 disabled:opacity-20 transition-colors"
-                              title="Move up"
-                            >
-                              <ArrowUp className="size-4 text-slate-400" />
-                            </button>
-                            <button
-                              onClick={() => moveCategoryDown(fullIdx)}
-                              disabled={
-                                fullIdx < 0 || fullIdx >= orderedCategories.length - 1
-                              }
-                              className="p-1.5 rounded-md hover:bg-white/10 disabled:opacity-20 transition-colors"
-                              title="Move down"
-                            >
-                              <ArrowDown className="size-4 text-slate-400" />
-                            </button>
-                          </div>
+                          <span className="text-[10px] text-slate-600 tabular-nums shrink-0">
+                            #{fullIdx >= 0 ? fullIdx + 1 : '—'}
+                          </span>
                         </div>
 
-                        {/* Subcategories */}
-                        {cat.subcategories &&
-                          cat.subcategories.length > 0 && (
-                            <div className="border-t border-white/5 bg-slate-900/30">
-                              {cat.subcategories.map((sub, subIdx) => {
+                        {subs.length > 0 && (
+                            <div className="border-t border-white/5 bg-slate-900/30 p-3 sm:p-4">
+                              <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                                SKU codes
+                              </p>
+                              <CatalogOrderDragList
+                                items={subs}
+                                getKey={(s) => String(s.id)}
+                                onReorder={(next) => handleReorderSubcategories(cat.id, next)}
+                                renderLabel={(s) => (
+                                  <span className="text-slate-400">{s.name}</span>
+                                )}
+                                mobileHint="Long-press SKU row, drag to reorder"
+                              />
+                              {subs.map((sub) => {
                                 const dgList = designGroupOrderDraft[sub.id] ?? []
                                 const dgOpen = expandedDesignGroupSubs.has(sub.id)
+                                if (dgList.length === 0) return null
                                 return (
-                                  <div key={sub.id}>
-                                <div
-                                  className="flex items-center gap-2 pl-8 sm:pl-12 pr-3 sm:pr-4 py-2.5 border-t border-white/5 first:border-t-0"
-                                >
-                                  <GripVertical className="size-3.5 text-slate-700 shrink-0 hidden sm:block" />
-                                  <span className="text-sm text-slate-400 flex-1 min-w-0 truncate">
-                                    {sub.name}
-                                  </span>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <button
-                                      onClick={() =>
-                                        moveSubUp(fullIdx, subIdx)
-                                      }
-                                      disabled={subIdx === 0}
-                                      className="p-1 rounded-md hover:bg-white/10 disabled:opacity-20 transition-colors"
-                                      title="Move up"
-                                    >
-                                      <ArrowUp className="size-3.5 text-slate-500" />
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        moveSubDown(fullIdx, subIdx)
-                                      }
-                                      disabled={
-                                        subIdx ===
-                                        (cat.subcategories?.length ?? 0) - 1
-                                      }
-                                      className="p-1 rounded-md hover:bg-white/10 disabled:opacity-20 transition-colors"
-                                      title="Move down"
-                                    >
-                                      <ArrowDown className="size-3.5 text-slate-500" />
-                                    </button>
-                                  </div>
-                                </div>
-                                {dgList.length > 0 && (
-                                  <div className="border-t border-white/5 bg-slate-950/40">
+                                  <div key={`dg-${sub.id}`} className="mt-3 border-t border-white/5 pt-3">
                                     <button
                                       type="button"
                                       onClick={() => toggleDesignGroupPanel(sub.id)}
-                                      className="flex w-full items-center gap-2 pl-10 sm:pl-14 pr-4 py-2 text-left text-xs text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-colors"
+                                      className="flex w-full items-center gap-2 py-1.5 text-left text-xs text-slate-500 hover:text-slate-300 transition-colors"
                                     >
                                       {dgOpen ? (
                                         <ChevronDown className="size-3.5 shrink-0 text-amber-500/80" />
                                       ) : (
                                         <ChevronRight className="size-3.5 shrink-0 text-amber-500/80" />
                                       )}
-                                      Design groups
-                                      <span className="tabular-nums text-slate-600">
-                                        ({dgList.length})
-                                      </span>
+                                      <span className="truncate">{sub.name}</span>
+                                      <span className="text-slate-600">· design groups ({dgList.length})</span>
                                     </button>
                                     {dgOpen && (
-                                      <div className="px-3 pb-3 sm:px-4 sm:pl-16">
+                                      <div className="mt-2 pl-1">
                                         <CatalogOrderDragList
                                           items={dgList}
                                           getKey={(g) => `${sub.id}-${g}`}
@@ -1716,12 +1767,10 @@ export default function AdminProductsPage() {
                                             }))
                                           }
                                           renderLabel={(g) => g}
-                                          mobileHint="Long-press the ⋮⋮ grip, then drag up or down to reorder"
+                                          mobileHint="Long-press the grip, then drag up or down to reorder"
                                         />
                                       </div>
                                     )}
-                                  </div>
-                                )}
                                   </div>
                                 )
                               })}

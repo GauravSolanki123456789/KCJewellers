@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { GripVertical } from 'lucide-react'
 
 type CatalogOrderDragListProps<T> = {
@@ -13,10 +13,10 @@ type CatalogOrderDragListProps<T> = {
   className?: string
 }
 
-const LONG_PRESS_MS = 420
+const LONG_PRESS_MS = 380
 
 /**
- * Touch-friendly reorder list — long-press the grip, then drag up/down.
+ * Touch-friendly reorder list — long-press the row (or grip), then drag up/down.
  * Desktop: drag the grip handle immediately (HTML5 drag-and-drop).
  */
 export default function CatalogOrderDragList<T>({
@@ -24,11 +24,12 @@ export default function CatalogOrderDragList<T>({
   getKey,
   onReorder,
   renderLabel,
-  mobileHint = 'Long-press the grip, then drag to reorder',
+  mobileHint = 'Long-press the row, then drag to reorder',
   className = '',
 }: CatalogOrderDragListProps<T>) {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
+  const [touchReady, setTouchReady] = useState(false)
   const longPressTimer = useRef<number | null>(null)
   const touchDragActive = useRef(false)
   const touchStartY = useRef(0)
@@ -41,6 +42,15 @@ export default function CatalogOrderDragList<T>({
     }
   }, [])
 
+  useEffect(() => {
+    if (!touchDragActive.current) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [dragIndex])
+
   const commitMove = useCallback(
     (from: number, to: number) => {
       if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return
@@ -52,48 +62,61 @@ export default function CatalogOrderDragList<T>({
     [items, onReorder],
   )
 
-  const indexFromClientY = useCallback((clientY: number) => {
-    for (let i = 0; i < items.length; i++) {
-      const el = rowRefs.current.get(i)
-      if (!el) continue
-      const rect = el.getBoundingClientRect()
-      const mid = rect.top + rect.height / 2
-      if (clientY < mid) return i
-    }
-    return items.length - 1
-  }, [items.length])
+  const indexFromClientY = useCallback(
+    (clientY: number) => {
+      for (let i = 0; i < items.length; i++) {
+        const el = rowRefs.current.get(i)
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        const mid = rect.top + rect.height / 2
+        if (clientY < mid) return i
+      }
+      return items.length - 1
+    },
+    [items.length],
+  )
+
+  const beginTouchDrag = useCallback((index: number) => {
+    touchDragActive.current = true
+    setTouchReady(true)
+    setDragIndex(index)
+    setOverIndex(index)
+    if (navigator.vibrate) navigator.vibrate(12)
+  }, [])
 
   const onTouchStart = useCallback(
     (index: number, e: React.TouchEvent) => {
       clearLongPress()
       touchDragActive.current = false
+      setTouchReady(false)
       touchStartY.current = e.touches[0]?.clientY ?? 0
       longPressTimer.current = window.setTimeout(() => {
-        touchDragActive.current = true
-        setDragIndex(index)
-        setOverIndex(index)
-        if (navigator.vibrate) navigator.vibrate(12)
+        beginTouchDrag(index)
       }, LONG_PRESS_MS)
     },
-    [clearLongPress],
+    [beginTouchDrag, clearLongPress],
   )
 
   const onTouchMove = useCallback(
     (e: React.TouchEvent) => {
-      if (!touchDragActive.current || dragIndex == null) return
-      e.preventDefault()
       const y = e.touches[0]?.clientY ?? touchStartY.current
+      if (!touchDragActive.current) {
+        if (Math.abs(y - touchStartY.current) > 12) clearLongPress()
+        return
+      }
+      e.preventDefault()
       setOverIndex(indexFromClientY(y))
     },
-    [dragIndex, indexFromClientY],
+    [clearLongPress, indexFromClientY],
   )
 
-  const onTouchEnd = useCallback(() => {
+  const endTouchDrag = useCallback(() => {
     clearLongPress()
     if (touchDragActive.current && dragIndex != null && overIndex != null) {
       commitMove(dragIndex, overIndex)
     }
     touchDragActive.current = false
+    setTouchReady(false)
     setDragIndex(null)
     setOverIndex(null)
   }, [clearLongPress, commitMove, dragIndex, overIndex])
@@ -132,7 +155,11 @@ export default function CatalogOrderDragList<T>({
   return (
     <div className={className}>
       <p className="mb-2 text-[10px] text-slate-500 sm:hidden">{mobileHint}</p>
-      <div className="space-y-1" onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+      <div
+        className={`space-y-1 ${touchReady ? 'touch-none select-none' : ''}`}
+        onTouchEnd={endTouchDrag}
+        onTouchCancel={endTouchDrag}
+      >
         {items.map((item, index) => {
           const key = getKey(item, index)
           const isDragging = dragIndex === index
@@ -147,9 +174,11 @@ export default function CatalogOrderDragList<T>({
               }}
               onDragOver={(e) => onDragOver(index, e)}
               onDrop={(e) => onDrop(index, e)}
-              className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
+              onTouchStart={(e) => onTouchStart(index, e)}
+              onTouchMove={onTouchMove}
+              className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
                 isDragging
-                  ? 'border-amber-500/50 bg-amber-500/10 opacity-90 shadow-md'
+                  ? 'z-10 border-amber-500/50 bg-amber-500/10 opacity-95 shadow-md ring-1 ring-amber-500/30'
                   : isDropTarget
                     ? 'border-cyan-500/40 bg-cyan-500/10'
                     : 'border-white/5 bg-slate-900/50'
@@ -160,11 +189,10 @@ export default function CatalogOrderDragList<T>({
                 draggable
                 onDragStart={(e) => onDragStart(index, e)}
                 onDragEnd={onDragEnd}
-                onTouchStart={(e) => onTouchStart(index, e)}
-                onTouchMove={onTouchMove}
                 className="touch-none shrink-0 rounded-md p-1 text-slate-500 hover:bg-white/10 hover:text-amber-400 active:text-amber-400"
                 aria-label={`Drag to reorder item ${index + 1}`}
-                title="Drag to reorder (long-press on mobile)"
+                title="Drag to reorder (long-press row on mobile)"
+                onClick={(e) => e.preventDefault()}
               >
                 <GripVertical className="size-4" aria-hidden />
               </button>

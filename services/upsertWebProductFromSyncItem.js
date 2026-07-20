@@ -510,7 +510,7 @@ async function deactivateStaleGiftVariantRows(query, norm, subcategoryId) {
            AND TRIM(COALESCE(design_group, '')) = $1
            AND TRIM(COALESCE(size, '')) = $2
            AND TRIM(COALESCE(sku, '')) <> $3
-           AND (${sqlCatalogMetalFamilyExpr('wp.metal_type')} = 'gifting')
+           AND (${sqlCatalogMetalFamilyExpr('metal_type')} = 'gifting')
            AND (is_active IS NULL OR is_active = true)`,
         [dg, sizeKey, prodSku, subcategoryId],
     );

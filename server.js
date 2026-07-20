@@ -2862,13 +2862,13 @@ app.get('/api/products', async (req, res) => {
             const dg = String(first.design_group || '').trim();
             const subId = first.subcategory_id;
             const mt = String(first.metal_type || '').toLowerCase();
-            if (dg && subId != null && mt.startsWith('gifting')) {
+            if (dg && subId != null && classifyCatalogMetalFamily(mt) === 'gifting') {
                 const variantParams = [subId, dg];
                 const variantWhere = `
                     WHERE wp.subcategory_id = $1
                     AND TRIM(COALESCE(wp.design_group, '')) = $2
                     AND (wp.is_active IS NULL OR wp.is_active = true)
-                    AND LOWER(COALESCE(wp.metal_type, '')) LIKE 'gifting%'
+                    AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gifting')})
                 `;
                 const rawVariants = await query(
                     `${baseSelect} ${variantWhere} ORDER BY wp.size NULLS LAST, wp.name ASC, wp.id ASC`,
