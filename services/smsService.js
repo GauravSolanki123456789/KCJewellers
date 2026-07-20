@@ -253,15 +253,14 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
         return p;
     };
 
-    /** Co3 / CCC expects registered DLT template text + separate variable values — NOT pre-filled sms body. */
+    /**
+     * Co3 / CCC DLT: substitute {#alp#}/{#var#} in the `sms` body itself.
+     * var1/var2/var3 alone often returns a message ID but delivers literal {#alp#} on the phone.
+     */
     const attempts = [
         {
-            label: 'dlt-template-var123',
-            params: buildSmsApiParams(dltTemplate, {
-                var1: varValues[0],
-                var2: varValues[1],
-                var3: varValues[2],
-            }),
+            label: 'dlt-filled-message',
+            params: buildSmsApiParams(filledPreview),
         },
         {
             label: 'dlt-template-variables',
@@ -270,8 +269,12 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
             }),
         },
         {
-            label: 'dlt-template-raw',
-            params: buildSmsApiParams(dltTemplate),
+            label: 'dlt-template-var123',
+            params: buildSmsApiParams(dltTemplate, {
+                var1: varValues[0],
+                var2: varValues[1],
+                var3: varValues[2],
+            }),
         },
     ];
 
@@ -304,6 +307,7 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
                         messageId: parsed.messageId,
                         gatewayResponse: text,
                         filledMessage: filledPreview,
+                        smsBodySent: attempt.label === 'dlt-filled-message' ? filledPreview : dltTemplate,
                         dltTemplate,
                         dltVariables: varValues,
                         attempt: `${attempt.label}/${method}`,

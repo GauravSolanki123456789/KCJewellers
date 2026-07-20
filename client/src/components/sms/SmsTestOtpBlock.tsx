@@ -15,6 +15,7 @@ export type SmsTestOtpResult = {
   messageId?: string | null
   gatewayResponse?: string | null
   filledMessage?: string | null
+  smsBodySent?: string | null
   dltTemplate?: string | null
   dltVariables?: string[] | null
   attempt?: string | null
@@ -190,7 +191,12 @@ export default function SmsTestOtpBlock({
               <span className="font-medium">Expected SMS on phone:</span> {result.filledMessage}
             </p>
           ) : null}
-          {result.dltTemplate ? (
+          {result.smsBodySent ? (
+            <p className="break-words">
+              <span className="font-medium">SMS body sent to gateway:</span> {result.smsBodySent}
+            </p>
+          ) : null}
+          {result.dltTemplate && !result.smsBodySent ? (
             <p className="break-words">
               <span className="font-medium">DLT template sent to gateway:</span> {result.dltTemplate}
             </p>
