@@ -7819,9 +7819,6 @@ app.get('/api/admin/reseller-catalog-inquiries', isAdminStrict, async (req, res)
     }
 });
 
-    }
-});
-
 /** Reseller profile + nav: pending catalogue inquiries since last visit. */
 const KC_RESELLER_ATTENTION_SECTION_KEYS = new Set(['own_catalog_inquiries']);
 
