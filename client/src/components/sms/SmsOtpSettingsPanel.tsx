@@ -193,12 +193,7 @@ export default function SmsOtpSettingsPanel({
               <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-900">
                 {'Tip: Co3 uses {#alp#} placeholders — replace {#var#} in your template to match the provider.'}
               </p>
-            ) : (
-              <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
-                Keep {#alp#} placeholders exactly as registered on Co3/DLT. Values (name, OTP, validity) are
-                substituted automatically when sending.
-              </p>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

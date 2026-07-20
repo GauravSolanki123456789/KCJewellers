@@ -254,17 +254,18 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
     };
 
     /**
-     * Co3 / CCC DLT: substitute {#alp#}/{#var#} in the `sms` body itself.
-     * var1/var2/var3 alone often returns a message ID but delivers literal {#alp#} on the phone.
+     * Co3 / SMSLocal-style gateways expect `sms` = final message text (DLT-scrubbed body),
+     * not the registered template with {#alp#} placeholders. Sending placeholders + var1/2/3
+     * returns a message id but delivers literal {#alp#} on the handset.
      */
     const attempts = [
         {
-            label: 'dlt-filled-message',
+            label: 'dlt-filled-body',
             params: buildSmsApiParams(filledPreview),
         },
         {
-            label: 'dlt-template-variables',
-            params: buildSmsApiParams(dltTemplate, {
+            label: 'dlt-filled-body-vars',
+            params: buildSmsApiParams(filledPreview, {
                 variables: varValues.join('|'),
             }),
         },
@@ -274,6 +275,12 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
                 var1: varValues[0],
                 var2: varValues[1],
                 var3: varValues[2],
+            }),
+        },
+        {
+            label: 'dlt-template-variables',
+            params: buildSmsApiParams(dltTemplate, {
+                variables: varValues.join('|'),
             }),
         },
     ];
@@ -307,9 +314,9 @@ async function sendViaO3SMSDetailed(mobile, otpCode, config) {
                         messageId: parsed.messageId,
                         gatewayResponse: text,
                         filledMessage: filledPreview,
-                        smsBodySent: attempt.label === 'dlt-filled-message' ? filledPreview : dltTemplate,
                         dltTemplate,
                         dltVariables: varValues,
+                        smsBodySent: attempt.label.startsWith('dlt-filled') ? filledPreview : dltTemplate,
                         attempt: `${attempt.label}/${method}`,
                     };
                 }

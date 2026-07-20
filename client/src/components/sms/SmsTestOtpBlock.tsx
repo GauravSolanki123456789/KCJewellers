@@ -15,9 +15,9 @@ export type SmsTestOtpResult = {
   messageId?: string | null
   gatewayResponse?: string | null
   filledMessage?: string | null
-  smsBodySent?: string | null
   dltTemplate?: string | null
   dltVariables?: string[] | null
+  smsBodySent?: string | null
   attempt?: string | null
   hint?: string
   cccHint?: string
@@ -196,9 +196,9 @@ export default function SmsTestOtpBlock({
               <span className="font-medium">SMS body sent to gateway:</span> {result.smsBodySent}
             </p>
           ) : null}
-          {result.dltTemplate && !result.smsBodySent ? (
+          {result.dltTemplate ? (
             <p className="break-words">
-              <span className="font-medium">DLT template sent to gateway:</span> {result.dltTemplate}
+              <span className="font-medium">Registered DLT template:</span> {result.dltTemplate}
             </p>
           ) : null}
           {result.dltVariables?.length ? (
