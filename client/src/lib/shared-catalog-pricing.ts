@@ -6,7 +6,6 @@
 import {
   calculateBreakdown,
   resolveItemGstRate,
-  isGiftingItem,
   productPriceShowsInclGst,
   type CatalogPricingOptions,
   type Item,
@@ -99,6 +98,7 @@ export function computeSharedCatalogUnitPrice(
   giftingGstEnabled?: boolean,
   discountPercentage = 0,
   slab?: SharedCatalogSlabContext | null,
+  catalogWholesale?: WholesalePricingInput | null,
 ): SharedCatalogUnitPrice {
   const pricingOptions = sharedCatalogPricingOptions(giftingGstEnabled)
   const gst = resolveItemGstRate(item, item.gst_rate, pricingOptions)
@@ -114,7 +114,7 @@ export function computeSharedCatalogUnitPrice(
   const disc = parseDiscountPercentage(discountPercentage)
 
   const afterMarkup = b.total * (1 + mk / 100)
-  const finalInr = Math.round(afterMarkup * (1 - disc / 100))
+  let finalInr = Math.round(afterMarkup * (1 - disc / 100))
   const listAfterMarkup = Math.round(afterMarkup)
 
   let unitCompareAtInr: number | null = null
@@ -126,11 +126,21 @@ export function computeSharedCatalogUnitPrice(
 
   if (slabActive) {
     slabDiscountLines = formatSlabDiscountLines(slab, item)
-    const bRetail = calculateBreakdown(item, rates, gst, null, pricingOptions)
-    const retailFinal = Math.round(bRetail.total * (1 + mk / 100) * (1 - disc / 100))
-    if (retailFinal > finalInr) {
-      unitCompareAtInr = retailFinal
-      savingsInr = retailFinal - finalInr
+    const baselineWholesale = catalogWholesale ?? wholesale ?? null
+    const bCatalog = calculateBreakdown(
+      item,
+      rates,
+      gst,
+      baselineWholesale ?? undefined,
+      pricingOptions,
+    )
+    const catalogFinal = Math.round(bCatalog.total * (1 + mk / 100) * (1 - disc / 100))
+    if (catalogFinal > 0 && finalInr > catalogFinal) {
+      finalInr = catalogFinal
+    }
+    if (catalogFinal > finalInr) {
+      unitCompareAtInr = catalogFinal
+      savingsInr = catalogFinal - finalInr
       const configuredPct =
         b.discountPercent != null && b.discountPercent > 0
           ? Math.round(b.discountPercent)
@@ -138,7 +148,7 @@ export function computeSharedCatalogUnitPrice(
       discountBadge =
         configuredPct != null
           ? `${configuredPct}% off`
-          : `${Math.round(100 * (1 - finalInr / retailFinal))}% off`
+          : `${Math.round(100 * (1 - finalInr / catalogFinal))}% off`
     }
   } else if (disc > 0 && listAfterMarkup > finalInr) {
     unitCompareAtInr = listAfterMarkup
@@ -231,7 +241,7 @@ function breakdownForSharedCatalog(
       rates,
       gst,
       slab,
-      null,
+      wholesale ?? null,
       pricingOptions,
     )
   }
@@ -309,14 +319,15 @@ function sharedCatalogRowKey(row: SharedCatalogPricingRow, index: number): strin
   return `i:${index}`
 }
 
-/** One grid card per subcategory + `design_group` for gifting size variants (shared brochure). */
+/** One grid card per subcategory + `design_group` when multiple size rows share a variant family. */
 export function groupSharedCatalogPricingRows(
   rows: SharedCatalogPricingRow[],
 ): SharedCatalogGroupedRow[] {
   const groupBuckets = new Map<string, SharedCatalogPricingRow[]>()
   for (const row of rows) {
     const groupKey = getVariantGroupKey(row.item)
-    if (!groupKey || !isGiftingItem(row.item)) continue
+    const hasSize = String(row.item.size ?? '').trim() !== ''
+    if (!groupKey || !hasSize) continue
     const bucket = groupBuckets.get(groupKey) ?? []
     bucket.push(row)
     groupBuckets.set(groupKey, bucket)
@@ -334,7 +345,8 @@ export function groupSharedCatalogPricingRows(
 
   rows.forEach((row, index) => {
     const groupKey = getVariantGroupKey(row.item)
-    if (groupKey && isGiftingItem(row.item)) {
+    const hasSize = String(row.item.size ?? '').trim() !== ''
+    if (groupKey && hasSize) {
       if (seenGroups.has(groupKey)) return
       seenGroups.add(groupKey)
       const variants = groupBuckets.get(groupKey) ?? [row]
@@ -369,9 +381,7 @@ export function buildSharedCatalogPricingRows(
 ): SharedCatalogPricingRow[] {
   const mk = parseMarkupPercentage(markupPercentage)
   const disc = parseDiscountPercentage(discountPercentage)
-  const wholesale = slabPayload?.pricingSlab && slabPayload.pricingSlab !== 'standard'
-    ? null
-    : wholesaleInputFromBrochure(creatorWholesale ?? null)
+  const catalogWholesale = wholesaleInputFromBrochure(creatorWholesale ?? null)
   const slab = buildSharedCatalogSlabContext(slabPayload ?? null)
   const rows: SharedCatalogPricingRow[] = []
   for (const p of products) {
@@ -381,10 +391,11 @@ export function buildSharedCatalogPricingRows(
         item,
         rates,
         mk,
-        wholesale,
+        catalogWholesale,
         giftingGstEnabled,
         disc,
         slab,
+        catalogWholesale,
       )
       rows.push({
         item,

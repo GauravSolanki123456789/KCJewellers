@@ -625,7 +625,7 @@ export default function SharedCatalogClient({
                   rates: payload.rates,
                   markupPercentage: markup,
                   discountPercentage: discount,
-                  wholesale: slabPayload ? null : wholesale,
+                  wholesale: wholesale,
                   giftingGstEnabled,
                   slabPayload,
                 }

@@ -354,14 +354,16 @@ function resolvePdfLineMeta(
       const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
       const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
       const slab = pdfSlabFromPricing(resellerPdfPricing);
+      const catalogWholesale = resellerPdfPricing.wholesale ?? undefined;
       const price = computeSharedCatalogUnitPrice(
         p,
         resellerPdfPricing.rates,
         mk,
-        slab ? null : resellerPdfPricing.wholesale ?? undefined,
+        catalogWholesale ?? null,
         giftingGstEnabled,
         disc,
         slab,
+        catalogWholesale ?? null,
       );
       const unitInr = price.unitTotalInr;
       lineTotalStr = (unitInr * shareQty).toLocaleString("en-IN");
@@ -575,14 +577,16 @@ export function CatalogPdfDocument({
                 const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
                 const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
                 const slab = pdfSlabFromPricing(resellerPdfPricing);
+                const catalogWholesale = resellerPdfPricing.wholesale ?? undefined;
                 const price = computeSharedCatalogUnitPrice(
                   p,
                   resellerPdfPricing.rates,
                   mk,
-                  slab ? null : resellerPdfPricing.wholesale ?? undefined,
+                  catalogWholesale ?? null,
                   giftingGstEnabled,
                   disc,
                   slab,
+                  catalogWholesale ?? null,
                 );
                 showInclGst = price.showInclGst;
                 if (

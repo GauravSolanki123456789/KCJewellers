@@ -6864,7 +6864,73 @@ function sharedCatalogSlabJsonFields(row) {
     };
 }
 
-/** Brochure product row — include all gifting size variants for each selected design_group. */
+function compareCatalogSizeLabel(a, b) {
+    const sa = String(a ?? '').trim();
+    const sb = String(b ?? '').trim();
+    return sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function designGroupCatalogSortIndex(dgOrderRaw, designGroup) {
+    const key = String(designGroup ?? '').trim();
+    if (!key) return 999999;
+    const order = normalizeDesignGroupOrder(dgOrderRaw);
+    if (!order || !order.length) return 999998;
+    const idx = order.findIndex((x) => x.toLowerCase() === key.toLowerCase());
+    return idx >= 0 ? idx : 999997;
+}
+
+/** Sort shared-catalog barcodes to match public catalogue order (style → SKU → design group → size). */
+async function sortSharedCatalogProductIds(barcodes) {
+    const ids = [...new Set((barcodes || []).map((x) => String(x).trim()).filter(Boolean))];
+    if (ids.length <= 1) return ids;
+
+    const rows = await query(
+        `SELECT
+            TRIM(wp.barcode::text) AS barcode,
+            TRIM(COALESCE(wp.design_group, '')) AS design_group,
+            wp.size,
+            wp.updated_at,
+            wp.id,
+            ws.id AS subcategory_id,
+            COALESCE(ws.sort_order, 0)::int AS subcategory_sort,
+            ws.design_group_order,
+            COALESCE(wc.sort_order, 0)::int AS category_sort
+        FROM web_products wp
+        JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+        JOIN web_categories wc ON wc.id = ws.category_id
+        WHERE wp.barcode::text = ANY($1::text[])`,
+        [ids],
+    );
+    const byBarcode = new Map(rows.map((r) => [String(r.barcode), r]));
+    const sorted = ids
+        .filter((id) => byBarcode.has(id))
+        .sort((a, b) => {
+            const ra = byBarcode.get(a);
+            const rb = byBarcode.get(b);
+            if (!ra || !rb) return 0;
+            if (ra.category_sort !== rb.category_sort) return ra.category_sort - rb.category_sort;
+            if (ra.subcategory_sort !== rb.subcategory_sort) return ra.subcategory_sort - rb.subcategory_sort;
+            const dgIdxA = designGroupCatalogSortIndex(ra.design_group_order, ra.design_group);
+            const dgIdxB = designGroupCatalogSortIndex(rb.design_group_order, rb.design_group);
+            if (dgIdxA !== dgIdxB) return dgIdxA - dgIdxB;
+            const dgCmp = String(ra.design_group || '').localeCompare(String(rb.design_group || ''), undefined, {
+                sensitivity: 'base',
+            });
+            if (dgCmp !== 0) return dgCmp;
+            const sizeCmp = compareCatalogSizeLabel(ra.size, rb.size);
+            if (sizeCmp !== 0) return sizeCmp;
+            const ta = ra.updated_at ? new Date(ra.updated_at).getTime() : 0;
+            const tb = rb.updated_at ? new Date(rb.updated_at).getTime() : 0;
+            if (tb !== ta) return tb - ta;
+            return Number(ra.id) - Number(rb.id);
+        });
+    for (const id of ids) {
+        if (!sorted.includes(id)) sorted.push(id);
+    }
+    return sorted;
+}
+
+/** Brochure product row — include all size variants for each selected design_group (silver + gift items). */
 async function expandGiftingSizeVariantsForBrochure(products) {
     if (!Array.isArray(products) || products.length === 0) return products;
 
@@ -6875,8 +6941,8 @@ async function expandGiftingSizeVariantsForBrochure(products) {
     for (const p of products) {
         const dg = String(p.design_group || '').trim();
         const subId = p.subcategory_id;
-        if (!dg || subId == null) continue;
-        if (classifyCatalogMetalFamily(p.metal_type) !== 'gifting') continue;
+        const hasSize = String(p.size ?? '').trim() !== '';
+        if (!dg || subId == null || !hasSize) continue;
         pairKeys.set(`${subId}\0${dg}`, { subId, dg });
     }
     if (pairKeys.size === 0) return products;
@@ -6920,7 +6986,6 @@ async function expandGiftingSizeVariantsForBrochure(products) {
         JOIN web_subcategories ws ON ws.id = wp.subcategory_id
         JOIN web_categories wc ON wc.id = ws.category_id
         WHERE (wp.is_active IS NULL OR wp.is_active = true)
-        AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gifting')})
         AND (wp.subcategory_id, TRIM(COALESCE(wp.design_group, ''))) IN (VALUES ${valuesSql})`,
         pairParams,
     );
@@ -7110,6 +7175,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         }
 
         const id = randomUUID();
+        const sortedIds = await sortSharedCatalogProductIds(ids);
         const hidePrices =
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHidePricesForUser(creatorUid)
@@ -7132,7 +7198,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                  VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb)`,
                 [
                     id,
-                    ids,
+                    sortedIds,
                     markup,
                     discount,
                     exp,
@@ -7369,7 +7435,8 @@ app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson,
         for (const id of addIds) {
             if (!merged.includes(id)) merged.push(id);
         }
-        if (merged.length > PLATFORM_MAX_PRODUCTS) {
+        const sortedMerged = await sortSharedCatalogProductIds(merged);
+        if (sortedMerged.length > PLATFORM_MAX_PRODUCTS) {
             return res.status(400).json({ error: `Too many products (max ${PLATFORM_MAX_PRODUCTS})` });
         }
 
@@ -7381,22 +7448,22 @@ app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson,
             );
             const cap = maxProducts[0]?.max_products ?? 50;
             const effectiveCap = cap === 0 ? PLATFORM_MAX_PRODUCTS : Math.min(cap, PLATFORM_MAX_PRODUCTS);
-            if (merged.length > effectiveCap) {
+            if (sortedMerged.length > effectiveCap) {
                 return res.status(400).json({
                     error: `Catalogue limit is ${effectiveCap} products. Remove items or ask KC admin to increase your cap.`,
                 });
             }
         }
 
-        await query(`UPDATE shared_catalogs SET product_ids = $1::text[] WHERE id = $2::uuid`, [merged, uuid]);
+        await query(`UPDATE shared_catalogs SET product_ids = $1::text[] WHERE id = $2::uuid`, [sortedMerged, uuid]);
 
         const shareUrl = await buildSharedCatalogShareUrl(uuid, creatorUid);
         res.json({
             success: true,
             id: uuid,
             shareUrl,
-            addedCount: merged.length - existing.length,
-            productCount: merged.length,
+            addedCount: sortedMerged.length - existing.length,
+            productCount: sortedMerged.length,
             expiresAt: new Date(row.expires_at).toISOString(),
         });
     } catch (error) {
@@ -7532,7 +7599,9 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             });
         }
 
-        const barcodes = Array.isArray(row.product_ids) ? row.product_ids.map(String) : [];
+        const barcodes = await sortSharedCatalogProductIds(
+            Array.isArray(row.product_ids) ? row.product_ids.map(String) : [],
+        );
         const ratesForBrochure = await getLiveRatesForSharedCatalogCreator(
             row.created_by_user_id,
             liveRateService,
@@ -7601,7 +7670,17 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             [barcodes],
         );
         const productsWithSizeVariants = await expandGiftingSizeVariantsForBrochure(products);
-        const brochureProducts = productsWithSizeVariants.map((p) => {
+        const expandedBarcodes = productsWithSizeVariants
+            .map((p) => String(p.barcode || '').trim())
+            .filter(Boolean);
+        const sortedExpandedBarcodes = await sortSharedCatalogProductIds(expandedBarcodes);
+        const productByBarcode = new Map(
+            productsWithSizeVariants.map((p) => [String(p.barcode || '').trim(), p]),
+        );
+        const orderedProductsWithVariants = sortedExpandedBarcodes
+            .map((bc) => productByBarcode.get(bc))
+            .filter(Boolean);
+        const brochureProducts = orderedProductsWithVariants.map((p) => {
             const categoryDisc = resolveCategoryDiscountPct(
                 {
                     discount_percentage: p.category_discount_percentage,
