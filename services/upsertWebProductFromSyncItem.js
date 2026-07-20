@@ -13,6 +13,7 @@ const {
     defaultVideoUrl,
     imageUrlBasename,
 } = require('./productImagePaths');
+const { classifyCatalogMetalFamily, sqlCatalogMetalFamilyExpr } = require('./catalogMetalFamily');
 const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
 
 function styleSlugFromCode(styleCode) {
@@ -392,7 +393,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             mc_rate         = COALESCE(EXCLUDED.mc_rate, web_products.mc_rate),
             mc_type         = COALESCE(EXCLUDED.mc_type, web_products.mc_type),
             metal_type      = COALESCE(EXCLUDED.metal_type, web_products.metal_type),
-            fixed_price     = COALESCE(EXCLUDED.fixed_price, web_products.fixed_price),
+            fixed_price     = COALESCE(NULLIF(EXCLUDED.fixed_price, 0), web_products.fixed_price),
             stone_charges   = COALESCE(EXCLUDED.stone_charges, web_products.stone_charges),
             box_charges     = COALESCE(EXCLUDED.box_charges, web_products.box_charges),
             design_group    = EXCLUDED.design_group,
@@ -498,7 +499,7 @@ async function deactivateStaleGiftVariantRows(query, norm, subcategoryId) {
     const dg = trimField(norm.designGroup);
     if (!dg) return;
     const mt = String(norm.metalType || '').toLowerCase();
-    if (!mt.startsWith('gifting')) return;
+    if (classifyCatalogMetalFamily(mt) !== 'gifting') return;
     const sizeKey = trimField(norm.size);
     const prodSku = trimField(norm.prodSku);
     if (!prodSku || subcategoryId == null) return;
@@ -509,7 +510,7 @@ async function deactivateStaleGiftVariantRows(query, norm, subcategoryId) {
            AND TRIM(COALESCE(design_group, '')) = $1
            AND TRIM(COALESCE(size, '')) = $2
            AND TRIM(COALESCE(sku, '')) <> $3
-           AND LOWER(COALESCE(metal_type, '')) LIKE 'gifting%'
+           AND (${sqlCatalogMetalFamilyExpr('wp.metal_type')} = 'gifting')
            AND (is_active IS NULL OR is_active = true)`,
         [dg, sizeKey, prodSku, subcategoryId],
     );

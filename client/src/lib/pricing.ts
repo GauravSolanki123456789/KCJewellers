@@ -492,8 +492,8 @@ export function calculateBreakdown(
   const metal = (item.metal_type || 'silver').toLowerCase()
   const wIn = wholesale && wholesaleIsActive(wholesale) ? wholesale : null
 
-  // Fixed-price catalogue (diamond, gifting): bypass live rate/weight. Use fixed_price if set, else mc_rate + stone_charges
-  if (metal.startsWith('diamond') || metal.startsWith('gifting')) {
+  // Fixed-price catalogue (diamond, gifting / gift items): bypass live rate/weight.
+  if (isFixedPriceCatalogItem(item)) {
     const fixedPrice = Number(item.fixed_price ?? 0) || 0
     const mcRate = Number(item.mc_rate ?? 0) || 0
     const stoneAmt = Number(item.stone_charges ?? 0) || 0
@@ -548,7 +548,7 @@ export function calculateBreakdown(
   const netWt = netWeight(item)
   const purity = purityPct(item)
   const isSilver = metal.startsWith('silver')
-  const isGold = !isSilver && !metal.startsWith('diamond') && !metal.startsWith('gifting')
+  const isGold = !isSilver && !isFixedPriceCatalogItem(item)
   const billWt = isGold || isSilver ? metalBillableWeight(item) : billableWeight(item)
   const rate = ratePerGram(liveRates, metal, isGold ? item : undefined)
 

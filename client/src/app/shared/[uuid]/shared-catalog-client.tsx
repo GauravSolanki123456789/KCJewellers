@@ -724,11 +724,13 @@ export default function SharedCatalogClient({
         hidePrices: !!payload.hidePrices,
       })
 
-      const logged = await logInquiry('whatsapp')
-      if (!logged.success) {
-        console.warn('Inquiry was not saved — opening WhatsApp anyway')
-      }
+      // Open WhatsApp in the same user gesture — do not await logging first (iOS blocks delayed pop-ups).
       openWhatsAppOrder(wa, msg)
+      void logInquiry('whatsapp').then((logged) => {
+        if (!logged.success) {
+          console.warn('Inquiry was not saved after WhatsApp opened')
+        }
+      })
     } finally {
       setWaBusy(false)
       shareInFlightRef.current = false

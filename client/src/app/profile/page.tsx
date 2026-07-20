@@ -49,6 +49,7 @@ import {
   ResellerInvitePanel,
 } from '@/components/profile/ResellerInvitePanel'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
+import { useResellerInboxSummary } from '@/hooks/useResellerInboxSummary'
 import { userHasAdminDashboardAccess, userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 
@@ -165,17 +166,22 @@ function ProfilePageContent() {
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
   const isAdmin = userHasAdminDashboardAccess(user)
+  const isReseller = customerTier === CUSTOMER_TIER.RESELLER
   const strictInbox = userCanCallStrictAdminApi(user)
   const { data: adminInbox } = useAdminInboxSummary(!!auth.isAuthenticated && strictInbox)
+  const { data: resellerInbox } = useResellerInboxSummary(!!auth.isAuthenticated && isReseller)
   const adminNavBadge =
     adminInbox && adminInbox.navAttentionCount > 0
       ? formatAdminInboxBadge(adminInbox.navAttentionCount)
+      : ''
+  const resellerInquiriesBadge =
+    resellerInbox && (resellerInbox.badgesByHref?.[RESELLER_INQUIRIES_PATH] ?? 0) > 0
+      ? formatAdminInboxBadge(resellerInbox.badgesByHref[RESELLER_INQUIRIES_PATH] ?? 0)
       : ''
 
   const { customDomainHost, investEnabled } = useResellerBranding()
   const storefrontInvestAvailable = isStorefrontInvestAvailable(customDomainHost, investEnabled)
 
-  const isReseller = customerTier === CUSTOMER_TIER.RESELLER
   const resellerUploadsEnabled = Boolean(
     auth.isAuthenticated &&
       isReseller &&
@@ -291,7 +297,12 @@ function ProfilePageContent() {
                       href={RESELLER_INQUIRIES_PATH}
                       icon={ShoppingBag}
                       title="Catalogue inquiries"
-                      subtitle="WhatsApp & PDF shortlists — mark completed sales or no sale"
+                      subtitle={
+                        resellerInbox && resellerInbox.counts.catalogInquiriesPending > 0
+                          ? `${resellerInbox.counts.catalogInquiriesPending} pending WhatsApp / PDF shortlist${resellerInbox.counts.catalogInquiriesPending === 1 ? '' : 's'}`
+                          : 'WhatsApp & PDF shortlists — mark completed sales or no sale'
+                      }
+                      badge={resellerInquiriesBadge || undefined}
                     />
                     <ProfileActionCard
                       href={RESELLER_SMS_SETTINGS_PATH}

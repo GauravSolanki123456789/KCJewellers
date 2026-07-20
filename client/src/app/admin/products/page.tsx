@@ -28,6 +28,7 @@ import {
 import { calculateBreakdown, type Item } from '@/lib/pricing'
 import DiamondEnrichmentModal from '@/components/DiamondEnrichmentModal'
 import { ResellerProductSubmissionsPanel } from '@/components/admin/ResellerProductSubmissionsPanel'
+import CatalogOrderDragList from '@/components/admin/CatalogOrderDragList'
 import { mergeDesignGroupOrder } from '@/lib/design-group-order'
 import {
   CATALOG_AUDIENCE_OPTIONS,
@@ -107,8 +108,11 @@ type SubcategoryInfo = {
   name: string
   slug: string
   design_group_order?: string[] | null
+  /** Live design groups from web_products — admin catalogue order. */
+  design_groups_discovered?: string[]
   audience?: string | null
   product_type?: string | null
+  product_count?: number
   /** Per-SKU metal presence — avoids mixing e.g. Gold CBT vs Silver PREMIUM under Chain Pendant */
   has_gold?: boolean
   has_silver?: boolean
@@ -130,18 +134,67 @@ function subcategoryMatchesMetalTab(sub: SubcategoryInfo, metal: MetalKey): bool
   return false
 }
 
+const GIFT_CATALOG_STYLE_RE = /gift|plated|utsav/i
+
+function isGiftCatalogStyle(cat: { slug?: string; name?: string }): boolean {
+  const slug = String(cat.slug || '').toLowerCase()
+  const name = String(cat.name || '').toUpperCase()
+  return GIFT_CATALOG_STYLE_RE.test(slug) || GIFT_CATALOG_STYLE_RE.test(name)
+}
+
+function subcategoryVisibleOnMetalTab(
+  sub: SubcategoryInfo,
+  metal: MetalKey,
+  cat: { slug?: string; name?: string },
+  orderProducts: Product[],
+): boolean {
+  if (subcategoryMatchesMetalTab(sub, metal)) return true
+  if (metal !== 'gifting') return false
+  if (isGiftCatalogStyle(cat) && (sub.product_count ?? 0) > 0) return true
+  return orderProducts.some(
+    (p) =>
+      (p as { subcategory_id?: number }).subcategory_id === sub.id &&
+      productMatchesMetal(p, 'gifting'),
+  )
+}
+
 function filterCatalogTreeForMetalTab(
   categories: WebCategory[],
   metal: MetalKey,
+  orderProducts: Product[] = [],
 ): WebCategory[] {
   return categories
     .map((cat) => ({
       ...cat,
       subcategories: (cat.subcategories || []).filter((sub) =>
-        subcategoryMatchesMetalTab(sub, metal),
+        subcategoryVisibleOnMetalTab(sub, metal, cat, orderProducts),
       ),
     }))
     .filter((cat) => (cat.subcategories?.length ?? 0) > 0)
+}
+
+function discoverDesignGroupsForSubcategory(
+  sub: SubcategoryInfo,
+  orderProducts: Product[],
+  metal: MetalKey,
+): string[] {
+  const fromProducts = extractDesignGroupsFromProducts(orderProducts, sub.id, metal)
+  const apiGroups = sub.design_groups_discovered ?? []
+  if (metal !== 'gifting') {
+    return [...new Set([...fromProducts, ...apiGroups])]
+  }
+  const metalProductGroups = new Set(fromProducts)
+  const apiFiltered = apiGroups.filter((g) => {
+    if (metalProductGroups.has(g)) return true
+    if (fromProducts.length === 0) return true
+    return orderProducts.some(
+      (p) =>
+        (p as { subcategory_id?: number }).subcategory_id === sub.id &&
+        productMatchesMetal(p, 'gifting') &&
+        String((p as { design_group?: string | null }).design_group ?? '').trim() === g,
+    )
+  })
+  return [...new Set([...fromProducts, ...apiFiltered])]
 }
 type WebCategory = {
   id: number
@@ -160,6 +213,8 @@ type WebCategory = {
 
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
+  /** All active products — used for catalogue order / design group discovery (not metal-filtered). */
+  const [orderCatalogProducts, setOrderCatalogProducts] = useState<Product[]>([])
   const [rates, setRates] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
@@ -242,6 +297,19 @@ export default function AdminProductsPage() {
     }
   }, [url])
 
+  const loadOrderCatalogProducts = useCallback(async () => {
+    try {
+      const res = await axios.get(`${url}/api/products`, {
+        params: { limit: 5000 },
+        withCredentials: true,
+      })
+      const items = res.data?.products ?? res.data?.items ?? []
+      setOrderCatalogProducts(Array.isArray(items) ? items : [])
+    } catch {
+      setOrderCatalogProducts([])
+    }
+  }, [url])
+
   const loadCatalog = useCallback(async () => {
     try {
       const res = await axios.get(`${url}/api/admin/catalog`, {
@@ -267,10 +335,11 @@ export default function AdminProductsPage() {
             .map((c: WebCategory) => c.id),
         ),
       )
+      void loadOrderCatalogProducts()
     } catch {
       setCatalogCategories([])
     }
-  }, [url])
+  }, [url, loadOrderCatalogProducts])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -290,6 +359,9 @@ export default function AdminProductsPage() {
     }
   }, [url, selectedMetal])
 
+  useEffect(() => {
+    loadOrderCatalogProducts()
+  }, [loadOrderCatalogProducts])
   useEffect(() => {
     load()
   }, [load])
@@ -539,6 +611,7 @@ export default function AdminProductsPage() {
       }
 
       await loadCatalog()
+      await loadOrderCatalogProducts()
       showOrderToast('success')
     } catch {
       showOrderToast('error')
@@ -629,8 +702,8 @@ export default function AdminProductsPage() {
 
   /** Styles + SKUs scoped to the active metal tab (Chain Pendant CBT ≠ Silver PREMIUM/EXCLUSIVE). */
   const categoriesWithProducts = useMemo(
-    () => filterCatalogTreeForMetalTab(orderedCategories, selectedMetal),
-    [orderedCategories, selectedMetal],
+    () => filterCatalogTreeForMetalTab(orderedCategories, selectedMetal, orderCatalogProducts),
+    [orderedCategories, selectedMetal, orderCatalogProducts],
   )
 
   const retailTagRows = useMemo(() => {
@@ -673,9 +746,9 @@ export default function AdminProductsPage() {
       const next: Record<number, string[]> = {}
       for (const cat of orderedCategories) {
         for (const sub of cat.subcategories || []) {
-          const discovered = extractDesignGroupsFromProducts(
-            products,
-            sub.id,
+          const discovered = discoverDesignGroupsForSubcategory(
+            sub,
+            orderCatalogProducts,
             selectedMetal,
           )
           const serverMerged = mergeDesignGroupOrder(
@@ -699,28 +772,7 @@ export default function AdminProductsPage() {
       }
       return next
     })
-  }, [designGroupCatalogVersion, orderedCategories, products, selectedMetal])
-
-  const moveDesignGroupUp = (subId: number, idx: number) => {
-    if (idx <= 0) return
-    setDesignGroupOrderDraft((prev) => {
-      const cur = prev[subId]
-      if (!cur || idx >= cur.length) return prev
-      const arr = [...cur]
-      ;[arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]
-      return { ...prev, [subId]: arr }
-    })
-  }
-
-  const moveDesignGroupDown = (subId: number, idx: number) => {
-    setDesignGroupOrderDraft((prev) => {
-      const cur = prev[subId]
-      if (!cur || idx >= cur.length - 1) return prev
-      const arr = [...cur]
-      ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
-      return { ...prev, [subId]: arr }
-    })
-  }
+  }, [designGroupCatalogVersion, orderedCategories, orderCatalogProducts, selectedMetal])
 
   const toggleDesignGroupPanel = (subId: number) => {
     setExpandedDesignGroupSubs((prev) => {
@@ -1547,7 +1599,8 @@ export default function AdminProductsPage() {
                 <p className="text-slate-500 text-sm mb-4">
                   Rearrange styles and SKUs. The order here is reflected in
                   the public Catalog page. Expand a SKU below to reorder design
-                  groups (same keys as ERP itemCode /{' '}
+                  groups — long-press the grip on mobile, or drag on desktop
+                  (same keys as ERP itemCode /{' '}
                   <span className="font-mono text-slate-400">design_group</span>
                   ).
                 </p>
@@ -1652,41 +1705,19 @@ export default function AdminProductsPage() {
                                       </span>
                                     </button>
                                     {dgOpen && (
-                                      <div className="space-y-1 px-3 pb-3 sm:px-4 sm:pl-16">
-                                        {dgList.map((g, gi) => (
-                                          <div
-                                            key={`${sub.id}-${g}`}
-                                            className="flex items-center gap-2 rounded-lg border border-white/5 bg-slate-900/50 px-2.5 py-1.5"
-                                          >
-                                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-300 sm:text-sm">
-                                              {g}
-                                            </span>
-                                            <div className="flex shrink-0 items-center gap-0.5">
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  moveDesignGroupUp(sub.id, gi)
-                                                }
-                                                disabled={gi === 0}
-                                                className="rounded-md p-1 hover:bg-white/10 disabled:opacity-25"
-                                                title="Move up"
-                                              >
-                                                <ArrowUp className="size-3.5 text-slate-500" />
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  moveDesignGroupDown(sub.id, gi)
-                                                }
-                                                disabled={gi >= dgList.length - 1}
-                                                className="rounded-md p-1 hover:bg-white/10 disabled:opacity-25"
-                                                title="Move down"
-                                              >
-                                                <ArrowDown className="size-3.5 text-slate-500" />
-                                              </button>
-                                            </div>
-                                          </div>
-                                        ))}
+                                      <div className="px-3 pb-3 sm:px-4 sm:pl-16">
+                                        <CatalogOrderDragList
+                                          items={dgList}
+                                          getKey={(g) => `${sub.id}-${g}`}
+                                          onReorder={(next) =>
+                                            setDesignGroupOrderDraft((prev) => ({
+                                              ...prev,
+                                              [sub.id]: next,
+                                            }))
+                                          }
+                                          renderLabel={(g) => g}
+                                          mobileHint="Long-press the ⋮⋮ grip, then drag up or down to reorder"
+                                        />
                                       </div>
                                     )}
                                   </div>

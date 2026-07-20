@@ -32,8 +32,10 @@ import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import SmartSearch from '@/components/SmartSearch'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
+import { useResellerInboxSummary } from '@/hooks/useResellerInboxSummary'
 import { userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
+import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import { getOgImagePath } from '@/lib/og-image'
 import { isResellerStorefrontGuest } from '@/lib/reseller-storefront'
 import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
@@ -82,7 +84,7 @@ export default function Navbar() {
   const searchParams = useSearchParams()
   const { items, openCart } = useCart()
   const auth = useAuth()
-  const { hasB2bPortalAccess } = useCustomerTier()
+  const { hasB2bPortalAccess, customerTier } = useCustomerTier()
   const {
     businessName,
     logoUrl,
@@ -109,13 +111,25 @@ export default function Navbar() {
     : HOME_PATH
 
   const strictAdminInbox = userCanCallStrictAdminApi(user)
+  const isResellerTier = customerTier === CUSTOMER_TIER.RESELLER
   const { data: adminInbox } = useAdminInboxSummary(
     !!auth.isAuthenticated && strictAdminInbox,
+  )
+  const { data: resellerInbox } = useResellerInboxSummary(
+    !!auth.isAuthenticated && isResellerTier,
   )
   const adminAttention =
     adminInbox && adminInbox.navAttentionCount > 0
       ? formatAdminInboxBadge(adminInbox.navAttentionCount)
       : ''
+  const resellerAttention =
+    resellerInbox && resellerInbox.navAttentionCount > 0
+      ? formatAdminInboxBadge(resellerInbox.navAttentionCount)
+      : ''
+  const profileAttentionCount =
+    (adminInbox?.navAttentionCount ?? 0) + (resellerInbox?.navAttentionCount ?? 0)
+  const profileAttention =
+    profileAttentionCount > 0 ? formatAdminInboxBadge(Math.min(99, profileAttentionCount)) : ''
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -227,26 +241,32 @@ export default function Navbar() {
                     href={PROFILE_PATH}
                     className={`kc-icon-btn relative size-9 md:hidden ${navIsActive(pathname, PROFILE_PATH) ? 'text-slate-100' : ''}`}
                     aria-label={
-                      adminAttention ? `Profile, ${adminAttention} admin updates` : 'Profile'
+                      profileAttention ? `Profile, ${profileAttention} updates` : 'Profile'
                     }
                     title="Profile"
                   >
                     <User className="size-[1.125rem]" strokeWidth={1.5} />
-                    {strictAdminInbox && adminAttention && (
+                    {profileAttention && (
                       <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-500 px-0.5 text-[8px] font-bold leading-none text-white">
-                        {adminAttention}
+                        {profileAttention}
                       </span>
                     )}
                   </Link>
 
                   <div className="relative hidden h-9 items-center gap-2 rounded-full border border-slate-700/40 bg-white/70 pl-3 pr-1 md:flex">
-                    {strictAdminInbox && adminAttention && (
+                    {profileAttention && (
                       <span
                         className="absolute -right-1 -top-1 z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white shadow-sm"
-                        title="Admin inbox"
+                        title={
+                          adminAttention && resellerAttention
+                            ? 'Admin & catalogue inquiries'
+                            : adminAttention
+                              ? 'Admin inbox'
+                              : 'Catalogue inquiries'
+                        }
                         aria-hidden
                       >
-                        {adminAttention}
+                        {profileAttention}
                       </span>
                     )}
                     <div className="min-w-0 max-w-[7rem] lg:max-w-[10rem]">
@@ -334,13 +354,13 @@ export default function Navbar() {
         <div className="flex min-h-[48px] items-stretch justify-around px-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1">
           {navItems.map(({ href, icon: Icon, label, shortLabel }) => {
             const active = navIsActive(pathname, href)
-            const profileAdminDot = href === PROFILE_PATH && strictAdminInbox && adminAttention
+            const profileDot = href === PROFILE_PATH && profileAttention
             return (
               <Link
                 key={href}
                 href={href}
                 aria-label={
-                  profileAdminDot ? `${label}, ${adminAttention} admin updates` : label
+                  profileDot ? `${label}, ${profileAttention} updates` : label
                 }
                 className={`kc-mobile-nav-link active:scale-[0.97] ${
                   active ? 'kc-mobile-nav-link--active' : ''
@@ -348,9 +368,9 @@ export default function Navbar() {
               >
                 <span className="relative flex size-[1.25rem] shrink-0 items-center justify-center">
                   <Icon strokeWidth={1.5} className="opacity-90" aria-hidden />
-                  {profileAdminDot ? (
+                  {profileDot ? (
                     <span className="absolute -right-1.5 -top-1 flex h-3 min-w-3 items-center justify-center rounded-full bg-rose-500 px-0.5 text-[7px] font-bold leading-none text-white">
-                      {adminAttention}
+                      {profileAttention}
                     </span>
                   ) : null}
                 </span>

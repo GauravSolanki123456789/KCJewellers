@@ -57,10 +57,29 @@ export function buildWhatsAppOrderUrl(digitsForWaMe: string, message: string): s
   return `https://wa.me/${d}?text=${encodeURIComponent(message)}`;
 }
 
+/** Safari blocks `window.open` after async work — use same-tab navigation on iOS / when popups fail. */
+export function shouldUseSameTabWhatsAppNavigation(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const isIOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  return isIOS;
+}
+
 export function openWhatsAppOrder(digitsForWaMe: string, message: string): boolean {
   const url = buildWhatsAppOrderUrl(digitsForWaMe, message);
   if (!url) return false;
-  window.open(url, "_blank", "noopener,noreferrer");
+
+  if (shouldUseSameTabWhatsAppNavigation()) {
+    window.location.assign(url);
+    return true;
+  }
+
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    window.location.assign(url);
+  }
   return true;
 }
 

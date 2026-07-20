@@ -37,7 +37,7 @@ function sqlCatalogMetalFamilyExpr(columnRef) {
     const col = `LOWER(TRIM(COALESCE(${columnRef}, '')))`;
     return `CASE
         WHEN ${col} = '' THEN 'silver'
-        WHEN ${col} LIKE 'gifting%' OR ${col} = 'gift' THEN 'gifting'
+        WHEN ${col} LIKE 'gifting%' OR ${col} = 'gift' OR ${col} LIKE 'gift item%' THEN 'gifting'
         WHEN ${col} LIKE 'diamond%' THEN 'diamond'
         WHEN ${col} LIKE 'silver%' THEN 'silver'
         WHEN ${col} LIKE 'gold%' OR ${col} IN ('22k', '18k', '24k', '916', '750') THEN 'gold'

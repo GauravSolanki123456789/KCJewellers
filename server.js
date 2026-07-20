@@ -396,6 +396,14 @@ function adminAccessGate(req, res, next) {
     if (req.method === 'POST' && pathFull.includes('/api/admin/shared-catalog')) {
         return next();
     }
+    // Resellers append products to their own active shared catalogue links.
+    if (
+        req.method === 'PATCH' &&
+        pathFull.includes('/api/admin/shared-catalog/') &&
+        pathFull.endsWith('/products')
+    ) {
+        return next();
+    }
     return isAdminStrict(req, res, next);
 }
 
@@ -6560,11 +6568,26 @@ function normalizeCatalogProductTypeDb(raw) {
 }
 
 function mapSubcategoryRetailTags(s) {
+    let designGroupsDiscovered = [];
+    const raw = s.design_groups_discovered;
+    if (Array.isArray(raw)) {
+        designGroupsDiscovered = raw.map((x) => String(x).trim()).filter(Boolean);
+    } else if (typeof raw === 'string' && raw.trim()) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                designGroupsDiscovered = parsed.map((x) => String(x).trim()).filter(Boolean);
+            }
+        } catch {
+            designGroupsDiscovered = [];
+        }
+    }
     return {
         id: s.id,
         name: s.name,
         slug: s.slug,
         design_group_order: normalizeDesignGroupOrder(s.design_group_order),
+        design_groups_discovered: designGroupsDiscovered,
         audience: normalizeCatalogAudienceDb(s.audience),
         product_type: normalizeCatalogProductTypeDb(s.product_type),
         product_count: Number(s.product_count ?? 0) || 0,
@@ -7796,6 +7819,109 @@ app.get('/api/admin/reseller-catalog-inquiries', isAdminStrict, async (req, res)
     }
 });
 
+    }
+});
+
+/** Reseller profile + nav: pending catalogue inquiries since last visit. */
+const KC_RESELLER_ATTENTION_SECTION_KEYS = new Set(['own_catalog_inquiries']);
+
+app.get('/api/reseller/inbox-summary', requireSharedCatalogCreator, async (req, res) => {
+    try {
+        const tier = String(req.user?.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.json({
+                success: true,
+                data: {
+                    counts: { catalogInquiriesPending: 0 },
+                    badgesByHref: {},
+                    navAttentionCount: 0,
+                    generatedAt: new Date().toISOString(),
+                },
+            });
+        }
+
+        const userId = req.user?.id;
+        let seenMap = Object.create(null);
+        if (userId != null) {
+            try {
+                seenMap = await loadAdminAttentionLastSeenMap(userId);
+            } catch (e) {
+                console.warn('reseller inbox-summary: attention seen unavailable:', e.message);
+            }
+        }
+        const seenInquiries = seenMap.own_catalog_inquiries || null;
+
+        const pendingRows = await query(
+            `SELECT COUNT(*)::int AS n FROM shared_catalog_inquiries
+             WHERE reseller_user_id = $1
+               AND inquiry_status = 'pending'
+               AND created_at >= NOW() - INTERVAL '30 days'`,
+            [userId],
+        );
+        const catalogInquiriesPending = Number(pendingRows[0]?.n || 0);
+
+        let catalogInquiriesUnread = catalogInquiriesPending;
+        if (seenInquiries) {
+            const unreadRows = await query(
+                `SELECT COUNT(*)::int AS n FROM shared_catalog_inquiries
+                 WHERE reseller_user_id = $1
+                   AND inquiry_status = 'pending'
+                   AND created_at >= NOW() - INTERVAL '30 days'
+                   AND created_at > $2`,
+                [userId, seenInquiries],
+            );
+            catalogInquiriesUnread = Number(unreadRows[0]?.n || 0);
+        }
+
+        const navAttentionCount = Math.min(99, catalogInquiriesUnread);
+
+        res.json({
+            success: true,
+            data: {
+                counts: { catalogInquiriesPending },
+                badgesByHref: {
+                    '/reseller/inquiries': catalogInquiriesUnread,
+                    '/profile': navAttentionCount,
+                },
+                navAttentionCount,
+                generatedAt: new Date().toISOString(),
+            },
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/reseller/attention/mark-seen', requireSharedCatalogCreator, requireJson, async (req, res) => {
+    try {
+        const tier = String(req.user?.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.status(403).json({ success: false, error: 'Reseller account required' });
+        }
+        const key = String(req.body?.attentionSectionKey || '').trim();
+        if (!KC_RESELLER_ATTENTION_SECTION_KEYS.has(key)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid attentionSectionKey',
+            });
+        }
+        const userId = req.user?.id;
+        if (userId == null) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        await query(
+            `INSERT INTO admin_attention_section_seen (user_id, attention_section_key, last_seen_at, updated_at)
+             VALUES ($1, $2, NOW(), NOW())
+             ON CONFLICT (user_id, attention_section_key)
+             DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()`,
+            [userId, key],
+        );
+        res.json({ success: true, attentionSectionKey: key });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 /** Reseller: own catalogue WhatsApp/PDF inquiries + summary. */
 app.get('/api/reseller/catalog-inquiries', requireSharedCatalogCreator, async (req, res) => {
     try {
@@ -7974,7 +8100,20 @@ app.get('/api/admin/catalog', isAdminStrict, async (req, res) => {
                     ), false) AS has_diamond,
                     COALESCE(BOOL_OR(
                         wp.id IS NOT NULL AND (${sqlProductMatchesCatalogMetal('wp.metal_type', 'gifting')})
-                    ), false) AS has_gifting
+                    ), false) AS has_gifting,
+                    COALESCE(
+                        (
+                            SELECT json_agg(dg ORDER BY dg)
+                            FROM (
+                                SELECT DISTINCT TRIM(wp2.design_group) AS dg
+                                FROM web_products wp2
+                                WHERE wp2.subcategory_id = ws.id
+                                  AND (wp2.is_active IS NULL OR wp2.is_active = true)
+                                  AND NULLIF(TRIM(COALESCE(wp2.design_group, '')), '') IS NOT NULL
+                            ) dg_rows
+                        ),
+                        '[]'::json
+                    ) AS design_groups_discovered
                 FROM web_subcategories ws
                 LEFT JOIN web_products wp ON wp.subcategory_id = ws.id
                     AND (wp.is_active IS NULL OR wp.is_active = true)
