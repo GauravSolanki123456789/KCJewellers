@@ -13,6 +13,12 @@ import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 import { formatProductMetalSpecSummary } from "@/lib/product-metal-specs";
 import type { ItemWithPdfImage } from "@/lib/pdf-embed-images";
 import { getKcPdfPalette, type KcPdfPalette } from "@/lib/kc-pdf-palette";
+import {
+  isPdfWeightOnlySpec,
+  pdfTableWeightText,
+  sanitizePdfText,
+  stripPdfWeightPrefix,
+} from "@/lib/pdf-text-utils";
 
 function buildCatalogPdfStyles(p: KcPdfPalette) {
   return StyleSheet.create({
@@ -294,6 +300,8 @@ function pdfSlabFromPricing(pricing: CatalogPdfResellerPricing | null) {
 }
 
 const PER_PAGE = 9;
+/** Few lines + photos fit on one A4 with the order table — saves paper. */
+const SAME_PAGE_PHOTO_MAX = 6;
 
 type PdfLineMeta = {
   index: number;
@@ -379,7 +387,9 @@ function resolvePdfLineMeta(
           price.savingsInr != null && price.savingsInr > 0
             ? `Save Rs. ${Math.round(price.savingsInr * shareQty).toLocaleString("en-IN")}. `
             : "";
-        slabNoteText = `${savings}${price.slabDiscountLines.join(" · ")}`;
+        slabNoteText = sanitizePdfText(
+          `${savings}${price.slabDiscountLines.join(" · ")}`,
+        );
       }
     }
   }
@@ -424,6 +434,9 @@ export function CatalogPdfDocument({
   }
   if (chunks.length === 0) chunks.push([]);
 
+  const photosOnFirstPage =
+    products.length > 0 && products.length <= SAME_PAGE_PHOTO_MAX;
+
   const totalPieces =
     orderSummary?.totalPieces ??
     lineMeta.reduce((sum, row) => sum + row.shareQty, 0);
@@ -435,7 +448,8 @@ export function CatalogPdfDocument({
       return sum + Number(row.lineTotalStr.replace(/,/g, ""));
     }, 0);
 
-  const photoPageCount = products.length > 0 ? chunks.length : 0;
+  const photoPageCount =
+    products.length === 0 ? 0 : photosOnFirstPage ? 0 : chunks.length;
   const totalPages = 1 + photoPageCount;
 
   const summaryHeader = (
@@ -501,7 +515,7 @@ export function CatalogPdfDocument({
             <Text style={[styles.orderCell, styles.orderColName]}>{row.name}</Text>
             <Text style={[styles.orderCell, styles.orderColSize]}>{row.sizeText || "—"}</Text>
             <Text style={[styles.orderCell, styles.orderColWeight]}>
-              {row.specText || row.weightText || "—"}
+              {pdfTableWeightText(row.weightText, row.specText)}
             </Text>
             <Text style={[styles.orderCellQty, styles.orderColQty]}>
               {row.shareQty} pc{row.shareQty !== 1 ? "s" : ""}
@@ -537,136 +551,154 @@ export function CatalogPdfDocument({
     </View>
   ) : null;
 
+  const renderPhotoCard = (raw: ItemWithPdfImage, globalIndex: number, keySuffix: string) => {
+    const p = raw as ItemWithPdfImage;
+    const meta = lineMeta[globalIndex];
+    const name = sanitizePdfText(meta?.name ?? displayName(p));
+    const img = p.pdfImageSrc;
+    const barcode = getProductSelectionKey(p);
+    const key = `${barcode || String(p.id ?? globalIndex)}-${keySuffix}`;
+    const barcodeText =
+      barcode && String(barcode).trim() !== "" ? String(barcode) : "-";
+    const sizeText = meta?.sizeText ?? null;
+    const shareQty = meta?.shareQty ?? 1;
+    const weightText =
+      stripPdfWeightPrefix(meta?.weightText) ??
+      stripPdfWeightPrefix(getCustomerDisplayWeightLabel(p));
+    const specForCard =
+      meta?.specText && !isPdfWeightOnlySpec(meta.specText)
+        ? sanitizePdfText(meta.specText)
+        : null;
+    const showPrices =
+      !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
+    let lineTotalStr = meta?.lineTotalStr ?? null;
+    let unitPriceStr = meta?.unitPriceStr ?? null;
+    let compareAtStr = meta?.compareAtStr ?? null;
+    let slabNoteText = meta?.slabNoteText ?? null;
+    let showInclGst = false;
+    if (showPrices && resellerPdfPricing) {
+      const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
+      const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
+      const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
+      const slab = pdfSlabFromPricing(resellerPdfPricing);
+      const catalogWholesale = resellerPdfPricing.wholesale ?? undefined;
+      const price = computeSharedCatalogUnitPrice(
+        p,
+        resellerPdfPricing.rates,
+        mk,
+        catalogWholesale ?? null,
+        giftingGstEnabled,
+        disc,
+        slab,
+        catalogWholesale ?? null,
+      );
+      showInclGst = price.showInclGst;
+      if (
+        price.unitCompareAtInr != null &&
+        price.unitCompareAtInr > price.unitTotalInr
+      ) {
+        compareAtStr = (price.unitCompareAtInr * shareQty).toLocaleString("en-IN");
+      }
+      if (price.slabDiscountLines.length > 0) {
+        const savings =
+          price.savingsInr != null && price.savingsInr > 0
+            ? `Save Rs. ${Math.round(price.savingsInr * shareQty).toLocaleString("en-IN")}. `
+            : "";
+        slabNoteText = sanitizePdfText(
+          `${savings}${price.slabDiscountLines.join(" · ")}`,
+        );
+      }
+      if (!lineTotalStr) {
+        const unitInr = price.unitTotalInr;
+        lineTotalStr = (unitInr * shareQty).toLocaleString("en-IN");
+        unitPriceStr = unitInr.toLocaleString("en-IN");
+      }
+    }
+    const boxAdd = getProductBoxCharges(p as Item);
+    const withBoxNote =
+      showPrices && boxAdd > 0 && lineTotalStr
+        ? sanitizePdfText(
+            `With box · Rs. ${(Number(lineTotalStr.replace(/,/g, "")) + boxAdd * shareQty).toLocaleString("en-IN")}`,
+          )
+        : null;
+
+    return (
+      <View key={key} style={styles.card}>
+        <View style={styles.thumbWrap}>
+          {img ? (
+            <Image style={styles.thumb} src={img} />
+          ) : (
+            <Text style={styles.thumbPlaceholder}>{name.charAt(0)}</Text>
+          )}
+          <View style={styles.qtyOverlay}>
+            <Text style={styles.qtyOverlayText}>×{shareQty}</Text>
+          </View>
+        </View>
+        <Text style={styles.productName}>{name}</Text>
+        {sizeText ? (
+          <Text style={styles.sizeLine}>Size · {sanitizePdfText(sizeText)}</Text>
+        ) : null}
+        <Text style={styles.refLine}>Ref · {barcodeText}</Text>
+        {weightText ? (
+          <Text style={styles.weightLine}>Weight · {sanitizePdfText(weightText)}</Text>
+        ) : null}
+        {specForCard ? <Text style={styles.weightLine}>{specForCard}</Text> : null}
+        {slabNoteText ? (
+          <Text style={styles.slabNoteLine}>{slabNoteText}</Text>
+        ) : null}
+        {lineTotalStr ? (
+          <>
+            {shareQty > 1 && unitPriceStr ? (
+              <Text style={styles.unitPriceLine}>
+                {shareQty} × Rs. {unitPriceStr} each
+              </Text>
+            ) : null}
+            {compareAtStr ? (
+              <Text style={styles.priceCompare}>Rs. {compareAtStr}</Text>
+            ) : null}
+            <Text style={styles.priceLine}>Rs. {lineTotalStr}</Text>
+            {withBoxNote ? <Text style={styles.weightLine}>{withBoxNote}</Text> : null}
+            {showInclGst ? <Text style={styles.priceGst}>incl. GST</Text> : null}
+          </>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderPhotoGrid = (chunk: ItemWithPdfImage[], pageIndex: number) => (
+    <View style={styles.grid}>
+      {chunk.map((raw, i) =>
+        renderPhotoCard(raw, pageIndex * PER_PAGE + i, `p${pageIndex}-${i}`),
+      )}
+    </View>
+  );
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         {summaryHeader}
         {orderTable}
+        {photosOnFirstPage ? (
+          <>
+            <Text style={[styles.photosTitle, { marginTop: 10 }]}>Product photos</Text>
+            {renderPhotoGrid(products, 0)}
+          </>
+        ) : null}
         <Text style={styles.footer} fixed>
           {brandName} · Page 1 of {totalPages}
         </Text>
       </Page>
 
-      {products.length > 0
+      {!photosOnFirstPage && products.length > 0
         ? chunks.map((chunk, pageIndex) => (
-        <Page key={`photos-${pageIndex}`} size="A4" style={styles.page}>
-          <Text style={styles.photosTitle}>Product photos</Text>
-          <View style={styles.grid}>
-            {chunk.map((raw, i) => {
-              const globalIndex = pageIndex * PER_PAGE + i;
-              const p = raw as ItemWithPdfImage;
-              const meta = lineMeta[globalIndex];
-              const name = meta?.name ?? displayName(p);
-              const img = p.pdfImageSrc;
-              const barcode = getProductSelectionKey(p);
-              const key = `${barcode || String(p.id ?? globalIndex)}-${pageIndex}-${i}`;
-              const barcodeText =
-                barcode && String(barcode).trim() !== "" ? String(barcode) : "-";
-              const sizeText = meta?.sizeText ?? null;
-              const shareQty = meta?.shareQty ?? 1;
-              const weightText = meta?.weightText ?? getCustomerDisplayWeightLabel(p);
-              const showPrices =
-                !hidePrices && resellerPdfPricing && resellerPdfPricing.rates != null;
-              let lineTotalStr = meta?.lineTotalStr ?? null;
-              let unitPriceStr = meta?.unitPriceStr ?? null;
-              let compareAtStr = meta?.compareAtStr ?? null;
-              let slabNoteText = meta?.slabNoteText ?? null;
-              let showInclGst = false;
-              if (showPrices && resellerPdfPricing) {
-                const mk = Math.max(0, Number(resellerPdfPricing.markupPercentage) || 0);
-                const disc = Math.max(0, Number(resellerPdfPricing.discountPercentage) || 0);
-                const giftingGstEnabled = resellerPdfPricing.giftingGstEnabled !== false;
-                const slab = pdfSlabFromPricing(resellerPdfPricing);
-                const catalogWholesale = resellerPdfPricing.wholesale ?? undefined;
-                const price = computeSharedCatalogUnitPrice(
-                  p,
-                  resellerPdfPricing.rates,
-                  mk,
-                  catalogWholesale ?? null,
-                  giftingGstEnabled,
-                  disc,
-                  slab,
-                  catalogWholesale ?? null,
-                );
-                showInclGst = price.showInclGst;
-                if (
-                  price.unitCompareAtInr != null &&
-                  price.unitCompareAtInr > price.unitTotalInr
-                ) {
-                  compareAtStr = (price.unitCompareAtInr * shareQty).toLocaleString("en-IN");
-                }
-                if (price.slabDiscountLines.length > 0) {
-                  const savings =
-                    price.savingsInr != null && price.savingsInr > 0
-                      ? `Save Rs. ${Math.round(price.savingsInr * shareQty).toLocaleString("en-IN")}. `
-                      : "";
-                  slabNoteText = `${savings}${price.slabDiscountLines.join(" · ")}`;
-                }
-                if (!lineTotalStr) {
-                  const unitInr = price.unitTotalInr;
-                  lineTotalStr = (unitInr * shareQty).toLocaleString("en-IN");
-                  unitPriceStr = unitInr.toLocaleString("en-IN");
-                }
-              }
-              const boxAdd = getProductBoxCharges(p as Item);
-              const withBoxNote =
-                showPrices && boxAdd > 0 && lineTotalStr
-                  ? `With box · Rs. ${(Number(lineTotalStr.replace(/,/g, "")) + boxAdd * shareQty).toLocaleString("en-IN")}`
-                  : null;
-              return (
-                <View key={key} style={styles.card}>
-                  <View style={styles.thumbWrap}>
-                    {img ? (
-                      <Image style={styles.thumb} src={img} />
-                    ) : (
-                      <Text style={styles.thumbPlaceholder}>{name.charAt(0)}</Text>
-                    )}
-                    <View style={styles.qtyOverlay}>
-                      <Text style={styles.qtyOverlayText}>
-                        ×{shareQty}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.productName}>{name}</Text>
-                  {sizeText ? <Text style={styles.sizeLine}>Size · {sizeText}</Text> : null}
-                  <Text style={styles.refLine}>Ref · {barcodeText}</Text>
-                  {weightText ? (
-                    <Text style={styles.weightLine}>Weight · {weightText}</Text>
-                  ) : null}
-                  {meta?.specText ? (
-                    <Text style={styles.weightLine}>{meta.specText}</Text>
-                  ) : null}
-                  {slabNoteText ? (
-                    <Text style={styles.slabNoteLine}>{slabNoteText}</Text>
-                  ) : null}
-                  {lineTotalStr ? (
-                    <>
-                      {shareQty > 1 && unitPriceStr ? (
-                        <Text style={styles.unitPriceLine}>
-                          {shareQty} × Rs. {unitPriceStr} each
-                        </Text>
-                      ) : null}
-                      {compareAtStr ? (
-                        <Text style={styles.priceCompare}>Rs. {compareAtStr}</Text>
-                      ) : null}
-                      <Text style={styles.priceLine}>Rs. {lineTotalStr}</Text>
-                      {withBoxNote ? (
-                        <Text style={styles.weightLine}>{withBoxNote}</Text>
-                      ) : null}
-                      {showInclGst ? (
-                        <Text style={styles.priceGst}>incl. GST</Text>
-                      ) : null}
-                    </>
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-          <Text style={styles.footer} fixed>
-            {brandName} · Page {pageIndex + 2} of {totalPages}
-          </Text>
-        </Page>
-      ))
+            <Page key={`photos-${pageIndex}`} size="A4" style={styles.page}>
+              <Text style={styles.photosTitle}>Product photos</Text>
+              {renderPhotoGrid(chunk, pageIndex)}
+              <Text style={styles.footer} fixed>
+                {brandName} · Page {pageIndex + 2} of {totalPages}
+              </Text>
+            </Page>
+          ))
         : null}
     </Document>
   );

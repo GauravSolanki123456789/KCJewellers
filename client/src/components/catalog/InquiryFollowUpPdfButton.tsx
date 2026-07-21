@@ -15,6 +15,7 @@ import {
 } from '@/lib/shared-catalog-pricing'
 import {
   buildCustomerFollowUpWhatsAppMessage,
+  buildInquiryQuotationPdfFilename,
   customerWhatsAppHref,
   type CatalogInquiryLine,
   type CatalogInquiryRow,
@@ -156,13 +157,13 @@ export default function InquiryFollowUpPdfButton({
         />,
       ).toBlob()
 
-      const slug =
-        brandLabel
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 40) || 'quotation'
-      const filename = `${slug}-quotation-${new Date().toISOString().slice(0, 10)}.pdf`
+      const filename = buildInquiryQuotationPdfFilename({
+        inquiryId: inquiry.id,
+        customerName: ctx.customerName ?? inquiry.customer_name,
+        customerMobile: ctx.customerMobile ?? inquiry.customer_mobile,
+        createdAt: inquiry.created_at,
+        brandLabel,
+      })
 
       const followUpText = buildCustomerFollowUpWhatsAppMessage({
         brandLabel,
@@ -246,6 +247,7 @@ export default function InquiryFollowUpPdfButton({
         open={pdfShareOpen}
         onOpenChange={setPdfShareOpen}
         payload={pdfSharePayload}
+        minimal
       />
     </>
   )

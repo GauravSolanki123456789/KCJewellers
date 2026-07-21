@@ -2,6 +2,7 @@ import type { SharedCatalogPickLineForWhatsApp } from '@/lib/cart-order-whatsapp
 import { formatSharedCatalogOrderWhatsAppBody } from '@/lib/cart-order-whatsapp'
 import {
   formatStoredMobileDisplay,
+  normalizeStoredMobile,
   whatsAppDigitsFromStored,
 } from '@/lib/international-mobile'
 
@@ -114,6 +115,44 @@ export function customerWhatsAppHref(
   const base = `https://wa.me/${wa}`
   if (!message?.trim()) return base
   return `${base}?text=${encodeURIComponent(message.trim())}`
+}
+
+/** Trackable quotation PDF filename — inquiry id, customer mobile, inquiry timestamp. */
+export function buildInquiryQuotationPdfFilename(params: {
+  inquiryId: number
+  customerName?: string | null
+  customerMobile?: string | null
+  createdAt?: string | null
+  brandLabel?: string | null
+}): string {
+  const brand =
+    String(params.brandLabel || 'quotation')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 28) || 'quotation'
+
+  const nameSlug = String(params.customerName || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 20)
+
+  const mobile = normalizeStoredMobile(params.customerMobile)
+  const mobilePart = mobile ? mobile.slice(-10) : 'unknown'
+
+  const d = params.createdAt ? new Date(params.createdAt) : new Date()
+  const datePart = Number.isNaN(d.getTime())
+    ? new Date().toISOString().slice(0, 10)
+    : d.toISOString().slice(0, 10)
+  const hh = Number.isNaN(d.getTime()) ? '00' : String(d.getHours()).padStart(2, '0')
+  const mm = Number.isNaN(d.getTime()) ? '00' : String(d.getMinutes()).padStart(2, '0')
+
+  const parts = [`${brand}-inq${params.inquiryId}`, mobilePart, datePart, `${hh}${mm}`]
+  if (nameSlug && !/^customer-\d+$/i.test(nameSlug)) {
+    parts.splice(1, 0, nameSlug)
+  }
+  return `${parts.join('-')}.pdf`
 }
 
 export function inquiryLineToWhatsAppLine(line: CatalogInquiryLine): SharedCatalogPickLineForWhatsApp {

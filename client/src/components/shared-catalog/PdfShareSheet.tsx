@@ -23,9 +23,11 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   payload: PdfShareSheetPayload | null
+  /** When true, hide helper copy under the title and footer tip. */
+  minimal?: boolean
 }
 
-export default function PdfShareSheet({ open, onOpenChange, payload }: Props) {
+export default function PdfShareSheet({ open, onOpenChange, payload, minimal = false }: Props) {
   const [sharing, setSharing] = useState(false)
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
@@ -68,6 +70,7 @@ export default function PdfShareSheet({ open, onOpenChange, payload }: Props) {
 
   const brand = payload?.brandLabel?.trim() || 'KC Jewellers'
   const ios = isIosDevice()
+  const showHelperCopy = !minimal
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -80,11 +83,13 @@ export default function PdfShareSheet({ open, onOpenChange, payload }: Props) {
             <DialogTitle className="text-base font-semibold text-neutral-900">
               PDF ready
             </DialogTitle>
-            <DialogDescription className="text-sm leading-relaxed text-neutral-600">
-              {ios
-                ? `Tap Share PDF, then choose WhatsApp to send your shortlist to ${brand}.`
-                : `Share your shortlist PDF with ${brand} on WhatsApp or save it to your device.`}
-            </DialogDescription>
+            {showHelperCopy ? (
+              <DialogDescription className="text-sm leading-relaxed text-neutral-600">
+                {ios
+                  ? `Tap Share PDF, then choose WhatsApp to send your shortlist to ${brand}.`
+                  : `Share your shortlist PDF with ${brand} on WhatsApp or save it to your device.`}
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
           <button
             type="button"
@@ -146,7 +151,7 @@ export default function PdfShareSheet({ open, onOpenChange, payload }: Props) {
           ) : null}
         </div>
 
-        {payload ? (
+        {payload && showHelperCopy ? (
           <p className="border-t border-neutral-100 px-4 py-3 text-center text-[11px] leading-relaxed text-neutral-500">
             {ios
               ? 'If WhatsApp is not listed, tap Open PDF → Share ↗ at the bottom of Safari → WhatsApp.'
