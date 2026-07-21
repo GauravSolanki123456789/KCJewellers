@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   Dialog,
@@ -10,6 +10,11 @@ import {
 } from '@/components/ui/dialog'
 import { Loader2, Smartphone, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  COMMON_COUNTRY_DIAL_OPTIONS,
+  parseInternationalMobileInput,
+  type ParsedMobile,
+} from '@/lib/international-mobile'
 
 export type SharedCatalogCustomerIdentity = {
   userId: number
@@ -47,10 +52,26 @@ export default function SharedCatalogSignInModal({
   catalogUuid,
 }: Props) {
   const [step, setStep] = useState<'mobile' | 'otp'>('mobile')
+  const [countryCode, setCountryCode] = useState('91')
+  const [customCountryCode, setCustomCountryCode] = useState('')
   const [mobileNumber, setMobileNumber] = useState('')
   const [otpCode, setOtpCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  const countryOptions = COMMON_COUNTRY_DIAL_OPTIONS
+  const isCustomCountry = countryCode === 'custom'
+  const effectiveCountryCode = isCustomCountry ? customCountryCode : countryCode
+  const selectedCountry = useMemo(
+    () => countryOptions.find((c) => c.code === countryCode) ?? countryOptions[0],
+    [countryCode, countryOptions],
+  )
+
+  const parsedMobile = useMemo(() => {
+    if (!effectiveCountryCode.trim() || !mobileNumber.trim()) return null
+    const result = parseInternationalMobileInput(effectiveCountryCode, mobileNumber)
+    return result.ok ? result.parsed : null
+  }, [effectiveCountryCode, mobileNumber])
 
   const reset = () => {
     setStep('mobile')
@@ -67,43 +88,59 @@ export default function SharedCatalogSignInModal({
     onOpenChange(next)
   }
 
-  const completeSession = (user: Record<string, unknown> | undefined, fallbackMobile: string) => {
+  const completeSession = (
+    user: Record<string, unknown> | undefined,
+    parsed: ParsedMobile,
+  ) => {
     const userId = Number(user?.id)
-    const verifiedMobile = String(user?.mobile_number ?? fallbackMobile)
-      .replace(/\D/g, '')
-      .slice(-10)
-    const name = String(user?.name ?? `Customer ${verifiedMobile.slice(-4)}`)
-    if (!Number.isFinite(userId) || verifiedMobile.length !== 10) {
+    const verifiedMobile = String(user?.mobile_number ?? parsed.stored).replace(/\D/g, '')
+    const stored =
+      verifiedMobile.length >= 8 ? verifiedMobile : parsed.stored
+    const name = String(user?.name ?? `Customer ${stored.slice(-4)}`)
+    if (!Number.isFinite(userId) || stored.length < 8) {
       throw new Error('Sign-in succeeded but session is incomplete. Try again.')
     }
-    onVerified({ userId, mobile: verifiedMobile, name })
+    onVerified({ userId, mobile: stored, name })
     reset()
     onOpenChange(false)
   }
 
+  const registerMobile = async (parsed: ParsedMobile) => {
+    const res = await axios.post(
+      '/api/auth/register-mobile',
+      {
+        mobile_number: parsed.national,
+        country_code: parsed.countryCode,
+      },
+      { withCredentials: true },
+    )
+    completeSession(res.data?.user as Record<string, unknown> | undefined, parsed)
+  }
+
   const handleMobileSubmit = async () => {
-    const mobile = mobileNumber.replace(/\D/g, '').slice(-10)
-    if (mobile.length !== 10) {
-      setError('Enter a valid 10-digit mobile number')
+    const result = parseInternationalMobileInput(effectiveCountryCode, mobileNumber)
+    if (!result.ok) {
+      setError(result.error)
       return
     }
+    const parsed = result.parsed
     setError('')
     setLoading(true)
     try {
-      if (otpEnabled) {
+      const useOtp = otpEnabled && parsed.isIndian
+      if (useOtp) {
         const otpUrl = catalogUuid
           ? `/api/shared-catalog/${encodeURIComponent(catalogUuid)}/send-otp`
           : '/api/auth/send-otp'
-        await axios.post(otpUrl, { mobile_number: mobile }, { withCredentials: true })
+        await axios.post(
+          otpUrl,
+          { mobile_number: parsed.national, country_code: parsed.countryCode },
+          { withCredentials: true },
+        )
         setStep('otp')
         setOtpCode('')
       } else {
-        const res = await axios.post(
-          '/api/auth/register-mobile',
-          { mobile_number: mobile },
-          { withCredentials: true },
-        )
-        completeSession(res.data?.user as Record<string, unknown> | undefined, mobile)
+        await registerMobile(parsed)
       }
     } catch (err: unknown) {
       setError(sanitizeAuthError(err))
@@ -113,9 +150,14 @@ export default function SharedCatalogSignInModal({
   }
 
   const handleVerifyOtp = async () => {
-    const mobile = mobileNumber.replace(/\D/g, '').slice(-10)
+    const result = parseInternationalMobileInput(effectiveCountryCode, mobileNumber)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    const parsed = result.parsed
     const otp = otpCode.trim()
-    if (mobile.length !== 10 || otp.length < 4) {
+    if (!parsed.isIndian || otp.length < 4) {
       setError('Enter the 6-digit OTP')
       return
     }
@@ -124,10 +166,10 @@ export default function SharedCatalogSignInModal({
     try {
       const res = await axios.post(
         '/api/auth/verify-otp',
-        { mobile_number: mobile, otp_code: otp },
+        { mobile_number: parsed.national, otp_code: otp },
         { withCredentials: true },
       )
-      completeSession(res.data?.user as Record<string, unknown> | undefined, mobile)
+      completeSession(res.data?.user as Record<string, unknown> | undefined, parsed)
     } catch (err: unknown) {
       setError(sanitizeAuthError(err))
     } finally {
@@ -135,8 +177,11 @@ export default function SharedCatalogSignInModal({
     }
   }
 
-  const mobileDigits = mobileNumber.replace(/\D/g, '')
-  const mobileReady = mobileDigits.length === 10
+  const mobileReady = !!parsedMobile
+  const intlHint =
+    otpEnabled && parsedMobile && !parsedMobile.isIndian
+      ? 'International numbers are verified instantly — SMS OTP is only sent for Indian (+91) mobiles.'
+      : null
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -153,28 +198,89 @@ export default function SharedCatalogSignInModal({
             <div className="space-y-3">
               <div>
                 <label
+                  htmlFor="sc-country"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55"
+                >
+                  Country
+                </label>
+                <select
+                  id="sc-country"
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="min-h-[48px] w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-base outline-none focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/30"
+                >
+                  {countryOptions.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.flag} {c.label} (+{c.code})
+                    </option>
+                  ))}
+                  <option value="custom">Other country…</option>
+                </select>
+              </div>
+
+              {isCustomCountry ? (
+                <div>
+                  <label
+                    htmlFor="sc-custom-cc"
+                    className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55"
+                  >
+                    Country code
+                  </label>
+                  <div className="flex overflow-hidden rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white focus-within:ring-2 focus-within:ring-[var(--kc-accent,#c41e3a)]/30">
+                    <span className="flex items-center border-r border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+                      +
+                    </span>
+                    <input
+                      id="sc-custom-cc"
+                      type="tel"
+                      inputMode="numeric"
+                      placeholder="e.g. 971"
+                      maxLength={4}
+                      value={customCountryCode}
+                      onChange={(e) =>
+                        setCustomCountryCode(e.target.value.replace(/\D/g, '').slice(0, 4))
+                      }
+                      className="min-h-[48px] flex-1 bg-transparent px-3 text-base outline-none"
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              <div>
+                <label
                   htmlFor="sc-mobile"
                   className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55"
                 >
                   Mobile number
                 </label>
                 <div className="flex overflow-hidden rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white focus-within:ring-2 focus-within:ring-[var(--kc-accent,#c41e3a)]/30">
-                  <span className="flex items-center border-r border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
-                    +91
+                  <span className="flex items-center border-r border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 text-sm font-medium tabular-nums text-[var(--color-jewelry-black,#1a1814)]/70">
+                    +{effectiveCountryCode || '—'}
                   </span>
                   <input
                     id="sc-mobile"
                     type="tel"
                     inputMode="numeric"
                     autoComplete="tel-national"
-                    placeholder="10-digit mobile"
-                    maxLength={10}
+                    placeholder={
+                      isCustomCountry ? 'Mobile without country code' : selectedCountry.placeholder
+                    }
+                    maxLength={isCustomCountry ? 14 : selectedCountry.maxLength}
                     value={mobileNumber}
-                    onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    onChange={(e) =>
+                      setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 14))
+                    }
                     className="min-h-[48px] flex-1 bg-transparent px-3 text-base outline-none"
                   />
                 </div>
               </div>
+
+              {intlHint ? (
+                <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-900">
+                  {intlHint}
+                </p>
+              ) : null}
+
               <button
                 type="button"
                 disabled={loading || !mobileReady}
@@ -191,7 +297,13 @@ export default function SharedCatalogSignInModal({
                 ) : (
                   <Smartphone className="size-4" aria-hidden />
                 )}
-                {otpEnabled ? 'Send OTP' : 'Continue'}
+                {otpEnabled && parsedMobile?.isIndian
+                  ? 'Send OTP'
+                  : otpEnabled && parsedMobile && !parsedMobile.isIndian
+                    ? 'Continue'
+                    : otpEnabled
+                      ? 'Send OTP'
+                      : 'Continue'}
               </button>
             </div>
           ) : (
@@ -199,7 +311,7 @@ export default function SharedCatalogSignInModal({
               <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/70">
                 OTP sent to{' '}
                 <span className="font-semibold tabular-nums">
-                  +91 {mobileNumber.replace(/\D/g, '').slice(-10)}
+                  {parsedMobile?.display ?? `+91 ${mobileNumber}`}
                 </span>
               </p>
               <div>

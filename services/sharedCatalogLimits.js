@@ -212,16 +212,19 @@ async function assertResellerCanCreateCatalog(query, userId, productCount) {
     return status;
 }
 
+const {
+    normalizeStoredMobile,
+    mobilesMatch,
+} = require('./internationalMobile');
+
 /**
  * Session cookie may be unavailable on reseller custom domains (cross-site).
  * Fall back to customer id + mobile from the client after OTP / register-mobile.
  */
 async function resolveInquiryCustomerIdentity(query, req, body) {
     if (req?.isAuthenticated && req.isAuthenticated()) {
-        const mobile = String(req.user?.mobile_number || '')
-            .replace(/\D/g, '')
-            .slice(-10);
-        if (mobile.length === 10 && req.user?.id != null) {
+        const mobile = normalizeStoredMobile(req.user?.mobile_number);
+        if (mobile.length >= 8 && req.user?.id != null) {
             const name =
                 req.user?.name != null && String(req.user.name).trim()
                     ? String(req.user.name).trim()
@@ -235,19 +238,15 @@ async function resolveInquiryCustomerIdentity(query, req, body) {
     }
 
     const userId = parseInt(String(body?.customerUserId ?? body?.customer_user_id ?? ''), 10);
-    const mobile = String(body?.customerMobile ?? body?.customer_mobile ?? '')
-        .replace(/\D/g, '')
-        .slice(-10);
-    if (!Number.isFinite(userId) || userId <= 0 || mobile.length !== 10) {
+    const mobile = normalizeStoredMobile(body?.customerMobile ?? body?.customer_mobile);
+    if (!Number.isFinite(userId) || userId <= 0 || mobile.length < 8) {
         return null;
     }
 
     const rows = await query('SELECT id, mobile_number, name FROM users WHERE id = $1', [userId]);
     if (!rows.length) return null;
-    const dbMobile = String(rows[0].mobile_number || '')
-        .replace(/\D/g, '')
-        .slice(-10);
-    if (dbMobile !== mobile) return null;
+    const dbMobile = normalizeStoredMobile(rows[0].mobile_number);
+    if (!mobilesMatch(dbMobile, mobile)) return null;
 
     const rawName = body?.customerName ?? body?.customer_name ?? rows[0].name;
     const customerName =
@@ -277,16 +276,14 @@ async function logSharedCatalogInquiry(query, payload) {
         customerName,
     } = payload;
     const mobile =
-        customerMobile != null
-            ? String(customerMobile).replace(/\D/g, '').slice(-10)
-            : '';
+        customerMobile != null ? normalizeStoredMobile(customerMobile) : '';
     const normalizedLines = Array.isArray(lines) ? lines : [];
     const linesJson = JSON.stringify(normalizedLines);
     const totalInrVal =
         totalInr != null && Number.isFinite(Number(totalInr)) ? Number(totalInr) : null;
 
     // Idempotent: same customer + catalogue + shortlist within 15 minutes → one inquiry row.
-    if (sharedCatalogId && mobile.length === 10) {
+    if (sharedCatalogId && mobile.length >= 8) {
         const dup = await query(
             `SELECT id, created_at
              FROM shared_catalog_inquiries
@@ -334,7 +331,7 @@ async function logSharedCatalogInquiry(query, payload) {
             linesJson,
             catalogUrl || null,
             customerUserId != null && Number.isFinite(Number(customerUserId)) ? Number(customerUserId) : null,
-            mobile.length === 10 ? mobile : null,
+            mobile.length >= 8 ? mobile : null,
             customerName != null && String(customerName).trim() ? String(customerName).trim().slice(0, 255) : null,
         ],
     );

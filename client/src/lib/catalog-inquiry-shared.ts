@@ -1,5 +1,9 @@
 import type { SharedCatalogPickLineForWhatsApp } from '@/lib/cart-order-whatsapp'
 import { formatSharedCatalogOrderWhatsAppBody } from '@/lib/cart-order-whatsapp'
+import {
+  formatStoredMobileDisplay,
+  whatsAppDigitsFromStored,
+} from '@/lib/international-mobile'
 
 export type CatalogInquiryStatus = 'pending' | 'completed' | 'no_sale'
 
@@ -98,18 +102,16 @@ export function countsTowardQuotedTotal(status: CatalogInquiryStatus | string | 
 }
 
 export function formatCustomerMobileDisplay(mobile: string | null | undefined): string | null {
-  const d = String(mobile ?? '').replace(/\D/g, '').slice(-10)
-  if (d.length !== 10) return null
-  return `+91 ${d.slice(0, 5)} ${d.slice(5)}`
+  return formatStoredMobileDisplay(mobile)
 }
 
 export function customerWhatsAppHref(
   mobile: string | null | undefined,
   message?: string,
 ): string | null {
-  const d = String(mobile ?? '').replace(/\D/g, '').slice(-10)
-  if (d.length !== 10) return null
-  const base = `https://wa.me/91${d}`
+  const wa = whatsAppDigitsFromStored(mobile)
+  if (!wa) return null
+  const base = `https://wa.me/${wa}`
   if (!message?.trim()) return base
   return `${base}?text=${encodeURIComponent(message.trim())}`
 }

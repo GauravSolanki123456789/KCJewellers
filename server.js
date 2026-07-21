@@ -122,6 +122,13 @@ const {
     compareCatalogProductRows,
 } = require('./services/catalogProductOrder');
 const {
+    normalizeStoredMobile,
+    isIndianMobileDigits,
+    parseInternationalMobileInput,
+    mobilesMatch,
+} = require('./services/internationalMobile');
+const { getCatalogInquiryPdfContext } = require('./services/catalogInquiryPdf');
+const {
     parseAllowedCategoryMetals,
     filterCatalogForResellerScope,
 } = require('./services/resellerCatalogScope');
@@ -935,19 +942,39 @@ const CO3_CCC_DELIVERY_HINT =
     'Gateway accepted the SMS (message ID returned) but if nothing arrives on the phone: (1) Log in to sms.co3.live → Manage template → add DLT ID 1701160034160122394 with the exact {#alp#} template and wait for approval. (2) Confirm transactional SMS credits are loaded. (3) Ask Co3 support to check delivery for the message ID.';
 
 /** Create or find customer by mobile and establish session (no OTP). Used when admin disables OTP. */
+async function findUserByStoredMobile(mobile_number) {
+    const stored = normalizeStoredMobile(mobile_number);
+    if (!stored) return null;
+    let userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [stored]);
+    if (userRows.length) return userRows[0];
+    if (stored.length === 10) {
+        userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [`91${stored}`]);
+        if (userRows.length) return userRows[0];
+    }
+    if (stored.startsWith('91') && stored.length === 12) {
+        userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [stored.slice(2)]);
+        if (userRows.length) return userRows[0];
+    }
+    const all = await query(
+        `SELECT * FROM users WHERE mobile_number IS NOT NULL AND LENGTH(TRIM(mobile_number)) >= 8 LIMIT 5000`,
+    );
+    for (const row of all) {
+        if (mobilesMatch(row.mobile_number, stored)) return row;
+    }
+    return null;
+}
+
 async function loginCustomerByMobile(req, res, mobile_number) {
-    let userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [mobile_number]);
-    let user;
-    if (userRows.length === 0) {
+    const stored = normalizeStoredMobile(mobile_number);
+    let user = await findUserByStoredMobile(stored);
+    if (!user) {
         const insert = await query(
             `INSERT INTO users (mobile_number, name, role, account_status, email)
              VALUES ($1, $2, 'customer', 'active', $3) RETURNING *`,
-            [mobile_number, `Customer ${mobile_number.slice(-4)}`, null],
+            [stored, `Customer ${stored.slice(-4)}`, null],
         );
         user = insert[0];
-        console.log(`📱 New mobile-only customer: ${mobile_number}`);
-    } else {
-        user = userRows[0];
+        console.log(`📱 New mobile-only customer: ${stored}`);
     }
     user = resolveUserRole(user);
     return new Promise((resolve, reject) => {
@@ -1796,16 +1823,27 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
 app.post('/api/auth/register-mobile', authLimiter, requireJson, async (req, res) => {
     try {
         const otpEnabled = await getSharedCatalogOtpEnabled();
-        if (otpEnabled) {
+        const countryCode = req.body.country_code ?? req.body.countryCode ?? null;
+        const rawMobile = String(req.body.mobile_number || req.body.mobile || '').trim();
+        let stored;
+        if (countryCode != null && String(countryCode).trim()) {
+            const parsed = parseInternationalMobileInput(countryCode, rawMobile);
+            if (!parsed.ok) {
+                return res.status(400).json({ error: parsed.error });
+            }
+            stored = parsed.stored;
+        } else {
+            stored = normalizeStoredMobile(rawMobile);
+        }
+        if (stored.length < 8) {
+            return res.status(400).json({ error: 'Valid mobile number required' });
+        }
+        if (otpEnabled && isIndianMobileDigits(stored)) {
             return res.status(403).json({
-                error: 'OTP verification is required. Use Send OTP to continue.',
+                error: 'OTP verification is required for Indian numbers. Use Send OTP to continue.',
             });
         }
-        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
-        if (mobile_number.length !== 10) {
-            return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
-        }
-        const payload = await loginCustomerByMobile(req, res, mobile_number);
+        const payload = await loginCustomerByMobile(req, res, stored);
         res.json(payload);
     } catch (error) {
         console.error('Register mobile error:', error.message || error);
@@ -7777,10 +7815,18 @@ app.post('/api/shared-catalog/:uuid/send-otp', authLimiter, requireJson, async (
             return res.status(400).json({ error: 'Invalid catalog id' });
         }
         await ensureResellerSmsColumns(pool);
-        const mobile_number = String(req.body.mobile_number || '').replace(/\D/g, '').slice(-10);
-        if (mobile_number.length !== 10) {
-            return res.status(400).json({ error: 'Valid 10-digit mobile number required' });
+        const countryCode = req.body.country_code ?? req.body.countryCode ?? '91';
+        const rawMobile = String(req.body.mobile_number || '').trim();
+        const parsed = parseInternationalMobileInput(countryCode, rawMobile);
+        if (!parsed.ok) {
+            return res.status(400).json({ error: parsed.error });
         }
+        if (!parsed.isIndian) {
+            return res.status(400).json({
+                error: 'SMS OTP is available for Indian (+91) numbers only. Tap Continue — international numbers are verified without SMS.',
+            });
+        }
+        const mobile_number = parsed.stored;
         const rows = await query(
             `SELECT sc.id, sc.created_by_user_id, sc.expires_at FROM shared_catalogs sc WHERE sc.id = $1::uuid`,
             [uuid],
@@ -7840,6 +7886,38 @@ app.get('/api/admin/reseller-catalog-analytics', isAdminStrict, async (req, res)
     } catch (error) {
         console.error('reseller-catalog-analytics:', error);
         res.status(500).json({ error: error.message || 'Failed to load analytics' });
+    }
+});
+
+/** Admin: PDF follow-up context for a catalogue inquiry (product photos + quoted lines). */
+app.get('/api/admin/reseller-catalog-inquiries/:id/pdf-context', isAdminStrict, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const data = await getCatalogInquiryPdfContext(query, req.params.id);
+        if (data.pricing) {
+            data.pricing.giftingGstEnabled = await getGiftingGstEnabled();
+        }
+        res.json(data);
+    } catch (error) {
+        const code = error.status || 500;
+        res.status(code).json({ error: error.message || 'Failed to load PDF context' });
+    }
+});
+
+/** Reseller: PDF follow-up context for own catalogue inquiry. */
+app.get('/api/reseller/catalog-inquiries/:id/pdf-context', requireSharedCatalogCreator, async (req, res) => {
+    try {
+        await ensureSharedCatalogLimitColumns(pool);
+        const data = await getCatalogInquiryPdfContext(query, req.params.id, {
+            resellerUserId: req.user.id,
+        });
+        if (data.pricing) {
+            data.pricing.giftingGstEnabled = await getGiftingGstEnabled();
+        }
+        res.json(data);
+    } catch (error) {
+        const code = error.status || 500;
+        res.status(code).json({ error: error.message || 'Failed to load PDF context' });
     }
 });
 

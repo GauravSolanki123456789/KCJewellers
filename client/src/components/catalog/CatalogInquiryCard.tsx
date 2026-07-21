@@ -11,6 +11,7 @@ import {
   Loader2,
   MessageCircle,
 } from 'lucide-react'
+import InquiryFollowUpPdfButton from '@/components/catalog/InquiryFollowUpPdfButton'
 import {
   catalogInquirySourceLabel,
   catalogInquiryStatusMeta,
@@ -31,6 +32,8 @@ type Props = {
   onStatusChange?: (id: number, status: CatalogInquiryStatus) => Promise<void>
   statusBusyId?: number | null
   theme?: 'admin' | 'reseller'
+  /** Which API namespace to use for follow-up PDF (defaults to theme). */
+  pdfApiPath?: 'admin' | 'reseller'
 }
 
 export default function CatalogInquiryCard({
@@ -41,12 +44,14 @@ export default function CatalogInquiryCard({
   onStatusChange,
   statusBusyId = null,
   theme = 'admin',
+  pdfApiPath,
 }: Props) {
   const [localBusy, setLocalBusy] = useState(false)
   const lines = inquiry.lines ?? []
   const SourceIcon = inquiry.source.toLowerCase() === 'pdf' ? FileText : MessageCircle
   const statusMeta = catalogInquiryStatusMeta(inquiry.inquiry_status)
   const busy = statusBusyId === inquiry.id || localBusy
+  const followUpApi = pdfApiPath ?? theme
   const customerMobileDisplay = formatCustomerMobileDisplay(inquiry.customer_mobile)
   const followUpBrand = inquiry.reseller_label?.trim() || 'our store'
   const customerWaHref = customerWhatsAppHref(
@@ -258,22 +263,36 @@ export default function CatalogInquiryCard({
           ) : null}
 
           {customerWaHref ? (
-            <a
-              href={customerWaHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                'mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:w-auto',
-                theme === 'admin'
-                  ? 'bg-emerald-600 hover:bg-emerald-500'
-                  : 'bg-[var(--kc-accent,#c41e3a)] hover:opacity-90',
-              )}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MessageCircle className="size-4 shrink-0" aria-hidden />
-              WhatsApp customer
-            </a>
-          ) : null}
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <a
+                href={customerWaHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  'inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:w-auto sm:min-w-[180px]',
+                  theme === 'admin'
+                    ? 'bg-emerald-600 hover:bg-emerald-500'
+                    : 'bg-[var(--kc-accent,#c41e3a)] hover:opacity-90',
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MessageCircle className="size-4 shrink-0" aria-hidden />
+                WhatsApp customer
+              </a>
+
+              <InquiryFollowUpPdfButton
+                inquiry={inquiry}
+                apiPath={followUpApi}
+                theme={theme}
+              />
+            </div>
+          ) : (
+            <InquiryFollowUpPdfButton
+              inquiry={inquiry}
+              apiPath={followUpApi}
+              theme={theme}
+            />
+          )}
 
           {inquiry.catalog_url ? (
             <a
