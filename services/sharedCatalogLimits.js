@@ -282,8 +282,10 @@ async function logSharedCatalogInquiry(query, payload) {
     const totalInrVal =
         totalInr != null && Number.isFinite(Number(totalInr)) ? Number(totalInr) : null;
 
-    // Idempotent: same customer + catalogue + shortlist within 15 minutes → one inquiry row.
+    // Idempotent dedup: WhatsApp = 8s anti double-tap; PDF = 15 min same shortlist.
     if (sharedCatalogId && mobile.length >= 8) {
+        const sourceNorm = String(source || 'whatsapp').trim().toLowerCase();
+        const dedupInterval = sourceNorm === 'whatsapp' ? '8 seconds' : '15 minutes';
         const dup = await query(
             `SELECT id, created_at
              FROM shared_catalog_inquiries
@@ -297,7 +299,7 @@ async function logSharedCatalogInquiry(query, payload) {
                  OR total_inr = $6::float8
                )
                AND lines_json = $7::jsonb
-               AND created_at >= NOW() - INTERVAL '15 minutes'
+               AND created_at >= NOW() - INTERVAL '${dedupInterval}'
              ORDER BY created_at DESC
              LIMIT 1`,
             [

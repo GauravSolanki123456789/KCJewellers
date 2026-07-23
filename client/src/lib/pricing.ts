@@ -298,6 +298,7 @@ export function formatProductSizeInches(raw: string | null | undefined): string 
   const t = String(raw ?? '').trim()
   if (!t) return null
   const lower = t.toLowerCase()
+  if (['standard', 'gp', 'with box', 'without box'].includes(lower)) return t
   if (/\b(in|inch|inches|")\b/.test(lower) || lower.endsWith('"')) return t
   return `${t} in`
 }

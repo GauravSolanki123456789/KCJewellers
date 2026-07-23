@@ -77,6 +77,7 @@ import { useAuth } from '@/hooks/useAuth'
 import SharedCatalogSignInModal, {
   type SharedCatalogCustomerIdentity,
 } from '@/components/shared-catalog/SharedCatalogSignInModal'
+import { normalizeStoredMobile } from '@/lib/international-mobile'
 
 const MAX_PIECE_QTY = 99
 
@@ -179,16 +180,62 @@ export default function SharedCatalogClient({
     () => new Map(),
   )
   const auth = useAuth()
-  const [customer, setCustomer] = useState<SharedCatalogCustomerIdentity | null>(null)
+  const [customer, setCustomerState] = useState<SharedCatalogCustomerIdentity | null>(null)
   const [signInOpen, setSignInOpen] = useState(false)
   const [pendingSelectKey, setPendingSelectKey] = useState<string | null>(null)
   const [pendingSelectAll, setPendingSelectAll] = useState(false)
 
+  const customerStorageKey = uuid ? `kc_sc_customer_${uuid}` : null
+
+  const persistCustomer = useCallback(
+    (identity: SharedCatalogCustomerIdentity | null) => {
+      if (!customerStorageKey || typeof window === 'undefined') return
+      try {
+        if (!identity) {
+          sessionStorage.removeItem(customerStorageKey)
+          return
+        }
+        sessionStorage.setItem(customerStorageKey, JSON.stringify(identity))
+      } catch {
+        /* ignore quota / private mode */
+      }
+    },
+    [customerStorageKey],
+  )
+
+  const setCustomer = useCallback(
+    (identity: SharedCatalogCustomerIdentity | null) => {
+      setCustomerState(identity)
+      persistCustomer(identity)
+    },
+    [persistCustomer],
+  )
+
+  useEffect(() => {
+    if (!customerStorageKey || typeof window === 'undefined') return
+    try {
+      const raw = sessionStorage.getItem(customerStorageKey)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as SharedCatalogCustomerIdentity
+      const mobile = normalizeStoredMobile(parsed?.mobile)
+      const userId = Number(parsed?.userId)
+      if (mobile.length >= 8 && Number.isFinite(userId)) {
+        setCustomerState({
+          userId,
+          mobile,
+          name: parsed.name ?? `Customer ${mobile.slice(-4)}`,
+        })
+      }
+    } catch {
+      /* ignore corrupt storage */
+    }
+  }, [customerStorageKey])
+
   useEffect(() => {
     if (!auth.hasChecked || !auth.isAuthenticated) return
     const u = auth.user as Record<string, unknown> | undefined
-    const mobile = String(u?.mobile_number ?? '').replace(/\D/g, '').slice(-10)
-    if (mobile.length !== 10) return
+    const mobile = normalizeStoredMobile(String(u?.mobile_number ?? ''))
+    if (mobile.length < 8) return
     const userId = Number(u?.id)
     if (!Number.isFinite(userId)) return
     setCustomer({
@@ -196,7 +243,7 @@ export default function SharedCatalogClient({
       mobile,
       name: String(u?.name ?? `Customer ${mobile.slice(-4)}`),
     })
-  }, [auth])
+  }, [auth, setCustomer])
 
   useEffect(() => {
     setSelections(new Map())
@@ -537,7 +584,7 @@ export default function SharedCatalogClient({
   )
 
   const logInquiry = useCallback(
-    async (source: 'whatsapp' | 'pdf') => {
+    async (source: 'whatsapp' | 'pdf', clickId?: string) => {
       if (!uuid || selectionPicks.length === 0 || !customer) return { success: false as const }
       const summary = summarizeSharedCatalogPicks(selectionPicks)
       return logSharedCatalogInquiry(uuid, {
@@ -545,6 +592,7 @@ export default function SharedCatalogClient({
         lineCount: selectionPicks.length,
         totalPieces: summary.totalPieces,
         totalInr: hidePricesForLog(payload) ? null : summary.orderTotalInr,
+        clickId,
         customer: {
           userId: customer.userId,
           mobile: customer.mobile,
@@ -724,13 +772,19 @@ export default function SharedCatalogClient({
         hidePrices: !!payload.hidePrices,
       })
 
-      // Open WhatsApp in the same user gesture — do not await logging first (iOS blocks delayed pop-ups).
-      openWhatsAppOrder(wa, msg)
-      void logInquiry('whatsapp').then((logged) => {
+      const clickId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+      // Log first (keepalive fetch) — survives iOS same-tab wa.me navigation.
+      void logInquiry('whatsapp', clickId).then((logged) => {
         if (!logged.success) {
           console.warn('Inquiry was not saved after WhatsApp opened')
         }
       })
+
+      openWhatsAppOrder(wa, msg)
     } finally {
       setWaBusy(false)
       shareInFlightRef.current = false

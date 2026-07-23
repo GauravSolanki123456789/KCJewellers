@@ -14,6 +14,7 @@ const {
     styleSlugFromCode,
 } = require('./upsertWebProductFromSyncItem');
 const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
+const { detectGpPairedBases, applyGpVariantPairing } = require('./gpVariantPairing');
 
 const SUBMISSION_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected', 'withdrawn']);
 
@@ -183,7 +184,9 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         resolved.netWeight != null && Number.isFinite(Number(resolved.netWeight))
             ? resolved.netWeight
             : parseExcelWeight(rawWeight);
-    const weightDisplay = parseExcelWeightDisplay(rawWeight);
+    const weightDisplay =
+        trimExcelCell(item.weightDisplay ?? item.weight_display) ||
+        parseExcelWeightDisplay(rawWeight);
     const wastagePct = parseWastagePercent(item);
     const grossWeight =
         wastagePct != null && wastagePct > 0 && netWeight != null && Number.isFinite(Number(netWeight))
@@ -218,7 +221,7 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         sku: resolved.skuCode,
         barcode: resolved.barcode,
         product_name: resolved.name,
-        size: item.size != null ? String(item.size) : item.Size != null ? String(item.Size) : null,
+        size: resolved.size ?? (item.size != null ? String(item.size) : item.Size != null ? String(item.Size) : null),
         net_weight: netWeight,
         weight_display: weightDisplay,
         gross_weight: grossWeight,
@@ -774,10 +777,11 @@ function registerResellerProductRoutes(app, deps) {
             const created = [];
             const errors = [];
             const seenSkus = new Map();
-            for (let i = 0; i < products.length; i++) {
+            const parsedItems = products.map((raw) => excelRowToSyncItem(raw) || raw);
+            const gpPairedBases = detectGpPairedBases(parsedItems);
+            for (let i = 0; i < parsedItems.length; i++) {
                 try {
-                    const raw = products[i];
-                    const item = excelRowToSyncItem(raw) || raw;
+                    const item = applyGpVariantPairing(parsedItems[i], gpPairedBases);
                     const styleCode = String(item.styleCode || '').trim();
                     if (!styleCode) throw new Error('StyleCode required');
                     const resolved = resolveNormalizedVariant(item);
@@ -842,9 +846,11 @@ function registerResellerProductRoutes(app, deps) {
                 const secondaryUploadMap = indexSyncedWebProductSecondaryUploads(req.files);
                 const created = [];
                 const errors = [];
-                for (let i = 0; i < products.length; i++) {
+                const parsedItems = products.map((raw) => excelRowToSyncItem(raw) || raw);
+                const gpPairedBases = detectGpPairedBases(parsedItems);
+                for (let i = 0; i < parsedItems.length; i++) {
                     try {
-                        const item = excelRowToSyncItem(products[i]) || products[i];
+                        const item = applyGpVariantPairing(parsedItems[i], gpPairedBases);
                         const styleCode = String(item.styleCode || '').trim();
                         if (!styleCode) throw new Error('StyleCode required');
                         const resolved = resolveNormalizedVariant(item);
