@@ -1,11 +1,12 @@
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
+import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 
 function openWhatsAppFallback(text: string, explicitHref?: string | null) {
   const href =
     typeof explicitHref === 'string' && explicitHref.trim().length > 0
       ? explicitHref.trim()
       : buildWhatsAppShareLink(text)
-  window.open(href, '_blank', 'noopener,noreferrer')
+  openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
 }
 
 /** iPhone / iPad (incl. iPadOS desktop UA). */
@@ -54,10 +55,7 @@ export function downloadPdfBlob(blob: Blob, filename: string): void {
 /** Open PDF in a new tab — iOS Safari “Share ↗ → WhatsApp” flow. */
 export function openPdfBlobInViewer(blob: Blob): void {
   const url = URL.createObjectURL(blob)
-  const opened = window.open(url, '_blank', 'noopener,noreferrer')
-  if (!opened) {
-    window.location.assign(url)
-  }
+  openExternalUrl(url, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
   setTimeout(() => URL.revokeObjectURL(url), 120_000)
 }
 

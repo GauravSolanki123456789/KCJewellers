@@ -84,9 +84,16 @@ async function ensureSharedCatalogLimitColumns(pool) {
         ALTER TABLE shared_catalog_inquiries
             ADD COLUMN IF NOT EXISTS customer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE shared_catalog_inquiries
-            ADD COLUMN IF NOT EXISTS customer_mobile VARCHAR(10);
+            ADD COLUMN IF NOT EXISTS customer_mobile VARCHAR(32);
         ALTER TABLE shared_catalog_inquiries
             ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255);
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS click_id VARCHAR(64);
+        ALTER TABLE shared_catalog_inquiries
+            ALTER COLUMN customer_mobile TYPE VARCHAR(32);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_catalog_inquiries_click_id
+            ON shared_catalog_inquiries (click_id)
+            WHERE click_id IS NOT NULL;
     `);
 }
 
@@ -274,6 +281,7 @@ async function logSharedCatalogInquiry(query, payload) {
         customerUserId,
         customerMobile,
         customerName,
+        clickId,
     } = payload;
     const mobile =
         customerMobile != null ? normalizeStoredMobile(customerMobile) : '';
@@ -281,6 +289,23 @@ async function logSharedCatalogInquiry(query, payload) {
     const linesJson = JSON.stringify(normalizedLines);
     const totalInrVal =
         totalInr != null && Number.isFinite(Number(totalInr)) ? Number(totalInr) : null;
+    const clickIdNorm =
+        clickId != null && String(clickId).trim()
+            ? String(clickId).trim().slice(0, 64)
+            : null;
+
+    if (clickIdNorm) {
+        const existing = await query(
+            `SELECT id, created_at
+             FROM shared_catalog_inquiries
+             WHERE click_id = $1
+             LIMIT 1`,
+            [clickIdNorm],
+        );
+        if (existing.length) {
+            return { ...existing[0], deduplicated: true };
+        }
+    }
 
     // Idempotent dedup: WhatsApp = 8s anti double-tap; PDF = 15 min same shortlist.
     if (sharedCatalogId && mobile.length >= 8) {
@@ -320,8 +345,9 @@ async function logSharedCatalogInquiry(query, payload) {
     const rows = await query(
         `INSERT INTO shared_catalog_inquiries (
             shared_catalog_id, reseller_user_id, source, line_count, total_pieces, total_inr, lines_json, catalog_url,
-            customer_user_id, customer_mobile, customer_name
-         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
+            customer_user_id, customer_mobile, customer_name, click_id
+         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
+         ON CONFLICT (click_id) WHERE click_id IS NOT NULL DO NOTHING
          RETURNING id, created_at`,
         [
             sharedCatalogId || null,
@@ -335,8 +361,23 @@ async function logSharedCatalogInquiry(query, payload) {
             customerUserId != null && Number.isFinite(Number(customerUserId)) ? Number(customerUserId) : null,
             mobile.length >= 8 ? mobile : null,
             customerName != null && String(customerName).trim() ? String(customerName).trim().slice(0, 255) : null,
+            clickIdNorm,
         ],
     );
+    if (!rows.length && clickIdNorm) {
+        const raced = await query(
+            `SELECT id, created_at FROM shared_catalog_inquiries WHERE click_id = $1 LIMIT 1`,
+            [clickIdNorm],
+        );
+        if (raced.length) {
+            return { ...raced[0], deduplicated: true };
+        }
+    }
+    if (!rows.length) {
+        const err = new Error('Failed to record inquiry');
+        err.status = 500;
+        throw err;
+    }
     return { ...rows[0], deduplicated: false };
 }
 

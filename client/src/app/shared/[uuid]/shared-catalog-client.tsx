@@ -72,7 +72,7 @@ import SharedCatalogImageLightbox, {
   SharedCatalogZoomHint,
   type SharedCatalogLightboxSlide,
 } from '@/components/shared-catalog/SharedCatalogImageLightbox'
-import { logSharedCatalogInquiry } from '@/lib/shared-catalog-inquiries'
+import { fireSharedCatalogInquiryLog, logSharedCatalogInquiry } from '@/lib/shared-catalog-inquiries'
 import { useAuth } from '@/hooks/useAuth'
 import SharedCatalogSignInModal, {
   type SharedCatalogCustomerIdentity,
@@ -583,11 +583,11 @@ export default function SharedCatalogClient({
     [groupedRows, rowKeyByRow, selections, includeBoxByKey],
   )
 
-  const logInquiry = useCallback(
-    async (source: 'whatsapp' | 'pdf', clickId?: string) => {
-      if (!uuid || selectionPicks.length === 0 || !customer) return { success: false as const }
+  const buildInquiryPayload = useCallback(
+    (source: 'whatsapp' | 'pdf', clickId?: string) => {
+      if (!uuid || selectionPicks.length === 0 || !customer) return null
       const summary = summarizeSharedCatalogPicks(selectionPicks)
-      return logSharedCatalogInquiry(uuid, {
+      return {
         source,
         lineCount: selectionPicks.length,
         totalPieces: summary.totalPieces,
@@ -620,9 +620,18 @@ export default function SharedCatalogClient({
           }
         }),
         catalogUrl: typeof window !== 'undefined' ? window.location.href : undefined,
-      })
+      }
     },
     [uuid, selectionPicks, payload, customer],
+  )
+
+  const logInquiry = useCallback(
+    async (source: 'whatsapp' | 'pdf', clickId?: string) => {
+      const inquiryPayload = buildInquiryPayload(source, clickId)
+      if (!inquiryPayload) return { success: false as const }
+      return logSharedCatalogInquiry(uuid, inquiryPayload)
+    },
+    [uuid, buildInquiryPayload],
   )
 
   function hidePricesForLog(p: SharedCatalogPublicResponse | null): boolean {
@@ -713,7 +722,11 @@ export default function SharedCatalogClient({
           fallbackWhatsAppHref: sheetPayload.fallbackWhatsAppHref,
         })
       }
-      await logInquiry('pdf')
+      const pdfClickId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      await logInquiry('pdf', pdfClickId)
     } catch (e) {
       console.error(e)
       alert('Could not create the PDF. Check your connection and try again.')
@@ -733,7 +746,7 @@ export default function SharedCatalogClient({
     requireSignIn,
   ])
 
-  const handleSharePicks = useCallback(async () => {
+  const handleSharePicks = useCallback(() => {
     if (!isLoadedBrochure(payload)) return
     if (selectedCount === 0) return
     if (shareInFlightRef.current || waBusy) return
@@ -760,36 +773,43 @@ export default function SharedCatalogClient({
 
     shareInFlightRef.current = true
     setWaBusy(true)
-    try {
-      const lines = selectionPicks.map((pick) =>
-        sharedCatalogPickToWhatsAppLine(pick, payload.rates ?? []),
-      )
 
-      const msg = buildSharedCatalogSelectionWhatsAppMessage({
-        brandLabel,
-        lines,
-        catalogueUrl: typeof window !== 'undefined' ? window.location.href : undefined,
-        hidePrices: !!payload.hidePrices,
-      })
+    const lines = selectionPicks.map((pick) =>
+      sharedCatalogPickToWhatsAppLine(pick, payload.rates ?? []),
+    )
 
-      const clickId =
-        typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const msg = buildSharedCatalogSelectionWhatsAppMessage({
+      brandLabel,
+      lines,
+      catalogueUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+      hidePrices: !!payload.hidePrices,
+    })
 
-      // Log first (keepalive fetch) — survives iOS same-tab wa.me navigation.
-      void logInquiry('whatsapp', clickId).then((logged) => {
-        if (!logged.success) {
-          console.warn('Inquiry was not saved after WhatsApp opened')
-        }
-      })
+    const clickId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-      openWhatsAppOrder(wa, msg)
-    } finally {
-      setWaBusy(false)
-      shareInFlightRef.current = false
+    const inquiryPayload = buildInquiryPayload('whatsapp', clickId)
+    if (inquiryPayload) {
+      fireSharedCatalogInquiryLog(uuid, inquiryPayload)
     }
-  }, [payload, selectionPicks, selectedCount, brandLabel, initialBranding?.contactPhoneDigits, logInquiry, requireSignIn, waBusy])
+
+    openWhatsAppOrder(wa, msg)
+
+    setWaBusy(false)
+    shareInFlightRef.current = false
+  }, [
+    payload,
+    selectionPicks,
+    selectedCount,
+    brandLabel,
+    initialBranding?.contactPhoneDigits,
+    buildInquiryPayload,
+    uuid,
+    requireSignIn,
+    waBusy,
+  ])
 
   if (loading) {
     return (
@@ -1337,7 +1357,7 @@ export default function SharedCatalogClient({
               <button
                 type="button"
                 disabled={selectedCount === 0 || waBusy}
-                onClick={() => void handleSharePicks()}
+                onClick={handleSharePicks}
                 className={cn(
                   'inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold shadow-sm transition active:scale-[0.99] sm:min-h-[46px] sm:gap-2 sm:px-4 sm:text-sm',
                   selectedCount === 0 || waBusy

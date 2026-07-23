@@ -16,6 +16,7 @@ import {
   sharePdfFileNative,
   type PdfShareSheetPayload,
 } from '@/lib/pdf-share'
+import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { cn } from '@/lib/utils'
 
@@ -64,7 +65,7 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
     const href =
       payload.fallbackWhatsAppHref?.trim() ||
       buildWhatsAppShareLink(payload.fallbackWhatsAppText)
-    window.open(href, '_blank', 'noopener,noreferrer')
+    openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
     close()
   }, [payload, close])
 

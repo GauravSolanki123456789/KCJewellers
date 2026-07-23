@@ -57,30 +57,52 @@ export function buildWhatsAppOrderUrl(digitsForWaMe: string, message: string): s
   return `https://wa.me/${d}?text=${encodeURIComponent(message)}`;
 }
 
-/** Safari blocks `window.open` after async work — use same-tab navigation on iOS / when popups fail. */
-export function shouldUseSameTabWhatsAppNavigation(): boolean {
+/** iPhone / iPad (incl. iPadOS desktop UA). */
+export function isIosDevice(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
-  const isIOS =
-    /iPad|iPhone|iPod/.test(ua) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  return isIOS;
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+}
+
+export function isMobileBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent || "",
+  );
+}
+
+/**
+ * Mobile Safari blocks `window.open` (shows “Pop-ups blocked”) — always navigate in the same tab.
+ */
+export function shouldUseSameTabWhatsAppNavigation(): boolean {
+  return isIosDevice() || isMobileBrowser();
+}
+
+/** Open an external URL without triggering the popup blocker on mobile. */
+export function openExternalUrl(url: string, opts?: { preferNewTab?: boolean }): boolean {
+  const href = String(url || "").trim();
+  if (!href) return false;
+
+  if (shouldUseSameTabWhatsAppNavigation() || opts?.preferNewTab !== true) {
+    window.location.assign(href);
+    return true;
+  }
+
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return true;
 }
 
 export function openWhatsAppOrder(digitsForWaMe: string, message: string): boolean {
   const url = buildWhatsAppOrderUrl(digitsForWaMe, message);
   if (!url) return false;
-
-  if (shouldUseSameTabWhatsAppNavigation()) {
-    window.location.assign(url);
-    return true;
-  }
-
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  if (!opened) {
-    window.location.assign(url);
-  }
-  return true;
+  return openExternalUrl(url, { preferNewTab: true });
 }
 
 export type SharedCatalogPickLineForWhatsApp = {

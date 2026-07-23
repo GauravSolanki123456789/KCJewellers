@@ -7773,6 +7773,7 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
         const totalInr = body.totalInr ?? body.total_inr ?? null;
         const lines = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
         const catalogUrl = body.catalogUrl ?? body.catalog_url ?? null;
+        const clickId = body.clickId ?? body.click_id ?? null;
 
         const customerIdentity = await resolveInquiryCustomerIdentity(query, req, body);
         if (!customerIdentity) {
@@ -7794,6 +7795,7 @@ app.post('/api/shared-catalog/:uuid/inquiry', globalLimiter, requireJson, async 
             customerUserId,
             customerMobile,
             customerName,
+            clickId,
         });
         res.json({
             success: true,
