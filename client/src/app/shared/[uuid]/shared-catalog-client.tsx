@@ -797,8 +797,10 @@ export default function SharedCatalogClient({
 
     openWhatsAppOrder(wa, msg)
 
-    setWaBusy(false)
-    shareInFlightRef.current = false
+    window.setTimeout(() => {
+      setWaBusy(false)
+      shareInFlightRef.current = false
+    }, 2500)
   }, [
     payload,
     selectionPicks,

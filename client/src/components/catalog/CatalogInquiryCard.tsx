@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils'
 import {
   ChevronDown,
   ChevronUp,
+  Copy,
+  Check,
   ExternalLink,
   FileText,
   Loader2,
@@ -20,6 +22,7 @@ import {
   formatCatalogInr,
   formatCatalogWhen,
   formatCustomerMobileDisplay,
+  formatInquiryLinesCopyText,
   type CatalogInquiryRow,
   type CatalogInquiryStatus,
 } from '@/lib/catalog-inquiry-shared'
@@ -47,6 +50,7 @@ export default function CatalogInquiryCard({
   pdfApiPath,
 }: Props) {
   const [localBusy, setLocalBusy] = useState(false)
+  const [copyDone, setCopyDone] = useState(false)
   const lines = inquiry.lines ?? []
   const SourceIcon = inquiry.source.toLowerCase() === 'pdf' ? FileText : MessageCircle
   const statusMeta = catalogInquiryStatusMeta(inquiry.inquiry_status)
@@ -66,6 +70,29 @@ export default function CatalogInquiryCard({
       catalogUrl: inquiry.catalog_url,
     }),
   )
+
+  const handleCopyLines = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (lines.length === 0) return
+    const text = formatInquiryLinesCopyText(lines)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyDone(true)
+      window.setTimeout(() => setCopyDone(false), 2000)
+    } catch {
+      /* fallback for older browsers */
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.left = '-9999px'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+      setCopyDone(true)
+      window.setTimeout(() => setCopyDone(false), 2000)
+    }
+  }
 
   const handleStatus = async (status: CatalogInquiryStatus) => {
     if (!onStatusChange || busy) return
@@ -186,7 +213,27 @@ export default function CatalogInquiryCard({
           {lines.length === 0 ? (
             <p className="text-sm text-slate-500">No line details saved.</p>
           ) : (
-            <ul className="space-y-2">
+            <>
+              <div className="mb-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={(e) => void handleCopyLines(e)}
+                  className={cn(
+                    'inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                    theme === 'admin'
+                      ? 'border-slate-700 bg-slate-800/80 text-slate-200 hover:border-slate-600 hover:bg-slate-800'
+                      : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]/80 hover:border-[var(--kc-accent,#c41e3a)]/40 hover:text-[var(--kc-accent,#c41e3a)]',
+                  )}
+                >
+                  {copyDone ? (
+                    <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
+                  ) : (
+                    <Copy className="size-3.5 shrink-0" aria-hidden />
+                  )}
+                  {copyDone ? 'Copied' : 'Copy items'}
+                </button>
+              </div>
+              <ul className="space-y-2">
               {lines.map((line, idx) => (
                 <li
                   key={`${inquiry.id}-${idx}`}
@@ -231,6 +278,7 @@ export default function CatalogInquiryCard({
                 </li>
               ))}
             </ul>
+            </>
           )}
 
           {onStatusChange ? (

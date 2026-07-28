@@ -172,6 +172,28 @@ export function inquiryLineToWhatsAppLine(line: CatalogInquiryLine): SharedCatal
   }
 }
 
+/** Plain-text block for copying line items from an inquiry card. */
+export function formatInquiryLinesCopyText(lines: CatalogInquiryLine[]): string {
+  return lines
+    .map((line) => {
+      const chunks: string[] = [line.name ?? 'Item', '']
+      if (line.code?.trim()) {
+        chunks.push(`Ref: ${line.code.trim()}`, '')
+      }
+      if (line.lineTotalInr != null && Number.isFinite(line.lineTotalInr)) {
+        chunks.push(formatCatalogInr(line.lineTotalInr), '')
+      }
+      const qty = line.qty ?? 1
+      const unitPart =
+        line.unitInr != null && Number.isFinite(line.unitInr)
+          ? ` × ${formatCatalogInr(line.unitInr)} incl. GST`
+          : ''
+      chunks.push(`Qty ${qty}${unitPart}`)
+      return chunks.join('\n')
+    })
+    .join('\n\n')
+}
+
 export function buildCustomerFollowUpWhatsAppMessage(params: {
   brandLabel: string
   customerName?: string | null

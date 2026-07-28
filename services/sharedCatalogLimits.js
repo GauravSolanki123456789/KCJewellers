@@ -307,10 +307,10 @@ async function logSharedCatalogInquiry(query, payload) {
         }
     }
 
-    // Idempotent dedup: WhatsApp = 8s anti double-tap; PDF = 15 min same shortlist.
+    // Idempotent dedup: WhatsApp = 2 min anti double-tap / retry; PDF = 15 min same shortlist.
     if (sharedCatalogId && mobile.length >= 8) {
         const sourceNorm = String(source || 'whatsapp').trim().toLowerCase();
-        const dedupInterval = sourceNorm === 'whatsapp' ? '8 seconds' : '15 minutes';
+        const dedupInterval = sourceNorm === 'whatsapp' ? '2 minutes' : '15 minutes';
         const dup = await query(
             `SELECT id, created_at
              FROM shared_catalog_inquiries

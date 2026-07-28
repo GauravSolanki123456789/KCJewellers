@@ -102,7 +102,19 @@ export function openExternalUrl(url: string, opts?: { preferNewTab?: boolean }):
 export function openWhatsAppOrder(digitsForWaMe: string, message: string): boolean {
   const url = buildWhatsAppOrderUrl(digitsForWaMe, message);
   if (!url) return false;
-  return openExternalUrl(url, { preferNewTab: true });
+
+  // Anchor navigation — avoids iOS Safari “Pop-ups blocked” from window.open / target=_blank.
+  const a = document.createElement("a");
+  a.href = url;
+  a.rel = "noopener noreferrer";
+  if (!shouldUseSameTabWhatsAppNavigation()) {
+    a.target = "_blank";
+  }
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return true;
 }
 
 export type SharedCatalogPickLineForWhatsApp = {
@@ -127,6 +139,29 @@ export type SharedCatalogPickLineForWhatsApp = {
 }
 
 const ORDER_DIVIDER = '────────────────'
+
+/** Avoid "Weight: 9 gm" twice when metalSpecSummary already starts with the same weight. */
+function mergeWeightAndSpecLines(
+  wtLine: string | null,
+  specLine: string | null,
+): { wtLine: string | null; specLine: string | null } {
+  if (!wtLine || !specLine) return { wtLine, specLine }
+
+  const wtVal = wtLine.replace(/^Weight:\s*/i, '').trim()
+  const specParts = specLine.split(' · ').map((p) => p.trim()).filter(Boolean)
+  if (specParts.length === 0) return { wtLine, specLine }
+
+  const first = specParts[0]
+  if (/^Weight:/i.test(first)) {
+    const specWt = first.replace(/^Weight:\s*/i, '').trim()
+    if (specWt === wtVal) {
+      const rest = specParts.slice(1).join(' · ').trim()
+      return { wtLine, specLine: rest || null }
+    }
+  }
+
+  return { wtLine, specLine }
+}
 
 export function formatSharedCatalogOrderWhatsAppBody(params: {
   lines: SharedCatalogPickLineForWhatsApp[]
@@ -176,8 +211,10 @@ export function formatSharedCatalogOrderWhatsAppBody(params: {
       const qtyLine = `*QTY: ${qty} ${qty === 1 ? 'pc' : 'pcs'}*`
       const sizeLine = l.sizeLabel?.trim() ? `Size: ${l.sizeLabel.trim()}` : null
       const refLine = `Ref: ${l.skuOrBarcode}`
-      const wtLine = l.weightLabel ? `Weight: ${l.weightLabel}` : null
-      const specLine = l.metalSpecSummary?.trim() ? l.metalSpecSummary.trim() : null
+      const { wtLine, specLine } = mergeWeightAndSpecLines(
+        l.weightLabel ? `Weight: ${l.weightLabel}` : null,
+        l.metalSpecSummary?.trim() ? l.metalSpecSummary.trim() : null,
+      )
 
       if (hidePrices) {
         return [ORDER_DIVIDER, `*${i + 1}. ${l.name}*`, qtyLine, sizeLine, refLine, wtLine, specLine]

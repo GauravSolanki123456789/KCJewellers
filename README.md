@@ -27,6 +27,7 @@ server {
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
     }
+    listen 443 ssl;
 }
 
 sudo nginx -t

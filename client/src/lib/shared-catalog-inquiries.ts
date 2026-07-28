@@ -56,8 +56,8 @@ function inquiryHeaders(): Record<string, string> {
 }
 
 /**
- * Fire inquiry POST synchronously (keepalive fetch + sendBeacon fallback).
- * Must run in the same user-gesture tick as WhatsApp navigation on iOS.
+ * Fire inquiry POST synchronously before WhatsApp navigation (iOS-safe).
+ * Uses a single keepalive fetch — never fetch + beacon (that caused duplicate rows).
  */
 export function fireSharedCatalogInquiryLog(
   catalogUuid: string,
@@ -75,6 +75,7 @@ export function fireSharedCatalogInquiryLog(
   const bodyStr = JSON.stringify(body)
   const headers = inquiryHeaders()
 
+  let sent = false
   try {
     void fetch(url, {
       method: 'POST',
@@ -83,19 +84,20 @@ export function fireSharedCatalogInquiryLog(
       headers,
       body: bodyStr,
     })
+    sent = true
   } catch {
     /* fall through to beacon */
   }
 
-  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+  if (!sent && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
     try {
-      navigator.sendBeacon(url, new Blob([bodyStr], { type: 'application/json' }))
+      sent = navigator.sendBeacon(url, new Blob([bodyStr], { type: 'application/json' }))
     } catch {
       /* ignore */
     }
   }
 
-  return true
+  return sent
 }
 
 export async function logSharedCatalogInquiry(
@@ -107,8 +109,6 @@ export async function logSharedCatalogInquiry(
     console.warn('shared catalog inquiry log skipped: invalid customer identity')
     return { success: false }
   }
-
-  fireSharedCatalogInquiryLog(catalogUuid, payload)
 
   const path = `/api/shared-catalog/${encodeURIComponent(catalogUuid)}/inquiry`
   const body = buildInquiryBody(payload)
