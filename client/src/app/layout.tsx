@@ -155,8 +155,9 @@ function resellerHostMetadata(
     ogLogo && /^https?:\/\//i.test(ogLogo)
       ? {
           icons: {
-            icon: [{ url: ogLogo }],
-            apple: [{ url: ogLogo }],
+            icon: [{ url: ogLogo, type: "image/png" }],
+            apple: [{ url: ogLogo, type: "image/png" }],
+            shortcut: [{ url: ogLogo }],
           },
         }
       : {};
@@ -222,6 +223,10 @@ export default async function RootLayout({
   }
 
   const resolvedKcThemeId = normalizeKcThemeId(initialKcThemeId);
+  const resellerLogoAbs =
+    customDomainHost && resellerHostBranding?.logoUrl
+      ? normalizeResellerLogoUrl(resellerHostBranding.logoUrl)
+      : null;
 
   return (
     <html
@@ -237,6 +242,12 @@ export default async function RootLayout({
           <>
             <link rel="preconnect" href={imageHost} crossOrigin="anonymous" />
             <link rel="dns-prefetch" href={imageHost} />
+          </>
+        ) : null}
+        {resellerLogoAbs ? (
+          <>
+            <link rel="icon" href={resellerLogoAbs} type="image/png" sizes="32x32" />
+            <link rel="apple-touch-icon" href={resellerLogoAbs} sizes="180x180" />
           </>
         ) : null}
       </head>

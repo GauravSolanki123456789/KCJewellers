@@ -5,7 +5,7 @@ import axios from '@/lib/axios'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import AdminGuard from '@/components/AdminGuard'
 import Link from 'next/link'
-import { Loader2, ArrowLeft, Save, Store, Upload, UserPlus, Users } from 'lucide-react'
+import { Loader2, ArrowLeft, Save, Store, Upload, UserPlus, Users, Search, X } from 'lucide-react'
 import { ResellerApplicationsPanel } from '@/components/admin/ResellerApplicationsPanel'
 import ResellerLoginEmailsPanel from '@/components/admin/ResellerLoginEmailsPanel'
 import { normalizeResellerInviteCode } from '@/lib/reseller-invite'
@@ -130,6 +130,37 @@ const RESELLER_LOGO_MAX_BYTES = 5 * 1024 * 1024
 const RESELLER_LOGO_MAX_LABEL = '5 MB'
 const RESELLER_LOGO_ACCEPT_ATTR =
   'image/png,image/jpeg,image/jpg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif'
+
+function formatClientMobileDisplay(mobile: string | null | undefined): string {
+  const d = String(mobile || '').replace(/\D/g, '')
+  if (d.length >= 10) return `+91 ${d.slice(-10).replace(/(\d{5})(\d{5})/, '$1 $2')}`
+  return ''
+}
+
+function matchesClientSearch(user: AdminUser, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return true
+
+  const tokens = q.split(/\s+/).filter(Boolean)
+  const email = (user.email || '').toLowerCase()
+  const name = (user.name || '').toLowerCase()
+  const business = (user.business_name || '').toLowerCase()
+  const mobile = String(user.mobile_number || '').replace(/\D/g, '')
+  const id = String(user.id)
+  const invite = (user.reseller_invite_code || '').toLowerCase()
+  const haystack = [email, name, business, mobile, id, invite].join(' ')
+
+  const qDigits = q.replace(/\D/g, '')
+  if (/^\d+$/.test(q) && (id === q || (qDigits.length >= 4 && mobile.includes(qDigits)))) {
+    return true
+  }
+
+  return tokens.every(
+    (token) =>
+      haystack.includes(token) ||
+      (token.replace(/\D/g, '').length >= 4 && mobile.includes(token.replace(/\D/g, ''))),
+  )
+}
 
 export default function AdminB2BClientsPage() {
   return (
@@ -283,13 +314,8 @@ function B2BAdminContent() {
   }, [resellerModalUser])
 
   const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    if (!s) return users
-    return users.filter((u) => {
-      const em = (u.email || '').toLowerCase()
-      const mob = (u.mobile_number || '').replace(/\D/g, '')
-      return em.includes(s) || mob.includes(s.replace(/\D/g, '')) || String(u.id) === s
-    })
+    if (!q.trim()) return users
+    return users.filter((u) => matchesClientSearch(u, q))
   }, [users, q])
 
   useEffect(() => {
@@ -520,69 +546,114 @@ function B2BAdminContent() {
           />
         ) : (
           <>
-        <input
-          type="search"
-          placeholder="Search by email, mobile, or user id…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="mb-6 w-full max-w-md min-h-[48px] rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-sm shadow-inner shadow-black/20 focus:border-amber-500/40 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-        />
+        <div className="mb-4 space-y-2">
+          <div className="relative w-full max-w-xl">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+            <input
+              type="search"
+              placeholder="Search by name, email, mobile, user id, or invite code…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="w-full min-h-[48px] rounded-xl border border-slate-700 bg-slate-900/80 py-3 pl-10 pr-10 text-sm shadow-inner shadow-black/20 focus:border-amber-500/40 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+            />
+            {q.trim() ? (
+              <button
+                type="button"
+                onClick={() => setQ('')}
+                className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                aria-label="Clear search"
+              >
+                <X className="size-4" />
+              </button>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-500">
+            {q.trim()
+              ? `Showing ${filtered.length} of ${users.length} clients`
+              : `${users.length} clients`}
+            {q.trim() && filtered.length === 0 ? ' — try email, mobile digits, or name' : ''}
+          </p>
+        </div>
 
         <div className="rounded-2xl border border-slate-800/90 bg-slate-900/30 shadow-xl shadow-black/25 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[920px]">
+            <table className="w-full text-sm min-w-[980px]">
               <thead>
                 <tr className="border-b border-slate-800 bg-slate-900/80 text-left text-[11px] uppercase text-slate-500">
-                  <th className="p-2">ID</th>
-                  <th className="p-2">Client</th>
-                  <th className="p-2">Tier</th>
+                  <th className="p-2 w-12">ID</th>
+                  <th className="p-2 min-w-[200px]">Email</th>
+                  <th className="p-2 min-w-[140px]">Mobile</th>
+                  <th className="p-2 min-w-[120px]">Tier</th>
                   <th className="p-2" title="Extra discount for wholesale/reseller accounts. Not applied when the style already has a retail promo (e.g. 15% off ER SET).">
                     Disc %
                   </th>
                   <th className="p-2">Markup %</th>
-                  <th className="p-2">Mobile</th>
-                  <th className="p-2"></th>
+                  <th className="p-2 min-w-[120px]"></th>
                 </tr>
               </thead>
               <tbody>
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-sm text-slate-500">
+                      No clients match &quot;{q.trim()}&quot;
+                    </td>
+                  </tr>
+                ) : null}
                 {filtered.map((u) => {
                   const tierUp = (u.customer_tier || 'B2C_CUSTOMER').toUpperCase()
                   const isReseller = tierUp === CUSTOMER_TIER.RESELLER
+                  const mobileDisplay = formatClientMobileDisplay(u.mobile_number)
                   return (
-                    <tr key={u.id} className="border-b border-slate-800/80 align-top">
+                    <tr key={u.id} className="border-b border-slate-800/80 align-top hover:bg-white/[0.02]">
                       <td className="p-2 font-mono text-xs text-slate-500">{u.id}</td>
                       <td className="p-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="min-w-0">
-                            <div className="text-slate-200">{u.email || '—'}</div>
-                            <div className="text-xs text-slate-500">
-                              {u.mobile_number ? `+91 ${u.mobile_number}` : ''}
-                            </div>
-                            {u.referred_by_user_id != null && (
-                              <div className="mt-1 text-[11px] text-violet-400/90">
-                                Referred by{' '}
-                                {userById.get(u.referred_by_user_id)?.business_name ||
-                                  userById.get(u.referred_by_user_id)?.email ||
-                                  `#${u.referred_by_user_id}`}
-                              </div>
-                            )}
-                            {isReseller && u.reseller_invite_code && (
-                              <div className="mt-1 font-mono text-[11px] text-violet-300/80">
-                                Code: {u.reseller_invite_code}
-                              </div>
-                            )}
-                          </div>
-                          {isReseller && (
+                        <div className="min-w-0 space-y-1">
+                          <p className="break-all text-slate-200">{u.email?.trim() || '—'}</p>
+                          {u.name?.trim() ? (
+                            <p className="text-xs text-slate-500">{u.name.trim()}</p>
+                          ) : null}
+                          {u.referred_by_user_id != null ? (
+                            <p className="text-[11px] text-violet-400/90">
+                              Referred by{' '}
+                              {userById.get(u.referred_by_user_id)?.business_name ||
+                                userById.get(u.referred_by_user_id)?.email ||
+                                `#${u.referred_by_user_id}`}
+                            </p>
+                          ) : null}
+                          {isReseller && u.reseller_invite_code ? (
+                            <p className="font-mono text-[11px] text-violet-300/80">
+                              Code: {u.reseller_invite_code}
+                            </p>
+                          ) : null}
+                          {isReseller ? (
                             <button
                               type="button"
                               onClick={() => setResellerModalUser(u)}
-                              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-violet-500/35 bg-violet-500/10 px-2 py-1 text-[11px] font-semibold text-violet-300 hover:bg-violet-500/20 md:text-xs"
+                              className="mt-1 inline-flex items-center gap-1 rounded-lg border border-violet-500/35 bg-violet-500/10 px-2 py-1 text-[11px] font-semibold text-violet-300 hover:bg-violet-500/20"
                             >
                               <Store className="size-3.5 opacity-90" aria-hidden />
                               Edit reseller
                             </button>
-                          )}
+                          ) : null}
                         </div>
+                      </td>
+                      <td className="p-2">
+                        <p className="mb-2 text-sm tabular-nums text-slate-300">
+                          {mobileDisplay || '—'}
+                        </p>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          placeholder="10-digit"
+                          className="w-full max-w-[8.5rem] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs"
+                          value={u.mobile_number ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, '').slice(-10)
+                            setUsers((prev) =>
+                              prev.map((x) => (x.id === u.id ? { ...x, mobile_number: v } : x)),
+                            )
+                          }}
+                        />
                       </td>
                       <td className="p-2">
                         <select
@@ -629,18 +700,6 @@ function B2BAdminContent() {
                                 x.id === u.id ? { ...x, wholesale_markup_percent: v as unknown as number } : x,
                               ),
                             )
-                          }}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="tel"
-                          placeholder="10-digit"
-                          className="w-28 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
-                          value={u.mobile_number ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value.replace(/\D/g, '').slice(-10)
-                            setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, mobile_number: v } : x)))
                           }}
                         />
                       </td>
@@ -763,6 +822,7 @@ function B2BAdminContent() {
                 <ResellerLoginEmailsPanel
                   userId={resellerModalUser.id}
                   primaryEmail={resellerModalUser.email}
+                  onAccountsMerged={() => void load()}
                 />
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Logo</label>

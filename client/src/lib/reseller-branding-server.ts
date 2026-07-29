@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
+import { resellerHostFromHeaders } from "@/lib/storefront-host";
 import {
   DEFAULT_KC_THEME_ID,
   normalizeKcThemeId,
@@ -76,7 +77,7 @@ export async function getStorefrontTenantFromHeaders(): Promise<{
   customDomainHost: boolean;
 }> {
   const h = await headers();
-  const raw = h.get("x-custom-domain")?.trim().toLowerCase();
+  const raw = resellerHostFromHeaders(h.get("host"), h.get("x-custom-domain"));
   if (!raw) return { branding: null, customDomainHost: false };
   const branding = await fetchPublicResellerBranding(raw);
   return { branding, customDomainHost: true };
