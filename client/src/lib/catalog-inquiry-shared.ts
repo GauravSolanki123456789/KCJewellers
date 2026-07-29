@@ -22,6 +22,9 @@ export type CatalogInquiryLine = {
   withBoxPriceInr?: number | null
   slabDiscountLines?: string[]
   savingsInr?: number | null
+  /** Uploaded MC slab rate (Slab C / Slab 2 etc.). */
+  uploadedMcRate?: number | null
+  uploadedMcType?: string | null
 }
 
 export type CatalogInquiryRow = {
@@ -42,6 +45,10 @@ export type CatalogInquiryRow = {
   customer_user_id?: number | null
   customer_mobile?: string | null
   customer_name?: string | null
+  /** Snapshotted from shared_catalogs.hide_prices when listing. */
+  hide_prices?: boolean
+  /** Per-reseller sequential inquiry number (1, 2, 3…). */
+  reseller_inquiry_number?: number | null
   lines?: CatalogInquiryLine[]
 }
 
@@ -102,6 +109,18 @@ export function countsTowardQuotedTotal(status: CatalogInquiryStatus | string | 
   return s === 'pending' || s === 'completed'
 }
 
+/** Weight-only shared catalogue — no prices in UI, copy, WhatsApp, or PDF. */
+export function inquiryIsWeightOnly(inquiry: Pick<CatalogInquiryRow, 'hide_prices' | 'total_inr'>): boolean {
+  if (inquiry.hide_prices === true) return true
+  return inquiry.total_inr == null
+}
+
+export function inquiryDisplayNumber(inquiry: Pick<CatalogInquiryRow, 'id' | 'reseller_inquiry_number'>): number {
+  const seq = inquiry.reseller_inquiry_number
+  if (seq != null && Number.isFinite(seq) && seq > 0) return Math.floor(seq)
+  return inquiry.id
+}
+
 export function formatCustomerMobileDisplay(mobile: string | null | undefined): string | null {
   return formatStoredMobileDisplay(mobile)
 }
@@ -117,9 +136,10 @@ export function customerWhatsAppHref(
   return `${base}?text=${encodeURIComponent(message.trim())}`
 }
 
-/** Trackable quotation PDF filename — inquiry id, customer mobile, inquiry timestamp. */
+/** Trackable quotation PDF filename — per-reseller inquiry #, customer mobile, timestamp. */
 export function buildInquiryQuotationPdfFilename(params: {
   inquiryId: number
+  resellerInquiryNumber?: number | null
   customerName?: string | null
   customerMobile?: string | null
   createdAt?: string | null
@@ -148,7 +168,14 @@ export function buildInquiryQuotationPdfFilename(params: {
   const hh = Number.isNaN(d.getTime()) ? '00' : String(d.getHours()).padStart(2, '0')
   const mm = Number.isNaN(d.getTime()) ? '00' : String(d.getMinutes()).padStart(2, '0')
 
-  const parts = [`${brand}-inq${params.inquiryId}`, mobilePart, datePart, `${hh}${mm}`]
+  const inqNum =
+    params.resellerInquiryNumber != null &&
+    Number.isFinite(params.resellerInquiryNumber) &&
+    params.resellerInquiryNumber > 0
+      ? Math.floor(params.resellerInquiryNumber)
+      : params.inquiryId
+
+  const parts = [`${brand}-inq${inqNum}`, mobilePart, datePart, `${hh}${mm}`]
   if (nameSlug && !/^customer-\d+$/i.test(nameSlug)) {
     parts.splice(1, 0, nameSlug)
   }
@@ -169,16 +196,35 @@ export function inquiryLineToWhatsAppLine(line: CatalogInquiryLine): SharedCatal
     withBoxPriceInr: line.withBoxPriceInr ?? undefined,
     slabDiscountLines: line.slabDiscountLines,
     savingsInr: line.savingsInr ?? undefined,
+    uploadedMcRate: line.uploadedMcRate ?? undefined,
+    uploadedMcType: line.uploadedMcType ?? undefined,
   }
 }
 
 /** Plain-text block for copying line items from an inquiry card. */
-export function formatInquiryLinesCopyText(lines: CatalogInquiryLine[]): string {
+export function formatInquiryLinesCopyText(
+  lines: CatalogInquiryLine[],
+  opts?: { weightOnly?: boolean },
+): string {
+  const weightOnly = !!opts?.weightOnly
   return lines
     .map((line) => {
       const chunks: string[] = [line.name ?? 'Item', '']
       if (line.code?.trim()) {
         chunks.push(`Ref: ${line.code.trim()}`, '')
+      }
+      if (weightOnly) {
+        if (line.weightLabel?.trim()) {
+          chunks.push(line.weightLabel.trim(), '')
+        }
+        if (line.uploadedMcRate != null && Number.isFinite(line.uploadedMcRate)) {
+          chunks.push(`MC: ${line.uploadedMcRate}`, '')
+        }
+        if (line.uploadedMcType?.trim()) {
+          chunks.push(`MCTYPE: ${line.uploadedMcType.trim()}`, '')
+        }
+        chunks.push(`Qty ${line.qty ?? 1}`)
+        return chunks.join('\n')
       }
       if (line.lineTotalInr != null && Number.isFinite(line.lineTotalInr)) {
         chunks.push(formatCatalogInr(line.lineTotalInr), '')

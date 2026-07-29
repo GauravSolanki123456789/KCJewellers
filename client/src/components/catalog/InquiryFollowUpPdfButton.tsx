@@ -32,6 +32,7 @@ type PdfContextResponse = {
   brandName: string
   kcThemeId?: string | null
   hidePrices?: boolean
+  resellerInquiryNumber?: number | null
   customerName?: string | null
   customerMobile?: string | null
   catalogUrl?: string | null
@@ -84,6 +85,8 @@ function inquiryLinesToPdfItems(
       shareCatalogMetalSpecSummary: line.metalSpecSummary ?? null,
       shareCatalogUnitTotalInr: line.unitInr ?? null,
       shareCatalogLineTotalInr: line.lineTotalInr ?? null,
+      shareCatalogMcRate: line.uploadedMcRate ?? null,
+      shareCatalogMcType: line.uploadedMcType ?? null,
     }
   })
 }
@@ -159,6 +162,8 @@ export default function InquiryFollowUpPdfButton({
 
       const filename = buildInquiryQuotationPdfFilename({
         inquiryId: inquiry.id,
+        resellerInquiryNumber:
+          ctx.resellerInquiryNumber ?? inquiry.reseller_inquiry_number ?? null,
         customerName: ctx.customerName ?? inquiry.customer_name,
         customerMobile: ctx.customerMobile ?? inquiry.customer_mobile,
         createdAt: inquiry.created_at,

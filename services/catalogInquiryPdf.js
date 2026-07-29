@@ -3,6 +3,7 @@
  */
 
 const { normalizeStoredMobile } = require('./internationalMobile');
+const { lookupUploadedMcRate } = require('./resellerMcSlabs');
 
 function parseInquiryLines(linesJson) {
     if (Array.isArray(linesJson)) return linesJson;
@@ -47,6 +48,7 @@ async function loadInquiryForPdf(query, inquiryId, opts = {}) {
         `SELECT sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
                 sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
                 sci.catalog_url, sci.created_at, sci.customer_mobile, sci.customer_name,
+                sci.reseller_inquiry_number,
                 COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
                 u.kc_theme_id AS creator_kc_theme_id,
                 u.customer_tier AS creator_customer_tier,
@@ -75,12 +77,64 @@ async function loadSharedCatalogPricingSnapshot(query, catalogId) {
                 sc.slab_wholesale_silver_rate_per_g,
                 sc.slab_settings_snapshot,
                 sc.rates_snapshot,
-                sc.created_by_user_id
+                sc.created_by_user_id,
+                sc.uploaded_mc_slab_key,
+                sc.uploaded_mc_slab_rows_snapshot
          FROM shared_catalogs sc
          WHERE sc.id = $1::uuid`,
         [catalogId],
     );
     return rows[0] ?? null;
+}
+
+function parseUploadedMcSlabSnapshot(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
+}
+
+function stripPricesFromInquiryLine(line) {
+    return {
+        ...line,
+        unitInr: null,
+        lineTotalInr: null,
+        compareAtInr: null,
+        withBoxPriceInr: null,
+        savingsInr: null,
+        slabDiscountLines: undefined,
+    };
+}
+
+function enrichInquiryLinesWithMc(lines, catalogSnap, productByCode) {
+    const slabRows = parseUploadedMcSlabSnapshot(catalogSnap?.uploaded_mc_slab_rows_snapshot);
+    const slabKey = catalogSnap?.uploaded_mc_slab_key
+        ? String(catalogSnap.uploaded_mc_slab_key).trim().toLowerCase()
+        : null;
+
+    return lines.map((line) => {
+        const next = { ...line };
+        if (next.uploadedMcRate == null && slabRows.length && slabKey) {
+            const code = String(line?.code ?? '').trim();
+            const product = productByCode.get(code);
+            if (product) {
+                const hit = lookupUploadedMcRate(slabRows, product, slabKey);
+                if (hit) {
+                    next.uploadedMcRate = hit.mc;
+                    next.uploadedMcType = hit.mcType;
+                }
+            }
+        }
+        return next;
+    });
 }
 
 async function fetchProductsForInquiryLines(query, lines) {
@@ -149,7 +203,12 @@ async function getCatalogInquiryPdfContext(query, inquiryId, opts = {}) {
 
     const tier = String(inquiry.creator_customer_tier || '').toUpperCase();
     const isReseller = tier === 'RESELLER';
-    const hidePrices = catalogSnap ? !!catalogSnap.hide_prices : false;
+    const hidePrices = catalogSnap ? !!catalogSnap.hide_prices : inquiry.total_inr == null;
+
+    let enrichedLines = enrichInquiryLinesWithMc(lines, catalogSnap, productByCode);
+    if (hidePrices) {
+        enrichedLines = enrichedLines.map(stripPricesFromInquiryLine);
+    }
 
     let slabPayload = null;
     if (catalogSnap) {
@@ -185,13 +244,17 @@ async function getCatalogInquiryPdfContext(query, inquiryId, opts = {}) {
 
     return {
         inquiryId: inquiry.id,
+        resellerInquiryNumber:
+            inquiry.reseller_inquiry_number != null
+                ? Number(inquiry.reseller_inquiry_number)
+                : null,
         brandName: inquiry.reseller_label || 'KC Jewellers',
         kcThemeId: inquiry.creator_kc_theme_id || null,
         hidePrices,
         customerName: inquiry.customer_name || null,
         customerMobile: normalizeStoredMobile(inquiry.customer_mobile),
         catalogUrl: inquiry.catalog_url || null,
-        lines,
+        lines: enrichedLines,
         products: products.map((p) => ({
             barcode: p.barcode,
             sku: p.sku,
@@ -220,8 +283,11 @@ async function getCatalogInquiryPdfContext(query, inquiryId, opts = {}) {
         productByCode: Object.fromEntries(productByCode),
         orderSummary: {
             totalPieces: inquiry.total_pieces ?? 0,
-            designCount: inquiry.line_count ?? lines.length,
-            orderTotalInr: inquiry.total_inr != null ? Number(inquiry.total_inr) : null,
+            designCount: inquiry.line_count ?? enrichedLines.length,
+            orderTotalInr:
+                hidePrices || inquiry.total_inr == null
+                    ? null
+                    : Number(inquiry.total_inr),
         },
         pricing: {
             rates,

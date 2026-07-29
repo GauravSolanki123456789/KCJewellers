@@ -1,6 +1,8 @@
 /**
  * Reseller shared / WhatsApp catalogue limits + inquiry analytics.
  */
+const { lookupUploadedMcRate } = require('./resellerMcSlabs');
+
 const PLATFORM_MAX_PRODUCTS = 500;
 const DEFAULT_MAX_PRODUCTS = 50;
 const DEFAULT_DAILY_LIMIT = 10;
@@ -94,7 +96,205 @@ async function ensureSharedCatalogLimitColumns(pool) {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_catalog_inquiries_click_id
             ON shared_catalog_inquiries (click_id)
             WHERE click_id IS NOT NULL;
+        ALTER TABLE shared_catalog_inquiries
+            ADD COLUMN IF NOT EXISTS reseller_inquiry_number INTEGER;
+        CREATE INDEX IF NOT EXISTS idx_shared_catalog_inquiries_reseller_seq
+            ON shared_catalog_inquiries (reseller_user_id, reseller_inquiry_number);
     `);
+}
+
+const INQUIRY_LIST_SELECT = `
+    sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
+    sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
+    sci.catalog_url, sci.created_at, sci.inquiry_status, sci.status_updated_at,
+    sci.status_note,
+    sci.customer_user_id, sci.customer_mobile, sci.customer_name,
+    sci.reseller_inquiry_number,
+    COALESCE(sc.hide_prices, false) AS hide_prices,
+    COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
+    u.custom_domain AS reseller_domain
+`;
+
+const INQUIRY_LIST_FROM = `
+    FROM shared_catalog_inquiries sci
+    LEFT JOIN shared_catalogs sc ON sc.id = sci.shared_catalog_id
+    LEFT JOIN users u ON u.id = sci.reseller_user_id
+`;
+
+function parseUploadedMcSlabSnapshot(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
+}
+
+async function loadCatalogInquiryContext(query, sharedCatalogId) {
+    if (!sharedCatalogId) return null;
+    const rows = await query(
+        `SELECT COALESCE(hide_prices, false) AS hide_prices,
+                uploaded_mc_slab_key,
+                uploaded_mc_slab_rows_snapshot
+         FROM shared_catalogs
+         WHERE id = $1::uuid`,
+        [sharedCatalogId],
+    );
+    return rows[0] ?? null;
+}
+
+async function enrichInquiryLinesFromCatalog(query, sharedCatalogId, lines, productByCode) {
+    const catalogCtx = await loadCatalogInquiryContext(query, sharedCatalogId);
+    if (!catalogCtx) return lines;
+
+    const slabRows = parseUploadedMcSlabSnapshot(catalogCtx.uploaded_mc_slab_rows_snapshot);
+    const slabKey = catalogCtx.uploaded_mc_slab_key
+        ? String(catalogCtx.uploaded_mc_slab_key).trim().toLowerCase()
+        : null;
+
+    return lines.map((line) => {
+        const next = { ...line };
+        if (next.uploadedMcRate == null && slabRows.length && slabKey) {
+            const code = String(line?.code ?? '').trim();
+            const product = productByCode?.get?.(code) ?? productByCode?.[code] ?? null;
+            if (product) {
+                const hit = lookupUploadedMcRate(slabRows, product, slabKey);
+                if (hit) {
+                    next.uploadedMcRate = hit.mc;
+                    next.uploadedMcType = hit.mcType;
+                }
+            }
+        }
+        return next;
+    });
+}
+
+function stripPricesFromInquiryLine(line) {
+    return {
+        ...line,
+        unitInr: null,
+        lineTotalInr: null,
+        compareAtInr: null,
+        withBoxPriceInr: null,
+        savingsInr: null,
+        slabDiscountLines: undefined,
+        showInclGst: undefined,
+    };
+}
+
+async function normalizeInquiryPayloadForCatalog(query, sharedCatalogId, lines, totalInr) {
+    const catalogCtx = await loadCatalogInquiryContext(query, sharedCatalogId);
+    const normalizedLines = Array.isArray(lines) ? lines.map((l) => ({ ...l })) : [];
+    if (!catalogCtx) {
+        return { lines: normalizedLines, totalInr };
+    }
+
+    let outLines = normalizedLines;
+    if (catalogCtx.hide_prices) {
+        outLines = outLines.map(stripPricesFromInquiryLine);
+        totalInr = null;
+    }
+    return { lines: outLines, totalInr };
+}
+
+async function enrichInquiryListMc(query, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const catalogIds = [
+        ...new Set(
+            rows
+                .map((r) => r.shared_catalog_id)
+                .filter((id) => id != null && String(id).trim()),
+        ),
+    ];
+    if (!catalogIds.length) return rows.map(mapInquiryRow);
+
+    const catalogRows = await query(
+        `SELECT id, uploaded_mc_slab_key, uploaded_mc_slab_rows_snapshot
+         FROM shared_catalogs
+         WHERE id = ANY($1::uuid[])`,
+        [catalogIds],
+    );
+    const catalogById = new Map(catalogRows.map((c) => [String(c.id), c]));
+
+    const codes = [];
+    for (const row of rows) {
+        const lines = parseInquiryLinesFromRow(row);
+        for (const line of lines) {
+            const code = String(line?.code ?? '').trim();
+            if (code) codes.push(code);
+        }
+    }
+    const uniqueCodes = [...new Set(codes)];
+    let productByCode = new Map();
+    if (uniqueCodes.length) {
+        const products = await query(
+            `SELECT wp.sku, wp.barcode, wp.net_weight::float AS net_weight,
+                    wp.gross_weight::float AS gross_weight, wp.weight_display,
+                    COALESCE(wp.metal_type, 'silver') AS metal_type,
+                    wc.name AS style_name, ws.name AS subcategory_name, ws.slug AS subcategory_slug
+             FROM web_products wp
+             JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+             JOIN web_categories wc ON wc.id = ws.category_id
+             WHERE wp.barcode = ANY($1::text[]) OR wp.sku = ANY($1::text[])`,
+            [uniqueCodes],
+        );
+        for (const p of products) {
+            const bc = String(p.barcode || '').trim();
+            const sku = String(p.sku || '').trim();
+            if (bc) productByCode.set(bc, p);
+            if (sku) productByCode.set(sku, p);
+        }
+    }
+
+    return rows.map((row) => {
+        const mapped = mapInquiryRow(row);
+        const catalog = row.shared_catalog_id
+            ? catalogById.get(String(row.shared_catalog_id))
+            : null;
+        if (!catalog || !mapped.lines?.length) return mapped;
+
+        const slabRows = parseUploadedMcSlabSnapshot(catalog.uploaded_mc_slab_rows_snapshot);
+        const slabKey = catalog.uploaded_mc_slab_key
+            ? String(catalog.uploaded_mc_slab_key).trim().toLowerCase()
+            : null;
+        if (!slabRows.length || !slabKey) return mapped;
+
+        mapped.lines = mapped.lines.map((line) => {
+            if (line.uploadedMcRate != null) return line;
+            const code = String(line?.code ?? '').trim();
+            const product = productByCode.get(code);
+            if (!product) return line;
+            const hit = lookupUploadedMcRate(slabRows, product, slabKey);
+            if (!hit) return line;
+            return {
+                ...line,
+                uploadedMcRate: hit.mc,
+                uploadedMcType: hit.mcType,
+            };
+        });
+        return mapped;
+    });
+}
+
+function parseInquiryLinesFromRow(row) {
+    if (Array.isArray(row?.lines_json)) return row.lines_json;
+    if (row?.lines_json && typeof row.lines_json === 'object') return row.lines_json;
+    if (typeof row?.lines_json === 'string') {
+        try {
+            const parsed = JSON.parse(row.lines_json);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
 }
 
 function normalizeInquiryStatus(raw) {
@@ -106,11 +306,8 @@ function normalizeInquiryStatus(raw) {
 
 function mapInquiryRow(row) {
     if (!row) return row;
-    return {
-        ...row,
-        inquiry_status: normalizeInquiryStatus(row.inquiry_status),
-        total_inr: row.total_inr != null ? Number(row.total_inr) : null,
-        lines: Array.isArray(row.lines_json)
+    const hidePrices = row.hide_prices === true || row.hide_prices === 't';
+    let lines = Array.isArray(row.lines_json)
             ? row.lines_json
             : row.lines_json && typeof row.lines_json === 'object'
               ? row.lines_json
@@ -122,7 +319,20 @@ function mapInquiryRow(row) {
                           return [];
                       }
                   })()
-                : [],
+                : [];
+
+    if (hidePrices || row.total_inr == null) {
+        lines = lines.map(stripPricesFromInquiryLine);
+    }
+
+    return {
+        ...row,
+        inquiry_status: normalizeInquiryStatus(row.inquiry_status),
+        total_inr: row.total_inr != null ? Number(row.total_inr) : null,
+        hide_prices: hidePrices,
+        reseller_inquiry_number:
+            row.reseller_inquiry_number != null ? Number(row.reseller_inquiry_number) : null,
+        lines,
     };
 }
 
@@ -286,9 +496,18 @@ async function logSharedCatalogInquiry(query, payload) {
     const mobile =
         customerMobile != null ? normalizeStoredMobile(customerMobile) : '';
     const normalizedLines = Array.isArray(lines) ? lines : [];
-    const linesJson = JSON.stringify(normalizedLines);
+    const { lines: catalogLines, totalInr: catalogTotalInr } =
+        await normalizeInquiryPayloadForCatalog(
+            query,
+            sharedCatalogId,
+            normalizedLines,
+            totalInr,
+        );
+    const linesJson = JSON.stringify(catalogLines);
     const totalInrVal =
-        totalInr != null && Number.isFinite(Number(totalInr)) ? Number(totalInr) : null;
+        catalogTotalInr != null && Number.isFinite(Number(catalogTotalInr))
+            ? Number(catalogTotalInr)
+            : null;
     const clickIdNorm =
         clickId != null && String(clickId).trim()
             ? String(clickId).trim().slice(0, 64)
@@ -345,10 +564,16 @@ async function logSharedCatalogInquiry(query, payload) {
     const rows = await query(
         `INSERT INTO shared_catalog_inquiries (
             shared_catalog_id, reseller_user_id, source, line_count, total_pieces, total_inr, lines_json, catalog_url,
-            customer_user_id, customer_mobile, customer_name, click_id
-         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
+            customer_user_id, customer_mobile, customer_name, click_id, reseller_inquiry_number
+         ) VALUES (
+            $1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
+            COALESCE(
+                (SELECT MAX(reseller_inquiry_number) FROM shared_catalog_inquiries WHERE reseller_user_id = $2),
+                0
+            ) + 1
+         )
          ON CONFLICT (click_id) WHERE click_id IS NOT NULL DO NOTHING
-         RETURNING id, created_at`,
+         RETURNING id, created_at, reseller_inquiry_number`,
         [
             sharedCatalogId || null,
             resellerUserId || null,
@@ -458,15 +683,8 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
     );
 
     const recentInquiries = await query(
-        `SELECT sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
-                sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
-                sci.catalog_url, sci.created_at, sci.inquiry_status, sci.status_updated_at,
-                sci.status_note,
-                sci.customer_user_id, sci.customer_mobile, sci.customer_name,
-                COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
-                u.custom_domain AS reseller_domain
-         FROM shared_catalog_inquiries sci
-         LEFT JOIN users u ON u.id = sci.reseller_user_id
+        `SELECT ${INQUIRY_LIST_SELECT}
+         ${INQUIRY_LIST_FROM}
          WHERE ${inquiryTimeSql}
          ORDER BY sci.created_at DESC
          LIMIT 200`,
@@ -514,12 +732,13 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
         },
         byReseller,
         resellerDetail,
-        recentInquiries: recentInquiries
-            .filter((row) => {
+        recentInquiries: await enrichInquiryListMc(
+            query,
+            recentInquiries.filter((row) => {
                 if (!Number.isFinite(filterResellerId) || filterResellerId <= 0) return true;
                 return Number(row.reseller_user_id) === filterResellerId;
-            })
-            .map(mapInquiryRow),
+            }),
+        ),
     };
 }
 
@@ -544,22 +763,15 @@ async function getAdminResellerCatalogInquiries(query, opts = {}) {
     params.push(limit);
 
     const rows = await query(
-        `SELECT sci.id, sci.shared_catalog_id, sci.reseller_user_id, sci.source,
-                sci.line_count, sci.total_pieces, sci.total_inr, sci.lines_json,
-                sci.catalog_url, sci.created_at, sci.inquiry_status, sci.status_updated_at,
-                sci.status_note,
-                sci.customer_user_id, sci.customer_mobile, sci.customer_name,
-                COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
-                u.custom_domain AS reseller_domain
-         FROM shared_catalog_inquiries sci
-         LEFT JOIN users u ON u.id = sci.reseller_user_id
+        `SELECT ${INQUIRY_LIST_SELECT}
+         ${INQUIRY_LIST_FROM}
          WHERE ${timeSql}${resellerFilter}
          ORDER BY sci.created_at DESC
          LIMIT $${paramIdx}`,
         params,
     );
 
-    return rows.map(mapInquiryRow);
+    return enrichInquiryListMc(query, rows);
 }
 
 async function updateSharedCatalogInquiryStatus(query, inquiryId, status, opts = {}) {

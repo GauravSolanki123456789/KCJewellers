@@ -608,11 +608,12 @@ export default function SharedCatalogClient({
     (source: 'whatsapp' | 'pdf', clickId?: string) => {
       if (!uuid || selectionPicks.length === 0 || !customer) return null
       const summary = summarizeSharedCatalogPicks(selectionPicks)
+      const weightOnly = hidePricesForLog(payload)
       return {
         source,
         lineCount: selectionPicks.length,
         totalPieces: summary.totalPieces,
-        totalInr: hidePricesForLog(payload) ? null : summary.orderTotalInr,
+        totalInr: weightOnly ? null : summary.orderTotalInr,
         clickId,
         customer: {
           userId: customer.userId,
@@ -630,16 +631,18 @@ export default function SharedCatalogClient({
             name: waLine.name,
             code: waLine.skuOrBarcode,
             qty: waLine.qty,
-            unitInr: waLine.priceInr,
-            lineTotalInr: pick.lineTotalInr,
-            compareAtInr: waLine.compareAtInr ?? null,
+            unitInr: weightOnly ? null : waLine.priceInr,
+            lineTotalInr: weightOnly ? null : pick.lineTotalInr,
+            compareAtInr: weightOnly ? null : (waLine.compareAtInr ?? null),
             sizeLabel: waLine.sizeLabel ?? null,
             weightLabel: waLine.weightLabel ?? null,
             metalSpecSummary: waLine.metalSpecSummary ?? null,
-            showInclGst: waLine.showInclGst,
-            withBoxPriceInr: waLine.withBoxPriceInr ?? null,
-            slabDiscountLines: waLine.slabDiscountLines,
-            savingsInr: waLine.savingsInr ?? null,
+            showInclGst: weightOnly ? undefined : waLine.showInclGst,
+            withBoxPriceInr: weightOnly ? null : (waLine.withBoxPriceInr ?? null),
+            slabDiscountLines: weightOnly ? undefined : waLine.slabDiscountLines,
+            savingsInr: weightOnly ? null : (waLine.savingsInr ?? null),
+            uploadedMcRate: uploadedMc?.mc ?? null,
+            uploadedMcType: uploadedMc?.mcType ?? null,
           }
         }),
         catalogUrl: typeof window !== 'undefined' ? window.location.href : undefined,

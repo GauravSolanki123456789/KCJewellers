@@ -23,6 +23,8 @@ import {
   formatCatalogWhen,
   formatCustomerMobileDisplay,
   formatInquiryLinesCopyText,
+  inquiryDisplayNumber,
+  inquiryIsWeightOnly,
   type CatalogInquiryRow,
   type CatalogInquiryStatus,
 } from '@/lib/catalog-inquiry-shared'
@@ -52,6 +54,8 @@ export default function CatalogInquiryCard({
   const [localBusy, setLocalBusy] = useState(false)
   const [copyDone, setCopyDone] = useState(false)
   const lines = inquiry.lines ?? []
+  const weightOnly = inquiryIsWeightOnly(inquiry)
+  const inquiryNum = inquiryDisplayNumber(inquiry)
   const SourceIcon = inquiry.source.toLowerCase() === 'pdf' ? FileText : MessageCircle
   const statusMeta = catalogInquiryStatusMeta(inquiry.inquiry_status)
   const busy = statusBusyId === inquiry.id || localBusy
@@ -68,13 +72,14 @@ export default function CatalogInquiryCard({
       totalInr: inquiry.total_inr,
       lines: inquiry.lines,
       catalogUrl: inquiry.catalog_url,
+      hidePrices: weightOnly,
     }),
   )
 
   const handleCopyLines = async (e: React.MouseEvent) => {
     e.stopPropagation()
     if (lines.length === 0) return
-    const text = formatInquiryLinesCopyText(lines)
+    const text = formatInquiryLinesCopyText(lines, { weightOnly })
     try {
       await navigator.clipboard.writeText(text)
       setCopyDone(true)
@@ -138,6 +143,16 @@ export default function CatalogInquiryCard({
               {statusMeta.label}
             </span>
             <span className="text-xs text-slate-500">{formatCatalogWhen(inquiry.created_at)}</span>
+            <span
+              className={cn(
+                'rounded-full border px-2 py-0.5 text-[10px] font-semibold tabular-nums',
+                theme === 'admin'
+                  ? 'border-slate-700 bg-slate-800 text-slate-400'
+                  : 'border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/50',
+              )}
+            >
+              #{inquiryNum}
+            </span>
           </div>
           {inquiry.customer_name || customerMobileDisplay ? (
             <p
@@ -181,18 +196,29 @@ export default function CatalogInquiryCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <span
-            className={cn(
-              'text-lg font-semibold tabular-nums',
-              inquiry.inquiry_status === 'no_sale'
-                ? 'text-slate-500 line-through'
-                : theme === 'admin'
-                  ? 'text-emerald-400'
-                  : 'text-[var(--kc-accent,#c41e3a)]',
-            )}
-          >
-            {formatCatalogInr(inquiry.total_inr)}
-          </span>
+          {!weightOnly ? (
+            <span
+              className={cn(
+                'text-lg font-semibold tabular-nums',
+                inquiry.inquiry_status === 'no_sale'
+                  ? 'text-slate-500 line-through'
+                  : theme === 'admin'
+                    ? 'text-emerald-400'
+                    : 'text-[var(--kc-accent,#c41e3a)]',
+              )}
+            >
+              {formatCatalogInr(inquiry.total_inr)}
+            </span>
+          ) : (
+            <span
+              className={cn(
+                'text-xs font-medium',
+                theme === 'admin' ? 'text-slate-500' : 'text-[var(--color-jewelry-black,#1a1814)]/45',
+              )}
+            >
+              Weight only
+            </span>
+          )}
           {onToggle ? (
             expanded ? (
               <ChevronUp className="size-5 text-slate-500" />
@@ -245,7 +271,7 @@ export default function CatalogInquiryCard({
                   )}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p
                         className={cn(
                           'font-medium',
@@ -259,21 +285,57 @@ export default function CatalogInquiryCard({
                       {line.code ? (
                         <p className="text-xs text-slate-500">Ref: {line.code}</p>
                       ) : null}
+                      {weightOnly ? (
+                        <div className="mt-1.5 space-y-0.5">
+                          {line.weightLabel?.trim() ? (
+                            <p
+                              className={cn(
+                                'text-sm font-semibold tabular-nums',
+                                theme === 'admin'
+                                  ? 'text-amber-300'
+                                  : 'text-[var(--kc-accent,#c41e3a)]',
+                              )}
+                            >
+                              {line.weightLabel.trim()}
+                            </p>
+                          ) : null}
+                          {line.uploadedMcRate != null && Number.isFinite(line.uploadedMcRate) ? (
+                            <p className="text-xs text-slate-500">
+                              MC:{' '}
+                              <span className="font-medium tabular-nums text-slate-400">
+                                {line.uploadedMcRate}
+                              </span>
+                            </p>
+                          ) : null}
+                          {line.uploadedMcType?.trim() ? (
+                            <p className="text-xs text-slate-500">
+                              MCTYPE:{' '}
+                              <span className="font-medium text-slate-400">
+                                {line.uploadedMcType.trim()}
+                              </span>
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
-                    <p
-                      className={cn(
-                        'shrink-0 font-medium tabular-nums',
-                        theme === 'admin'
-                          ? 'text-emerald-400'
-                          : 'text-[var(--kc-accent,#c41e3a)]',
-                      )}
-                    >
-                      {formatCatalogInr(line.lineTotalInr ?? null)}
-                    </p>
+                    {!weightOnly ? (
+                      <p
+                        className={cn(
+                          'shrink-0 font-medium tabular-nums',
+                          theme === 'admin'
+                            ? 'text-emerald-400'
+                            : 'text-[var(--kc-accent,#c41e3a)]',
+                        )}
+                      >
+                        {formatCatalogInr(line.lineTotalInr ?? null)}
+                      </p>
+                    ) : null}
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
                     Qty {line.qty ?? 1}
-                    {line.unitInr != null ? <> × {formatCatalogInr(line.unitInr)} incl. GST</> : null}
+                    {!weightOnly && line.unitInr != null ? (
+                      <> × {formatCatalogInr(line.unitInr)} incl. GST</>
+                    ) : null}
                   </p>
                 </li>
               ))}

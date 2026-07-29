@@ -105,6 +105,9 @@ function buildCatalogPdfStyles(p: KcPdfPalette) {
     orderColQty: { width: "11%" },
     orderColUnit: { width: "15%" },
     orderColLine: { width: "15%" },
+    orderColMc: { width: "9%" },
+    orderColMcType: { width: "11%" },
+    orderColRef: { width: "14%" },
     orderCell: { fontSize: 8, color: p.textPrimary },
     orderCellQty: {
       fontSize: 10,
@@ -314,6 +317,8 @@ type PdfLineMeta = {
   unitPriceStr: string | null;
   lineTotalStr: string | null;
   compareAtStr: string | null;
+  mcText: string | null;
+  mcTypeText: string | null;
 };
 
 function resolvePdfLineMeta(
@@ -340,6 +345,12 @@ function resolvePdfLineMeta(
     1,
     Math.floor(Number((p as { shareCatalogQty?: number }).shareCatalogQty) || 1),
   );
+
+  const mcRate = (p as { shareCatalogMcRate?: number | null }).shareCatalogMcRate;
+  const mcType = (p as { shareCatalogMcType?: string | null }).shareCatalogMcType;
+  const mcText =
+    mcRate != null && Number.isFinite(Number(mcRate)) ? String(mcRate) : null;
+  const mcTypeText = mcType?.trim() ? mcType.trim() : null;
 
   const presetLine = (p as { shareCatalogLineTotalInr?: number }).shareCatalogLineTotalInr;
   const presetUnit = (p as { shareCatalogUnitTotalInr?: number }).shareCatalogUnitTotalInr;
@@ -405,6 +416,8 @@ function resolvePdfLineMeta(
     unitPriceStr,
     lineTotalStr,
     compareAtStr,
+    mcText,
+    mcTypeText,
   };
 }
 
@@ -447,6 +460,8 @@ export function CatalogPdfDocument({
       if (!row.lineTotalStr) return sum;
       return sum + Number(row.lineTotalStr.replace(/,/g, ""));
     }, 0);
+
+  const weightOnlyHasMc = hidePrices && lineMeta.some((row) => row.mcText || row.mcTypeText);
 
   const photoPageCount =
     products.length === 0 ? 0 : photosOnFirstPage ? 0 : chunks.length;
@@ -499,8 +514,14 @@ export function CatalogPdfDocument({
             <Text style={[styles.orderTableHeadCell, styles.orderColUnit]}>Unit</Text>
             <Text style={[styles.orderTableHeadCell, styles.orderColLine]}>Line</Text>
           </>
+        ) : weightOnlyHasMc ? (
+          <>
+            <Text style={[styles.orderTableHeadCell, styles.orderColMc]}>MC</Text>
+            <Text style={[styles.orderTableHeadCell, styles.orderColMcType]}>MCTYPE</Text>
+            <Text style={[styles.orderTableHeadCell, styles.orderColRef]}>Ref</Text>
+          </>
         ) : (
-          <Text style={[styles.orderTableHeadCell, { width: "29%" }]}>Ref</Text>
+          <Text style={[styles.orderTableHeadCell, styles.orderColRef]}>Ref</Text>
         )}
       </View>
       {lineMeta.map((row, i) => {
@@ -529,8 +550,20 @@ export function CatalogPdfDocument({
                   {row.lineTotalStr ? `Rs. ${row.lineTotalStr}` : "—"}
                 </Text>
               </>
+            ) : weightOnlyHasMc ? (
+              <>
+                <Text style={[styles.orderCell, styles.orderColMc]}>
+                  {row.mcText ?? "—"}
+                </Text>
+                <Text style={[styles.orderCell, styles.orderColMcType]}>
+                  {row.mcTypeText ?? "—"}
+                </Text>
+                <Text style={[styles.orderCell, styles.orderColRef, { fontSize: 7 }]}>
+                  {barcode || "—"}
+                </Text>
+              </>
             ) : (
-              <Text style={[styles.orderCell, { width: "29%", fontSize: 7 }]}>
+              <Text style={[styles.orderCell, styles.orderColRef, { fontSize: 7 }]}>
                 {barcode || "—"}
               </Text>
             )}
