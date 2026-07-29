@@ -1,17 +1,23 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   parseMcSlabSheetRows,
+  slabOptionsFromUploadedRows,
   type UploadedMcSlabOption,
   type UploadedMcSlabRow,
   UPLOADED_MC_SLAB_LABELS,
 } from '@/lib/reseller-mc-slabs'
-import { FileSpreadsheet, Loader2, Trash2, Upload } from 'lucide-react'
+import { FileSpreadsheet, Loader2, Save, Trash2, Upload } from 'lucide-react'
 
 const EXCEL_ACCEPT =
   '.xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv'
+
+const SLAB_KEYS = Object.keys(UPLOADED_MC_SLAB_LABELS)
+
+const cellInputCls =
+  'kc-upload-input w-full min-w-0 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-2 text-xs text-[var(--color-jewelry-black,#1a1814)] shadow-sm outline-none transition focus:border-[var(--kc-accent,#c41e3a)]/45 focus:ring-1 focus:ring-[var(--kc-accent,#c41e3a)]/20'
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -28,18 +34,31 @@ function formatWhen(iso: string | null | undefined): string {
   }
 }
 
+function parseNumInput(raw: string): number | null {
+  const n = Number(String(raw).replace(/,/g, '').trim())
+  return Number.isFinite(n) ? n : null
+}
+
+function activeSlabKeys(rows: UploadedMcSlabRow[]): string[] {
+  return SLAB_KEYS.filter((key) => rows.some((row) => row.rates?.[key] != null))
+}
+
 export function ResellerMcSlabsPanel() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savingEdits, setSavingEdits] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [enabled, setEnabled] = useState(false)
   const [rows, setRows] = useState<UploadedMcSlabRow[]>([])
+  const [draftRows, setDraftRows] = useState<UploadedMcSlabRow[]>([])
   const [slabOptions, setSlabOptions] = useState<UploadedMcSlabOption[]>([])
   const [uploadedAt, setUploadedAt] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [previewRows, setPreviewRows] = useState<UploadedMcSlabRow[] | null>(null)
+  const [filter, setFilter] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const dirty = useMemo(() => JSON.stringify(rows) !== JSON.stringify(draftRows), [rows, draftRows])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -52,8 +71,12 @@ export function ResellerMcSlabsPanel() {
         uploadedAt?: string | null
       }>('/api/reseller/mc-slabs')
       setEnabled(!!data.enabled)
-      setRows(Array.isArray(data.rows) ? data.rows : [])
-      setSlabOptions(Array.isArray(data.slabOptions) ? data.slabOptions : [])
+      const loaded = Array.isArray(data.rows) ? data.rows : []
+      setRows(loaded)
+      setDraftRows(loaded.map((r) => ({ ...r, rates: { ...r.rates } })))
+      setSlabOptions(
+        Array.isArray(data.slabOptions) ? data.slabOptions : slabOptionsFromUploadedRows(loaded),
+      )
       setUploadedAt(data.uploadedAt ?? null)
     } catch (e: unknown) {
       const msg =
@@ -69,6 +92,15 @@ export function ResellerMcSlabsPanel() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const persistRows = async (nextRows: UploadedMcSlabRow[], successMsg: string) => {
+    await axios.put('/api/reseller/mc-slabs', { rows: nextRows })
+    setRows(nextRows)
+    setDraftRows(nextRows.map((r) => ({ ...r, rates: { ...r.rates } })))
+    setSlabOptions(slabOptionsFromUploadedRows(nextRows))
+    setUploadedAt(new Date().toISOString())
+    setMessage(successMsg)
+  }
 
   const parseExcelFile = async (file: File): Promise<UploadedMcSlabRow[]> => {
     const XLSX = await import('xlsx')
@@ -87,17 +119,7 @@ export function ResellerMcSlabsPanel() {
     setSaving(true)
     try {
       const parsedRows = await parseExcelFile(file)
-      setPreviewRows(parsedRows)
-      await axios.put('/api/reseller/mc-slabs', { rows: parsedRows })
-      setRows(parsedRows)
-      setSlabOptions(
-        Object.keys(UPLOADED_MC_SLAB_LABELS)
-          .filter((key) => parsedRows.some((r) => r.rates?.[key] != null))
-          .map((key) => ({ key, label: UPLOADED_MC_SLAB_LABELS[key] || key })),
-      )
-      setUploadedAt(new Date().toISOString())
-      setMessage(`Saved ${parsedRows.length} slab rule${parsedRows.length === 1 ? '' : 's'}.`)
-      setPreviewRows(null)
+      await persistRows(parsedRows, `Saved ${parsedRows.length} slab rule${parsedRows.length === 1 ? '' : 's'}.`)
     } catch (e: unknown) {
       const msg =
         e && typeof e === 'object' && 'response' in e
@@ -106,10 +128,41 @@ export function ResellerMcSlabsPanel() {
             ? e.message
             : null
       setError(msg || 'Could not save MC slabs')
-      setPreviewRows(null)
     } finally {
       setSaving(false)
       if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const handleSaveEdits = async () => {
+    setError(null)
+    setMessage(null)
+    setSavingEdits(true)
+    try {
+      const sanitized = draftRows
+        .map((row) => ({
+          ...row,
+          sku: row.sku.trim(),
+          styleCode: row.styleCode.trim(),
+          mcType: row.mcType.trim() || 'MC/GM',
+          metalType: row.metalType?.trim() || null,
+        }))
+        .filter((row) => row.sku && row.styleCode && Object.keys(row.rates).length > 0)
+      if (!sanitized.length) {
+        setError('At least one valid row is required (SKU, Style, and one slab rate).')
+        return
+      }
+      await persistRows(sanitized, 'Changes saved.')
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : e instanceof Error
+            ? e.message
+            : null
+      setError(msg || 'Could not save changes')
+    } finally {
+      setSavingEdits(false)
     }
   }
 
@@ -121,9 +174,9 @@ export function ResellerMcSlabsPanel() {
     try {
       await axios.delete('/api/reseller/mc-slabs')
       setRows([])
+      setDraftRows([])
       setSlabOptions([])
       setUploadedAt(null)
-      setPreviewRows(null)
       setMessage('MC slabs cleared.')
     } catch (e: unknown) {
       const msg =
@@ -135,6 +188,52 @@ export function ResellerMcSlabsPanel() {
       setClearing(false)
     }
   }
+
+  const updateRowField = (index: number, field: keyof UploadedMcSlabRow, value: string | number | null) => {
+    setDraftRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row
+        if (field === 'wtFrom' || field === 'wtTo') {
+          const n = typeof value === 'number' ? value : parseNumInput(String(value ?? ''))
+          return { ...row, [field]: n ?? row[field] }
+        }
+        if (field === 'metalType') {
+          return { ...row, metalType: value ? String(value) : null }
+        }
+        return { ...row, [field]: String(value ?? '') }
+      }),
+    )
+  }
+
+  const updateRowRate = (index: number, slabKey: string, raw: string) => {
+    setDraftRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row
+        const rates = { ...row.rates }
+        const trimmed = raw.trim()
+        if (!trimmed) {
+          delete rates[slabKey]
+        } else {
+          const n = parseNumInput(trimmed)
+          if (n != null) rates[slabKey] = n
+        }
+        return { ...row, rates }
+      }),
+    )
+  }
+
+  const filteredRows = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    if (!q) return draftRows.map((row, index) => ({ row, index }))
+    return draftRows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => {
+        const hay = [row.sku, row.styleCode, row.metalType, row.mcType].join(' ').toLowerCase()
+        return hay.includes(q)
+      })
+  }, [draftRows, filter])
+
+  const visibleSlabKeys = useMemo(() => activeSlabKeys(draftRows), [draftRows])
 
   if (loading) {
     return (
@@ -159,18 +258,12 @@ export function ResellerMcSlabsPanel() {
     )
   }
 
-  const displayRows = previewRows ?? rows
-
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div className="kc-profile-card rounded-2xl p-5 sm:p-6">
         <h2 className="text-base font-semibold text-[var(--color-jewelry-black,#1a1814)]">Upload MC slab Excel</h2>
-        <p className="mt-2 text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-          Upload your weight-range making charge sheet (SKU, StyleCode, WT_FROM, WT_TO, Slab C / Slab 2 / etc.). When
-          you generate a WhatsApp catalogue link and pick a slab, customers see MC and MCTYPE on each product.
-        </p>
 
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             ref={fileRef}
             type="file"
@@ -197,7 +290,7 @@ export function ResellerMcSlabsPanel() {
           {rows.length > 0 ? (
             <button
               type="button"
-              disabled={clearing || saving}
+              disabled={clearing || saving || savingEdits}
               onClick={() => void handleClear()}
               className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-red-300/80 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50"
             >
@@ -208,8 +301,7 @@ export function ResellerMcSlabsPanel() {
         </div>
 
         <p className="kc-upload-hint mt-3 text-[11px]">
-          Required columns: SKU, StyleCode, WT_FROM, WT_TO, plus slab columns (Slab C, Slab 2, Slab R, R Quote, etc.),
-          MCType, MetalType.
+          Required columns: SKU, StyleCode, WT_FROM, WT_TO, slab columns, MCType, MetalType.
         </p>
 
         {message ? (
@@ -223,13 +315,26 @@ export function ResellerMcSlabsPanel() {
       </div>
 
       <div className="kc-profile-card rounded-2xl p-5 sm:p-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/70">
-            Current rules
-          </h3>
-          <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-            Last upload: {formatWhen(uploadedAt)}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/70">
+              Current rules
+            </h3>
+            <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+              Last upload: {formatWhen(uploadedAt)}
+            </p>
+          </div>
+          {dirty ? (
+            <button
+              type="button"
+              disabled={savingEdits || saving}
+              onClick={() => void handleSaveEdits()}
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[var(--kc-accent,#c41e3a)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
+            >
+              {savingEdits ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              Save changes
+            </button>
+          ) : null}
         </div>
 
         {slabOptions.length > 0 ? (
@@ -245,49 +350,143 @@ export function ResellerMcSlabsPanel() {
           </div>
         ) : null}
 
-        {displayRows.length === 0 ? (
+        {draftRows.length === 0 ? (
           <p className="mt-4 text-sm text-[var(--color-jewelry-black,#1a1814)]/55">No slab rules uploaded yet.</p>
         ) : (
-          <div className="mt-4 -mx-1 overflow-x-auto">
-            <table className="w-full min-w-[640px] border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
-                  <th className="px-2 py-2 font-medium">SKU</th>
-                  <th className="px-2 py-2 font-medium">Style</th>
-                  <th className="px-2 py-2 font-medium">Wt range</th>
-                  <th className="px-2 py-2 font-medium">Slab C</th>
-                  <th className="px-2 py-2 font-medium">Slab 2</th>
-                  <th className="px-2 py-2 font-medium">Slab R</th>
-                  <th className="px-2 py-2 font-medium">MC type</th>
-                  <th className="px-2 py-2 font-medium">Metal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayRows.slice(0, 50).map((row, i) => (
-                  <tr
-                    key={`${row.sku}-${row.styleCode}-${i}`}
-                    className="border-b border-[var(--color-slate-800,#f0ece6)] text-[var(--color-jewelry-black,#1a1814)]"
-                  >
-                    <td className="px-2 py-2 font-medium">{row.sku}</td>
-                    <td className="px-2 py-2">{row.styleCode}</td>
-                    <td className="px-2 py-2 tabular-nums">
-                      {row.wtFrom}–{row.wtTo} gm
-                    </td>
-                    <td className="px-2 py-2 tabular-nums">{row.rates.slab_c ?? '—'}</td>
-                    <td className="px-2 py-2 tabular-nums">{row.rates.slab_2 ?? '—'}</td>
-                    <td className="px-2 py-2 tabular-nums">{row.rates.slab_r ?? '—'}</td>
-                    <td className="px-2 py-2">{row.mcType}</td>
-                    <td className="px-2 py-2">{row.metalType || '—'}</td>
+          <>
+            <div className="mt-4">
+              <input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filter by SKU or style (e.g. PITARA, BANGLE)"
+                className={`${cellInputCls} max-w-md text-sm`}
+              />
+            </div>
+
+            <p className="mt-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+              Tap any cell to edit SKU, style, weight range, slab rates, MC type, or metal.
+            </p>
+
+            <div className="mt-3 -mx-1 overflow-x-auto pb-1">
+              <table className="w-full min-w-[720px] border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
+                    <th className="min-w-[5.5rem] px-1.5 py-2 font-medium">SKU</th>
+                    <th className="min-w-[5.5rem] px-1.5 py-2 font-medium">Style</th>
+                    <th className="min-w-[4rem] px-1.5 py-2 font-medium">From gm</th>
+                    <th className="min-w-[4rem] px-1.5 py-2 font-medium">To gm</th>
+                    {visibleSlabKeys.map((key) => (
+                      <th key={key} className="min-w-[4.25rem] px-1.5 py-2 font-medium">
+                        {UPLOADED_MC_SLAB_LABELS[key]}
+                      </th>
+                    ))}
+                    <th className="min-w-[4.5rem] px-1.5 py-2 font-medium">MC type</th>
+                    <th className="min-w-[4rem] px-1.5 py-2 font-medium">Metal</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {displayRows.length > 50 ? (
-              <p className="mt-2 px-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                Showing first 50 of {displayRows.length} rules.
-              </p>
+                </thead>
+                <tbody>
+                  {filteredRows.map(({ row, index }) => (
+                    <tr
+                      key={`${row.sku}-${row.styleCode}-${index}`}
+                      className="border-b border-[var(--color-slate-800,#f0ece6)] align-top"
+                    >
+                      <td className="px-1.5 py-1.5">
+                        <input
+                          type="text"
+                          value={row.sku}
+                          onChange={(e) => updateRowField(index, 'sku', e.target.value)}
+                          className={`${cellInputCls} min-w-[5.5rem] font-medium uppercase`}
+                          aria-label={`SKU row ${index + 1}`}
+                        />
+                      </td>
+                      <td className="px-1.5 py-1.5">
+                        <input
+                          type="text"
+                          value={row.styleCode}
+                          onChange={(e) => updateRowField(index, 'styleCode', e.target.value)}
+                          className={`${cellInputCls} min-w-[5.5rem] uppercase`}
+                          aria-label={`Style row ${index + 1}`}
+                        />
+                      </td>
+                      <td className="px-1.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          inputMode="decimal"
+                          value={row.wtFrom}
+                          onChange={(e) => updateRowField(index, 'wtFrom', e.target.value)}
+                          className={`${cellInputCls} min-w-[4rem] tabular-nums`}
+                          aria-label={`Weight from row ${index + 1}`}
+                        />
+                      </td>
+                      <td className="px-1.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          inputMode="decimal"
+                          value={row.wtTo}
+                          onChange={(e) => updateRowField(index, 'wtTo', e.target.value)}
+                          className={`${cellInputCls} min-w-[4rem] tabular-nums`}
+                          aria-label={`Weight to row ${index + 1}`}
+                        />
+                      </td>
+                      {visibleSlabKeys.map((key) => (
+                        <td key={key} className="px-1.5 py-1.5">
+                          <input
+                            type="number"
+                            step="any"
+                            inputMode="decimal"
+                            value={row.rates[key] ?? ''}
+                            onChange={(e) => updateRowRate(index, key, e.target.value)}
+                            placeholder="—"
+                            className={`${cellInputCls} min-w-[4.25rem] tabular-nums`}
+                            aria-label={`${UPLOADED_MC_SLAB_LABELS[key]} row ${index + 1}`}
+                          />
+                        </td>
+                      ))}
+                      <td className="px-1.5 py-1.5">
+                        <input
+                          type="text"
+                          value={row.mcType}
+                          onChange={(e) => updateRowField(index, 'mcType', e.target.value)}
+                          className={`${cellInputCls} min-w-[4.5rem]`}
+                          aria-label={`MC type row ${index + 1}`}
+                        />
+                      </td>
+                      <td className="px-1.5 py-1.5">
+                        <input
+                          type="text"
+                          value={row.metalType ?? ''}
+                          onChange={(e) => updateRowField(index, 'metalType', e.target.value)}
+                          className={`${cellInputCls} min-w-[4rem] uppercase`}
+                          aria-label={`Metal row ${index + 1}`}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {filter && filteredRows.length === 0 ? (
+              <p className="mt-3 text-sm text-[var(--color-jewelry-black,#1a1814)]/55">No rows match your filter.</p>
             ) : null}
-          </div>
+
+            {dirty ? (
+              <div className="sticky bottom-[calc(var(--kc-mobile-nav-stack,0px)+0.75rem)] z-10 mt-4 sm:static">
+                <button
+                  type="button"
+                  disabled={savingEdits || saving}
+                  onClick={() => void handleSaveEdits()}
+                  className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--kc-accent,#c41e3a)] px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:opacity-95 disabled:opacity-50 sm:max-w-xs"
+                >
+                  {savingEdits ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  Save changes
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>

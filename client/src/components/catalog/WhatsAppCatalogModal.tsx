@@ -588,13 +588,6 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             ) : null}
           </div>
 
-          {resellerHidePrices ? (
-            <div className="rounded-xl border border-violet-500/30 bg-violet-950/25 px-3 py-2.5 text-[11px] leading-relaxed text-violet-200/90">
-              Weight-only sharing is enabled for your account. Shared links, PDFs, and customer shortlists will show
-              weights — not prices.
-            </div>
-          ) : null}
-
           {resellerUploadSlabsEnabled && outputFormat === 'temporary_web_link' ? (
             <div>
               <label htmlFor="uploaded-mc-slab" className="kc-catalog-modal-label mb-2 block">
@@ -607,28 +600,19 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   No MC slab Excel uploaded yet. Go to Profile → Upload slabs, or leave this as none.
                 </p>
               ) : (
-                <>
-                  <select
-                    id="uploaded-mc-slab"
-                    value={uploadedMcSlabKey}
-                    onChange={(e) => setUploadedMcSlabKey(e.target.value)}
-                    className="kc-catalog-modal-select"
-                  >
-                    <option value="">None — do not show MC on shared link</option>
-                    {mcSlabOptions.map((o) => (
-                      <option key={o.key} value={o.key}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  {uploadedMcSlabKey ? (
-                    <p className="kc-slab-hint mt-2">
-                      Customers will see <span className="kc-slab-hint-em">MC</span> and{' '}
-                      <span className="kc-slab-hint-em">MCTYPE</span> on each product card and WhatsApp shortlist
-                      line — matched by style, SKU, and weight from your Excel.
-                    </p>
-                  ) : null}
-                </>
+                <select
+                  id="uploaded-mc-slab"
+                  value={uploadedMcSlabKey}
+                  onChange={(e) => setUploadedMcSlabKey(e.target.value)}
+                  className="kc-catalog-modal-select"
+                >
+                  <option value="">None — do not show MC on shared link</option>
+                  {mcSlabOptions.map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
           ) : null}
@@ -782,87 +766,88 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   <code className="text-slate-400">discountPercentage</code>.
                 </p>
               </div>
-              {outputFormat === 'temporary_web_link' ? (
-                <>
-                  <div>
-                    <p className="kc-catalog-modal-label mb-2">Link action</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setLinkMode('new')}
-                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition touch-manipulation min-h-[56px] ${
-                          linkMode === 'new'
-                            ? 'border-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_55%,transparent)] bg-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_12%,transparent)] text-slate-100'
-                            : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
-                        }`}
-                      >
-                        <span className="font-medium">New link</span>
-                        <span className="mt-0.5 block text-[11px] text-slate-500">Create a fresh brochure URL</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLinkMode('existing')}
-                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition touch-manipulation min-h-[56px] ${
-                          linkMode === 'existing'
-                            ? 'border-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_55%,transparent)] bg-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_12%,transparent)] text-slate-100'
-                            : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
-                        }`}
-                      >
-                        <span className="font-medium">Add to existing</span>
-                        <span className="mt-0.5 block text-[11px] text-slate-500">Same URL, more products</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {linkMode === 'existing' ? (
-                    <div>
-                      <label htmlFor="existing-catalog" className="kc-catalog-modal-label mb-1.5 block">
-                        Active catalogue link
-                      </label>
-                      {activeCatalogsLoading ? (
-                        <p className="text-xs text-slate-500">Loading your active links…</p>
-                      ) : activeCatalogs.length === 0 ? (
-                        <p className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-3 py-2.5 text-xs text-amber-100/90">
-                          No active links found. Create a new link first, or your previous links may have expired.
-                        </p>
-                      ) : (
-                        <select
-                          id="existing-catalog"
-                          value={selectedCatalogId}
-                          onChange={(e) => setSelectedCatalogId(e.target.value)}
-                          className="kc-catalog-modal-select"
-                        >
-                          {activeCatalogs.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.productCount} items · valid until {formatCatalogExpiry(c.expiresAt)}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <label htmlFor="expiry" className="kc-catalog-modal-label mb-1.5 block">
-                        Link expires in
-                      </label>
-                      <select
-                        id="expiry"
-                        value={expiryHours}
-                        onChange={(e) => setExpiryHours(Number(e.target.value))}
-                        className="kc-catalog-modal-select"
-                      >
-                        {expiryOptions.map((o) => (
-                          <option key={o.hours} value={o.hours}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </>
-              ) : null}
             </div>
           )}
+
+          {outputFormat === 'temporary_web_link' ? (
+            <div className="space-y-5">
+              <div>
+                <p className="kc-catalog-modal-label mb-2">Link action</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLinkMode('new')}
+                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition touch-manipulation min-h-[56px] ${
+                      linkMode === 'new'
+                        ? 'border-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_55%,transparent)] bg-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_12%,transparent)] text-slate-100'
+                        : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="font-medium">New link</span>
+                    <span className="mt-0.5 block text-[11px] text-slate-500">Create a fresh brochure URL</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinkMode('existing')}
+                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition touch-manipulation min-h-[56px] ${
+                      linkMode === 'existing'
+                        ? 'border-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_55%,transparent)] bg-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_12%,transparent)] text-slate-100'
+                        : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="font-medium">Add to existing</span>
+                    <span className="mt-0.5 block text-[11px] text-slate-500">Same URL, more products</span>
+                  </button>
+                </div>
+              </div>
+
+              {linkMode === 'existing' ? (
+                <div>
+                  <label htmlFor="existing-catalog" className="kc-catalog-modal-label mb-1.5 block">
+                    Active catalogue link
+                  </label>
+                  {activeCatalogsLoading ? (
+                    <p className="text-xs text-slate-500">Loading your active links…</p>
+                  ) : activeCatalogs.length === 0 ? (
+                    <p className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-3 py-2.5 text-xs text-amber-100/90">
+                      No active links found. Create a new link first, or your previous links may have expired.
+                    </p>
+                  ) : (
+                    <select
+                      id="existing-catalog"
+                      value={selectedCatalogId}
+                      onChange={(e) => setSelectedCatalogId(e.target.value)}
+                      className="kc-catalog-modal-select"
+                    >
+                      {activeCatalogs.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.productCount} items · valid until {formatCatalogExpiry(c.expiresAt)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="expiry" className="kc-catalog-modal-label mb-1.5 block">
+                    Link expires in
+                  </label>
+                  <select
+                    id="expiry"
+                    value={expiryHours}
+                    onChange={(e) => setExpiryHours(Number(e.target.value))}
+                    className="kc-catalog-modal-select"
+                  >
+                    {expiryOptions.map((o) => (
+                      <option key={o.hours} value={o.hours}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {error && (
             <p className="rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-sm text-red-200">
