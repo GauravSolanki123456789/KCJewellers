@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import axios from '@/lib/axios'
-import { ChevronRight, LayoutGrid } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { PROFILE_PATH } from '@/lib/routes'
 import {
   RESELLER_ERP_GROUPS,
@@ -45,7 +45,6 @@ function ErpHubContent() {
   return (
     <ResellerErpShell
       title="ERP workspace"
-      subtitle="Billing, customers, stock, DigiGold / DigiSilver, GST & more — under one roof for your staff."
       backHref={PROFILE_PATH}
       backLabel="Back to profile"
     >
@@ -100,19 +99,14 @@ function ErpHubContent() {
                     <li key={mod.id}>
                       <Link
                         href={href}
-                        className="group flex min-h-[4.5rem] items-center gap-3 rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3.5 py-3.5 shadow-sm transition hover:border-[var(--kc-accent,#c41e3a)]/35 hover:bg-[var(--kc-accent,#c41e3a)]/[0.04] active:scale-[0.99]"
+                        className="group flex min-h-[3.25rem] items-center gap-3 rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3.5 py-3 shadow-sm transition hover:border-[var(--kc-accent,#c41e3a)]/35 hover:bg-[var(--kc-accent,#c41e3a)]/[0.04] active:scale-[0.99]"
                       >
-                        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[var(--kc-accent,#c41e3a)]/10 ring-1 ring-[var(--kc-accent,#c41e3a)]/20">
-                          <Icon className="size-5 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--kc-accent,#c41e3a)]/10 ring-1 ring-[var(--kc-accent,#c41e3a)]/20">
+                          <Icon className="size-[1.125rem] text-[var(--kc-accent,#c41e3a)]" aria-hidden />
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                            {mod.title}
-                          </p>
-                          <p className="mt-0.5 line-clamp-2 text-xs leading-snug text-[var(--color-jewelry-black,#1a1814)]/55">
-                            {mod.short} · {mod.description}
-                          </p>
-                        </div>
+                        <p className="min-w-0 flex-1 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                          {mod.title}
+                        </p>
                         <ChevronRight className="size-4 shrink-0 text-[var(--color-jewelry-black,#1a1814)]/30 group-hover:text-[var(--kc-accent,#c41e3a)]" />
                       </Link>
                     </li>
@@ -123,11 +117,6 @@ function ErpHubContent() {
           )
         })}
       </div>
-
-      <p className="mt-8 flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/45">
-        <LayoutGrid className="size-3.5 shrink-0" aria-hidden />
-        Modules share your reseller account — only staff signed in as this reseller can access ERP data.
-      </p>
     </ResellerErpShell>
   )
 }

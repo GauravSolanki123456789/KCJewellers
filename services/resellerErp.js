@@ -579,6 +579,88 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
+    // ——— Product lookup (barcode / SKU from live catalogue) ———
+    app.get('/api/reseller/erp/products/lookup', checkAuth, erpGate, async (req, res) => {
+        try {
+            const code = String(req.query.code || req.query.barcode || '').trim();
+            if (!code) return res.status(400).json({ error: 'code required' });
+            const rows = await query(
+                `SELECT wp.barcode, wp.sku, wp.name, wp.image_url,
+                        wp.net_weight::float AS net_weight,
+                        wp.gross_weight::float AS gross_weight,
+                        COALESCE(wp.metal_type, 'silver') AS metal_type,
+                        wp.mc_rate::float AS mc_rate, wp.mc_type,
+                        COALESCE(wp.fixed_price, 0)::float AS fixed_price
+                 FROM web_products wp
+                 WHERE (wp.barcode = $1 OR wp.sku = $1)
+                   AND (wp.is_active IS NULL OR wp.is_active = true)
+                 LIMIT 1`,
+                [code],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Product not found' });
+            const p = rows[0];
+            res.json({
+                product: {
+                    barcode: p.barcode,
+                    sku: p.sku,
+                    name: p.name,
+                    image_url: p.image_url,
+                    net_weight: p.net_weight,
+                    gross_weight: p.gross_weight,
+                    metal_type: p.metal_type,
+                    mc_rate: p.mc_rate,
+                    mc_type: p.mc_type,
+                    fixed_price: p.fixed_price,
+                },
+            });
+        } catch (e) {
+            console.error('erp product lookup:', e);
+            res.status(500).json({ error: e.message || 'Lookup failed' });
+        }
+    });
+
+    // ——— DigiGold / DigiSilver rates ———
+    app.get('/api/reseller/erp/rates/digi', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT silver_per_gram, gold_24k_per_gram, gold_22k_per_gram, gold_18k_per_gram,
+                        digi_silver_per_gram, digi_gold_24k_per_gram,
+                        digi_gold_22k_per_gram, digi_gold_18k_per_gram, updated_at
+                 FROM reseller_metal_rates WHERE user_id = $1`,
+                [req.user.id],
+            );
+            res.json({ rates: rows[0] ?? null });
+        } catch (e) {
+            if (String(e.message || '').includes('digi_')) {
+                return res.json({ rates: null });
+            }
+            console.error('erp digi rates:', e);
+            res.status(500).json({ error: e.message || 'Failed to load digi rates' });
+        }
+    });
+
+    // ——— Upcoming birthdays / anniversaries ———
+    app.get('/api/reseller/erp/customers/upcoming', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT id, name, mobile, birthdate, anniversary_date
+                 FROM reseller_erp_customers
+                 WHERE reseller_user_id = $1
+                   AND (
+                     (birthdate IS NOT NULL AND TO_CHAR(birthdate, 'MM-DD') BETWEEN TO_CHAR(CURRENT_DATE, 'MM-DD') AND TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MM-DD'))
+                     OR (anniversary_date IS NOT NULL AND TO_CHAR(anniversary_date, 'MM-DD') BETWEEN TO_CHAR(CURRENT_DATE, 'MM-DD') AND TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MM-DD'))
+                   )
+                 ORDER BY name ASC
+                 LIMIT 50`,
+                [req.user.id],
+            );
+            res.json({ customers: rows });
+        } catch (e) {
+            console.error('erp customers upcoming:', e);
+            res.status(500).json({ error: e.message || 'Failed to load upcoming dates' });
+        }
+    });
+
     // ——— Sales summary ———
     app.get('/api/reseller/erp/reports/sales', checkAuth, erpGate, async (req, res) => {
         try {
