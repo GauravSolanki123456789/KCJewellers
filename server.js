@@ -106,6 +106,12 @@ const {
 } = require('./services/digiInvestRates');
 const { registerResellerLoginEmailRoutes } = require('./services/resellerLoginEmails');
 const {
+    sanitizeStoredRows,
+    parseUploadedMcSlabKey,
+    ensureMcSlabColumns,
+    registerResellerMcSlabRoutes,
+} = require('./services/resellerMcSlabs');
+const {
     isStorefrontInvestAllowed,
     assertStorefrontInvestAllowed,
 } = require('./services/storefrontInvest');
@@ -718,6 +724,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerRatesUpdateEnabled = !!resolvedUser.reseller_rates_update_enabled;
         let resellerInvestManageEnabled = !!resolvedUser.reseller_invest_manage_enabled;
         let resellerSlabSettings = parseResellerSlabSettingsServer(resolvedUser.reseller_slab_settings);
+        let resellerUploadSlabsEnabled = !!resolvedUser.reseller_upload_slabs_enabled;
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
@@ -725,6 +732,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_hide_shared_catalog_pdf, false) AS hide_shared_catalog_pdf,
                         COALESCE(reseller_rates_update_enabled, false) AS rates_update,
                         COALESCE(reseller_invest_manage_enabled, false) AS invest_manage,
+                        COALESCE(reseller_upload_slabs_enabled, false) AS upload_slabs,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
@@ -735,6 +743,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerHideSharedCatalogPdf = !!fresh[0].hide_shared_catalog_pdf;
                 resellerRatesUpdateEnabled = !!fresh[0].rates_update;
                 resellerInvestManageEnabled = !!fresh[0].invest_manage;
+                resellerUploadSlabsEnabled = !!fresh[0].upload_slabs;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
             }
         } catch (e) {
@@ -767,6 +776,11 @@ app.get('/api/auth/current_user', async (req, res) => {
             if (msg.includes('reseller_slab_settings')) {
                 await pool.query(
                     `ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_slab_settings JSONB NOT NULL DEFAULT '{}'::jsonb`,
+                );
+            }
+            if (msg.includes('reseller_upload_slabs_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_upload_slabs_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
         }
@@ -808,6 +822,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_hide_shared_catalog_pdf: resellerHideSharedCatalogPdf,
                 reseller_rates_update_enabled: resellerRatesUpdateEnabled,
                 reseller_invest_manage_enabled: resellerInvestManageEnabled,
+                reseller_upload_slabs_enabled: resellerUploadSlabsEnabled,
                 reseller_slab_settings: resellerSlabSettings,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
@@ -1603,6 +1618,8 @@ registerResellerProductRoutes(app, {
 
 registerResellerRatesRoutes(app, { checkAuth, liveRateService, io });
 registerResellerLoginEmailRoutes(app, { isAdminStrict, requireJson });
+registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator, requireJson });
+ensureMcSlabColumns(pool).catch((e) => console.warn('mc slab columns:', e.message));
 
 // ==========================================
 // B2B WHOLESALE — client ledger (Khata) & admin ledger lines
@@ -3966,6 +3983,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_product_edits_enabled, false) AS reseller_product_edits_enabled,
                        COALESCE(reseller_hide_shared_catalog_pdf, false) AS reseller_hide_shared_catalog_pdf,
                        COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
+                       COALESCE(reseller_upload_slabs_enabled, false) AS reseller_upload_slabs_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
@@ -4412,6 +4430,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_rates_update_enabled !== undefined) {
             updates.push(`reseller_rates_update_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_rates_update_enabled);
+        }
+
+        if (req.body.reseller_upload_slabs_enabled !== undefined) {
+            updates.push(`reseller_upload_slabs_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_upload_slabs_enabled);
         }
 
         if (req.body.reseller_invest_manage_enabled !== undefined) {
@@ -6900,6 +6923,17 @@ function sharedCatalogSlabJsonFields(row) {
             slabSettingsSnapshot = null;
         }
     }
+    let uploadedMcSlabRowsSnapshot = row?.uploaded_mc_slab_rows_snapshot ?? null;
+    if (typeof uploadedMcSlabRowsSnapshot === 'string') {
+        try {
+            uploadedMcSlabRowsSnapshot = JSON.parse(uploadedMcSlabRowsSnapshot);
+        } catch {
+            uploadedMcSlabRowsSnapshot = null;
+        }
+    }
+    const uploadedMcSlabKey = row?.uploaded_mc_slab_key
+        ? parseUploadedMcSlabKey(row.uploaded_mc_slab_key)
+        : null;
     return {
         pricingSlab,
         slabSettingsSnapshot: slabSettingsSnapshot || null,
@@ -6911,6 +6945,8 @@ function sharedCatalogSlabJsonFields(row) {
             row?.slab_wholesale_silver_rate_per_g != null
                 ? Number(row.slab_wholesale_silver_rate_per_g)
                 : null,
+        uploadedMcSlabKey,
+        uploadedMcSlabRowsSnapshot: sanitizeStoredRows(uploadedMcSlabRowsSnapshot),
     };
 }
 
@@ -7098,7 +7134,7 @@ function selectionWhatsAppDigitsFromBrochureRow(row) {
  */
 app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
     try {
-        const { selectedProductIds, markupPercentage, discountPercentage, format, expiresAt, pricingSlab, wholesaleGoldRatePerG, wholesaleSilverRatePerG } = req.body || {};
+        const { selectedProductIds, markupPercentage, discountPercentage, format, expiresAt, pricingSlab, wholesaleGoldRatePerG, wholesaleSilverRatePerG, uploadedMcSlabKey } = req.body || {};
         const ids = Array.isArray(selectedProductIds)
             ? [...new Set(selectedProductIds.map((x) => String(x).trim()).filter(Boolean))]
             : [];
@@ -7204,14 +7240,46 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await getRatesSnapshotForSharedCatalogCreator(creatorUid, liveRateService)
                 : (await liveRateService.getCurrentPayload())?.rates ?? [];
+
+        let parsedUploadedMcSlabKey = parseUploadedMcSlabKey(uploadedMcSlabKey);
+        let uploadedMcSlabRowsSnapshot = [];
+        if (parsedUploadedMcSlabKey && Number.isFinite(creatorUid) && creatorUid > 0) {
+            try {
+                const uMc = await query(
+                    `SELECT COALESCE(reseller_upload_slabs_enabled, false) AS enabled,
+                            COALESCE(reseller_mc_slab_rows, '[]'::jsonb) AS rows
+                     FROM users WHERE id = $1`,
+                    [creatorUid],
+                );
+                if (uMc.length && uMc[0].enabled) {
+                    uploadedMcSlabRowsSnapshot = sanitizeStoredRows(uMc[0].rows);
+                    if (!uploadedMcSlabRowsSnapshot.length) {
+                        parsedUploadedMcSlabKey = null;
+                    }
+                } else {
+                    parsedUploadedMcSlabKey = null;
+                }
+            } catch (mcErr) {
+                const msg = String(mcErr.message || '');
+                if (msg.includes('reseller_mc_slab_rows') || msg.includes('reseller_upload_slabs_enabled')) {
+                    await ensureMcSlabColumns(pool);
+                } else {
+                    throw mcErr;
+                }
+            }
+        } else {
+            parsedUploadedMcSlabKey = null;
+        }
+
         try {
             await query(
                 `INSERT INTO shared_catalogs (
                     id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
                     rates_snapshot, hide_prices, hide_pdf, pricing_slab, slab_wholesale_gold_rate_per_g,
-                    slab_wholesale_silver_rate_per_g, slab_settings_snapshot
+                    slab_wholesale_silver_rate_per_g, slab_settings_snapshot,
+                    uploaded_mc_slab_key, uploaded_mc_slab_rows_snapshot
                  )
-                 VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb)`,
+                 VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb)`,
                 [
                     id,
                     sortedIds,
@@ -7226,11 +7294,41 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                     wholesaleGold,
                     wholesaleSilver,
                     JSON.stringify(slabSettingsSnapshot),
+                    parsedUploadedMcSlabKey,
+                    JSON.stringify(uploadedMcSlabRowsSnapshot),
                 ],
             );
         } catch (insErr) {
             const msg = String(insErr.message || '');
-            if (msg.includes('pricing_slab') || msg.includes('slab_settings_snapshot')) {
+            if (msg.includes('uploaded_mc_slab')) {
+                await ensureMcSlabColumns(pool);
+                await query(
+                    `INSERT INTO shared_catalogs (
+                        id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
+                        rates_snapshot, hide_prices, hide_pdf, pricing_slab, slab_wholesale_gold_rate_per_g,
+                        slab_wholesale_silver_rate_per_g, slab_settings_snapshot,
+                        uploaded_mc_slab_key, uploaded_mc_slab_rows_snapshot
+                     )
+                     VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb)`,
+                    [
+                        id,
+                        sortedIds,
+                        markup,
+                        discount,
+                        exp,
+                        Number.isFinite(creatorUid) && creatorUid > 0 ? creatorUid : null,
+                        JSON.stringify(ratesSnapshot),
+                        hidePrices,
+                        hidePdf,
+                        slabKind,
+                        wholesaleGold,
+                        wholesaleSilver,
+                        JSON.stringify(slabSettingsSnapshot),
+                        parsedUploadedMcSlabKey,
+                        JSON.stringify(uploadedMcSlabRowsSnapshot),
+                    ],
+                );
+            } else if (msg.includes('pricing_slab') || msg.includes('slab_settings_snapshot')) {
                 await pool.query(`
                     ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS pricing_slab VARCHAR(16) NOT NULL DEFAULT 'standard';
                     ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS slab_wholesale_gold_rate_per_g NUMERIC(12, 4);
@@ -7554,6 +7652,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                     sc.slab_wholesale_gold_rate_per_g,
                     sc.slab_wholesale_silver_rate_per_g,
                     sc.slab_settings_snapshot,
+                    sc.uploaded_mc_slab_key,
+                    sc.uploaded_mc_slab_rows_snapshot,
                     u.customer_tier AS creator_customer_tier,
                     u.mobile_number AS creator_mobile_number,
                     u.wholesale_markup_percent AS creator_wholesale_markup_pct,

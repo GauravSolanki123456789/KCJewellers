@@ -62,6 +62,7 @@ export function buildSharedCatalogSelectionPicks(
 export function sharedCatalogPickToWhatsAppLine(
   pick: SharedCatalogSelectionPick,
   rates?: unknown,
+  uploadedMc?: { mc: number; mcType: string } | null,
 ): SharedCatalogPickLineForWhatsApp {
   const code = String(pick.row.product.barcode || pick.row.product.sku || pick.key)
   const item = sharedCatalogProductToItem(pick.row.product)
@@ -80,6 +81,8 @@ export function sharedCatalogPickToWhatsAppLine(
     slabDiscountLines:
       pick.row.slabDiscountLines.length > 0 ? pick.row.slabDiscountLines : undefined,
     savingsInr: pick.row.savingsInr ?? undefined,
+    uploadedMcRate: uploadedMc?.mc ?? undefined,
+    uploadedMcType: uploadedMc?.mcType ?? undefined,
   }
 }
 

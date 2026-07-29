@@ -1,5 +1,6 @@
 import axios from '@/lib/axios'
 import type { CatalogSlabKind, ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
+import type { UploadedMcSlabRow } from '@/lib/reseller-mc-slabs'
 
 export type CreateSharedCatalogPayload = {
   selectedProductIds: string[]
@@ -10,6 +11,8 @@ export type CreateSharedCatalogPayload = {
   pricingSlab?: CatalogSlabKind
   wholesaleGoldRatePerG?: number | null
   wholesaleSilverRatePerG?: number | null
+  /** Reseller-uploaded MC slab key (e.g. slab_c, slab_2) — snapshotted on link creation. */
+  uploadedMcSlabKey?: string | null
 }
 
 export type CreateSharedCatalogResponse =
@@ -147,6 +150,8 @@ export type SharedCatalogSlabFields = {
   slabSettingsSnapshot?: ResellerSlabSettings | null
   wholesaleGoldRatePerG?: number | null
   wholesaleSilverRatePerG?: number | null
+  uploadedMcSlabKey?: string | null
+  uploadedMcSlabRowsSnapshot?: UploadedMcSlabRow[] | null
 }
 
 export type SharedCatalogPublicResponse =

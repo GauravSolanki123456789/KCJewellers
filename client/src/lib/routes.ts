@@ -36,6 +36,8 @@ export const RESELLER_RATES_PATH = '/reseller/rates'
 export const RESELLER_INQUIRIES_PATH = '/reseller/inquiries'
 /** RESELLER tier — SMS / OTP for shared catalogue customer sign-in. */
 export const RESELLER_SMS_SETTINGS_PATH = '/reseller/sms-settings'
+/** RESELLER tier — upload weight-range MC slab Excel for WhatsApp catalogues. */
+export const RESELLER_MC_SLABS_PATH = '/reseller/mc-slabs'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const

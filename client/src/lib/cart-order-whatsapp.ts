@@ -136,6 +136,9 @@ export type SharedCatalogPickLineForWhatsApp = {
   /** Slab savings breakdown — MC / wastage / rate lines. */
   slabDiscountLines?: string[]
   savingsInr?: number | null
+  /** Uploaded MC slab rate (when reseller chose Slab C / Slab 2 etc.). */
+  uploadedMcRate?: number | null
+  uploadedMcType?: string | null
 }
 
 const ORDER_DIVIDER = '────────────────'
@@ -216,8 +219,24 @@ export function formatSharedCatalogOrderWhatsAppBody(params: {
         l.metalSpecSummary?.trim() ? l.metalSpecSummary.trim() : null,
       )
 
+      const mcLine =
+        l.uploadedMcRate != null && Number.isFinite(l.uploadedMcRate)
+          ? `MC: ${l.uploadedMcRate}`
+          : null
+      const mcTypeLine = l.uploadedMcType?.trim() ? `MCTYPE: ${l.uploadedMcType.trim()}` : null
+
       if (hidePrices) {
-        return [ORDER_DIVIDER, `*${i + 1}. ${l.name}*`, qtyLine, sizeLine, refLine, wtLine, specLine]
+        return [
+          ORDER_DIVIDER,
+          `*${i + 1}. ${l.name}*`,
+          qtyLine,
+          sizeLine,
+          refLine,
+          wtLine,
+          mcLine,
+          mcTypeLine,
+          specLine,
+        ]
           .filter(Boolean)
           .join('\n')
       }

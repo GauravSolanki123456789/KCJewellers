@@ -16,6 +16,7 @@ import {
   RESELLER_RATES_PATH,
   RESELLER_INQUIRIES_PATH,
   RESELLER_SMS_SETTINGS_PATH,
+  RESELLER_MC_SLABS_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -41,6 +42,7 @@ import {
   Upload,
   ShoppingBag,
   Smartphone,
+  Layers,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -200,6 +202,12 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_rates_update_enabled?: boolean }).reseller_rates_update_enabled,
   )
+  const resellerUploadSlabsEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_upload_slabs_enabled?: boolean }).reseller_upload_slabs_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -264,7 +272,11 @@ function ProfilePageContent() {
         ) : (
           <>
             {/* ——— Reseller quick actions (most important first) ——— */}
-            {(resellerUploadsEnabled || resellerEditsEnabled || resellerRatesEnabled || isReseller) && (
+            {(resellerUploadsEnabled ||
+              resellerEditsEnabled ||
+              resellerRatesEnabled ||
+              resellerUploadSlabsEnabled ||
+              isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
                 {resellerRatesEnabled ? (
@@ -289,6 +301,14 @@ function ProfilePageContent() {
                           : 'Add items, photos & Excel — send batches for KC review'
                     }
                     primary
+                  />
+                ) : null}
+                {resellerUploadSlabsEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_MC_SLABS_PATH}
+                    icon={Layers}
+                    title="Upload slabs"
+                    subtitle="Excel MC rates by style, SKU & weight — shown on WhatsApp catalogues"
                   />
                 ) : null}
                 {isReseller ? (

@@ -73,6 +73,7 @@ import SharedCatalogImageLightbox, {
   type SharedCatalogLightboxSlide,
 } from '@/components/shared-catalog/SharedCatalogImageLightbox'
 import { fireSharedCatalogInquiryLog, logSharedCatalogInquiry } from '@/lib/shared-catalog-inquiries'
+import { lookupUploadedMcRate } from '@/lib/reseller-mc-slabs'
 import { useAuth } from '@/hooks/useAuth'
 import SharedCatalogSignInModal, {
   type SharedCatalogCustomerIdentity,
@@ -298,6 +299,26 @@ export default function SharedCatalogClient({
   const slabPayload = useMemo(
     () => sharedCatalogSlabPayloadFromResponse(payload),
     [payload],
+  )
+
+  const uploadedMcSlabKey = useMemo(() => {
+    if (!payload || typeof payload !== 'object' || !('uploadedMcSlabKey' in payload)) return null
+    const key = payload.uploadedMcSlabKey
+    return key ? String(key) : null
+  }, [payload])
+
+  const uploadedMcSlabRows = useMemo(() => {
+    if (!payload || typeof payload !== 'object' || !('uploadedMcSlabRowsSnapshot' in payload)) {
+      return null
+    }
+    const snap = payload.uploadedMcSlabRowsSnapshot
+    return Array.isArray(snap) && snap.length ? snap : null
+  }, [payload])
+
+  const lookupProductUploadedMc = useCallback(
+    (product: SharedCatalogPublicProduct) =>
+      lookupUploadedMcRate(uploadedMcSlabRows, product, uploadedMcSlabKey),
+    [uploadedMcSlabRows, uploadedMcSlabKey],
   )
 
   const rows = useMemo(() => {
@@ -599,9 +620,11 @@ export default function SharedCatalogClient({
           name: customer.name,
         },
         lines: selectionPicks.map((pick) => {
+          const uploadedMc = lookupProductUploadedMc(pick.row.product)
           const waLine = sharedCatalogPickToWhatsAppLine(
             pick,
             payload && typeof payload === 'object' && 'rates' in payload ? payload.rates ?? [] : [],
+            uploadedMc,
           )
           return {
             name: waLine.name,
@@ -622,7 +645,7 @@ export default function SharedCatalogClient({
         catalogUrl: typeof window !== 'undefined' ? window.location.href : undefined,
       }
     },
-    [uuid, selectionPicks, payload, customer],
+    [uuid, selectionPicks, payload, customer, lookupProductUploadedMc],
   )
 
   const logInquiry = useCallback(
@@ -775,7 +798,11 @@ export default function SharedCatalogClient({
     setWaBusy(true)
 
     const lines = selectionPicks.map((pick) =>
-      sharedCatalogPickToWhatsAppLine(pick, payload.rates ?? []),
+      sharedCatalogPickToWhatsAppLine(
+        pick,
+        payload.rates ?? [],
+        lookupProductUploadedMc(pick.row.product),
+      ),
     )
 
     const msg = buildSharedCatalogSelectionWhatsAppMessage({
@@ -811,6 +838,7 @@ export default function SharedCatalogClient({
     uuid,
     requireSignIn,
     waBusy,
+    lookupProductUploadedMc,
   ])
 
   if (loading) {
@@ -1057,6 +1085,7 @@ export default function SharedCatalogClient({
               const code = String(product.barcode || product.sku || '')
               const sizeLabel = getCustomerDisplaySize(item)
               const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
+              const uploadedMc = lookupProductUploadedMc(product)
               const hasBox = productHasBoxOption(item)
               const includeBox = includeBoxByKey.get(key) ?? false
               const boxSlideIdx = boxImageSlideIndex(item)
@@ -1207,6 +1236,16 @@ export default function SharedCatalogClient({
                         >
                           {wtLabel}
                         </p>
+                      ) : null}
+                      {uploadedMc ? (
+                        <>
+                          <p className="text-xs font-semibold tabular-nums text-amber-600/95 sm:text-[13px]">
+                            MC: {uploadedMc.mc}
+                          </p>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500 sm:text-[11px]">
+                            MCTYPE: {uploadedMc.mcType}
+                          </p>
+                        </>
                       ) : null}
                       <ProductMetalSpecExtras
                         item={item}

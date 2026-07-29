@@ -30,6 +30,8 @@ import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
+import axios from '@/lib/axios'
+import type { UploadedMcSlabOption } from '@/lib/reseller-mc-slabs'
 
 const DEFAULT_EXPIRY_OPTIONS: SharedCatalogExpiryOption[] = [
   { label: '24 hours', hours: 24 },
@@ -94,6 +96,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const [copied, setCopied] = useState(false)
   const [pdfShareOpen, setPdfShareOpen] = useState(false)
   const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
+  const [uploadedMcSlabKey, setUploadedMcSlabKey] = useState('')
+  const [mcSlabOptions, setMcSlabOptions] = useState<UploadedMcSlabOption[]>([])
+  const [mcSlabsLoading, setMcSlabsLoading] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const linkResultRef = useRef<HTMLDivElement>(null)
 
@@ -131,6 +136,36 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     isReseller && !!(auth.user as WholesaleUserFields)?.reseller_hide_prices
   const resellerHideSharedCatalogPdf =
     isReseller && !!(auth.user as WholesaleUserFields)?.reseller_hide_shared_catalog_pdf
+  const resellerUploadSlabsEnabled =
+    isReseller && !!(auth.user as WholesaleUserFields)?.reseller_upload_slabs_enabled
+
+  useEffect(() => {
+    if (!open || !resellerUploadSlabsEnabled) {
+      setMcSlabOptions([])
+      setUploadedMcSlabKey('')
+      return
+    }
+    let cancelled = false
+    setMcSlabsLoading(true)
+    ;(async () => {
+      try {
+        const { data } = await axios.get<{ slabOptions?: UploadedMcSlabOption[] }>(
+          '/api/reseller/mc-slabs',
+        )
+        if (cancelled) return
+        const opts = Array.isArray(data.slabOptions) ? data.slabOptions : []
+        setMcSlabOptions(opts)
+        setUploadedMcSlabKey((prev) => (prev && opts.some((o) => o.key === prev) ? prev : ''))
+      } catch {
+        if (!cancelled) setMcSlabOptions([])
+      } finally {
+        if (!cancelled) setMcSlabsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, resellerUploadSlabsEnabled])
 
   useEffect(() => {
     if (resellerHideSharedCatalogPdf && outputFormat === 'pdf') {
@@ -390,6 +425,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
           pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
             ? Number(wholesaleSilverRate) || null
             : null,
+        uploadedMcSlabKey: uploadedMcSlabKey.trim() || null,
       })
       if (res.success && res.format === 'temporary_web_link') {
         setShareUrl(res.shareUrl)
@@ -431,6 +467,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     maxSelectable,
     linkMode,
     selectedCatalogId,
+    uploadedMcSlabKey,
   ])
 
   const copyLink = useCallback(async () => {
@@ -555,6 +592,44 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             <div className="rounded-xl border border-violet-500/30 bg-violet-950/25 px-3 py-2.5 text-[11px] leading-relaxed text-violet-200/90">
               Weight-only sharing is enabled for your account. Shared links, PDFs, and customer shortlists will show
               weights — not prices.
+            </div>
+          ) : null}
+
+          {resellerUploadSlabsEnabled && outputFormat === 'temporary_web_link' ? (
+            <div>
+              <label htmlFor="uploaded-mc-slab" className="kc-catalog-modal-label mb-2 block">
+                Uploaded MC slab
+              </label>
+              {mcSlabsLoading ? (
+                <p className="text-xs text-slate-500">Loading your slab sheet…</p>
+              ) : mcSlabOptions.length === 0 ? (
+                <p className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/90">
+                  No MC slab Excel uploaded yet. Go to Profile → Upload slabs, or leave this as none.
+                </p>
+              ) : (
+                <>
+                  <select
+                    id="uploaded-mc-slab"
+                    value={uploadedMcSlabKey}
+                    onChange={(e) => setUploadedMcSlabKey(e.target.value)}
+                    className="kc-catalog-modal-select"
+                  >
+                    <option value="">None — do not show MC on shared link</option>
+                    {mcSlabOptions.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  {uploadedMcSlabKey ? (
+                    <p className="kc-slab-hint mt-2">
+                      Customers will see <span className="kc-slab-hint-em">MC</span> and{' '}
+                      <span className="kc-slab-hint-em">MCTYPE</span> on each product card and WhatsApp shortlist
+                      line — matched by style, SKU, and weight from your Excel.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
           ) : null}
 
