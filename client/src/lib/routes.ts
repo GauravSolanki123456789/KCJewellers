@@ -38,6 +38,8 @@ export const RESELLER_INQUIRIES_PATH = '/reseller/inquiries'
 export const RESELLER_SMS_SETTINGS_PATH = '/reseller/sms-settings'
 /** RESELLER tier — upload weight-range MC slab Excel for WhatsApp catalogues. */
 export const RESELLER_MC_SLABS_PATH = '/reseller/mc-slabs'
+/** RESELLER tier — jewellery ERP hub (billing, CRM, stock, GST, reports…). */
+export const RESELLER_ERP_PATH = '/reseller/erp'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const

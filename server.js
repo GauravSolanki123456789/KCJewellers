@@ -106,6 +106,10 @@ const {
 } = require('./services/digiInvestRates');
 const { registerResellerLoginEmailRoutes } = require('./services/resellerLoginEmails');
 const {
+    ensureResellerErpSchema,
+    registerResellerErpRoutes,
+} = require('./services/resellerErp');
+const {
     sanitizeStoredRows,
     parseUploadedMcSlabKey,
     ensureMcSlabColumns,
@@ -725,6 +729,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerInvestManageEnabled = !!resolvedUser.reseller_invest_manage_enabled;
         let resellerSlabSettings = parseResellerSlabSettingsServer(resolvedUser.reseller_slab_settings);
         let resellerUploadSlabsEnabled = !!resolvedUser.reseller_upload_slabs_enabled;
+        let resellerErpEnabled = !!resolvedUser.reseller_erp_enabled;
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
@@ -733,6 +738,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_rates_update_enabled, false) AS rates_update,
                         COALESCE(reseller_invest_manage_enabled, false) AS invest_manage,
                         COALESCE(reseller_upload_slabs_enabled, false) AS upload_slabs,
+                        COALESCE(reseller_erp_enabled, false) AS erp_enabled,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
@@ -744,6 +750,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerRatesUpdateEnabled = !!fresh[0].rates_update;
                 resellerInvestManageEnabled = !!fresh[0].invest_manage;
                 resellerUploadSlabsEnabled = !!fresh[0].upload_slabs;
+                resellerErpEnabled = !!fresh[0].erp_enabled;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
             }
         } catch (e) {
@@ -781,6 +788,11 @@ app.get('/api/auth/current_user', async (req, res) => {
             if (msg.includes('reseller_upload_slabs_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_upload_slabs_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_erp_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_erp_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
         }
@@ -823,6 +835,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_rates_update_enabled: resellerRatesUpdateEnabled,
                 reseller_invest_manage_enabled: resellerInvestManageEnabled,
                 reseller_upload_slabs_enabled: resellerUploadSlabsEnabled,
+                reseller_erp_enabled: resellerErpEnabled,
                 reseller_slab_settings: resellerSlabSettings,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
@@ -1620,6 +1633,8 @@ registerResellerRatesRoutes(app, { checkAuth, liveRateService, io });
 registerResellerLoginEmailRoutes(app, { isAdminStrict, requireJson });
 registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator, requireJson });
 ensureMcSlabColumns(pool).catch((e) => console.warn('mc slab columns:', e.message));
+registerResellerErpRoutes(app, { query, pool, checkAuth, requireJson });
+ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
 
 // ==========================================
 // B2B WHOLESALE — client ledger (Khata) & admin ledger lines
@@ -3984,6 +3999,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_hide_shared_catalog_pdf, false) AS reseller_hide_shared_catalog_pdf,
                        COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
                        COALESCE(reseller_upload_slabs_enabled, false) AS reseller_upload_slabs_enabled,
+                       COALESCE(reseller_erp_enabled, false) AS reseller_erp_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
@@ -4435,6 +4451,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_upload_slabs_enabled !== undefined) {
             updates.push(`reseller_upload_slabs_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_upload_slabs_enabled);
+        }
+
+        if (req.body.reseller_erp_enabled !== undefined) {
+            updates.push(`reseller_erp_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_erp_enabled);
         }
 
         if (req.body.reseller_invest_manage_enabled !== undefined) {

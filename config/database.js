@@ -631,6 +631,10 @@ async function initSchema() {
             ADD COLUMN IF NOT EXISTS reseller_invest_enabled BOOLEAN NOT NULL DEFAULT false
         `);
         await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_erp_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
             ALTER TABLE reseller_metal_rates
             ADD COLUMN IF NOT EXISTS digi_silver_per_gram NUMERIC(12, 2),
             ADD COLUMN IF NOT EXISTS digi_gold_24k_per_gram NUMERIC(12, 2),

@@ -1,0 +1,634 @@
+/**
+ * Reseller ERP package — gate + customers, bills, stock/ROL, settings APIs.
+ */
+
+async function ensureResellerErpSchema(pool) {
+    await pool.query(`
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_erp_enabled BOOLEAN NOT NULL DEFAULT false;
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_customers (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name VARCHAR(255) NOT NULL,
+            mobile VARCHAR(32),
+            email VARCHAR(255),
+            gstin VARCHAR(20),
+            address TEXT,
+            birthdate DATE,
+            anniversary_date DATE,
+            notes TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_reseller_erp_customers_reseller
+            ON reseller_erp_customers (reseller_user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_settings (
+            reseller_user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_bills (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            bill_number VARCHAR(64) NOT NULL,
+            bill_type VARCHAR(32) NOT NULL DEFAULT 'sale',
+            customer_id INTEGER REFERENCES reseller_erp_customers(id) ON DELETE SET NULL,
+            customer_name VARCHAR(255),
+            total_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+            status VARCHAR(32) NOT NULL DEFAULT 'draft',
+            lines_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+            notes TEXT,
+            bill_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_reseller_erp_bills_reseller
+            ON reseller_erp_bills (reseller_user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_stock_alerts (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            product_barcode VARCHAR(128),
+            product_sku VARCHAR(128),
+            product_name VARCHAR(255),
+            reorder_level NUMERIC(12, 3) NOT NULL DEFAULT 0,
+            current_qty NUMERIC(12, 3) NOT NULL DEFAULT 0,
+            notes TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    `);
+}
+
+async function resellerErpEnabled(query, userId) {
+    const id = parseInt(String(userId), 10);
+    if (!Number.isFinite(id) || id <= 0) return false;
+    try {
+        const rows = await query(
+            `SELECT COALESCE(reseller_erp_enabled, false) AS enabled,
+                    UPPER(COALESCE(customer_tier, '')) AS tier
+             FROM users WHERE id = $1`,
+            [id],
+        );
+        if (!rows.length) return false;
+        return rows[0].tier === 'RESELLER' && !!rows[0].enabled;
+    } catch (e) {
+        if (String(e.message || '').includes('reseller_erp_enabled')) return false;
+        throw e;
+    }
+}
+
+function requireResellerErp(query) {
+    return async (req, res, next) => {
+        try {
+            if (!req.user?.id) {
+                return res.status(401).json({ error: 'Sign in required' });
+            }
+            const ok = await resellerErpEnabled(query, req.user.id);
+            if (!ok) {
+                return res.status(403).json({
+                    error: 'ERP is not enabled for your account. Ask KC admin to turn on ERP software.',
+                });
+            }
+            next();
+        } catch (e) {
+            console.error('reseller erp gate:', e);
+            res.status(500).json({ error: e.message || 'ERP check failed' });
+        }
+    };
+}
+
+function trimStr(v, max = 255) {
+    if (v == null) return null;
+    const s = String(v).trim();
+    if (!s) return null;
+    return s.slice(0, max);
+}
+
+function parseDateOrNull(v) {
+    if (v == null || v === '') return null;
+    const s = String(v).trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+    return s;
+}
+
+function mapCustomer(row) {
+    if (!row) return row;
+    return {
+        id: row.id,
+        name: row.name,
+        mobile: row.mobile,
+        email: row.email,
+        gstin: row.gstin,
+        address: row.address,
+        birthdate: row.birthdate,
+        anniversary_date: row.anniversary_date,
+        notes: row.notes,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    };
+}
+
+function mapBill(row) {
+    if (!row) return row;
+    let lines = row.lines_json;
+    if (typeof lines === 'string') {
+        try {
+            lines = JSON.parse(lines);
+        } catch {
+            lines = [];
+        }
+    }
+    if (!Array.isArray(lines)) lines = [];
+    return {
+        id: row.id,
+        bill_number: row.bill_number,
+        bill_type: row.bill_type,
+        customer_id: row.customer_id,
+        customer_name: row.customer_name,
+        total_inr: row.total_inr != null ? Number(row.total_inr) : 0,
+        status: row.status,
+        lines,
+        notes: row.notes,
+        bill_date: row.bill_date,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    };
+}
+
+function mapStock(row) {
+    if (!row) return row;
+    return {
+        id: row.id,
+        product_barcode: row.product_barcode,
+        product_sku: row.product_sku,
+        product_name: row.product_name,
+        reorder_level: Number(row.reorder_level) || 0,
+        current_qty: Number(row.current_qty) || 0,
+        notes: row.notes,
+        updated_at: row.updated_at,
+        below_rol: Number(row.current_qty) <= Number(row.reorder_level),
+    };
+}
+
+function registerResellerErpRoutes(app, deps) {
+    const { query, pool, checkAuth, requireJson } = deps;
+    const erpGate = requireResellerErp(query);
+
+    ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
+
+    app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
+        try {
+            await ensureResellerErpSchema(pool);
+            const enabled = await resellerErpEnabled(query, req.user.id);
+            if (!enabled) {
+                return res.json({ enabled: false, summary: null });
+            }
+            const [cust, bills, stock, below] = await Promise.all([
+                query(
+                    `SELECT COUNT(*)::int AS n FROM reseller_erp_customers WHERE reseller_user_id = $1`,
+                    [req.user.id],
+                ),
+                query(
+                    `SELECT COUNT(*)::int AS n,
+                            COALESCE(SUM(total_inr) FILTER (WHERE status <> 'cancelled'), 0)::float AS total
+                     FROM reseller_erp_bills WHERE reseller_user_id = $1`,
+                    [req.user.id],
+                ),
+                query(
+                    `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_alerts WHERE reseller_user_id = $1`,
+                    [req.user.id],
+                ),
+                query(
+                    `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_alerts
+                     WHERE reseller_user_id = $1 AND current_qty <= reorder_level`,
+                    [req.user.id],
+                ),
+            ]);
+            res.json({
+                enabled: true,
+                summary: {
+                    customers: cust[0]?.n ?? 0,
+                    bills: bills[0]?.n ?? 0,
+                    billTotalInr: bills[0]?.total ?? 0,
+                    stockItems: stock[0]?.n ?? 0,
+                    belowRol: below[0]?.n ?? 0,
+                },
+            });
+        } catch (e) {
+            console.error('erp status:', e);
+            res.status(500).json({ error: e.message || 'Failed to load ERP status' });
+        }
+    });
+
+    // ——— Customers ———
+    app.get('/api/reseller/erp/customers', checkAuth, erpGate, async (req, res) => {
+        try {
+            const q = String(req.query.q || '').trim();
+            const params = [req.user.id];
+            let sql = `SELECT * FROM reseller_erp_customers WHERE reseller_user_id = $1`;
+            if (q) {
+                params.push(`%${q}%`);
+                sql += ` AND (
+                    name ILIKE $2 OR COALESCE(mobile,'') ILIKE $2
+                    OR COALESCE(email,'') ILIKE $2 OR COALESCE(gstin,'') ILIKE $2
+                )`;
+            }
+            sql += ` ORDER BY updated_at DESC, id DESC LIMIT 500`;
+            const rows = await query(sql, params);
+            res.json({ customers: rows.map(mapCustomer) });
+        } catch (e) {
+            console.error('erp customers list:', e);
+            res.status(500).json({ error: e.message || 'Failed to list customers' });
+        }
+    });
+
+    app.post('/api/reseller/erp/customers', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const name = trimStr(req.body.name, 255);
+            if (!name) return res.status(400).json({ error: 'Customer name is required' });
+            const rows = await query(
+                `INSERT INTO reseller_erp_customers (
+                    reseller_user_id, name, mobile, email, gstin, address,
+                    birthdate, anniversary_date, notes
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                 RETURNING *`,
+                [
+                    req.user.id,
+                    name,
+                    trimStr(req.body.mobile, 32),
+                    trimStr(req.body.email, 255),
+                    trimStr(req.body.gstin, 20),
+                    trimStr(req.body.address, 2000),
+                    parseDateOrNull(req.body.birthdate),
+                    parseDateOrNull(req.body.anniversary_date),
+                    trimStr(req.body.notes, 2000),
+                ],
+            );
+            res.json({ success: true, customer: mapCustomer(rows[0]) });
+        } catch (e) {
+            console.error('erp customer create:', e);
+            res.status(500).json({ error: e.message || 'Failed to create customer' });
+        }
+    });
+
+    app.put('/api/reseller/erp/customers/:id', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id) || id <= 0) {
+                return res.status(400).json({ error: 'Invalid customer id' });
+            }
+            const name = trimStr(req.body.name, 255);
+            if (!name) return res.status(400).json({ error: 'Customer name is required' });
+            const rows = await query(
+                `UPDATE reseller_erp_customers SET
+                    name = $1, mobile = $2, email = $3, gstin = $4, address = $5,
+                    birthdate = $6, anniversary_date = $7, notes = $8, updated_at = NOW()
+                 WHERE id = $9 AND reseller_user_id = $10
+                 RETURNING *`,
+                [
+                    name,
+                    trimStr(req.body.mobile, 32),
+                    trimStr(req.body.email, 255),
+                    trimStr(req.body.gstin, 20),
+                    trimStr(req.body.address, 2000),
+                    parseDateOrNull(req.body.birthdate),
+                    parseDateOrNull(req.body.anniversary_date),
+                    trimStr(req.body.notes, 2000),
+                    id,
+                    req.user.id,
+                ],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Customer not found' });
+            res.json({ success: true, customer: mapCustomer(rows[0]) });
+        } catch (e) {
+            console.error('erp customer update:', e);
+            res.status(500).json({ error: e.message || 'Failed to update customer' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/customers/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            const rows = await query(
+                `DELETE FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 RETURNING id`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Customer not found' });
+            res.json({ success: true });
+        } catch (e) {
+            console.error('erp customer delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete customer' });
+        }
+    });
+
+    // ——— Bills ———
+    app.get('/api/reseller/erp/bills', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT * FROM reseller_erp_bills
+                 WHERE reseller_user_id = $1
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 300`,
+                [req.user.id],
+            );
+            res.json({ bills: rows.map(mapBill) });
+        } catch (e) {
+            console.error('erp bills list:', e);
+            res.status(500).json({ error: e.message || 'Failed to list bills' });
+        }
+    });
+
+    app.post('/api/reseller/erp/bills', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const billType = String(req.body.bill_type || 'sale').trim().toLowerCase();
+            const allowed = ['sale', 'credit', 'estimate', 'order'];
+            if (!allowed.includes(billType)) {
+                return res.status(400).json({ error: 'Invalid bill type' });
+            }
+            const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
+            let total = Number(req.body.total_inr);
+            if (!Number.isFinite(total)) {
+                total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
+            }
+            const seq = await query(
+                `SELECT COALESCE(MAX(id), 0) + 1 AS n FROM reseller_erp_bills WHERE reseller_user_id = $1`,
+                [req.user.id],
+            );
+            const billNumber =
+                trimStr(req.body.bill_number, 64) ||
+                `${billType.toUpperCase()}-${String(seq[0]?.n || 1).padStart(4, '0')}`;
+
+            const rows = await query(
+                `INSERT INTO reseller_erp_bills (
+                    reseller_user_id, bill_number, bill_type, customer_id, customer_name,
+                    total_inr, status, lines_json, notes, bill_date
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+                 RETURNING *`,
+                [
+                    req.user.id,
+                    billNumber,
+                    billType,
+                    req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null,
+                    trimStr(req.body.customer_name, 255),
+                    Math.round(total * 100) / 100,
+                    trimStr(req.body.status, 32) || 'draft',
+                    JSON.stringify(lines),
+                    trimStr(req.body.notes, 2000),
+                    parseDateOrNull(req.body.bill_date) || new Date().toISOString().slice(0, 10),
+                ],
+            );
+            res.json({ success: true, bill: mapBill(rows[0]) });
+        } catch (e) {
+            console.error('erp bill create:', e);
+            res.status(500).json({ error: e.message || 'Failed to create bill' });
+        }
+    });
+
+    app.patch('/api/reseller/erp/bills/:id', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            const status = trimStr(req.body.status, 32);
+            if (!status) return res.status(400).json({ error: 'status required' });
+            const rows = await query(
+                `UPDATE reseller_erp_bills SET status = $1, updated_at = NOW()
+                 WHERE id = $2 AND reseller_user_id = $3
+                 RETURNING *`,
+                [status, id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            res.json({ success: true, bill: mapBill(rows[0]) });
+        } catch (e) {
+            console.error('erp bill patch:', e);
+            res.status(500).json({ error: e.message || 'Failed to update bill' });
+        }
+    });
+
+    // ——— Stock / ROL ———
+    app.get('/api/reseller/erp/stock', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT * FROM reseller_erp_stock_alerts
+                 WHERE reseller_user_id = $1
+                 ORDER BY
+                   CASE WHEN current_qty <= reorder_level THEN 0 ELSE 1 END,
+                   product_name ASC NULLS LAST,
+                   id DESC
+                 LIMIT 500`,
+                [req.user.id],
+            );
+            res.json({ items: rows.map(mapStock) });
+        } catch (e) {
+            console.error('erp stock list:', e);
+            res.status(500).json({ error: e.message || 'Failed to list stock' });
+        }
+    });
+
+    app.post('/api/reseller/erp/stock', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const barcode = trimStr(req.body.product_barcode, 128);
+            const name = trimStr(req.body.product_name, 255);
+            if (!barcode && !name) {
+                return res.status(400).json({ error: 'Barcode or product name is required' });
+            }
+            const reorder = Number(req.body.reorder_level);
+            const qty = Number(req.body.current_qty);
+            const rows = await query(
+                `INSERT INTO reseller_erp_stock_alerts (
+                    reseller_user_id, product_barcode, product_sku, product_name,
+                    reorder_level, current_qty, notes, updated_at
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+                 ON CONFLICT DO NOTHING
+                 RETURNING *`,
+                [
+                    req.user.id,
+                    barcode,
+                    trimStr(req.body.product_sku, 128),
+                    name || barcode,
+                    Number.isFinite(reorder) ? reorder : 0,
+                    Number.isFinite(qty) ? qty : 0,
+                    trimStr(req.body.notes, 1000),
+                ],
+            );
+            if (!rows.length && barcode) {
+                const updated = await query(
+                    `UPDATE reseller_erp_stock_alerts SET
+                        product_sku = COALESCE($1, product_sku),
+                        product_name = COALESCE($2, product_name),
+                        reorder_level = $3,
+                        current_qty = $4,
+                        notes = COALESCE($5, notes),
+                        updated_at = NOW()
+                     WHERE reseller_user_id = $6 AND product_barcode = $7
+                     RETURNING *`,
+                    [
+                        trimStr(req.body.product_sku, 128),
+                        name,
+                        Number.isFinite(reorder) ? reorder : 0,
+                        Number.isFinite(qty) ? qty : 0,
+                        trimStr(req.body.notes, 1000),
+                        req.user.id,
+                        barcode,
+                    ],
+                );
+                if (updated.length) {
+                    return res.json({ success: true, item: mapStock(updated[0]) });
+                }
+            }
+            if (!rows.length) {
+                const inserted = await query(
+                    `INSERT INTO reseller_erp_stock_alerts (
+                        reseller_user_id, product_barcode, product_sku, product_name,
+                        reorder_level, current_qty, notes, updated_at
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+                     RETURNING *`,
+                    [
+                        req.user.id,
+                        barcode,
+                        trimStr(req.body.product_sku, 128),
+                        name || barcode || 'Item',
+                        Number.isFinite(reorder) ? reorder : 0,
+                        Number.isFinite(qty) ? qty : 0,
+                        trimStr(req.body.notes, 1000),
+                    ],
+                );
+                return res.json({ success: true, item: mapStock(inserted[0]) });
+            }
+            res.json({ success: true, item: mapStock(rows[0]) });
+        } catch (e) {
+            console.error('erp stock upsert:', e);
+            res.status(500).json({ error: e.message || 'Failed to save stock item' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/stock/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            const rows = await query(
+                `DELETE FROM reseller_erp_stock_alerts WHERE id = $1 AND reseller_user_id = $2 RETURNING id`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Stock item not found' });
+            res.json({ success: true });
+        } catch (e) {
+            console.error('erp stock delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete stock item' });
+        }
+    });
+
+    // ——— Settings (GST, e-invoice, e-way, tally, digi, scanner prefs) ———
+    app.get('/api/reseller/erp/settings', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+                [req.user.id],
+            );
+            let settings = rows[0]?.settings ?? {};
+            if (typeof settings === 'string') {
+                try {
+                    settings = JSON.parse(settings);
+                } catch {
+                    settings = {};
+                }
+            }
+            res.json({ settings: settings && typeof settings === 'object' ? settings : {} });
+        } catch (e) {
+            console.error('erp settings get:', e);
+            res.status(500).json({ error: e.message || 'Failed to load settings' });
+        }
+    });
+
+    app.put('/api/reseller/erp/settings', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const incoming = req.body?.settings;
+            if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+                return res.status(400).json({ error: 'settings object required' });
+            }
+            const existing = await query(
+                `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+                [req.user.id],
+            );
+            let prev = existing[0]?.settings ?? {};
+            if (typeof prev === 'string') {
+                try {
+                    prev = JSON.parse(prev);
+                } catch {
+                    prev = {};
+                }
+            }
+            const merged = { ...(prev && typeof prev === 'object' ? prev : {}), ...incoming };
+            // Never store raw secrets longer than needed — keep keys as strings max 512
+            for (const key of Object.keys(merged)) {
+                if (typeof merged[key] === 'string') {
+                    merged[key] = merged[key].slice(0, 512);
+                }
+            }
+            await query(
+                `INSERT INTO reseller_erp_settings (reseller_user_id, settings, updated_at)
+                 VALUES ($1, $2::jsonb, NOW())
+                 ON CONFLICT (reseller_user_id) DO UPDATE
+                 SET settings = $2::jsonb, updated_at = NOW()`,
+                [req.user.id, JSON.stringify(merged)],
+            );
+            res.json({ success: true, settings: merged });
+        } catch (e) {
+            console.error('erp settings put:', e);
+            res.status(500).json({ error: e.message || 'Failed to save settings' });
+        }
+    });
+
+    // ——— Sales summary ———
+    app.get('/api/reseller/erp/reports/sales', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT
+                    COUNT(*)::int AS bill_count,
+                    COALESCE(SUM(total_inr) FILTER (WHERE status IN ('completed','paid','final')), 0)::float AS completed_inr,
+                    COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'credit'), 0)::float AS credit_inr,
+                    COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'estimate'), 0)::float AS estimate_inr,
+                    COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'order'), 0)::float AS order_inr,
+                    COALESCE(SUM(total_inr), 0)::float AS total_inr
+                 FROM reseller_erp_bills
+                 WHERE reseller_user_id = $1
+                   AND created_at >= NOW() - INTERVAL '30 days'`,
+                [req.user.id],
+            );
+            const byType = await query(
+                `SELECT bill_type, COUNT(*)::int AS n, COALESCE(SUM(total_inr),0)::float AS total
+                 FROM reseller_erp_bills
+                 WHERE reseller_user_id = $1
+                   AND created_at >= NOW() - INTERVAL '30 days'
+                 GROUP BY bill_type
+                 ORDER BY total DESC`,
+                [req.user.id],
+            );
+            const summary = rows[0] || {};
+            const completed = Number(summary.completed_inr) || 0;
+            const total = Number(summary.total_inr) || 0;
+            res.json({
+                period: '30d',
+                summary: {
+                    billCount: summary.bill_count ?? 0,
+                    completedInr: completed,
+                    creditInr: Number(summary.credit_inr) || 0,
+                    estimateInr: Number(summary.estimate_inr) || 0,
+                    orderInr: Number(summary.order_inr) || 0,
+                    totalInr: total,
+                    completionPct: total > 0 ? Math.round((completed / total) * 1000) / 10 : 0,
+                },
+                byType,
+            });
+        } catch (e) {
+            console.error('erp sales report:', e);
+            res.status(500).json({ error: e.message || 'Failed to load sales report' });
+        }
+    });
+}
+
+module.exports = {
+    ensureResellerErpSchema,
+    resellerErpEnabled,
+    registerResellerErpRoutes,
+};

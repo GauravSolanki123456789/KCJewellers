@@ -17,6 +17,7 @@ import {
   RESELLER_INQUIRIES_PATH,
   RESELLER_SMS_SETTINGS_PATH,
   RESELLER_MC_SLABS_PATH,
+  RESELLER_ERP_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -43,6 +44,7 @@ import {
   ShoppingBag,
   Smartphone,
   Layers,
+  LayoutGrid,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -208,6 +210,12 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_upload_slabs_enabled?: boolean }).reseller_upload_slabs_enabled,
   )
+  const resellerErpEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_erp_enabled?: boolean }).reseller_erp_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -276,9 +284,19 @@ function ProfilePageContent() {
               resellerEditsEnabled ||
               resellerRatesEnabled ||
               resellerUploadSlabsEnabled ||
+              resellerErpEnabled ||
               isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
+                {resellerErpEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_ERP_PATH}
+                    icon={LayoutGrid}
+                    title="Jewellery ERP"
+                    subtitle="Billing, customers, stock & ROL, DigiGold / DigiSilver, GST, reports & more"
+                    primary
+                  />
+                ) : null}
                 {resellerRatesEnabled ? (
                   <ProfileActionCard
                     href={RESELLER_RATES_PATH}

@@ -46,6 +46,8 @@ export type WholesaleUserFields = {
   reseller_slab_settings?: import('@/lib/catalog-slab-pricing').ResellerSlabSettings | null
   /** Admin enables staff MC slab Excel uploads at `/reseller/mc-slabs`. */
   reseller_upload_slabs_enabled?: boolean
+  /** Admin enables jewellery ERP suite at `/reseller/erp`. */
+  reseller_erp_enabled?: boolean
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

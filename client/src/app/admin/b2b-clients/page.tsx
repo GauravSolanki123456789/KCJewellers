@@ -95,6 +95,8 @@ type AdminUser = {
   reseller_rates_update_enabled?: boolean
   /** Admin enables staff MC slab Excel uploads (`users.reseller_upload_slabs_enabled`). */
   reseller_upload_slabs_enabled?: boolean
+  /** Admin enables jewellery ERP suite (`users.reseller_erp_enabled`). */
+  reseller_erp_enabled?: boolean
   reseller_invite_code?: string | null
   referred_by_user_id?: number | null
   reseller_slab_settings?: ResellerSlabSettings | null
@@ -202,6 +204,7 @@ function B2BAdminContent() {
     reseller_hide_shared_catalog_pdf: false,
     reseller_rates_update_enabled: false,
     reseller_upload_slabs_enabled: false,
+    reseller_erp_enabled: false,
     reseller_invite_code: '',
     reseller_catalog_max_products: '50',
     reseller_catalog_daily_limit: '10',
@@ -282,6 +285,7 @@ function B2BAdminContent() {
         reseller_hide_shared_catalog_pdf: !!resellerModalUser.reseller_hide_shared_catalog_pdf,
         reseller_rates_update_enabled: !!resellerModalUser.reseller_rates_update_enabled,
         reseller_upload_slabs_enabled: !!resellerModalUser.reseller_upload_slabs_enabled,
+        reseller_erp_enabled: !!resellerModalUser.reseller_erp_enabled,
         reseller_invite_code: resellerModalUser.reseller_invite_code
           ? normalizeResellerInviteCode(resellerModalUser.reseller_invite_code)
           : '',
@@ -387,6 +391,7 @@ function B2BAdminContent() {
         reseller_hide_shared_catalog_pdf: resellerForm.reseller_hide_shared_catalog_pdf,
         reseller_rates_update_enabled: resellerForm.reseller_rates_update_enabled,
         reseller_upload_slabs_enabled: resellerForm.reseller_upload_slabs_enabled,
+        reseller_erp_enabled: resellerForm.reseller_erp_enabled,
         reseller_invite_code: resellerForm.reseller_invite_code.trim()
           ? normalizeResellerInviteCode(resellerForm.reseller_invite_code)
           : null,
@@ -1140,6 +1145,44 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_upload_slabs_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Enable ERP software</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        When enabled, this reseller&apos;s staff get the jewellery ERP hub at{' '}
+                        <code className="text-slate-400">/reseller/erp</code> — billing, credit bills,
+                        customers (birthdays &amp; anniversaries), stock &amp; ROL, DigiGold / DigiSilver,
+                        GST, slabs, sales reports, barcoding / tag splitting, estimation &amp; bill
+                        tracking, e-invoice / e-way / Tally API linking, and more (
+                        <code className="text-slate-400">reseller_erp_enabled</code>).
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_erp_enabled}
+                      aria-label="Enable reseller ERP software"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_erp_enabled: !f.reseller_erp_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_erp_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_erp_enabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>
