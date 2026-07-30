@@ -9,6 +9,7 @@ import {
   Layers,
   Package,
   Percent,
+  Printer,
   QrCode,
   Receipt,
   ScanLine,
@@ -28,6 +29,8 @@ export type ResellerErpModuleId =
   | 'orders'
   | 'estimations'
   | 'customers'
+  | 'products'
+  | 'hardware'
   | 'stock'
   | 'rol'
   | 'digigold'
@@ -101,6 +104,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: Users,
     group: 'crm',
+    kind: 'workspace',
+  },
+  {
+    id: 'products',
+    title: 'Products',
+    short: 'Stock upload',
+    description: '',
+    icon: Package,
+    group: 'inventory',
     kind: 'workspace',
   },
   {
@@ -237,6 +249,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     icon: ScanLine,
     group: 'tools',
     kind: 'settings',
+  },
+  {
+    id: 'hardware',
+    title: 'Hardware',
+    short: 'Printers',
+    description: '',
+    icon: Printer,
+    group: 'tools',
+    kind: 'workspace',
   },
   {
     id: 'integrations',

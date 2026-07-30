@@ -2,6 +2,13 @@
  * Reseller ERP package — gate + customers, bills, stock/ROL, settings APIs.
  */
 
+const {
+    ensureStockPiecesSchema,
+    registerStockPieceRoutes,
+    lookupStockPiece,
+    markPiecesSold,
+} = require('./resellerErpStockPieces');
+
 async function ensureResellerErpSchema(pool) {
     await pool.query(`
         ALTER TABLE users
@@ -60,6 +67,7 @@ async function ensureResellerErpSchema(pool) {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
     `);
+    await ensureStockPiecesSchema(pool);
 }
 
 async function resellerErpEnabled(query, userId) {
@@ -179,6 +187,8 @@ function registerResellerErpRoutes(app, deps) {
 
     ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
 
+    registerStockPieceRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+
     app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
         try {
             await ensureResellerErpSchema(pool);
@@ -186,7 +196,7 @@ function registerResellerErpRoutes(app, deps) {
             if (!enabled) {
                 return res.json({ enabled: false, summary: null });
             }
-            const [cust, bills, stock, below] = await Promise.all([
+            const [cust, bills, stock, below, pieces] = await Promise.all([
                 query(
                     `SELECT COUNT(*)::int AS n FROM reseller_erp_customers WHERE reseller_user_id = $1`,
                     [req.user.id],
@@ -206,6 +216,11 @@ function registerResellerErpRoutes(app, deps) {
                      WHERE reseller_user_id = $1 AND current_qty <= reorder_level`,
                     [req.user.id],
                 ),
+                query(
+                    `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND status = 'in_stock'`,
+                    [req.user.id],
+                ),
             ]);
             res.json({
                 enabled: true,
@@ -213,7 +228,7 @@ function registerResellerErpRoutes(app, deps) {
                     customers: cust[0]?.n ?? 0,
                     bills: bills[0]?.n ?? 0,
                     billTotalInr: bills[0]?.total ?? 0,
-                    stockItems: stock[0]?.n ?? 0,
+                    stockItems: pieces[0]?.n ?? stock[0]?.n ?? 0,
                     belowRol: below[0]?.n ?? 0,
                 },
             });
@@ -380,7 +395,12 @@ function registerResellerErpRoutes(app, deps) {
                     parseDateOrNull(req.body.bill_date) || new Date().toISOString().slice(0, 10),
                 ],
             );
-            res.json({ success: true, bill: mapBill(rows[0]) });
+            const bill = mapBill(rows[0]);
+            const status = String(bill.status || '').toLowerCase();
+            if (['completed', 'paid', 'final'].includes(status)) {
+                await markPiecesSold(query, req.user.id, lines, bill.id);
+            }
+            res.json({ success: true, bill });
         } catch (e) {
             console.error('erp bill create:', e);
             res.status(500).json({ error: e.message || 'Failed to create bill' });
@@ -399,7 +419,11 @@ function registerResellerErpRoutes(app, deps) {
                 [status, id, req.user.id],
             );
             if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
-            res.json({ success: true, bill: mapBill(rows[0]) });
+            const bill = mapBill(rows[0]);
+            if (['completed', 'paid', 'final'].includes(String(status).toLowerCase())) {
+                await markPiecesSold(query, req.user.id, bill.lines, bill.id);
+            }
+            res.json({ success: true, bill });
         } catch (e) {
             console.error('erp bill patch:', e);
             res.status(500).json({ error: e.message || 'Failed to update bill' });
@@ -584,13 +608,57 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const code = String(req.query.code || req.query.barcode || '').trim();
             if (!code) return res.status(400).json({ error: 'code required' });
+
+            const stockHit = await lookupStockPiece(query, req.user.id, code);
+            if (stockHit?.piece) {
+                const p = stockHit.piece;
+                if (p.status === 'sold') {
+                    return res.status(409).json({ error: 'This piece is already sold', availability: stockHit.availability });
+                }
+                if (p.status !== 'in_stock') {
+                    return res.status(409).json({ error: `Piece status: ${p.status}` });
+                }
+                return res.json({
+                    source: 'stock_piece',
+                    product: {
+                        id: p.id,
+                        barcode: p.barcode,
+                        sku: p.sku,
+                        style_code: p.style_code,
+                        name: p.product_name,
+                        product_name: p.product_name,
+                        size: p.size,
+                        net_weight: p.avg_weight,
+                        gross_weight: p.avg_weight,
+                        purity: p.purity,
+                        wastage_pct: p.wastage_pct,
+                        mc_rate: p.mc_rate,
+                        mc_type: p.mc_type,
+                        pcs: p.pcs,
+                        box_charges: p.box_charges,
+                        stone_charges: p.stone_charges,
+                        metal_type: p.metal_type,
+                        item_code: p.item_code,
+                        image_url: p.image_url,
+                        attr_color: p.attr_color,
+                        attr_stone: p.attr_stone,
+                        fixed_price: p.fixed_price,
+                    },
+                    availability: stockHit.availability,
+                });
+            }
+
             const rows = await query(
-                `SELECT wp.barcode, wp.sku, wp.name, wp.image_url,
+                `SELECT wp.barcode, wp.sku, wp.name, wp.image_url, wp.size,
                         wp.net_weight::float AS net_weight,
                         wp.gross_weight::float AS gross_weight,
+                        wp.purity::float AS purity,
+                        COALESCE(wp.wastage_pct, 0)::float AS wastage_pct,
                         COALESCE(wp.metal_type, 'silver') AS metal_type,
                         wp.mc_rate::float AS mc_rate, wp.mc_type,
-                        COALESCE(wp.fixed_price, 0)::float AS fixed_price
+                        COALESCE(wp.fixed_price, 0)::float AS fixed_price,
+                        COALESCE(wp.box_charges, 0)::float AS box_charges,
+                        COALESCE(wp.stone_charges, 0)::float AS stone_charges
                  FROM web_products wp
                  WHERE (wp.barcode = $1 OR wp.sku = $1)
                    AND (wp.is_active IS NULL OR wp.is_active = true)
@@ -600,17 +668,24 @@ function registerResellerErpRoutes(app, deps) {
             if (!rows.length) return res.status(404).json({ error: 'Product not found' });
             const p = rows[0];
             res.json({
+                source: 'catalogue',
                 product: {
                     barcode: p.barcode,
                     sku: p.sku,
                     name: p.name,
+                    product_name: p.name,
+                    size: p.size,
                     image_url: p.image_url,
                     net_weight: p.net_weight,
                     gross_weight: p.gross_weight,
+                    purity: p.purity,
+                    wastage_pct: p.wastage_pct,
                     metal_type: p.metal_type,
                     mc_rate: p.mc_rate,
                     mc_type: p.mc_type,
                     fixed_price: p.fixed_price,
+                    box_charges: p.box_charges,
+                    stone_charges: p.stone_charges,
                 },
             });
         } catch (e) {

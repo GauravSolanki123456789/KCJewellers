@@ -11,26 +11,80 @@ export const erpCardCls =
   'rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 shadow-sm'
 
 export type ErpProductHit = {
+  id?: number
   barcode?: string | null
   sku?: string | null
+  style_code?: string | null
   name?: string | null
+  product_name?: string | null
+  size?: string | null
   image_url?: string | null
   net_weight?: number | null
   gross_weight?: number | null
+  purity?: number | null
+  wastage_pct?: number | null
   metal_type?: string | null
   mc_rate?: number | null
   mc_type?: string | null
+  pcs?: number | null
+  box_charges?: number | null
+  stone_charges?: number | null
+  item_code?: string | null
+  attr_color?: string | null
+  attr_stone?: string | null
   fixed_price?: number | null
+}
+
+export type ErpStockPiece = {
+  id: number
+  batch_id?: string | null
+  barcode: string
+  sku?: string | null
+  style_code?: string | null
+  product_name?: string | null
+  size?: string | null
+  avg_weight?: number | null
+  purity?: number | null
+  wastage_pct?: number | null
+  mc_rate?: number | null
+  mc_type?: string | null
+  pcs?: number
+  box_charges?: number | null
+  stone_charges?: number | null
+  metal_type?: string | null
+  item_code?: string | null
+  image_url?: string | null
+  attr_color?: string | null
+  attr_stone?: string | null
+  fixed_price?: number | null
+  status: string
+  sold_bill_id?: number | null
 }
 
 export type ErpBillLine = {
   name: string
   code?: string
+  barcode?: string
+  sku?: string
+  style_code?: string
+  size?: string | null
   qty: number
   unitInr?: number | null
   lineTotalInr?: number | null
   weightGm?: number | null
+  purity?: number | null
+  wastage_pct?: number | null
+  ratePerGram?: number | null
+  mc_rate?: number | null
+  mc_type?: string | null
+  box_charges?: number | null
+  stone_charges?: number | null
+  metal_type?: string | null
+  item_code?: string | null
   imageUrl?: string | null
+  fixed_price?: number | null
+  stock_piece_id?: number | null
+  availability?: string | null
 }
 
 export type ErpBill = {

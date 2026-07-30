@@ -7,6 +7,9 @@ import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { getResellerErpModule, type ResellerErpModuleId } from '@/lib/reseller-erp-modules'
 import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
 import { erpBtnPrimary } from '@/components/reseller/erp/erp-ui'
+import { ErpBillingWorkspace } from '@/components/reseller/erp/ErpBillingWorkspace'
+import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
+import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import {
   BillsWorkspace,
   CustomersWorkspace,
@@ -24,8 +27,12 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
   switch (moduleId) {
     case 'customers':
       return <CustomersWorkspace />
+    case 'products':
+      return <ErpProductsWorkspace />
+    case 'hardware':
+      return <ErpHardwareWorkspace />
     case 'billing':
-      return <BillsWorkspace billTypeFilter="sale" />
+      return <ErpBillingWorkspace />
     case 'credit-bills':
       return <BillsWorkspace billTypeFilter="credit" />
     case 'orders':
