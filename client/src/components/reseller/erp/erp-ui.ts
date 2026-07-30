@@ -75,6 +75,8 @@ export type ErpBillLine = {
   purity?: number | null
   wastage_pct?: number | null
   ratePerGram?: number | null
+  /** When true, Rate column stays empty (rate unfix). */
+  rateLocked?: boolean
   mc_rate?: number | null
   mc_type?: string | null
   box_charges?: number | null

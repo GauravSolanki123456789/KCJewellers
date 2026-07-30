@@ -6,7 +6,6 @@ import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
   computeLineBreakdown,
-  computeLineTotal,
   displayRatesToPerGram,
   parseSlabSettingsFromUser,
   perGramToDisplayRates,
@@ -162,17 +161,23 @@ export function ErpBillingWorkspace() {
   const scanRef = useRef<HTMLInputElement>(null)
 
   const recalcLine = useCallback(
-    (line: ErpBillLine): ErpBillLine => ({
-      ...line,
-      lineTotalInr: computeLineTotal(
+    (line: ErpBillLine): ErpBillLine => {
+      const bd = computeLineBreakdown(
         line,
         displayRates,
         rateSlab,
         slabSettings,
         wholesaleGold,
         wholesaleSilver,
-      ),
-    }),
+      )
+      const next: ErpBillLine = { ...line, lineTotalInr: bd.total }
+      if (!line.rateLocked) {
+        const r = bd.rate_per_gram
+        next.ratePerGram =
+          r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
+      }
+      return next
+    },
     [displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver],
   )
 
@@ -291,6 +296,9 @@ export function ErpBillingWorkspace() {
     )
   }
 
+  const unlockLineRates = (list: ErpBillLine[]) =>
+    list.map((l) => ({ ...l, rateLocked: false }))
+
   const onSlabChange = (next: ErpRateSlab) => {
     if (next === 'W' || next === 'F') {
       setPendingSlab(next)
@@ -299,23 +307,33 @@ export function ErpBillingWorkspace() {
       setShowWholesaleModal(true)
     } else {
       setRateSlab(next)
+      setLines((prev) => unlockLineRates(prev))
     }
   }
 
   const applyWholesaleSlab = () => {
-    const g = Number(modalWhGold)
-    const s = Number(modalWhSilver)
-    if (!Number.isFinite(g) || g <= 0) {
-      alert('Enter wholesale gold ₹/g')
+    const gRaw = modalWhGold.trim()
+    const sRaw = modalWhSilver.trim()
+    const g = gRaw ? Number(gRaw) : null
+    const s = sRaw ? Number(sRaw) : null
+    const hasGold = g != null && Number.isFinite(g) && g > 0
+    const hasSilver = s != null && Number.isFinite(s) && s > 0
+    if (!hasGold && !hasSilver) {
+      alert('Enter wholesale gold or silver ₹/g')
       return
     }
-    if (!Number.isFinite(s) || s <= 0) {
-      alert('Enter wholesale silver ₹/g')
+    if (gRaw && !hasGold) {
+      alert('Enter a valid gold ₹/g')
       return
     }
-    setWholesaleGold(g)
-    setWholesaleSilver(s)
+    if (sRaw && !hasSilver) {
+      alert('Enter a valid silver ₹/g')
+      return
+    }
+    if (hasGold) setWholesaleGold(g)
+    if (hasSilver) setWholesaleSilver(s)
     if (pendingSlab) setRateSlab(pendingSlab)
+    setLines((prev) => unlockLineRates(prev))
     setShowWholesaleModal(false)
     setPendingSlab(null)
   }
@@ -330,7 +348,12 @@ export function ErpBillingWorkspace() {
     setGoldPerG(g)
     setSilverPerG(s)
     setDisplayRates(perGramToDisplayRates(g, s))
+    setLines((prev) => unlockLineRates(prev))
     setShowRateEdit(false)
+  }
+
+  const rateUnfix = () => {
+    setLines((prev) => prev.map((l) => ({ ...l, ratePerGram: null, rateLocked: true })))
   }
 
   const totals = useMemo(() => {
@@ -456,17 +479,14 @@ export function ErpBillingWorkspace() {
       {showWholesaleModal ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div className={`${erpCardCls} w-full max-w-md`}>
-            <h3 className="mb-1 text-sm font-semibold">Slab {pendingSlab} — wholesale metal rate</h3>
-            <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Enter ₹/g fine metal rates. All scanned lines will recalculate.
-            </p>
+            <h3 className="mb-3 text-sm font-semibold">Slab {pendingSlab} — wholesale metal rate</h3>
             <div className="grid gap-3">
               <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                Gold ₹/g (999 fine)
+                Gold ₹/g
                 <input className={`${erpInputCls} mt-1`} placeholder="e.g. 7200" value={modalWhGold} onChange={(e) => setModalWhGold(e.target.value)} />
               </label>
               <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                Silver ₹/g (999 fine)
+                Silver ₹/g
                 <input className={`${erpInputCls} mt-1`} placeholder="e.g. 220" value={modalWhSilver} onChange={(e) => setModalWhSilver(e.target.value)} />
               </label>
             </div>
@@ -606,10 +626,22 @@ export function ErpBillingWorkspace() {
                 <span className="font-semibold tabular-nums">{formatErpInr(silverPerG)}/gm</span>
               </li>
             </ul>
-            {(rateSlab === 'W' || rateSlab === 'F') && wholesaleSilver ? (
+            {(rateSlab === 'W' || rateSlab === 'F') && (wholesaleGold || wholesaleSilver) ? (
               <p className="mt-2 text-[10px] text-emerald-700">
-                Wholesale: Au {formatErpInr(wholesaleGold ?? 0)}/g · Ag {formatErpInr(wholesaleSilver)}/g
+                Wholesale:
+                {wholesaleGold ? ` Au ${formatErpInr(wholesaleGold)}/g` : ''}
+                {wholesaleGold && wholesaleSilver ? ' ·' : ''}
+                {wholesaleSilver ? ` Ag ${formatErpInr(wholesaleSilver)}/g` : ''}
               </p>
+            ) : null}
+            {lines.length > 0 ? (
+              <button
+                type="button"
+                className="mt-3 w-full rounded-lg border border-[var(--color-slate-700,#e8e4df)] px-2 py-2 text-[10px] font-semibold text-[var(--color-jewelry-black,#1a1814)]/70 hover:bg-[var(--color-slate-900,#faf8f4)]"
+                onClick={rateUnfix}
+              >
+                Rate unfix
+              </button>
             ) : null}
           </div>
         </div>
@@ -662,9 +694,13 @@ export function ErpBillingWorkspace() {
                                 onChange={(e) => {
                                   const v = e.target.value
                                   const numKeys = ['weightGm', 'purity', 'wastage_pct', 'ratePerGram', 'mc_rate', 'qty', 'box_charges', 'stone_charges', 'fixed_price']
-                                  updateLine(idx, {
+                                  const patch: Partial<ErpBillLine> = {
                                     [k]: numKeys.includes(k) ? (v === '' ? null : Number(v)) : v,
-                                  } as Partial<ErpBillLine>)
+                                  } as Partial<ErpBillLine>
+                                  if (k === 'ratePerGram') {
+                                    patch.rateLocked = v !== ''
+                                  }
+                                  updateLine(idx, patch)
                                 }}
                               />
                             </td>
