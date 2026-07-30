@@ -339,6 +339,61 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
+    app.get('/api/reseller/erp/customers/export', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT name, mobile, email, gstin, address, birthdate, anniversary_date, notes
+                 FROM reseller_erp_customers WHERE reseller_user_id = $1
+                 ORDER BY name ASC LIMIT 5000`,
+                [req.user.id],
+            );
+            res.json({ customers: rows });
+        } catch (e) {
+            console.error('erp customers export:', e);
+            res.status(500).json({ error: e.message || 'Export failed' });
+        }
+    });
+
+    app.post('/api/reseller/erp/customers/bulk', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const rawRows = Array.isArray(req.body.rows) ? req.body.rows : [];
+            if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
+            if (rawRows.length > 2000) return res.status(400).json({ error: 'Max 2000 rows' });
+
+            let inserted = 0;
+            let skipped = 0;
+            for (const row of rawRows) {
+                const name = trimStr(row.name || row.Name, 255);
+                if (!name) {
+                    skipped++;
+                    continue;
+                }
+                await query(
+                    `INSERT INTO reseller_erp_customers (
+                        reseller_user_id, name, mobile, email, gstin, address,
+                        birthdate, anniversary_date, notes
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+                    [
+                        req.user.id,
+                        name,
+                        trimStr(row.mobile || row.Mobile, 32),
+                        trimStr(row.email || row.Email, 255),
+                        trimStr(row.gstin || row.GSTIN, 20),
+                        trimStr(row.address || row.Address, 2000),
+                        parseDateOrNull(row.birthdate || row.Birthday),
+                        parseDateOrNull(row.anniversary_date || row.Anniversary),
+                        trimStr(row.notes || row.Notes, 2000),
+                    ],
+                );
+                inserted++;
+            }
+            res.json({ success: true, inserted, skipped });
+        } catch (e) {
+            console.error('erp customers bulk:', e);
+            res.status(500).json({ error: e.message || 'Bulk upload failed' });
+        }
+    });
+
     // ——— Bills ———
     app.get('/api/reseller/erp/bills', checkAuth, erpGate, async (req, res) => {
         try {

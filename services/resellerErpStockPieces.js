@@ -481,6 +481,123 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
+    app.delete('/api/reseller/erp/stock-pieces/batches/:batchId', checkAuth, erpGate, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            const batchRows = await query(
+                `SELECT id FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+                [batchId, req.user.id],
+            );
+            if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
+
+            const sold = await query(
+                `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_pieces
+                 WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND status = 'sold'`,
+                [batchId, req.user.id],
+            );
+            if ((sold[0]?.n ?? 0) > 0) {
+                return res.status(400).json({ error: 'Cannot delete batch — some pieces are already sold.' });
+            }
+
+            const itemCodes = await query(
+                `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
+                 WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND item_code IS NOT NULL`,
+                [batchId, req.user.id],
+            );
+
+            await query(
+                `DELETE FROM reseller_erp_stock_pieces WHERE batch_id = $1::uuid AND reseller_user_id = $2`,
+                [batchId, req.user.id],
+            );
+            await query(
+                `DELETE FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+                [batchId, req.user.id],
+            );
+
+            for (const row of itemCodes) {
+                await syncStockAlertCounts(query, req.user.id, row.item_code);
+            }
+
+            res.json({ success: true });
+        } catch (e) {
+            console.error('erp stock batch delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete batch' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/stock-pieces', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const ids = Array.isArray(req.body.ids)
+                ? req.body.ids.map((id) => parseInt(String(id), 10)).filter((n) => n > 0)
+                : [];
+            const itemCode = String(req.body.item_code || req.body.product_name || '').trim();
+            const batchId = req.body.batch_id ? String(req.body.batch_id).trim() : null;
+
+            if (!ids.length && !itemCode) {
+                return res.status(400).json({ error: 'ids or item_code required' });
+            }
+
+            let deletedRows;
+            const itemCodes = new Set();
+
+            if (ids.length) {
+                const sold = await query(
+                    `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND id = ANY($2::int[]) AND status = 'sold'`,
+                    [req.user.id, ids],
+                );
+                if ((sold[0]?.n ?? 0) > 0) {
+                    return res.status(400).json({ error: 'Cannot delete sold pieces.' });
+                }
+                const codes = await query(
+                    `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND id = ANY($2::int[]) AND item_code IS NOT NULL`,
+                    [req.user.id, ids],
+                );
+                for (const c of codes) itemCodes.add(c.item_code);
+                deletedRows = await query(
+                    `DELETE FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND id = ANY($2::int[]) AND status <> 'sold'
+                     RETURNING id`,
+                    [req.user.id, ids],
+                );
+            } else {
+                const params = [req.user.id, itemCode];
+                let sql = `DELETE FROM reseller_erp_stock_pieces
+                           WHERE reseller_user_id = $1 AND status <> 'sold'
+                             AND (item_code = $2 OR product_name ILIKE $2)`;
+                if (batchId) {
+                    params.push(batchId);
+                    sql += ` AND batch_id = $3::uuid`;
+                }
+                sql += ' RETURNING id, item_code';
+                deletedRows = await query(sql, params);
+                itemCodes.add(itemCode);
+            }
+
+            for (const ic of itemCodes) {
+                if (ic) await syncStockAlertCounts(query, req.user.id, ic);
+            }
+
+            if (batchId) {
+                const count = await query(
+                    `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_pieces WHERE batch_id = $1::uuid`,
+                    [batchId],
+                );
+                await query(
+                    `UPDATE reseller_erp_stock_batches SET row_count = $1, updated_at = NOW()
+                     WHERE id = $2::uuid AND reseller_user_id = $3`,
+                    [count[0]?.n ?? 0, batchId, req.user.id],
+                );
+            }
+
+            res.json({ success: true, deleted: deletedRows.length });
+        } catch (e) {
+            console.error('erp stock delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete pieces' });
+        }
+    });
+
     app.get('/api/reseller/erp/stock-pieces/availability', checkAuth, erpGate, async (req, res) => {
         try {
             const itemCode = String(req.query.item_code || req.query.product || '').trim();

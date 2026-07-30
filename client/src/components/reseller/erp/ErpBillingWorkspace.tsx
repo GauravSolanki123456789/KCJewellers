@@ -2,8 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
-import { calculateBreakdown, type Item } from '@/lib/pricing'
+import { useAuth } from '@/hooks/useAuth'
+import { type WholesaleUserFields } from '@/lib/customer-tier'
+import {
+  computeLineBreakdown,
+  computeLineTotal,
+  displayRatesToPerGram,
+  parseSlabSettingsFromUser,
+  perGramToDisplayRates,
+  type ErpRateSlab,
+} from '@/lib/erp-billing-pricing'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -22,67 +32,60 @@ import {
   Plus,
   Receipt,
   Search,
-  Trash2,
   UserPlus,
   X,
 } from 'lucide-react'
 
-type LiveRates = {
-  gold_per_gram: number
-  silver_per_gram: number
-  platinum_per_gram: number
+const BILLING_DRAFT_KEY = 'kc-erp-billing-draft-v1'
+
+type BillingDraft = {
+  customerId: number | null
+  customerName: string
+  mobile: string
+  address: string
+  rateSlab: ErpRateSlab
+  lines: ErpBillLine[]
+  wholesaleGold: number | null
+  wholesaleSilver: number | null
+  goldPerG: number
+  silverPerG: number
 }
 
-const RATE_SLABS = ['R', 'W', 'F'] as const
+const TABLE_COLS = [
+  { key: 'barcode', label: 'Barcode', w: 'min-w-[110px]' },
+  { key: 'sku', label: 'SKU', w: 'min-w-[80px]' },
+  { key: 'style_code', label: 'StyleCode', w: 'min-w-[80px]' },
+  { key: 'name', label: 'ProductName', w: 'min-w-[100px]' },
+  { key: 'size', label: 'Size', w: 'min-w-[56px]' },
+  { key: 'weightGm', label: 'AvgWeight', w: 'min-w-[64px]', edit: true },
+  { key: 'purity', label: 'Purity', w: 'min-w-[52px]', edit: true },
+  { key: 'wastage_pct', label: 'Wast%', w: 'min-w-[52px]', edit: true },
+  { key: 'ratePerGram', label: 'Rate', w: 'min-w-[64px]', edit: true },
+  { key: 'mc_rate', label: 'MCRate', w: 'min-w-[64px]', edit: true },
+  { key: 'mc_type', label: 'MCType', w: 'min-w-[64px]', edit: true },
+  { key: 'qty', label: 'PCS', w: 'min-w-[48px]', edit: true },
+  { key: 'box_charges', label: 'Box', w: 'min-w-[56px]', edit: true },
+  { key: 'stone_charges', label: 'Stone', w: 'min-w-[56px]', edit: true },
+  { key: 'metal_type', label: 'Metal', w: 'min-w-[64px]' },
+  { key: 'fixed_price', label: 'Fixed', w: 'min-w-[64px]', edit: true },
+  { key: 'amount', label: 'Amount', w: 'min-w-[72px]' },
+] as const
 
-function lineAmount(line: ErpBillLine, rates: LiveRates): number {
-  if (line.lineTotalInr != null && Number.isFinite(line.lineTotalInr)) return line.lineTotalInr
-  const item: Item = {
-    barcode: line.barcode || line.code,
-    sku: line.sku,
-    item_name: line.name,
-    style_code: line.style_code,
-    metal_type: line.metal_type || 'silver',
-    net_weight: line.weightGm ?? undefined,
-    net_wt: line.weightGm ?? undefined,
-    purity: line.purity ?? 925,
-    wastage_pct: line.wastage_pct ?? undefined,
-    mc_rate: line.mc_rate ?? undefined,
-    mc_type: line.mc_type ?? undefined,
-    stone_charges: line.stone_charges ?? 0,
-    box_charges: line.box_charges ?? 0,
-    fixed_price: line.fixed_price ?? undefined,
-    size: line.size ?? undefined,
-  }
-  const live = {
-    silver: { display_rate: line.ratePerGram ?? rates.silver_per_gram },
-    gold: { display_rate: line.ratePerGram ?? rates.gold_per_gram },
-  }
-  const bd = calculateBreakdown(item, live, 3)
-  return bd.total
-}
-
-function productToLine(p: ErpProductHit, code: string, rates: LiveRates): ErpBillLine {
+function productToLine(p: ErpProductHit, code: string): ErpBillLine {
   const wt = p.net_weight ?? p.gross_weight ?? null
   const metal = (p.metal_type || 'silver').toLowerCase()
-  const rate =
-    metal.includes('gold')
-      ? rates.gold_per_gram
-      : metal.includes('platinum')
-        ? rates.platinum_per_gram
-        : rates.silver_per_gram
-  const line: ErpBillLine = {
+  return {
     name: p.product_name || p.name || code,
     code,
     barcode: p.barcode || code,
     sku: p.sku || undefined,
     style_code: p.style_code || undefined,
     size: p.size ?? null,
-    qty: 1,
+    qty: p.pcs ?? 1,
     weightGm: wt,
     purity: p.purity ?? (metal.includes('silver') ? 925 : null),
     wastage_pct: p.wastage_pct ?? null,
-    ratePerGram: rate,
+    ratePerGram: null,
     mc_rate: p.mc_rate ?? null,
     mc_type: p.mc_type ?? null,
     box_charges: p.box_charges ?? 0,
@@ -93,26 +96,149 @@ function productToLine(p: ErpProductHit, code: string, rates: LiveRates): ErpBil
     fixed_price: p.fixed_price ?? null,
     stock_piece_id: p.id,
     availability: null,
+    lineTotalInr: null,
   }
-  line.lineTotalInr = lineAmount(line, rates)
-  return line
+}
+
+function loadDraft(): Partial<BillingDraft> | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(BILLING_DRAFT_KEY)
+    return raw ? (JSON.parse(raw) as Partial<BillingDraft>) : null
+  } catch {
+    return null
+  }
+}
+
+function saveDraft(draft: BillingDraft) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(BILLING_DRAFT_KEY, JSON.stringify(draft))
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearDraftStorage() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(BILLING_DRAFT_KEY)
 }
 
 export function ErpBillingWorkspace() {
+  const auth = useAuth()
+  const slabSettings = useMemo(
+    () =>
+      parseSlabSettingsFromUser(
+        auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
+      ),
+    [auth.user],
+  )
+
   const [customers, setCustomers] = useState<ErpCustomer[]>([])
   const [customerQ, setCustomerQ] = useState('')
   const [customerId, setCustomerId] = useState<number | null>(null)
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
   const [address, setAddress] = useState('')
-  const [rateSlab, setRateSlab] = useState<(typeof RATE_SLABS)[number]>('R')
+  const [rateSlab, setRateSlab] = useState<ErpRateSlab>('R')
   const [lines, setLines] = useState<ErpBillLine[]>([])
-  const [rates, setRates] = useState<LiveRates>({ gold_per_gram: 7500, silver_per_gram: 252.2, platinum_per_gram: 3500 })
+  const [displayRates, setDisplayRates] = useState<unknown>([])
+  const [goldPerG, setGoldPerG] = useState(0)
+  const [silverPerG, setSilverPerG] = useState(0)
+  const [wholesaleGold, setWholesaleGold] = useState<number | null>(null)
+  const [wholesaleSilver, setWholesaleSilver] = useState<number | null>(null)
+  const [showRateEdit, setShowRateEdit] = useState(false)
+  const [showWholesaleModal, setShowWholesaleModal] = useState(false)
+  const [pendingSlab, setPendingSlab] = useState<ErpRateSlab | null>(null)
+  const [editGold, setEditGold] = useState('')
+  const [editSilver, setEditSilver] = useState('')
+  const [modalWhGold, setModalWhGold] = useState('')
+  const [modalWhSilver, setModalWhSilver] = useState('')
   const [scanCode, setScanCode] = useState('')
   const [scanBusy, setScanBusy] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [bills, setBills] = useState<ErpBill[]>([])
+  const [hydrated, setHydrated] = useState(false)
   const scanRef = useRef<HTMLInputElement>(null)
+
+  const recalcLine = useCallback(
+    (line: ErpBillLine): ErpBillLine => ({
+      ...line,
+      lineTotalInr: computeLineTotal(
+        line,
+        displayRates,
+        rateSlab,
+        slabSettings,
+        wholesaleGold,
+        wholesaleSilver,
+      ),
+    }),
+    [displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver],
+  )
+
+  const recalcAll = useCallback(
+    (list: ErpBillLine[]) => list.map(recalcLine),
+    [recalcLine],
+  )
+
+  const loadDisplayRates = useCallback(async () => {
+    const res = await axios.get<{ rates?: unknown }>(
+      `/api/rates/display${ratesApiQueryForStorefront()}`,
+    )
+    const rates = res.data.rates ?? res.data
+    setDisplayRates(rates)
+    const pg = displayRatesToPerGram(rates)
+    setGoldPerG(pg.gold)
+    setSilverPerG(pg.silver)
+    setEditGold(String(pg.gold || ''))
+    setEditSilver(String(pg.silver || ''))
+    return rates
+  }, [])
+
+  useEffect(() => {
+    void loadDisplayRates()
+    void axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills').then((res) => {
+      setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
+    })
+  }, [loadDisplayRates])
+
+  useEffect(() => {
+    const d = loadDraft()
+    if (d) {
+      if (d.customerId != null) setCustomerId(d.customerId)
+      if (d.customerName) setCustomerName(d.customerName)
+      if (d.mobile) setMobile(d.mobile)
+      if (d.address) setAddress(d.address)
+      if (d.rateSlab) setRateSlab(d.rateSlab)
+      if (d.lines?.length) setLines(d.lines)
+      if (d.wholesaleGold != null) setWholesaleGold(d.wholesaleGold)
+      if (d.wholesaleSilver != null) setWholesaleSilver(d.wholesaleSilver)
+      if (d.goldPerG) setGoldPerG(d.goldPerG)
+      if (d.silverPerG) setSilverPerG(d.silverPerG)
+    }
+    setHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated) return
+    saveDraft({
+      customerId,
+      customerName,
+      mobile,
+      address,
+      rateSlab,
+      lines,
+      wholesaleGold,
+      wholesaleSilver,
+      goldPerG,
+      silverPerG,
+    })
+  }, [hydrated, customerId, customerName, mobile, address, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG])
+
+  useEffect(() => {
+    if (!hydrated || !displayRates) return
+    setLines((prev) => recalcAll(prev))
+  }, [displayRates, rateSlab, wholesaleGold, wholesaleSilver, slabSettings, hydrated, recalcAll])
 
   const loadCustomers = useCallback(async (q: string) => {
     const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
@@ -120,21 +246,6 @@ export function ErpBillingWorkspace() {
     })
     setCustomers(res.data.customers || [])
   }, [])
-
-  const loadRates = useCallback(async () => {
-    const res = await axios.get<{ rates: LiveRates }>('/api/reseller/erp/rates/live')
-    if (res.data.rates) setRates(res.data.rates)
-  }, [])
-
-  const loadBills = useCallback(async () => {
-    const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
-    setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
-  }, [])
-
-  useEffect(() => {
-    void loadRates()
-    void loadBills()
-  }, [loadRates, loadBills])
 
   useEffect(() => {
     const t = setTimeout(() => void loadCustomers(customerQ), 250)
@@ -158,8 +269,9 @@ export function ErpBillingWorkspace() {
         '/api/reseller/erp/products/lookup',
         { params: { code } },
       )
-      const line = productToLine(res.data.product, code, rates)
+      let line = productToLine(res.data.product, code)
       if (res.data.availability?.label) line.availability = res.data.availability.label
+      line = recalcLine(line)
       setLines((prev) => [...prev, line])
       setScanCode('')
       scanRef.current?.focus()
@@ -174,20 +286,67 @@ export function ErpBillingWorkspace() {
     setLines((prev) =>
       prev.map((l, i) => {
         if (i !== idx) return l
-        const next = { ...l, ...patch }
-        next.lineTotalInr = lineAmount(next, rates)
-        return next
+        return recalcLine({ ...l, ...patch })
       }),
     )
   }
 
+  const onSlabChange = (next: ErpRateSlab) => {
+    if (next === 'W' || next === 'F') {
+      setPendingSlab(next)
+      setModalWhGold(wholesaleGold != null ? String(wholesaleGold) : '')
+      setModalWhSilver(wholesaleSilver != null ? String(wholesaleSilver) : '')
+      setShowWholesaleModal(true)
+    } else {
+      setRateSlab(next)
+    }
+  }
+
+  const applyWholesaleSlab = () => {
+    const g = Number(modalWhGold)
+    const s = Number(modalWhSilver)
+    if (!Number.isFinite(g) || g <= 0) {
+      alert('Enter wholesale gold ₹/g')
+      return
+    }
+    if (!Number.isFinite(s) || s <= 0) {
+      alert('Enter wholesale silver ₹/g')
+      return
+    }
+    setWholesaleGold(g)
+    setWholesaleSilver(s)
+    if (pendingSlab) setRateSlab(pendingSlab)
+    setShowWholesaleModal(false)
+    setPendingSlab(null)
+  }
+
+  const applyRateEdit = () => {
+    const g = Number(editGold)
+    const s = Number(editSilver)
+    if (!Number.isFinite(g) || g <= 0 || !Number.isFinite(s) || s <= 0) {
+      alert('Enter valid gold and silver rates')
+      return
+    }
+    setGoldPerG(g)
+    setSilverPerG(s)
+    setDisplayRates(perGramToDisplayRates(g, s))
+    setShowRateEdit(false)
+  }
+
   const totals = useMemo(() => {
-    const amounts = lines.map((l) => lineAmount(l, rates))
-    const subtotal = amounts.reduce((s, a) => s + a, 0)
-    const gst = subtotal * 0.03
-    const weight = lines.reduce((s, l) => s + (Number(l.weightGm) || 0), 0)
-    return { subtotal, gst, net: subtotal + gst, weight, count: lines.length }
-  }, [lines, rates])
+    let taxable = 0
+    let gst = 0
+    let net = 0
+    let weight = 0
+    for (const l of lines) {
+      const bd = computeLineBreakdown(l, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver)
+      taxable += bd.taxable
+      gst += (bd.cgst || 0) + (bd.sgst || 0)
+      net += bd.total
+      weight += Number(l.weightGm) || 0
+    }
+    return { subtotal: taxable, gst, net, weight, count: lines.length }
+  }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver])
 
   const resetBill = () => {
     setLines([])
@@ -196,6 +355,10 @@ export function ErpBillingWorkspace() {
     setMobile('')
     setAddress('')
     setRateSlab('R')
+    setWholesaleGold(null)
+    setWholesaleSilver(null)
+    clearDraftStorage()
+    void loadDisplayRates()
   }
 
   const saveBill = async (billType: 'sale' | 'estimate', status: string) => {
@@ -206,16 +369,14 @@ export function ErpBillingWorkspace() {
         bill_type: billType,
         customer_id: customerId,
         customer_name: customerName,
-        total_inr: billType === 'estimate' ? totals.subtotal : totals.net,
+        total_inr: totals.net,
         status,
         notes: `Rate slab ${rateSlab}${address ? ` · ${address}` : ''}`,
-        lines: lines.map((l) => ({
-          ...l,
-          lineTotalInr: lineAmount(l, rates),
-        })),
+        lines: lines.map((l) => ({ ...l, lineTotalInr: l.lineTotalInr ?? 0 })),
       })
       resetBill()
-      await loadBills()
+      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
+      setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
     } catch (e) {
       alert(erpErr(e))
     } finally {
@@ -223,9 +384,104 @@ export function ErpBillingWorkspace() {
     }
   }
 
+  const cellVal = (line: ErpBillLine, key: string): string | number => {
+    switch (key) {
+      case 'barcode':
+        return line.barcode || ''
+      case 'sku':
+        return line.sku || '—'
+      case 'style_code':
+        return line.style_code || '—'
+      case 'name':
+        return line.name
+      case 'size':
+        return line.size || '—'
+      case 'weightGm':
+        return line.weightGm ?? ''
+      case 'purity':
+        return line.purity ?? ''
+      case 'wastage_pct':
+        return line.wastage_pct ?? ''
+      case 'ratePerGram':
+        return line.ratePerGram ?? ''
+      case 'mc_rate':
+        return line.mc_rate ?? ''
+      case 'mc_type':
+        return line.mc_type ?? ''
+      case 'qty':
+        return line.qty ?? 1
+      case 'box_charges':
+        return line.box_charges ?? 0
+      case 'stone_charges':
+        return line.stone_charges ?? 0
+      case 'metal_type':
+        return (line.metal_type || 'silver').slice(0, 8)
+      case 'fixed_price':
+        return line.fixed_price ?? ''
+      case 'amount':
+        return formatErpInr(line.lineTotalInr ?? 0)
+      default:
+        return ''
+    }
+  }
+
   return (
     <div className="space-y-4">
-      {/* Customer header */}
+      {showRateEdit ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className={`${erpCardCls} w-full max-w-md`}>
+            <h3 className="mb-3 text-sm font-semibold">Update rates for this bill</h3>
+            <div className="grid gap-3">
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                Gold ₹/g
+                <input className={`${erpInputCls} mt-1`} value={editGold} onChange={(e) => setEditGold(e.target.value)} />
+              </label>
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                Silver ₹/g
+                <input className={`${erpInputCls} mt-1`} value={editSilver} onChange={(e) => setEditSilver(e.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button type="button" className={erpBtnPrimary} onClick={applyRateEdit}>
+                Apply
+              </button>
+              <button type="button" className={erpBtnGhost} onClick={() => setShowRateEdit(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showWholesaleModal ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className={`${erpCardCls} w-full max-w-md`}>
+            <h3 className="mb-1 text-sm font-semibold">Slab {pendingSlab} — wholesale metal rate</h3>
+            <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Enter ₹/g fine metal rates. All scanned lines will recalculate.
+            </p>
+            <div className="grid gap-3">
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                Gold ₹/g (999 fine)
+                <input className={`${erpInputCls} mt-1`} placeholder="e.g. 7200" value={modalWhGold} onChange={(e) => setModalWhGold(e.target.value)} />
+              </label>
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                Silver ₹/g (999 fine)
+                <input className={`${erpInputCls} mt-1`} placeholder="e.g. 220" value={modalWhSilver} onChange={(e) => setModalWhSilver(e.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button type="button" className={erpBtnPrimary} onClick={applyWholesaleSlab}>
+                Apply slab {pendingSlab}
+              </button>
+              <button type="button" className={erpBtnGhost} onClick={() => { setShowWholesaleModal(false); setPendingSlab(null) }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className={erpCardCls}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="relative sm:col-span-2">
@@ -269,12 +525,14 @@ export function ErpBillingWorkspace() {
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Rate slab
             </label>
-            <select className={erpInputCls} value={rateSlab} onChange={(e) => setRateSlab(e.target.value as (typeof RATE_SLABS)[number])}>
-              {RATE_SLABS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
+            <select
+              className={erpInputCls}
+              value={rateSlab}
+              onChange={(e) => onSlabChange(e.target.value as ErpRateSlab)}
+            >
+              <option value="R">R</option>
+              <option value="W">W</option>
+              <option value="F">F</option>
             </select>
           </div>
         </div>
@@ -296,21 +554,11 @@ export function ErpBillingWorkspace() {
             <Receipt className="size-4" />
             New bill
           </button>
-          <button
-            type="button"
-            className={erpBtnGhost}
-            disabled={saveBusy || lines.length === 0}
-            onClick={() => void saveBill('estimate', 'draft')}
-          >
+          <button type="button" className={erpBtnGhost} disabled={saveBusy || lines.length === 0} onClick={() => void saveBill('estimate', 'draft')}>
             <FileText className="size-4" />
             Generate quote
           </button>
-          <button
-            type="button"
-            className={erpBtnPrimary}
-            disabled={saveBusy || lines.length === 0}
-            onClick={() => void saveBill('sale', 'completed')}
-          >
+          <button type="button" className={erpBtnPrimary} disabled={saveBusy || lines.length === 0} onClick={() => void saveBill('sale', 'completed')}>
             {saveBusy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
             Save bill
           </button>
@@ -318,7 +566,6 @@ export function ErpBillingWorkspace() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
-        {/* Sidebar */}
         <div className="space-y-3">
           <div className={`${erpCardCls} border-blue-200/60 bg-blue-50/30`}>
             <div className="mb-2 flex items-center justify-between">
@@ -340,34 +587,33 @@ export function ErpBillingWorkspace() {
                 {scanBusy ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
               </button>
             </div>
-            <p className="mt-1.5 text-[10px] text-blue-800/60">Press Enter or tap search</p>
           </div>
 
           <div className={erpCardCls}>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Current rates</span>
-              <button type="button" className="text-[10px] font-semibold text-[var(--kc-accent,#c41e3a)]" onClick={() => void loadRates()}>
+              <button type="button" className="text-[10px] font-semibold text-[var(--kc-accent,#c41e3a)]" onClick={() => setShowRateEdit(true)}>
                 Update
               </button>
             </div>
             <ul className="space-y-1.5 text-xs">
               <li className="flex justify-between">
                 <span className="text-[var(--color-jewelry-black,#1a1814)]/60">Gold</span>
-                <span className="font-semibold tabular-nums">{formatErpInr(rates.gold_per_gram)}/gm</span>
+                <span className="font-semibold tabular-nums">{formatErpInr(goldPerG)}/gm</span>
               </li>
               <li className="flex justify-between">
                 <span className="text-[var(--color-jewelry-black,#1a1814)]/60">Silver</span>
-                <span className="font-semibold tabular-nums">{formatErpInr(rates.silver_per_gram)}/gm</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-[var(--color-jewelry-black,#1a1814)]/60">Platinum</span>
-                <span className="font-semibold tabular-nums">{formatErpInr(rates.platinum_per_gram)}/gm</span>
+                <span className="font-semibold tabular-nums">{formatErpInr(silverPerG)}/gm</span>
               </li>
             </ul>
+            {(rateSlab === 'W' || rateSlab === 'F') && wholesaleSilver ? (
+              <p className="mt-2 text-[10px] text-emerald-700">
+                Wholesale: Au {formatErpInr(wholesaleGold ?? 0)}/g · Ag {formatErpInr(wholesaleSilver)}/g
+              </p>
+            ) : null}
           </div>
         </div>
 
-        {/* Scanned products table */}
         <div className={`${erpCardCls} overflow-hidden p-0`}>
           <div className="flex items-center justify-between border-b border-[var(--color-slate-700,#e8e4df)] bg-blue-600 px-3 py-2.5 text-white">
             <span className="text-sm font-semibold">Scanned products</span>
@@ -375,22 +621,22 @@ export function ErpBillingWorkspace() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-xs">
+            <table className="w-full min-w-[1200px] text-xs">
               <thead>
                 <tr className="border-b border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/55">
-                  {['#', 'Barcode', 'Item', 'SKU', 'Style', 'Metal', 'Size', 'Wt(g)', 'P%', 'Rate', 'MC', 'Box', 'Stone', 'Amount', ''].map(
-                    (h) => (
-                      <th key={h || 'x'} className="whitespace-nowrap px-2 py-2 text-left font-semibold">
-                        {h}
-                      </th>
-                    ),
-                  )}
+                  <th className="px-2 py-2">#</th>
+                  {TABLE_COLS.map((c) => (
+                    <th key={c.key} className={`whitespace-nowrap px-2 py-2 text-left font-semibold ${c.w}`}>
+                      {c.label}
+                    </th>
+                  ))}
+                  <th className="px-2 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td colSpan={15} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    <td colSpan={TABLE_COLS.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                       Scan a barcode to add items
                     </td>
                   </tr>
@@ -398,43 +644,38 @@ export function ErpBillingWorkspace() {
                   lines.map((line, idx) => (
                     <tr key={`${line.barcode}-${idx}`} className="border-b border-[var(--color-slate-700,#e8e4df)]/50">
                       <td className="px-2 py-2 tabular-nums">{idx + 1}</td>
-                      <td className="max-w-[120px] truncate px-2 py-2 font-medium">{line.barcode}</td>
-                      <td className="max-w-[100px] truncate px-2 py-2">{line.name}</td>
-                      <td className="px-2 py-2">{line.sku || '—'}</td>
-                      <td className="px-2 py-2">{line.style_code || '—'}</td>
-                      <td className="px-2 py-2">
-                        <span className="rounded bg-[var(--color-slate-900,#f0ede8)] px-1.5 py-0.5 text-[10px] font-semibold uppercase">
-                          {(line.metal_type || 'silver').slice(0, 6)}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2">{line.size || '—'}</td>
-                      <td className="px-1 py-1">
-                        <input
-                          className="w-16 rounded border border-[var(--color-slate-700,#e8e4df)] px-1 py-1 tabular-nums"
-                          value={line.weightGm ?? ''}
-                          onChange={(e) => updateLine(idx, { weightGm: Number(e.target.value) || null })}
-                        />
-                      </td>
-                      <td className="px-2 py-2 tabular-nums">{line.purity ?? '—'}</td>
-                      <td className="px-1 py-1">
-                        <input
-                          className="w-16 rounded border border-[var(--color-slate-700,#e8e4df)] px-1 py-1 tabular-nums"
-                          value={line.ratePerGram ?? ''}
-                          onChange={(e) => updateLine(idx, { ratePerGram: Number(e.target.value) || null })}
-                        />
-                      </td>
-                      <td className="px-1 py-1">
-                        <input
-                          className="w-16 rounded border border-[var(--color-slate-700,#e8e4df)] px-1 py-1 tabular-nums"
-                          value={line.mc_rate ?? ''}
-                          onChange={(e) => updateLine(idx, { mc_rate: Number(e.target.value) || null })}
-                        />
-                      </td>
-                      <td className="px-2 py-2 tabular-nums">{formatErpInr(line.box_charges ?? 0)}</td>
-                      <td className="px-2 py-2 tabular-nums">{formatErpInr(line.stone_charges ?? 0)}</td>
-                      <td className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
-                        {formatErpInr(lineAmount(line, rates))}
-                      </td>
+                      {TABLE_COLS.map((col) => {
+                        if (col.key === 'amount') {
+                          return (
+                            <td key={col.key} className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
+                              {cellVal(line, col.key)}
+                            </td>
+                          )
+                        }
+                        if ('edit' in col && col.edit) {
+                          const k = col.key as keyof ErpBillLine
+                          return (
+                            <td key={col.key} className="px-1 py-1">
+                              <input
+                                className="w-full min-w-[52px] rounded border border-[var(--color-slate-700,#e8e4df)] px-1 py-1 tabular-nums"
+                                value={String(line[k] ?? '')}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  const numKeys = ['weightGm', 'purity', 'wastage_pct', 'ratePerGram', 'mc_rate', 'qty', 'box_charges', 'stone_charges', 'fixed_price']
+                                  updateLine(idx, {
+                                    [k]: numKeys.includes(k) ? (v === '' ? null : Number(v)) : v,
+                                  } as Partial<ErpBillLine>)
+                                }}
+                              />
+                            </td>
+                          )
+                        }
+                        return (
+                          <td key={col.key} className="max-w-[120px] truncate px-2 py-2">
+                            {cellVal(line, col.key)}
+                          </td>
+                        )
+                      })}
                       <td className="px-2 py-2">
                         <button type="button" className="text-rose-500" onClick={() => setLines((p) => p.filter((_, i) => i !== idx))}>
                           <X className="size-4" />
@@ -476,7 +717,6 @@ export function ErpBillingWorkspace() {
         </div>
       </div>
 
-      {/* Recent bills */}
       {bills.length > 0 ? (
         <div className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">Recent bills</h3>

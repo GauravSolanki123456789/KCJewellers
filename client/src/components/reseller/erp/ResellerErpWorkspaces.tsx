@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import axios from '@/lib/axios'
-import { Loader2, Plus, Search, Trash2, ScanLine } from 'lucide-react'
+import { Loader2, Plus, Search, Trash2, ScanLine, Download, Upload, FileSpreadsheet, ClipboardList } from 'lucide-react'
 import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import {
@@ -95,6 +95,9 @@ export function CustomersWorkspace() {
   const [upcoming, setUpcoming] = useState<ErpCustomer[]>([])
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({
     name: '',
     mobile: '',
@@ -150,6 +153,85 @@ export function CustomersWorkspace() {
     await load()
   }
 
+  const CUSTOMER_COLS = ['Name', 'Mobile', 'Email', 'GSTIN', 'Address', 'Birthday', 'Anniversary', 'Notes'] as const
+
+  const downloadAllExcel = async () => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await axios.get<{ customers: Record<string, unknown>[] }>('/api/reseller/erp/customers/export')
+      const rows = (res.data.customers || []).map((c) => ({
+        Name: c.name ?? '',
+        Mobile: c.mobile ?? '',
+        Email: c.email ?? '',
+        GSTIN: c.gstin ?? '',
+        Address: c.address ?? '',
+        Birthday: c.birthdate ? String(c.birthdate).slice(0, 10) : '',
+        Anniversary: c.anniversary_date ? String(c.anniversary_date).slice(0, 10) : '',
+        Notes: c.notes ?? '',
+      }))
+      const XLSX = await import('xlsx')
+      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Name: '' }])
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Customers')
+      XLSX.writeFile(wb, `erp-customers-${new Date().toISOString().slice(0, 10)}.xlsx`)
+      setMsg(`Downloaded ${rows.length} customer(s).`)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const downloadSampleExcel = async () => {
+    const XLSX = await import('xlsx')
+    const sample = [
+      {
+        Name: 'Sample Customer',
+        Mobile: '9876543210',
+        Email: 'sample@example.com',
+        GSTIN: '',
+        Address: 'City, State',
+        Birthday: '1990-01-15',
+        Anniversary: '2015-06-20',
+        Notes: 'Optional notes',
+      },
+    ]
+    const ws = XLSX.utils.json_to_sheet(sample)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Customers')
+    XLSX.writeFile(wb, 'erp-customers-sample.xlsx')
+  }
+
+  const onBulkFile = async (file: File) => {
+    setBulkBusy(true)
+    setMsg(null)
+    try {
+      const buf = await file.arrayBuffer()
+      const XLSX = await import('xlsx')
+      const wb = XLSX.read(buf, { type: 'array' })
+      const sheet = wb.Sheets[wb.SheetNames[0]]
+      const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+      if (!raw.length) throw new Error('No rows in file')
+      const rows = raw.map((row) => {
+        const out: Record<string, string> = {}
+        for (const col of CUSTOMER_COLS) {
+          const v = row[col] ?? row[col.toLowerCase()]
+          if (v != null && String(v).trim() !== '') out[col] = String(v).trim()
+        }
+        return out
+      })
+      const res = await axios.post<{ inserted: number; skipped: number }>('/api/reseller/erp/customers/bulk', { rows })
+      setMsg(`Bulk upload: ${res.data.inserted} added, ${res.data.skipped} skipped.`)
+      await load()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBulkBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   return (
     <div className="space-y-5">
       {upcoming.length > 0 ? (
@@ -165,6 +247,48 @@ export function CustomersWorkspace() {
             ))}
           </ul>
         </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+          disabled={busy}
+          onClick={() => void downloadAllExcel()}
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+          Download All
+        </button>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
+          onClick={() => void downloadSampleExcel()}
+        >
+          <ClipboardList className="size-4" />
+          Sample
+        </button>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+          disabled={bulkBusy}
+          onClick={() => fileRef.current?.click()}
+        >
+          {bulkBusy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+          Bulk Upload
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void onBulkFile(f)
+          }}
+        />
+      </div>
+      {msg ? (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
       ) : null}
 
       <div className={erpCardCls}>

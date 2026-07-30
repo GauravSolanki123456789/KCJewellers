@@ -5,7 +5,7 @@ import axios from '@/lib/axios'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
-import { ArrowLeft, FileSpreadsheet, Loader2, Printer, Upload } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, Loader2, Printer, Trash2, Upload } from 'lucide-react'
 
 type Batch = {
   id: string
@@ -21,6 +21,7 @@ export function ErpProductsWorkspace() {
   const [pieces, setPieces] = useState<ErpStockPiece[]>([])
   const [busy, setBusy] = useState(false)
   const [printing, setPrinting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -84,6 +85,23 @@ export function ErpProductsWorkspace() {
     }
   }
 
+  const deleteBatch = async () => {
+    if (!activeBatchId || deleting) return
+    if (!confirm(`Delete entire batch "${activeBatch?.batch_label}"? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await axios.delete(`/api/reseller/erp/stock-pieces/batches/${activeBatchId}`)
+      setActiveBatchId(null)
+      setPieces([])
+      await loadBatches()
+      setMsg('Batch deleted.')
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const activeBatch = batches.find((b) => b.id === activeBatchId)
 
   if (activeBatchId && activeBatch) {
@@ -106,6 +124,15 @@ export function ErpProductsWorkspace() {
           <button type="button" className={`${erpBtnPrimary} ml-auto`} disabled={printing} onClick={() => void printBarcodes()}>
             {printing ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
             Generate barcodes
+          </button>
+          <button
+            type="button"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
+            disabled={deleting}
+            onClick={() => void deleteBatch()}
+          >
+            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            Delete batch
           </button>
         </div>
         <ErpStockExcelEditor batchId={activeBatchId} pieces={pieces} onSaved={setPieces} />
