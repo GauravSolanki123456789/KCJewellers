@@ -25,6 +25,7 @@ import { RESELLER_ERP_PATH } from '@/lib/routes'
 
 export type ResellerErpModuleId =
   | 'billing'
+  | 'sales-bills'
   | 'credit-bills'
   | 'orders'
   | 'estimations'
@@ -64,9 +65,18 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
   {
     id: 'billing',
     title: 'Billing',
-    short: 'Sale bills',
+    short: 'Scan & bill',
     description: '',
     icon: Receipt,
+    group: 'sales',
+    kind: 'workspace',
+  },
+  {
+    id: 'sales-bills',
+    title: 'Sales bills',
+    short: 'Completed sales',
+    description: '',
+    icon: FileText,
     group: 'sales',
     kind: 'workspace',
   },

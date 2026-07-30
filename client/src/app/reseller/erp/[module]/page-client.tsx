@@ -9,6 +9,7 @@ import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/e
 import { erpBtnPrimary } from '@/components/reseller/erp/erp-ui'
 import { ErpBillingWorkspace } from '@/components/reseller/erp/ErpBillingWorkspace'
 import { ErpEstimationsWorkspace } from '@/components/reseller/erp/ErpEstimationsWorkspace'
+import { ErpSalesBillsWorkspace } from '@/components/reseller/erp/ErpSalesBillsWorkspace'
 import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import {
@@ -38,6 +39,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
           <ErpBillingWorkspace />
         </Suspense>
       )
+    case 'sales-bills':
+      return <ErpSalesBillsWorkspace />
     case 'credit-bills':
       return <BillsWorkspace billTypeFilter="credit" />
     case 'orders':

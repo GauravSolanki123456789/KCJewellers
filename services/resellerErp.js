@@ -118,6 +118,11 @@ function trimStr(v, max = 255) {
     return s.slice(0, max);
 }
 
+function trimStrLower(v, max = 255) {
+    const s = trimStr(v, max);
+    return s ? s.toLowerCase() : '';
+}
+
 function parseDateOrNull(v) {
     if (v == null || v === '') return null;
     const s = String(v).trim().slice(0, 10);
@@ -409,8 +414,8 @@ function registerResellerErpRoutes(app, deps) {
     // ——— Bills ———
     app.get('/api/reseller/erp/bills', checkAuth, erpGate, async (req, res) => {
         try {
-            const billType = trimStr(req.query.bill_type, 32).toLowerCase();
-            const status = trimStr(req.query.status, 32).toLowerCase();
+            const billType = trimStrLower(req.query.bill_type, 32);
+            const status = trimStrLower(req.query.status, 32);
             const q = trimStr(req.query.q, 200);
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);

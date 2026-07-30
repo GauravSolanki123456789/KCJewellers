@@ -176,12 +176,13 @@ export function ErpBillingWorkspace() {
   const [editingBillNumber, setEditingBillNumber] = useState<string | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
   const [customerPickIdx, setCustomerPickIdx] = useState(-1)
-  const [highlightLineIdx, setHighlightLineIdx] = useState<number | null>(null)
+  const [duplicateHighlights, setDuplicateHighlights] = useState<Set<number>>(() => new Set())
+  const [duplicateScanMsg, setDuplicateScanMsg] = useState<string | null>(null)
   const [pdfShareOpen, setPdfShareOpen] = useState(false)
   const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
   const scanRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
-  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const duplicateBannerRef = useRef<HTMLDivElement>(null)
 
   const recalcLine = useCallback(
     (line: ErpBillLine): ErpBillLine => {
@@ -225,10 +226,17 @@ export function ErpBillingWorkspace() {
 
   useEffect(() => {
     void loadDisplayRates()
-    void axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills').then((res) => {
-      setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
-    })
+    void axios
+      .get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params: { bill_type: 'sale' } })
+      .then((res) => {
+        setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
+      })
+      .catch(() => setBills([]))
   }, [loadDisplayRates])
+
+  useEffect(() => {
+    if (duplicateScanMsg) duplicateBannerRef.current?.focus()
+  }, [duplicateScanMsg])
 
   useEffect(() => {
     const d = loadDraft()
@@ -358,12 +366,37 @@ export function ErpBillingWorkspace() {
     }
   }
 
-  const flashDuplicateRow = (idx: number) => {
-    setHighlightLineIdx(idx)
+  const clearDuplicateState = () => {
+    setDuplicateHighlights(new Set())
+    setDuplicateScanMsg(null)
+  }
+
+  const scrollToDuplicateRow = (idx: number) => {
+    setDuplicateHighlights((prev) => {
+      const next = new Set(prev)
+      next.add(idx)
+      return next
+    })
     const row = rowRefs.current[idx]
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    if (highlightTimer.current) clearTimeout(highlightTimer.current)
-    highlightTimer.current = setTimeout(() => setHighlightLineIdx(null), 3200)
+  }
+
+  const refreshCustomers = async () => {
+    try {
+      const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
+      const all = res.data.customers || []
+      setCustomers(all)
+      if (customerId != null) {
+        const found = all.find((c) => c.id === customerId)
+        if (found) selectCustomer(found)
+      } else if (customerName.trim()) {
+        const key = customerName.trim().toLowerCase()
+        const match = all.find((c) => c.name.trim().toLowerCase() === key)
+        if (match) selectCustomer(match)
+      }
+    } catch (e) {
+      alert(erpErr(e))
+    }
   }
 
   const scan = async () => {
@@ -374,8 +407,8 @@ export function ErpBillingWorkspace() {
       (l) => (l.barcode || l.code || '').trim().toLowerCase() === code.toLowerCase(),
     )
     if (dupIdx >= 0) {
-      flashDuplicateRow(dupIdx)
-      alert(`This barcode is already in the list (${code}).`)
+      scrollToDuplicateRow(dupIdx)
+      setDuplicateScanMsg(`This barcode is already in the list (${code}).`)
       setScanCode('')
       scanRef.current?.focus()
       return
@@ -485,6 +518,7 @@ export function ErpBillingWorkspace() {
   }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver])
 
   const resetBill = () => {
+    clearDuplicateState()
     setLines([])
     setCustomerId(null)
     setCustomerName('')
@@ -546,7 +580,9 @@ export function ErpBillingWorkspace() {
       if (billType === 'sale' && !opts?.skipReset) {
         resetBill()
       }
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
+      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
+        params: { bill_type: 'sale' },
+      })
       setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
       return bill
     } catch (e) {
@@ -558,10 +594,12 @@ export function ErpBillingWorkspace() {
   }
 
   const saveBill = async (billType: 'sale' | 'estimate', status: string) => {
+    clearDuplicateState()
     await persistBill(billType, status)
   }
 
   const generateQuote = async () => {
+    clearDuplicateState()
     const bill = await persistBill('estimate', 'draft', { skipReset: true })
     if (!bill) return
     try {
@@ -749,61 +787,59 @@ export function ErpBillingWorkspace() {
           </div>
         </div>
         {customerName ? (
-          <div className="mt-3 space-y-2 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="mt-2 rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-1.5">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-snug text-[var(--color-jewelry-black,#1a1814)]/75">
               <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{customerName}</span>
-              <span className="rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900">
+              <span className="rounded bg-amber-200/70 px-1.5 py-px text-[9px] font-bold uppercase text-amber-900">
                 Slab {rateSlab}
               </span>
-            </div>
-            <dl className="grid gap-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/70 sm:grid-cols-2">
               {mobile ? (
-                <div>
-                  <dt className="font-semibold uppercase tracking-wide opacity-60">Mobile</dt>
-                  <dd>{mobile}</dd>
-                </div>
+                <>
+                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
+                  <span>{mobile}</span>
+                </>
               ) : null}
               {selectedCustomer?.email ? (
-                <div>
-                  <dt className="font-semibold uppercase tracking-wide opacity-60">Email</dt>
-                  <dd className="break-all">{selectedCustomer.email}</dd>
-                </div>
+                <>
+                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
+                  <span className="max-w-[180px] truncate">{selectedCustomer.email}</span>
+                </>
               ) : null}
               {selectedCustomer?.gstin ? (
-                <div>
-                  <dt className="font-semibold uppercase tracking-wide opacity-60">GSTIN</dt>
-                  <dd>{selectedCustomer.gstin}</dd>
-                </div>
+                <>
+                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
+                  <span>GST {selectedCustomer.gstin}</span>
+                </>
               ) : null}
-              {address || selectedCustomer?.address ? (
-                <div className="sm:col-span-2">
-                  <dt className="font-semibold uppercase tracking-wide opacity-60">Address</dt>
-                  <dd>{address || selectedCustomer?.address}</dd>
-                </div>
+              {(address || selectedCustomer?.address) ? (
+                <>
+                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
+                  <span className="max-w-[220px] truncate">{address || selectedCustomer?.address}</span>
+                </>
               ) : null}
               {selectedCustomer?.birthdate ? (
-                <div>
-                  <dt className="font-semibold uppercase tracking-wide opacity-60">Birthday</dt>
-                  <dd>{String(selectedCustomer.birthdate).slice(0, 10)}</dd>
-                </div>
+                <>
+                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
+                  <span>Bday {String(selectedCustomer.birthdate).slice(0, 10)}</span>
+                </>
               ) : null}
               {selectedCustomer?.anniversary_date ? (
-                <div>
-                  <dt className="font-semibold uppercase tracking-wide opacity-60">Anniversary</dt>
-                  <dd>{String(selectedCustomer.anniversary_date).slice(0, 10)}</dd>
-                </div>
+                <>
+                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
+                  <span>Anniv {String(selectedCustomer.anniversary_date).slice(0, 10)}</span>
+                </>
               ) : null}
               {selectedCustomer?.notes ? (
-                <div className="sm:col-span-2">
-                  <dt className="font-semibold uppercase tracking-wide opacity-60">Notes</dt>
-                  <dd>{selectedCustomer.notes}</dd>
-                </div>
+                <>
+                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
+                  <span className="max-w-[200px] truncate italic">{selectedCustomer.notes}</span>
+                </>
               ) : null}
-            </dl>
+            </div>
           </div>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={`${erpBtnPrimary} bg-emerald-600`} onClick={() => void loadCustomers('')}>
+          <button type="button" className={`${erpBtnPrimary} bg-emerald-600`} onClick={() => void refreshCustomers()}>
             <UserPlus className="size-4" />
             Refresh customers
           </button>
@@ -844,6 +880,26 @@ export function ErpBillingWorkspace() {
                 {scanBusy ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
               </button>
             </div>
+            {duplicateScanMsg ? (
+              <div
+                ref={duplicateBannerRef}
+                tabIndex={0}
+                role="alert"
+                className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-950 outline-none ring-2 ring-amber-400/40"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') setDuplicateScanMsg(null)
+                }}
+              >
+                <p className="font-medium">{duplicateScanMsg}</p>
+                <button
+                  type="button"
+                  className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-800 underline"
+                  onClick={() => setDuplicateScanMsg(null)}
+                >
+                  OK · Enter
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className={erpCardCls}>
@@ -917,7 +973,7 @@ export function ErpBillingWorkspace() {
                         rowRefs.current[idx] = el
                       }}
                       className={`border-b border-[var(--color-slate-700,#e8e4df)]/50 transition-colors ${
-                        highlightLineIdx === idx ? 'bg-amber-100 ring-2 ring-amber-400 ring-inset' : ''
+                        duplicateHighlights.has(idx) ? 'bg-amber-100 ring-2 ring-amber-400 ring-inset' : ''
                       }`}
                     >
                       <td className="px-2 py-2 tabular-nums">{idx + 1}</td>

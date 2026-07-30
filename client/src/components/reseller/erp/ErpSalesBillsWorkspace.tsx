@@ -11,19 +11,8 @@ import {
   erpInputCls,
   type ErpBill,
 } from '@/components/reseller/erp/erp-ui'
-import { ErpQuotePdfButton } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { useAuth } from '@/hooks/useAuth'
-import { type WholesaleUserFields } from '@/lib/customer-tier'
-import {
-  Download,
-  Eye,
-  FileSpreadsheet,
-  Loader2,
-  Pencil,
-  ScrollText,
-  Trash2,
-} from 'lucide-react'
+import { Download, Eye, Loader2, Receipt, Trash2, X } from 'lucide-react'
 
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
 
@@ -34,11 +23,7 @@ function fmtDate(iso?: string | null): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-export function ErpEstimationsWorkspace() {
-  const auth = useAuth()
-  const brandLabel =
-    (auth.user as WholesaleUserFields)?.business_name?.trim() || 'Our store'
-
+export function ErpSalesBillsWorkspace() {
   const [bills, setBills] = useState<ErpBill[]>([])
   const [busy, setBusy] = useState(false)
   const [q, setQ] = useState('')
@@ -46,27 +31,24 @@ export function ErpEstimationsWorkspace() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [viewBill, setViewBill] = useState<ErpBill | null>(null)
 
   const load = useCallback(async () => {
-    const params: Record<string, string> = { bill_type: 'estimate' }
+    const params: Record<string, string> = { bill_type: 'sale' }
     if (q.trim()) params.q = q.trim()
     if (status) params.status = status
     if (from) params.from = from
     if (to) params.to = to
     try {
       const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params })
-      const list = (res.data.bills || []).filter(
-        (b) => String(b.bill_type || '').toLowerCase() === 'estimate',
-      )
+      const list = (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'sale')
       setBills(list)
       setSelected(new Set())
     } catch (e) {
-      console.error('erp estimations load:', e)
+      console.error('erp sales bills load:', e)
       try {
         const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
-        setBills(
-          (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'estimate'),
-        )
+        setBills((res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'sale'))
         setSelected(new Set())
       } catch {
         setBills([])
@@ -114,10 +96,11 @@ export function ErpEstimationsWorkspace() {
   }
 
   const deleteOne = async (id: number) => {
-    if (!confirm('Delete this estimation?')) return
+    if (!confirm('Delete this sales bill?')) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/bills/${id}`)
+      if (viewBill?.id === id) setViewBill(null)
       await load()
     } catch (e) {
       alert(erpErr(e))
@@ -127,10 +110,11 @@ export function ErpEstimationsWorkspace() {
   }
 
   const deleteSelected = async () => {
-    if (!selected.size || !confirm(`Delete ${selected.size} estimation(s)?`)) return
+    if (!selected.size || !confirm(`Delete ${selected.size} sales bill(s)?`)) return
     setBusy(true)
     try {
       await axios.post('/api/reseller/erp/bills/bulk-delete', { ids: Array.from(selected) })
+      setViewBill(null)
       await load()
     } catch (e) {
       alert(erpErr(e))
@@ -142,7 +126,7 @@ export function ErpEstimationsWorkspace() {
   const exportRows = async (rows: ErpBill[]) => {
     const XLSX = await import('xlsx')
     const data = rows.map((b) => ({
-      'Quote No': b.bill_number,
+      'Bill No': b.bill_number,
       Date: fmtDate(b.created_at ?? b.bill_date),
       Customer: b.customer_name || '',
       Items: b.lines?.length ?? 0,
@@ -150,20 +134,30 @@ export function ErpEstimationsWorkspace() {
       Status: b.status,
       Notes: b.notes || '',
     }))
-    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ 'Quote No': '' }])
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ 'Bill No': '' }])
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Estimations')
-    XLSX.writeFile(wb, `erp-estimations-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, ws, 'Sales')
+    XLSX.writeFile(wb, `erp-sales-bills-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
-  const billingEditPath = (id: number) => `${resellerErpModulePath('billing')}?edit=${id}`
+  const openView = async (id: number) => {
+    setBusy(true)
+    try {
+      const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
+      setViewBill(res.data.bill)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-          <ScrollText className="size-4 text-[var(--kc-accent,#c41e3a)]" />
-          Quotation history
+          <Receipt className="size-4 text-emerald-700" />
+          Sales bill history
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -188,7 +182,7 @@ export function ErpEstimationsWorkspace() {
       </div>
 
       <div className={`${erpCardCls} grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
-        <input className={erpInputCls} placeholder="Search quote no, customer…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className={erpInputCls} placeholder="Search bill no, customer…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className={erpInputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
           {STATUSES.map((s) => (
@@ -209,8 +203,8 @@ export function ErpEstimationsWorkspace() {
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          { label: 'Total quotations', value: String(stats.total), cls: 'bg-blue-50 text-blue-900 border-blue-100' },
-          { label: 'Total value', value: formatErpInr(stats.totalValue), cls: 'bg-emerald-50 text-emerald-900 border-emerald-100' },
+          { label: 'Total sales', value: String(stats.total), cls: 'bg-emerald-50 text-emerald-900 border-emerald-100' },
+          { label: 'Total value', value: formatErpInr(stats.totalValue), cls: 'bg-blue-50 text-blue-900 border-blue-100' },
           { label: 'This month', value: String(stats.monthCount), cls: 'bg-violet-50 text-violet-900 border-violet-100' },
           { label: 'Today', value: String(stats.todayCount), cls: 'bg-amber-50 text-amber-900 border-amber-100' },
         ].map((c) => (
@@ -233,7 +227,7 @@ export function ErpEstimationsWorkspace() {
                   aria-label="Select all"
                 />
               </th>
-              <th className="px-3 py-2.5 font-semibold">Quote no</th>
+              <th className="px-3 py-2.5 font-semibold">Bill no</th>
               <th className="px-3 py-2.5 font-semibold">Date</th>
               <th className="px-3 py-2.5 font-semibold">Customer</th>
               <th className="px-3 py-2.5 font-semibold">Items</th>
@@ -246,7 +240,7 @@ export function ErpEstimationsWorkspace() {
             {bills.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                  No estimations in this period.
+                  No sales bills in this period.
                 </td>
               </tr>
             ) : (
@@ -255,11 +249,7 @@ export function ErpEstimationsWorkspace() {
                   <td className="px-3 py-2.5">
                     <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggleOne(b.id)} aria-label={`Select ${b.bill_number}`} />
                   </td>
-                  <td className="px-3 py-2.5">
-                    <Link href={billingEditPath(b.id)} className="font-semibold text-blue-700 hover:underline">
-                      {b.bill_number}
-                    </Link>
-                  </td>
+                  <td className="px-3 py-2.5 font-semibold text-emerald-800">{b.bill_number}</td>
                   <td className="px-3 py-2.5 tabular-nums">{fmtDate(b.created_at ?? b.bill_date)}</td>
                   <td className="max-w-[140px] truncate px-3 py-2.5">{b.customer_name || '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{b.lines?.length ?? 0}</td>
@@ -267,39 +257,25 @@ export function ErpEstimationsWorkspace() {
                     {formatErpInr(b.total_inr)}
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800">
                       {b.status}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex flex-wrap gap-1">
-                      <Link
-                        href={billingEditPath(b.id)}
+                      <button
+                        type="button"
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
-                        title="Edit in billing"
-                      >
-                        <Pencil className="size-4" />
-                      </Link>
-                      <Link
-                        href={billingEditPath(b.id)}
-                        className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
-                        title="Open"
+                        title="View bill"
+                        onClick={() => void openView(b.id)}
                       >
                         <Eye className="size-4" />
-                      </Link>
-                      <ErpQuotePdfButton
-                        bill={b}
-                        brandLabel={brandLabel}
-                        customerName={b.customer_name}
-                        mobile={b.session?.mobile}
-                        label=""
-                        className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
-                      />
+                      </button>
                       <button
                         type="button"
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
-                        onClick={() => void deleteOne(b.id)}
                         title="Delete"
+                        onClick={() => void deleteOne(b.id)}
                       >
                         <Trash2 className="size-4" />
                       </button>
@@ -312,21 +288,50 @@ export function ErpEstimationsWorkspace() {
         </table>
       </div>
 
-      {selected.size > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={erpBtnGhost} onClick={() => void exportRows(bills.filter((b) => selected.has(b.id)))}>
-            <FileSpreadsheet className="size-4" />
-            Export selected ({selected.size})
-          </button>
-          <Link href={resellerErpModulePath('billing')} className={erpBtnPrimary}>
-            New quotation in billing
-          </Link>
+      <Link href={resellerErpModulePath('billing')} className={erpBtnPrimary}>
+        New sale in billing
+      </Link>
+
+      {viewBill ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center">
+          <div className={`${erpCardCls} max-h-[85vh] w-full max-w-lg overflow-y-auto`}>
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">Sales bill</p>
+                <h3 className="text-lg font-bold text-[var(--color-jewelry-black,#1a1814)]">{viewBill.bill_number}</h3>
+                <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
+                  {viewBill.customer_name || 'Walk-in'} · {fmtDate(viewBill.created_at ?? viewBill.bill_date)}
+                </p>
+              </div>
+              <button type="button" className={erpBtnGhost} onClick={() => setViewBill(null)} aria-label="Close">
+                <X className="size-4" />
+              </button>
+            </div>
+            <ul className="space-y-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
+              {(viewBill.lines || []).map((line, i) => (
+                <li key={`${line.barcode || line.code}-${i}`} className="flex items-start justify-between gap-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{line.name}</p>
+                    <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+                      {line.barcode || line.code}
+                      {line.weightGm != null ? ` · ${line.weightGm} gm` : ''}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-semibold tabular-nums text-emerald-700">
+                    {formatErpInr(line.lineTotalInr ?? 0)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex items-center justify-between border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
+              <span className="text-sm font-semibold">Net total</span>
+              <span className="text-lg font-bold tabular-nums text-[var(--kc-accent,#c41e3a)]">
+                {formatErpInr(viewBill.total_inr)}
+              </span>
+            </div>
+          </div>
         </div>
-      ) : (
-        <Link href={resellerErpModulePath('billing')} className={`${erpBtnPrimary} inline-flex`}>
-          Create quotation in billing
-        </Link>
-      )}
+      ) : null}
     </div>
   )
 }
