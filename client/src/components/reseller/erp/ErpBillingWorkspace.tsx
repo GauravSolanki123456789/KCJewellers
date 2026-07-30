@@ -14,6 +14,7 @@ import {
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
+import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
@@ -37,7 +38,6 @@ import {
   Plus,
   Receipt,
   Search,
-  UserPlus,
   X,
 } from 'lucide-react'
 
@@ -178,6 +178,7 @@ export function ErpBillingWorkspace() {
   const [customerPickIdx, setCustomerPickIdx] = useState(-1)
   const [duplicateHighlights, setDuplicateHighlights] = useState<Set<number>>(() => new Set())
   const [duplicateScanMsg, setDuplicateScanMsg] = useState<string | null>(null)
+  const [scanErrorMsg, setScanErrorMsg] = useState<string | null>(null)
   const [pdfShareOpen, setPdfShareOpen] = useState(false)
   const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
   const scanRef = useRef<HTMLInputElement>(null)
@@ -235,8 +236,8 @@ export function ErpBillingWorkspace() {
   }, [loadDisplayRates])
 
   useEffect(() => {
-    if (duplicateScanMsg) duplicateBannerRef.current?.focus()
-  }, [duplicateScanMsg])
+    if (duplicateScanMsg || scanErrorMsg) duplicateBannerRef.current?.focus()
+  }, [duplicateScanMsg, scanErrorMsg])
 
   useEffect(() => {
     const d = loadDraft()
@@ -369,6 +370,7 @@ export function ErpBillingWorkspace() {
   const clearDuplicateState = () => {
     setDuplicateHighlights(new Set())
     setDuplicateScanMsg(null)
+    setScanErrorMsg(null)
   }
 
   const scrollToDuplicateRow = (idx: number) => {
@@ -381,22 +383,10 @@ export function ErpBillingWorkspace() {
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
-  const refreshCustomers = async () => {
-    try {
-      const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
-      const all = res.data.customers || []
-      setCustomers(all)
-      if (customerId != null) {
-        const found = all.find((c) => c.id === customerId)
-        if (found) selectCustomer(found)
-      } else if (customerName.trim()) {
-        const key = customerName.trim().toLowerCase()
-        const match = all.find((c) => c.name.trim().toLowerCase() === key)
-        if (match) selectCustomer(match)
-      }
-    } catch (e) {
-      alert(erpErr(e))
-    }
+  const dismissScanBanner = () => {
+    setDuplicateScanMsg(null)
+    setScanErrorMsg(null)
+    scanRef.current?.focus()
   }
 
   const scan = async () => {
@@ -427,7 +417,9 @@ export function ErpBillingWorkspace() {
       setScanCode('')
       scanRef.current?.focus()
     } catch (e) {
-      alert(erpErr(e))
+      setScanErrorMsg(erpErr(e))
+      setScanCode('')
+      scanRef.current?.focus()
     } finally {
       setScanBusy(false)
     }
@@ -608,6 +600,7 @@ export function ErpBillingWorkspace() {
         brandLabel,
         customerName,
         mobile,
+        slabSettingsRaw: auth.user,
         onSheet: (payload) => {
           setPdfSharePayload(payload)
           setPdfShareOpen(true)
@@ -820,13 +813,13 @@ export function ErpBillingWorkspace() {
               {selectedCustomer?.birthdate ? (
                 <>
                   <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span>Bday {String(selectedCustomer.birthdate).slice(0, 10)}</span>
+                  <span>Bday {formatErpDateDdMmYyyy(selectedCustomer.birthdate)}</span>
                 </>
               ) : null}
               {selectedCustomer?.anniversary_date ? (
                 <>
                   <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span>Anniv {String(selectedCustomer.anniversary_date).slice(0, 10)}</span>
+                  <span>Anniv {formatErpDateDdMmYyyy(selectedCustomer.anniversary_date)}</span>
                 </>
               ) : null}
               {selectedCustomer?.notes ? (
@@ -839,10 +832,6 @@ export function ErpBillingWorkspace() {
           </div>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={`${erpBtnPrimary} bg-emerald-600`} onClick={() => void refreshCustomers()}>
-            <UserPlus className="size-4" />
-            Refresh customers
-          </button>
           <button type="button" className={erpBtnGhost} onClick={resetBill}>
             <Receipt className="size-4" />
             New bill
@@ -880,21 +869,27 @@ export function ErpBillingWorkspace() {
                 {scanBusy ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
               </button>
             </div>
-            {duplicateScanMsg ? (
+            {(duplicateScanMsg || scanErrorMsg) ? (
               <div
                 ref={duplicateBannerRef}
                 tabIndex={0}
                 role="alert"
-                className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-950 outline-none ring-2 ring-amber-400/40"
+                className={`mt-2 rounded-lg border px-2.5 py-2 text-[11px] outline-none ring-2 ${
+                  scanErrorMsg
+                    ? 'border-rose-300 bg-rose-50 text-rose-950 ring-rose-400/40'
+                    : 'border-amber-300 bg-amber-50 text-amber-950 ring-amber-400/40'
+                }`}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') setDuplicateScanMsg(null)
+                  if (e.key === 'Enter') dismissScanBanner()
                 }}
               >
-                <p className="font-medium">{duplicateScanMsg}</p>
+                <p className="font-medium">{duplicateScanMsg || scanErrorMsg}</p>
                 <button
                   type="button"
-                  className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-800 underline"
-                  onClick={() => setDuplicateScanMsg(null)}
+                  className={`mt-1 text-[10px] font-semibold uppercase tracking-wide underline ${
+                    scanErrorMsg ? 'text-rose-800' : 'text-amber-800'
+                  }`}
+                  onClick={dismissScanBanner}
                 >
                   OK · Enter
                 </button>

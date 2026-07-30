@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import axios from '@/lib/axios'
-import { Loader2, Plus, Search, Trash2, ScanLine, Download, Upload, FileSpreadsheet, ClipboardList } from 'lucide-react'
+import { Loader2, MessageCircle, Plus, Search, Trash2, ScanLine, Download, Upload, FileSpreadsheet, ClipboardList } from 'lucide-react'
 import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -91,8 +93,17 @@ function BarcodeLookupField({
 }
 
 export function CustomersWorkspace() {
+  type UpcomingEvent = {
+    customer_id: number
+    name: string
+    mobile?: string | null
+    kind: 'birthday' | 'anniversary'
+    event_date: string
+    when: 'today' | 'tomorrow'
+  }
+
   const [customers, setCustomers] = useState<ErpCustomer[]>([])
-  const [upcoming, setUpcoming] = useState<ErpCustomer[]>([])
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([])
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
@@ -114,10 +125,10 @@ export function CustomersWorkspace() {
       axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
         params: q.trim() ? { q: q.trim() } : {},
       }),
-      axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers/upcoming'),
+      axios.get<{ events: UpcomingEvent[] }>('/api/reseller/erp/customers/upcoming'),
     ])
     setCustomers(list.data.customers || [])
-    setUpcoming(up.data.customers || [])
+    setUpcomingEvents(up.data.events || [])
   }, [q])
 
   useEffect(() => {
@@ -166,8 +177,8 @@ export function CustomersWorkspace() {
         Email: c.email ?? '',
         GSTIN: c.gstin ?? '',
         Address: c.address ?? '',
-        Birthday: c.birthdate ? String(c.birthdate).slice(0, 10) : '',
-        Anniversary: c.anniversary_date ? String(c.anniversary_date).slice(0, 10) : '',
+        Birthday: c.birthdate ? formatErpDateDdMmYyyy(String(c.birthdate)) : '',
+        Anniversary: c.anniversary_date ? formatErpDateDdMmYyyy(String(c.anniversary_date)) : '',
         Notes: c.notes ?? '',
       }))
       const XLSX = await import('xlsx')
@@ -234,17 +245,56 @@ export function CustomersWorkspace() {
 
   return (
     <div className="space-y-5">
-      {upcoming.length > 0 ? (
+      {upcomingEvents.length > 0 ? (
         <div className={erpCardCls}>
-          <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Upcoming (30 days)</p>
-          <ul className="space-y-1.5">
-            {upcoming.map((c) => (
-              <li key={c.id} className="text-xs text-[var(--color-jewelry-black,#1a1814)]/70">
-                <span className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{c.name}</span>
-                {c.birthdate ? ` · Birthday ${String(c.birthdate).slice(0, 10)}` : ''}
-                {c.anniversary_date ? ` · Anniversary ${String(c.anniversary_date).slice(0, 10)}` : ''}
-              </li>
-            ))}
+          <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Reminders</p>
+          <ul className="space-y-2">
+            {upcomingEvents.map((ev) => {
+              const isToday = ev.when === 'today'
+              const dateLabel = formatErpDateDdMmYyyy(ev.event_date)
+              const headline = isToday
+                ? ev.kind === 'birthday'
+                  ? `Happy Birthday ${ev.name}`
+                  : `Happy Anniversary ${ev.name}`
+                : ev.kind === 'birthday'
+                  ? `Upcoming birthday · ${ev.name}`
+                  : `Upcoming anniversary · ${ev.name}`
+              const sub = isToday
+                ? dateLabel
+                : `${dateLabel} · 1 day to go`
+              const waText = isToday
+                ? ev.kind === 'birthday'
+                  ? `Happy Birthday ${ev.name}!`
+                  : `Happy Anniversary ${ev.name}!`
+                : null
+              const waHref = waText ? customerWhatsAppHref(ev.mobile, waText) : null
+              return (
+                <li
+                  key={`${ev.customer_id}-${ev.kind}`}
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                    isToday
+                      ? 'border-[var(--kc-accent,#c41e3a)]/25 bg-[var(--kc-accent,#c41e3a)]/[0.06]'
+                      : 'border-amber-200/80 bg-amber-50/60'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">{headline}</p>
+                    <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">{sub}</p>
+                  </div>
+                  {isToday && waHref ? (
+                    <a
+                      href={waHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700"
+                    >
+                      <MessageCircle className="size-4" />
+                      WhatsApp
+                    </a>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
         </div>
       ) : null}
@@ -300,11 +350,11 @@ export function CustomersWorkspace() {
           <input className={erpInputCls} placeholder="GSTIN" value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} />
           <input className={erpInputCls} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-            Birthday
+            Birthday (dd/mm/yyyy)
             <input type="date" className={`${erpInputCls} mt-1`} value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })} />
           </label>
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-            Anniversary
+            Anniversary (dd/mm/yyyy)
             <input type="date" className={`${erpInputCls} mt-1`} value={form.anniversary_date} onChange={(e) => setForm({ ...form, anniversary_date: e.target.value })} />
           </label>
           <textarea className={`${erpInputCls} min-h-[88px] py-2.5 sm:col-span-2`} placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -332,7 +382,7 @@ export function CustomersWorkspace() {
                 </p>
                 {(c.birthdate || c.anniversary_date) && (
                   <p className="mt-1 text-[11px] text-[var(--kc-accent,#c41e3a)]">
-                    {[c.birthdate ? `Birthday ${String(c.birthdate).slice(0, 10)}` : null, c.anniversary_date ? `Anniversary ${String(c.anniversary_date).slice(0, 10)}` : null].filter(Boolean).join(' · ')}
+                    {[c.birthdate ? `Birthday ${formatErpDateDdMmYyyy(c.birthdate)}` : null, c.anniversary_date ? `Anniversary ${formatErpDateDdMmYyyy(c.anniversary_date)}` : null].filter(Boolean).join(' · ')}
                   </p>
                 )}
               </div>

@@ -3,7 +3,8 @@
 import { useCallback, useState } from 'react'
 import { pdf } from '@react-pdf/renderer'
 import { FileImage, Loader2 } from 'lucide-react'
-import { CatalogPdfDocument } from '@/lib/catalog-pdf-document'
+import { useAuth } from '@/hooks/useAuth'
+import { ErpQuotePdfDocument } from '@/lib/erp-quote-pdf-document'
 import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
 import {
   sharePdfBlob,
@@ -15,8 +16,10 @@ import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import {
   buildErpQuotePdfFilename,
   buildErpQuoteWhatsAppMessage,
+  computeErpQuoteTotals,
   erpCustomerWhatsAppHref,
   erpLinesToPdfItems,
+  resolveErpLineImages,
 } from '@/lib/erp-quote-pdf'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 
@@ -26,6 +29,7 @@ export async function shareErpQuotePdf(params: {
   customerName?: string | null
   mobile?: string | null
   kcThemeId?: string | null
+  slabSettingsRaw?: unknown
   onSheet?: (payload: PdfShareSheetPayload) => void
 }): Promise<void> {
   const lines = params.bill.lines ?? []
@@ -34,21 +38,21 @@ export async function shareErpQuotePdf(params: {
     return
   }
 
-  const itemsForPdf = await resolveItemsForPdf(erpLinesToPdfItems(lines))
+  const linesWithImages = await resolveErpLineImages(lines)
+  const billForPdf = { ...params.bill, lines: linesWithImages }
+  const itemsForPdf = await resolveItemsForPdf(erpLinesToPdfItems(linesWithImages))
   const brandLabel = params.brandLabel.trim() || 'Our store'
   const kcThemeId = normalizeKcThemeId(params.kcThemeId ?? null)
+  const totals = computeErpQuoteTotals(billForPdf, params.slabSettingsRaw)
 
   const blob = await pdf(
-    <CatalogPdfDocument
-      products={itemsForPdf}
+    <ErpQuotePdfDocument
+      bill={billForPdf}
       brandName={brandLabel}
       kcThemeId={kcThemeId}
-      itemsLabel="Quotation with photos"
-      orderSummary={{
-        totalPieces: lines.reduce((s, l) => s + (Number(l.qty) || 1), 0),
-        designCount: lines.length,
-        orderTotalInr: params.bill.total_inr,
-      }}
+      products={itemsForPdf}
+      totals={totals}
+      customerName={params.customerName ?? params.bill.customer_name}
     />,
   ).toBlob()
 
@@ -108,6 +112,7 @@ export function ErpQuotePdfButton({
   className,
   label = 'PDF with photos',
 }: Props) {
+  const auth = useAuth()
   const [busy, setBusy] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetPayload, setSheetPayload] = useState<PdfShareSheetPayload | null>(null)
@@ -122,6 +127,7 @@ export function ErpQuotePdfButton({
         customerName,
         mobile,
         kcThemeId,
+        slabSettingsRaw: auth.user,
         onSheet: (payload) => {
           setSheetPayload(payload)
           setSheetOpen(true)

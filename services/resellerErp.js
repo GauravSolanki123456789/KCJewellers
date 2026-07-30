@@ -123,6 +123,49 @@ function trimStrLower(v, max = 255) {
     return s ? s.toLowerCase() : '';
 }
 
+function daysUntilAnnualEvent(isoDate) {
+    if (!isoDate) return null;
+    const s = String(isoDate).trim().slice(0, 10);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) return null;
+    const month = parseInt(m[2], 10) - 1;
+    const day = parseInt(m[3], 10);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let next = new Date(today.getFullYear(), month, day);
+    if (next.getTime() < today.getTime()) {
+        next = new Date(today.getFullYear() + 1, month, day);
+    }
+    return Math.round((next.getTime() - today.getTime()) / 86400000);
+}
+
+async function lookupCatalogImageUrl(query, keys) {
+    const name = trimStr(keys?.product_name, 255);
+    const sku = trimStr(keys?.sku, 128);
+    const item = trimStr(keys?.item_code, 128);
+    if (!name && !sku && !item) return null;
+    const rows = await query(
+        `SELECT image_url FROM web_products wp
+         WHERE (wp.is_active IS NULL OR wp.is_active = true)
+           AND wp.image_url IS NOT NULL AND TRIM(wp.image_url) <> ''
+           AND (
+             ($1::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($1))
+             OR ($2::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2))
+             OR ($3::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($3))
+           )
+         ORDER BY
+           CASE
+             WHEN $1::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($1) THEN 0
+             WHEN $2::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2) THEN 1
+             ELSE 2
+           END,
+           wp.updated_at DESC NULLS LAST
+         LIMIT 1`,
+        [name, sku, item],
+    );
+    return rows[0]?.image_url || null;
+}
+
 function parseDateOrNull(v) {
     if (v == null || v === '') return null;
     const s = String(v).trim().slice(0, 10);
@@ -828,6 +871,16 @@ function registerResellerErpRoutes(app, deps) {
                 if (p.status !== 'in_stock') {
                     return res.status(409).json({ error: `Piece status: ${p.status}` });
                 }
+                let imageUrl = p.image_url;
+                if (!imageUrl) {
+                    imageUrl = await lookupCatalogImageUrl(query, {
+                        product_name: p.product_name,
+                        sku: p.sku,
+                        style_code: p.style_code,
+                        item_code: p.item_code,
+                        metal_type: p.metal_type,
+                    });
+                }
                 return res.json({
                     source: 'stock_piece',
                     product: {
@@ -849,7 +902,7 @@ function registerResellerErpRoutes(app, deps) {
                         stone_charges: p.stone_charges,
                         metal_type: p.metal_type,
                         item_code: p.item_code,
-                        image_url: p.image_url,
+                        image_url: imageUrl,
                         attr_color: p.attr_color,
                         attr_stone: p.attr_stone,
                         fixed_price: p.fixed_price,
@@ -924,22 +977,69 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
-    // ——— Upcoming birthdays / anniversaries ———
+    // ——— Resolve catalogue images for ERP lines (SKU / style / product name) ———
+    app.post('/api/reseller/erp/products/resolve-images', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const keys = Array.isArray(req.body.keys) ? req.body.keys : [];
+            if (keys.length > 200) return res.status(400).json({ error: 'Max 200 keys per request' });
+            const images = [];
+            for (const k of keys) {
+                const url = await lookupCatalogImageUrl(query, k);
+                images.push(url);
+            }
+            res.json({ images });
+        } catch (e) {
+            console.error('erp resolve images:', e);
+            res.status(500).json({ error: e.message || 'Failed to resolve images' });
+        }
+    });
+
+    // ——— Upcoming birthdays / anniversaries (today or 1 day before only) ———
     app.get('/api/reseller/erp/customers/upcoming', checkAuth, erpGate, async (req, res) => {
         try {
             const rows = await query(
                 `SELECT id, name, mobile, birthdate, anniversary_date
                  FROM reseller_erp_customers
                  WHERE reseller_user_id = $1
-                   AND (
-                     (birthdate IS NOT NULL AND TO_CHAR(birthdate, 'MM-DD') BETWEEN TO_CHAR(CURRENT_DATE, 'MM-DD') AND TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MM-DD'))
-                     OR (anniversary_date IS NOT NULL AND TO_CHAR(anniversary_date, 'MM-DD') BETWEEN TO_CHAR(CURRENT_DATE, 'MM-DD') AND TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MM-DD'))
-                   )
-                 ORDER BY name ASC
-                 LIMIT 50`,
+                 ORDER BY name ASC`,
                 [req.user.id],
             );
-            res.json({ customers: rows });
+            const events = [];
+            for (const c of rows) {
+                if (c.birthdate) {
+                    const d = daysUntilAnnualEvent(c.birthdate);
+                    if (d === 0 || d === 1) {
+                        events.push({
+                            customer_id: c.id,
+                            name: c.name,
+                            mobile: c.mobile,
+                            kind: 'birthday',
+                            event_date: c.birthdate,
+                            when: d === 0 ? 'today' : 'tomorrow',
+                        });
+                    }
+                }
+                if (c.anniversary_date) {
+                    const d = daysUntilAnnualEvent(c.anniversary_date);
+                    if (d === 0 || d === 1) {
+                        events.push({
+                            customer_id: c.id,
+                            name: c.name,
+                            mobile: c.mobile,
+                            kind: 'anniversary',
+                            event_date: c.anniversary_date,
+                            when: d === 0 ? 'today' : 'tomorrow',
+                        });
+                    }
+                }
+            }
+            events.sort((a, b) => {
+                if (a.when !== b.when) return a.when === 'today' ? -1 : 1;
+                return String(a.name).localeCompare(String(b.name));
+            });
+            res.json({ events, customers: rows.filter((c) =>
+                events.some((e) => e.customer_id === c.id),
+            ) });
         } catch (e) {
             console.error('erp customers upcoming:', e);
             res.status(500).json({ error: e.message || 'Failed to load upcoming dates' });
