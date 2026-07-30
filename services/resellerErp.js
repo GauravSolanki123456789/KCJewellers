@@ -55,6 +55,9 @@ async function ensureResellerErpSchema(pool) {
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_bills_reseller
             ON reseller_erp_bills (reseller_user_id, created_at DESC);
 
+        ALTER TABLE reseller_erp_bills
+            ADD COLUMN IF NOT EXISTS session_json JSONB DEFAULT NULL;
+
         CREATE TABLE IF NOT EXISTS reseller_erp_stock_alerts (
             id SERIAL PRIMARY KEY,
             reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -150,6 +153,14 @@ function mapBill(row) {
         }
     }
     if (!Array.isArray(lines)) lines = [];
+    let session = row.session_json;
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch {
+            session = null;
+        }
+    }
     return {
         id: row.id,
         bill_number: row.bill_number,
@@ -161,6 +172,7 @@ function mapBill(row) {
         lines,
         notes: row.notes,
         bill_date: row.bill_date,
+        session: session && typeof session === 'object' ? session : null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -397,17 +409,55 @@ function registerResellerErpRoutes(app, deps) {
     // ——— Bills ———
     app.get('/api/reseller/erp/bills', checkAuth, erpGate, async (req, res) => {
         try {
-            const rows = await query(
-                `SELECT * FROM reseller_erp_bills
-                 WHERE reseller_user_id = $1
-                 ORDER BY created_at DESC, id DESC
-                 LIMIT 300`,
-                [req.user.id],
-            );
+            const billType = trimStr(req.query.bill_type, 32).toLowerCase();
+            const status = trimStr(req.query.status, 32).toLowerCase();
+            const q = trimStr(req.query.q, 200);
+            const from = parseDateOrNull(req.query.from);
+            const to = parseDateOrNull(req.query.to);
+            const params = [req.user.id];
+            let sql = `SELECT * FROM reseller_erp_bills WHERE reseller_user_id = $1`;
+            if (billType) {
+                params.push(billType);
+                sql += ` AND bill_type = $${params.length}`;
+            }
+            if (status) {
+                params.push(status);
+                sql += ` AND LOWER(status) = $${params.length}`;
+            }
+            if (from) {
+                params.push(from);
+                sql += ` AND bill_date >= $${params.length}::date`;
+            }
+            if (to) {
+                params.push(to);
+                sql += ` AND bill_date <= $${params.length}::date`;
+            }
+            if (q) {
+                params.push(`%${q}%`);
+                sql += ` AND (bill_number ILIKE $${params.length} OR customer_name ILIKE $${params.length})`;
+            }
+            sql += ` ORDER BY created_at DESC, id DESC LIMIT 500`;
+            const rows = await query(sql, params);
             res.json({ bills: rows.map(mapBill) });
         } catch (e) {
             console.error('erp bills list:', e);
             res.status(500).json({ error: e.message || 'Failed to list bills' });
+        }
+    });
+
+    app.get('/api/reseller/erp/bills/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            res.json({ bill: mapBill(rows[0]) });
+        } catch (e) {
+            console.error('erp bill get:', e);
+            res.status(500).json({ error: e.message || 'Failed to load bill' });
         }
     });
 
@@ -427,15 +477,27 @@ function registerResellerErpRoutes(app, deps) {
                 `SELECT COALESCE(MAX(id), 0) + 1 AS n FROM reseller_erp_bills WHERE reseller_user_id = $1`,
                 [req.user.id],
             );
+            const typePrefix =
+                billType === 'estimate'
+                    ? 'ESTIMATE'
+                    : billType === 'credit'
+                      ? 'CREDIT'
+                      : billType === 'order'
+                        ? 'ORDER'
+                        : 'SALE';
             const billNumber =
                 trimStr(req.body.bill_number, 64) ||
-                `${billType.toUpperCase()}-${String(seq[0]?.n || 1).padStart(4, '0')}`;
+                `${typePrefix}-${String(seq[0]?.n || 1).padStart(4, '0')}`;
+            const sessionJson =
+                req.body.session && typeof req.body.session === 'object'
+                    ? JSON.stringify(req.body.session)
+                    : null;
 
             const rows = await query(
                 `INSERT INTO reseller_erp_bills (
                     reseller_user_id, bill_number, bill_type, customer_id, customer_name,
-                    total_inr, status, lines_json, notes, bill_date
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+                    total_inr, status, lines_json, notes, bill_date, session_json
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::jsonb)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -448,6 +510,7 @@ function registerResellerErpRoutes(app, deps) {
                     JSON.stringify(lines),
                     trimStr(req.body.notes, 2000),
                     parseDateOrNull(req.body.bill_date) || new Date().toISOString().slice(0, 10),
+                    sessionJson,
                 ],
             );
             const bill = mapBill(rows[0]);
@@ -459,6 +522,57 @@ function registerResellerErpRoutes(app, deps) {
         } catch (e) {
             console.error('erp bill create:', e);
             res.status(500).json({ error: e.message || 'Failed to create bill' });
+        }
+    });
+
+    app.put('/api/reseller/erp/bills/:id', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
+            let total = Number(req.body.total_inr);
+            if (!Number.isFinite(total)) {
+                total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
+            }
+            const sessionJson =
+                req.body.session && typeof req.body.session === 'object'
+                    ? JSON.stringify(req.body.session)
+                    : null;
+            const status = trimStr(req.body.status, 32);
+            const rows = await query(
+                `UPDATE reseller_erp_bills SET
+                    customer_id = COALESCE($1, customer_id),
+                    customer_name = COALESCE($2, customer_name),
+                    total_inr = $3,
+                    status = COALESCE($4, status),
+                    lines_json = $5::jsonb,
+                    notes = COALESCE($6, notes),
+                    session_json = COALESCE($7::jsonb, session_json),
+                    updated_at = NOW()
+                 WHERE id = $8 AND reseller_user_id = $9
+                 RETURNING *`,
+                [
+                    req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null,
+                    trimStr(req.body.customer_name, 255) || null,
+                    Math.round(total * 100) / 100,
+                    status || null,
+                    JSON.stringify(lines),
+                    trimStr(req.body.notes, 2000) || null,
+                    sessionJson,
+                    id,
+                    req.user.id,
+                ],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            const bill = mapBill(rows[0]);
+            const st = String(bill.status || '').toLowerCase();
+            if (['completed', 'paid', 'final'].includes(st)) {
+                await markPiecesSold(query, req.user.id, bill.lines, bill.id);
+            }
+            res.json({ success: true, bill });
+        } catch (e) {
+            console.error('erp bill put:', e);
+            res.status(500).json({ error: e.message || 'Failed to update bill' });
         }
     });
 
@@ -482,6 +596,42 @@ function registerResellerErpRoutes(app, deps) {
         } catch (e) {
             console.error('erp bill patch:', e);
             res.status(500).json({ error: e.message || 'Failed to update bill' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/bills/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const rows = await query(
+                `DELETE FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 RETURNING id`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            res.json({ success: true });
+        } catch (e) {
+            console.error('erp bill delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete bill' });
+        }
+    });
+
+    app.post('/api/reseller/erp/bills/bulk-delete', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const ids = Array.isArray(req.body.ids)
+                ? req.body.ids.map((x) => parseInt(String(x), 10)).filter((n) => Number.isFinite(n))
+                : [];
+            if (!ids.length) return res.status(400).json({ error: 'ids required' });
+            if (ids.length > 200) return res.status(400).json({ error: 'Max 200 ids' });
+            const rows = await query(
+                `DELETE FROM reseller_erp_bills
+                 WHERE reseller_user_id = $1 AND id = ANY($2::int[])
+                 RETURNING id`,
+                [req.user.id, ids],
+            );
+            res.json({ success: true, deleted: rows.length });
+        } catch (e) {
+            console.error('erp bills bulk delete:', e);
+            res.status(500).json({ error: e.message || 'Bulk delete failed' });
         }
     });
 

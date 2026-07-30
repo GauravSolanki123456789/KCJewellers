@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
@@ -11,8 +13,12 @@ import {
   perGramToDisplayRates,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
-import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
+import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
+import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
+import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
+import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -125,6 +131,14 @@ function clearDraftStorage() {
 
 export function ErpBillingWorkspace() {
   const auth = useAuth()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const editIdParam = searchParams.get('edit')
+  const brandLabel = useMemo(() => {
+    const name = auth.user && (auth.user as WholesaleUserFields).business_name
+    return typeof name === 'string' && name.trim() ? name.trim() : 'Our store'
+  }, [auth.user])
+
   const slabSettings = useMemo(
     () =>
       parseSlabSettingsFromUser(
@@ -158,7 +172,16 @@ export function ErpBillingWorkspace() {
   const [saveBusy, setSaveBusy] = useState(false)
   const [bills, setBills] = useState<ErpBill[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const [editingBillId, setEditingBillId] = useState<number | null>(null)
+  const [editingBillNumber, setEditingBillNumber] = useState<string | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
+  const [customerPickIdx, setCustomerPickIdx] = useState(-1)
+  const [highlightLineIdx, setHighlightLineIdx] = useState<number | null>(null)
+  const [pdfShareOpen, setPdfShareOpen] = useState(false)
+  const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
   const scanRef = useRef<HTMLInputElement>(null)
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const recalcLine = useCallback(
     (line: ErpBillLine): ErpBillLine => {
@@ -209,7 +232,7 @@ export function ErpBillingWorkspace() {
 
   useEffect(() => {
     const d = loadDraft()
-    if (d) {
+    if (d && !editIdParam) {
       if (d.customerId != null) setCustomerId(d.customerId)
       if (d.customerName) setCustomerName(d.customerName)
       if (d.mobile) setMobile(d.mobile)
@@ -222,10 +245,53 @@ export function ErpBillingWorkspace() {
       if (d.silverPerG) setSilverPerG(d.silverPerG)
     }
     setHydrated(true)
-  }, [])
+  }, [editIdParam])
+
+  const loadBillForEdit = useCallback(
+    async (id: number) => {
+      const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
+      const bill = res.data.bill
+      const session = (bill.session || {}) as ErpBillSession
+      setEditingBillId(bill.id)
+      setEditingBillNumber(bill.bill_number)
+      setCustomerId(bill.customer_id ?? null)
+      setCustomerName(bill.customer_name || '')
+      setMobile(session.mobile || '')
+      setAddress(session.address || '')
+      if (session.rateSlab) setRateSlab(session.rateSlab)
+      if (session.wholesaleGold != null) setWholesaleGold(session.wholesaleGold)
+      if (session.wholesaleSilver != null) setWholesaleSilver(session.wholesaleSilver)
+      if (session.goldPerG) {
+        const s = session.silverPerG ?? 0
+        setGoldPerG(session.goldPerG)
+        setSilverPerG(s)
+        setDisplayRates(perGramToDisplayRates(session.goldPerG, s))
+      }
+      const loadedLines = applyRatesUnfixed(bill.lines || [], session.ratesUnfixed)
+      setLines(loadedLines)
+      if (bill.customer_id) {
+        try {
+          const custRes = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
+          const found = (custRes.data.customers || []).find((c) => c.id === bill.customer_id)
+          if (found) setSelectedCustomer(found)
+        } catch {
+          /* ignore */
+        }
+      }
+      clearDraftStorage()
+    },
+    [],
+  )
 
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || !editIdParam) return
+    const id = parseInt(editIdParam, 10)
+    if (!Number.isFinite(id)) return
+    void loadBillForEdit(id).catch((e) => alert(erpErr(e)))
+  }, [hydrated, editIdParam, loadBillForEdit])
+
+  useEffect(() => {
+    if (!hydrated || editingBillId) return
     saveDraft({
       customerId,
       customerName,
@@ -238,7 +304,7 @@ export function ErpBillingWorkspace() {
       goldPerG,
       silverPerG,
     })
-  }, [hydrated, customerId, customerName, mobile, address, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG])
+  }, [hydrated, customerId, customerName, mobile, address, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, editingBillId])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
@@ -262,12 +328,59 @@ export function ErpBillingWorkspace() {
     setCustomerName(c.name)
     setMobile(c.mobile || '')
     setAddress(c.address || '')
+    setSelectedCustomer(c)
     setCustomerQ('')
+    setCustomerPickIdx(-1)
+  }
+
+  const pickHighlightedCustomer = () => {
+    const list = customers.slice(0, 8)
+    if (customerPickIdx >= 0 && customerPickIdx < list.length) {
+      selectCustomer(list[customerPickIdx])
+    }
+  }
+
+  const onCustomerKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    const list = customerQ.trim() && customers.length > 0 ? customers.slice(0, 8) : []
+    if (!list.length) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setCustomerPickIdx((i) => Math.min(i + 1, list.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setCustomerPickIdx((i) => Math.max(i - 1, 0))
+    } else if (e.key === 'Enter' && customerPickIdx >= 0) {
+      e.preventDefault()
+      pickHighlightedCustomer()
+    } else if (e.key === 'Escape') {
+      setCustomerPickIdx(-1)
+      setCustomerQ('')
+    }
+  }
+
+  const flashDuplicateRow = (idx: number) => {
+    setHighlightLineIdx(idx)
+    const row = rowRefs.current[idx]
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (highlightTimer.current) clearTimeout(highlightTimer.current)
+    highlightTimer.current = setTimeout(() => setHighlightLineIdx(null), 3200)
   }
 
   const scan = async () => {
     const code = scanCode.trim()
     if (!code || scanBusy) return
+
+    const dupIdx = lines.findIndex(
+      (l) => (l.barcode || l.code || '').trim().toLowerCase() === code.toLowerCase(),
+    )
+    if (dupIdx >= 0) {
+      flashDuplicateRow(dupIdx)
+      alert(`This barcode is already in the list (${code}).`)
+      setScanCode('')
+      scanRef.current?.focus()
+      return
+    }
+
     setScanBusy(true)
     try {
       const res = await axios.get<{ product: ErpProductHit; availability?: { label: string } }>(
@@ -377,33 +490,94 @@ export function ErpBillingWorkspace() {
     setCustomerName('')
     setMobile('')
     setAddress('')
+    setSelectedCustomer(null)
     setRateSlab('R')
     setWholesaleGold(null)
     setWholesaleSilver(null)
+    setEditingBillId(null)
+    setEditingBillNumber(null)
     clearDraftStorage()
     void loadDisplayRates()
+    router.replace(resellerErpModulePath('billing'))
+  }
+
+  const buildPayload = (billType: 'sale' | 'estimate', status: string) => ({
+    bill_type: billType,
+    customer_id: customerId,
+    customer_name: customerName,
+    total_inr: totals.net,
+    status,
+    notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
+    lines: lines.map((l) => ({ ...l, lineTotalInr: l.lineTotalInr ?? 0 })),
+    session: buildErpBillSession({
+      rateSlab,
+      wholesaleGold,
+      wholesaleSilver,
+      goldPerG,
+      silverPerG,
+      mobile,
+      address,
+      lines,
+    }),
+  })
+
+  const persistBill = async (
+    billType: 'sale' | 'estimate',
+    status: string,
+    opts?: { skipReset?: boolean },
+  ): Promise<ErpBill | null> => {
+    if (saveBusy || lines.length === 0) return null
+    setSaveBusy(true)
+    try {
+      const payload = buildPayload(billType, status)
+      let bill: ErpBill
+      if (editingBillId && billType === 'estimate') {
+        const res = await axios.put<{ bill: ErpBill }>(`/api/reseller/erp/bills/${editingBillId}`, payload)
+        bill = res.data.bill
+      } else {
+        const res = await axios.post<{ bill: ErpBill }>('/api/reseller/erp/bills', payload)
+        bill = res.data.bill
+        if (billType === 'estimate') {
+          setEditingBillId(bill.id)
+          setEditingBillNumber(bill.bill_number)
+          router.replace(`${resellerErpModulePath('billing')}?edit=${bill.id}`)
+        }
+      }
+      if (billType === 'sale' && !opts?.skipReset) {
+        resetBill()
+      }
+      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
+      setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
+      return bill
+    } catch (e) {
+      alert(erpErr(e))
+      return null
+    } finally {
+      setSaveBusy(false)
+    }
   }
 
   const saveBill = async (billType: 'sale' | 'estimate', status: string) => {
-    if (saveBusy || lines.length === 0) return
-    setSaveBusy(true)
+    await persistBill(billType, status)
+  }
+
+  const generateQuote = async () => {
+    const bill = await persistBill('estimate', 'draft', { skipReset: true })
+    if (!bill) return
     try {
-      await axios.post('/api/reseller/erp/bills', {
-        bill_type: billType,
-        customer_id: customerId,
-        customer_name: customerName,
-        total_inr: totals.net,
-        status,
-        notes: `Rate slab ${rateSlab}${address ? ` · ${address}` : ''}`,
-        lines: lines.map((l) => ({ ...l, lineTotalInr: l.lineTotalInr ?? 0 })),
+      await shareErpQuotePdf({
+        bill,
+        brandLabel,
+        customerName,
+        mobile,
+        onSheet: (payload) => {
+          setPdfSharePayload(payload)
+          setPdfShareOpen(true)
+        },
       })
-      resetBill()
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
-      setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
     } catch (e) {
-      alert(erpErr(e))
-    } finally {
-      setSaveBusy(false)
+      console.error(e)
+      alert('Estimate saved but PDF could not be created.')
     }
   }
 
@@ -450,6 +624,18 @@ export function ErpBillingWorkspace() {
 
   return (
     <div className="space-y-4">
+      <PdfShareSheet open={pdfShareOpen} onOpenChange={setPdfShareOpen} payload={pdfSharePayload} minimal />
+
+      {editingBillNumber ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
+          <span className="font-semibold text-blue-900">Editing {editingBillNumber}</span>
+          <span className="text-blue-800/70">Changes update this estimate — no new number.</span>
+          <Link href={resellerErpModulePath('estimations')} className="ml-auto text-xs font-semibold text-blue-700 underline">
+            Back to estimations
+          </Link>
+        </div>
+      ) : null}
+
       {showRateEdit ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div className={`${erpCardCls} w-full max-w-md`}>
@@ -516,15 +702,21 @@ export function ErpBillingWorkspace() {
                 setCustomerName(e.target.value)
                 setCustomerQ(e.target.value)
                 setCustomerId(null)
+                setSelectedCustomer(null)
+                setCustomerPickIdx(-1)
               }}
+              onKeyDown={onCustomerKeyDown}
             />
             {customerQ.trim() && customers.length > 0 ? (
               <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
-                {customers.slice(0, 8).map((c) => (
+                {customers.slice(0, 8).map((c, i) => (
                   <li key={c.id}>
                     <button
                       type="button"
-                      className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--kc-accent,#c41e3a)]/[0.06]"
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-[var(--kc-accent,#c41e3a)]/[0.06] ${
+                        customerPickIdx === i ? 'bg-[var(--kc-accent,#c41e3a)]/[0.08]' : ''
+                      }`}
+                      onMouseEnter={() => setCustomerPickIdx(i)}
                       onClick={() => selectCustomer(c)}
                     >
                       {c.name}
@@ -557,12 +749,57 @@ export function ErpBillingWorkspace() {
           </div>
         </div>
         {customerName ? (
-          <div className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm">
-            <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{customerName}</span>
-            {address ? <span className="text-[var(--color-jewelry-black,#1a1814)]/60"> · {address}</span> : null}
-            <span className="ml-2 rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900">
-              Slab {rateSlab}
-            </span>
+          <div className="mt-3 space-y-2 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{customerName}</span>
+              <span className="rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900">
+                Slab {rateSlab}
+              </span>
+            </div>
+            <dl className="grid gap-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/70 sm:grid-cols-2">
+              {mobile ? (
+                <div>
+                  <dt className="font-semibold uppercase tracking-wide opacity-60">Mobile</dt>
+                  <dd>{mobile}</dd>
+                </div>
+              ) : null}
+              {selectedCustomer?.email ? (
+                <div>
+                  <dt className="font-semibold uppercase tracking-wide opacity-60">Email</dt>
+                  <dd className="break-all">{selectedCustomer.email}</dd>
+                </div>
+              ) : null}
+              {selectedCustomer?.gstin ? (
+                <div>
+                  <dt className="font-semibold uppercase tracking-wide opacity-60">GSTIN</dt>
+                  <dd>{selectedCustomer.gstin}</dd>
+                </div>
+              ) : null}
+              {address || selectedCustomer?.address ? (
+                <div className="sm:col-span-2">
+                  <dt className="font-semibold uppercase tracking-wide opacity-60">Address</dt>
+                  <dd>{address || selectedCustomer?.address}</dd>
+                </div>
+              ) : null}
+              {selectedCustomer?.birthdate ? (
+                <div>
+                  <dt className="font-semibold uppercase tracking-wide opacity-60">Birthday</dt>
+                  <dd>{String(selectedCustomer.birthdate).slice(0, 10)}</dd>
+                </div>
+              ) : null}
+              {selectedCustomer?.anniversary_date ? (
+                <div>
+                  <dt className="font-semibold uppercase tracking-wide opacity-60">Anniversary</dt>
+                  <dd>{String(selectedCustomer.anniversary_date).slice(0, 10)}</dd>
+                </div>
+              ) : null}
+              {selectedCustomer?.notes ? (
+                <div className="sm:col-span-2">
+                  <dt className="font-semibold uppercase tracking-wide opacity-60">Notes</dt>
+                  <dd>{selectedCustomer.notes}</dd>
+                </div>
+              ) : null}
+            </dl>
           </div>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
@@ -574,9 +811,9 @@ export function ErpBillingWorkspace() {
             <Receipt className="size-4" />
             New bill
           </button>
-          <button type="button" className={erpBtnGhost} disabled={saveBusy || lines.length === 0} onClick={() => void saveBill('estimate', 'draft')}>
+          <button type="button" className={erpBtnGhost} disabled={saveBusy || lines.length === 0} onClick={() => void generateQuote()}>
             <FileText className="size-4" />
-            Generate quote
+            {editingBillId ? 'Update & PDF quote' : 'Generate quote'}
           </button>
           <button type="button" className={erpBtnPrimary} disabled={saveBusy || lines.length === 0} onClick={() => void saveBill('sale', 'completed')}>
             {saveBusy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
@@ -674,7 +911,15 @@ export function ErpBillingWorkspace() {
                   </tr>
                 ) : (
                   lines.map((line, idx) => (
-                    <tr key={`${line.barcode}-${idx}`} className="border-b border-[var(--color-slate-700,#e8e4df)]/50">
+                    <tr
+                      key={`${line.barcode}-${idx}`}
+                      ref={(el) => {
+                        rowRefs.current[idx] = el
+                      }}
+                      className={`border-b border-[var(--color-slate-700,#e8e4df)]/50 transition-colors ${
+                        highlightLineIdx === idx ? 'bg-amber-100 ring-2 ring-amber-400 ring-inset' : ''
+                      }`}
+                    >
                       <td className="px-2 py-2 tabular-nums">{idx + 1}</td>
                       {TABLE_COLS.map((col) => {
                         if (col.key === 'amount') {

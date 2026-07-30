@@ -8,6 +8,7 @@ import { getResellerErpModule, type ResellerErpModuleId } from '@/lib/reseller-e
 import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
 import { erpBtnPrimary } from '@/components/reseller/erp/erp-ui'
 import { ErpBillingWorkspace } from '@/components/reseller/erp/ErpBillingWorkspace'
+import { ErpEstimationsWorkspace } from '@/components/reseller/erp/ErpEstimationsWorkspace'
 import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import {
@@ -32,13 +33,17 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'hardware':
       return <ErpHardwareWorkspace />
     case 'billing':
-      return <ErpBillingWorkspace />
+      return (
+        <Suspense fallback={<div className="py-8 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">Loading billing…</div>}>
+          <ErpBillingWorkspace />
+        </Suspense>
+      )
     case 'credit-bills':
       return <BillsWorkspace billTypeFilter="credit" />
     case 'orders':
       return <BillsWorkspace billTypeFilter="order" />
     case 'estimations':
-      return <BillsWorkspace billTypeFilter="estimate" showPhotos />
+      return <ErpEstimationsWorkspace />
     case 'stock':
       return <StockWorkspace />
     case 'rol':

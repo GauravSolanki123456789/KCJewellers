@@ -100,6 +100,9 @@ export type ErpBill = {
   bill_date?: string | null
   notes?: string | null
   lines?: ErpBillLine[]
+  session?: import('@/lib/erp-bill-session').ErpBillSession | null
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export type ErpCustomer = {
