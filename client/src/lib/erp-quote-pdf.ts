@@ -186,3 +186,13 @@ export function buildErpQuoteWhatsAppMessage(params: {
 export function erpCustomerWhatsAppHref(mobile: string | null | undefined, text: string): string | null {
   return customerWhatsAppHref(mobile, text)
 }
+
+/** True when quotation PDF should show RATE UNFIX badge. */
+export function billRatesUnfixed(bill: ErpBill): boolean {
+  const session = bill.session as { ratesUnfixed?: boolean } | null | undefined
+  if (session?.ratesUnfixed === false) return false
+  if (session?.ratesUnfixed) return true
+  const lines = bill.lines ?? []
+  if (!lines.length) return false
+  return lines.every((l) => l.rateLocked)
+}

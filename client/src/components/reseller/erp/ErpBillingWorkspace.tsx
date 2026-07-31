@@ -512,6 +512,8 @@ export function ErpBillingWorkspace() {
   const resetBill = () => {
     clearDuplicateState()
     setLines([])
+    setScanCode('')
+    setCustomerQ('')
     setCustomerId(null)
     setCustomerName('')
     setMobile('')

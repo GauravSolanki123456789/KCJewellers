@@ -12,7 +12,10 @@ import {
   type ErpBill,
 } from '@/components/reseller/erp/erp-ui'
 import { ErpQuotePdfButton } from '@/components/reseller/erp/ErpQuotePdfShare'
+import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
+import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
@@ -27,13 +30,6 @@ import {
 
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
 
-function fmtDate(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
 export function ErpEstimationsWorkspace() {
   const auth = useAuth()
   const brandLabel =
@@ -46,13 +42,16 @@ export function ErpEstimationsWorkspace() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [previewBill, setPreviewBill] = useState<ErpBill | null>(null)
 
   const load = useCallback(async () => {
     const params: Record<string, string> = { bill_type: 'estimate' }
     if (q.trim()) params.q = q.trim()
     if (status) params.status = status
-    if (from) params.from = from
-    if (to) params.to = to
+    const fromIso = erpDateFilterToIso(from)
+    const toIso = erpDateFilterToIso(to)
+    if (fromIso) params.from = fromIso
+    if (toIso) params.to = toIso
     try {
       const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params })
       const list = (res.data.bills || []).filter(
@@ -143,7 +142,7 @@ export function ErpEstimationsWorkspace() {
     const XLSX = await import('xlsx')
     const data = rows.map((b) => ({
       'Quote No': b.bill_number,
-      Date: fmtDate(b.created_at ?? b.bill_date),
+      Date: formatErpDateDdMmYyyy(b.created_at ?? b.bill_date),
       Customer: b.customer_name || '',
       Items: b.lines?.length ?? 0,
       Amount: b.total_inr,
@@ -157,6 +156,18 @@ export function ErpEstimationsWorkspace() {
   }
 
   const billingEditPath = (id: number) => `${resellerErpModulePath('billing')}?edit=${id}`
+
+  const openPreview = async (id: number) => {
+    setBusy(true)
+    try {
+      const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
+      setPreviewBill(res.data.bill)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -198,12 +209,12 @@ export function ErpEstimationsWorkspace() {
           ))}
         </select>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          From
-          <input type="date" className={`${erpInputCls} mt-1`} value={from} onChange={(e) => setFrom(e.target.value)} />
+          From (dd/mm/yyyy)
+          <ErpDateInput className={`${erpInputCls} mt-1`} value={from} onChange={setFrom} />
         </label>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          To
-          <input type="date" className={`${erpInputCls} mt-1`} value={to} onChange={(e) => setTo(e.target.value)} />
+          To (dd/mm/yyyy)
+          <ErpDateInput className={`${erpInputCls} mt-1`} value={to} onChange={setTo} />
         </label>
       </div>
 
@@ -260,7 +271,7 @@ export function ErpEstimationsWorkspace() {
                       {b.bill_number}
                     </Link>
                   </td>
-                  <td className="px-3 py-2.5 tabular-nums">{fmtDate(b.created_at ?? b.bill_date)}</td>
+                  <td className="px-3 py-2.5 tabular-nums">{formatErpDateDdMmYyyy(b.created_at ?? b.bill_date)}</td>
                   <td className="max-w-[140px] truncate px-3 py-2.5">{b.customer_name || '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{b.lines?.length ?? 0}</td>
                   <td className="px-3 py-2.5 font-semibold tabular-nums text-[var(--kc-accent,#c41e3a)]">
@@ -280,13 +291,14 @@ export function ErpEstimationsWorkspace() {
                       >
                         <Pencil className="size-4" />
                       </Link>
-                      <Link
-                        href={billingEditPath(b.id)}
+                      <button
+                        type="button"
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
-                        title="Open"
+                        title="Preview"
+                        onClick={() => void openPreview(b.id)}
                       >
                         <Eye className="size-4" />
-                      </Link>
+                      </button>
                       <ErpQuotePdfButton
                         bill={b}
                         brandLabel={brandLabel}
@@ -327,6 +339,8 @@ export function ErpEstimationsWorkspace() {
           Create quotation in billing
         </Link>
       )}
+
+      <ErpBillPreviewModal bill={previewBill} kind="estimate" onClose={() => setPreviewBill(null)} />
     </div>
   )
 }

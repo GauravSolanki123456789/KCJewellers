@@ -13,6 +13,39 @@ export function formatErpDateDdMmYyyy(iso?: string | null): string {
   return `${dd}/${mm}/${yyyy}`
 }
 
+/** ISO yyyy-mm-dd → dd/mm/yyyy for text inputs. */
+export function isoToDdMmYyyyInput(iso?: string | null): string {
+  if (!iso) return ''
+  const s = String(iso).trim().slice(0, 10)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  return ''
+}
+
+/** Parse dd/mm/yyyy (or dd-mm-yyyy) → ISO yyyy-mm-dd, or null if invalid. */
+export function parseDdMmYyyyToIso(input: string): string | null {
+  const s = input.trim()
+  if (!s) return null
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s)
+  if (!m) return null
+  const dd = parseInt(m[1], 10)
+  const mm = parseInt(m[2], 10)
+  const yyyy = parseInt(m[3], 10)
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || yyyy < 1900 || yyyy > 2100) return null
+  const d = new Date(yyyy, mm - 1, dd)
+  if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null
+  return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
+}
+
+/** Filter dates for API: accept dd/mm/yyyy display or ISO. */
+export function erpDateFilterToIso(input: string): string {
+  if (!input.trim()) return ''
+  const parsed = parseDdMmYyyyToIso(input)
+  if (parsed) return parsed
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input.trim().slice(0, 10))) return input.trim().slice(0, 10)
+  return ''
+}
+
 /** Days until next annual occurrence (month-day) from today at local midnight. */
 export function daysUntilAnnualEvent(iso?: string | null): number | null {
   if (!iso) return null

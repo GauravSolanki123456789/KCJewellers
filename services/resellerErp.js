@@ -168,9 +168,53 @@ async function lookupCatalogImageUrl(query, keys) {
 
 function parseDateOrNull(v) {
     if (v == null || v === '') return null;
-    const s = String(v).trim().slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-    return s;
+    const raw = String(v).trim();
+    const dmy = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(raw);
+    if (dmy) {
+        const dd = parseInt(dmy[1], 10);
+        const mm = parseInt(dmy[2], 10);
+        const yyyy = parseInt(dmy[3], 10);
+        if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && yyyy >= 1900 && yyyy <= 2100) {
+            const d = new Date(yyyy, mm - 1, dd);
+            if (d.getFullYear() === yyyy && d.getMonth() === mm - 1 && d.getDate() === dd) {
+                return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+            }
+        }
+    }
+    const s = raw.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 25569 && n < 60000) {
+        const epoch = new Date(Date.UTC(1899, 11, 30));
+        epoch.setUTCDate(epoch.getUTCDate() + Math.floor(n));
+        return epoch.toISOString().slice(0, 10);
+    }
+    return null;
+}
+
+function billTypePrefix(billType) {
+    if (billType === 'estimate') return 'ESTIMATE';
+    if (billType === 'credit') return 'CREDIT';
+    if (billType === 'order') return 'ORDER';
+    return 'SALE';
+}
+
+async function nextBillNumber(query, userId, billType) {
+    const prefix = billTypePrefix(billType);
+    const rows = await query(
+        `SELECT bill_number FROM reseller_erp_bills
+         WHERE reseller_user_id = $1 AND bill_type = $2 AND bill_number ~ $3`,
+        [userId, billType, `^${prefix}-[0-9]+$`],
+    );
+    const used = new Set();
+    const re = new RegExp(`^${prefix}-(\\d+)$`);
+    for (const row of rows) {
+        const m = re.exec(String(row.bill_number || '').trim());
+        if (m) used.add(parseInt(m[1], 10));
+    }
+    let n = 1;
+    while (used.has(n)) n += 1;
+    return `${prefix}-${String(n).padStart(4, '0')}`;
 }
 
 function mapCustomer(row) {
@@ -521,21 +565,10 @@ function registerResellerErpRoutes(app, deps) {
             if (!Number.isFinite(total)) {
                 total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
             }
-            const seq = await query(
-                `SELECT COALESCE(MAX(id), 0) + 1 AS n FROM reseller_erp_bills WHERE reseller_user_id = $1`,
-                [req.user.id],
-            );
-            const typePrefix =
-                billType === 'estimate'
-                    ? 'ESTIMATE'
-                    : billType === 'credit'
-                      ? 'CREDIT'
-                      : billType === 'order'
-                        ? 'ORDER'
-                        : 'SALE';
+            const typePrefix = billTypePrefix(billType);
             const billNumber =
                 trimStr(req.body.bill_number, 64) ||
-                `${typePrefix}-${String(seq[0]?.n || 1).padStart(4, '0')}`;
+                (await nextBillNumber(query, req.user.id, billType));
             const sessionJson =
                 req.body.session && typeof req.body.session === 'object'
                     ? JSON.stringify(req.body.session)

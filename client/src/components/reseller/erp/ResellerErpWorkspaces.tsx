@@ -8,6 +8,7 @@ import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
+import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -203,8 +204,8 @@ export function CustomersWorkspace() {
         Email: 'sample@example.com',
         GSTIN: '',
         Address: 'City, State',
-        Birthday: '1990-01-15',
-        Anniversary: '2015-06-20',
+        Birthday: '15/01/1990',
+        Anniversary: '20/06/2015',
         Notes: 'Optional notes',
       },
     ]
@@ -351,11 +352,11 @@ export function CustomersWorkspace() {
           <input className={erpInputCls} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
             Birthday (dd/mm/yyyy)
-            <input type="date" className={`${erpInputCls} mt-1`} value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })} />
+            <ErpDateInput className={`${erpInputCls} mt-1`} value={form.birthdate} onChange={(v) => setForm({ ...form, birthdate: v })} />
           </label>
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
             Anniversary (dd/mm/yyyy)
-            <input type="date" className={`${erpInputCls} mt-1`} value={form.anniversary_date} onChange={(e) => setForm({ ...form, anniversary_date: e.target.value })} />
+            <ErpDateInput className={`${erpInputCls} mt-1`} value={form.anniversary_date} onChange={(v) => setForm({ ...form, anniversary_date: v })} />
           </label>
           <textarea className={`${erpInputCls} min-h-[88px] py-2.5 sm:col-span-2`} placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         </div>

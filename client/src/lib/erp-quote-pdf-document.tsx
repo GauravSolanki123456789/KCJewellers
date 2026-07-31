@@ -40,6 +40,24 @@ function buildStyles(p: KcPdfPalette) {
       borderBottomWidth: 2,
       borderBottomColor: p.accent,
       paddingBottom: 8,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+    },
+    headerMain: { flex: 1 },
+    rateUnfixBadge: {
+      borderWidth: 1,
+      borderColor: p.accent,
+      borderRadius: 4,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      backgroundColor: p.cardBg,
+    },
+    rateUnfixText: {
+      fontSize: 8,
+      fontWeight: 'bold',
+      color: p.accent,
+      letterSpacing: 0.5,
     },
     brand: { fontSize: 16, color: p.brand, fontWeight: 'bold' },
     sub: { fontSize: 8, color: p.subMuted, marginTop: 3 },
@@ -200,6 +218,7 @@ export type ErpQuotePdfDocumentProps = {
   products: ItemWithPdfImage[]
   totals: ErpQuoteTotals
   customerName?: string | null
+  ratesUnfixed?: boolean
 }
 
 export function ErpQuotePdfDocument({
@@ -209,6 +228,7 @@ export function ErpQuotePdfDocument({
   products,
   totals,
   customerName,
+  ratesUnfixed = false,
 }: ErpQuotePdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
@@ -218,12 +238,19 @@ export function ErpQuotePdfDocument({
     <Document>
       <Page size="A4" orientation="landscape" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.brand}>{sanitizePdfText(brandName)}</Text>
-          <Text style={styles.sub}>
-            Quotation {bill.bill_number}
-            {customerName ? ` · ${sanitizePdfText(customerName)}` : ''} · {lines.length} line
-            {lines.length !== 1 ? 's' : ''} · {totals.count} pc{totals.count !== 1 ? 's' : ''}
-          </Text>
+          <View style={styles.headerMain}>
+            <Text style={styles.brand}>{sanitizePdfText(brandName)}</Text>
+            <Text style={styles.sub}>
+              Quotation {bill.bill_number}
+              {customerName ? ` · ${sanitizePdfText(customerName)}` : ''} · {lines.length} line
+              {lines.length !== 1 ? 's' : ''} · {totals.count} pc{totals.count !== 1 ? 's' : ''}
+            </Text>
+          </View>
+          {ratesUnfixed ? (
+            <View style={styles.rateUnfixBadge}>
+              <Text style={styles.rateUnfixText}>RATE UNFIX</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.tableTitle}>

@@ -23,7 +23,8 @@ export function buildErpBillSession(input: {
   address: string
   lines: ErpBillLine[]
 }): ErpBillSession {
-  const ratesUnfixed = input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
+  const ratesUnfixed =
+    input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
   return {
     rateSlab: input.rateSlab,
     wholesaleGold: input.wholesaleGold,
@@ -32,7 +33,7 @@ export function buildErpBillSession(input: {
     silverPerG: input.silverPerG,
     mobile: input.mobile.trim() || undefined,
     address: input.address.trim() || undefined,
-    ratesUnfixed,
+    ratesUnfixed: ratesUnfixed || undefined,
   }
 }
 

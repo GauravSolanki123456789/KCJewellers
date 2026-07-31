@@ -4,24 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import axios from '@/lib/axios'
 import {
-  erpBtnGhost,
   erpBtnPrimary,
   erpCardCls,
   erpErr,
   erpInputCls,
   type ErpBill,
 } from '@/components/reseller/erp/erp-ui'
+import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
+import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { Download, Eye, Loader2, Receipt, Trash2, X } from 'lucide-react'
+import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { Download, Eye, Loader2, Receipt, Trash2 } from 'lucide-react'
 
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
-
-function fmtDate(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
 
 export function ErpSalesBillsWorkspace() {
   const [bills, setBills] = useState<ErpBill[]>([])
@@ -37,8 +32,10 @@ export function ErpSalesBillsWorkspace() {
     const params: Record<string, string> = { bill_type: 'sale' }
     if (q.trim()) params.q = q.trim()
     if (status) params.status = status
-    if (from) params.from = from
-    if (to) params.to = to
+    const fromIso = erpDateFilterToIso(from)
+    const toIso = erpDateFilterToIso(to)
+    if (fromIso) params.from = fromIso
+    if (toIso) params.to = toIso
     try {
       const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params })
       const list = (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'sale')
@@ -127,7 +124,7 @@ export function ErpSalesBillsWorkspace() {
     const XLSX = await import('xlsx')
     const data = rows.map((b) => ({
       'Bill No': b.bill_number,
-      Date: fmtDate(b.created_at ?? b.bill_date),
+      Date: formatErpDateDdMmYyyy(b.created_at ?? b.bill_date),
       Customer: b.customer_name || '',
       Items: b.lines?.length ?? 0,
       Amount: b.total_inr,
@@ -192,12 +189,12 @@ export function ErpSalesBillsWorkspace() {
           ))}
         </select>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          From
-          <input type="date" className={`${erpInputCls} mt-1`} value={from} onChange={(e) => setFrom(e.target.value)} />
+          From (dd/mm/yyyy)
+          <ErpDateInput className={`${erpInputCls} mt-1`} value={from} onChange={setFrom} />
         </label>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          To
-          <input type="date" className={`${erpInputCls} mt-1`} value={to} onChange={(e) => setTo(e.target.value)} />
+          To (dd/mm/yyyy)
+          <ErpDateInput className={`${erpInputCls} mt-1`} value={to} onChange={setTo} />
         </label>
       </div>
 
@@ -250,7 +247,7 @@ export function ErpSalesBillsWorkspace() {
                     <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggleOne(b.id)} aria-label={`Select ${b.bill_number}`} />
                   </td>
                   <td className="px-3 py-2.5 font-semibold text-emerald-800">{b.bill_number}</td>
-                  <td className="px-3 py-2.5 tabular-nums">{fmtDate(b.created_at ?? b.bill_date)}</td>
+                  <td className="px-3 py-2.5 tabular-nums">{formatErpDateDdMmYyyy(b.created_at ?? b.bill_date)}</td>
                   <td className="max-w-[140px] truncate px-3 py-2.5">{b.customer_name || '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{b.lines?.length ?? 0}</td>
                   <td className="px-3 py-2.5 font-semibold tabular-nums text-[var(--kc-accent,#c41e3a)]">
@@ -292,46 +289,7 @@ export function ErpSalesBillsWorkspace() {
         New sale in billing
       </Link>
 
-      {viewBill ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center">
-          <div className={`${erpCardCls} max-h-[85vh] w-full max-w-lg overflow-y-auto`}>
-            <div className="mb-3 flex items-start justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">Sales bill</p>
-                <h3 className="text-lg font-bold text-[var(--color-jewelry-black,#1a1814)]">{viewBill.bill_number}</h3>
-                <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-                  {viewBill.customer_name || 'Walk-in'} · {fmtDate(viewBill.created_at ?? viewBill.bill_date)}
-                </p>
-              </div>
-              <button type="button" className={erpBtnGhost} onClick={() => setViewBill(null)} aria-label="Close">
-                <X className="size-4" />
-              </button>
-            </div>
-            <ul className="space-y-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
-              {(viewBill.lines || []).map((line, i) => (
-                <li key={`${line.barcode || line.code}-${i}`} className="flex items-start justify-between gap-2 text-sm">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{line.name}</p>
-                    <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-                      {line.barcode || line.code}
-                      {line.weightGm != null ? ` · ${line.weightGm} gm` : ''}
-                    </p>
-                  </div>
-                  <span className="shrink-0 font-semibold tabular-nums text-emerald-700">
-                    {formatErpInr(line.lineTotalInr ?? 0)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex items-center justify-between border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
-              <span className="text-sm font-semibold">Net total</span>
-              <span className="text-lg font-bold tabular-nums text-[var(--kc-accent,#c41e3a)]">
-                {formatErpInr(viewBill.total_inr)}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ErpBillPreviewModal bill={viewBill} kind="sale" onClose={() => setViewBill(null)} />
     </div>
   )
 }

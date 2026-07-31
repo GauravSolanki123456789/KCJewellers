@@ -18,6 +18,7 @@ import {
   buildErpQuoteWhatsAppMessage,
   computeErpQuoteTotals,
   erpCustomerWhatsAppHref,
+  billRatesUnfixed,
   erpLinesToPdfItems,
   resolveErpLineImages,
 } from '@/lib/erp-quote-pdf'
@@ -44,6 +45,7 @@ export async function shareErpQuotePdf(params: {
   const brandLabel = params.brandLabel.trim() || 'Our store'
   const kcThemeId = normalizeKcThemeId(params.kcThemeId ?? null)
   const totals = computeErpQuoteTotals(billForPdf, params.slabSettingsRaw)
+  const ratesUnfixed = billRatesUnfixed(billForPdf)
 
   const blob = await pdf(
     <ErpQuotePdfDocument
@@ -53,6 +55,7 @@ export async function shareErpQuotePdf(params: {
       products={itemsForPdf}
       totals={totals}
       customerName={params.customerName ?? params.bill.customer_name}
+      ratesUnfixed={ratesUnfixed}
     />,
   ).toBlob()
 

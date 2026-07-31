@@ -5,6 +5,7 @@ import axios from '@/lib/axios'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
+import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { ArrowLeft, FileSpreadsheet, Loader2, Printer, Trash2, Upload } from 'lucide-react'
 
 type Batch = {
@@ -190,7 +191,7 @@ export function ErpProductsWorkspace() {
                 <div>
                   <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{b.batch_label}</p>
                   <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                    {b.piece_count ?? b.row_count} pieces · {new Date(b.created_at).toLocaleDateString('en-IN')}
+                    {b.piece_count ?? b.row_count} pieces · {formatErpDateDdMmYyyy(b.created_at)}
                   </p>
                 </div>
                 <span className="text-xs font-semibold text-[var(--kc-accent,#c41e3a)]">Open</span>
