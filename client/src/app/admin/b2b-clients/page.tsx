@@ -24,49 +24,17 @@ import {
 import {
   parseResellerSlabSettings,
   type ResellerSlabSettings,
-  type ResellerSlabTierSettings,
 } from '@/lib/catalog-slab-pricing'
-
-type SlabTierForm = {
-  mc_discount_pct: string
-  gift_discount_pct: string
-  silver_rate_offset_per_g: string
-  wastage_discount_pct: string
-}
-
-const emptySlabTierForm = (): SlabTierForm => ({
-  mc_discount_pct: '0',
-  gift_discount_pct: '0',
-  silver_rate_offset_per_g: '0',
-  wastage_discount_pct: '0',
-})
-
-function slabTierFormFromSettings(t?: ResellerSlabTierSettings): SlabTierForm {
-  return {
-    mc_discount_pct: String(t?.mc_discount_pct ?? 0),
-    gift_discount_pct: String(t?.gift_discount_pct ?? 0),
-    silver_rate_offset_per_g: String(t?.silver_rate_offset_per_g ?? 0),
-    wastage_discount_pct: String(t?.wastage_discount_pct ?? 0),
-  }
-}
-
-function resellerSlabSettingsFromForm(form: {
-  slab_r: SlabTierForm
-  slab_w: SlabTierForm
-  slab_f: SlabTierForm
-}): ResellerSlabSettings {
-  const tier = (t: SlabTierForm): ResellerSlabTierSettings => ({
-    mc_discount_pct: Math.max(0, Math.min(100, Number(t.mc_discount_pct) || 0)),
-    gift_discount_pct: Math.max(0, Math.min(100, Number(t.gift_discount_pct) || 0)),
-    silver_rate_offset_per_g: Math.max(0, Number(t.silver_rate_offset_per_g) || 0),
-    wastage_discount_pct: Math.max(0, Math.min(100, Number(t.wastage_discount_pct) || 0)),
-  })
-  return {
-    slab_r: tier(form.slab_r),
-    slab_w: tier(form.slab_w),
-    slab_f: tier(form.slab_f),
-  }
-}
+import {
+  emptyResellerSlabForm,
+  resellerSlabFormFromSettings,
+  resellerSlabSettingsFromForm,
+  type ResellerSlabFormState,
+} from '@/lib/reseller-catalog-slab-form'
+import {
+  RESELLER_CATALOG_SLAB_HELP,
+  ResellerCatalogSlabSettingsPanel,
+} from '@/components/reseller/ResellerCatalogSlabSettingsPanel'
 
 type AdminUser = {
   id: number
@@ -208,9 +176,7 @@ function B2BAdminContent() {
     reseller_invite_code: '',
     reseller_catalog_max_products: '50',
     reseller_catalog_daily_limit: '10',
-    slab_r: emptySlabTierForm(),
-    slab_w: emptySlabTierForm(),
-    slab_f: emptySlabTierForm(),
+    ...emptyResellerSlabForm(),
   })
   const [themeCatalog, setThemeCatalog] = useState<ThemePick[]>([])
   const [logoFile, setLogoFile] = useState<File | null>(null)
@@ -266,6 +232,7 @@ function B2BAdminContent() {
       loadCategories()
       const ids = resellerModalUser.allowed_category_ids
       const slabParsed = parseResellerSlabSettings(resellerModalUser.reseller_slab_settings)
+      const slabForm = resellerSlabFormFromSettings(slabParsed)
       setResellerForm({
         business_name: resellerModalUser.business_name ?? '',
         custom_domain: resellerModalUser.custom_domain ?? '',
@@ -295,9 +262,7 @@ function B2BAdminContent() {
         reseller_catalog_daily_limit: String(
           resellerModalUser.reseller_catalog_daily_limit ?? 10,
         ),
-        slab_r: slabTierFormFromSettings(slabParsed.slab_r),
-        slab_w: slabTierFormFromSettings(slabParsed.slab_w),
-        slab_f: slabTierFormFromSettings(slabParsed.slab_f),
+        ...slabForm,
       })
       setLogoFile(null)
       setLogoFileError(null)
@@ -1191,97 +1156,21 @@ function B2BAdminContent() {
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
                   <p className="mb-1 text-sm font-medium text-slate-200">Shared catalogue slabs</p>
-                  <p className="mb-4 text-[11px] leading-relaxed text-slate-500">
-                    Defaults for Slab R / W / F when this reseller creates WhatsApp catalogue links. MC and gift
-                    discounts are percentages; Slab R silver offset is ₹ subtracted from today&apos;s 999 silver ₹/g.
-                  </p>
-                  {(
-                    [
-                      ['slab_r', 'Slab R (Retail)', true] as const,
-                      ['slab_w', 'Slab W (Wholesale MC)', false] as const,
-                      ['slab_f', 'Slab F (Wholesale + wastage)', false] as const,
-                    ] as const
-                  ).map(([key, label, showSilverOffset]) => (
-                    <div key={key} className="mb-4 last:mb-0 rounded-lg border border-slate-800/80 p-3">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-200/90">
-                        {label}
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <label className="block">
-                          <span className="mb-1 block text-[10px] text-slate-500">MC disc %</span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.5}
-                            value={resellerForm[key].mc_discount_pct}
-                            onChange={(e) =>
-                              setResellerForm((f) => ({
-                                ...f,
-                                [key]: { ...f[key], mc_discount_pct: e.target.value },
-                              }))
-                            }
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
-                          />
-                        </label>
-                        {showSilverOffset ? (
-                          <label className="block">
-                            <span className="mb-1 block text-[10px] text-slate-500">Silver −₹/g</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step={1}
-                              value={resellerForm[key].silver_rate_offset_per_g}
-                              onChange={(e) =>
-                                setResellerForm((f) => ({
-                                  ...f,
-                                  [key]: { ...f[key], silver_rate_offset_per_g: e.target.value },
-                                }))
-                              }
-                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
-                            />
-                          </label>
-                        ) : key === 'slab_f' ? (
-                          <label className="block">
-                            <span className="mb-1 block text-[10px] text-slate-500">Wastage −pts</span>
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={0.5}
-                              value={resellerForm[key].wastage_discount_pct}
-                              onChange={(e) =>
-                                setResellerForm((f) => ({
-                                  ...f,
-                                  [key]: { ...f[key], wastage_discount_pct: e.target.value },
-                                }))
-                              }
-                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
-                            />
-                          </label>
-                        ) : (
-                          <div className="hidden sm:block" aria-hidden />
-                        )}
-                        <label className="block col-span-2 sm:col-span-1">
-                          <span className="mb-1 block text-[10px] text-slate-500">Gift / MRP disc %</span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.5}
-                            value={resellerForm[key].gift_discount_pct}
-                            onChange={(e) =>
-                              setResellerForm((f) => ({
-                                ...f,
-                                [key]: { ...f[key], gift_discount_pct: e.target.value },
-                              }))
-                            }
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
+                  <p className="mb-4 text-[11px] leading-relaxed text-slate-500">{RESELLER_CATALOG_SLAB_HELP}</p>
+                  <ResellerCatalogSlabSettingsPanel
+                    variant="admin"
+                    form={{
+                      slab_r: resellerForm.slab_r,
+                      slab_w: resellerForm.slab_w,
+                      slab_f: resellerForm.slab_f,
+                    }}
+                    onChange={(slabForm) =>
+                      setResellerForm((f) => ({
+                        ...f,
+                        ...slabForm,
+                      }))
+                    }
+                  />
                 </div>
 
                 <div>

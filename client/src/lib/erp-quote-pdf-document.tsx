@@ -250,6 +250,10 @@ export function ErpQuotePdfDocument({
             <View style={styles.rateUnfixBadge}>
               <Text style={styles.rateUnfixText}>RATE UNFIX</Text>
             </View>
+          ) : totals.advancePaid != null && totals.advancePaid > 0 ? (
+            <View style={styles.rateUnfixBadge}>
+              <Text style={styles.rateUnfixText}>ADVANCE PAID</Text>
+            </View>
           ) : null}
         </View>
 
@@ -290,6 +294,22 @@ export function ErpQuotePdfDocument({
               <Text style={styles.summaryValue}>{s.value}</Text>
             </View>
           ))}
+          {totals.advancePaid != null && totals.advancePaid > 0 ? (
+            <>
+              <View style={styles.summaryChip}>
+                <Text style={styles.summaryLabel}>Advance paid</Text>
+                <Text style={styles.summaryValue}>
+                  Rs.{Math.round(totals.advancePaid).toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <View style={styles.summaryChip}>
+                <Text style={styles.summaryLabel}>Amount to pay</Text>
+                <Text style={styles.summaryValue}>
+                  Rs.{Math.round(totals.balanceDue ?? 0).toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </>
+          ) : null}
           <View style={styles.summaryNet}>
             <Text style={styles.summaryLabel}>Net total</Text>
             <Text style={styles.summaryNetValue}>Rs.{Math.round(totals.net).toLocaleString('en-IN')}</Text>

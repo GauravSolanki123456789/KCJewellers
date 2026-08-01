@@ -42,6 +42,8 @@ export const RESELLER_MC_SLABS_PATH = '/reseller/mc-slabs'
 export const RESELLER_ERP_PATH = '/reseller/erp'
 /** RESELLER tier — Razorpay keys for DigiGold / DigiSilver. */
 export const RESELLER_PAYMENT_SETTINGS_PATH = '/reseller/payment-settings'
+/** RESELLER tier — Slab R / W / F defaults for WhatsApp catalogues + storefront margin. */
+export const RESELLER_CATALOG_SLAB_SETTINGS_PATH = '/reseller/catalog-slab-settings'
 /** Public — customer DigiGold purchase. */
 export const DIGI_GOLD_PATH = '/digi/gold'
 /** Public — customer DigiSilver purchase. */

@@ -31,6 +31,8 @@ export type ResellerSlabTierSettings = {
   wastage_discount_pct?: number
   /** Gift / fixed-price items — % off final MRP (no MC/wastage). */
   gift_discount_pct?: number
+  /** Markup % added to the final price (after discounts). Used when discounts are 0. */
+  margin_pct?: number
 }
 
 export type ResellerSlabSettings = {
@@ -53,6 +55,43 @@ function clampPct(n: unknown, lo = 0, hi = 100): number {
   return Math.max(lo, Math.min(hi, v))
 }
 
+export function clampMarginPct(n: unknown): number {
+  return clampPct(n, 0, 1000)
+}
+
+/** Increase final price by margin % (storefront + shared catalogue slabs). */
+export function applySlabMarginToBreakdown<T extends { total: number; taxable?: number; cgst?: number; sgst?: number; originalTotal?: number | null }>(
+  b: T,
+  marginPct: unknown,
+): T {
+  const m = clampMarginPct(marginPct)
+  if (m <= 0) return b
+  const factor = 1 + m / 100
+  const total = Math.round(b.total * factor)
+  const taxable =
+    b.taxable != null && Number.isFinite(b.taxable)
+      ? Math.round(b.taxable * factor)
+      : b.taxable
+  const gstAmt = taxable != null ? total - taxable : undefined
+  return {
+    ...b,
+    total,
+    taxable,
+    cgst: gstAmt != null ? gstAmt / 2 : b.cgst,
+    sgst: gstAmt != null ? gstAmt / 2 : b.sgst,
+    originalTotal:
+      b.originalTotal != null && Number.isFinite(b.originalTotal)
+        ? Math.round(b.originalTotal * factor)
+        : b.originalTotal,
+  }
+}
+
+export function applyMarginPctToTotal(total: number, marginPct: unknown): number {
+  const m = clampMarginPct(marginPct)
+  if (m <= 0) return total
+  return Math.round(total * (1 + m / 100))
+}
+
 export function parseResellerSlabSettings(raw: unknown): ResellerSlabSettings {
   if (!raw || typeof raw !== 'object') return {}
   const o = raw as Record<string, unknown>
@@ -65,6 +104,7 @@ export function parseResellerSlabSettings(raw: unknown): ResellerSlabSettings {
       silver_rate_offset_per_g: Math.max(0, Number(row.silver_rate_offset_per_g) || 0),
       wastage_discount_pct: clampPct(row.wastage_discount_pct, 0, 100),
       gift_discount_pct: clampPct(row.gift_discount_pct, 0, 100),
+      margin_pct: clampMarginPct(row.margin_pct),
     }
   }
   return {
@@ -151,6 +191,7 @@ export function formatSlabDiscountLines(
   const mc = clampPct(s.mc_discount_pct, 0, 100)
   const wastageDisc = clampPct(s.wastage_discount_pct, 0, 100)
   const giftDisc = clampPct(s.gift_discount_pct, 0, 100)
+  const marginPct = clampMarginPct(s.margin_pct)
 
   if (isFixedPriceCatalogItem(item)) {
     if (giftDisc > 0) lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
@@ -185,6 +226,7 @@ export function formatSlabDiscountLines(
   if (giftDisc > 0 && isFixedPriceCatalogItem(item)) {
     lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
   }
+  if (marginPct > 0) lines.push(`Margin +${Math.round(marginPct)}%`)
   return lines
 }
 
@@ -260,17 +302,18 @@ export function calculateBreakdownWithSlab(
   const settings = slab.settings ?? {}
   const mcDisc = clampPct(settings.mc_discount_pct, 0, 100)
   const giftDisc = clampPct(settings.gift_discount_pct, 0, 100)
+  const finish = (b: PriceBreakdown) => applySlabMarginToBreakdown(b, settings.margin_pct)
 
   if (isFixedPriceCatalogItem(item)) {
     const base = calculateBreakdown(item, rates, gst, null, pricingOptions)
-    if (giftDisc <= 0) return base
+    if (giftDisc <= 0) return finish(base)
     const total = Math.round(base.total * (1 - giftDisc / 100))
-    return {
+    return finish({
       ...base,
       total,
       originalTotal: base.total,
       discountPercent: giftDisc,
-    }
+    })
   }
 
   const metal = String(item.metal_type || 'silver').toLowerCase()
@@ -312,7 +355,7 @@ export function calculateBreakdownWithSlab(
       : baseRetail * (1 + gstPct / 100)
     const total = totalBeforeDiscount * (1 - categoryDisc / 100)
     const gstAmt = totalBeforeDiscount - baseRetail
-    return {
+    return finish({
       metal: metalPart,
       mc,
       stone,
@@ -325,7 +368,7 @@ export function calculateBreakdownWithSlab(
       rate_per_gram: metalRate,
       net_weight: netWt,
       billable_weight_gm: billWt,
-    }
+    })
   }
 
   const totalBeforeDiscount = isGold
@@ -333,7 +376,7 @@ export function calculateBreakdownWithSlab(
     : Math.round(baseRetail * (1 + gstPct / 100))
   const gstAmt = totalBeforeDiscount - baseRetail
 
-  return {
+  return finish({
     metal: metalPart,
     mc,
     stone,
@@ -349,7 +392,7 @@ export function calculateBreakdownWithSlab(
       isGold && wastagePctVal > 0
         ? Math.max(0, metalPart - Math.floor(netWt * metalRate))
         : undefined,
-  }
+  })
 }
 
 export function slabLabel(kind: CatalogSlabKind): string {

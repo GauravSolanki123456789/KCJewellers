@@ -17,7 +17,9 @@ import {
 import { ProductMetalSpecExtras } from '@/components/catalog/ProductMetalSpecExtras'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
+import { withStorefrontCatalogMargin, withStorefrontCatalogTotal } from '@/lib/storefront-catalog-margin'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
@@ -98,6 +100,7 @@ export default function ProductCard({
   const cart = useCart()
   const catalogBuilder = useCatalogBuilderOptional()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
+  const { customDomainHost, storefrontMarginPct } = useResellerBranding()
   const { pricingOptions } = useCatalogPricingSettings()
 
   const variants = useMemo(() => getAttachedVariants(product), [product])
@@ -129,19 +132,27 @@ export default function ProductCard({
 
   const styleCode =
     (product as { style_code?: string }).style_code || product.sku || ''
-  const breakdown = calculateBreakdown(
-    active,
-    rates,
-    active.gst_rate ?? 3,
-    wholesalePricing,
-    pricingOptions,
+  const breakdown = withStorefrontCatalogMargin(
+    calculateBreakdown(
+      active,
+      rates,
+      active.gst_rate ?? 3,
+      wholesalePricing,
+      pricingOptions,
+    ),
+    customDomainHost,
+    storefrontMarginPct,
   )
-  const displayTotal = giftingDisplayTotal(
-    active,
-    rates,
-    includeBox,
-    wholesalePricing,
-    pricingOptions,
+  const displayTotal = withStorefrontCatalogTotal(
+    giftingDisplayTotal(
+      active,
+      rates,
+      includeBox,
+      wholesalePricing,
+      pricingOptions,
+    ),
+    customDomainHost,
+    storefrontMarginPct,
   )
   const showInclGst = productPriceShowsInclGst(active, pricingOptions)
   const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown

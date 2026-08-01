@@ -25,6 +25,8 @@ export type EffectiveResellerBranding = {
   allowedCategoryMetals: Record<string, string[]> | null
   /** Invest (SIP) available to customers on this host (`reseller_invest_enabled`). */
   investEnabled: boolean
+  /** Slab R margin % on custom-domain catalog (from `users.reseller_slab_settings.slab_r.margin_pct`). */
+  storefrontMarginPct: number
 }
 
 const defaultBranding: EffectiveResellerBranding = {
@@ -36,6 +38,7 @@ const defaultBranding: EffectiveResellerBranding = {
   allowedCategoryIds: null,
   allowedCategoryMetals: null,
   investEnabled: true,
+  storefrontMarginPct: 0,
 }
 
 const Ctx = createContext<EffectiveResellerBranding>(defaultBranding)
@@ -65,6 +68,7 @@ export function ResellerBrandingProvider({
         allowedCategoryIds: initialFromHost.allowedCategoryIds ?? null,
         allowedCategoryMetals: initialFromHost.allowedCategoryMetals ?? null,
         investEnabled: initialFromHost.investEnabled,
+        storefrontMarginPct: initialFromHost.storefrontMarginPct ?? 0,
       }
     }
     if (customerTier === CUSTOMER_TIER.RESELLER && auth.isAuthenticated && user) {
@@ -82,6 +86,7 @@ export function ResellerBrandingProvider({
           allowedCategoryIds: null,
           allowedCategoryMetals: null,
           investEnabled: true,
+          storefrontMarginPct: 0,
         }
       }
     }
@@ -94,6 +99,7 @@ export function ResellerBrandingProvider({
       allowedCategoryIds: null,
       allowedCategoryMetals: null,
       investEnabled: true,
+      storefrontMarginPct: 0,
     }
   }, [initialFromHost, customDomainHost, customerTier, auth.isAuthenticated, user])
 

@@ -9,6 +9,11 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import type { ErpBillSession } from '@/lib/erp-bill-session'
+import {
+  formatEstimateStatusLabel,
+  resolveBillEstimateStatus,
+} from '@/lib/erp-estimate-status'
 
 function lineRate(line: ErpBillLine): string {
   if (line.rateLocked) return '—'
@@ -25,9 +30,13 @@ export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
   if (!bill) return null
 
   const lines = bill.lines ?? []
-  const session = bill.session
+  const session = bill.session as ErpBillSession | undefined
   const ratesUnfixed =
     session?.ratesUnfixed || (lines.length > 0 && lines.every((l) => l.rateLocked))
+  const advancePaid = Math.max(0, Number(session?.advancePaidInr) || 0)
+  const netTotal = Number(bill.total_inr) || 0
+  const balanceDue = advancePaid > 0 ? Math.max(0, netTotal - advancePaid) : 0
+  const effectiveStatus = resolveBillEstimateStatus(bill)
   let weight = 0
   for (const l of lines) weight += Number(l.weightGm) || 0
 
@@ -64,6 +73,14 @@ export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
                 Rate unfix
               </span>
             ) : null}
+            {advancePaid > 0 ? (
+              <span className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-900">
+                Advance paid
+              </span>
+            ) : null}
+            <span className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1 text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/70">
+              {formatEstimateStatusLabel(effectiveStatus)}
+            </span>
             <button type="button" className={erpBtnGhost} onClick={onClose} aria-label="Close">
               <X className="size-4" />
             </button>
@@ -114,8 +131,18 @@ export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
           <span className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2">
             Weight <strong className="ml-1 tabular-nums">{weight.toFixed(2)}g</strong>
           </span>
+          {advancePaid > 0 ? (
+            <>
+              <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                Advance <strong className="ml-1 tabular-nums">{formatErpInr(advancePaid)}</strong>
+              </span>
+              <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                To pay <strong className="ml-1 tabular-nums">{formatErpInr(balanceDue)}</strong>
+              </span>
+            </>
+          ) : null}
           <span className="rounded-lg border-2 border-[var(--kc-accent,#c41e3a)]/30 bg-[var(--kc-accent,#c41e3a)]/[0.06] px-3 py-2 font-bold text-[var(--kc-accent,#c41e3a)]">
-            Net {formatErpInr(bill.total_inr)}
+            Net {formatErpInr(netTotal)}
           </span>
         </div>
       </div>

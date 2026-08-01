@@ -17,6 +17,7 @@ import {
   RESELLER_INQUIRIES_PATH,
   RESELLER_SMS_SETTINGS_PATH,
   RESELLER_PAYMENT_SETTINGS_PATH,
+  RESELLER_CATALOG_SLAB_SETTINGS_PATH,
   RESELLER_MC_SLABS_PATH,
   RESELLER_ERP_PATH,
   WHOLESALE_ORDER_PATH,
@@ -46,6 +47,7 @@ import {
   Smartphone,
   CreditCard,
   Layers,
+  Percent,
   LayoutGrid,
 } from 'lucide-react'
 import axios from 'axios'
@@ -349,6 +351,12 @@ function ProfilePageContent() {
                       icon={Smartphone}
                       title="SMS & OTP"
                       subtitle="Shared catalogue sign-in — mobile only or SMS verification"
+                    />
+                    <ProfileActionCard
+                      href={RESELLER_CATALOG_SLAB_SETTINGS_PATH}
+                      icon={Percent}
+                      title="Catalogue slab settings"
+                      subtitle="Slab R / W / F discounts, silver offset & margin for WhatsApp links and your storefront"
                     />
                     <ProfileActionCard
                       href={RESELLER_PAYMENT_SETTINGS_PATH}

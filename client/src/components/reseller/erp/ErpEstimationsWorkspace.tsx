@@ -19,6 +19,12 @@ import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
+  ESTIMATE_STATUSES,
+  estimateStatusBadgeClass,
+  formatEstimateStatusLabel,
+  resolveBillEstimateStatus,
+} from '@/lib/erp-estimate-status'
+import {
   Download,
   Eye,
   FileSpreadsheet,
@@ -28,7 +34,7 @@ import {
   Trash2,
 } from 'lucide-react'
 
-const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
+const STATUSES = ESTIMATE_STATUSES
 
 export function ErpEstimationsWorkspace() {
   const auth = useAuth()
@@ -43,6 +49,7 @@ export function ErpEstimationsWorkspace() {
   const [to, setTo] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [previewBill, setPreviewBill] = useState<ErpBill | null>(null)
+  const [statusBusyId, setStatusBusyId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     const params: Record<string, string> = { bill_type: 'estimate' }
@@ -146,13 +153,27 @@ export function ErpEstimationsWorkspace() {
       Customer: b.customer_name || '',
       Items: b.lines?.length ?? 0,
       Amount: b.total_inr,
-      Status: b.status,
+      Status: formatEstimateStatusLabel(resolveBillEstimateStatus(b)),
       Notes: b.notes || '',
     }))
     const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ 'Quote No': '' }])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Estimations')
     XLSX.writeFile(wb, `erp-estimations-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  const changeStatus = async (id: number, nextStatus: string) => {
+    setStatusBusyId(id)
+    try {
+      await axios.patch(`/api/reseller/erp/bills/${id}`, { status: nextStatus })
+      setBills((prev) =>
+        prev.map((b) => (b.id === id ? { ...b, status: nextStatus } : b)),
+      )
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setStatusBusyId(null)
+    }
   }
 
   const billingEditPath = (id: number) => `${resellerErpModulePath('billing')}?edit=${id}`
@@ -199,12 +220,17 @@ export function ErpEstimationsWorkspace() {
       </div>
 
       <div className={`${erpCardCls} grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
-        <input className={erpInputCls} placeholder="Search quote no, customer…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input
+          className={erpInputCls}
+          placeholder="Search quote no, customer, customer number…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
         <select className={erpInputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {formatEstimateStatusLabel(s)}
             </option>
           ))}
         </select>
@@ -261,7 +287,9 @@ export function ErpEstimationsWorkspace() {
                 </td>
               </tr>
             ) : (
-              bills.map((b) => (
+              bills.map((b) => {
+                const effectiveStatus = resolveBillEstimateStatus(b)
+                return (
                 <tr key={b.id} className="border-b border-[var(--color-slate-700,#e8e4df)]/50">
                   <td className="px-3 py-2.5">
                     <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggleOne(b.id)} aria-label={`Select ${b.bill_number}`} />
@@ -278,9 +306,19 @@ export function ErpEstimationsWorkspace() {
                     {formatErpInr(b.total_inr)}
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">
-                      {b.status}
-                    </span>
+                    <select
+                      className={`min-h-[36px] rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${estimateStatusBadgeClass(effectiveStatus)}`}
+                      value={effectiveStatus}
+                      disabled={statusBusyId === b.id}
+                      onChange={(e) => void changeStatus(b.id, e.target.value)}
+                      aria-label={`Status for ${b.bill_number}`}
+                    >
+                      {STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {formatEstimateStatusLabel(s)}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex flex-wrap gap-1">
@@ -318,7 +356,7 @@ export function ErpEstimationsWorkspace() {
                     </div>
                   </td>
                 </tr>
-              ))
+              )})
             )}
           </tbody>
         </table>

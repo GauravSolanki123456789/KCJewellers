@@ -14,6 +14,7 @@ import {
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
+import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
@@ -54,6 +55,7 @@ type BillingDraft = {
   wholesaleSilver: number | null
   goldPerG: number
   silverPerG: number
+  advancePaidInr: string
 }
 
 const TABLE_COLS = [
@@ -174,6 +176,8 @@ export function ErpBillingWorkspace() {
   const [hydrated, setHydrated] = useState(false)
   const [editingBillId, setEditingBillId] = useState<number | null>(null)
   const [editingBillNumber, setEditingBillNumber] = useState<string | null>(null)
+  const [editingBillStatus, setEditingBillStatus] = useState<string | null>(null)
+  const [advancePaidInr, setAdvancePaidInr] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
   const [customerPickIdx, setCustomerPickIdx] = useState(-1)
   const [duplicateHighlights, setDuplicateHighlights] = useState<Set<number>>(() => new Set())
@@ -252,6 +256,7 @@ export function ErpBillingWorkspace() {
       if (d.wholesaleSilver != null) setWholesaleSilver(d.wholesaleSilver)
       if (d.goldPerG) setGoldPerG(d.goldPerG)
       if (d.silverPerG) setSilverPerG(d.silverPerG)
+      if (d.advancePaidInr != null) setAdvancePaidInr(d.advancePaidInr)
     }
     setHydrated(true)
   }, [editIdParam])
@@ -263,6 +268,7 @@ export function ErpBillingWorkspace() {
       const session = (bill.session || {}) as ErpBillSession
       setEditingBillId(bill.id)
       setEditingBillNumber(bill.bill_number)
+      setEditingBillStatus(bill.status || 'draft')
       setCustomerId(bill.customer_id ?? null)
       setCustomerName(bill.customer_name || '')
       setMobile(session.mobile || '')
@@ -276,6 +282,7 @@ export function ErpBillingWorkspace() {
         setSilverPerG(s)
         setDisplayRates(perGramToDisplayRates(session.goldPerG, s))
       }
+      setAdvancePaidInr(session.advancePaidInr ? String(session.advancePaidInr) : '')
       const loadedLines = applyRatesUnfixed(bill.lines || [], session.ratesUnfixed)
       setLines(loadedLines)
       if (bill.customer_id) {
@@ -312,8 +319,9 @@ export function ErpBillingWorkspace() {
       wholesaleSilver,
       goldPerG,
       silverPerG,
+      advancePaidInr,
     })
-  }, [hydrated, customerId, customerName, mobile, address, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, editingBillId])
+  }, [hydrated, customerId, customerName, mobile, address, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, advancePaidInr, editingBillId])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
@@ -524,10 +532,15 @@ export function ErpBillingWorkspace() {
     setWholesaleSilver(null)
     setEditingBillId(null)
     setEditingBillNumber(null)
+    setEditingBillStatus(null)
+    setAdvancePaidInr('')
     clearDraftStorage()
     void loadDisplayRates()
     router.replace(resellerErpModulePath('billing'))
   }
+
+  const parsedAdvance = Math.max(0, parseFloat(advancePaidInr) || 0)
+  const balanceDue = Math.max(0, totals.net - parsedAdvance)
 
   const buildPayload = (billType: 'sale' | 'estimate', status: string) => ({
     bill_type: billType,
@@ -546,6 +559,7 @@ export function ErpBillingWorkspace() {
       mobile,
       address,
       lines,
+      advancePaidInr: parsedAdvance,
     }),
   })
 
@@ -562,6 +576,7 @@ export function ErpBillingWorkspace() {
       if (editingBillId && billType === 'estimate') {
         const res = await axios.put<{ bill: ErpBill }>(`/api/reseller/erp/bills/${editingBillId}`, payload)
         bill = res.data.bill
+        setEditingBillStatus(bill.status || status)
       } else {
         const res = await axios.post<{ bill: ErpBill }>('/api/reseller/erp/bills', payload)
         bill = res.data.bill
@@ -594,7 +609,13 @@ export function ErpBillingWorkspace() {
 
   const generateQuote = async () => {
     clearDuplicateState()
-    const bill = await persistBill('estimate', 'draft', { skipReset: true })
+    const status = deriveEstimateStatus({
+      lines,
+      advancePaidInr: parsedAdvance,
+      keepCancelled: true,
+      currentStatus: editingBillStatus,
+    })
+    const bill = await persistBill('estimate', status, { skipReset: true })
     if (!bill) return
     try {
       await shareErpQuotePdf({
@@ -779,6 +800,20 @@ export function ErpBillingWorkspace() {
               <option value="W">W</option>
               <option value="F">F</option>
             </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Advance paid (₹)
+            </label>
+            <input
+              className={erpInputCls}
+              type="number"
+              min={0}
+              step={1}
+              value={advancePaidInr}
+              onChange={(e) => setAdvancePaidInr(e.target.value)}
+              placeholder="0"
+            />
           </div>
         </div>
         {customerName ? (
@@ -1023,7 +1058,7 @@ export function ErpBillingWorkspace() {
           </div>
 
           {lines.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3 border-t border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-4 py-3 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 border-t border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-4 py-3 sm:grid-cols-3 lg:grid-cols-7">
               <div>
                 <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Items</p>
                 <p className="font-semibold">{totals.count}</p>
@@ -1040,6 +1075,18 @@ export function ErpBillingWorkspace() {
                 <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST (3%)</p>
                 <p className="font-semibold tabular-nums text-blue-700">{formatErpInr(totals.gst)}</p>
               </div>
+              {parsedAdvance > 0 ? (
+                <>
+                  <div>
+                    <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Advance paid</p>
+                    <p className="font-semibold tabular-nums text-emerald-700">{formatErpInr(parsedAdvance)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Amount to pay</p>
+                    <p className="font-semibold tabular-nums text-amber-800">{formatErpInr(balanceDue)}</p>
+                  </div>
+                </>
+              ) : null}
               <div className="col-span-2 sm:col-span-1">
                 <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Net total</p>
                 <p className="rounded-xl bg-emerald-600 px-3 py-1.5 text-center text-sm font-bold tabular-nums text-white">

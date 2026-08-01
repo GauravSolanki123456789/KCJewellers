@@ -1225,7 +1225,8 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
         const rows = await query(
             `SELECT business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids,
                     COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
-                    COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled
+                    COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
+                    COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
              FROM users
              WHERE customer_tier = 'RESELLER'
              AND NULLIF(TRIM(custom_domain), '') IS NOT NULL
@@ -1254,6 +1255,11 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             ? rawCatIds.map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n) && n > 0)
             : null;
         const allowed_category_metals = parseAllowedCategoryMetals(rows[0].allowed_category_metals);
+        const slabSettings = parseResellerSlabSettingsServer(rows[0].reseller_slab_settings);
+        const storefrontMarginPct = Math.max(
+            0,
+            Math.min(1000, Number(slabSettings?.slab_r?.margin_pct) || 0),
+        );
         res.json({
             business_name: rows[0].business_name || null,
             logo_url: rows[0].logo_url || null,
@@ -1264,6 +1270,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
                 ? allowed_category_metals
                 : null,
             reseller_invest_enabled: !!rows[0].reseller_invest_enabled,
+            storefront_margin_pct: storefrontMarginPct,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -6902,12 +6909,14 @@ function parseResellerSlabSettingsServer(raw) {
             silver_rate_offset_per_g: Math.max(0, Number(t.silver_rate_offset_per_g) || 0),
             wastage_discount_pct: clampSlabPct(t.wastage_discount_pct),
             gift_discount_pct: clampSlabPct(t.gift_discount_pct),
+            margin_pct: Math.max(0, Math.min(1000, Number(t.margin_pct) || 0)),
         };
         const hasAny =
             row.mc_discount_pct > 0 ||
             row.silver_rate_offset_per_g > 0 ||
             row.wastage_discount_pct > 0 ||
-            row.gift_discount_pct > 0;
+            row.gift_discount_pct > 0 ||
+            row.margin_pct > 0;
         return hasAny ? row : row;
     };
     return {
@@ -8252,6 +8261,45 @@ app.patch('/api/reseller/sms-settings', requireSharedCatalogCreator, requireJson
         const code = error.status || 500;
         console.error('reseller sms-settings PATCH:', error.message);
         res.status(code).json({ error: error.message || 'Failed to save SMS settings' });
+    }
+});
+
+/** Reseller staff: shared catalogue slab defaults (same JSON as admin B2B edit). */
+app.get('/api/reseller/catalog-slab-settings', requireSharedCatalogCreator, async (req, res) => {
+    try {
+        const tier = String(req.user?.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.status(403).json({ error: 'Reseller account required' });
+        }
+        const rows = await query(
+            `SELECT COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings FROM users WHERE id = $1`,
+            [req.user.id],
+        );
+        const slabSettings = parseResellerSlabSettingsServer(rows[0]?.reseller_slab_settings);
+        res.json({ slab_settings: slabSettings });
+    } catch (error) {
+        console.error('reseller catalog-slab-settings GET:', error.message);
+        res.status(500).json({ error: error.message || 'Failed to load slab settings' });
+    }
+});
+
+app.patch('/api/reseller/catalog-slab-settings', requireSharedCatalogCreator, requireJson, async (req, res) => {
+    try {
+        const tier = String(req.user?.customer_tier || '').toUpperCase();
+        if (tier !== 'RESELLER') {
+            return res.status(403).json({ error: 'Reseller account required' });
+        }
+        const parsed = parseResellerSlabSettingsServer(
+            req.body?.slab_settings ?? req.body?.reseller_slab_settings ?? {},
+        );
+        await query(
+            `UPDATE users SET reseller_slab_settings = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+            [JSON.stringify(parsed), req.user.id],
+        );
+        res.json({ success: true, slab_settings: parsed });
+    } catch (error) {
+        console.error('reseller catalog-slab-settings PATCH:', error.message);
+        res.status(500).json({ error: error.message || 'Failed to save slab settings' });
     }
 });
 

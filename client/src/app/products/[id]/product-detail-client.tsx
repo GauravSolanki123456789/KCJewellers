@@ -55,6 +55,8 @@ import {
 } from "react";
 import { useCart } from "@/context/CartContext";
 import { useCustomerTier } from "@/context/CustomerTierContext";
+import { useResellerBranding } from "@/context/ResellerBrandingContext";
+import { calculateStorefrontBreakdown } from "@/lib/storefront-catalog-margin";
 import {
   normalizeStorefrontProductId,
   productMatchesStorefrontId,
@@ -111,6 +113,7 @@ export default function ProductDetailClient({
   });
   const cart = useCart();
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier();
+  const { customDomainHost, storefrontMarginPct } = useResellerBranding();
   const { pricingOptions } = useCatalogPricingSettings();
   const showInclGst = product ? productPriceShowsInclGst(product, pricingOptions) : true;
   const productRef = useRef<Item | null>(null);
@@ -199,12 +202,14 @@ export default function ProductDetailClient({
 
         if (activeItem) {
           setB(
-            calculateBreakdown(
+            calculateStorefrontBreakdown(
               activeItem,
               dr.data?.rates || [],
               activeItem.gst_rate ?? 3,
               wholesalePricing,
               pricingOptions,
+              customDomainHost,
+              storefrontMarginPct,
             ),
           );
           const dn = productDisplayName(activeItem);
@@ -234,12 +239,14 @@ export default function ProductDetailClient({
       const cur = productRef.current;
       if (cur)
         setB(
-          calculateBreakdown(
+          calculateStorefrontBreakdown(
             cur,
             p?.rates || [],
             cur.gst_rate ?? 3,
             wholesalePricing,
             pricingOptions,
+            customDomainHost,
+            storefrontMarginPct,
           ),
         );
     };
@@ -248,7 +255,7 @@ export default function ProductDetailClient({
       cancelled = true;
       s.off("live-rate", on);
     };
-  }, [id, initialProduct, wholesalePricing, pricingOptions]);
+  }, [id, initialProduct, wholesalePricing, pricingOptions, customDomainHost, storefrontMarginPct]);
 
   useEffect(() => {
     if (!product) {
@@ -261,12 +268,14 @@ export default function ProductDetailClient({
         const dr = await axios.get(`/api/rates/display${ratesApiQueryForStorefront()}`);
         if (cancelled) return;
         setB(
-          calculateBreakdown(
+          calculateStorefrontBreakdown(
             product,
             dr.data?.rates || [],
             product.gst_rate ?? 3,
             wholesalePricing,
             pricingOptions,
+            customDomainHost,
+            storefrontMarginPct,
           ),
         );
       } catch {
@@ -276,7 +285,7 @@ export default function ProductDetailClient({
     return () => {
       cancelled = true;
     };
-  }, [product, wholesalePricing, pricingOptions]);
+  }, [product, wholesalePricing, pricingOptions, customDomainHost, storefrontMarginPct]);
 
   const handleSelectVariant = useCallback(
     (v: Item) => {

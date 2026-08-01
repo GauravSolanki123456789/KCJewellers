@@ -9,7 +9,9 @@ import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
 import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
+import { withStorefrontCatalogMargin } from '@/lib/storefront-catalog-margin'
 
 /**
  * ProductLite extends Item to ensure all product fields are available in cart items.
@@ -57,6 +59,7 @@ function loadCartFromStorage(): CartItem[] {
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { wholesalePricing } = useCustomerTier()
+  const { customDomainHost, storefrontMarginPct } = useResellerBranding()
   const { pricingOptions } = useCatalogPricingSettings()
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [lastAdded, setLastAdded] = useState<ProductLite | null>(null)
@@ -76,18 +79,28 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(CART_LOCAL_STORAGE_KEY, JSON.stringify(items))
   }, [items, isHydrated])
 
+  const breakdownForItem = useCallback(
+    (item: ProductLite, rates: unknown) =>
+      withStorefrontCatalogMargin(
+        calculateBreakdown(item, rates, item.gst_rate, wholesalePricing, pricingOptions),
+        customDomainHost,
+        storefrontMarginPct,
+      ),
+    [wholesalePricing, pricingOptions, customDomainHost, storefrontMarginPct],
+  )
+
   const applyRates = useCallback((rates: unknown[]) => {
     setLastRates(rates)
     setRatesReady(rates.length > 0)
     setItems(prev => prev.map(ci => {
-      const b = calculateBreakdown(ci.item, rates, ci.item.gst_rate, wholesalePricing, pricingOptions)
+      const b = breakdownForItem(ci.item, rates)
       const box = ci.item.include_box ? getProductBoxCharges(ci.item) : 0
       const lineTotal = b.total + box
       const delta = Math.abs(lineTotal - ci.price) / (ci.price || 1)
       if (delta > 0.02) return { ...ci, price: lineTotal, breakdown: b }
       return ci
     }))
-  }, [wholesalePricing, pricingOptions])
+  }, [breakdownForItem])
 
   const fetchDisplayRates = useCallback(() => {
     axios
@@ -123,20 +136,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setItems((prev) =>
       prev.map((ci) => {
-        const b = calculateBreakdown(
-          ci.item,
-          lastRates,
-          ci.item.gst_rate,
-          wholesalePricing,
-          pricingOptions,
-        )
+        const b = breakdownForItem(ci.item, lastRates)
         const box = ci.item.include_box ? getProductBoxCharges(ci.item) : 0
         return { ...ci, price: b.total + box, breakdown: b }
       }),
     )
-  }, [pricingOptions, wholesalePricing, lastRates])
+  }, [breakdownForItem, lastRates])
   const add = useCallback((p: ProductLite) => {
-    const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing, pricingOptions)
+    const b = breakdownForItem(p, lastRates)
     const box = p.include_box ? getProductBoxCharges(p) : 0
     const ci: CartItem = { id: String(p.barcode || p.id || ''), item: p, qty: 1, price: b.total + box, breakdown: b }
     setLastAdded(p)
@@ -149,7 +156,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const exists = prev.find(x => x.id === ci.id)
       if (exists) {
         const updated = { ...exists, qty: exists.qty + 1 }
-        const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing, pricingOptions)
+        const freshB = breakdownForItem(exists.item, lastRates)
         const box = exists.item.include_box ? getProductBoxCharges(exists.item) : 0
         updated.price = freshB.total + box
         updated.breakdown = freshB
@@ -157,13 +164,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       }
       return [...prev, ci]
     })
-  }, [lastRates, wholesalePricing, pricingOptions])
+  }, [lastRates, breakdownForItem])
 
   const addWithQty = useCallback((p: ProductLite, qty: number) => {
     const q = Math.max(1, Math.min(9999, Math.floor(Number(qty) || 1)))
     const id = String(p.barcode || p.id || '')
     if (!id) return
-    const b = calculateBreakdown(p, lastRates, p.gst_rate, wholesalePricing, pricingOptions)
+    const b = breakdownForItem(p, lastRates)
     const box = p.include_box ? getProductBoxCharges(p) : 0
     setLastAdded(p)
     axios.post('/api/analytics/track', {
@@ -174,7 +181,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems((prev) => {
       const exists = prev.find((x) => x.id === id)
       if (exists) {
-        const freshB = calculateBreakdown(exists.item, lastRates, exists.item.gst_rate, wholesalePricing, pricingOptions)
+        const freshB = breakdownForItem(exists.item, lastRates)
         const lineBox = exists.item.include_box ? getProductBoxCharges(exists.item) : 0
         return prev.map((x) =>
           x.id === id ? { ...x, qty: q, price: freshB.total + lineBox, breakdown: freshB } : x,
@@ -182,7 +189,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       }
       return [...prev, { id, item: p, qty: q, price: b.total + box, breakdown: b }]
     })
-  }, [lastRates, wholesalePricing, pricingOptions])
+  }, [lastRates, breakdownForItem])
   const remove = useCallback((id: string) => setItems(prev => prev.filter(x => x.id !== id)), [])
   const clearAll = useCallback(() => setItems([]), [])
   /** qty below 1 removes the line (minus at quantity 1 matches Remove). */

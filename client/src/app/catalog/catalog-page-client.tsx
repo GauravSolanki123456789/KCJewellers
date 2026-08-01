@@ -19,7 +19,7 @@ import {
   type MetalTabFaviconKey,
 } from '@/components/icons/metal-tab-icons'
 import DualRangeSlider from '@/components/DualRangeSlider'
-import { calculateBreakdown, isFixedPriceCatalogItem, type Item } from '@/lib/pricing'
+import { isFixedPriceCatalogItem, type Item } from '@/lib/pricing'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import {
   CATALOG_PATH,
@@ -36,8 +36,9 @@ import { buildCatalogShareUrl, catalogShareMessage } from '@/lib/whatsapp'
 import { useCatalogData } from './catalog-data-context'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
-import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
+import { calculateStorefrontBreakdown } from '@/lib/storefront-catalog-margin'
+import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
 import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
 import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
 import { resolveCatalogShareBrand, resolveCatalogShareOrigin } from '@/lib/catalog-share'
@@ -312,7 +313,7 @@ export default function CatalogPageClient() {
   const auth = useAuth()
   const { wholesalePricing, customerTier } = useCustomerTier()
   const { pricingOptions } = useCatalogPricingSettings()
-  const { active: resellerBrandingActive, businessName: resellerBrandName } = useResellerBranding()
+  const { active: resellerBrandingActive, businessName: resellerBrandName, customDomainHost, storefrontMarginPct } = useResellerBranding()
   const {
     catalogBuilderMode,
     setCatalogBuilderMode,
@@ -818,12 +819,14 @@ export default function CatalogPageClient() {
     }
     const weights = rawProducts.map((p) => p.net_weight ?? p.net_wt ?? p.weight ?? 0).filter((w) => w > 0)
     const prices = rawProducts.map((p) => {
-      const b = calculateBreakdown(
+      const b = calculateStorefrontBreakdown(
         p,
         rates,
         (p as { gst_rate?: number }).gst_rate ?? 3,
         wholesalePricing,
         pricingOptions,
+        customDomainHost,
+        storefrontMarginPct,
       )
       return b.total
     })
@@ -835,7 +838,7 @@ export default function CatalogPageClient() {
       weightBounds: [Math.max(0, wMin - 1), wMax + 1] as [number, number],
       priceBounds: [Math.max(0, pMin - 1000), pMax + 1000] as [number, number],
     }
-  }, [rawProducts, rates, wholesalePricing, pricingOptions])
+  }, [rawProducts, rates, wholesalePricing, pricingOptions, customDomainHost, storefrontMarginPct])
 
   // Sync slider bounds when category changes (skip once after restore from sessionStorage)
   useEffect(() => {
@@ -860,17 +863,19 @@ export default function CatalogPageClient() {
       })
     }
     list = list.filter((p) => {
-      const b = calculateBreakdown(
+      const b = calculateStorefrontBreakdown(
         p,
         rates,
         (p as { gst_rate?: number }).gst_rate ?? 3,
         wholesalePricing,
         pricingOptions,
+        customDomainHost,
+        storefrontMarginPct,
       )
       return b.total >= priceLow && b.total <= priceHigh
     })
     return list
-  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing, pricingOptions, selectedMetal])
+  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing, pricingOptions, selectedMetal, customDomainHost, storefrontMarginPct])
 
   const products = useMemo(() => {
     if (!hasDesignGroupFilter || activeDesignGroup === 'all') return sliderFilteredProducts

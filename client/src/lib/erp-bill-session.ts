@@ -11,6 +11,8 @@ export type ErpBillSession = {
   address?: string
   /** When true, Rate column stays empty on reload (rate unfix). */
   ratesUnfixed?: boolean
+  /** Advance amount customer has paid (₹). */
+  advancePaidInr?: number
 }
 
 export function buildErpBillSession(input: {
@@ -22,9 +24,11 @@ export function buildErpBillSession(input: {
   mobile: string
   address: string
   lines: ErpBillLine[]
+  advancePaidInr?: number | null
 }): ErpBillSession {
   const ratesUnfixed =
     input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
+  const advance = Math.max(0, Number(input.advancePaidInr) || 0)
   return {
     rateSlab: input.rateSlab,
     wholesaleGold: input.wholesaleGold,
@@ -34,6 +38,7 @@ export function buildErpBillSession(input: {
     mobile: input.mobile.trim() || undefined,
     address: input.address.trim() || undefined,
     ratesUnfixed: ratesUnfixed || undefined,
+    advancePaidInr: advance > 0 ? advance : undefined,
   }
 }
 

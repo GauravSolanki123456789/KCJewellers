@@ -644,6 +644,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                       {activeSlabTier.gift_discount_pct
                         ? ` · Gift ${Math.round(activeSlabTier.gift_discount_pct)}% off`
                         : ''}
+                      {activeSlabTier.margin_pct
+                        ? ` · Margin +${Math.round(activeSlabTier.margin_pct)}%`
+                        : ''}
                       . Customers see strikethrough retail vs slab price.
                     </>
                   )}
@@ -655,6 +658,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                       {activeSlabTier.gift_discount_pct
                         ? ` Gift ${Math.round(activeSlabTier.gift_discount_pct)}% off.`
                         : '.'}
+                      {activeSlabTier.margin_pct
+                        ? ` Margin +${Math.round(activeSlabTier.margin_pct)}%.`
+                        : ''}
                     </>
                   )}
                   {pricingSlab === 'slab_f' && (

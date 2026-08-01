@@ -16,6 +16,8 @@ export type ErpQuoteTotals = {
   subtotal: number
   gst: number
   net: number
+  advancePaid?: number
+  balanceDue?: number
 }
 
 function slugPart(s: string, max = 32): string {
@@ -90,7 +92,18 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
     gst = net - subtotal
   }
 
-  return { count, weight, subtotal, gst, net }
+  const advance = Math.max(0, Number(session.advancePaidInr) || 0)
+  const balanceDue = advance > 0 ? Math.max(0, net - advance) : undefined
+
+  return {
+    count,
+    weight,
+    subtotal,
+    gst,
+    net,
+    advancePaid: advance > 0 ? advance : undefined,
+    balanceDue,
+  }
 }
 
 export async function resolveErpLineImages(lines: ErpBillLine[]): Promise<ErpBillLine[]> {

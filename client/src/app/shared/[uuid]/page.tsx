@@ -89,6 +89,7 @@ function mergeSharedBranding(
     allowedCategoryIds: domainBranding?.allowedCategoryIds ?? null,
     allowedCategoryMetals: domainBranding?.allowedCategoryMetals ?? null,
     investEnabled: domainBranding?.investEnabled ?? false,
+    storefrontMarginPct: domainBranding?.storefrontMarginPct ?? 0,
   };
 }
 

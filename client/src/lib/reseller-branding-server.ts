@@ -19,6 +19,8 @@ export type PublicResellerBranding = {
   allowedCategoryMetals: Record<string, string[]> | null;
   /** Customer Invest (SIP) on this vanity domain — `users.reseller_invest_enabled`. */
   investEnabled: boolean;
+  /** Slab R margin % — adds to catalog prices on this custom domain. */
+  storefrontMarginPct: number;
 };
 
 function apiBase(): string {
@@ -45,6 +47,7 @@ export async function fetchPublicResellerBranding(
       allowed_category_ids?: number[] | null;
       allowed_category_metals?: Record<string, string[]> | null;
       reseller_invest_enabled?: boolean;
+      storefront_margin_pct?: number;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -65,6 +68,7 @@ export async function fetchPublicResellerBranding(
           ? (data.allowed_category_metals as Record<string, string[]>)
           : null,
       investEnabled: !!data?.reseller_invest_enabled,
+      storefrontMarginPct: Math.max(0, Math.min(1000, Number(data?.storefront_margin_pct) || 0)),
     };
   } catch {
     return null;

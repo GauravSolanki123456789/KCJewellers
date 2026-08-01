@@ -513,8 +513,31 @@ function registerResellerErpRoutes(app, deps) {
                 sql += ` AND bill_type = $${params.length}`;
             }
             if (status) {
-                params.push(status);
-                sql += ` AND LOWER(status) = $${params.length}`;
+                const st = status.toLowerCase();
+                if (st === 'rate_unfix') {
+                    sql += ` AND (
+                        LOWER(COALESCE(status, 'draft')) = 'rate_unfix'
+                        OR (
+                            LOWER(COALESCE(status, 'draft')) = 'draft'
+                            AND COALESCE(session_json->>'ratesUnfixed', 'false') = 'true'
+                        )
+                    )`;
+                } else if (st === 'advance_paid') {
+                    sql += ` AND (
+                        LOWER(COALESCE(status, 'draft')) = 'advance_paid'
+                        OR (
+                            LOWER(COALESCE(status, 'draft')) NOT IN ('cancelled', 'rate_unfix')
+                            AND COALESCE((session_json->>'advancePaidInr')::numeric, 0) > 0
+                        )
+                    )`;
+                } else if (st === 'draft') {
+                    sql += ` AND LOWER(COALESCE(status, 'draft')) = 'draft'
+                        AND COALESCE(session_json->>'ratesUnfixed', 'false') != 'true'
+                        AND COALESCE((session_json->>'advancePaidInr')::numeric, 0) <= 0`;
+                } else {
+                    params.push(st);
+                    sql += ` AND LOWER(status) = $${params.length}`;
+                }
             }
             if (from) {
                 params.push(from);
@@ -526,7 +549,15 @@ function registerResellerErpRoutes(app, deps) {
             }
             if (q) {
                 params.push(`%${q}%`);
-                sql += ` AND (bill_number ILIKE $${params.length} OR customer_name ILIKE $${params.length})`;
+                const idx = params.length;
+                let searchSql = ` AND (bill_number ILIKE $${idx} OR customer_name ILIKE $${idx} OR COALESCE(session_json->>'mobile', '') ILIKE $${idx}`;
+                const qDigits = q.replace(/\D/g, '');
+                if (qDigits.length >= 4) {
+                    params.push(`%${qDigits}%`);
+                    searchSql += ` OR regexp_replace(COALESCE(session_json->>'mobile', ''), '[^0-9]', '', 'g') LIKE $${params.length}`;
+                }
+                searchSql += ')';
+                sql += searchSql;
             }
             sql += ` ORDER BY created_at DESC, id DESC LIMIT 500`;
             const rows = await query(sql, params);
