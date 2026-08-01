@@ -10,10 +10,11 @@ import {
   erpErr,
   erpInputCls,
 } from '@/components/reseller/erp/erp-ui'
+import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
-import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { erpDateFilterToIso, formatErpDateDdMmYyyy, formatErpDateTime } from '@/lib/erp-date-format'
 import { RESELLER_PAYMENT_SETTINGS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
-import { Gem, Loader2, MessageCircle, Save, Wallet } from 'lucide-react'
+import { Gem, Loader2, MessageCircle, Save, Search, Wallet } from 'lucide-react'
 
 type DigiTier = {
   metal_key: string
@@ -30,6 +31,30 @@ type DigiSettings = {
   reseller_invite_code: string | null
   business_name: string | null
   rates: { updated_at?: string } | null
+}
+
+type DigiTransaction = {
+  id: number
+  metal_key: string
+  amount_inr: number
+  effective_rate_per_gram: number
+  discount_inr: number
+  grams: number
+  razorpay_payment_id: string | null
+  razorpay_order_id: string | null
+  paid_at: string | null
+  created_at: string
+  customer_name: string | null
+  customer_mobile: string | null
+}
+
+type DigiHolding = {
+  metal_key: string
+  balance_grams: number
+  customer_name: string | null
+  customer_mobile: string | null
+  customer_user_id: number
+  updated_at: string
 }
 
 const GOLD_LABELS: Record<string, string> = {
@@ -71,7 +96,7 @@ function buildShareUrl(
 }
 
 function shareWhatsApp(url: string, businessName: string, productLabel: string) {
-  const text = `${businessName} — Buy ${productLabel} at today's rate minus your special discount.\n\nOpen & pay securely:\n${url}`
+  const text = `${businessName} — Buy ${productLabel} online.\n\n${url}`
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
 }
 
@@ -82,6 +107,12 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
   const [busy, setBusy] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [txBusy, setTxBusy] = useState(false)
+  const [transactions, setTransactions] = useState<DigiTransaction[]>([])
+  const [holdings, setHoldings] = useState<DigiHolding[]>([])
+  const [txQ, setTxQ] = useState('')
+  const [txFrom, setTxFrom] = useState('')
+  const [txTo, setTxTo] = useState('')
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -104,9 +135,36 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
     }
   }, [metal])
 
+  const loadTransactions = useCallback(async () => {
+    setTxBusy(true)
+    try {
+      const params: Record<string, string> = { metal, limit: '200' }
+      if (txQ.trim()) params.q = txQ.trim()
+      const fromIso = erpDateFilterToIso(txFrom)
+      const toIso = erpDateFilterToIso(txTo)
+      if (fromIso) params.from = fromIso
+      if (toIso) params.to = toIso
+      const res = await axios.get<{ transactions: DigiTransaction[]; holdings: DigiHolding[] }>(
+        '/api/reseller/erp/digi/transactions',
+        { params },
+      )
+      setTransactions(res.data.transactions || [])
+      setHoldings(res.data.holdings || [])
+    } catch {
+      setTransactions([])
+      setHoldings([])
+    } finally {
+      setTxBusy(false)
+    }
+  }, [metal, txQ, txFrom, txTo])
+
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void loadTransactions()
+  }, [loadTransactions])
 
   const tiers = settings?.tiers ?? []
   const shareUrl = useMemo(
@@ -123,11 +181,8 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
     setSaveBusy(true)
     setMsg(null)
     try {
-      const res = await axios.put<{ tiers: DigiTier[] }>('/api/reseller/erp/digi/settings', {
-        ...discounts,
-        metal,
-      })
-      setSettings((prev) => (prev ? { ...prev, tiers: res.data.tiers } : prev))
+      await axios.put('/api/reseller/erp/digi/settings', { ...discounts, metal })
+      await load()
       setMsg('Discounts saved.')
     } catch (e) {
       setMsg(erpErr(e))
@@ -135,6 +190,21 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
       setSaveBusy(false)
     }
   }
+
+  const filteredHoldings = useMemo(() => {
+    const q = txQ.trim().toLowerCase()
+    let rows = holdings.filter((h) =>
+      metal === 'gold' ? h.metal_key.startsWith('gold_') : h.metal_key === 'silver',
+    )
+    if (q) {
+      rows = rows.filter(
+        (h) =>
+          String(h.customer_name || '').toLowerCase().includes(q) ||
+          String(h.customer_mobile || '').includes(q),
+      )
+    }
+    return rows
+  }, [holdings, metal, txQ])
 
   if (busy && !settings) {
     return (
@@ -164,14 +234,8 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
       <div className={erpCardCls}>
         <div className="mb-3 flex items-center gap-2">
           <Gem className="size-4 text-[var(--kc-accent,#c41e3a)]" />
-          <h3 className="text-sm font-bold text-[var(--color-jewelry-black,#1a1814)]">
-            {productLabel} — today&apos;s rate minus discount (₹/g)
-          </h3>
+          <h3 className="text-sm font-bold text-[var(--color-jewelry-black,#1a1814)]">{productLabel}</h3>
         </div>
-        <p className="mb-4 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          Customer pays online → weight accumulates in their account. Example: silver ₹235/g with ₹6
-          discount → effective ₹229/g. Pay ₹22,900 → 100 g silver.
-        </p>
 
         {!tiers.length ? (
           <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -208,7 +272,8 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
                       min={0}
                       step={1}
                       className={`${erpInputCls} mt-1 max-w-[140px]`}
-                      value={disc || ''}
+                      value={disc === 0 ? '' : disc}
+                      placeholder="0"
                       onChange={(e) =>
                         setDiscounts((prev) => ({
                           ...prev,
@@ -249,11 +314,7 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
             className={erpBtnGhost}
             disabled={!paymentsOk}
             onClick={() =>
-              shareWhatsApp(
-                shareUrl,
-                settings?.business_name || 'Our store',
-                productLabel,
-              )
+              shareWhatsApp(shareUrl, settings?.business_name || 'Our store', productLabel)
             }
           >
             <MessageCircle className="size-4 text-emerald-600" />
@@ -266,11 +327,6 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
         <div className={`${erpCardCls} text-xs`}>
           <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Customer link</p>
           <p className="mt-1 break-all font-mono text-[var(--color-jewelry-black,#1a1814)]">{shareUrl}</p>
-          {!settings?.custom_domain ? (
-            <p className="mt-2 text-[var(--color-jewelry-black,#1a1814)]/45">
-              Tip: set a custom domain in your reseller profile for a cleaner link.
-            </p>
-          ) : null}
         </div>
       ) : null}
 
@@ -285,6 +341,131 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
           {msg}
         </p>
       ) : null}
+
+      <div className={erpCardCls}>
+        <h3 className="text-sm font-bold text-[var(--color-jewelry-black,#1a1814)]">Customer balances</h3>
+        <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+          Total accumulated {metal} weight per customer
+        </p>
+        <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
+          <table className="w-full min-w-[480px] text-[11px]">
+            <thead>
+              <tr className="bg-[var(--color-slate-900,#faf8f4)] text-left text-[var(--color-jewelry-black,#1a1814)]/55">
+                <th className="px-2 py-2">Customer</th>
+                <th className="px-2 py-2">Mobile</th>
+                <th className="px-2 py-2">Metal</th>
+                <th className="px-2 py-2">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredHoldings.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-3 py-6 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    No customer balances yet.
+                  </td>
+                </tr>
+              ) : (
+                filteredHoldings.map((h) => (
+                  <tr key={`${h.customer_user_id}-${h.metal_key}`} className="border-t border-[var(--color-slate-700,#e8e4df)]/50">
+                    <td className="px-2 py-2 font-medium">{h.customer_name || '—'}</td>
+                    <td className="px-2 py-2 tabular-nums">{h.customer_mobile || '—'}</td>
+                    <td className="px-2 py-2">{tierLabel(h.metal_key, metal)}</td>
+                    <td className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
+                      {Number(h.balance_grams).toFixed(3)} g
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className={erpCardCls}>
+        <h3 className="text-sm font-bold text-[var(--color-jewelry-black,#1a1814)]">Payment history</h3>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45 sm:col-span-2">
+            Search name, mobile, payment id
+            <div className="relative mt-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-jewelry-black,#1a1814)]/35" />
+              <input
+                className={`${erpInputCls} pl-8`}
+                value={txQ}
+                onChange={(e) => setTxQ(e.target.value)}
+                placeholder="Name, mobile, Razorpay id…"
+              />
+            </div>
+          </label>
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+            From
+            <ErpDateInput className={`${erpInputCls} mt-1`} value={txFrom} onChange={setTxFrom} />
+          </label>
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+            To
+            <ErpDateInput className={`${erpInputCls} mt-1`} value={txTo} onChange={setTxTo} />
+          </label>
+        </div>
+
+        <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
+          {txBusy ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="size-5 animate-spin text-[var(--color-jewelry-black,#1a1814)]/40" />
+            </div>
+          ) : (
+            <table className="w-full min-w-[720px] text-[11px]">
+              <thead>
+                <tr className="bg-[var(--color-slate-900,#faf8f4)] text-left text-[var(--color-jewelry-black,#1a1814)]/55">
+                  <th className="px-2 py-2">Date &amp; time</th>
+                  <th className="px-2 py-2">Customer</th>
+                  <th className="px-2 py-2">Mobile</th>
+                  <th className="px-2 py-2">Metal</th>
+                  <th className="px-2 py-2">Amount</th>
+                  <th className="px-2 py-2">Rate</th>
+                  <th className="px-2 py-2">Grams</th>
+                  <th className="px-2 py-2">Payment ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-6 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                      No payments in this period.
+                    </td>
+                  </tr>
+                ) : (
+                  transactions.map((t) => (
+                    <tr key={t.id} className="border-t border-[var(--color-slate-700,#e8e4df)]/50">
+                      <td className="whitespace-nowrap px-2 py-2 tabular-nums">
+                        {formatErpDateTime(t.paid_at || t.created_at)}
+                      </td>
+                      <td className="max-w-[100px] truncate px-2 py-2 font-medium">
+                        {t.customer_name || '—'}
+                      </td>
+                      <td className="px-2 py-2 tabular-nums">{t.customer_mobile || '—'}</td>
+                      <td className="px-2 py-2">{tierLabel(t.metal_key, metal)}</td>
+                      <td className="px-2 py-2 tabular-nums">{formatErpInr(Number(t.amount_inr))}</td>
+                      <td className="px-2 py-2 tabular-nums">
+                        {formatErpInr(Number(t.effective_rate_per_gram))}/g
+                        {Number(t.discount_inr) > 0 ? (
+                          <span className="block text-[10px] text-emerald-700">
+                            −₹{Number(t.discount_inr)} disc
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
+                        {Number(t.grams).toFixed(3)} g
+                      </td>
+                      <td className="max-w-[90px] truncate px-2 py-2 font-mono text-[10px]">
+                        {t.razorpay_payment_id || t.razorpay_order_id || `#${t.id}`}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

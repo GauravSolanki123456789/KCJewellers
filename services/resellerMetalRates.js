@@ -104,7 +104,11 @@ async function ensureSchema() {
         ADD COLUMN IF NOT EXISTS digi_silver_per_gram NUMERIC(12, 2),
         ADD COLUMN IF NOT EXISTS digi_gold_24k_per_gram NUMERIC(12, 2),
         ADD COLUMN IF NOT EXISTS digi_gold_22k_per_gram NUMERIC(12, 2),
-        ADD COLUMN IF NOT EXISTS digi_gold_18k_per_gram NUMERIC(12, 2)
+        ADD COLUMN IF NOT EXISTS digi_gold_18k_per_gram NUMERIC(12, 2),
+        ADD COLUMN IF NOT EXISTS digi_silver_discount_inr NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS digi_gold_24k_discount_inr NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS digi_gold_22k_discount_inr NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS digi_gold_18k_discount_inr NUMERIC(12, 2) NOT NULL DEFAULT 0
     `);
     await pool.query(`
         ALTER TABLE users
@@ -140,13 +144,20 @@ async function getStoredRates(userId) {
         const rows = await query(
             `SELECT user_id, silver_per_gram, gold_24k_per_gram, gold_22k_per_gram, gold_18k_per_gram,
                     digi_silver_per_gram, digi_gold_24k_per_gram, digi_gold_22k_per_gram, digi_gold_18k_per_gram,
+                    COALESCE(digi_silver_discount_inr, 0) AS digi_silver_discount_inr,
+                    COALESCE(digi_gold_24k_discount_inr, 0) AS digi_gold_24k_discount_inr,
+                    COALESCE(digi_gold_22k_discount_inr, 0) AS digi_gold_22k_discount_inr,
+                    COALESCE(digi_gold_18k_discount_inr, 0) AS digi_gold_18k_discount_inr,
                     updated_at, updated_by_user_id
              FROM reseller_metal_rates WHERE user_id = $1`,
             [uid],
         );
         return rows[0] || null;
     } catch (e) {
-        if (String(e.message || '').includes('reseller_metal_rates')) {
+        if (
+            String(e.message || '').includes('reseller_metal_rates') ||
+            String(e.message || '').includes('digi_')
+        ) {
             await ensureSchema();
             return getStoredRates(userId);
         }

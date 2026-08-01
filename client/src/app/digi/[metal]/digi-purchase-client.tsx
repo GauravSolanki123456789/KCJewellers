@@ -264,7 +264,7 @@ function DigiPurchaseInner({ metal }: { metal: 'gold' | 'silver' }) {
           <h1 className="text-2xl font-bold text-[var(--color-jewelry-black,#1a1814)]">{productTitle}</h1>
           <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]/60">{brandName}</p>
           <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/45">
-            Buy at today&apos;s rate minus special discount · weight saved in your account
+            Buy online · weight saved in your account
           </p>
         </div>
 
@@ -362,9 +362,6 @@ function DigiPurchaseInner({ metal }: { metal: 'gold' | 'silver' }) {
             </button>
           )}
 
-          {!config.payments_configured ? (
-            <p className="text-center text-xs text-amber-800">Online payments coming soon at this store.</p>
-          ) : null}
         </div>
 
         {payMsg ? (

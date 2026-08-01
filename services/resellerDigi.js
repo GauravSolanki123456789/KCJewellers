@@ -187,7 +187,8 @@ async function getDigiRateBundle(stored, metalFilter) {
 
 async function buildPublicDigiConfig(query, reseller, metal) {
     const stored = await getStoredRates(reseller.id);
-    const payment = publicPaymentSettings(reseller);
+    const paymentRow = await loadResellerPaymentRow(query, reseller.id);
+    const payment = publicPaymentSettings(paymentRow);
     const tiers = await getDigiRateBundle(stored, metal);
     if (!tiers?.length || !stored) {
         return { ok: false, error: 'Rates not configured yet. Please ask the jeweller to update today rates.' };
@@ -403,17 +404,60 @@ function registerResellerDigiRoutes(app, deps) {
     app.get('/api/reseller/erp/digi/transactions', checkAuth, erpGate, async (req, res) => {
         try {
             await ensureDigiSchema(pool);
-            const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || '50'), 10) || 50));
-            const rows = await query(
-                `SELECT o.*, u.name AS customer_name, u.mobile_number AS customer_mobile
-                 FROM reseller_digi_orders o
-                 LEFT JOIN users u ON u.id = o.customer_user_id
-                 WHERE o.reseller_user_id = $1 AND o.status = 'paid'
-                 ORDER BY o.paid_at DESC NULLS LAST, o.created_at DESC
-                 LIMIT $2`,
-                [req.user.id, limit],
+            const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit || '100'), 10) || 100));
+            const q = String(req.query.q || '').trim().toLowerCase();
+            const metal = String(req.query.metal || '').trim().toLowerCase();
+            const from = String(req.query.from || '').trim().slice(0, 10);
+            const to = String(req.query.to || '').trim().slice(0, 10);
+            const params = [req.user.id];
+            let sql = `
+                SELECT o.id, o.metal_key, o.amount_inr, o.retail_rate_per_gram, o.discount_inr,
+                       o.effective_rate_per_gram, o.grams, o.razorpay_order_id, o.razorpay_payment_id,
+                       o.status, o.created_at, o.paid_at,
+                       u.name AS customer_name, u.mobile_number AS customer_mobile
+                FROM reseller_digi_orders o
+                LEFT JOIN users u ON u.id = o.customer_user_id
+                WHERE o.reseller_user_id = $1 AND o.status = 'paid'`;
+            if (metal === 'gold') {
+                params.push('gold_%');
+                sql += ` AND o.metal_key LIKE $${params.length}`;
+            } else if (metal === 'silver') {
+                sql += ` AND o.metal_key = 'silver'`;
+            }
+            if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
+                params.push(from);
+                sql += ` AND COALESCE(o.paid_at, o.created_at)::date >= $${params.length}::date`;
+            }
+            if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+                params.push(to);
+                sql += ` AND COALESCE(o.paid_at, o.created_at)::date <= $${params.length}::date`;
+            }
+            if (q) {
+                params.push(`%${q}%`);
+                const i = params.length;
+                sql += ` AND (
+                    LOWER(COALESCE(u.name, '')) LIKE $${i}
+                    OR LOWER(COALESCE(u.mobile_number, '')) LIKE $${i}
+                    OR LOWER(COALESCE(o.razorpay_payment_id, '')) LIKE $${i}
+                    OR LOWER(COALESCE(o.razorpay_order_id, '')) LIKE $${i}
+                    OR CAST(o.id AS TEXT) LIKE $${i}
+                )`;
+            }
+            params.push(limit);
+            sql += ` ORDER BY o.paid_at DESC NULLS LAST, o.created_at DESC LIMIT $${params.length}`;
+            const rows = await query(sql, params);
+
+            const holdRows = await query(
+                `SELECT h.metal_key, h.balance_grams, u.name AS customer_name, u.mobile_number AS customer_mobile,
+                        u.id AS customer_user_id, h.updated_at
+                 FROM reseller_digi_holdings h
+                 JOIN users u ON u.id = h.customer_user_id
+                 WHERE h.reseller_user_id = $1 AND h.balance_grams > 0
+                 ORDER BY h.updated_at DESC`,
+                [req.user.id],
             );
-            res.json({ transactions: rows });
+
+            res.json({ transactions: rows, holdings: holdRows });
         } catch (e) {
             console.error('erp digi transactions:', e);
             res.status(500).json({ error: e.message || 'Failed to load transactions' });

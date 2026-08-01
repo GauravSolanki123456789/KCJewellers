@@ -1,5 +1,3 @@
-/** Display ERP dates as dd/mm/yyyy (India). */
-
 export function formatErpDateDdMmYyyy(iso?: string | null): string {
   if (!iso) return '—'
   const s = String(iso).trim().slice(0, 10)
@@ -11,6 +9,16 @@ export function formatErpDateDdMmYyyy(iso?: string | null): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const yyyy = d.getFullYear()
   return `${dd}/${mm}/${yyyy}`
+}
+
+/** Date + time as dd/mm/yyyy, hh:mm am/pm (India). */
+export function formatErpDateTime(iso?: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return formatErpDateDdMmYyyy(iso)
+  const date = formatErpDateDdMmYyyy(iso)
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+  return `${date}, ${time}`
 }
 
 /** ISO yyyy-mm-dd → dd/mm/yyyy for text inputs. */
