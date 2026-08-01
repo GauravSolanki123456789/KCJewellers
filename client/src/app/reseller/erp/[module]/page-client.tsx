@@ -12,10 +12,10 @@ import { ErpEstimationsWorkspace } from '@/components/reseller/erp/ErpEstimation
 import { ErpSalesBillsWorkspace } from '@/components/reseller/erp/ErpSalesBillsWorkspace'
 import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
+import { ErpDigiWorkspace } from '@/components/reseller/erp/ErpDigiWorkspace'
 import {
   BillsWorkspace,
   CustomersWorkspace,
-  DigiRatesWorkspace,
   ErpFallbackPanel,
   IntegrationsWorkspace,
   ReportsWorkspace,
@@ -52,9 +52,9 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'rol':
       return <StockWorkspace rolOnly />
     case 'digigold':
-      return <DigiRatesWorkspace metal="gold" />
+      return <ErpDigiWorkspace metal="gold" />
     case 'digisilver':
-      return <DigiRatesWorkspace metal="silver" />
+      return <ErpDigiWorkspace metal="silver" />
     case 'sales-reports':
       return <ReportsWorkspace />
     case 'sales-percentages':

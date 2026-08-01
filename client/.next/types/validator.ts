@@ -290,6 +290,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/digi/[metal]/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/digi/[metal]">> = Specific
+  const handler = {} as typeof import("../../src/app/digi/[metal]/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/join-reseller/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/join-reseller">> = Specific
@@ -438,6 +447,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends AppPageConfig<"/reseller/mc-slabs">> = Specific
   const handler = {} as typeof import("../../src/app/reseller/mc-slabs/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/reseller/payment-settings/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/reseller/payment-settings">> = Specific
+  const handler = {} as typeof import("../../src/app/reseller/payment-settings/page.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

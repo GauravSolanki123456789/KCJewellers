@@ -109,6 +109,7 @@ const {
     ensureResellerErpSchema,
     registerResellerErpRoutes,
 } = require('./services/resellerErp');
+const { registerResellerDigiRoutes, ensureDigiSchema } = require('./services/resellerDigi');
 const {
     sanitizeStoredRows,
     parseUploadedMcSlabKey,
@@ -1635,6 +1636,19 @@ registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator, requireJ
 ensureMcSlabColumns(pool).catch((e) => console.warn('mc slab columns:', e.message));
 registerResellerErpRoutes(app, { query, pool, checkAuth, requireJson });
 ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
+registerResellerDigiRoutes(app, {
+    query,
+    pool,
+    checkAuth,
+    requireJson,
+    globalLimiter,
+    authLimiter,
+    requireSharedCatalogCreator,
+    createAndSendOtp,
+    getSharedCatalogOtpEnabled,
+    parseInternationalMobileInput,
+});
+ensureDigiSchema(pool).catch((e) => console.warn('reseller digi schema:', e.message));
 
 // ==========================================
 // B2B WHOLESALE — client ledger (Khata) & admin ledger lines

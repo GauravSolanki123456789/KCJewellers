@@ -40,6 +40,12 @@ export const RESELLER_SMS_SETTINGS_PATH = '/reseller/sms-settings'
 export const RESELLER_MC_SLABS_PATH = '/reseller/mc-slabs'
 /** RESELLER tier — jewellery ERP hub (billing, CRM, stock, GST, reports…). */
 export const RESELLER_ERP_PATH = '/reseller/erp'
+/** RESELLER tier — Razorpay keys for DigiGold / DigiSilver. */
+export const RESELLER_PAYMENT_SETTINGS_PATH = '/reseller/payment-settings'
+/** Public — customer DigiGold purchase. */
+export const DIGI_GOLD_PATH = '/digi/gold'
+/** Public — customer DigiSilver purchase. */
+export const DIGI_SILVER_PATH = '/digi/silver'
 
 /** Client-only: localStorage key for cart JSON (`cart.v1` schema). */
 export const CART_LOCAL_STORAGE_KEY = 'cart.v1' as const

@@ -16,6 +16,7 @@ import {
   RESELLER_RATES_PATH,
   RESELLER_INQUIRIES_PATH,
   RESELLER_SMS_SETTINGS_PATH,
+  RESELLER_PAYMENT_SETTINGS_PATH,
   RESELLER_MC_SLABS_PATH,
   RESELLER_ERP_PATH,
   WHOLESALE_ORDER_PATH,
@@ -43,6 +44,7 @@ import {
   Upload,
   ShoppingBag,
   Smartphone,
+  CreditCard,
   Layers,
   LayoutGrid,
 } from 'lucide-react'
@@ -347,6 +349,12 @@ function ProfilePageContent() {
                       icon={Smartphone}
                       title="SMS & OTP"
                       subtitle="Shared catalogue sign-in — mobile only or SMS verification"
+                    />
+                    <ProfileActionCard
+                      href={RESELLER_PAYMENT_SETTINGS_PATH}
+                      icon={CreditCard}
+                      title="Payment settings"
+                      subtitle="Razorpay keys for DigiGold & DigiSilver customer payments"
                     />
                     <ResellerInvitePanel embedded />
                   </>

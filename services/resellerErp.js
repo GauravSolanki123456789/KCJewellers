@@ -1130,5 +1130,6 @@ function registerResellerErpRoutes(app, deps) {
 module.exports = {
     ensureResellerErpSchema,
     resellerErpEnabled,
+    requireResellerErp,
     registerResellerErpRoutes,
 };

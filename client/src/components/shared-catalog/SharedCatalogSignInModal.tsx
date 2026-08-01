@@ -30,6 +30,8 @@ type Props = {
   otpEnabled?: boolean
   /** Brochure UUID — uses creator's SMS credentials when sending OTP. */
   catalogUuid?: string
+  /** DigiGold/DigiSilver storefront — uses reseller SMS via public digi send-otp. */
+  digiStore?: { domain?: string; code?: string }
 }
 
 function sanitizeAuthError(raw: unknown): string {
@@ -50,6 +52,7 @@ export default function SharedCatalogSignInModal({
   onVerified,
   otpEnabled = true,
   catalogUuid,
+  digiStore,
 }: Props) {
   const [step, setStep] = useState<'mobile' | 'otp'>('mobile')
   const [countryCode, setCountryCode] = useState('91')
@@ -129,14 +132,19 @@ export default function SharedCatalogSignInModal({
     try {
       const useOtp = otpEnabled && parsed.isIndian
       if (useOtp) {
-        const otpUrl = catalogUuid
-          ? `/api/shared-catalog/${encodeURIComponent(catalogUuid)}/send-otp`
-          : '/api/auth/send-otp'
-        await axios.post(
-          otpUrl,
-          { mobile_number: parsed.national, country_code: parsed.countryCode },
-          { withCredentials: true },
-        )
+        let otpUrl = '/api/auth/send-otp'
+        let otpBody: Record<string, string> = {
+          mobile_number: parsed.national,
+          country_code: parsed.countryCode,
+        }
+        if (catalogUuid) {
+          otpUrl = `/api/shared-catalog/${encodeURIComponent(catalogUuid)}/send-otp`
+        } else if (digiStore) {
+          otpUrl = '/api/public/digi/send-otp'
+          if (digiStore.domain) otpBody.domain = digiStore.domain
+          if (digiStore.code) otpBody.code = digiStore.code
+        }
+        await axios.post(otpUrl, otpBody, { withCredentials: true })
         setStep('otp')
         setOtpCode('')
       } else {
