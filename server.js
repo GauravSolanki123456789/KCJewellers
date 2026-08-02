@@ -409,7 +409,8 @@ const adminRequireJson = (req, res, next) => {
     if (
         pathOnly.includes('diamond-details') ||
         pathOnly.includes('reseller-logo') ||
-        pathOnly.includes('reseller-product-submissions')
+        pathOnly.includes('reseller-product-submissions') ||
+        pathOnly.includes('enhanced-pictures/test-generate')
     ) {
         return next();
     }

@@ -120,9 +120,13 @@ function getGeminiApiKey() {
 }
 
 function getGeminiImageModel() {
-    return String(
-        process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash-preview-image-generation',
-    ).trim();
+    return String(process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image').trim();
+}
+
+function geminiImageModelCandidates() {
+    const primary = getGeminiImageModel();
+    const fallbacks = ['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview'];
+    return [...new Set([primary, ...fallbacks].filter(Boolean))];
 }
 
 function normalizeStem(raw) {
@@ -203,8 +207,14 @@ function createEnhancedUploadMulter(uploadsDir) {
         }),
         limits: { fileSize: 12 * 1024 * 1024 },
         fileFilter: (req, file, cb) => {
-            const ok = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(String(file.mimetype || ''));
-            cb(ok ? null : new Error('Only JPEG, PNG, WEBP, or GIF images are allowed'), ok);
+            const mime = String(file.mimetype || '').toLowerCase();
+            const ext = path.extname(String(file.originalname || '')).toLowerCase();
+            const okMime =
+                mime.startsWith('image/') ||
+                mime === 'application/octet-stream' ||
+                mime === 'binary/octet-stream';
+            const okExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'].includes(ext);
+            cb(okMime || okExt ? null : new Error('Only JPEG, PNG, WEBP, or GIF images are allowed'), okMime || okExt);
         },
     }).single('image');
 }
@@ -237,7 +247,6 @@ async function generateStudioImage({ promptText, negativePrompt, sourceImagePath
         err.status = 503;
         throw err;
     }
-    const model = getGeminiImageModel();
     const fullPrompt = buildFullPrompt(promptText, negativePrompt);
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
@@ -249,60 +258,66 @@ async function generateStudioImage({ promptText, negativePrompt, sourceImagePath
             },
         });
     }
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    let data;
-    try {
-        const res = await axios.post(
-            url,
-            {
-                contents: [{ role: 'user', parts }],
-                generationConfig: {
-                    responseModalities: ['TEXT', 'IMAGE'],
-                },
-            },
-            { timeout: 180000, validateStatus: () => true },
-        );
-        if (res.status >= 400) {
-            const msg =
-                res.data?.error?.message ||
-                res.data?.message ||
-                `Gemini API error (${res.status})`;
-            const err = new Error(msg);
-            err.status = res.status === 429 ? 429 : 502;
-            throw err;
-        }
-        data = res.data;
-    } catch (e) {
-        if (e.status) throw e;
-        const err = new Error(e.message || 'Failed to reach Gemini image API');
-        err.status = 502;
-        throw err;
-    }
 
-    const candidates = data?.candidates || [];
-    for (const c of candidates) {
-        const outParts = c?.content?.parts || [];
-        for (const p of outParts) {
-            const inline = p.inlineData || p.inline_data;
-            if (inline?.data) {
-                return {
-                    buffer: Buffer.from(inline.data, 'base64'),
-                    mimeType: inline.mimeType || inline.mime_type || 'image/png',
-                };
+    const models = geminiImageModelCandidates();
+    let lastError = null;
+    for (const model of models) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        try {
+            const res = await axios.post(
+                url,
+                {
+                    contents: [{ role: 'user', parts }],
+                    generationConfig: {
+                        responseModalities: ['IMAGE'],
+                    },
+                },
+                { timeout: 180000, validateStatus: () => true },
+            );
+            if (res.status >= 400) {
+                const msg =
+                    res.data?.error?.message ||
+                    res.data?.message ||
+                    `Gemini API error (${res.status})`;
+                const err = new Error(msg);
+                err.status = res.status === 429 ? 429 : 502;
+                lastError = err;
+                if (/not found|not supported/i.test(msg)) continue;
+                throw err;
             }
+            const data = res.data;
+            const candidates = data?.candidates || [];
+            for (const c of candidates) {
+                const outParts = c?.content?.parts || [];
+                for (const p of outParts) {
+                    const inline = p.inlineData || p.inline_data;
+                    if (inline?.data) {
+                        return {
+                            buffer: Buffer.from(inline.data, 'base64'),
+                            mimeType: inline.mimeType || inline.mime_type || 'image/png',
+                        };
+                    }
+                }
+            }
+            const textBits = [];
+            for (const c of candidates) {
+                for (const p of c?.content?.parts || []) {
+                    if (p.text) textBits.push(p.text);
+                }
+            }
+            lastError = new Error(
+                textBits.length
+                    ? `Model returned no image. ${textBits.join(' ').slice(0, 400)}`
+                    : 'Model returned no image. Try another photo or adjust the prompt.',
+            );
+            lastError.status = 502;
+        } catch (e) {
+            if (e.status && !/not found|not supported/i.test(String(e.message || ''))) throw e;
+            lastError = e;
         }
     }
-    const textBits = [];
-    for (const c of candidates) {
-        for (const p of c?.content?.parts || []) {
-            if (p.text) textBits.push(p.text);
-        }
-    }
-    const err = new Error(
-        textBits.length
-            ? `Model returned no image. ${textBits.join(' ').slice(0, 400)}`
-            : 'Model returned no image. Try another photo or adjust the prompt.',
-    );
+    if (lastError) throw lastError;
+    const err = new Error('Gemini image generation failed. Check GEMINI_API_KEY and model access.');
     err.status = 502;
     throw err;
 }

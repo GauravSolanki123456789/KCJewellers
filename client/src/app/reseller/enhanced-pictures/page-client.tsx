@@ -6,11 +6,11 @@ import {
   ArrowLeft,
   Check,
   Download,
-  ImagePlus,
   Loader2,
   Sparkles,
   Package,
 } from 'lucide-react'
+import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
@@ -326,31 +326,13 @@ export default function ResellerEnhancedPicturesPageClient() {
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
             02 · Import asset
           </p>
-          <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-8 text-center transition hover:border-[var(--kc-accent,#c41e3a)]/50">
-            {sourcePreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={sourcePreview}
-                alt="Source"
-                className="mb-3 max-h-56 w-auto rounded-xl object-contain"
-              />
-            ) : (
-              <ImagePlus className="mb-3 size-10 text-[var(--color-jewelry-black,#1a1814)]/25" />
-            )}
-            <span className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
-              {sourceFile ? 'Change photo' : 'Tap to upload office / stock photo'}
-            </span>
-            <span className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-              JPEG, PNG or WEBP · max 12 MB
-            </span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              capture="environment"
-              className="sr-only"
-              onChange={(e) => onPick(e.target.files?.[0] || null)}
+          <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
+            <PhotoImportControls
+              previewUrl={sourcePreview}
+              onPick={onPick}
+              emptyLabel="Take or upload office / stock photo"
             />
-          </label>
+          </div>
         </section>
 
         {/* Barcode rename */}
