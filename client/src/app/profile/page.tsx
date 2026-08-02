@@ -20,6 +20,7 @@ import {
   RESELLER_CATALOG_SLAB_SETTINGS_PATH,
   RESELLER_MC_SLABS_PATH,
   RESELLER_ERP_PATH,
+  RESELLER_ENHANCED_PICTURES_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -48,6 +49,7 @@ import {
   CreditCard,
   Layers,
   Percent,
+  Sparkles,
   LayoutGrid,
 } from 'lucide-react'
 import axios from 'axios'
@@ -220,6 +222,13 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_erp_enabled?: boolean }).reseller_erp_enabled,
   )
+  const resellerEnhancedPicturesEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_enhanced_pictures_enabled?: boolean })
+        .reseller_enhanced_pictures_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -289,6 +298,7 @@ function ProfilePageContent() {
               resellerRatesEnabled ||
               resellerUploadSlabsEnabled ||
               resellerErpEnabled ||
+              resellerEnhancedPicturesEnabled ||
               isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
@@ -322,6 +332,15 @@ function ProfilePageContent() {
                           ? 'Edit weight, MC, photos on your live catalogue'
                           : 'Add items, photos & Excel — send batches for KC review'
                     }
+                    primary
+                  />
+                ) : null}
+                {resellerEnhancedPicturesEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_ENHANCED_PICTURES_PATH}
+                    icon={Sparkles}
+                    title="Enhanced pictures"
+                    subtitle="AI studio idol photos — rename by barcode & auto-attach to Excel uploads"
                     primary
                   />
                 ) : null}

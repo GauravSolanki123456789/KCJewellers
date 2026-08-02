@@ -48,6 +48,8 @@ export type WholesaleUserFields = {
   reseller_upload_slabs_enabled?: boolean
   /** Admin enables jewellery ERP suite at `/reseller/erp`. */
   reseller_erp_enabled?: boolean
+  /** Admin enables AI Enhanced Picture studio at `/reseller/enhanced-pictures`. */
+  reseller_enhanced_pictures_enabled?: boolean
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {
