@@ -1,5 +1,8 @@
 import axios from 'axios'
 
+export const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'] as const
+export type CanvasAspect = (typeof CANVAS_ASPECTS)[number]
+
 export type EnhancedPictureTemplate = {
   key: string
   label: string
@@ -19,6 +22,15 @@ export type EnhancedPicturePrompt = {
   test_result_image_url?: string | null
   created_at?: string
   updated_at?: string
+}
+
+export type EnhancedCreditPlan = {
+  id?: number
+  name: string
+  credits: number
+  price_inr: number
+  sort_order?: number
+  is_active?: boolean
 }
 
 export type EnhancedBarcodeHint = {
@@ -46,6 +58,7 @@ export type EnhancedGenerateResult = {
   }
   result_image_url: string
   download_filename?: string
+  credits?: number
   attach?: {
     attached: boolean
     submissionId?: number
@@ -64,7 +77,13 @@ export async function fetchEnhancedStatus() {
   const res = await axios.get<{
     enabled: boolean
     templates: EnhancedPictureTemplate[]
+    aspects: string[]
     active_prompt: { id: number; template_key: string; name: string } | null
+    credits: number
+    razorpay_enabled: boolean
+    payment_qr_url: string | null
+    bank_details: string | null
+    plans: EnhancedCreditPlan[]
   }>(`${apiBase()}/api/reseller/enhanced-pictures/status`, { withCredentials: true })
   return res.data
 }
@@ -82,11 +101,15 @@ export async function generateEnhancedPicture(opts: {
   templateKey?: string
   barcodeStem?: string
   photoType?: 'front' | 'back'
+  aspectRatio?: string
+  canvasText?: string
 }) {
   const fd = new FormData()
   fd.append('image', opts.image)
   fd.append('template_key', opts.templateKey || 'idols')
   fd.append('photo_type', opts.photoType || 'front')
+  fd.append('aspect_ratio', opts.aspectRatio || '1:1')
+  if (opts.canvasText) fd.append('canvas_text', opts.canvasText)
   if (opts.barcodeStem) fd.append('barcode_stem', opts.barcodeStem)
   const res = await axios.post<EnhancedGenerateResult>(
     `${apiBase()}/api/reseller/enhanced-pictures/generate`,
@@ -117,6 +140,44 @@ export async function attachEnhancedPicture(opts: {
   }
 }
 
+export function enhancedPicturesZipUrl() {
+  return `${apiBase()}/api/reseller/enhanced-pictures/download-zip`
+}
+
+export async function createEnhancedTopupOrder(planId: number) {
+  const res = await axios.post(
+    `${apiBase()}/api/reseller/enhanced-pictures/topup/create-order`,
+    { plan_id: planId },
+    { withCredentials: true },
+  )
+  return res.data as {
+    razorpay_order_id: string
+    amount: number
+    currency: string
+    key_id: string
+    plan: { id: number; name: string; credits: number; price_inr: number }
+  }
+}
+
+export async function verifyEnhancedTopup(opts: {
+  planId: number
+  razorpay_order_id: string
+  razorpay_payment_id: string
+  razorpay_signature: string
+}) {
+  const res = await axios.post(
+    `${apiBase()}/api/reseller/enhanced-pictures/topup/verify`,
+    {
+      plan_id: opts.planId,
+      razorpay_order_id: opts.razorpay_order_id,
+      razorpay_payment_id: opts.razorpay_payment_id,
+      razorpay_signature: opts.razorpay_signature,
+    },
+    { withCredentials: true },
+  )
+  return res.data as { success: boolean; credits: number; added: number }
+}
+
 export async function fetchAdminEnhancedPrompts(userId: number) {
   const res = await axios.get<{
     user: {
@@ -124,30 +185,19 @@ export async function fetchAdminEnhancedPrompts(userId: number) {
       email: string | null
       business_name: string | null
       reseller_enhanced_pictures_enabled: boolean
+      credits: number
+      razorpay_enabled: boolean
+      payment_qr_url: string | null
+      bank_details: string | null
     }
     templates: EnhancedPictureTemplate[]
+    aspects: string[]
     prompts: EnhancedPicturePrompt[]
+    plans: EnhancedCreditPlan[]
   }>(`${apiBase()}/api/admin/users/${userId}/enhanced-picture-prompts`, {
     withCredentials: true,
   })
   return res.data
-}
-
-export async function createAdminEnhancedPrompt(
-  userId: number,
-  body: {
-    name: string
-    prompt_text: string
-    negative_prompt?: string
-    template_key?: string
-  },
-) {
-  const res = await axios.post<{ prompt: EnhancedPicturePrompt }>(
-    `${apiBase()}/api/admin/users/${userId}/enhanced-picture-prompts`,
-    body,
-    { withCredentials: true },
-  )
-  return res.data.prompt
 }
 
 export async function patchAdminEnhancedPrompt(
@@ -186,6 +236,8 @@ export async function testGenerateAdminEnhanced(opts: {
   promptId?: number | null
   saveAsNew?: boolean
   templateKey?: string
+  aspectRatio?: string
+  canvasText?: string
 }) {
   const fd = new FormData()
   fd.append('image', opts.image)
@@ -195,6 +247,8 @@ export async function testGenerateAdminEnhanced(opts: {
   if (opts.promptId) fd.append('prompt_id', String(opts.promptId))
   if (opts.saveAsNew) fd.append('save_as_new', '1')
   fd.append('template_key', opts.templateKey || 'idols')
+  fd.append('aspect_ratio', opts.aspectRatio || '1:1')
+  if (opts.canvasText) fd.append('canvas_text', opts.canvasText)
   const res = await axios.post<{
     success: boolean
     source_image_url: string
@@ -203,6 +257,55 @@ export async function testGenerateAdminEnhanced(opts: {
   }>(`${apiBase()}/api/admin/users/${opts.userId}/enhanced-pictures/test-generate`, fd, {
     withCredentials: true,
     timeout: 200000,
+  })
+  return res.data
+}
+
+export async function adminSetEnhancedCredits(
+  userId: number,
+  body: { credits?: number; add?: number; note?: string },
+) {
+  const res = await axios.patch<{ credits: number }>(
+    `${apiBase()}/api/admin/users/${userId}/enhanced-picture-credits`,
+    body,
+    { withCredentials: true },
+  )
+  return res.data.credits
+}
+
+export async function adminSaveEnhancedPlans(userId: number, plans: EnhancedCreditPlan[]) {
+  const res = await axios.put<{ plans: EnhancedCreditPlan[] }>(
+    `${apiBase()}/api/admin/users/${userId}/enhanced-picture-plans`,
+    { plans },
+    { withCredentials: true },
+  )
+  return res.data.plans
+}
+
+export async function adminSaveEnhancedPayment(
+  userId: number,
+  opts: {
+    razorpayEnabled: boolean
+    bankDetails: string
+    qrFile?: File | null
+    clearQr?: boolean
+  },
+) {
+  const fd = new FormData()
+  fd.append('razorpay_enabled', opts.razorpayEnabled ? '1' : '0')
+  fd.append('bank_details', opts.bankDetails || '')
+  if (opts.clearQr) fd.append('clear_qr', '1')
+  if (opts.qrFile) fd.append('image', opts.qrFile)
+  const res = await axios.put<{
+    success: boolean
+    payment?: {
+      credits?: number
+      razorpay_enabled?: boolean
+      payment_qr_url?: string | null
+      bank_details?: string | null
+    }
+  }>(`${apiBase()}/api/admin/users/${userId}/enhanced-picture-payment`, fd, {
+    withCredentials: true,
   })
   return res.data
 }

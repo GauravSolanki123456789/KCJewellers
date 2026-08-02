@@ -24,6 +24,7 @@
     "update": "bash update.sh"
   },
   "dependencies": {
+    "archiver": "^5.3.2",
     "axios": "^1.13.5",
     "bcrypt": "^5.1.1",
     "cheerio": "^1.2.0",

@@ -410,7 +410,8 @@ const adminRequireJson = (req, res, next) => {
         pathOnly.includes('diamond-details') ||
         pathOnly.includes('reseller-logo') ||
         pathOnly.includes('reseller-product-submissions') ||
-        pathOnly.includes('enhanced-pictures/test-generate')
+        pathOnly.includes('enhanced-pictures/test-generate') ||
+        pathOnly.includes('enhanced-picture-payment')
     ) {
         return next();
     }

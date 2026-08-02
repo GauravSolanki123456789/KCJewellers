@@ -6,10 +6,28 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const axios = require('axios');
 const multer = require('multer');
+const archiver = require('archiver');
+const {
+    ensureCreditsSchema,
+    getCreditBalance,
+    ensureDefaultPlans,
+    listPlans,
+    setCreditBalance,
+    addCredits,
+    consumeOneCredit,
+    DEFAULT_PLANS,
+} = require('./resellerEnhancedPictureCredits');
 
 const TEMPLATE_IDOLS = 'idols';
+const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
+
+function normalizeAspectRatio(raw) {
+    const a = String(raw || '1:1').trim();
+    return CANVAS_ASPECTS.includes(a) ? a : '1:1';
+}
 
 const DEFAULT_IDOLS_PROMPT = `Create an ultra-premium luxury product photoshoot using ONLY the uploaded idol or frame.
 
@@ -192,6 +210,7 @@ async function ensureEnhancedPicturesSchema(pool) {
         CREATE INDEX IF NOT EXISTS idx_reseller_enhanced_jobs_user
             ON reseller_enhanced_picture_jobs (reseller_user_id, created_at DESC)
     `);
+    await ensureCreditsSchema(pool);
 }
 
 function createEnhancedUploadMulter(uploadsDir) {
@@ -227,9 +246,19 @@ function mimeFromExt(ext) {
     return 'image/jpeg';
 }
 
-function buildFullPrompt(promptText, negativePrompt) {
-    const main = String(promptText || '').trim();
-    const neg = String(negativePrompt || '').trim();
+function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText } = {}) {
+    let main = String(promptText || '').trim();
+    let neg = String(negativePrompt || '').trim();
+    const aspect = normalizeAspectRatio(aspectRatio);
+    const text = String(canvasText || '').trim().slice(0, 120);
+    main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
+    if (text) {
+        main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
+        neg = neg
+            .split(/\r?\n/)
+            .filter((line) => !/^no\s+text$/i.test(String(line).trim()))
+            .join('\n');
+    }
     if (!neg) return main;
     return `${main}\n\nNEGATIVE PROMPT:\n${neg}`;
 }
@@ -238,7 +267,13 @@ function buildFullPrompt(promptText, negativePrompt) {
  * Call Gemini image generation with an optional reference image.
  * Returns { buffer, mimeType }.
  */
-async function generateStudioImage({ promptText, negativePrompt, sourceImagePath }) {
+async function generateStudioImage({
+    promptText,
+    negativePrompt,
+    sourceImagePath,
+    aspectRatio,
+    canvasText,
+}) {
     const apiKey = getGeminiApiKey();
     if (!apiKey) {
         const err = new Error(
@@ -247,7 +282,11 @@ async function generateStudioImage({ promptText, negativePrompt, sourceImagePath
         err.status = 503;
         throw err;
     }
-    const fullPrompt = buildFullPrompt(promptText, negativePrompt);
+    const aspect = normalizeAspectRatio(aspectRatio);
+    const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
+        aspectRatio: aspect,
+        canvasText,
+    });
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
         const buf = fs.readFileSync(sourceImagePath);
@@ -270,6 +309,7 @@ async function generateStudioImage({ promptText, negativePrompt, sourceImagePath
                     contents: [{ role: 'user', parts }],
                     generationConfig: {
                         responseModalities: ['IMAGE'],
+                        imageConfig: { aspectRatio: aspect },
                     },
                 },
                 { timeout: 180000, validateStatus: () => true },
@@ -512,21 +552,31 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 const u = await loadResellerFlags(query, userId);
                 if (!u) return res.status(404).json({ error: 'User not found' });
                 await ensureDefaultIdolsPrompt(query, userId, req.user?.id);
+                await ensureDefaultPlans(query, userId);
                 const prompts = await query(
                     `SELECT * FROM reseller_enhanced_picture_prompts
                      WHERE reseller_user_id = $1
                      ORDER BY is_active DESC, updated_at DESC, id DESC`,
                     [userId],
                 );
+                const creditInfo = await getCreditBalance(query, userId);
+                const plans = await listPlans(query, userId);
                 res.json({
                     user: {
                         id: u.id,
                         email: u.email,
                         business_name: u.business_name,
                         reseller_enhanced_pictures_enabled: !!u.enhanced_pictures,
+                        credits: creditInfo?.credits ?? 0,
+                        razorpay_enabled: !!creditInfo?.razorpay_enabled,
+                        payment_qr_url: creditInfo?.payment_qr_url || null,
+                        bank_details: creditInfo?.bank_details || null,
                     },
                     templates: TEMPLATES,
+                    aspects: CANVAS_ASPECTS,
                     prompts,
+                    plans,
+                    default_plans: DEFAULT_PLANS,
                 });
             } catch (e) {
                 console.error('admin list enhanced prompts:', e);
@@ -691,6 +741,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     .trim()
                     .toLowerCase()
                     .slice(0, 64) || TEMPLATE_IDOLS;
+                const aspectRatio = normalizeAspectRatio(req.body.aspect_ratio);
+                const canvasText = String(req.body.canvas_text || '').trim().slice(0, 120);
                 const saveAsNew = String(req.body.save_as_new || '') === '1' || req.body.save_as_new === true;
 
                 if (promptId) {
@@ -713,6 +765,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     promptText,
                     negativePrompt,
                     sourceImagePath: req.file.path,
+                    aspectRatio,
+                    canvasText,
                 });
                 const outName = saveGeneratedBuffer(
                     enhancedDir,
@@ -759,10 +813,152 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     success: true,
                     source_image_url: sourceUrl,
                     result_image_url: resultUrl,
+                    aspect_ratio: aspectRatio,
+                    canvas_text: canvasText || null,
                     prompt: promptRow,
                 });
             } catch (e) {
                 console.error('admin enhanced test-generate:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
+    // ---- Admin: credits + payment settings + plans ----
+    app.patch(
+        '/api/admin/users/:userId/enhanced-picture-credits',
+        isAdminStrict,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                let credits;
+                if (req.body.credits !== undefined && req.body.credits !== null && req.body.add == null) {
+                    credits = await setCreditBalance(query, pool, {
+                        userId,
+                        balance: req.body.credits,
+                        adminId: req.user?.id,
+                        note: req.body.note,
+                        reason: 'admin_set',
+                    });
+                } else {
+                    credits = await addCredits(query, pool, {
+                        userId,
+                        amount: req.body.add != null ? req.body.add : req.body.credits,
+                        adminId: req.user?.id,
+                        note: req.body.note,
+                        reason: 'admin_add',
+                    });
+                }
+                res.json({ success: true, credits });
+            } catch (e) {
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
+    app.put(
+        '/api/admin/users/:userId/enhanced-picture-payment',
+        isAdminStrict,
+        (req, res, next) => {
+            const ct = String(req.headers['content-type'] || '');
+            if (ct.includes('multipart/form-data')) {
+                return upload(req, res, (err) => (err ? next(err) : next()));
+            }
+            return next();
+        },
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                const body = req.body || {};
+                const razorpayEnabled =
+                    body.razorpay_enabled === true ||
+                    body.razorpay_enabled === '1' ||
+                    body.razorpay_enabled === 'true';
+                const bankDetails =
+                    body.bank_details !== undefined
+                        ? String(body.bank_details || '').trim().slice(0, 4000) || null
+                        : undefined;
+                let qrUrl;
+                if (req.file) {
+                    qrUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${req.file.filename}`;
+                } else if (body.clear_qr === '1' || body.clear_qr === true) {
+                    qrUrl = null;
+                }
+                const sets = [
+                    'reseller_enhanced_razorpay_enabled = $1',
+                    'updated_at = CURRENT_TIMESTAMP',
+                ];
+                const params = [!!razorpayEnabled];
+                let i = 2;
+                if (bankDetails !== undefined) {
+                    sets.push(`reseller_enhanced_bank_details = $${i++}`);
+                    params.push(bankDetails);
+                }
+                if (qrUrl !== undefined) {
+                    sets.push(`reseller_enhanced_payment_qr_url = $${i++}`);
+                    params.push(qrUrl);
+                }
+                params.push(userId);
+                await query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${i}`, params);
+                const info = await getCreditBalance(query, userId);
+                res.json({ success: true, payment: info });
+            } catch (e) {
+                console.error('admin enhanced payment settings:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
+    app.put(
+        '/api/admin/users/:userId/enhanced-picture-plans',
+        isAdminStrict,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                const plans = Array.isArray(req.body.plans) ? req.body.plans : [];
+                if (!plans.length) return res.status(400).json({ error: 'plans array required' });
+                await query(`DELETE FROM reseller_enhanced_credit_plans WHERE reseller_user_id = $1`, [
+                    userId,
+                ]);
+                const saved = [];
+                let order = 0;
+                for (const p of plans) {
+                    const name = String(p.name || '').trim().slice(0, 120);
+                    const credits = Math.max(1, Math.floor(Number(p.credits) || 0));
+                    const price = Math.max(0, Number(p.price_inr) || 0);
+                    if (!name || !credits) continue;
+                    order += 1;
+                    const rows = await query(
+                        `INSERT INTO reseller_enhanced_credit_plans
+                            (reseller_user_id, name, credits, price_inr, sort_order, is_active)
+                         VALUES ($1, $2, $3, $4, $5, $6)
+                         RETURNING *`,
+                        [
+                            userId,
+                            name,
+                            credits,
+                            price,
+                            p.sort_order != null ? Number(p.sort_order) : order,
+                            p.is_active === false ? false : true,
+                        ],
+                    );
+                    saved.push(rows[0]);
+                }
+                if (!saved.length) {
+                    await ensureDefaultPlans(query, userId);
+                    const fallback = await listPlans(query, userId);
+                    return res.json({ plans: fallback });
+                }
+                res.json({ plans: saved });
+            } catch (e) {
                 res.status(e.status || 500).json({ error: e.message });
             }
         },
@@ -774,11 +970,14 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             await ensureEnhancedPicturesSchema(pool);
             const u = await loadResellerFlags(query, req.user.id);
             if (!u || String(u.customer_tier || '').toUpperCase() !== 'RESELLER') {
-                return res.json({ enabled: false, templates: [] });
+                return res.json({ enabled: false, templates: [], aspects: CANVAS_ASPECTS });
             }
             let activePrompt = null;
+            let creditInfo = null;
+            let plans = [];
             if (u.enhanced_pictures) {
                 await ensureDefaultIdolsPrompt(query, req.user.id, null);
+                await ensureDefaultPlans(query, req.user.id);
                 const rows = await query(
                     `SELECT id, template_key, name, is_active
                      FROM reseller_enhanced_picture_prompts
@@ -786,11 +985,19 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     [req.user.id],
                 );
                 activePrompt = rows[0] || null;
+                creditInfo = await getCreditBalance(query, req.user.id);
+                plans = await listPlans(query, req.user.id, { activeOnly: true });
             }
             res.json({
                 enabled: !!u.enhanced_pictures,
                 templates: u.enhanced_pictures ? TEMPLATES : [],
+                aspects: CANVAS_ASPECTS,
                 active_prompt: activePrompt,
+                credits: creditInfo?.credits ?? 0,
+                razorpay_enabled: !!creditInfo?.razorpay_enabled,
+                payment_qr_url: creditInfo?.payment_qr_url || null,
+                bank_details: creditInfo?.bank_details || null,
+                plans,
             });
         } catch (e) {
             console.error('reseller enhanced status:', e);
@@ -835,6 +1042,13 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         try {
             await ensureEnhancedPicturesSchema(pool);
             await assertResellerEnhancedAccess(query, req.user.id);
+            const creditCheck = await getCreditBalance(query, req.user.id);
+            if (!creditCheck || creditCheck.credits < 1) {
+                return res.status(402).json({
+                    error: 'No credits remaining. Top up credits to continue generating studio photos.',
+                    credits: 0,
+                });
+            }
             await runUpload(req, res);
             if (!req.file) return res.status(400).json({ error: 'image file required' });
 
@@ -846,7 +1060,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 ? 'back'
                 : 'front';
             let barcodeStem = normalizeStem(req.body.barcode_stem || req.body.barcode || '');
-            // Allow renaming after generate; barcode optional at generate time
+            const aspectRatio = normalizeAspectRatio(req.body.aspect_ratio);
+            const canvasText = String(req.body.canvas_text || '').trim().slice(0, 120);
             const promptRows = await query(
                 `SELECT * FROM reseller_enhanced_picture_prompts
                  WHERE reseller_user_id = $1 AND template_key = $2 AND is_active = true
@@ -860,11 +1075,17 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             }
             const prompt = promptRows[0];
             const sourceUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${req.file.filename}`;
+            const downloadFilename = barcodeStem
+                ? photoType === 'back'
+                    ? `${barcodeStem}_secondary`
+                    : barcodeStem
+                : null;
 
             const jobIns = await query(
                 `INSERT INTO reseller_enhanced_picture_jobs
-                    (reseller_user_id, template_key, prompt_id, source_image_url, barcode_stem, photo_type, status, created_by_user_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7)
+                    (reseller_user_id, template_key, prompt_id, source_image_url, barcode_stem, photo_type,
+                     status, created_by_user_id, aspect_ratio, canvas_text, download_filename)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7, $8, $9, $10)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -874,6 +1095,9 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     barcodeStem || null,
                     photoType,
                     req.user.id,
+                    aspectRatio,
+                    canvasText || null,
+                    downloadFilename,
                 ],
             );
             const job = jobIns[0];
@@ -883,7 +1107,10 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     promptText: prompt.prompt_text,
                     negativePrompt: prompt.negative_prompt,
                     sourceImagePath: req.file.path,
+                    aspectRatio,
+                    canvasText,
                 });
+                const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
                 const outName = saveGeneratedBuffer(
                     enhancedDir,
                     generated.buffer,
@@ -892,6 +1119,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 );
                 const resultUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${outName}`;
                 const resultPath = path.join(enhancedDir, outName);
+                const finalDownload =
+                    (downloadFilename || `studio-${job.id}`) + extFromMime(generated.mimeType);
 
                 let attach = null;
                 if (barcodeStem) {
@@ -912,14 +1141,16 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                      SET result_image_url = $1, status = 'completed',
                          attached_submission_id = $2, attached_sku = $3,
                          barcode_stem = COALESCE($4, barcode_stem),
+                         download_filename = $5,
                          error_message = NULL
-                     WHERE id = $5
+                     WHERE id = $6
                      RETURNING *`,
                     [
                         resultUrl,
                         attach?.submissionId || null,
                         attach?.sku || null,
                         barcodeStem || null,
+                        finalDownload,
                         job.id,
                     ],
                 );
@@ -928,11 +1159,10 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     success: true,
                     job: updated[0],
                     result_image_url: resultUrl,
-                    download_filename: barcodeStem
-                        ? photoType === 'back'
-                            ? `${barcodeStem}_secondary${extFromMime(generated.mimeType)}`
-                            : `${barcodeStem}${extFromMime(generated.mimeType)}`
-                        : outName,
+                    download_filename: finalDownload,
+                    aspect_ratio: aspectRatio,
+                    canvas_text: canvasText || null,
+                    credits: creditsLeft,
                     attach,
                 });
             } catch (genErr) {
@@ -946,7 +1176,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             }
         } catch (e) {
             console.error('reseller enhanced generate:', e);
-            res.status(e.status || 500).json({ error: e.message });
+            res.status(e.status || 500).json({ error: e.message, credits: e.status === 402 ? 0 : undefined });
         }
     });
 
@@ -1026,6 +1256,208 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             }
         },
     );
+
+    /** Download all completed generations as a ZIP, foldered by template (e.g. idols/). */
+    app.get('/api/reseller/enhanced-pictures/download-zip', checkAuth, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            await assertResellerEnhancedAccess(query, req.user.id);
+            const jobs = await query(
+                `SELECT id, template_key, result_image_url, download_filename, barcode_stem, photo_type, created_at
+                 FROM reseller_enhanced_picture_jobs
+                 WHERE reseller_user_id = $1 AND status = 'completed'
+                   AND result_image_url IS NOT NULL
+                 ORDER BY template_key ASC, created_at ASC`,
+                [req.user.id],
+            );
+            if (!jobs.length) {
+                return res.status(404).json({ error: 'No generated images to download yet' });
+            }
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="enhanced-pictures-${req.user.id}.zip"`,
+            );
+            const archive = archiver('zip', { zlib: { level: 6 } });
+            archive.on('error', (err) => {
+                console.error('enhanced zip:', err);
+                try {
+                    res.status(500).end();
+                } catch (_) {
+                    /* ignore */
+                }
+            });
+            archive.pipe(res);
+            const usedNames = new Set();
+            for (const job of jobs) {
+                const fileName = path.basename(String(job.result_image_url || '').split('?')[0]);
+                const diskPath = path.join(enhancedDir, fileName);
+                if (!fs.existsSync(diskPath)) continue;
+                const folder = String(job.template_key || 'idols')
+                    .replace(/[^a-z0-9_-]+/gi, '-')
+                    .toLowerCase() || 'idols';
+                const ext = path.extname(fileName) || '.png';
+                let base =
+                    String(job.download_filename || '').trim() ||
+                    (job.barcode_stem
+                        ? job.photo_type === 'back'
+                            ? `${normalizeStem(job.barcode_stem)}_secondary${ext}`
+                            : `${normalizeStem(job.barcode_stem)}${ext}`
+                        : `image-${job.id}${ext}`);
+                if (!path.extname(base)) base += ext;
+                let entry = `${folder}/${base}`;
+                let n = 1;
+                while (usedNames.has(entry.toLowerCase())) {
+                    const stem = base.replace(new RegExp(`${ext.replace('.', '\\.')}$`, 'i'), '');
+                    entry = `${folder}/${stem}-${n}${ext}`;
+                    n += 1;
+                }
+                usedNames.add(entry.toLowerCase());
+                archive.file(diskPath, { name: entry });
+            }
+            await archive.finalize();
+        } catch (e) {
+            console.error('reseller enhanced zip:', e);
+            if (!res.headersSent) res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
+    /** Razorpay top-up for a credit plan (only when admin enabled Razorpay for this reseller). */
+    app.post(
+        '/api/reseller/enhanced-pictures/topup/create-order',
+        checkAuth,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                await assertResellerEnhancedAccess(query, req.user.id);
+                const info = await getCreditBalance(query, req.user.id);
+                if (!info?.razorpay_enabled) {
+                    return res.status(403).json({
+                        error: 'Razorpay top-up is not enabled for your account. Use UPI/QR or bank transfer.',
+                    });
+                }
+                const planId = parseInt(String(req.body.plan_id), 10);
+                if (!planId) return res.status(400).json({ error: 'plan_id required' });
+                const plans = await query(
+                    `SELECT * FROM reseller_enhanced_credit_plans
+                     WHERE id = $1 AND reseller_user_id = $2 AND is_active = true`,
+                    [planId, req.user.id],
+                );
+                if (!plans.length) return res.status(404).json({ error: 'Plan not found' });
+                const plan = plans[0];
+                const keyId = process.env.RAZORPAY_KEY_ID;
+                const keySecret = process.env.RAZORPAY_KEY_SECRET;
+                if (!keyId || !keySecret) {
+                    return res.status(503).json({ error: 'Razorpay is not configured on the server' });
+                }
+                const amountPaise = Math.round(Number(plan.price_inr) * 100);
+                if (amountPaise < 100) {
+                    return res.status(400).json({ error: 'Plan price too low for Razorpay' });
+                }
+                const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+                const resp = await axios.post(
+                    'https://api.razorpay.com/v1/orders',
+                    {
+                        amount: amountPaise,
+                        currency: 'INR',
+                        receipt: `enh-cr-${req.user.id}-${plan.id}-${Date.now()}`.slice(0, 40),
+                        notes: {
+                            type: 'enhanced_picture_credits',
+                            reseller_user_id: String(req.user.id),
+                            plan_id: String(plan.id),
+                            credits: String(plan.credits),
+                        },
+                    },
+                    {
+                        headers: {
+                            Authorization: `Basic ${auth}`,
+                            'Content-Type': 'application/json',
+                        },
+                        validateStatus: () => true,
+                    },
+                );
+                if (resp.status >= 400) {
+                    return res.status(502).json({
+                        error: resp.data?.error?.description || 'Failed to create Razorpay order',
+                    });
+                }
+                res.json({
+                    razorpay_order_id: resp.data.id,
+                    amount: amountPaise,
+                    currency: 'INR',
+                    key_id: keyId,
+                    plan: {
+                        id: plan.id,
+                        name: plan.name,
+                        credits: plan.credits,
+                        price_inr: Number(plan.price_inr),
+                    },
+                });
+            } catch (e) {
+                console.error('enhanced topup create:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/enhanced-pictures/topup/verify',
+        checkAuth,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                await assertResellerEnhancedAccess(query, req.user.id);
+                const info = await getCreditBalance(query, req.user.id);
+                if (!info?.razorpay_enabled) {
+                    return res.status(403).json({ error: 'Razorpay top-up is not enabled' });
+                }
+                const {
+                    razorpay_order_id,
+                    razorpay_payment_id,
+                    razorpay_signature,
+                    plan_id,
+                } = req.body || {};
+                if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !plan_id) {
+                    return res.status(400).json({
+                        error: 'razorpay_order_id, razorpay_payment_id, razorpay_signature, plan_id required',
+                    });
+                }
+                const keySecret = process.env.RAZORPAY_KEY_SECRET;
+                if (!keySecret) return res.status(503).json({ error: 'Razorpay not configured' });
+                const expected = crypto
+                    .createHmac('sha256', keySecret)
+                    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+                    .digest('hex');
+                if (expected !== razorpay_signature) {
+                    return res.status(400).json({ error: 'Invalid payment signature' });
+                }
+                const plans = await query(
+                    `SELECT * FROM reseller_enhanced_credit_plans
+                     WHERE id = $1 AND reseller_user_id = $2 AND is_active = true`,
+                    [parseInt(String(plan_id), 10), req.user.id],
+                );
+                if (!plans.length) return res.status(404).json({ error: 'Plan not found' });
+                const plan = plans[0];
+                const credits = await addCredits(query, pool, {
+                    userId: req.user.id,
+                    amount: plan.credits,
+                    note: `Razorpay ${razorpay_payment_id} · ${plan.name}`,
+                    reason: 'razorpay_topup',
+                });
+                res.json({
+                    success: true,
+                    credits,
+                    added: plan.credits,
+                    plan: { id: plan.id, name: plan.name },
+                });
+            } catch (e) {
+                console.error('enhanced topup verify:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
 }
 
 module.exports = {
@@ -1035,4 +1467,5 @@ module.exports = {
     DEFAULT_IDOLS_NEGATIVE,
     TEMPLATES,
     TEMPLATE_IDOLS,
+    CANVAS_ASPECTS,
 };

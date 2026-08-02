@@ -9,24 +9,34 @@ import {
   Loader2,
   Sparkles,
   Package,
+  Archive,
+  Coins,
 } from 'lucide-react'
-import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
-import {
-  CATALOG_PATH,
-  PROFILE_PATH,
-  RESELLER_PRODUCTS_PATH,
-} from '@/lib/routes'
+import { PROFILE_PATH, RESELLER_PRODUCTS_PATH } from '@/lib/routes'
+import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
+import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import {
   attachEnhancedPicture,
+  createEnhancedTopupOrder,
+  enhancedPicturesZipUrl,
   fetchBarcodeHints,
   fetchEnhancedStatus,
   generateEnhancedPicture,
+  verifyEnhancedTopup,
   type EnhancedBarcodeHint,
+  type EnhancedCreditPlan,
   type EnhancedPictureTemplate,
 } from '@/lib/reseller-enhanced-pictures'
+
+type RazorpayCtor = new (opts: Record<string, unknown>) => { open: () => void }
+
+function getRazorpay(): RazorpayCtor | null {
+  if (typeof window === 'undefined') return null
+  return (window as unknown as { Razorpay?: RazorpayCtor }).Razorpay || null
+}
 
 function normalizeStem(raw: string) {
   return String(raw || '')
@@ -34,6 +44,18 @@ function normalizeStem(raw: string) {
     .toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/_+/g, '-')
+}
+
+function loadRazorpay(): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false)
+  if (getRazorpay()) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const s = document.createElement('script')
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    s.onload = () => resolve(!!getRazorpay())
+    s.onerror = () => resolve(false)
+    document.body.appendChild(s)
+  })
 }
 
 export default function ResellerEnhancedPicturesPageClient() {
@@ -44,8 +66,17 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [templates, setTemplates] = useState<EnhancedPictureTemplate[]>([])
   const [activePromptName, setActivePromptName] = useState<string | null>(null)
   const [hints, setHints] = useState<EnhancedBarcodeHint[]>([])
+  const [credits, setCredits] = useState(0)
+  const [plans, setPlans] = useState<EnhancedCreditPlan[]>([])
+  const [razorpayEnabled, setRazorpayEnabled] = useState(false)
+  const [paymentQrUrl, setPaymentQrUrl] = useState<string | null>(null)
+  const [bankDetails, setBankDetails] = useState<string | null>(null)
+  const [showTopup, setShowTopup] = useState(false)
   const [statusLoading, setStatusLoading] = useState(true)
   const [templateKey, setTemplateKey] = useState('idols')
+  const [aspectRatio, setAspectRatio] = useState('1:1')
+  const [includeCanvasText, setIncludeCanvasText] = useState(false)
+  const [canvasText, setCanvasText] = useState('')
   const [photoType, setPhotoType] = useState<'front' | 'back'>('front')
   const [barcodeStem, setBarcodeStem] = useState('')
   const [sourceFile, setSourceFile] = useState<File | null>(null)
@@ -78,11 +109,15 @@ export default function ResellerEnhancedPicturesPageClient() {
       setEnabled(status.enabled)
       setTemplates(status.templates || [])
       setActivePromptName(status.active_prompt?.name || null)
+      setCredits(status.credits ?? 0)
+      setPlans(status.plans || [])
+      setRazorpayEnabled(!!status.razorpay_enabled)
+      setPaymentQrUrl(status.payment_qr_url || null)
+      setBankDetails(status.bank_details || null)
       if (status.templates?.[0]?.key) setTemplateKey(status.templates[0].key)
       if (status.enabled) {
         try {
-          const h = await fetchBarcodeHints()
-          setHints(h)
+          setHints(await fetchBarcodeHints())
         } catch {
           setHints([])
         }
@@ -129,6 +164,11 @@ export default function ResellerEnhancedPicturesPageClient() {
       setError('Take or choose a product photo first.')
       return
     }
+    if (credits < 1) {
+      setShowTopup(true)
+      setError('No credits remaining. Top up to continue.')
+      return
+    }
     setBusy(true)
     setError('')
     setAttachMsg('')
@@ -143,21 +183,19 @@ export default function ResellerEnhancedPicturesPageClient() {
         templateKey,
         barcodeStem: normalizeStem(barcodeStem) || undefined,
         photoType,
+        aspectRatio,
+        canvasText: includeCanvasText ? canvasText.trim() : undefined,
       })
       setResultUrl(data.result_image_url)
       setJobId(data.job?.id ?? null)
       setDownloadName(data.download_filename || suggestedFilename || 'studio-shot.webp')
+      if (typeof data.credits === 'number') setCredits(data.credits)
       if (data.attach?.attached) {
-        setAttachMsg(
-          `Attached to ${data.attach.sku} (${data.attach.status}) — appears in Upload products.`,
-        )
+        setAttachMsg(`Attached to ${data.attach.sku} (${data.attach.status}).`)
       } else if (normalizeStem(barcodeStem)) {
-        setAttachMsg(
-          data.attach?.reason ||
-            'Generated. Enter the exact barcode stem and tap Attach to product.',
-        )
+        setAttachMsg(data.attach?.reason || 'Generated. Tap Attach to product if needed.')
       } else {
-        setAttachMsg('Generated. Rename with the product barcode, then attach or download.')
+        setAttachMsg('Generated. Rename with barcode, then attach or download.')
       }
       setPhase('done')
       setProgress(100)
@@ -165,12 +203,13 @@ export default function ResellerEnhancedPicturesPageClient() {
       if (h) setHints(h)
     } catch (e: unknown) {
       setPhase('idle')
-      setError(
-        (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data
-          ?.error ||
-          (e as { message?: string })?.message ||
-          'Generation failed',
-      )
+      const status = (e as { response?: { status?: number; data?: { error?: string; credits?: number } } })
+        ?.response
+      if (status?.status === 402) {
+        setCredits(0)
+        setShowTopup(true)
+      }
+      setError(status?.data?.error || (e as { message?: string })?.message || 'Generation failed')
     } finally {
       window.clearInterval(tick)
       setBusy(false)
@@ -187,23 +226,18 @@ export default function ResellerEnhancedPicturesPageClient() {
     setBusy(true)
     setError('')
     try {
-      const data = await attachEnhancedPicture({
-        jobId,
-        barcodeStem: stem,
-        photoType,
-      })
+      const data = await attachEnhancedPicture({ jobId, barcodeStem: stem, photoType })
       setDownloadName(data.download_filename || suggestedFilename)
       setAttachMsg(
         data.attach?.attached
-          ? `Attached to ${data.attach.sku} — open Upload products to confirm.`
+          ? `Attached to ${data.attach.sku}.`
           : data.attach?.reason || 'Could not attach',
       )
       const h = await fetchBarcodeHints().catch(() => null)
       if (h) setHints(h)
     } catch (e: unknown) {
       setError(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Attach failed',
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Attach failed',
       )
     } finally {
       setBusy(false)
@@ -222,6 +256,64 @@ export default function ResellerEnhancedPicturesPageClient() {
       URL.revokeObjectURL(a.href)
     } catch {
       window.open(resultUrl, '_blank')
+    }
+  }
+
+  const downloadZip = () => {
+    window.location.href = enhancedPicturesZipUrl()
+  }
+
+  const payWithRazorpay = async (plan: EnhancedCreditPlan) => {
+    if (!plan.id) return
+    setBusy(true)
+    setError('')
+    try {
+      const ok = await loadRazorpay()
+      const Razorpay = getRazorpay()
+      if (!ok || !Razorpay) {
+        setError('Could not load Razorpay checkout')
+        return
+      }
+      const order = await createEnhancedTopupOrder(plan.id)
+      await new Promise<void>((resolve, reject) => {
+        const rzp = new Razorpay({
+          key: order.key_id,
+          amount: order.amount,
+          currency: order.currency,
+          name: 'Enhanced Pictures',
+          description: `${order.plan.name} · ${order.plan.credits} credits`,
+          order_id: order.razorpay_order_id,
+          handler: async (response: {
+            razorpay_order_id: string
+            razorpay_payment_id: string
+            razorpay_signature: string
+          }) => {
+            try {
+              const verified = await verifyEnhancedTopup({
+                planId: plan.id!,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              })
+              setCredits(verified.credits)
+              setShowTopup(false)
+              setAttachMsg(`Added ${verified.added} credits. Balance: ${verified.credits}.`)
+              resolve()
+            } catch (err) {
+              reject(err)
+            }
+          },
+          modal: { ondismiss: () => resolve() },
+        })
+        rzp.open()
+      })
+    } catch (e: unknown) {
+      setError(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Payment failed',
+      )
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -272,7 +364,7 @@ export default function ResellerEnhancedPicturesPageClient() {
           >
             <ArrowLeft className="size-5" />
           </Link>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--kc-accent,#c41e3a)]">
               Design studio
             </p>
@@ -285,13 +377,45 @@ export default function ResellerEnhancedPicturesPageClient() {
               </p>
             ) : null}
           </div>
+          <div className="shrink-0 text-right">
+            <p className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-slate-900,#f7f4ef)] px-3 py-1.5 text-xs font-bold text-[var(--color-jewelry-black,#1a1814)]">
+              <Coins className="size-3.5 text-[var(--kc-accent,#c41e3a)]" />
+              {credits} credit{credits === 1 ? '' : 's'}
+            </p>
+            {credits < 1 ? (
+              <button
+                type="button"
+                onClick={() => setShowTopup(true)}
+                className="mt-1 block w-full text-[11px] font-semibold text-[var(--kc-accent,#c41e3a)]"
+              >
+                Recharge credits
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
       <div className="mx-auto max-w-3xl space-y-5 px-4 py-5">
-        {/* Template */}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={downloadZip}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+          >
+            <Archive className="size-4" />
+            Download all (ZIP)
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTopup(true)}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+          >
+            Top up
+          </button>
+        </div>
+
         <section>
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
             01 · Template
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -321,10 +445,11 @@ export default function ResellerEnhancedPicturesPageClient() {
           </div>
         </section>
 
-        {/* Import */}
+        <CanvasAspectPicker value={aspectRatio} onChange={setAspectRatio} label="02 · Canvas aspect" />
+
         <section>
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-            02 · Import asset
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+            03 · Import asset
           </p>
           <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
             <PhotoImportControls
@@ -335,10 +460,36 @@ export default function ResellerEnhancedPicturesPageClient() {
           </div>
         </section>
 
-        {/* Barcode rename */}
+        <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={includeCanvasText}
+              onChange={(e) => setIncludeCanvasText(e.target.checked)}
+              className="mt-1 size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Add text bottom of the visual canvas
+              </span>
+              <span className="mt-0.5 block text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                Optional — e.g. GANESH-SFIDOL001 under the photo
+              </span>
+            </span>
+          </label>
+          {includeCanvasText ? (
+            <input
+              value={canvasText}
+              onChange={(e) => setCanvasText(e.target.value)}
+              placeholder="e.g. GANESH-SFIDOL001"
+              className="mt-3 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
+            />
+          ) : null}
+        </section>
+
         <section>
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-            03 · Rename to barcode
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+            04 · Rename to barcode
           </p>
           <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
             <div className="mb-3 flex gap-2">
@@ -382,7 +533,14 @@ export default function ResellerEnhancedPicturesPageClient() {
                   <button
                     key={h.id}
                     type="button"
-                    onClick={() => setBarcodeStem(h.stem)}
+                    onClick={() => {
+                      setBarcodeStem(h.stem)
+                      if (!includeCanvasText) {
+                        /* keep optional */
+                      } else if (!canvasText.trim()) {
+                        setCanvasText(String(h.barcode || h.web_product_sku || h.stem).toUpperCase())
+                      }
+                    }}
                     className="flex w-full items-center justify-between gap-2 border-b border-[var(--color-slate-700,#e8e4df)] px-3 py-2 text-left last:border-0 hover:bg-[var(--color-slate-900,#f7f4ef)]"
                   >
                     <span className="min-w-0">
@@ -407,7 +565,7 @@ export default function ResellerEnhancedPicturesPageClient() {
                 <Link href={RESELLER_PRODUCTS_PATH} className="font-medium text-[var(--kc-accent,#c41e3a)]">
                   Upload products
                 </Link>{' '}
-                first so barcodes appear here for one-tap rename.
+                first so barcodes appear here.
               </p>
             )}
           </div>
@@ -428,15 +586,12 @@ export default function ResellerEnhancedPicturesPageClient() {
                 style={{ width: `${Math.min(100, Math.round(progress))}%` }}
               />
             </div>
-            <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-              {Math.min(100, Math.round(progress))}% processed
-            </p>
           </div>
         ) : null}
 
         {resultUrl && phase !== 'preparing' ? (
           <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
               Studio preview
             </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -446,9 +601,7 @@ export default function ResellerEnhancedPicturesPageClient() {
               className="mx-auto max-h-[420px] w-full rounded-xl object-contain"
             />
             {attachMsg ? (
-              <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                {attachMsg}
-              </p>
+              <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{attachMsg}</p>
             ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               <button
@@ -467,12 +620,6 @@ export default function ResellerEnhancedPicturesPageClient() {
               >
                 Attach to product
               </button>
-              <Link
-                href={RESELLER_PRODUCTS_PATH}
-                className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-4 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)] sm:flex-none"
-              >
-                Open uploads
-              </Link>
             </div>
           </section>
         ) : null}
@@ -485,7 +632,7 @@ export default function ResellerEnhancedPicturesPageClient() {
 
         <button
           type="button"
-          disabled={busy || !sourceFile}
+          disabled={busy || !sourceFile || credits < 1}
           onClick={() => void runGenerate()}
           className="kc-btn-theme flex w-full min-h-[52px] items-center justify-center gap-2 rounded-2xl text-base font-semibold disabled:opacity-50"
         >
@@ -494,16 +641,88 @@ export default function ResellerEnhancedPicturesPageClient() {
           ) : (
             <Sparkles className="size-5" />
           )}
-          Generate studio shot
+          Generate studio shot · 1 credit
         </button>
-
-        <p className="pb-4 text-center text-xs text-[var(--color-jewelry-black,#1a1814)]/45">
-          After attach, the photo lands on the matching Excel draft — no manual re-upload needed.{' '}
-          <Link href={CATALOG_PATH} className="underline-offset-2 hover:underline">
-            Catalogue
-          </Link>
-        </p>
+        {credits < 1 ? (
+          <button
+            type="button"
+            onClick={() => setShowTopup(true)}
+            className="w-full rounded-2xl bg-amber-500 px-4 py-3 text-sm font-bold text-white"
+          >
+            Recharge credits
+          </button>
+        ) : null}
       </div>
+
+      {showTopup ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Recharge credits
+                </h2>
+                <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Balance: {credits} · 1 credit = 1 image
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTopup(false)}
+                className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]/60"
+              >
+                Close
+              </button>
+            </div>
+            <div className="space-y-2">
+              {plans.map((p) => (
+                <div
+                  key={p.id || p.name}
+                  className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{p.name}</p>
+                      <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                        {p.credits} credits · ₹{Number(p.price_inr).toLocaleString('en-IN')}
+                      </p>
+                    </div>
+                    {razorpayEnabled ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void payWithRazorpay(p)}
+                        className="rounded-lg bg-[var(--kc-accent,#c41e3a)] px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        Pay
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {(paymentQrUrl || bankDetails) && (
+              <div className="mt-4 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] p-3">
+                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Pay via UPI / bank
+                </p>
+                <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
+                  After payment, KC admin will add your credits.
+                </p>
+                {paymentQrUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={paymentQrUrl} alt="Payment QR" className="mx-auto mt-3 max-h-48 rounded-lg" />
+                ) : null}
+                {bankDetails ? (
+                  <pre className="mt-3 whitespace-pre-wrap text-xs text-[var(--color-jewelry-black,#1a1814)]">
+                    {bankDetails}
+                  </pre>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
