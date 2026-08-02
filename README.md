@@ -1,4 +1,5 @@
 ssh root@159.65.145.51
+./deploy.sh
 
 cd /var/www/kcjewellers
 npm run migrate

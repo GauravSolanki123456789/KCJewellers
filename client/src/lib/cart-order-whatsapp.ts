@@ -259,7 +259,10 @@ export function formatSharedCatalogOrderWhatsAppBody(params: {
           : null
       const slabLines =
         l.slabDiscountLines && l.slabDiscountLines.length > 0
-          ? l.slabDiscountLines.map((line) => `✓ ${line}`).join('\n')
+          ? l.slabDiscountLines
+              .filter((line) => !/^Margin\s*\+/i.test(line))
+              .map((line) => `✓ ${line}`)
+              .join('\n') || null
           : null
       const savingsLine =
         l.savingsInr != null && l.savingsInr > 0

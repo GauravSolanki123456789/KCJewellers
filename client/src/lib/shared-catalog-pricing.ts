@@ -135,9 +135,8 @@ export function computeSharedCatalogUnitPrice(
       pricingOptions,
     )
     const catalogFinal = Math.round(bCatalog.total * (1 + mk / 100) * (1 - disc / 100))
-    if (catalogFinal > 0 && finalInr > catalogFinal) {
-      finalInr = catalogFinal
-    }
+    // Slab discounts: show retail compare-at when slab price is lower.
+    // Margin-only slabs raise price above retail — keep the higher slab total.
     if (catalogFinal > finalInr) {
       unitCompareAtInr = catalogFinal
       savingsInr = catalogFinal - finalInr

@@ -191,7 +191,6 @@ export function formatSlabDiscountLines(
   const mc = clampPct(s.mc_discount_pct, 0, 100)
   const wastageDisc = clampPct(s.wastage_discount_pct, 0, 100)
   const giftDisc = clampPct(s.gift_discount_pct, 0, 100)
-  const marginPct = clampMarginPct(s.margin_pct)
 
   if (isFixedPriceCatalogItem(item)) {
     if (giftDisc > 0) lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
@@ -226,7 +225,6 @@ export function formatSlabDiscountLines(
   if (giftDisc > 0 && isFixedPriceCatalogItem(item)) {
     lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
   }
-  if (marginPct > 0) lines.push(`Margin +${Math.round(marginPct)}%`)
   return lines
 }
 
