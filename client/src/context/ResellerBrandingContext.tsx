@@ -27,6 +27,8 @@ export type EffectiveResellerBranding = {
   investEnabled: boolean
   /** Slab R margin % on custom-domain catalog (from `users.reseller_slab_settings.slab_r.margin_pct`). */
   storefrontMarginPct: number
+  /** Reseller staff toggle — show MRP (behind box) on product cards for customers. */
+  showMrpBehindBox: boolean
 }
 
 const defaultBranding: EffectiveResellerBranding = {
@@ -39,6 +41,7 @@ const defaultBranding: EffectiveResellerBranding = {
   allowedCategoryMetals: null,
   investEnabled: true,
   storefrontMarginPct: 0,
+  showMrpBehindBox: false,
 }
 
 const Ctx = createContext<EffectiveResellerBranding>(defaultBranding)
@@ -69,6 +72,7 @@ export function ResellerBrandingProvider({
         allowedCategoryMetals: initialFromHost.allowedCategoryMetals ?? null,
         investEnabled: initialFromHost.investEnabled,
         storefrontMarginPct: initialFromHost.storefrontMarginPct ?? 0,
+        showMrpBehindBox: initialFromHost.showMrpBehindBox ?? false,
       }
     }
     if (customerTier === CUSTOMER_TIER.RESELLER && auth.isAuthenticated && user) {
@@ -87,6 +91,7 @@ export function ResellerBrandingProvider({
           allowedCategoryMetals: null,
           investEnabled: true,
           storefrontMarginPct: 0,
+          showMrpBehindBox: false,
         }
       }
     }
@@ -100,6 +105,7 @@ export function ResellerBrandingProvider({
       allowedCategoryMetals: null,
       investEnabled: true,
       storefrontMarginPct: 0,
+      showMrpBehindBox: false,
     }
   }, [initialFromHost, customDomainHost, customerTier, auth.isAuthenticated, user])
 

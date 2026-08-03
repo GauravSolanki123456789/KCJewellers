@@ -1,4 +1,23 @@
- function clampString(s, maxLen = 2000) {
+ const DEFAULT_STRING_MAX = 2000;
+ /** AI prompts and other long text fields — must not truncate master prompts. */
+ const LONG_TEXT_FIELD_MAX = 50000;
+ const LONG_TEXT_KEYS = new Set([
+   'prompt_text',
+   'negative_prompt',
+   'bank_details',
+   'review_notes',
+   'notes',
+   'canvas_text',
+   'description',
+   'body',
+ ]);
+
+ function maxLenForKey(key) {
+   if (LONG_TEXT_KEYS.has(String(key || ''))) return LONG_TEXT_FIELD_MAX;
+   return DEFAULT_STRING_MAX;
+ }
+
+ function clampString(s, maxLen = DEFAULT_STRING_MAX) {
    if (typeof s !== 'string') return s;
    let v = s.replace(/[\u0000-\u001F\u007F]/g, '');
    v = v.replace(/<\s*script[^>]*>.*?<\s*\/\s*script\s*>/gis, '');
@@ -7,10 +26,10 @@
    return v;
  }
  
- function sanitizeValue(v) {
+ function sanitizeValue(v, key) {
    if (v == null) return v;
-   if (typeof v === 'string') return clampString(v);
-   if (Array.isArray(v)) return v.map(sanitizeValue);
+   if (typeof v === 'string') return clampString(v, maxLenForKey(key));
+   if (Array.isArray(v)) return v.map((entry) => sanitizeValue(entry, key));
    if (typeof v === 'object') return sanitizeObject(v);
    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
    if (typeof v === 'boolean') return v;
@@ -22,7 +41,7 @@
    for (const k in obj) {
      if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
      if (k === '__proto__' || k === 'constructor') continue;
-     out[k] = sanitizeValue(obj[k]);
+     out[k] = sanitizeValue(obj[k], k);
    }
    return out;
  }

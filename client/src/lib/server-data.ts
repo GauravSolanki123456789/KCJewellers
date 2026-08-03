@@ -31,6 +31,8 @@ export type ApiProductRow = {
   box_image_url?: string | null;
   video_url?: string | null;
   box_charges?: number | null;
+  with_box_charges_only?: boolean | null;
+  mrp_rate_behind_box?: number | null;
   weight_display?: string | null;
 };
 

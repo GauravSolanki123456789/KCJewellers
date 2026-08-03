@@ -24,11 +24,14 @@ import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 import BoxOptionToggle from '@/components/catalog/BoxOptionToggle'
+import MrpBehindBoxNote from '@/components/catalog/MrpBehindBoxNote'
 import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
 import {
   boxImageSlideIndex,
+  effectiveIncludeBox,
   giftingDisplayTotal,
   productHasBoxOption,
+  productWithBoxChargesOnly,
 } from '@/lib/product-box-pricing'
 import {
   getAttachedVariants,
@@ -100,7 +103,7 @@ export default function ProductCard({
   const cart = useCart()
   const catalogBuilder = useCatalogBuilderOptional()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
-  const { customDomainHost, storefrontMarginPct } = useResellerBranding()
+  const { customDomainHost, storefrontMarginPct, showMrpBehindBox } = useResellerBranding()
   const { pricingOptions } = useCatalogPricingSettings()
 
   const variants = useMemo(() => getAttachedVariants(product), [product])
@@ -111,18 +114,20 @@ export default function ProductCard({
 
   useEffect(() => {
     setActiveVariant(variants[0] ?? product)
-    setIncludeBox(false)
+    setIncludeBox(productWithBoxChargesOnly(variants[0] ?? product))
     setGalleryScrollIdx(null)
   }, [product, variants])
 
   const active = hasVariants ? activeVariant : product
+  const boxOnly = productWithBoxChargesOnly(active)
   const hasBox = productHasBoxOption(active)
   const boxSlideIdx = boxImageSlideIndex(active)
+  const resolvedIncludeBox = effectiveIncludeBox(active, includeBox)
   const displayName = variantDisplayTitle(product)
   const weightLabel = getCustomerDisplayWeightLabel(active)
   const barcode = getProductSelectionKey(active)
   const productHref =
-    includeBox && hasBox
+    resolvedIncludeBox && hasBox
       ? `/products/${encodeURIComponent(barcode)}?box=1`
       : `/products/${encodeURIComponent(barcode)}`
 
@@ -147,7 +152,7 @@ export default function ProductCard({
     giftingDisplayTotal(
       active,
       rates,
-      includeBox,
+      resolvedIncludeBox,
       wholesalePricing,
       pricingOptions,
     ),
@@ -302,8 +307,9 @@ export default function ProductCard({
       {hasBox ? (
         <BoxOptionToggle
           item={active}
-          includeBox={includeBox}
+          includeBox={resolvedIncludeBox}
           onChange={(withBox) => {
+            if (boxOnly) return
             setIncludeBox(withBox)
             if (withBox && boxSlideIdx != null) setGalleryScrollIdx(boxSlideIdx)
             else setGalleryScrollIdx(0)
@@ -311,6 +317,8 @@ export default function ProductCard({
           density="card"
         />
       ) : null}
+
+      {showMrpBehindBox ? <MrpBehindBoxNote item={active} className="mt-1" /> : null}
 
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">
         {showWholesale ? (
@@ -337,7 +345,7 @@ export default function ProductCard({
           >
             ₹{Math.round(hasBox ? displayTotal : total).toLocaleString('en-IN')}
           </span>
-          {hasBox && includeBox ? (
+          {hasBox && resolvedIncludeBox ? (
             <span className="shrink-0 text-[8px] font-normal uppercase tracking-wide text-emerald-500/90 sm:text-[9px]">
               with box
             </span>
@@ -360,7 +368,7 @@ export default function ProductCard({
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            cart.add({ ...active, include_box: includeBox })
+            cart.add({ ...active, include_box: resolvedIncludeBox })
           }}
         >
           <span className="kc-btn-cart">Add to Cart</span>

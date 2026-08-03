@@ -1241,6 +1241,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             `SELECT business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids,
                     COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
                     COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
+                    COALESCE(reseller_show_mrp_behind_box, false) AS reseller_show_mrp_behind_box,
                     COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
              FROM users
              WHERE customer_tier = 'RESELLER'
@@ -1286,6 +1287,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
                 : null,
             reseller_invest_enabled: !!rows[0].reseller_invest_enabled,
             storefront_margin_pct: storefrontMarginPct,
+            show_mrp_behind_box: !!rows[0].reseller_show_mrp_behind_box,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -2855,6 +2857,8 @@ app.get('/api/products', async (req, res) => {
                 wp.earring_weight::float AS earring_weight,
                 wp.purity::float         AS purity,
                 COALESCE(wp.box_charges, 0)::float AS box_charges,
+                COALESCE(wp.with_box_charges_only, false) AS with_box_charges_only,
+                COALESCE(wp.mrp_rate_behind_box, 0)::float AS mrp_rate_behind_box,
                 wp.box_image_url,
                 wp.video_url,
                 wp.mc_rate::float        AS mc_rate,
@@ -7099,6 +7103,8 @@ async function expandGiftingSizeVariantsForBrochure(products) {
             COALESCE(wp.fixed_price, 0)::float AS fixed_price,
             COALESCE(wp.stone_charges, 0)::float AS stone_charges,
             COALESCE(wp.box_charges, 0)::float AS box_charges,
+            COALESCE(wp.with_box_charges_only, false) AS with_box_charges_only,
+            COALESCE(wp.mrp_rate_behind_box, 0)::float AS mrp_rate_behind_box,
             COALESCE(wp.metal_type, 'silver') AS metal_type,
             wp.size,
             wp.design_group,
@@ -7735,7 +7741,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                     u.mobile_number AS creator_mobile_number,
                     u.wholesale_markup_percent AS creator_wholesale_markup_pct,
                     u.wholesale_making_charge_discount_percent AS creator_wholesale_mc_disc,
-                    u.kc_theme_id AS creator_kc_theme_id
+                    u.kc_theme_id AS creator_kc_theme_id,
+                    COALESCE(u.reseller_show_mrp_behind_box, false) AS show_mrp_behind_box
              FROM shared_catalogs sc
              LEFT JOIN users u ON u.id = sc.created_by_user_id
              WHERE sc.id = $1::uuid`,
@@ -7756,6 +7763,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
         const shared_catalog_otp_configured = otpMeta.otpConfigured ?? true;
         const hidePrices = !!row.hide_prices;
         const hidePdf = !!row.hide_pdf;
+        const showMrpBehindBox = !!row.show_mrp_behind_box;
         const slabFields = sharedCatalogSlabJsonFields(row);
         const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
         const discountPctJson = parseSharedDiscountPct(row.discount_percentage);
@@ -7781,6 +7789,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 discountPercentage: discountPctJson,
                 hidePrices,
                 hidePdf,
+                showMrpBehindBox,
                 creatorWholesalePricing: cwPricing,
                 products: [],
                 kc_theme_id,
@@ -7810,6 +7819,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 discountPercentage: discountPctJson,
                 hidePrices,
                 hidePdf,
+                showMrpBehindBox,
                 creatorWholesalePricing: cwPricing,
                 selectionWhatsAppDigits,
                 creatorCustomerTier,
@@ -7842,6 +7852,8 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
                 COALESCE(wp.fixed_price, 0)::float AS fixed_price,
                 COALESCE(wp.stone_charges, 0)::float AS stone_charges,
                 COALESCE(wp.box_charges, 0)::float AS box_charges,
+                COALESCE(wp.with_box_charges_only, false) AS with_box_charges_only,
+                COALESCE(wp.mrp_rate_behind_box, 0)::float AS mrp_rate_behind_box,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
                 wp.size,
                 wp.design_group,
@@ -7902,6 +7914,7 @@ app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
             discountPercentage: discountPctJson,
             hidePrices,
             hidePdf,
+            showMrpBehindBox,
             creatorWholesalePricing: cwPricing,
             selectionWhatsAppDigits,
             creatorCustomerTier,
@@ -8305,11 +8318,16 @@ app.get('/api/reseller/catalog-slab-settings', requireSharedCatalogCreator, asyn
             return res.status(403).json({ error: 'Reseller account required' });
         }
         const rows = await query(
-            `SELECT COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings FROM users WHERE id = $1`,
+            `SELECT COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
+                    COALESCE(reseller_show_mrp_behind_box, false) AS show_mrp_behind_box
+             FROM users WHERE id = $1`,
             [req.user.id],
         );
         const slabSettings = parseResellerSlabSettingsServer(rows[0]?.reseller_slab_settings);
-        res.json({ slab_settings: slabSettings });
+        res.json({
+            slab_settings: slabSettings,
+            show_mrp_behind_box: !!rows[0]?.show_mrp_behind_box,
+        });
     } catch (error) {
         console.error('reseller catalog-slab-settings GET:', error.message);
         res.status(500).json({ error: error.message || 'Failed to load slab settings' });
@@ -8325,11 +8343,29 @@ app.patch('/api/reseller/catalog-slab-settings', requireSharedCatalogCreator, re
         const parsed = parseResellerSlabSettingsServer(
             req.body?.slab_settings ?? req.body?.reseller_slab_settings ?? {},
         );
-        await query(
-            `UPDATE users SET reseller_slab_settings = $1::jsonb, updated_at = NOW() WHERE id = $2`,
-            [JSON.stringify(parsed), req.user.id],
+        const showMrp =
+            req.body?.show_mrp_behind_box !== undefined ? !!req.body.show_mrp_behind_box : undefined;
+        if (showMrp !== undefined) {
+            await query(
+                `UPDATE users SET reseller_slab_settings = $1::jsonb,
+                    reseller_show_mrp_behind_box = $2, updated_at = NOW() WHERE id = $3`,
+                [JSON.stringify(parsed), showMrp, req.user.id],
+            );
+        } else {
+            await query(
+                `UPDATE users SET reseller_slab_settings = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+                [JSON.stringify(parsed), req.user.id],
+            );
+        }
+        const fresh = await query(
+            `SELECT COALESCE(reseller_show_mrp_behind_box, false) AS show_mrp_behind_box FROM users WHERE id = $1`,
+            [req.user.id],
         );
-        res.json({ success: true, slab_settings: parsed });
+        res.json({
+            success: true,
+            slab_settings: parsed,
+            show_mrp_behind_box: !!fresh[0]?.show_mrp_behind_box,
+        });
     } catch (error) {
         console.error('reseller catalog-slab-settings PATCH:', error.message);
         res.status(500).json({ error: error.message || 'Failed to save slab settings' });

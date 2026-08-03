@@ -21,6 +21,8 @@ export type PublicResellerBranding = {
   investEnabled: boolean;
   /** Slab R margin % — adds to catalog prices on this custom domain. */
   storefrontMarginPct: number;
+  /** Reseller staff toggle — show MRP (behind box) on product cards. */
+  showMrpBehindBox: boolean;
 };
 
 function apiBase(): string {
@@ -48,6 +50,7 @@ export async function fetchPublicResellerBranding(
       allowed_category_metals?: Record<string, string[]> | null;
       reseller_invest_enabled?: boolean;
       storefront_margin_pct?: number;
+      show_mrp_behind_box?: boolean;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -69,6 +72,7 @@ export async function fetchPublicResellerBranding(
           : null,
       investEnabled: !!data?.reseller_invest_enabled,
       storefrontMarginPct: Math.max(0, Math.min(1000, Number(data?.storefront_margin_pct) || 0)),
+      showMrpBehindBox: !!data?.show_mrp_behind_box,
     };
   } catch {
     return null;

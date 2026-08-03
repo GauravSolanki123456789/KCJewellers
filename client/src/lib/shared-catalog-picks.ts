@@ -1,6 +1,6 @@
 import { getCustomerDisplaySize, getCustomerDisplayWeightLabel } from '@/lib/pricing'
 import { formatProductMetalSpecSummary } from '@/lib/product-metal-specs'
-import { getProductBoxCharges, productHasBoxOption } from '@/lib/product-box-pricing'
+import { getProductBoxCharges, productHasBoxOption, productWithBoxChargesOnly, effectiveIncludeBox } from '@/lib/product-box-pricing'
 import type { SharedCatalogPickLineForWhatsApp } from '@/lib/cart-order-whatsapp'
 import {
   sharedCatalogProductToItem,
@@ -37,7 +37,10 @@ export function buildSharedCatalogSelectionPicks(
       if (!qty) continue
 
       const item = variant.item
-      const includeBox = includeBoxByKey.get(key) ?? false
+      const includeBox = effectiveIncludeBox(
+        item,
+        includeBoxByKey.get(key) ?? productWithBoxChargesOnly(item),
+      )
       const boxAdd = includeBox && productHasBoxOption(item) ? getProductBoxCharges(item) : 0
       const unitTotalInr = variant.unitTotalInr + boxAdd
       const lineTotalInr = unitTotalInr * qty

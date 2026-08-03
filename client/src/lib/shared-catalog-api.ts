@@ -115,6 +115,8 @@ export type SharedCatalogPublicProduct = {
   box_image_url?: string | null
   video_url?: string | null
   box_charges?: number
+  with_box_charges_only?: boolean
+  mrp_rate_behind_box?: number
   net_weight?: number
   weight_display?: string | null
   gross_weight?: number
@@ -161,6 +163,8 @@ export type SharedCatalogPublicResponse =
       markupPercentage: number
       discountPercentage?: number
       hidePrices?: boolean
+      /** Reseller creator toggle — show MRP (behind box) on product cards. */
+      showMrpBehindBox?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null
       products: SharedCatalogPublicProduct[]
       /** Site-wide gift GST toggle from `app_settings.gifting_gst_enabled`. */
@@ -179,6 +183,8 @@ export type SharedCatalogPublicResponse =
       discountPercentage?: number
       /** Snapshot from `shared_catalogs.hide_prices` — weight-only brochure (no prices). */
       hidePrices?: boolean
+      /** Reseller creator toggle — show MRP (behind box) on product cards. */
+      showMrpBehindBox?: boolean
       /** Snapshot from `shared_catalogs.hide_pdf` — customers can use WhatsApp text only. */
       hidePdf?: boolean
       creatorWholesalePricing?: SharedCatalogCreatorWholesale | null

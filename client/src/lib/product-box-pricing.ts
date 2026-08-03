@@ -5,7 +5,7 @@ import {
   type WholesalePricingInput,
 } from '@/lib/pricing'
 
-/** ERP / Excel `BoxCharges` → `web_products.box_charges`. */
+/** ERP / Excel `BoxCharges` or `WithBoxChargesOnly` → `web_products.box_charges`. */
 export function getProductBoxCharges(item: Item | null | undefined): number {
   if (!item) return 0
   const n = Number(item.box_charges ?? 0)
@@ -14,6 +14,26 @@ export function getProductBoxCharges(item: Item | null | undefined): number {
 
 export function productHasBoxOption(item: Item | null | undefined): boolean {
   return getProductBoxCharges(item) > 0
+}
+
+/** Excel `WithBoxChargesOnly` — sold with box only (no without-box packaging toggle). */
+export function productWithBoxChargesOnly(item: Item | null | undefined): boolean {
+  if (!item) return false
+  const raw = item.with_box_charges_only ?? item.withBoxChargesOnly
+  if (raw === true || raw === 1 || raw === '1') return true
+  if (String(raw).toLowerCase() === 'true') return true
+  return false
+}
+
+/** Excel `MRP RATE (BEHIND BOX)` — informational MRP on product cards when reseller enables it. */
+export function getProductMrpBehindBox(item: Item | null | undefined): number {
+  if (!item) return 0
+  const n = Number(item.mrp_rate_behind_box ?? item.mrpRateBehindBox ?? 0)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+export function effectiveIncludeBox(item: Item, includeBox: boolean): boolean {
+  return productWithBoxChargesOnly(item) ? true : includeBox
 }
 
 /**
@@ -45,6 +65,6 @@ export function giftingDisplayTotal(
     wholesale,
     pricingOptions,
   )
-  const box = includeBox ? getProductBoxCharges(item) : 0
+  const box = effectiveIncludeBox(item, includeBox) ? getProductBoxCharges(item) : 0
   return b.total + box
 }

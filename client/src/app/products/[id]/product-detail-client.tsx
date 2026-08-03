@@ -65,10 +65,13 @@ import { cn } from "@/lib/utils";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 import GiftingSizeVariantPicker from "@/components/catalog/GiftingSizeVariantPicker";
 import BoxOptionToggle from "@/components/catalog/BoxOptionToggle";
+import MrpBehindBoxNote from "@/components/catalog/MrpBehindBoxNote";
 import {
   boxImageSlideIndex,
+  effectiveIncludeBox,
   getProductBoxCharges,
   productHasBoxOption,
+  productWithBoxChargesOnly,
 } from "@/lib/product-box-pricing";
 import {
   findVariantByBarcode,
@@ -113,13 +116,15 @@ export default function ProductDetailClient({
   });
   const cart = useCart();
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier();
-  const { customDomainHost, storefrontMarginPct } = useResellerBranding();
+  const { customDomainHost, storefrontMarginPct, showMrpBehindBox } = useResellerBranding();
   const { pricingOptions } = useCatalogPricingSettings();
   const showInclGst = product ? productPriceShowsInclGst(product, pricingOptions) : true;
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
   const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(true);
   const [includeBox, setIncludeBox] = useState(initialIncludeBox);
+  const boxOnly = product ? productWithBoxChargesOnly(product) : false;
+  const resolvedIncludeBox = product ? effectiveIncludeBox(product, includeBox) : includeBox;
 
   useEffect(() => {
     setImageAnalysis(null);
@@ -127,8 +132,13 @@ export default function ProductDetailClient({
   }, [id, product?.image_url, product?.secondary_image_url, product?.box_image_url, product?.video_url]);
 
   useEffect(() => {
-    if (!initialIncludeBox) setIncludeBox(false);
-  }, [id, initialIncludeBox]);
+    if (!product) return;
+    if (initialIncludeBox) {
+      setIncludeBox(true);
+      return;
+    }
+    setIncludeBox(productWithBoxChargesOnly(product));
+  }, [id, initialIncludeBox, product]);
 
   useEffect(() => {
     let cancelled = false;
@@ -458,7 +468,7 @@ export default function ProductDetailClient({
     if (prevGalleryIdxRef.current === galleryIdx) return;
     prevGalleryIdxRef.current = galleryIdx;
     if (boxSlideIdx != null && galleryIdx === boxSlideIdx) setIncludeBox(true);
-    else if (productHasBoxOption(product)) setIncludeBox(false);
+    else if (productHasBoxOption(product) && !productWithBoxChargesOnly(product)) setIncludeBox(false);
   }, [galleryIdx, boxSlideIdx, product]);
 
   const syncGalleryFromScroll = useCallback(() => {
@@ -536,13 +546,13 @@ export default function ProductDetailClient({
 
   const displayPrice =
     (b?.total ?? 0) +
-    (includeBox && productHasBoxOption(product) ? getProductBoxCharges(product) : 0);
+    (resolvedIncludeBox && productHasBoxOption(product) ? getProductBoxCharges(product) : 0);
 
   const handleAddToCart = () => {
     cart.add({
       ...product,
       id: product.id ? String(product.id) : product.barcode,
-      include_box: includeBox,
+      include_box: resolvedIncludeBox,
     });
     trackAddToCart(
       product.barcode || String(product.id || ""),
@@ -805,14 +815,21 @@ export default function ProductDetailClient({
               <div className="mt-4">
                 <BoxOptionToggle
                   item={product}
-                  includeBox={includeBox}
+                  includeBox={resolvedIncludeBox}
                   onChange={(withBox) => {
+                    if (boxOnly) return;
                     setIncludeBox(withBox);
                     if (withBox && boxSlideIdx != null) scrollGalleryTo(boxSlideIdx);
                     else scrollGalleryTo(0);
                   }}
                   density="detail"
                 />
+              </div>
+            ) : null}
+
+            {showMrpBehindBox ? (
+              <div className="mt-3">
+                <MrpBehindBoxNote item={product} density="detail" />
               </div>
             ) : null}
 
@@ -839,7 +856,7 @@ export default function ProductDetailClient({
               >
                 ₹{Math.round(displayPrice).toLocaleString("en-IN")}
               </span>
-              {includeBox && productHasBoxOption(product) ? (
+              {resolvedIncludeBox && productHasBoxOption(product) ? (
                 <span className="ml-2 text-xs font-medium uppercase tracking-wide text-emerald-400">
                   with box
                 </span>

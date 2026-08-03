@@ -143,7 +143,11 @@ function getGeminiImageModel() {
 
 function geminiImageModelCandidates() {
     const primary = getGeminiImageModel();
-    const fallbacks = ['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview'];
+    const fallbacks = [
+        'gemini-3.1-flash-lite-image',
+        'gemini-2.5-flash-image',
+        'gemini-2.5-flash-image-preview',
+    ];
     return [...new Set([primary, ...fallbacks].filter(Boolean))];
 }
 

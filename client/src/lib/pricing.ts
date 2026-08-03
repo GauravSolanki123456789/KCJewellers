@@ -21,6 +21,10 @@ export type Item = {
   stone_charges?: number
   /** Gift packaging add-on (₹) — shown as optional "with box" price on storefront. */
   box_charges?: number | string | null
+  /** When true, product is sold with box only (Excel WithBoxChargesOnly). */
+  with_box_charges_only?: boolean | null
+  /** Informational MRP on box (Excel MRP RATE (BEHIND BOX)). */
+  mrp_rate_behind_box?: number | string | null
   /** Excel AvgWeight range label e.g. "145-155" — shown on PDP when set. */
   weight_display?: string | null
   /** ERP wastage % — used for billable weight when gross not stored. */

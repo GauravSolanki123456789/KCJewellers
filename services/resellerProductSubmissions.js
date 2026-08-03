@@ -57,6 +57,39 @@ function trimExcelCell(value) {
     return s === '' ? undefined : s;
 }
 
+/** Excel `WithBoxChargesOnly` — numeric value is box charge; product is with-box only (no without-box option). */
+function parseExcelBoxAndMrpFields(row, get) {
+    const withBoxOnlyRaw = get(
+        'WithBoxChargesOnly',
+        'withBoxChargesOnly',
+        'with_box_charges_only',
+        'WITHBOXCHARGESONLY',
+    );
+    const boxChargesRaw = get('BoxCharges', 'boxCharges', 'box_charges');
+    let boxCharges = boxChargesRaw;
+    let withBoxChargesOnly = false;
+    if (withBoxOnlyRaw != null) {
+        const n = Number(withBoxOnlyRaw);
+        if (Number.isFinite(n) && n > 0) {
+            boxCharges = String(n);
+            withBoxChargesOnly = true;
+        } else if (['1', 'true', 'yes', 'y'].includes(String(withBoxOnlyRaw).toLowerCase().trim())) {
+            withBoxChargesOnly = true;
+        }
+    }
+    const mrpRaw = get(
+        'MRP RATE(BEHIND BOX)',
+        'MRP RATE (BEHIND BOX)',
+        'MRP RATE (BEHIND BOX)',
+        'mrp_rate_behind_box',
+        'mrpRateBehindBox',
+        'MRPRateBehindBox',
+    );
+    const mrpRateBehindBox =
+        mrpRaw != null && Number.isFinite(Number(mrpRaw)) && Number(mrpRaw) > 0 ? Number(mrpRaw) : undefined;
+    return { boxCharges, withBoxChargesOnly, mrpRateBehindBox };
+}
+
 /** Count imported rows per StyleCode — helps multi-style Excel files (e.g. Necklace + Chain Pendant). */
 function summarizeImportByStyle(rows, styleKey = 'style_code') {
     const summary = Object.create(null);
@@ -86,6 +119,7 @@ function excelRowToSyncItem(row) {
     };
     const mcRaw = get('MCRate', 'mcRate', 'mc_rate', 'Making Charges', 'MC');
     const parsedMc = parseMcRateAndType(mcRaw);
+    const boxMrp = parseExcelBoxAndMrpFields(row, get);
     return {
         styleCode: get('StyleCode', 'styleCode', 'style_code'),
         sku: get('SKU', 'sku'),
@@ -101,7 +135,9 @@ function excelRowToSyncItem(row) {
         metalType: get('MetalType', 'metal_type', 'metalType'),
         fixedPrice: get('FixedPrice', 'fixedPrice', 'fixed_price'),
         stoneCharges: get('StoneCharges', 'stoneCharges', 'stone_charges'),
-        boxCharges: get('BoxCharges', 'boxCharges', 'box_charges'),
+        boxCharges: boxMrp.boxCharges,
+        withBoxChargesOnly: boxMrp.withBoxChargesOnly,
+        mrpRateBehindBox: boxMrp.mrpRateBehindBox,
         quantity: get('PCS', 'quantity', 'pcs'),
         itemCode: get('ItemCode', 'itemCode', 'item_code'),
         imageUrl: get('ImageUrl', 'imageUrl', 'image_url'),
@@ -214,6 +250,23 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
     const chainWeight = parseExcelWeight(item.chainWeight ?? item.ChainWtOnly ?? item.chain_weight);
     const pendantWeight = parseExcelWeight(item.pendantWeight ?? item.PendantWtOnly ?? item.pendant_weight);
     const earringWeight = parseExcelWeight(item.earringWeight ?? item.EarringWtOnly ?? item.earring_weight);
+    const itemGet = (...keys) => {
+        for (const k of keys) {
+            if (item[k] != null && String(item[k]).trim() !== '') return trimExcelCell(item[k]);
+        }
+        return undefined;
+    };
+    const boxMrp = parseExcelBoxAndMrpFields(item, itemGet);
+    const boxChargesNum =
+        boxMrp.boxCharges != null && Number.isFinite(Number(boxMrp.boxCharges))
+            ? Number(boxMrp.boxCharges)
+            : item.boxCharges != null
+              ? Number(item.boxCharges)
+              : item.BoxCharges != null
+                ? Number(item.BoxCharges)
+                : item.box_charges != null
+                  ? Number(item.box_charges)
+                  : 0;
     return {
         submitted_by_user_id: submittedByUserId,
         batch_id: batchId || null,
@@ -235,12 +288,9 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         metal_type: resolved.metalType,
         fixed_price: resolved.fixedPrice ?? 0,
         stone_charges: resolved.stoneCharges ?? 0,
-        box_charges:
-            item.boxCharges != null
-                ? Number(item.boxCharges)
-                : item.BoxCharges != null
-                  ? Number(item.BoxCharges)
-                  : 0,
+        box_charges: boxChargesNum,
+        with_box_charges_only: boxMrp.withBoxChargesOnly,
+        mrp_rate_behind_box: boxMrp.mrpRateBehindBox ?? null,
         quantity:
             item.quantity != null
                 ? parseInt(String(item.quantity), 10) || 1

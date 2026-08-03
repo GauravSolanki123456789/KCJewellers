@@ -38,11 +38,14 @@ import {
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 import BoxOptionToggle from '@/components/catalog/BoxOptionToggle'
+import MrpBehindBoxNote from '@/components/catalog/MrpBehindBoxNote'
 import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
 import {
   boxImageSlideIndex,
+  effectiveIncludeBox,
   getProductBoxCharges,
   productHasBoxOption,
+  productWithBoxChargesOnly,
 } from '@/lib/product-box-pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { productImageWellClass } from '@/lib/product-image-theme'
@@ -909,6 +912,8 @@ export default function SharedCatalogClient({
   const expDate = expiresAt ? new Date(expiresAt) : null
   const hidePrices = !!payload.hidePrices
   const hidePdf = !!payload.hidePdf
+  const showMrpBehindBox =
+    !payload.expired && 'showMrpBehindBox' in payload && !!payload.showMrpBehindBox
   const showPickerChrome = groupedRows.length > 0
 
   return (
@@ -1090,7 +1095,10 @@ export default function SharedCatalogClient({
               const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
               const uploadedMc = lookupProductUploadedMc(product)
               const hasBox = productHasBoxOption(item)
-              const includeBox = includeBoxByKey.get(key) ?? false
+              const includeBox = effectiveIncludeBox(
+                item,
+                includeBoxByKey.get(key) ?? productWithBoxChargesOnly(item),
+              )
               const boxSlideIdx = boxImageSlideIndex(item)
               const displayUnitInr = unitTotalInr + (includeBox ? getProductBoxCharges(item) : 0)
               const displayCompareAtInr =
@@ -1266,6 +1274,7 @@ export default function SharedCatalogClient({
                             includeBox={includeBox}
                             showChipPrices={false}
                             onChange={(withBox) => {
+                              if (productWithBoxChargesOnly(item)) return
                               setIncludeBoxByKey((prev) => patchIncludeBoxByKey(prev, key, withBox))
                               if (withBox && boxSlideIdx != null) {
                                 setGalleryScrollByKey((prev) =>
@@ -1320,6 +1329,9 @@ export default function SharedCatalogClient({
                               </p>
                             ) : null}
                           </div>
+                        ) : null}
+                        {showMrpBehindBox ? (
+                          <MrpBehindBoxNote item={item} className="mt-0.5" />
                         ) : null}
                         {selected ? (
                           <div

@@ -30,16 +30,18 @@ function CatalogSlabSettingsContent() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [form, setForm] = useState<ResellerSlabFormState>(() => emptyResellerSlabForm())
+  const [showMrpBehindBox, setShowMrpBehindBox] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await axios.get<{ slab_settings: ResellerSlabSettings }>(
+      const res = await axios.get<{ slab_settings: ResellerSlabSettings; show_mrp_behind_box?: boolean }>(
         '/api/reseller/catalog-slab-settings',
         { withCredentials: true },
       )
       setForm(resellerSlabFormFromSettings(res.data.slab_settings))
+      setShowMrpBehindBox(!!res.data.show_mrp_behind_box)
     } catch {
       setError('Could not load catalogue slab settings.')
     } finally {
@@ -63,7 +65,10 @@ function CatalogSlabSettingsContent() {
     try {
       await axios.patch(
         '/api/reseller/catalog-slab-settings',
-        { slab_settings: resellerSlabSettingsFromForm(form) },
+        {
+          slab_settings: resellerSlabSettingsFromForm(form),
+          show_mrp_behind_box: showMrpBehindBox,
+        },
         { withCredentials: true },
       )
       setSuccess('Catalogue slab settings saved. WhatsApp links and your storefront prices will use these values.')
@@ -142,6 +147,33 @@ function CatalogSlabSettingsContent() {
         >
           {saving ? <Loader2 className="inline size-4 animate-spin" /> : 'Save slab settings'}
         </button>
+      </div>
+
+      <div className="kc-profile-card rounded-2xl p-4 sm:p-5">
+        <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+          Storefront product display
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+          For products imported with an MRP RATE (BEHIND BOX) column — e.g. emerald idols with box
+          pricing only.
+        </p>
+        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-3">
+          <input
+            type="checkbox"
+            checked={showMrpBehindBox}
+            onChange={(e) => setShowMrpBehindBox(e.target.checked)}
+            disabled={saving}
+            className="mt-1 size-4 shrink-0"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Show MRP (behind box) on product cards
+            </span>
+            <span className="mt-0.5 block text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Informational only for your customers on your website and shared catalogues.
+            </span>
+          </span>
+        </label>
       </div>
     </div>
   )
