@@ -23,6 +23,8 @@ export type PublicResellerBranding = {
   storefrontMarginPct: number;
   /** Reseller staff toggle — show MRP (behind box) on product cards. */
   showMrpBehindBox: boolean;
+  /** Weight-only storefront — no prices on catalog cards. */
+  hidePrices: boolean;
 };
 
 function apiBase(): string {
@@ -51,6 +53,7 @@ export async function fetchPublicResellerBranding(
       reseller_invest_enabled?: boolean;
       storefront_margin_pct?: number;
       show_mrp_behind_box?: boolean;
+      reseller_hide_prices?: boolean;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -73,6 +76,7 @@ export async function fetchPublicResellerBranding(
       investEnabled: !!data?.reseller_invest_enabled,
       storefrontMarginPct: Math.max(0, Math.min(1000, Number(data?.storefront_margin_pct) || 0)),
       showMrpBehindBox: !!data?.show_mrp_behind_box,
+      hidePrices: !!data?.reseller_hide_prices,
     };
   } catch {
     return null;

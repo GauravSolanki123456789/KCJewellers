@@ -256,13 +256,11 @@ export function submissionPreviewImageUrl(
   row: ResellerProductSubmission,
   apiBase?: string,
 ): string {
-  const boxOnly = submissionWithBoxOnly(row)
   const explicitBox = String(row.box_image_url || '').trim()
-  if (boxOnly && explicitBox) return explicitBox
   const explicit = String(row.image_url || '').trim()
   if (explicit) return explicit
+  if (explicitBox) return explicitBox
   const key = submissionImageDiskKey(row)
   if (!key) return ''
-  if (boxOnly) return productImageUrl(`${key}_box`, apiBase)
   return productImageUrl(key, apiBase)
 }

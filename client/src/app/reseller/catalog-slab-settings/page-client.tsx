@@ -20,17 +20,19 @@ import {
   RESELLER_CATALOG_SLAB_HELP,
   ResellerCatalogSlabSettingsPanel,
 } from '@/components/reseller/ResellerCatalogSlabSettingsPanel'
+import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
+import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 
 function CatalogSlabSettingsContent() {
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const { customerTier, tierReady } = useCustomerTier()
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [form, setForm] = useState<ResellerSlabFormState>(() => emptyResellerSlabForm())
   const [showMrpBehindBox, setShowMrpBehindBox] = useState(false)
+  const slabSave = useSaveFeedback()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -58,30 +60,29 @@ function CatalogSlabSettingsContent() {
     void load()
   }, [auth.hasChecked, auth.isAuthenticated, load])
 
-  const handleSave = async () => {
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
-    try {
-      await axios.patch(
-        '/api/reseller/catalog-slab-settings',
-        {
-          slab_settings: resellerSlabSettingsFromForm(form),
-          show_mrp_behind_box: showMrpBehindBox,
-        },
-        { withCredentials: true },
-      )
-      setSuccess('Catalogue slab settings saved. WhatsApp links and your storefront prices will use these values.')
-      await load()
-    } catch (e: unknown) {
-      const msg =
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        'Failed to save settings.'
-      setError(msg)
-    } finally {
-      setSaving(false)
-    }
-  }
+  const handleSave = () =>
+    slabSave.runSave(async () => {
+      setError(null)
+      setSuccess(null)
+      try {
+        await axios.patch(
+          '/api/reseller/catalog-slab-settings',
+          {
+            slab_settings: resellerSlabSettingsFromForm(form),
+            show_mrp_behind_box: showMrpBehindBox,
+          },
+          { withCredentials: true },
+        )
+        setSuccess('Catalogue slab settings saved. WhatsApp links and your storefront prices will use these values.')
+        await load()
+      } catch (e: unknown) {
+        const msg =
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Failed to save settings.'
+        setError(msg)
+        throw e
+      }
+    })
 
   if (!auth.hasChecked || !tierReady || loading) {
     return (
@@ -137,16 +138,18 @@ function CatalogSlabSettingsContent() {
           {RESELLER_CATALOG_SLAB_HELP}
         </p>
         <div className="mt-4">
-          <ResellerCatalogSlabSettingsPanel form={form} onChange={setForm} disabled={saving} />
+          <ResellerCatalogSlabSettingsPanel form={form} onChange={setForm} disabled={slabSave.saving} />
         </div>
-        <button
+        <SaveFeedbackButton
           type="button"
-          disabled={saving}
+          disabled={slabSave.saving}
+          saving={slabSave.saving}
+          saved={slabSave.saved}
           onClick={() => void handleSave()}
           className="kc-btn-theme mt-5 min-h-[48px] w-full touch-manipulation disabled:opacity-60 sm:w-auto sm:min-w-[200px]"
         >
-          {saving ? <Loader2 className="inline size-4 animate-spin" /> : 'Save slab settings'}
-        </button>
+          Save slab settings
+        </SaveFeedbackButton>
       </div>
 
       <div className="kc-profile-card rounded-2xl p-4 sm:p-5">
@@ -162,7 +165,7 @@ function CatalogSlabSettingsContent() {
             type="checkbox"
             checked={showMrpBehindBox}
             onChange={(e) => setShowMrpBehindBox(e.target.checked)}
-            disabled={saving}
+            disabled={slabSave.saving}
             className="mt-1 size-4 shrink-0"
           />
           <span>

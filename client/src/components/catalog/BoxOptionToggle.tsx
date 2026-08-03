@@ -6,7 +6,6 @@ import {
   getProductBoxCharges,
   giftingDisplayTotal,
   productHasBoxOption,
-  productWithBoxChargesOnly,
 } from '@/lib/product-box-pricing'
 import { type Item } from '@/lib/pricing'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
@@ -40,12 +39,10 @@ export default function BoxOptionToggle({
 
   if (!productHasBoxOption(item)) return null
 
-  const boxOnly = productWithBoxChargesOnly(item)
   const boxAdd = getProductBoxCharges(item)
   const withoutTotal = giftingDisplayTotal(item, [], false, wholesalePricing, pricingOptions)
   const withTotal = withoutTotal + boxAdd
   const isDetail = density === 'detail'
-  /** Light KC chips on cards and PDP — dark chips clash on cream product pages. */
   const activeCls = 'kc-size-chip-active'
   const idleCls = 'kc-size-chip-idle'
 
@@ -57,48 +54,6 @@ export default function BoxOptionToggle({
         ? 'min-h-[32px] px-2 py-1 text-[10px] sm:min-h-[36px] sm:px-2.5 sm:text-[11px]'
         : 'min-h-[28px] flex-1 px-2 py-1 text-[10px] sm:min-h-[30px] sm:text-[11px]',
   )
-
-  if (boxOnly) {
-    return (
-      <div
-        className={cn('min-w-0', className)}
-        onClick={stopNav}
-        onKeyDown={stopNav}
-        role="group"
-        aria-label="Gift box included"
-      >
-        <p
-          className={cn(
-            'font-medium uppercase tracking-wider',
-            isDetail
-              ? 'mb-2 text-xs font-semibold text-slate-600'
-              : 'mb-1 text-[9px] text-slate-500 sm:text-[10px]',
-          )}
-        >
-          Packaging
-        </p>
-        <div
-          className={cn(
-            chipBase,
-            activeCls,
-            isDetail ? 'w-full text-left' : 'w-full text-center',
-          )}
-        >
-          <span className="block leading-tight">With box</span>
-          {showChipPrices ? (
-            <span
-              className={cn(
-                'mt-0.5 block font-normal tabular-nums',
-                isDetail ? 'text-[11px] opacity-90' : 'text-[9px] opacity-80',
-              )}
-            >
-              ₹{Math.round(withTotal).toLocaleString('en-IN')}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div

@@ -39,13 +39,13 @@ import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 import BoxOptionToggle from '@/components/catalog/BoxOptionToggle'
 import MrpBehindBoxNote from '@/components/catalog/MrpBehindBoxNote'
+import WithBoxLabel from '@/components/catalog/WithBoxLabel'
 import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
 import {
   boxImageSlideIndex,
   effectiveIncludeBox,
   getProductBoxCharges,
   productHasBoxOption,
-  productWithBoxChargesOnly,
 } from '@/lib/product-box-pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
 import { productImageWellClass } from '@/lib/product-image-theme'
@@ -1097,7 +1097,7 @@ export default function SharedCatalogClient({
               const hasBox = productHasBoxOption(item)
               const includeBox = effectiveIncludeBox(
                 item,
-                includeBoxByKey.get(key) ?? productWithBoxChargesOnly(item),
+                includeBoxByKey.get(key) ?? false,
               )
               const boxSlideIdx = boxImageSlideIndex(item)
               const displayUnitInr = unitTotalInr + (includeBox ? getProductBoxCharges(item) : 0)
@@ -1263,6 +1263,9 @@ export default function SharedCatalogClient({
                         rates={payload.rates ?? []}
                         density="shared"
                       />
+                      {hasBox && hidePrices ? (
+                        <WithBoxLabel className="mt-1" density="shared" />
+                      ) : null}
                       {hasBox && !hidePrices ? (
                         <div
                           data-no-card-toggle
@@ -1274,7 +1277,6 @@ export default function SharedCatalogClient({
                             includeBox={includeBox}
                             showChipPrices={false}
                             onChange={(withBox) => {
-                              if (productWithBoxChargesOnly(item)) return
                               setIncludeBoxByKey((prev) => patchIncludeBoxByKey(prev, key, withBox))
                               if (withBox && boxSlideIdx != null) {
                                 setGalleryScrollByKey((prev) =>

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import axios from '@/lib/axios'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import AdminGuard from '@/components/AdminGuard'
+import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
+import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import Link from 'next/link'
 import { Loader2, ArrowLeft, Save, Store, Upload, UserPlus, Users, Search, X } from 'lucide-react'
 import { ResellerApplicationsPanel } from '@/components/admin/ResellerApplicationsPanel'
@@ -188,6 +190,7 @@ function B2BAdminContent() {
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategoryRow[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(false)
   const [resellerSaving, setResellerSaving] = useState(false)
+  const resellerProfileSave = useSaveFeedback()
 
   const auth = useAuth()
   const strictInbox = userCanCallStrictAdminApi(auth.user as { role?: string; email?: string })
@@ -380,7 +383,8 @@ function B2BAdminContent() {
         ),
       })
       await load()
-      setResellerModalUser(null)
+      resellerProfileSave.markSaved()
+      window.setTimeout(() => setResellerModalUser(null), 750)
     } catch (e: unknown) {
       const msg =
         e && typeof e === 'object' && 'response' in e
@@ -1271,14 +1275,16 @@ function B2BAdminContent() {
                 >
                   Cancel
                 </button>
-                <button
+                <SaveFeedbackButton
                   type="button"
                   disabled={resellerSaving}
+                  saving={resellerSaving}
+                  saved={resellerProfileSave.saved}
                   onClick={() => void saveResellerProfile()}
                   className="flex-1 min-h-[48px] rounded-xl bg-gradient-to-r from-violet-600 to-amber-600 py-3 text-sm font-semibold text-white shadow-lg touch-manipulation disabled:opacity-60"
                 >
-                  {resellerSaving ? <Loader2 className="mx-auto size-5 animate-spin" /> : 'Save reseller settings'}
-                </button>
+                  Save reseller settings
+                </SaveFeedbackButton>
               </div>
             </div>
           </div>

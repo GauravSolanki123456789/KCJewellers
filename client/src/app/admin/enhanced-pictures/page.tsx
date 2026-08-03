@@ -13,6 +13,8 @@ import {
   Plus,
 } from 'lucide-react'
 import AdminGuard from '@/components/AdminGuard'
+import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
+import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
@@ -78,6 +80,12 @@ function AdminEnhancedPicturesInner() {
   const [outputLabel, setOutputLabel] = useState('Professional output')
   const [outputSubtitle, setOutputSubtitle] = useState('4K hyper-realistic studio rendering')
   const [footerNote, setFooterNote] = useState('Preserves source details perfectly')
+
+  const plansSave = useSaveFeedback()
+  const paymentSave = useSaveFeedback()
+  const aiSave = useSaveFeedback()
+  const showcaseSave = useSaveFeedback()
+  const editsSave = useSaveFeedback()
 
   const applyShowcaseToForm = useCallback((s: EnhancedTemplateShowcaseData) => {
     setWorkflowHighlightsText((s.workflow_highlights || []).join('\n'))
@@ -220,26 +228,25 @@ function AdminEnhancedPicturesInner() {
     }
   }
 
-  const saveEdits = async () => {
-    if (!selectedId) return
-    setBusy(true)
-    setStatusMsg('Saving prompt…')
-    try {
-      await patchAdminEnhancedPrompt(selectedId, {
-        name,
-        prompt_text: promptText,
-        negative_prompt: negativePrompt,
-      })
-      await load()
-      setStatusMsg('Prompt saved.')
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Save failed',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
+  const saveEdits = () =>
+    editsSave.runSave(async () => {
+      if (!selectedId) return
+      setStatusMsg('Saving prompt…')
+      try {
+        await patchAdminEnhancedPrompt(selectedId, {
+          name,
+          prompt_text: promptText,
+          negative_prompt: negativePrompt,
+        })
+        await load()
+        setStatusMsg('Prompt saved.')
+      } catch (e: unknown) {
+        setStatusMsg(
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Save failed',
+        )
+        throw e
+      }
+    })
 
   const activate = async () => {
     if (!selectedId) return
@@ -316,73 +323,70 @@ function AdminEnhancedPicturesInner() {
     }
   }
 
-  const savePlans = async () => {
-    if (!userId) return
-    setBusy(true)
-    try {
-      const saved = await adminSaveEnhancedPlans(userId, plans)
-      setPlans(saved)
-      setStatusMsg('Credit plans saved.')
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Could not save plans',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
+  const savePlans = () =>
+    plansSave.runSave(async () => {
+      if (!userId) return
+      try {
+        const saved = await adminSaveEnhancedPlans(userId, plans)
+        setPlans(saved)
+        setStatusMsg('Credit plans saved.')
+      } catch (e: unknown) {
+        setStatusMsg(
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not save plans',
+        )
+        throw e
+      }
+    })
 
-  const savePayment = async () => {
-    if (!userId) return
-    setBusy(true)
-    try {
-      const data = await adminSaveEnhancedPayment(userId, {
-        razorpayEnabled,
-        bankDetails,
-        qrFile,
-      })
-      setPaymentQrUrl(data.payment?.payment_qr_url || paymentQrUrl)
-      setQrFile(null)
-      setStatusMsg('Payment settings saved.')
-      await load()
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Could not save payment settings',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
+  const savePayment = () =>
+    paymentSave.runSave(async () => {
+      if (!userId) return
+      try {
+        const data = await adminSaveEnhancedPayment(userId, {
+          razorpayEnabled,
+          bankDetails,
+          qrFile,
+        })
+        setPaymentQrUrl(data.payment?.payment_qr_url || paymentQrUrl)
+        setQrFile(null)
+        setStatusMsg('Payment settings saved.')
+        await load()
+      } catch (e: unknown) {
+        setStatusMsg(
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not save payment settings',
+        )
+        throw e
+      }
+    })
 
-  const saveAiSettings = async () => {
-    if (!userId) return
-    setBusy(true)
-    setStatusMsg('Saving AI model settings…')
-    try {
-      const saved = await patchAdminEnhancedAiSettings(userId, {
-        provider: aiProvider,
-        gemini_model: geminiModel.trim(),
-        replicate_model: replicateModel.trim(),
-        gemini_api_key: geminiApiKeyInput.trim() || undefined,
-        replicate_api_token: replicateTokenInput.trim() || undefined,
-      })
-      setAiSettingsMeta(saved)
-      setGeminiApiKeyInput('')
-      setReplicateTokenInput('')
-      setStatusMsg(
-        `AI settings saved — ${saved.provider === 'replicate' ? 'Replicate' : 'Gemini'} · ${saved.provider === 'replicate' ? saved.replicate_model : saved.gemini_model}`,
-      )
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Could not save AI settings',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
+  const saveAiSettings = () =>
+    aiSave.runSave(async () => {
+      if (!userId) return
+      setStatusMsg('Saving AI model settings…')
+      try {
+        const saved = await patchAdminEnhancedAiSettings(userId, {
+          provider: aiProvider,
+          gemini_model: geminiModel.trim(),
+          replicate_model: replicateModel.trim(),
+          gemini_api_key: geminiApiKeyInput.trim() || undefined,
+          replicate_api_token: replicateTokenInput.trim() || undefined,
+        })
+        setAiSettingsMeta(saved)
+        setGeminiApiKeyInput('')
+        setReplicateTokenInput('')
+        setStatusMsg(
+          `AI settings saved — ${saved.provider === 'replicate' ? 'Replicate' : 'Gemini'} · ${saved.provider === 'replicate' ? saved.replicate_model : saved.gemini_model}`,
+        )
+      } catch (e: unknown) {
+        setStatusMsg(
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not save AI settings',
+        )
+        throw e
+      }
+    })
 
   const clearSavedGeminiKey = async () => {
     if (!userId || !confirm('Remove saved Gemini API key for this reseller?')) return
@@ -420,32 +424,31 @@ function AdminEnhancedPicturesInner() {
     }
   }
 
-  const saveTemplateShowcase = async () => {
-    if (!userId) return
-    setBusy(true)
-    setStatusMsg('Saving template showcase…')
-    try {
-      const saved = await patchAdminEnhancedTemplateShowcase(userId, {
-        template_key: templateKey,
-        workflow_highlights: workflowHighlightsText,
-        system_resolutions: systemResolutions,
-        system_ratios: systemRatios,
-        sample_label: sampleLabel,
-        output_label: outputLabel,
-        output_subtitle: outputSubtitle,
-        footer_note: footerNote,
-      })
-      applyShowcaseToForm(saved)
-      setStatusMsg('Template showcase saved — visible to reseller staff.')
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Could not save template showcase',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
+  const saveTemplateShowcase = () =>
+    showcaseSave.runSave(async () => {
+      if (!userId) return
+      setStatusMsg('Saving template showcase…')
+      try {
+        const saved = await patchAdminEnhancedTemplateShowcase(userId, {
+          template_key: templateKey,
+          workflow_highlights: workflowHighlightsText,
+          system_resolutions: systemResolutions,
+          system_ratios: systemRatios,
+          sample_label: sampleLabel,
+          output_label: outputLabel,
+          output_subtitle: outputSubtitle,
+          footer_note: footerNote,
+        })
+        applyShowcaseToForm(saved)
+        setStatusMsg('Template showcase saved — visible to reseller staff.')
+      } catch (e: unknown) {
+        setStatusMsg(
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not save template showcase',
+        )
+        throw e
+      }
+    })
 
   const showcasePreview = useMemo(
     (): EnhancedTemplateShowcaseData => ({
@@ -624,14 +627,16 @@ function AdminEnhancedPicturesInner() {
                     </button>
                   </div>
                 ))}
-                <button
+                <SaveFeedbackButton
                   type="button"
                   disabled={busy}
+                  saving={plansSave.saving}
+                  saved={plansSave.saved}
                   onClick={() => void savePlans()}
                   className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] px-3 py-2 text-sm font-semibold"
                 >
                   Save plans
-                </button>
+                </SaveFeedbackButton>
               </div>
 
               <div className="mt-4 space-y-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
@@ -676,14 +681,16 @@ function AdminEnhancedPicturesInner() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={paymentQrUrl} alt="QR" className="mt-2 max-h-32 rounded-lg border" />
                 ) : null}
-                <button
+                <SaveFeedbackButton
                   type="button"
                   disabled={busy}
+                  saving={paymentSave.saving}
+                  saved={paymentSave.saved}
                   onClick={() => void savePayment()}
                   className="rounded-lg bg-[var(--kc-accent,#c41e3a)] px-3 py-2 text-sm font-semibold text-white"
                 >
                   Save payment settings
-                </button>
+                </SaveFeedbackButton>
               </div>
             </section>
 
@@ -814,14 +821,16 @@ function AdminEnhancedPicturesInner() {
               )}
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <button
+                <SaveFeedbackButton
                   type="button"
                   disabled={busy}
+                  saving={aiSave.saving}
+                  saved={aiSave.saved}
                   onClick={() => void saveAiSettings()}
                   className="rounded-xl bg-[var(--kc-accent,#c41e3a)] px-4 py-2.5 text-sm font-semibold text-white"
                 >
                   Save AI settings
-                </button>
+                </SaveFeedbackButton>
                 {lastTestAi?.provider ? (
                   <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-900 ring-1 ring-emerald-200">
                     Last test: {lastTestAi.provider} · {lastTestAi.model}
@@ -906,14 +915,16 @@ function AdminEnhancedPicturesInner() {
                       className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
                     />
                   </label>
-                  <button
+                  <SaveFeedbackButton
                     type="button"
                     disabled={busy}
+                    saving={showcaseSave.saving}
+                    saved={showcaseSave.saved}
                     onClick={() => void saveTemplateShowcase()}
                     className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white"
                   >
                     Save template showcase
-                  </button>
+                  </SaveFeedbackButton>
                 </div>
 
                 <EnhancedTemplateShowcase
@@ -1069,14 +1080,16 @@ function AdminEnhancedPicturesInner() {
                   >
                     Test &amp; save as new
                   </button>
-                  <button
+                  <SaveFeedbackButton
                     type="button"
                     disabled={busy || !selectedId}
+                    saving={editsSave.saving}
+                    saved={editsSave.saved}
                     onClick={() => void saveEdits()}
                     className="inline-flex min-h-[44px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-2.5 text-sm font-semibold"
                   >
                     Save edits
-                  </button>
+                  </SaveFeedbackButton>
                   <button
                     type="button"
                     disabled={busy || !selectedId || selected?.is_active}

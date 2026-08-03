@@ -7,6 +7,8 @@ import { ArrowLeft, CreditCard, Loader2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { PROFILE_PATH } from '@/lib/routes'
+import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
+import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 
 type PaymentSettings = {
   razorpay_key_id: string
@@ -22,7 +24,7 @@ function PaymentSettingsForm() {
   const auth = useAuth()
   const { open: openLoginModal } = useLoginModal()
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const paymentSave = useSaveFeedback()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [keyId, setKeyId] = useState('')
@@ -58,30 +60,29 @@ function PaymentSettingsForm() {
     void load()
   }, [auth.hasChecked, auth.isAuthenticated, load])
 
-  const handleSave = async () => {
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
-    try {
+  const handleSave = () =>
+    paymentSave.runSave(async () => {
+      setError(null)
+      setSuccess(null)
       const body: Record<string, string> = {}
       if (keyId.trim()) body.razorpay_key_id = keyId.trim()
       if (keySecret.trim()) body.razorpay_key_secret = keySecret.trim()
       if (!Object.keys(body).length) {
         setError('Enter Key ID or Secret to update.')
-        return
+        throw new Error('empty')
       }
-      await axios.patch('/api/reseller/payment-settings', body, { withCredentials: true })
-      setSuccess('Payment settings saved. DigiGold / DigiSilver customers can pay online.')
-      await load()
-    } catch (e: unknown) {
-      const msg =
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        'Failed to save settings.'
-      setError(msg)
-    } finally {
-      setSaving(false)
-    }
-  }
+      try {
+        await axios.patch('/api/reseller/payment-settings', body, { withCredentials: true })
+        setSuccess('Payment settings saved. DigiGold / DigiSilver customers can pay online.')
+        await load()
+      } catch (e: unknown) {
+        const msg =
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Failed to save settings.'
+        setError(msg)
+        throw e
+      }
+    })
 
   if (!auth.hasChecked || loading) {
     return (
@@ -164,15 +165,16 @@ function PaymentSettingsForm() {
           . Keep the secret private — never share it with customers.
         </p>
 
-        <button
+        <SaveFeedbackButton
           type="button"
           onClick={() => void handleSave()}
-          disabled={saving}
+          disabled={paymentSave.saving}
+          saving={paymentSave.saving}
+          saved={paymentSave.saved}
           className="kc-btn-theme flex min-h-[44px] w-full items-center justify-center gap-2 sm:w-auto"
         >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : null}
           Save payment settings
-        </button>
+        </SaveFeedbackButton>
       </div>
     </div>
   )

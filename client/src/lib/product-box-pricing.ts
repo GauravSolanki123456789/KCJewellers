@@ -16,12 +16,8 @@ export function productHasBoxOption(item: Item | null | undefined): boolean {
   return getProductBoxCharges(item) > 0
 }
 
-/** Excel `WithBoxChargesOnly` — sold with box only (no without-box packaging toggle). */
-export function productWithBoxChargesOnly(item: Item | null | undefined): boolean {
-  if (!item) return false
-  const raw = item.with_box_charges_only ?? item.withBoxChargesOnly
-  if (raw === true || raw === 1 || raw === '1') return true
-  if (String(raw).toLowerCase() === 'true') return true
+/** @deprecated WithBoxChargesOnly removed — always false. Use box_charges + with-box photo slot. */
+export function productWithBoxChargesOnly(_item: Item | null | undefined): boolean {
   return false
 }
 
@@ -32,8 +28,8 @@ export function getProductMrpBehindBox(item: Item | null | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-export function effectiveIncludeBox(item: Item, includeBox: boolean): boolean {
-  return productWithBoxChargesOnly(item) ? true : includeBox
+export function effectiveIncludeBox(_item: Item, includeBox: boolean): boolean {
+  return includeBox
 }
 
 /**

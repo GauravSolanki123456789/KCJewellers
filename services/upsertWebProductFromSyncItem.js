@@ -165,22 +165,12 @@ function normalizeSyncItem(item) {
                     ? Number(item.StoneCharges)
                     : 0,
         boxCharges: (() => {
-            const rawOnly = item.WithBoxChargesOnly ?? item.withBoxChargesOnly;
-            const nOnly = rawOnly != null ? Number(rawOnly) : NaN;
-            if (Number.isFinite(nOnly) && nOnly > 0) return nOnly;
             if (item.boxCharges != null) return Number(item.boxCharges);
             if (item.box_charges != null) return Number(item.box_charges);
             if (item.BoxCharges != null) return Number(item.BoxCharges);
             return 0;
         })(),
-        withBoxChargesOnly: (() => {
-            if (item.withBoxChargesOnly === true || item.with_box_charges_only === true) return true;
-            const raw = item.WithBoxChargesOnly ?? item.withBoxChargesOnly;
-            if (raw == null || String(raw).trim() === '') return false;
-            const n = Number(raw);
-            if (Number.isFinite(n) && n > 0) return true;
-            return ['1', 'true', 'yes', 'y'].includes(String(raw).toLowerCase().trim());
-        })(),
+        withBoxChargesOnly: false,
         mrpRateBehindBox: (() => {
             const raw =
                 item.mrpRateBehindBox ??

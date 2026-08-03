@@ -17,12 +17,12 @@ export default function MrpBehindBoxNote({ item, className, density = 'card' }: 
   return (
     <p
       className={cn(
-        'font-medium tabular-nums text-slate-500',
-        density === 'detail' ? 'text-xs' : 'text-[10px] sm:text-[11px]',
+        'font-medium tabular-nums text-[var(--color-jewelry-black,#1a1814)]/70',
+        density === 'detail' ? 'text-xs leading-relaxed' : 'text-[10px] leading-snug sm:text-[11px]',
         className,
       )}
     >
-      MRP (behind box): ₹{Math.round(mrp).toLocaleString('en-IN')}
+      ₹{Math.round(mrp).toLocaleString('en-IN')} is the MRP Rate Behind Box (Informational Purpose)
     </p>
   )
 }

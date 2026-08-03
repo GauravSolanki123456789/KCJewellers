@@ -63,41 +63,11 @@ function trimExcelCell(value) {
     return s === '' ? undefined : s;
 }
 
-function submissionIsBoxOnly(entry) {
-    if (!entry) return false;
-    if (entry.with_box_charges_only === true) return true;
-    const sync = submissionRowToSyncItem(entry);
-    if (sync.withBoxChargesOnly === true || sync.with_box_charges_only === true) return true;
-    const raw = sync.WithBoxChargesOnly ?? sync.withBoxChargesOnly;
-    if (raw === true || raw === 1 || raw === '1') return true;
-    if (['true', 'yes', 'y'].includes(String(raw ?? '').toLowerCase().trim())) return true;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0;
-}
-
-/** Excel `WithBoxChargesOnly` — numeric value is box charge; product is with-box only (no without-box option). */
+/** Excel `BoxCharges` + optional `MRP RATE (BEHIND BOX)`. */
 function parseExcelBoxAndMrpFields(row, get) {
-    const withBoxOnlyRaw = get(
-        'WithBoxChargesOnly',
-        'withBoxChargesOnly',
-        'with_box_charges_only',
-        'WITHBOXCHARGESONLY',
-    );
-    const boxChargesRaw = get('BoxCharges', 'boxCharges', 'box_charges');
-    let boxCharges = boxChargesRaw;
-    let withBoxChargesOnly = false;
-    if (withBoxOnlyRaw != null) {
-        const n = Number(withBoxOnlyRaw);
-        if (Number.isFinite(n) && n > 0) {
-            boxCharges = String(n);
-            withBoxChargesOnly = true;
-        } else if (['1', 'true', 'yes', 'y'].includes(String(withBoxOnlyRaw).toLowerCase().trim())) {
-            withBoxChargesOnly = true;
-        }
-    }
+    const boxChargesRaw = get('BoxCharges', 'boxCharges', 'box_charges', 'BOXCHARGES');
     const mrpRaw = get(
         'MRP RATE(BEHIND BOX)',
-        'MRP RATE (BEHIND BOX)',
         'MRP RATE (BEHIND BOX)',
         'mrp_rate_behind_box',
         'mrpRateBehindBox',
@@ -105,12 +75,7 @@ function parseExcelBoxAndMrpFields(row, get) {
     );
     const mrpRateBehindBox =
         mrpRaw != null && Number.isFinite(Number(mrpRaw)) && Number(mrpRaw) > 0 ? Number(mrpRaw) : undefined;
-    if (!withBoxChargesOnly) {
-        if (row.with_box_charges_only === true || row.withBoxChargesOnly === true) {
-            withBoxChargesOnly = true;
-        }
-    }
-    return { boxCharges, withBoxChargesOnly, mrpRateBehindBox };
+    return { boxCharges: boxChargesRaw, mrpRateBehindBox };
 }
 
 /** Count imported rows per StyleCode — helps multi-style Excel files (e.g. Necklace + Chain Pendant). */
@@ -159,7 +124,6 @@ function excelRowToSyncItem(row) {
         fixedPrice: get('FixedPrice', 'fixedPrice', 'fixed_price'),
         stoneCharges: get('StoneCharges', 'stoneCharges', 'stone_charges'),
         boxCharges: boxMrp.boxCharges,
-        withBoxChargesOnly: boxMrp.withBoxChargesOnly,
         mrpRateBehindBox: boxMrp.mrpRateBehindBox,
         quantity: get('PCS', 'quantity', 'pcs'),
         itemCode: get('ItemCode', 'itemCode', 'item_code'),
@@ -312,7 +276,6 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         fixed_price: resolved.fixedPrice ?? 0,
         stone_charges: resolved.stoneCharges ?? 0,
         box_charges: boxChargesNum,
-        with_box_charges_only: boxMrp.withBoxChargesOnly,
         mrp_rate_behind_box: boxMrp.mrpRateBehindBox ?? null,
         quantity:
             item.quantity != null
@@ -1008,21 +971,11 @@ function registerResellerProductRoutes(app, deps) {
             const secondary =
                 (files.secondaryImage && files.secondaryImage[0]) ||
                 (files.secondaryImages && files.secondaryImages[0]);
-            const boxOnlyProduct =
-                fields.with_box_charges_only === true ||
-                submissionIsBoxOnly(existing[0]) ||
-                submissionIsBoxOnly({ ...existing[0], ...fields });
             if (primary && resolved.prodSku) {
                 const ext = path.extname(primary.filename) || '.webp';
-                if (boxOnlyProduct) {
-                    const target = `${resolved.prodSku}_box${ext}`;
-                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
-                    fields.box_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
-                } else {
-                    const target = `${resolved.prodSku}${ext}`;
-                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
-                    fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
-                }
+                const target = `${resolved.prodSku}${ext}`;
+                fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
+                fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
             if (secondary && resolved.prodSku) {
                 const ext = path.extname(secondary.filename) || '.webp';
@@ -1263,15 +1216,9 @@ function registerResellerProductRoutes(app, deps) {
                         const ext = path.extname(file.filename) || '.webp';
                         let target;
                         let urlField;
-                        const boxOnlyEntry = submissionIsBoxOnly(entry.row);
                         if (photoType === 'front') {
-                            if (boxOnlyEntry) {
-                                target = `${entry.prodSku}_box${ext}`;
-                                urlField = 'box_image_url';
-                            } else {
-                                target = `${entry.prodSku}${ext}`;
-                                urlField = 'image_url';
-                            }
+                            target = `${entry.prodSku}${ext}`;
+                            urlField = 'image_url';
                         } else if (photoType === 'back') {
                             target = `${entry.prodSku}_secondary${ext}`;
                             urlField = 'secondary_image_url';
@@ -1490,27 +1437,25 @@ function registerResellerProductRoutes(app, deps) {
             const files = req.files || {};
             const primary = (files.primaryImage && files.primaryImage[0]) || (files.images && files.images[0]);
             const secondary = (files.secondaryImage && files.secondaryImage[0]) || (files.secondaryImages && files.secondaryImages[0]);
-            const boxOnlyProduct =
-                fields.with_box_charges_only === true ||
-                submissionIsBoxOnly(existing[0]) ||
-                submissionIsBoxOnly({ ...existing[0], ...fields });
             if (primary && resolved.prodSku) {
                 const ext = path.extname(primary.filename) || '.webp';
-                if (boxOnlyProduct) {
-                    const target = `${resolved.prodSku}_box${ext}`;
-                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
-                    fields.box_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
-                } else {
-                    const target = `${resolved.prodSku}${ext}`;
-                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
-                    fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
-                }
+                const target = `${resolved.prodSku}${ext}`;
+                fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
+                fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
             if (secondary && resolved.prodSku) {
                 const ext = path.extname(secondary.filename) || '.webp';
                 const target = `${resolved.prodSku}_secondary${ext}`;
                 fs.renameSync(path.join(uploadsWebProductsDir, secondary.filename), path.join(uploadsWebProductsDir, target));
                 fields.secondary_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+            }
+            const boxImg =
+                (files.boxImage && files.boxImage[0]) || (files.boxImages && files.boxImages[0]);
+            if (boxImg && resolved.prodSku) {
+                const ext = path.extname(boxImg.filename) || '.webp';
+                const target = `${resolved.prodSku}_box${ext}`;
+                fs.renameSync(path.join(uploadsWebProductsDir, boxImg.filename), path.join(uploadsWebProductsDir, target));
+                fields.box_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
             }
             if (existing[0].submission_status === 'approved') {
                 applyVariantStemChangeToFields(fields, existing[0], resolved, uploadsWebProductsDir);

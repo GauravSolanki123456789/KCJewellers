@@ -91,6 +91,7 @@ function mergeSharedBranding(
     investEnabled: domainBranding?.investEnabled ?? false,
     storefrontMarginPct: domainBranding?.storefrontMarginPct ?? 0,
     showMrpBehindBox: domainBranding?.showMrpBehindBox ?? false,
+    hidePrices: domainBranding?.hidePrices ?? false,
   };
 }
 

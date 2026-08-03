@@ -1242,6 +1242,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
                     COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
                     COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                     COALESCE(reseller_show_mrp_behind_box, false) AS reseller_show_mrp_behind_box,
+                    COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                     COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
              FROM users
              WHERE customer_tier = 'RESELLER'
@@ -1288,6 +1289,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
             reseller_invest_enabled: !!rows[0].reseller_invest_enabled,
             storefront_margin_pct: storefrontMarginPct,
             show_mrp_behind_box: !!rows[0].reseller_show_mrp_behind_box,
+            reseller_hide_prices: !!rows[0].reseller_hide_prices,
         });
     } catch (error) {
         console.error('reseller-branding:', error);

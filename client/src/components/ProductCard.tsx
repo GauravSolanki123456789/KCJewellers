@@ -25,13 +25,13 @@ import { CATALOG_GRID_IMAGE_SIZES } from '@/lib/product-card-image-sizes'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 import BoxOptionToggle from '@/components/catalog/BoxOptionToggle'
 import MrpBehindBoxNote from '@/components/catalog/MrpBehindBoxNote'
+import WithBoxLabel from '@/components/catalog/WithBoxLabel'
 import GiftingSizeVariantPicker from '@/components/catalog/GiftingSizeVariantPicker'
 import {
   boxImageSlideIndex,
   effectiveIncludeBox,
   giftingDisplayTotal,
   productHasBoxOption,
-  productWithBoxChargesOnly,
 } from '@/lib/product-box-pricing'
 import {
   getAttachedVariants,
@@ -103,7 +103,8 @@ export default function ProductCard({
   const cart = useCart()
   const catalogBuilder = useCatalogBuilderOptional()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
-  const { customDomainHost, storefrontMarginPct, showMrpBehindBox } = useResellerBranding()
+  const { customDomainHost, storefrontMarginPct, showMrpBehindBox, hidePrices } = useResellerBranding()
+  const weightOnlyCatalog = hidePrices
   const { pricingOptions } = useCatalogPricingSettings()
 
   const variants = useMemo(() => getAttachedVariants(product), [product])
@@ -119,12 +120,11 @@ export default function ProductCard({
 
   useEffect(() => {
     setActiveVariant(variants[0] ?? product)
-    setIncludeBox(productWithBoxChargesOnly(variants[0] ?? product))
+    setIncludeBox(weightOnlyCatalog && productHasBoxOption(variants[0] ?? product))
     setGalleryScrollIdx(null)
-  }, [product, variants])
+  }, [product, variants, weightOnlyCatalog])
 
   const active = hasVariants ? activeVariant : product
-  const boxOnly = productWithBoxChargesOnly(active)
   const hasBox = productHasBoxOption(active)
   const boxSlideIdx = boxImageSlideIndex(active)
   const resolvedIncludeBox = effectiveIncludeBox(active, includeBox)
@@ -137,7 +137,7 @@ export default function ProductCard({
       : `/products/${encodeURIComponent(barcode)}`
 
   const imageSrc = normalizeCatalogImageSrc(
-    boxOnly && String(active.box_image_url ?? '').trim()
+    weightOnlyCatalog && hasBox && resolvedIncludeBox && String(active.box_image_url ?? '').trim()
       ? active.box_image_url
       : active.image_url || product.image_url,
   )
@@ -257,7 +257,7 @@ export default function ProductCard({
           fetchPriority={fetchPriority}
           scrollToIndex={galleryScrollIdx}
           onActiveIndexChange={(idx) => {
-            if (boxOnly) return
+            if (weightOnlyCatalog) return
             if (boxSlideIdx != null && idx === boxSlideIdx) setIncludeBox(true)
             else if (hasBox) setIncludeBox(false)
           }}
@@ -314,21 +314,25 @@ export default function ProductCard({
       ) : null}
 
       {hasBox ? (
-        <BoxOptionToggle
-          item={active}
-          includeBox={resolvedIncludeBox}
-          onChange={(withBox) => {
-            if (boxOnly) return
-            setIncludeBox(withBox)
-            if (withBox && boxSlideIdx != null) setGalleryScrollIdx(boxSlideIdx)
-            else setGalleryScrollIdx(0)
-          }}
-          density="card"
-        />
+        weightOnlyCatalog ? (
+          <WithBoxLabel className="mt-1" density="card" />
+        ) : (
+          <BoxOptionToggle
+            item={active}
+            includeBox={resolvedIncludeBox}
+            onChange={(withBox) => {
+              setIncludeBox(withBox)
+              if (withBox && boxSlideIdx != null) setGalleryScrollIdx(boxSlideIdx)
+              else setGalleryScrollIdx(0)
+            }}
+            density="card"
+          />
+        )
       ) : null}
 
       {showMrpBehindBox ? <MrpBehindBoxNote item={active} className="mt-1" /> : null}
 
+      {!weightOnlyCatalog ? (
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">
         {showWholesale ? (
           <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-600">
@@ -366,12 +370,13 @@ export default function ProductCard({
           ) : null}
         </div>
       </div>
+      ) : null}
 
       {catalogBuilderActive ? (
         <p className="mt-2 text-center text-[10px] font-medium text-slate-500">
           {builderSelected ? 'Tap to remove' : 'Tap to select'}
         </p>
-      ) : (
+      ) : !weightOnlyCatalog ? (
         <button
           className="mt-2 w-full"
           onClick={(e) => {
@@ -382,7 +387,7 @@ export default function ProductCard({
         >
           <span className="kc-btn-cart">Add to Cart</span>
         </button>
-      )}
+      ) : null}
     </div>
   )
 
