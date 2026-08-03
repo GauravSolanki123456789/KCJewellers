@@ -285,6 +285,25 @@ export async function patchAdminEnhancedAiSettings(
   return res.data.ai_settings
 }
 
+export async function createAdminEnhancedTemplate(
+  userId: number,
+  body: { label: string; description?: string; template_key?: string },
+) {
+  const res = await axios.post<{
+    success: boolean
+    template: {
+      key: string
+      label: string
+      description: string
+      showcase: EnhancedTemplateShowcase
+      prompt: EnhancedPicturePrompt
+    }
+  }>(`${apiBase()}/api/admin/users/${userId}/enhanced-picture-templates`, body, {
+    withCredentials: true,
+  })
+  return res.data.template
+}
+
 export async function patchAdminEnhancedPrompt(
   id: number,
   body: Partial<{ name: string; prompt_text: string; negative_prompt: string }>,

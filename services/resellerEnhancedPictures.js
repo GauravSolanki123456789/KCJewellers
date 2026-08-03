@@ -180,6 +180,71 @@ function defaultTemplateShowcase(templateKey) {
     };
 }
 
+function normalizePromptNewlines(text) {
+    return String(text ?? '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+}
+
+const PROMPT_SECTION_MARKERS = [
+    'STRICT PRODUCT PRESERVATION:',
+    'Preserve 100%:',
+    'SCENE:',
+    'QUALITY:',
+    'BACKGROUND DETAILS:',
+    'TEXT AREA:',
+    'NEGATIVE PROMPT:',
+    'Camera:',
+    'Lighting should resemble luxury premium brand photography:',
+];
+
+function repairPromptFormatting(text) {
+    let s = normalizePromptNewlines(text).trim();
+    if (!s) return '';
+    const newlineCount = (s.match(/\n/g) || []).length;
+    if (newlineCount >= 8) return s;
+    for (const marker of PROMPT_SECTION_MARKERS) {
+        const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        s = s.replace(new RegExp(`(?<!\\n)${escaped}`, 'g'), `\n\n${marker}`);
+    }
+    s = s.replace(/:([A-Z])/g, ':\n$1');
+    s = s.replace(/•\s*/g, '\n• ');
+    s = s.replace(/(?<!\\n)(No [a-z])/gi, '\n$1');
+    s = s.replace(/\n{3,}/g, '\n\n').trim();
+    return s;
+}
+
+function splitMasterAndNegative(promptText, negativePrompt) {
+    let master = repairPromptFormatting(promptText);
+    let neg = repairPromptFormatting(negativePrompt);
+    const re = /\n\nNEGATIVE PROMPT:\s*\n/i;
+    const match = master.match(re);
+    if (match && match.index != null) {
+        const idx = match.index;
+        const embedded = master.slice(idx + match[0].length).trim();
+        master = master.slice(0, idx).trim();
+        if (embedded && (!neg || neg.length < 10)) neg = embedded;
+    }
+    return { promptText: master, negativePrompt: neg };
+}
+
+function normalizePromptFields(promptText, negativePrompt) {
+    return splitMasterAndNegative(
+        repairPromptFormatting(promptText),
+        repairPromptFormatting(negativePrompt),
+    );
+}
+
+function slugifyTemplateKey(label) {
+    const base = String(label || 'template')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 48);
+    return base || 'template';
+}
+
 function parseWorkflowHighlights(raw) {
     if (Array.isArray(raw)) {
         return raw.map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
@@ -237,14 +302,18 @@ async function ensureDefaultTemplateShowcase(query, resellerUserId, templateKey 
     );
     if (existing.length) return loadTemplateShowcase(query, resellerUserId, key);
     const d = defaultTemplateShowcase(key);
+    const builtin = TEMPLATES.find((t) => t.key === key);
     await query(
         `INSERT INTO reseller_enhanced_picture_template_settings
-            (reseller_user_id, template_key, workflow_highlights, system_resolutions, system_ratios,
+            (reseller_user_id, template_key, template_label, template_description,
+             workflow_highlights, system_resolutions, system_ratios,
              sample_label, output_label, output_subtitle, footer_note)
-         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9)`,
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11)`,
         [
             resellerUserId,
             key,
+            builtin?.label || null,
+            builtin?.description || null,
             JSON.stringify(d.workflow_highlights),
             d.system_resolutions,
             d.system_ratios,
@@ -257,13 +326,104 @@ async function ensureDefaultTemplateShowcase(query, resellerUserId, templateKey 
     return d;
 }
 
-async function buildTemplatesForReseller(query, resellerUserId) {
-    const out = [];
-    for (const t of TEMPLATES) {
-        const showcase = await ensureDefaultTemplateShowcase(query, resellerUserId, t.key);
-        out.push({ ...t, showcase });
+function formatPromptRow(row) {
+    if (!row) return row;
+    const normalized = normalizePromptFields(row.prompt_text, row.negative_prompt || '');
+    return {
+        ...row,
+        prompt_text: normalized.promptText,
+        negative_prompt: normalized.negativePrompt || null,
+    };
+}
+
+async function createBlankTemplate(query, resellerUserId, body, adminId) {
+    const label = String(body?.label || 'New template').trim().slice(0, 120) || 'New template';
+    const description = String(body?.description || '').trim().slice(0, 500) || null;
+    let key = String(body?.template_key || slugifyTemplateKey(label))
+        .trim()
+        .toLowerCase()
+        .slice(0, 64);
+    if (!key) key = `template_${Date.now().toString(36).slice(-6)}`;
+    const taken = await query(
+        `SELECT template_key FROM reseller_enhanced_picture_template_settings
+         WHERE reseller_user_id = $1 AND template_key = $2 LIMIT 1`,
+        [resellerUserId, key],
+    );
+    if (taken.length) {
+        key = `${key.slice(0, 52)}_${Date.now().toString(36).slice(-6)}`.slice(0, 64);
     }
-    return out;
+    const d = defaultTemplateShowcase(key);
+    await query(
+        `INSERT INTO reseller_enhanced_picture_template_settings
+            (reseller_user_id, template_key, template_label, template_description,
+             workflow_highlights, system_resolutions, system_ratios,
+             sample_label, output_label, output_subtitle, footer_note)
+         VALUES ($1, $2, $3, $4, '[]'::jsonb, '', '', '', '', '', '')`,
+        [resellerUserId, key, label, description],
+    );
+    const promptIns = await query(
+        `INSERT INTO reseller_enhanced_picture_prompts
+            (reseller_user_id, template_key, name, prompt_text, negative_prompt, is_active, is_test, created_by_admin_id)
+         VALUES ($1, $2, $3, '', '', false, false, $4)
+         RETURNING *`,
+        [resellerUserId, key, `${label} — prompt`, adminId || null],
+    );
+    return {
+        key,
+        label,
+        description: description || '',
+        showcase: normalizeTemplateShowcaseRow(
+            {
+                template_key: key,
+                workflow_highlights: [],
+                system_resolutions: '',
+                system_ratios: '',
+                sample_label: '',
+                output_label: '',
+                output_subtitle: '',
+                footer_note: '',
+            },
+            key,
+        ),
+        prompt: formatPromptRow(promptIns[0]),
+    };
+}
+
+async function buildTemplatesForReseller(query, resellerUserId) {
+    await ensureDefaultTemplateShowcase(query, resellerUserId, TEMPLATE_IDOLS);
+    const rows = await query(
+        `SELECT template_key, template_label, template_description, workflow_highlights,
+                system_resolutions, system_ratios, sample_label, output_label, output_subtitle, footer_note
+         FROM reseller_enhanced_picture_template_settings
+         WHERE reseller_user_id = $1
+         ORDER BY template_key ASC`,
+        [resellerUserId],
+    );
+    const byKey = new Map();
+    for (const t of TEMPLATES) {
+        byKey.set(t.key, { key: t.key, label: t.label, description: t.description });
+    }
+    for (const row of rows) {
+        const key = String(row.template_key || '').trim().toLowerCase();
+        if (!key) continue;
+        const builtin = byKey.get(key);
+        byKey.set(key, {
+            key,
+            label: String(row.template_label || '').trim() || builtin?.label || key,
+            description: String(row.template_description || '').trim() || builtin?.description || '',
+            showcase: normalizeTemplateShowcaseRow(row, key),
+        });
+    }
+    if (!byKey.has(TEMPLATE_IDOLS)) {
+        const showcase = await ensureDefaultTemplateShowcase(query, resellerUserId, TEMPLATE_IDOLS);
+        byKey.set(TEMPLATE_IDOLS, {
+            key: TEMPLATE_IDOLS,
+            label: 'Idols / Frames',
+            description: 'Museum-style silver & gold idol and frame catalogue shots.',
+            showcase,
+        });
+    }
+    return [...byKey.values()];
 }
 
 function getGeminiApiKey() {
@@ -531,6 +691,14 @@ async function ensureEnhancedPicturesSchema(pool) {
         CREATE INDEX IF NOT EXISTS idx_enhanced_template_settings_user
             ON reseller_enhanced_picture_template_settings (reseller_user_id, template_key)
     `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_template_settings
+            ADD COLUMN IF NOT EXISTS template_label VARCHAR(120)
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_template_settings
+            ADD COLUMN IF NOT EXISTS template_description TEXT
+    `);
     await ensureCreditsSchema(pool);
 }
 
@@ -567,11 +735,18 @@ function mimeFromExt(ext) {
     return 'image/jpeg';
 }
 
-function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText } = {}) {
-    let main = String(promptText || '').trim();
-    let neg = String(negativePrompt || '').trim();
+function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, workflowHighlights } = {}) {
+    const normalized = normalizePromptFields(promptText, negativePrompt);
+    let main = normalized.promptText;
+    let neg = normalized.negativePrompt;
     const aspect = normalizeAspectRatio(aspectRatio);
     const text = String(canvasText || '').trim().slice(0, 120);
+    const highlights = Array.isArray(workflowHighlights)
+        ? workflowHighlights.map((x) => String(x).trim()).filter(Boolean)
+        : [];
+    if (highlights.length) {
+        main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
+    }
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
@@ -595,6 +770,7 @@ async function generateWithGemini({
     aspectRatio,
     canvasText,
     aiConfig,
+    workflowHighlights,
 }) {
     const apiKey = aiConfig?.gemini_api_key || getGeminiApiKey();
     if (!apiKey) {
@@ -608,6 +784,7 @@ async function generateWithGemini({
     const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
         aspectRatio: aspect,
         canvasText,
+        workflowHighlights,
     });
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
@@ -752,6 +929,7 @@ async function generateWithReplicate({
     aspectRatio,
     canvasText,
     aiConfig,
+    workflowHighlights,
 }) {
     const token = aiConfig?.replicate_api_token || getReplicateApiToken();
     if (!token) {
@@ -770,6 +948,7 @@ async function generateWithReplicate({
     const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
         aspectRatio,
         canvasText,
+        workflowHighlights,
     });
     const input = buildReplicateInput(model, { fullPrompt, sourceImagePath, aspectRatio });
     const [owner, name] = model.split('/');
@@ -835,6 +1014,7 @@ async function generateStudioImage({
     aspectRatio,
     canvasText,
     aiConfig,
+    workflowHighlights,
 }) {
     const provider = normalizeAiProvider(aiConfig?.provider);
     if (provider === 'replicate') {
@@ -845,6 +1025,7 @@ async function generateStudioImage({
             aspectRatio,
             canvasText,
             aiConfig,
+            workflowHighlights,
         });
     }
     return generateWithGemini({
@@ -854,6 +1035,7 @@ async function generateStudioImage({
         aspectRatio,
         canvasText,
         aiConfig,
+        workflowHighlights,
     });
 }
 
@@ -1075,12 +1257,30 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     ai_settings: aiSettings,
                     templates: templatesWithShowcase,
                     aspects: CANVAS_ASPECTS,
-                    prompts,
+                    prompts: prompts.map(formatPromptRow),
                     plans,
                     default_plans: DEFAULT_PLANS,
                 });
             } catch (e) {
                 console.error('admin list enhanced prompts:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
+    app.post(
+        '/api/admin/users/:userId/enhanced-picture-templates',
+        isAdminStrict,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                const created = await createBlankTemplate(query, userId, req.body, req.user?.id);
+                res.json({ success: true, template: created });
+            } catch (e) {
+                console.error('admin create enhanced template:', e);
                 res.status(e.status || 500).json({ error: e.message });
             }
         },
@@ -1100,20 +1300,28 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     .toLowerCase()
                     .slice(0, 64);
                 const name = String(req.body.name || 'Test prompt').trim().slice(0, 200) || 'Test prompt';
-                const promptText = String(req.body.prompt_text || '').trim();
-                if (!promptText) return res.status(400).json({ error: 'prompt_text required' });
-                const negativePrompt =
-                    req.body.negative_prompt != null
-                        ? String(req.body.negative_prompt).trim()
-                        : DEFAULT_IDOLS_NEGATIVE;
+                const normalized = normalizePromptFields(
+                    req.body.prompt_text || '',
+                    req.body.negative_prompt != null ? req.body.negative_prompt : DEFAULT_IDOLS_NEGATIVE,
+                );
+                if (!normalized.promptText) {
+                    return res.status(400).json({ error: 'prompt_text required' });
+                }
                 const rows = await query(
                     `INSERT INTO reseller_enhanced_picture_prompts
                         (reseller_user_id, template_key, name, prompt_text, negative_prompt, is_active, is_test, created_by_admin_id)
                      VALUES ($1, $2, $3, $4, $5, false, true, $6)
                      RETURNING *`,
-                    [userId, templateKey || TEMPLATE_IDOLS, name, promptText, negativePrompt || null, req.user?.id || null],
+                    [
+                        userId,
+                        templateKey || TEMPLATE_IDOLS,
+                        name,
+                        normalized.promptText,
+                        normalized.negativePrompt || null,
+                        req.user?.id || null,
+                    ],
                 );
-                res.json({ prompt: rows[0] });
+                res.json({ prompt: formatPromptRow(rows[0]) });
             } catch (e) {
                 console.error('admin create enhanced prompt:', e);
                 res.status(e.status || 500).json({ error: e.message });
@@ -1140,23 +1348,26 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     req.body.name !== undefined
                         ? String(req.body.name || '').trim().slice(0, 200) || cur.name
                         : cur.name;
-                const promptText =
+                const promptTextRaw =
                     req.body.prompt_text !== undefined
-                        ? String(req.body.prompt_text || '').trim()
+                        ? String(req.body.prompt_text || '')
                         : cur.prompt_text;
-                if (!promptText) return res.status(400).json({ error: 'prompt_text required' });
-                const negativePrompt =
+                const negativePromptRaw =
                     req.body.negative_prompt !== undefined
-                        ? String(req.body.negative_prompt || '').trim() || null
-                        : cur.negative_prompt;
+                        ? String(req.body.negative_prompt || '')
+                        : cur.negative_prompt || '';
+                const normalized = normalizePromptFields(promptTextRaw, negativePromptRaw);
+                if (!normalized.promptText) {
+                    return res.status(400).json({ error: 'prompt_text required' });
+                }
                 const rows = await query(
                     `UPDATE reseller_enhanced_picture_prompts
                      SET name = $1, prompt_text = $2, negative_prompt = $3, updated_at = CURRENT_TIMESTAMP
                      WHERE id = $4
                      RETURNING *`,
-                    [name, promptText, negativePrompt, id],
+                    [name, normalized.promptText, normalized.negativePrompt || null, id],
                 );
-                res.json({ prompt: rows[0] });
+                res.json({ prompt: formatPromptRow(rows[0]) });
             } catch (e) {
                 console.error('admin patch enhanced prompt:', e);
                 res.status(e.status || 500).json({ error: e.message });
@@ -1289,8 +1500,6 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     .trim()
                     .toLowerCase()
                     .slice(0, 64);
-                const known = TEMPLATES.some((t) => t.key === templateKey);
-                if (!known) return res.status(400).json({ error: 'Unknown template_key' });
 
                 await ensureDefaultTemplateShowcase(query, userId, templateKey);
                 const existing = await query(
@@ -1401,8 +1610,15 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     promptText = DEFAULT_IDOLS_PROMPT;
                     if (!negativePrompt) negativePrompt = DEFAULT_IDOLS_NEGATIVE;
                 }
+                const normalized = normalizePromptFields(promptText, negativePrompt);
+                promptText = normalized.promptText;
+                negativePrompt = normalized.negativePrompt;
+                if (!promptText) {
+                    return res.status(400).json({ error: 'Master prompt is required before generating.' });
+                }
 
                 const sourceUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${req.file.filename}`;
+                const showcase = await loadTemplateShowcase(query, userId, templateKey);
                 const aiConfig = await resolveAiConfigForUser(
                     query,
                     userId,
@@ -1415,6 +1631,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     aspectRatio,
                     canvasText,
                     aiConfig,
+                    workflowHighlights: showcase.workflow_highlights,
                 });
                 const outName = saveGeneratedBuffer(
                     enhancedDir,
@@ -1443,7 +1660,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                             req.user?.id || null,
                         ],
                     );
-                    promptRow = inserted[0];
+                    promptRow = formatPromptRow(inserted[0]);
                 } else {
                     const updated = await query(
                         `UPDATE reseller_enhanced_picture_prompts
@@ -1454,7 +1671,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                          RETURNING *`,
                         [promptText, negativePrompt || null, sourceUrl, resultUrl, promptId],
                     );
-                    promptRow = updated[0];
+                    promptRow = formatPromptRow(updated[0]);
                 }
 
                 res.json({
@@ -1465,7 +1682,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     canvas_text: canvasText || null,
                     ai_provider: generated.provider || aiConfig.provider,
                     ai_model: generated.model || null,
-                    prompt: promptRow,
+                    prompt: formatPromptRow(promptRow),
                 });
             } catch (e) {
                 console.error('admin enhanced test-generate:', e);
@@ -1767,13 +1984,19 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
 
             try {
                 const aiConfig = await resolveAiConfigForUser(query, req.user.id);
+                const showcase = await loadTemplateShowcase(query, req.user.id, templateKey);
+                const normalized = normalizePromptFields(
+                    prompt.prompt_text,
+                    prompt.negative_prompt || '',
+                );
                 const generated = await generateStudioImage({
-                    promptText: prompt.prompt_text,
-                    negativePrompt: prompt.negative_prompt,
+                    promptText: normalized.promptText,
+                    negativePrompt: normalized.negativePrompt,
                     sourceImagePath: req.file.path,
                     aspectRatio,
                     canvasText,
                     aiConfig,
+                    workflowHighlights: showcase.workflow_highlights,
                 });
                 const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
                 const outName = saveGeneratedBuffer(

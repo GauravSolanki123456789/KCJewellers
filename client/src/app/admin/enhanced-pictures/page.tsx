@@ -23,6 +23,7 @@ import {
   adminSaveEnhancedPayment,
   adminSaveEnhancedPlans,
   adminSetEnhancedCredits,
+  createAdminEnhancedTemplate,
   deleteAdminEnhancedPrompt,
   fetchAdminEnhancedPrompts,
   patchAdminEnhancedAiSettings,
@@ -32,8 +33,13 @@ import {
   type EnhancedAiSettings,
   type EnhancedCreditPlan,
   type EnhancedPicturePrompt,
+  type EnhancedPictureTemplate,
   type EnhancedTemplateShowcase as EnhancedTemplateShowcaseData,
 } from '@/lib/reseller-enhanced-pictures'
+import { repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-formatting'
+
+const PROMPT_TEXTAREA_CLASS =
+  'mt-1.5 w-full resize-y rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--color-jewelry-black,#1a1814)]'
 
 function AdminEnhancedPicturesInner() {
   const searchParams = useSearchParams()
@@ -53,6 +59,7 @@ function AdminEnhancedPicturesInner() {
   const [paymentQrUrl, setPaymentQrUrl] = useState<string | null>(null)
   const [qrFile, setQrFile] = useState<File | null>(null)
   const [prompts, setPrompts] = useState<EnhancedPicturePrompt[]>([])
+  const [templates, setTemplates] = useState<EnhancedPictureTemplate[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [name, setName] = useState('Idols test')
   const [promptText, setPromptText] = useState('')
@@ -97,9 +104,32 @@ function AdminEnhancedPicturesInner() {
     setFooterNote(s.footer_note || 'Preserves source details perfectly')
   }, [])
 
+  const applyPromptToForm = useCallback((p: EnhancedPicturePrompt) => {
+    const split = splitMasterAndNegative(
+      repairPromptFormatting(p.prompt_text),
+      repairPromptFormatting(p.negative_prompt || ''),
+    )
+    setName(p.name)
+    setPromptText(split.promptText)
+    setNegativePrompt(split.negativePrompt)
+    if (p.test_result_image_url) setResultUrl(p.test_result_image_url)
+    if (p.test_source_image_url) setSourcePreview(p.test_source_image_url)
+    if (p.template_key) setTemplateKey(p.template_key)
+  }, [])
+
   const selected = useMemo(
     () => prompts.find((p) => p.id === selectedId) || null,
     [prompts, selectedId],
+  )
+
+  const activeTemplate = useMemo(
+    () => templates.find((t) => t.key === templateKey) || templates[0] || null,
+    [templates, templateKey],
+  )
+
+  const promptsForTemplate = useMemo(
+    () => prompts.filter((p) => p.template_key === templateKey),
+    [prompts, templateKey],
   )
 
   const load = useCallback(async () => {
@@ -131,6 +161,7 @@ function AdminEnhancedPicturesInner() {
         })),
       )
       setPrompts(data.prompts)
+      setTemplates(data.templates || [])
       if (data.ai_settings) {
         setAiSettingsMeta(data.ai_settings)
         setAiProvider(data.ai_settings.provider)
@@ -142,14 +173,14 @@ function AdminEnhancedPicturesInner() {
         setTemplateKey(idolsTemplate.key)
         applyShowcaseToForm(idolsTemplate.showcase)
       }
-      const active = data.prompts.find((p) => p.is_active) || data.prompts[0]
+      const active =
+        data.prompts.find((p) => p.is_active && p.template_key === (idolsTemplate?.key || 'idols')) ||
+        data.prompts.find((p) => p.template_key === (idolsTemplate?.key || 'idols')) ||
+        data.prompts.find((p) => p.is_active) ||
+        data.prompts[0]
       if (active) {
         setSelectedId(active.id)
-        setName(active.name)
-        setPromptText(active.prompt_text)
-        setNegativePrompt(active.negative_prompt || '')
-        setResultUrl(active.test_result_image_url || null)
-        setSourcePreview(active.test_source_image_url || null)
+        applyPromptToForm(active)
       }
     } catch (e: unknown) {
       setError(
@@ -161,7 +192,7 @@ function AdminEnhancedPicturesInner() {
     } finally {
       setLoading(false)
     }
-  }, [userId, applyShowcaseToForm])
+  }, [userId, applyShowcaseToForm, applyPromptToForm])
 
   useEffect(() => {
     void load()
@@ -169,12 +200,50 @@ function AdminEnhancedPicturesInner() {
 
   useEffect(() => {
     if (!selected) return
-    setName(selected.name)
-    setPromptText(selected.prompt_text)
-    setNegativePrompt(selected.negative_prompt || '')
-    if (selected.test_result_image_url) setResultUrl(selected.test_result_image_url)
-    if (selected.test_source_image_url) setSourcePreview(selected.test_source_image_url)
-  }, [selected])
+    applyPromptToForm(selected)
+  }, [selected, applyPromptToForm])
+
+  useEffect(() => {
+    const tpl = templates.find((t) => t.key === templateKey)
+    if (tpl?.showcase) applyShowcaseToForm(tpl.showcase)
+  }, [templateKey, templates, applyShowcaseToForm])
+
+  useEffect(() => {
+    if (!promptsForTemplate.length) return
+    if (!promptsForTemplate.some((p) => p.id === selectedId)) {
+      setSelectedId(promptsForTemplate[0].id)
+    }
+  }, [templateKey, promptsForTemplate, selectedId])
+
+  const restorePromptFormatting = () => {
+    const split = splitMasterAndNegative(promptText, negativePrompt)
+    setPromptText(split.promptText)
+    setNegativePrompt(split.negativePrompt)
+    setStatusMsg('Prompt line breaks restored. Click Save edits to persist.')
+  }
+
+  const addNewTemplate = async () => {
+    if (!userId) return
+    const label = window.prompt('New template name', 'Black velvet showcase')?.trim()
+    if (!label) return
+    setBusy(true)
+    setStatusMsg('Creating template…')
+    try {
+      const created = await createAdminEnhancedTemplate(userId, { label })
+      await load()
+      setTemplateKey(created.key)
+      setSelectedId(created.prompt.id)
+      applyPromptToForm(created.prompt)
+      setStatusMsg(`Template "${label}" created — fill in master prompt, negative prompt, and workflow highlights.`)
+    } catch (e: unknown) {
+      setStatusMsg(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Could not create template',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const onPickFile = (file: File | null) => {
     setSourceFile(file)
@@ -194,14 +263,16 @@ function AdminEnhancedPicturesInner() {
     setBusy(true)
     setStatusMsg(saveAsNew ? 'Testing as new prompt…' : 'Generating studio test…')
     try {
+      const split = splitMasterAndNegative(promptText, negativePrompt)
       const data = await testGenerateAdminEnhanced({
         userId,
         image: sourceFile,
-        promptText,
-        negativePrompt,
+        promptText: split.promptText,
+        negativePrompt: split.negativePrompt,
         name,
         promptId: saveAsNew ? null : selectedId,
         saveAsNew,
+        templateKey,
         aspectRatio,
         canvasText: includeCanvasText ? canvasText.trim() : undefined,
         aiProvider,
@@ -232,11 +303,12 @@ function AdminEnhancedPicturesInner() {
     editsSave.runSave(async () => {
       if (!selectedId) return
       setStatusMsg('Saving prompt…')
+      const split = splitMasterAndNegative(promptText, negativePrompt)
       try {
         await patchAdminEnhancedPrompt(selectedId, {
           name,
-          prompt_text: promptText,
-          negative_prompt: negativePrompt,
+          prompt_text: split.promptText,
+          negative_prompt: split.negativePrompt,
         })
         await load()
         setStatusMsg('Prompt saved.')
@@ -492,7 +564,7 @@ function AdminEnhancedPicturesInner() {
               Enhanced pictures
             </p>
             <h1 className="mt-1 text-xl font-semibold text-[var(--color-jewelry-black,#1a1814)] md:text-2xl">
-              Prompt lab · Idols / Frames
+              Prompt lab · {activeTemplate?.label || 'Idols / Frames'}
             </h1>
             <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]/65">
               {businessName || email || (userId ? `User #${userId}` : 'No reseller')}
@@ -841,17 +913,26 @@ function AdminEnhancedPicturesInner() {
 
             <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 sm:p-5">
               <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                Template showcase · Idols / Frames
+                Template showcase · {activeTemplate?.label || 'Idols / Frames'}
               </h2>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-                Workflow highlights and system capabilities shown to reseller staff (like Aurra Studio).
-                Master prompt below drives the actual AI generation.
-              </p>
+              <div className="mt-2 rounded-xl border border-emerald-200/90 bg-emerald-50/70 px-3 py-2.5 text-xs leading-relaxed text-emerald-950">
+                <p>
+                  <span className="font-semibold">Sent to AI:</span> Master prompt, negative prompt, and workflow
+                  highlights (one per line).
+                </p>
+                <p className="mt-1">
+                  <span className="font-semibold">Reseller preview only:</span> Sample/output labels, resolutions,
+                  ratios, and footer — shown on the studio card (like Aurra Studio), not sent as extra AI instructions.
+                </p>
+              </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
                 <div className="space-y-3">
                   <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
                     Workflow highlights
+                    <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold normal-case text-emerald-900">
+                      AI
+                    </span>
                     <span className="ml-1 font-normal normal-case text-[var(--color-jewelry-black,#1a1814)]/45">
                       (one per line)
                     </span>
@@ -859,62 +940,69 @@ function AdminEnhancedPicturesInner() {
                       value={workflowHighlightsText}
                       onChange={(e) => setWorkflowHighlightsText(e.target.value)}
                       rows={6}
-                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm leading-relaxed"
-                      placeholder={'100% Identity Preservation\nProfessional Studio Lighting'}
+                      className={`${PROMPT_TEXTAREA_CLASS} text-sm`}
+                      placeholder={'100% Identity Preservation\nProfessional Studio Lighting\nHigh-Fidelity Textures'}
                     />
                   </label>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                      Resolutions label
-                      <input
-                        value={systemResolutions}
-                        onChange={(e) => setSystemResolutions(e.target.value)}
-                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                      />
-                    </label>
-                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                      Ratios label
-                      <input
-                        value={systemRatios}
-                        onChange={(e) => setSystemRatios(e.target.value)}
-                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                      />
-                    </label>
-                  </div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Sample photo label
-                    <input
-                      value={sampleLabel}
-                      onChange={(e) => setSampleLabel(e.target.value)}
-                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                    />
-                  </label>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                      Output label
-                      <input
-                        value={outputLabel}
-                        onChange={(e) => setOutputLabel(e.target.value)}
-                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                      />
-                    </label>
-                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                      Output subtitle
-                      <input
-                        value={outputSubtitle}
-                        onChange={(e) => setOutputSubtitle(e.target.value)}
-                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                      />
-                    </label>
-                  </div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Footer note
-                    <input
-                      value={footerNote}
-                      onChange={(e) => setFooterNote(e.target.value)}
-                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                    />
-                  </label>
+                  <details className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/40 px-3 py-2">
+                    <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                      Reseller card labels (optional preview text)
+                    </summary>
+                    <div className="mt-3 space-y-3 pb-1">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                          Resolutions label
+                          <input
+                            value={systemResolutions}
+                            onChange={(e) => setSystemResolutions(e.target.value)}
+                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                          />
+                        </label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                          Ratios label
+                          <input
+                            value={systemRatios}
+                            onChange={(e) => setSystemRatios(e.target.value)}
+                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                          />
+                        </label>
+                      </div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                        Sample photo label
+                        <input
+                          value={sampleLabel}
+                          onChange={(e) => setSampleLabel(e.target.value)}
+                          className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                        />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                          Output label
+                          <input
+                            value={outputLabel}
+                            onChange={(e) => setOutputLabel(e.target.value)}
+                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                          />
+                        </label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                          Output subtitle
+                          <input
+                            value={outputSubtitle}
+                            onChange={(e) => setOutputSubtitle(e.target.value)}
+                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                          />
+                        </label>
+                      </div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                        Footer note
+                        <input
+                          value={footerNote}
+                          onChange={(e) => setFooterNote(e.target.value)}
+                          className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                        />
+                      </label>
+                    </div>
+                  </details>
                   <SaveFeedbackButton
                     type="button"
                     disabled={busy}
@@ -935,32 +1023,75 @@ function AdminEnhancedPicturesInner() {
               </div>
             </section>
 
-            <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
-              <aside className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                  Saved prompts
-                </p>
-                {prompts.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setSelectedId(p.id)}
-                    className={`w-full rounded-xl border px-3 py-2.5 text-left ${
-                      selectedId === p.id
-                        ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8'
-                        : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium">{p.name}</span>
-                      {p.is_active ? (
-                        <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                          ACTIVE
-                        </span>
-                      ) : null}
-                    </div>
-                  </button>
-                ))}
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+              <aside className="space-y-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Templates
+                  </p>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {templates.map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setTemplateKey(t.key)}
+                        className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                          templateKey === t.key
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
+                            : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void addNewTemplate()}
+                      className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]/75 hover:border-emerald-500 hover:text-emerald-900 disabled:opacity-50"
+                    >
+                      <Plus className="size-4" />
+                      New template
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Saved prompts
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {promptsForTemplate.length ? (
+                      promptsForTemplate.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setSelectedId(p.id)}
+                          className={`w-full rounded-xl border px-3 py-2.5 text-left ${
+                            selectedId === p.id
+                              ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8'
+                              : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
+                              {p.name}
+                            </span>
+                            {p.is_active ? (
+                              <span className="shrink-0 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                ACTIVE
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="rounded-xl border border-dashed border-[var(--color-slate-700,#e8e4df)] px-3 py-4 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                        No prompts for this template yet. Fill in master prompt below and use Test &amp; save as new.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </aside>
 
               <div className="space-y-4">
@@ -1036,25 +1167,42 @@ function AdminEnhancedPicturesInner() {
                 <label className="block">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
                     Master prompt
+                    <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold normal-case text-emerald-900">
+                      AI
+                    </span>
                   </span>
                   <textarea
                     value={promptText}
                     onChange={(e) => setPromptText(e.target.value)}
-                    rows={12}
-                    className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-[12px]"
+                    rows={14}
+                    spellCheck={false}
+                    className={PROMPT_TEXTAREA_CLASS}
                   />
                 </label>
                 <label className="block">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
                     Negative prompt
+                    <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold normal-case text-emerald-900">
+                      AI
+                    </span>
                   </span>
                   <textarea
                     value={negativePrompt}
                     onChange={(e) => setNegativePrompt(e.target.value)}
-                    rows={5}
-                    className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-[12px]"
+                    rows={8}
+                    spellCheck={false}
+                    className={PROMPT_TEXTAREA_CLASS}
                   />
                 </label>
+
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={restorePromptFormatting}
+                  className="inline-flex min-h-[40px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/75"
+                >
+                  Restore line breaks (fix collapsed paste)
+                </button>
 
                 {statusMsg ? (
                   <p className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-sm">
