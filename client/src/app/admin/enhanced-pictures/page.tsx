@@ -15,6 +15,7 @@ import {
 import AdminGuard from '@/components/AdminGuard'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
+import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
 import {
   activateAdminEnhancedPrompt,
   adminSaveEnhancedPayment,
@@ -24,10 +25,12 @@ import {
   fetchAdminEnhancedPrompts,
   patchAdminEnhancedAiSettings,
   patchAdminEnhancedPrompt,
+  patchAdminEnhancedTemplateShowcase,
   testGenerateAdminEnhanced,
   type EnhancedAiSettings,
   type EnhancedCreditPlan,
   type EnhancedPicturePrompt,
+  type EnhancedTemplateShowcase as EnhancedTemplateShowcaseData,
 } from '@/lib/reseller-enhanced-pictures'
 
 function AdminEnhancedPicturesInner() {
@@ -67,6 +70,24 @@ function AdminEnhancedPicturesInner() {
   const [replicateTokenInput, setReplicateTokenInput] = useState('')
   const [aiSettingsMeta, setAiSettingsMeta] = useState<EnhancedAiSettings | null>(null)
   const [lastTestAi, setLastTestAi] = useState<{ provider?: string; model?: string } | null>(null)
+  const [templateKey, setTemplateKey] = useState('idols')
+  const [workflowHighlightsText, setWorkflowHighlightsText] = useState('')
+  const [systemResolutions, setSystemResolutions] = useState('2K, 4K High Definition')
+  const [systemRatios, setSystemRatios] = useState('1:1')
+  const [sampleLabel, setSampleLabel] = useState('Sample cinematic design')
+  const [outputLabel, setOutputLabel] = useState('Professional output')
+  const [outputSubtitle, setOutputSubtitle] = useState('4K hyper-realistic studio rendering')
+  const [footerNote, setFooterNote] = useState('Preserves source details perfectly')
+
+  const applyShowcaseToForm = useCallback((s: EnhancedTemplateShowcaseData) => {
+    setWorkflowHighlightsText((s.workflow_highlights || []).join('\n'))
+    setSystemResolutions(s.system_resolutions || '2K, 4K High Definition')
+    setSystemRatios(s.system_ratios || '1:1')
+    setSampleLabel(s.sample_label || 'Sample cinematic design')
+    setOutputLabel(s.output_label || 'Professional output')
+    setOutputSubtitle(s.output_subtitle || '4K hyper-realistic studio rendering')
+    setFooterNote(s.footer_note || 'Preserves source details perfectly')
+  }, [])
 
   const selected = useMemo(
     () => prompts.find((p) => p.id === selectedId) || null,
@@ -108,6 +129,11 @@ function AdminEnhancedPicturesInner() {
         setGeminiModel(data.ai_settings.gemini_model)
         setReplicateModel(data.ai_settings.replicate_model)
       }
+      const idolsTemplate = data.templates?.find((t) => t.key === 'idols') || data.templates?.[0]
+      if (idolsTemplate?.showcase) {
+        setTemplateKey(idolsTemplate.key)
+        applyShowcaseToForm(idolsTemplate.showcase)
+      }
       const active = data.prompts.find((p) => p.is_active) || data.prompts[0]
       if (active) {
         setSelectedId(active.id)
@@ -127,7 +153,7 @@ function AdminEnhancedPicturesInner() {
     } finally {
       setLoading(false)
     }
-  }, [userId])
+  }, [userId, applyShowcaseToForm])
 
   useEffect(() => {
     void load()
@@ -393,6 +419,59 @@ function AdminEnhancedPicturesInner() {
       setBusy(false)
     }
   }
+
+  const saveTemplateShowcase = async () => {
+    if (!userId) return
+    setBusy(true)
+    setStatusMsg('Saving template showcase…')
+    try {
+      const saved = await patchAdminEnhancedTemplateShowcase(userId, {
+        template_key: templateKey,
+        workflow_highlights: workflowHighlightsText,
+        system_resolutions: systemResolutions,
+        system_ratios: systemRatios,
+        sample_label: sampleLabel,
+        output_label: outputLabel,
+        output_subtitle: outputSubtitle,
+        footer_note: footerNote,
+      })
+      applyShowcaseToForm(saved)
+      setStatusMsg('Template showcase saved — visible to reseller staff.')
+    } catch (e: unknown) {
+      setStatusMsg(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Could not save template showcase',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const showcasePreview = useMemo(
+    (): EnhancedTemplateShowcaseData => ({
+      template_key: templateKey,
+      workflow_highlights: workflowHighlightsText
+        .split(/\r?\n/)
+        .map((x) => x.replace(/^[-•*]\s*/, '').trim())
+        .filter(Boolean),
+      system_resolutions: systemResolutions,
+      system_ratios: systemRatios,
+      sample_label: sampleLabel,
+      output_label: outputLabel,
+      output_subtitle: outputSubtitle,
+      footer_note: footerNote,
+    }),
+    [
+      templateKey,
+      workflowHighlightsText,
+      systemResolutions,
+      systemRatios,
+      sampleLabel,
+      outputLabel,
+      outputSubtitle,
+      footerNote,
+    ],
+  )
 
   return (
     <div className="kc-reseller-upload-panel min-h-screen bg-[var(--color-slate-950,#faf8f4)] pb-12 text-[var(--color-jewelry-black,#1a1814)]">
@@ -748,6 +827,100 @@ function AdminEnhancedPicturesInner() {
                     Last test: {lastTestAi.provider} · {lastTestAi.model}
                   </span>
                 ) : null}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 sm:p-5">
+              <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Template showcase · Idols / Frames
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                Workflow highlights and system capabilities shown to reseller staff (like Aurra Studio).
+                Master prompt below drives the actual AI generation.
+              </p>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Workflow highlights
+                    <span className="ml-1 font-normal normal-case text-[var(--color-jewelry-black,#1a1814)]/45">
+                      (one per line)
+                    </span>
+                    <textarea
+                      value={workflowHighlightsText}
+                      onChange={(e) => setWorkflowHighlightsText(e.target.value)}
+                      rows={6}
+                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm leading-relaxed"
+                      placeholder={'100% Identity Preservation\nProfessional Studio Lighting'}
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Resolutions label
+                      <input
+                        value={systemResolutions}
+                        onChange={(e) => setSystemResolutions(e.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                      />
+                    </label>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Ratios label
+                      <input
+                        value={systemRatios}
+                        onChange={(e) => setSystemRatios(e.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                      />
+                    </label>
+                  </div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Sample photo label
+                    <input
+                      value={sampleLabel}
+                      onChange={(e) => setSampleLabel(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Output label
+                      <input
+                        value={outputLabel}
+                        onChange={(e) => setOutputLabel(e.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                      />
+                    </label>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Output subtitle
+                      <input
+                        value={outputSubtitle}
+                        onChange={(e) => setOutputSubtitle(e.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                      />
+                    </label>
+                  </div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Footer note
+                    <input
+                      value={footerNote}
+                      onChange={(e) => setFooterNote(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void saveTemplateShowcase()}
+                    className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white"
+                  >
+                    Save template showcase
+                  </button>
+                </div>
+
+                <EnhancedTemplateShowcase
+                  data={showcasePreview}
+                  sampleImageUrl={sourcePreview}
+                  resultImageUrl={resultUrl}
+                />
               </div>
             </section>
 

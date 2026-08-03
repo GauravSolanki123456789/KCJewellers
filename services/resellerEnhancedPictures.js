@@ -146,6 +146,126 @@ const TEMPLATES = [
     },
 ];
 
+const DEFAULT_WORKFLOW_HIGHLIGHTS = [
+    '100% Identity Preservation',
+    'Professional Studio Lighting',
+    'High-Fidelity Textures',
+    'Cinematic Backgrounds',
+    'AI Ray-Traced Reflections',
+];
+
+function defaultTemplateShowcase(templateKey) {
+    const key = String(templateKey || TEMPLATE_IDOLS).trim().toLowerCase();
+    if (key === TEMPLATE_IDOLS) {
+        return {
+            template_key: TEMPLATE_IDOLS,
+            workflow_highlights: [...DEFAULT_WORKFLOW_HIGHLIGHTS],
+            system_resolutions: '2K, 4K High Definition',
+            system_ratios: '1:1',
+            sample_label: 'Sample cinematic design',
+            output_label: 'Professional output',
+            output_subtitle: '4K hyper-realistic studio rendering',
+            footer_note: 'Preserves source details perfectly',
+        };
+    }
+    return {
+        template_key: key,
+        workflow_highlights: [],
+        system_resolutions: '2K, 4K High Definition',
+        system_ratios: '1:1',
+        sample_label: 'Reference sample',
+        output_label: 'Studio result',
+        output_subtitle: '',
+        footer_note: '',
+    };
+}
+
+function parseWorkflowHighlights(raw) {
+    if (Array.isArray(raw)) {
+        return raw.map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
+    }
+    if (typeof raw === 'string' && raw.trim()) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return parsed.map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
+            }
+        } catch {
+            return raw
+                .split(/\r?\n/)
+                .map((x) => x.replace(/^[-•*]\s*/, '').trim())
+                .filter(Boolean)
+                .slice(0, 20);
+        }
+    }
+    return [];
+}
+
+function normalizeTemplateShowcaseRow(row, templateKey) {
+    const defaults = defaultTemplateShowcase(templateKey);
+    if (!row) return defaults;
+    const highlights = parseWorkflowHighlights(row.workflow_highlights);
+    return {
+        template_key: templateKey,
+        workflow_highlights: highlights.length ? highlights : defaults.workflow_highlights,
+        system_resolutions:
+            String(row.system_resolutions || '').trim() || defaults.system_resolutions,
+        system_ratios: String(row.system_ratios || '').trim() || defaults.system_ratios,
+        sample_label: String(row.sample_label || '').trim() || defaults.sample_label,
+        output_label: String(row.output_label || '').trim() || defaults.output_label,
+        output_subtitle: String(row.output_subtitle || '').trim() || defaults.output_subtitle,
+        footer_note: String(row.footer_note || '').trim() || defaults.footer_note,
+    };
+}
+
+async function loadTemplateShowcase(query, resellerUserId, templateKey) {
+    const key = String(templateKey || TEMPLATE_IDOLS).trim().toLowerCase().slice(0, 64);
+    const rows = await query(
+        `SELECT * FROM reseller_enhanced_picture_template_settings
+         WHERE reseller_user_id = $1 AND template_key = $2 LIMIT 1`,
+        [resellerUserId, key],
+    );
+    return normalizeTemplateShowcaseRow(rows[0], key);
+}
+
+async function ensureDefaultTemplateShowcase(query, resellerUserId, templateKey = TEMPLATE_IDOLS) {
+    const key = String(templateKey || TEMPLATE_IDOLS).trim().toLowerCase().slice(0, 64);
+    const existing = await query(
+        `SELECT id FROM reseller_enhanced_picture_template_settings
+         WHERE reseller_user_id = $1 AND template_key = $2 LIMIT 1`,
+        [resellerUserId, key],
+    );
+    if (existing.length) return loadTemplateShowcase(query, resellerUserId, key);
+    const d = defaultTemplateShowcase(key);
+    await query(
+        `INSERT INTO reseller_enhanced_picture_template_settings
+            (reseller_user_id, template_key, workflow_highlights, system_resolutions, system_ratios,
+             sample_label, output_label, output_subtitle, footer_note)
+         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9)`,
+        [
+            resellerUserId,
+            key,
+            JSON.stringify(d.workflow_highlights),
+            d.system_resolutions,
+            d.system_ratios,
+            d.sample_label,
+            d.output_label,
+            d.output_subtitle,
+            d.footer_note,
+        ],
+    );
+    return d;
+}
+
+async function buildTemplatesForReseller(query, resellerUserId) {
+    const out = [];
+    for (const t of TEMPLATES) {
+        const showcase = await ensureDefaultTemplateShowcase(query, resellerUserId, t.key);
+        out.push({ ...t, showcase });
+    }
+    return out;
+}
+
 function getGeminiApiKey() {
     return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '').trim();
 }
@@ -389,6 +509,27 @@ async function ensureEnhancedPicturesSchema(pool) {
     `);
     await pool.query(`
         ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS ai_model VARCHAR(255)
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_enhanced_picture_template_settings (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            template_key VARCHAR(64) NOT NULL,
+            workflow_highlights JSONB NOT NULL DEFAULT '[]'::jsonb,
+            system_resolutions TEXT,
+            system_ratios TEXT,
+            sample_label TEXT,
+            output_label TEXT,
+            output_subtitle TEXT,
+            footer_note TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (reseller_user_id, template_key)
+        )
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_enhanced_template_settings_user
+            ON reseller_enhanced_picture_template_settings (reseller_user_id, template_key)
     `);
     await ensureCreditsSchema(pool);
 }
@@ -922,6 +1063,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 if (!u) return res.status(404).json({ error: 'User not found' });
                 await ensureDefaultIdolsPrompt(query, userId, req.user?.id);
                 await ensureDefaultPlans(query, userId);
+                const templatesWithShowcase = await buildTemplatesForReseller(query, userId);
                 const prompts = await query(
                     `SELECT * FROM reseller_enhanced_picture_prompts
                      WHERE reseller_user_id = $1
@@ -943,7 +1085,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         bank_details: creditInfo?.bank_details || null,
                     },
                     ai_settings: aiSettings,
-                    templates: TEMPLATES,
+                    templates: templatesWithShowcase,
                     aspects: CANVAS_ASPECTS,
                     prompts,
                     plans,
@@ -1141,6 +1283,93 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 res.json({ success: true, ai_settings: aiSettings });
             } catch (e) {
                 console.error('admin patch enhanced ai settings:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
+    app.patch(
+        '/api/admin/users/:userId/enhanced-picture-template-settings',
+        isAdminStrict,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                const templateKey = String(req.body.template_key || TEMPLATE_IDOLS)
+                    .trim()
+                    .toLowerCase()
+                    .slice(0, 64);
+                const known = TEMPLATES.some((t) => t.key === templateKey);
+                if (!known) return res.status(400).json({ error: 'Unknown template_key' });
+
+                await ensureDefaultTemplateShowcase(query, userId, templateKey);
+                const existing = await query(
+                    `SELECT * FROM reseller_enhanced_picture_template_settings
+                     WHERE reseller_user_id = $1 AND template_key = $2`,
+                    [userId, templateKey],
+                );
+                const cur = normalizeTemplateShowcaseRow(existing[0], templateKey);
+                const highlights =
+                    req.body.workflow_highlights !== undefined
+                        ? parseWorkflowHighlights(req.body.workflow_highlights)
+                        : cur.workflow_highlights;
+                const systemResolutions =
+                    req.body.system_resolutions !== undefined
+                        ? String(req.body.system_resolutions || '').trim().slice(0, 200)
+                        : cur.system_resolutions;
+                const systemRatios =
+                    req.body.system_ratios !== undefined
+                        ? String(req.body.system_ratios || '').trim().slice(0, 120)
+                        : cur.system_ratios;
+                const sampleLabel =
+                    req.body.sample_label !== undefined
+                        ? String(req.body.sample_label || '').trim().slice(0, 120)
+                        : cur.sample_label;
+                const outputLabel =
+                    req.body.output_label !== undefined
+                        ? String(req.body.output_label || '').trim().slice(0, 120)
+                        : cur.output_label;
+                const outputSubtitle =
+                    req.body.output_subtitle !== undefined
+                        ? String(req.body.output_subtitle || '').trim().slice(0, 200)
+                        : cur.output_subtitle;
+                const footerNote =
+                    req.body.footer_note !== undefined
+                        ? String(req.body.footer_note || '').trim().slice(0, 200)
+                        : cur.footer_note;
+
+                const rows = await query(
+                    `UPDATE reseller_enhanced_picture_template_settings SET
+                        workflow_highlights = $1::jsonb,
+                        system_resolutions = $2,
+                        system_ratios = $3,
+                        sample_label = $4,
+                        output_label = $5,
+                        output_subtitle = $6,
+                        footer_note = $7,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE reseller_user_id = $8 AND template_key = $9
+                     RETURNING *`,
+                    [
+                        JSON.stringify(highlights),
+                        systemResolutions,
+                        systemRatios,
+                        sampleLabel,
+                        outputLabel,
+                        outputSubtitle,
+                        footerNote,
+                        userId,
+                        templateKey,
+                    ],
+                );
+                res.json({
+                    success: true,
+                    showcase: normalizeTemplateShowcaseRow(rows[0], templateKey),
+                });
+            } catch (e) {
+                console.error('admin patch template showcase:', e);
                 res.status(e.status || 500).json({ error: e.message });
             }
         },
@@ -1421,12 +1650,15 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 creditInfo = await getCreditBalance(query, req.user.id);
                 plans = await listPlans(query, req.user.id, { activeOnly: true });
             }
+            const templatesWithShowcase = u.enhanced_pictures
+                ? await buildTemplatesForReseller(query, req.user.id)
+                : [];
             const aiSettings = u.enhanced_pictures
                 ? await loadResellerAiSettings(query, req.user.id)
                 : null;
             res.json({
                 enabled: !!u.enhanced_pictures,
-                templates: u.enhanced_pictures ? TEMPLATES : [],
+                templates: templatesWithShowcase,
                 aspects: CANVAS_ASPECTS,
                 active_prompt: activePrompt,
                 credits: creditInfo?.credits ?? 0,

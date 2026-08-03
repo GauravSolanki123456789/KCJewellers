@@ -7,6 +7,18 @@ export type EnhancedPictureTemplate = {
   key: string
   label: string
   description: string
+  showcase?: EnhancedTemplateShowcase
+}
+
+export type EnhancedTemplateShowcase = {
+  template_key: string
+  workflow_highlights: string[]
+  system_resolutions: string
+  system_ratios: string
+  sample_label: string
+  output_label: string
+  output_subtitle: string
+  footer_note: string
 }
 
 export type EnhancedPicturePrompt = {
@@ -230,6 +242,27 @@ export async function fetchAdminEnhancedPrompts(userId: number) {
     withCredentials: true,
   })
   return res.data
+}
+
+export async function patchAdminEnhancedTemplateShowcase(
+  userId: number,
+  body: {
+    template_key?: string
+    workflow_highlights?: string[] | string
+    system_resolutions?: string
+    system_ratios?: string
+    sample_label?: string
+    output_label?: string
+    output_subtitle?: string
+    footer_note?: string
+  },
+) {
+  const res = await axios.patch<{ success: boolean; showcase: EnhancedTemplateShowcase }>(
+    `${apiBase()}/api/admin/users/${userId}/enhanced-picture-template-settings`,
+    body,
+    { withCredentials: true },
+  )
+  return res.data.showcase
 }
 
 export async function patchAdminEnhancedAiSettings(

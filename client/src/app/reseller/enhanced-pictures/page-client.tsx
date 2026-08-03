@@ -18,6 +18,7 @@ import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import { PROFILE_PATH, RESELLER_PRODUCTS_PATH } from '@/lib/routes'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
+import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
 import {
   attachEnhancedPicture,
   createEnhancedTopupOrder,
@@ -158,6 +159,11 @@ export default function ResellerEnhancedPicturesPageClient() {
     if (!stem) return ''
     return photoType === 'back' ? `${stem}_secondary.webp` : `${stem}.webp`
   }, [barcodeStem, photoType])
+
+  const activeTemplate = useMemo(
+    () => templates.find((t) => t.key === templateKey) || templates[0] || null,
+    [templates, templateKey],
+  )
 
   const onPick = (file: File | null) => {
     if (sourcePreview?.startsWith('blob:')) URL.revokeObjectURL(sourcePreview)
@@ -460,6 +466,20 @@ export default function ResellerEnhancedPicturesPageClient() {
             )}
           </div>
         </section>
+
+        {activeTemplate?.showcase ? (
+          <section>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+              Template capabilities
+            </p>
+            <EnhancedTemplateShowcase
+              data={activeTemplate.showcase}
+              sampleImageUrl={sourcePreview}
+              resultImageUrl={resultUrl}
+              compact
+            />
+          </section>
+        ) : null}
 
         <CanvasAspectPicker value={aspectRatio} onChange={setAspectRatio} label="02 · Canvas aspect" />
 
