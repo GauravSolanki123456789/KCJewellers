@@ -33,6 +33,32 @@ export type EnhancedCreditPlan = {
   is_active?: boolean
 }
 
+export type EnhancedAiSettings = {
+  provider: 'gemini' | 'replicate'
+  gemini_model: string
+  replicate_model: string
+  gemini_api_key_configured: boolean
+  replicate_api_token_configured: boolean
+  gemini_api_key_masked: string | null
+  replicate_api_token_masked: string | null
+  gemini_model_presets: string[]
+  replicate_model_presets: string[]
+  server_gemini_configured: boolean
+  server_replicate_configured: boolean
+}
+
+export const GEMINI_MODEL_PRESETS = [
+  'gemini-3.1-flash-lite-image',
+  'gemini-2.5-flash-image',
+  'gemini-2.5-flash-image-preview',
+] as const
+
+export const REPLICATE_MODEL_PRESETS = [
+  'black-forest-labs/flux-kontext-pro',
+  'google/nano-banana',
+  'black-forest-labs/flux-1.1-pro',
+] as const
+
 export type EnhancedBarcodeHint = {
   id: number
   barcode?: string | null
@@ -84,6 +110,11 @@ export async function fetchEnhancedStatus() {
     payment_qr_url: string | null
     bank_details: string | null
     plans: EnhancedCreditPlan[]
+    ai_settings?: {
+      provider: 'gemini' | 'replicate'
+      gemini_model: string
+      replicate_model: string
+    } | null
   }>(`${apiBase()}/api/reseller/enhanced-pictures/status`, { withCredentials: true })
   return res.data
 }
@@ -190,6 +221,7 @@ export async function fetchAdminEnhancedPrompts(userId: number) {
       payment_qr_url: string | null
       bank_details: string | null
     }
+    ai_settings: EnhancedAiSettings
     templates: EnhancedPictureTemplate[]
     aspects: string[]
     prompts: EnhancedPicturePrompt[]
@@ -198,6 +230,26 @@ export async function fetchAdminEnhancedPrompts(userId: number) {
     withCredentials: true,
   })
   return res.data
+}
+
+export async function patchAdminEnhancedAiSettings(
+  userId: number,
+  body: {
+    provider?: 'gemini' | 'replicate'
+    gemini_model?: string
+    replicate_model?: string
+    gemini_api_key?: string
+    replicate_api_token?: string
+    clear_gemini_api_key?: boolean
+    clear_replicate_api_token?: boolean
+  },
+) {
+  const res = await axios.patch<{ success: boolean; ai_settings: EnhancedAiSettings }>(
+    `${apiBase()}/api/admin/users/${userId}/enhanced-picture-ai-settings`,
+    body,
+    { withCredentials: true },
+  )
+  return res.data.ai_settings
 }
 
 export async function patchAdminEnhancedPrompt(
@@ -238,6 +290,11 @@ export async function testGenerateAdminEnhanced(opts: {
   templateKey?: string
   aspectRatio?: string
   canvasText?: string
+  aiProvider?: 'gemini' | 'replicate'
+  geminiModel?: string
+  geminiApiKey?: string
+  replicateModel?: string
+  replicateApiToken?: string
 }) {
   const fd = new FormData()
   fd.append('image', opts.image)
@@ -249,10 +306,17 @@ export async function testGenerateAdminEnhanced(opts: {
   fd.append('template_key', opts.templateKey || 'idols')
   fd.append('aspect_ratio', opts.aspectRatio || '1:1')
   if (opts.canvasText) fd.append('canvas_text', opts.canvasText)
+  if (opts.aiProvider) fd.append('ai_provider', opts.aiProvider)
+  if (opts.geminiModel) fd.append('gemini_model', opts.geminiModel)
+  if (opts.geminiApiKey) fd.append('gemini_api_key', opts.geminiApiKey)
+  if (opts.replicateModel) fd.append('replicate_model', opts.replicateModel)
+  if (opts.replicateApiToken) fd.append('replicate_api_token', opts.replicateApiToken)
   const res = await axios.post<{
     success: boolean
     source_image_url: string
     result_image_url: string
+    ai_provider?: string
+    ai_model?: string
     prompt: EnhancedPicturePrompt
   }>(`${apiBase()}/api/admin/users/${opts.userId}/enhanced-pictures/test-generate`, fd, {
     withCredentials: true,

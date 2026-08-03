@@ -65,6 +65,7 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [enabled, setEnabled] = useState(false)
   const [templates, setTemplates] = useState<EnhancedPictureTemplate[]>([])
   const [activePromptName, setActivePromptName] = useState<string | null>(null)
+  const [aiModelLabel, setAiModelLabel] = useState<string | null>(null)
   const [hints, setHints] = useState<EnhancedBarcodeHint[]>([])
   const [credits, setCredits] = useState(0)
   const [plans, setPlans] = useState<EnhancedCreditPlan[]>([])
@@ -109,6 +110,16 @@ export default function ResellerEnhancedPicturesPageClient() {
       setEnabled(status.enabled)
       setTemplates(status.templates || [])
       setActivePromptName(status.active_prompt?.name || null)
+      if (status.ai_settings) {
+        const ai = status.ai_settings
+        setAiModelLabel(
+          ai.provider === 'replicate'
+            ? `Replicate · ${ai.replicate_model}`
+            : `Gemini · ${ai.gemini_model}`,
+        )
+      } else {
+        setAiModelLabel(null)
+      }
       setCredits(status.credits ?? 0)
       setPlans(status.plans || [])
       setRazorpayEnabled(!!status.razorpay_enabled)
@@ -374,6 +385,11 @@ export default function ResellerEnhancedPicturesPageClient() {
             {activePromptName ? (
               <p className="truncate text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                 Active prompt: {activePromptName}
+              </p>
+            ) : null}
+            {aiModelLabel ? (
+              <p className="truncate text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                AI: {aiModelLabel}
               </p>
             ) : null}
           </div>

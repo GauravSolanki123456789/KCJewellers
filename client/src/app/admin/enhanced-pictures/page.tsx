@@ -22,8 +22,10 @@ import {
   adminSetEnhancedCredits,
   deleteAdminEnhancedPrompt,
   fetchAdminEnhancedPrompts,
+  patchAdminEnhancedAiSettings,
   patchAdminEnhancedPrompt,
   testGenerateAdminEnhanced,
+  type EnhancedAiSettings,
   type EnhancedCreditPlan,
   type EnhancedPicturePrompt,
 } from '@/lib/reseller-enhanced-pictures'
@@ -58,6 +60,13 @@ function AdminEnhancedPicturesInner() {
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [statusMsg, setStatusMsg] = useState('')
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'replicate'>('gemini')
+  const [geminiModel, setGeminiModel] = useState('gemini-3.1-flash-lite-image')
+  const [replicateModel, setReplicateModel] = useState('black-forest-labs/flux-kontext-pro')
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('')
+  const [replicateTokenInput, setReplicateTokenInput] = useState('')
+  const [aiSettingsMeta, setAiSettingsMeta] = useState<EnhancedAiSettings | null>(null)
+  const [lastTestAi, setLastTestAi] = useState<{ provider?: string; model?: string } | null>(null)
 
   const selected = useMemo(
     () => prompts.find((p) => p.id === selectedId) || null,
@@ -93,6 +102,12 @@ function AdminEnhancedPicturesInner() {
         })),
       )
       setPrompts(data.prompts)
+      if (data.ai_settings) {
+        setAiSettingsMeta(data.ai_settings)
+        setAiProvider(data.ai_settings.provider)
+        setGeminiModel(data.ai_settings.gemini_model)
+        setReplicateModel(data.ai_settings.replicate_model)
+      }
       const active = data.prompts.find((p) => p.is_active) || data.prompts[0]
       if (active) {
         setSelectedId(active.id)
@@ -155,9 +170,15 @@ function AdminEnhancedPicturesInner() {
         saveAsNew,
         aspectRatio,
         canvasText: includeCanvasText ? canvasText.trim() : undefined,
+        aiProvider,
+        geminiModel,
+        geminiApiKey: geminiApiKeyInput.trim() || undefined,
+        replicateModel,
+        replicateApiToken: replicateTokenInput.trim() || undefined,
       })
       setResultUrl(data.result_image_url)
       setSourcePreview(data.source_image_url)
+      setLastTestAi({ provider: data.ai_provider, model: data.ai_model })
       await load()
       setSelectedId(data.prompt.id)
       setStatusMsg('Test image ready. Activate this prompt when you are happy with it.')
@@ -303,6 +324,70 @@ function AdminEnhancedPicturesInner() {
       setStatusMsg(
         (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
           'Could not save payment settings',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveAiSettings = async () => {
+    if (!userId) return
+    setBusy(true)
+    setStatusMsg('Saving AI model settings…')
+    try {
+      const saved = await patchAdminEnhancedAiSettings(userId, {
+        provider: aiProvider,
+        gemini_model: geminiModel.trim(),
+        replicate_model: replicateModel.trim(),
+        gemini_api_key: geminiApiKeyInput.trim() || undefined,
+        replicate_api_token: replicateTokenInput.trim() || undefined,
+      })
+      setAiSettingsMeta(saved)
+      setGeminiApiKeyInput('')
+      setReplicateTokenInput('')
+      setStatusMsg(
+        `AI settings saved — ${saved.provider === 'replicate' ? 'Replicate' : 'Gemini'} · ${saved.provider === 'replicate' ? saved.replicate_model : saved.gemini_model}`,
+      )
+    } catch (e: unknown) {
+      setStatusMsg(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Could not save AI settings',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const clearSavedGeminiKey = async () => {
+    if (!userId || !confirm('Remove saved Gemini API key for this reseller?')) return
+    setBusy(true)
+    try {
+      const saved = await patchAdminEnhancedAiSettings(userId, { clear_gemini_api_key: true })
+      setAiSettingsMeta(saved)
+      setGeminiApiKeyInput('')
+      setStatusMsg('Saved Gemini key cleared. Server .env key will be used if set.')
+    } catch (e: unknown) {
+      setStatusMsg(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Could not clear Gemini key',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const clearSavedReplicateToken = async () => {
+    if (!userId || !confirm('Remove saved Replicate token for this reseller?')) return
+    setBusy(true)
+    try {
+      const saved = await patchAdminEnhancedAiSettings(userId, { clear_replicate_api_token: true })
+      setAiSettingsMeta(saved)
+      setReplicateTokenInput('')
+      setStatusMsg('Saved Replicate token cleared. Server .env token will be used if set.')
+    } catch (e: unknown) {
+      setStatusMsg(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Could not clear Replicate token',
       )
     } finally {
       setBusy(false)
@@ -520,6 +605,149 @@ function AdminEnhancedPicturesInner() {
                 >
                   Save payment settings
                 </button>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 sm:p-5">
+              <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                AI model settings
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                Choose Gemini or Replicate for this reseller&apos;s studio. Test below, then save when
+                happy. Reseller staff use the saved provider automatically.
+              </p>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Provider
+                  <select
+                    value={aiProvider}
+                    onChange={(e) => setAiProvider(e.target.value as 'gemini' | 'replicate')}
+                    className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]"
+                  >
+                    <option value="gemini">Google Gemini (image)</option>
+                    <option value="replicate">Replicate</option>
+                  </select>
+                </label>
+
+                {aiProvider === 'gemini' ? (
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Gemini model
+                    <input
+                      list="gemini-models"
+                      value={geminiModel}
+                      onChange={(e) => setGeminiModel(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-sm"
+                      placeholder="gemini-3.1-flash-lite-image"
+                    />
+                    <datalist id="gemini-models">
+                      {(aiSettingsMeta?.gemini_model_presets || []).map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                  </label>
+                ) : (
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Replicate model
+                    <input
+                      list="replicate-models"
+                      value={replicateModel}
+                      onChange={(e) => setReplicateModel(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-sm"
+                      placeholder="black-forest-labs/flux-kontext-pro"
+                    />
+                    <datalist id="replicate-models">
+                      {(aiSettingsMeta?.replicate_model_presets || []).map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                  </label>
+                )}
+              </div>
+
+              {aiProvider === 'gemini' ? (
+                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Gemini API key (optional)
+                  <input
+                    type="password"
+                    value={geminiApiKeyInput}
+                    onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                    autoComplete="off"
+                    placeholder={
+                      aiSettingsMeta?.gemini_api_key_masked
+                        ? `Saved ${aiSettingsMeta.gemini_api_key_masked} — paste to replace`
+                        : aiSettingsMeta?.server_gemini_configured
+                          ? 'Using server .env GEMINI_API_KEY'
+                          : 'Paste AIza… key'
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-sm"
+                  />
+                  {aiSettingsMeta?.gemini_api_key_masked ? (
+                    <button
+                      type="button"
+                      onClick={() => void clearSavedGeminiKey()}
+                      className="mt-2 text-xs font-semibold text-rose-700 underline-offset-2 hover:underline"
+                    >
+                      Clear saved Gemini key
+                    </button>
+                  ) : null}
+                </label>
+              ) : (
+                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Replicate API token (optional)
+                  <input
+                    type="password"
+                    value={replicateTokenInput}
+                    onChange={(e) => setReplicateTokenInput(e.target.value)}
+                    autoComplete="off"
+                    placeholder={
+                      aiSettingsMeta?.replicate_api_token_masked
+                        ? `Saved ${aiSettingsMeta.replicate_api_token_masked} — paste to replace`
+                        : aiSettingsMeta?.server_replicate_configured
+                          ? 'Using server .env REPLICATE_API_TOKEN'
+                          : 'Paste r8_… token from replicate.com/account/api-tokens'
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-sm"
+                  />
+                  {aiSettingsMeta?.replicate_api_token_masked ? (
+                    <button
+                      type="button"
+                      onClick={() => void clearSavedReplicateToken()}
+                      className="mt-2 text-xs font-semibold text-rose-700 underline-offset-2 hover:underline"
+                    >
+                      Clear saved Replicate token
+                    </button>
+                  ) : null}
+                  <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                    Recommended: <span className="font-mono">black-forest-labs/flux-kontext-pro</span>{' '}
+                    for idol photos with your sample image + prompt. Create a token at{' '}
+                    <a
+                      href="https://replicate.com/account/api-tokens"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-[var(--kc-accent,#c41e3a)] underline-offset-2 hover:underline"
+                    >
+                      replicate.com/account/api-tokens
+                    </a>
+                    .
+                  </p>
+                </label>
+              )}
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void saveAiSettings()}
+                  className="rounded-xl bg-[var(--kc-accent,#c41e3a)] px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Save AI settings
+                </button>
+                {lastTestAi?.provider ? (
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-900 ring-1 ring-emerald-200">
+                    Last test: {lastTestAi.provider} · {lastTestAi.model}
+                  </span>
+                ) : null}
               </div>
             </section>
 

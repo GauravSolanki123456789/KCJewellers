@@ -23,6 +23,19 @@ const {
 
 const TEMPLATE_IDOLS = 'idols';
 const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
+const AI_PROVIDERS = new Set(['gemini', 'replicate']);
+const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite-image';
+const DEFAULT_REPLICATE_MODEL = 'black-forest-labs/flux-kontext-pro';
+const GEMINI_MODEL_PRESETS = [
+    'gemini-3.1-flash-lite-image',
+    'gemini-2.5-flash-image',
+    'gemini-2.5-flash-image-preview',
+];
+const REPLICATE_MODEL_PRESETS = [
+    'black-forest-labs/flux-kontext-pro',
+    'google/nano-banana',
+    'black-forest-labs/flux-1.1-pro',
+];
 
 function normalizeAspectRatio(raw) {
     const a = String(raw || '1:1').trim();
@@ -138,7 +151,148 @@ function getGeminiApiKey() {
 }
 
 function getGeminiImageModel() {
-    return String(process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image').trim();
+    return String(process.env.GEMINI_IMAGE_MODEL || DEFAULT_GEMINI_MODEL).trim();
+}
+
+function getReplicateApiToken() {
+    return String(process.env.REPLICATE_API_TOKEN || '').trim();
+}
+
+function getReplicateDefaultModel() {
+    return String(process.env.REPLICATE_DEFAULT_MODEL || DEFAULT_REPLICATE_MODEL).trim();
+}
+
+function normalizeAiProvider(raw) {
+    const p = String(raw || 'gemini').trim().toLowerCase();
+    return AI_PROVIDERS.has(p) ? p : 'gemini';
+}
+
+function maskSecret(val) {
+    if (!val) return null;
+    const s = String(val).trim();
+    if (!s) return null;
+    if (s.length <= 8) return '••••••••';
+    return `••••${s.slice(-4)}`;
+}
+
+function parseAiSettingsRow(row) {
+    if (!row) {
+        return {
+            provider: 'gemini',
+            gemini_model: getGeminiImageModel(),
+            replicate_model: getReplicateDefaultModel(),
+            gemini_api_key_configured: !!getGeminiApiKey(),
+            replicate_api_token_configured: !!getReplicateApiToken(),
+            gemini_api_key_masked: getGeminiApiKey() ? maskSecret(getGeminiApiKey()) : null,
+            replicate_api_token_masked: getReplicateApiToken() ? maskSecret(getReplicateApiToken()) : null,
+            gemini_model_presets: GEMINI_MODEL_PRESETS,
+            replicate_model_presets: REPLICATE_MODEL_PRESETS,
+            server_gemini_configured: !!getGeminiApiKey(),
+            server_replicate_configured: !!getReplicateApiToken(),
+        };
+    }
+    const provider = normalizeAiProvider(row.reseller_enhanced_ai_provider);
+    const geminiKey = String(row.reseller_enhanced_gemini_api_key || '').trim();
+    const replicateToken = String(row.reseller_enhanced_replicate_api_token || '').trim();
+    return {
+        provider,
+        gemini_model: String(row.reseller_enhanced_gemini_model || '').trim() || getGeminiImageModel(),
+        replicate_model: String(row.reseller_enhanced_replicate_model || '').trim() || getReplicateDefaultModel(),
+        gemini_api_key_configured: !!geminiKey || !!getGeminiApiKey(),
+        replicate_api_token_configured: !!replicateToken || !!getReplicateApiToken(),
+        gemini_api_key_masked: geminiKey
+            ? maskSecret(geminiKey)
+            : getGeminiApiKey()
+              ? maskSecret(getGeminiApiKey())
+              : null,
+        replicate_api_token_masked: replicateToken
+            ? maskSecret(replicateToken)
+            : getReplicateApiToken()
+              ? maskSecret(getReplicateApiToken())
+              : null,
+        gemini_model_presets: GEMINI_MODEL_PRESETS,
+        replicate_model_presets: REPLICATE_MODEL_PRESETS,
+        server_gemini_configured: !!getGeminiApiKey(),
+        server_replicate_configured: !!getReplicateApiToken(),
+    };
+}
+
+async function loadResellerAiSettings(query, userId) {
+    const rows = await query(
+        `SELECT reseller_enhanced_ai_provider,
+                reseller_enhanced_gemini_api_key,
+                reseller_enhanced_gemini_model,
+                reseller_enhanced_replicate_api_token,
+                reseller_enhanced_replicate_model
+         FROM users WHERE id = $1`,
+        [userId],
+    );
+    return parseAiSettingsRow(rows[0]);
+}
+
+async function loadResellerAiConfigRaw(query, userId) {
+    const rows = await query(
+        `SELECT reseller_enhanced_ai_provider,
+                reseller_enhanced_gemini_api_key,
+                reseller_enhanced_gemini_model,
+                reseller_enhanced_replicate_api_token,
+                reseller_enhanced_replicate_model
+         FROM users WHERE id = $1`,
+        [userId],
+    );
+    return rows[0] || null;
+}
+
+async function resolveAiConfigForUser(query, userId, overrides = {}) {
+    const row = await loadResellerAiConfigRaw(query, userId);
+    return resolveAiConfig(row, overrides);
+}
+
+function parseAiOverridesFromBody(body) {
+    if (!body || typeof body !== 'object') return {};
+    const overrides = {};
+    if (body.ai_provider != null) overrides.provider = body.ai_provider;
+    if (body.gemini_api_key != null && String(body.gemini_api_key).trim()) {
+        overrides.gemini_api_key = String(body.gemini_api_key).trim();
+    }
+    if (body.gemini_model != null && String(body.gemini_model).trim()) {
+        overrides.gemini_model = String(body.gemini_model).trim();
+    }
+    if (body.replicate_api_token != null && String(body.replicate_api_token).trim()) {
+        overrides.replicate_api_token = String(body.replicate_api_token).trim();
+    }
+    if (body.replicate_model != null && String(body.replicate_model).trim()) {
+        overrides.replicate_model = String(body.replicate_model).trim();
+    }
+    return overrides;
+}
+
+function resolveAiConfig(savedSettings, overrides = {}) {
+    const provider = normalizeAiProvider(
+        overrides.provider ?? savedSettings?.reseller_enhanced_ai_provider,
+    );
+    const geminiModel =
+        String(overrides.gemini_model || savedSettings?.reseller_enhanced_gemini_model || '').trim() ||
+        getGeminiImageModel();
+    const replicateModel =
+        String(
+            overrides.replicate_model || savedSettings?.reseller_enhanced_replicate_model || '',
+        ).trim() || getReplicateDefaultModel();
+    const geminiKey =
+        String(overrides.gemini_api_key || '').trim() ||
+        String(savedSettings?.reseller_enhanced_gemini_api_key || '').trim() ||
+        getGeminiApiKey();
+    const replicateToken =
+        String(overrides.replicate_api_token || '').trim() ||
+        String(savedSettings?.reseller_enhanced_replicate_api_token || '').trim() ||
+        getReplicateApiToken();
+    return {
+        provider,
+        gemini_model: geminiModel,
+        replicate_model: replicateModel,
+        gemini_api_key: geminiKey,
+        replicate_api_token: replicateToken,
+    };
 }
 
 function geminiImageModelCandidates() {
@@ -170,6 +324,22 @@ async function ensureEnhancedPicturesSchema(pool) {
     await pool.query(`
         ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_enhanced_pictures_enabled BOOLEAN NOT NULL DEFAULT false
+    `);
+    await pool.query(`
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_enhanced_ai_provider VARCHAR(32) NOT NULL DEFAULT 'gemini'
+    `);
+    await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_enhanced_gemini_api_key TEXT
+    `);
+    await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_enhanced_gemini_model VARCHAR(128)
+    `);
+    await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_enhanced_replicate_api_token TEXT
+    `);
+    await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_enhanced_replicate_model VARCHAR(255)
     `);
     await pool.query(`
         CREATE TABLE IF NOT EXISTS reseller_enhanced_picture_prompts (
@@ -213,6 +383,12 @@ async function ensureEnhancedPicturesSchema(pool) {
     await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_reseller_enhanced_jobs_user
             ON reseller_enhanced_picture_jobs (reseller_user_id, created_at DESC)
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS ai_provider VARCHAR(32)
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS ai_model VARCHAR(255)
     `);
     await ensureCreditsSchema(pool);
 }
@@ -269,19 +445,20 @@ function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText }
 
 /**
  * Call Gemini image generation with an optional reference image.
- * Returns { buffer, mimeType }.
+ * Returns { buffer, mimeType, provider, model }.
  */
-async function generateStudioImage({
+async function generateWithGemini({
     promptText,
     negativePrompt,
     sourceImagePath,
     aspectRatio,
     canvasText,
+    aiConfig,
 }) {
-    const apiKey = getGeminiApiKey();
+    const apiKey = aiConfig?.gemini_api_key || getGeminiApiKey();
     if (!apiKey) {
         const err = new Error(
-            'GEMINI_API_KEY is not configured on the server. Add it to .env to enable Enhanced Pictures.',
+            'Gemini API key is not configured. Add GEMINI_API_KEY to server .env or paste a key in Prompt Lab → AI model settings.',
         );
         err.status = 503;
         throw err;
@@ -302,9 +479,12 @@ async function generateStudioImage({
         });
     }
 
-    const models = geminiImageModelCandidates();
+    const primaryModel = aiConfig?.gemini_model || getGeminiImageModel();
+    const models = [...new Set([primaryModel, ...geminiImageModelCandidates()].filter(Boolean))];
     let lastError = null;
+    let usedModel = primaryModel;
     for (const model of models) {
+        usedModel = model;
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
         try {
             const res = await axios.post(
@@ -339,6 +519,8 @@ async function generateStudioImage({
                         return {
                             buffer: Buffer.from(inline.data, 'base64'),
                             mimeType: inline.mimeType || inline.mime_type || 'image/png',
+                            provider: 'gemini',
+                            model: usedModel,
                         };
                     }
                 }
@@ -361,9 +543,177 @@ async function generateStudioImage({
         }
     }
     if (lastError) throw lastError;
-    const err = new Error('Gemini image generation failed. Check GEMINI_API_KEY and model access.');
+    const err = new Error('Gemini image generation failed. Check API key and model access.');
     err.status = 502;
     throw err;
+}
+
+function replicateAspectRatio(aspectRatio) {
+    const aspect = normalizeAspectRatio(aspectRatio);
+    const supported = new Set(['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '5:4', '2:3', '3:2']);
+    return supported.has(aspect) ? aspect : '1:1';
+}
+
+function buildReplicateInput(model, { fullPrompt, sourceImagePath, aspectRatio }) {
+    const aspect = replicateAspectRatio(aspectRatio);
+    const input = { prompt: fullPrompt };
+    if (sourceImagePath && fs.existsSync(sourceImagePath)) {
+        const buf = fs.readFileSync(sourceImagePath);
+        const mime = mimeFromExt(path.extname(sourceImagePath));
+        const dataUri = `data:${mime};base64,${buf.toString('base64')}`;
+        const slug = String(model || '').toLowerCase();
+        if (slug.includes('flux-kontext') || slug.includes('nano-banana')) {
+            input.input_image = dataUri;
+            input.aspect_ratio = aspect;
+        } else if (slug.includes('flux')) {
+            input.image = dataUri;
+            input.aspect_ratio = aspect;
+        } else {
+            input.image = dataUri;
+            input.aspect_ratio = aspect;
+        }
+    }
+    return input;
+}
+
+async function pollReplicatePrediction(token, predictionId, maxWaitMs = 180000) {
+    const started = Date.now();
+    while (Date.now() - started < maxWaitMs) {
+        const res = await axios.get(`https://api.replicate.com/v1/predictions/${predictionId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 30000,
+            validateStatus: () => true,
+        });
+        if (res.status >= 400) {
+            const msg = res.data?.detail || res.data?.error || `Replicate poll error (${res.status})`;
+            const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg).slice(0, 400));
+            err.status = 502;
+            throw err;
+        }
+        const p = res.data;
+        if (p.status === 'succeeded') return p;
+        if (p.status === 'failed' || p.status === 'canceled') {
+            const err = new Error(String(p.error || 'Replicate prediction failed'));
+            err.status = 502;
+            throw err;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+    }
+    const err = new Error('Replicate timed out waiting for image generation.');
+    err.status = 504;
+    throw err;
+}
+
+async function generateWithReplicate({
+    promptText,
+    negativePrompt,
+    sourceImagePath,
+    aspectRatio,
+    canvasText,
+    aiConfig,
+}) {
+    const token = aiConfig?.replicate_api_token || getReplicateApiToken();
+    if (!token) {
+        const err = new Error(
+            'Replicate API token is not configured. Paste your token in Prompt Lab → AI model settings (from replicate.com/account/api-tokens).',
+        );
+        err.status = 503;
+        throw err;
+    }
+    const model = String(aiConfig?.replicate_model || getReplicateDefaultModel()).trim();
+    if (!model.includes('/')) {
+        const err = new Error('Replicate model must be owner/name (e.g. black-forest-labs/flux-kontext-pro).');
+        err.status = 400;
+        throw err;
+    }
+    const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
+        aspectRatio,
+        canvasText,
+    });
+    const input = buildReplicateInput(model, { fullPrompt, sourceImagePath, aspectRatio });
+    const [owner, name] = model.split('/');
+    const createRes = await axios.post(
+        `https://api.replicate.com/v1/models/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/predictions`,
+        { input },
+        {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            timeout: 60000,
+            validateStatus: () => true,
+        },
+    );
+    if (createRes.status >= 400) {
+        const detail = createRes.data?.detail || createRes.data?.error || createRes.data;
+        const msg =
+            typeof detail === 'string'
+                ? detail
+                : Array.isArray(detail)
+                  ? detail.map((d) => d.msg || d.message || JSON.stringify(d)).join('; ')
+                  : JSON.stringify(detail).slice(0, 500);
+        const err = new Error(`Replicate error: ${msg}`);
+        err.status = createRes.status === 401 ? 401 : 502;
+        throw err;
+    }
+    const prediction = createRes.data;
+    const finished =
+        prediction.status === 'succeeded'
+            ? prediction
+            : await pollReplicatePrediction(token, prediction.id);
+    const output = finished.output;
+    const outputUrl = Array.isArray(output) ? output[0] : output;
+    if (!outputUrl || typeof outputUrl !== 'string') {
+        const err = new Error('Replicate returned no image URL.');
+        err.status = 502;
+        throw err;
+    }
+    const imgRes = await axios.get(outputUrl, {
+        responseType: 'arraybuffer',
+        timeout: 120000,
+        validateStatus: () => true,
+    });
+    if (imgRes.status >= 400) {
+        const err = new Error(`Failed to download Replicate output (${imgRes.status}).`);
+        err.status = 502;
+        throw err;
+    }
+    const contentType = String(imgRes.headers['content-type'] || 'image/png').split(';')[0];
+    return {
+        buffer: Buffer.from(imgRes.data),
+        mimeType: contentType || 'image/png',
+        provider: 'replicate',
+        model,
+    };
+}
+
+async function generateStudioImage({
+    promptText,
+    negativePrompt,
+    sourceImagePath,
+    aspectRatio,
+    canvasText,
+    aiConfig,
+}) {
+    const provider = normalizeAiProvider(aiConfig?.provider);
+    if (provider === 'replicate') {
+        return generateWithReplicate({
+            promptText,
+            negativePrompt,
+            sourceImagePath,
+            aspectRatio,
+            canvasText,
+            aiConfig,
+        });
+    }
+    return generateWithGemini({
+        promptText,
+        negativePrompt,
+        sourceImagePath,
+        aspectRatio,
+        canvasText,
+        aiConfig,
+    });
 }
 
 function extFromMime(mime) {
@@ -580,6 +930,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 );
                 const creditInfo = await getCreditBalance(query, userId);
                 const plans = await listPlans(query, userId);
+                const aiSettings = await loadResellerAiSettings(query, userId);
                 res.json({
                     user: {
                         id: u.id,
@@ -591,6 +942,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         payment_qr_url: creditInfo?.payment_qr_url || null,
                         bank_details: creditInfo?.bank_details || null,
                     },
+                    ai_settings: aiSettings,
                     templates: TEMPLATES,
                     aspects: CANVAS_ASPECTS,
                     prompts,
@@ -740,6 +1092,60 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         }
     });
 
+    app.patch(
+        '/api/admin/users/:userId/enhanced-picture-ai-settings',
+        isAdminStrict,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                const existing = await loadResellerAiConfigRaw(query, userId);
+                if (!existing) return res.status(404).json({ error: 'User not found' });
+
+                const provider =
+                    req.body.provider !== undefined
+                        ? normalizeAiProvider(req.body.provider)
+                        : normalizeAiProvider(existing.reseller_enhanced_ai_provider);
+                const geminiModel =
+                    req.body.gemini_model !== undefined
+                        ? String(req.body.gemini_model || '').trim().slice(0, 128) || null
+                        : existing.reseller_enhanced_gemini_model;
+                const replicateModel =
+                    req.body.replicate_model !== undefined
+                        ? String(req.body.replicate_model || '').trim().slice(0, 255) || null
+                        : existing.reseller_enhanced_replicate_model;
+                let geminiKey = existing.reseller_enhanced_gemini_api_key;
+                let replicateToken = existing.reseller_enhanced_replicate_api_token;
+                if (req.body.clear_gemini_api_key) geminiKey = null;
+                if (req.body.clear_replicate_api_token) replicateToken = null;
+                if (req.body.gemini_api_key != null && String(req.body.gemini_api_key).trim()) {
+                    geminiKey = String(req.body.gemini_api_key).trim();
+                }
+                if (req.body.replicate_api_token != null && String(req.body.replicate_api_token).trim()) {
+                    replicateToken = String(req.body.replicate_api_token).trim();
+                }
+
+                await query(
+                    `UPDATE users SET
+                        reseller_enhanced_ai_provider = $1,
+                        reseller_enhanced_gemini_model = $2,
+                        reseller_enhanced_replicate_model = $3,
+                        reseller_enhanced_gemini_api_key = $4,
+                        reseller_enhanced_replicate_api_token = $5
+                     WHERE id = $6`,
+                    [provider, geminiModel, replicateModel, geminiKey, replicateToken, userId],
+                );
+                const aiSettings = await loadResellerAiSettings(query, userId);
+                res.json({ success: true, ai_settings: aiSettings });
+            } catch (e) {
+                console.error('admin patch enhanced ai settings:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
     /** Admin test-generate with uploaded sample image + prompt text (or saved prompt id). */
     app.post(
         '/api/admin/users/:userId/enhanced-pictures/test-generate',
@@ -780,12 +1186,18 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 }
 
                 const sourceUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${req.file.filename}`;
+                const aiConfig = await resolveAiConfigForUser(
+                    query,
+                    userId,
+                    parseAiOverridesFromBody(req.body),
+                );
                 const generated = await generateStudioImage({
                     promptText,
                     negativePrompt,
                     sourceImagePath: req.file.path,
                     aspectRatio,
                     canvasText,
+                    aiConfig,
                 });
                 const outName = saveGeneratedBuffer(
                     enhancedDir,
@@ -834,6 +1246,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     result_image_url: resultUrl,
                     aspect_ratio: aspectRatio,
                     canvas_text: canvasText || null,
+                    ai_provider: generated.provider || aiConfig.provider,
+                    ai_model: generated.model || null,
                     prompt: promptRow,
                 });
             } catch (e) {
@@ -1007,6 +1421,9 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 creditInfo = await getCreditBalance(query, req.user.id);
                 plans = await listPlans(query, req.user.id, { activeOnly: true });
             }
+            const aiSettings = u.enhanced_pictures
+                ? await loadResellerAiSettings(query, req.user.id)
+                : null;
             res.json({
                 enabled: !!u.enhanced_pictures,
                 templates: u.enhanced_pictures ? TEMPLATES : [],
@@ -1017,6 +1434,13 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 payment_qr_url: creditInfo?.payment_qr_url || null,
                 bank_details: creditInfo?.bank_details || null,
                 plans,
+                ai_settings: aiSettings
+                    ? {
+                          provider: aiSettings.provider,
+                          gemini_model: aiSettings.gemini_model,
+                          replicate_model: aiSettings.replicate_model,
+                      }
+                    : null,
             });
         } catch (e) {
             console.error('reseller enhanced status:', e);
@@ -1122,12 +1546,14 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             const job = jobIns[0];
 
             try {
+                const aiConfig = await resolveAiConfigForUser(query, req.user.id);
                 const generated = await generateStudioImage({
                     promptText: prompt.prompt_text,
                     negativePrompt: prompt.negative_prompt,
                     sourceImagePath: req.file.path,
                     aspectRatio,
                     canvasText,
+                    aiConfig,
                 });
                 const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
                 const outName = saveGeneratedBuffer(
@@ -1161,8 +1587,10 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                          attached_submission_id = $2, attached_sku = $3,
                          barcode_stem = COALESCE($4, barcode_stem),
                          download_filename = $5,
+                         ai_provider = $6,
+                         ai_model = $7,
                          error_message = NULL
-                     WHERE id = $6
+                     WHERE id = $8
                      RETURNING *`,
                     [
                         resultUrl,
@@ -1170,6 +1598,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         attach?.sku || null,
                         barcodeStem || null,
                         finalDownload,
+                        generated.provider || aiConfig.provider,
+                        generated.model || null,
                         job.id,
                     ],
                 );
