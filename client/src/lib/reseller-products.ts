@@ -3,6 +3,7 @@
  * DB: `reseller_product_submissions`, live catalog: `web_products`.
  */
 import type { Item } from '@/lib/pricing'
+import { productWithBoxChargesOnly } from '@/lib/product-box-pricing'
 
 export type ResellerSubmissionStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'withdrawn'
 
@@ -43,6 +44,8 @@ export type ResellerProductSubmission = {
   fixed_price?: number | string | null
   stone_charges?: number | string | null
   box_charges?: number | string | null
+  with_box_charges_only?: boolean | null
+  mrp_rate_behind_box?: number | string | null
   wastage_pct?: number | string | null
   chain_weight?: number | string | null
   pendant_weight?: number | string | null
@@ -159,6 +162,8 @@ export function submissionToCatalogItem(row: ResellerProductSubmission): Item {
     fixed_price: row.fixed_price != null ? Number(row.fixed_price) : undefined,
     stone_charges: row.stone_charges != null ? Number(row.stone_charges) : undefined,
     box_charges: row.box_charges != null ? Number(row.box_charges) : undefined,
+    with_box_charges_only: row.with_box_charges_only ?? undefined,
+    mrp_rate_behind_box: row.mrp_rate_behind_box != null ? Number(row.mrp_rate_behind_box) : undefined,
     wastage_pct: row.wastage_pct != null ? Number(row.wastage_pct) : undefined,
     chain_weight: row.chain_weight != null ? Number(row.chain_weight) : undefined,
     pendant_weight: row.pendant_weight != null ? Number(row.pendant_weight) : undefined,
@@ -242,13 +247,22 @@ export function submissionImageDiskKey(row: ResellerProductSubmission): string {
   return String(row.web_product_sku || '').trim()
 }
 
+export function submissionWithBoxOnly(row: ResellerProductSubmission | Item | null | undefined): boolean {
+  return productWithBoxChargesOnly(row as Item)
+}
+
 /** Preview URL: explicit upload only, or file named after web_product_sku. */
 export function submissionPreviewImageUrl(
   row: ResellerProductSubmission,
   apiBase?: string,
 ): string {
+  const boxOnly = submissionWithBoxOnly(row)
+  const explicitBox = String(row.box_image_url || '').trim()
+  if (boxOnly && explicitBox) return explicitBox
   const explicit = String(row.image_url || '').trim()
   if (explicit) return explicit
   const key = submissionImageDiskKey(row)
-  return key ? productImageUrl(key, apiBase) : ''
+  if (!key) return ''
+  if (boxOnly) return productImageUrl(`${key}_box`, apiBase)
+  return productImageUrl(key, apiBase)
 }

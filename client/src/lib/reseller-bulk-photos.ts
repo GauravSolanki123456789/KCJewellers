@@ -3,6 +3,7 @@ import {
   RESELLER_PRODUCT_IMAGE_MAX_BYTES,
   RESELLER_PRODUCT_IMAGE_MAX_LABEL,
   submissionImageDiskKey,
+  submissionWithBoxOnly,
   type ResellerProductSubmission,
 } from '@/lib/reseller-products'
 
@@ -20,13 +21,16 @@ export function submissionPhotoFilenames(row: ResellerProductSubmission): {
   front: string
   back: string
   box: string
+  boxOnly: boolean
 } | null {
   const key = submissionImageDiskKey(row)
   if (!key) return null
+  const boxOnly = submissionWithBoxOnly(row)
   return {
     front: `${key}.webp`,
     back: `${key}_secondary.webp`,
     box: `${key}_box.webp`,
+    boxOnly,
   }
 }
 

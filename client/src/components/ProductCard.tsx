@@ -111,6 +111,11 @@ export default function ProductCard({
   const [activeVariant, setActiveVariant] = useState<Item>(() => variants[0] ?? product)
   const [includeBox, setIncludeBox] = useState(false)
   const [galleryScrollIdx, setGalleryScrollIdx] = useState<number | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     setActiveVariant(variants[0] ?? product)
@@ -132,7 +137,9 @@ export default function ProductCard({
       : `/products/${encodeURIComponent(barcode)}`
 
   const imageSrc = normalizeCatalogImageSrc(
-    active.image_url || product.image_url,
+    boxOnly && String(active.box_image_url ?? '').trim()
+      ? active.box_image_url
+      : active.image_url || product.image_url,
   )
 
   const styleCode =
@@ -163,6 +170,7 @@ export default function ProductCard({
   const { total, originalTotal, discountPercent, wholesale_retail_total, is_wholesale_price } = breakdown
   const hasDiscount = (discountPercent ?? 0) > 0
   const showWholesale =
+    mounted &&
     hasWholesaleAccess &&
     is_wholesale_price &&
     wholesale_retail_total != null &&
@@ -249,6 +257,7 @@ export default function ProductCard({
           fetchPriority={fetchPriority}
           scrollToIndex={galleryScrollIdx}
           onActiveIndexChange={(idx) => {
+            if (boxOnly) return
             if (boxSlideIdx != null && idx === boxSlideIdx) setIncludeBox(true)
             else if (hasBox) setIncludeBox(false)
           }}

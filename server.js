@@ -6785,6 +6785,8 @@ app.get('/api/catalog', async (req, res) => {
                         COALESCE(fixed_price, 0)::float AS fixed_price,
                         COALESCE(stone_charges, 0)::float AS stone_charges,
                         COALESCE(box_charges, 0)::float AS box_charges,
+                        COALESCE(with_box_charges_only, false) AS with_box_charges_only,
+                        COALESCE(mrp_rate_behind_box, 0)::float AS mrp_rate_behind_box,
                         design_group,
                         COALESCE(metal_type, 'silver') AS metal_type,
                         diamond_carat, diamond_cut, diamond_color, diamond_clarity, certificate_url,

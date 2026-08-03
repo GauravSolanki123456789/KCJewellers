@@ -466,6 +466,17 @@ async function findSubmissionByStem(query, resellerUserId, stem) {
     return null;
 }
 
+function submissionIsBoxOnly(entry) {
+    if (!entry) return false;
+    if (entry.with_box_charges_only === true) return true;
+    const payload = entry.payload_json && typeof entry.payload_json === 'object' ? entry.payload_json : {};
+    const raw = payload.WithBoxChargesOnly ?? payload.withBoxChargesOnly ?? payload.with_box_charges_only;
+    if (raw === true || raw === 1 || raw === '1') return true;
+    if (['true', 'yes', 'y'].includes(String(raw ?? '').toLowerCase().trim())) return true;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0;
+}
+
 async function attachGeneratedToProduct({
     query,
     getPublicApiBaseUrl,
@@ -485,11 +496,15 @@ async function attachGeneratedToProduct({
         return { attached: false, reason: 'Product has no SKU/barcode stem' };
     }
     const ext = extFromMime(resultMime);
+    const boxOnly = submissionIsBoxOnly(entry);
     let target;
     let urlField;
     if (photoType === 'back') {
         target = `${prodSku}_secondary${ext}`;
         urlField = 'secondary_image_url';
+    } else if (photoType === 'box' || boxOnly) {
+        target = `${prodSku}_box${ext}`;
+        urlField = 'box_image_url';
     } else {
         target = `${prodSku}${ext}`;
         urlField = 'image_url';

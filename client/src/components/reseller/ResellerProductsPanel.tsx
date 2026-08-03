@@ -7,6 +7,7 @@ import {
   submissionToCatalogItem,
   submissionImageDiskKey,
   submissionPreviewImageUrl,
+  submissionWithBoxOnly,
   RESELLER_EXCEL_ACCEPT,
   RESELLER_PRODUCT_IMAGE_ACCEPT,
   RESELLER_PRODUCT_IMAGE_MAX_BYTES,
@@ -985,6 +986,14 @@ function BatchBulkPhotoUpload({
     () => products.some((p) => Number(p.box_charges ?? 0) > 0),
     [products],
   )
+  const allBoxOnly = useMemo(
+    () => products.length > 0 && products.every((p) => submissionWithBoxOnly(p)),
+    [products],
+  )
+  const hasStandardPhotoProducts = useMemo(
+    () => products.some((p) => !submissionWithBoxOnly(p)),
+    [products],
+  )
 
   const filenameRows = useMemo(
     () =>
@@ -998,7 +1007,7 @@ function BatchBulkPhotoUpload({
         id: number
         label: string
         diskKey: string
-        names: { front: string; back: string; box: string }
+        names: { front: string; back: string; box: string; boxOnly: boolean }
       }[],
     [products],
   )
@@ -1055,10 +1064,28 @@ function BatchBulkPhotoUpload({
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk upload photos</p>
           <p className="kc-upload-hint mt-1 text-xs leading-relaxed">
-            Rename each image file to the product barcode shown below — e.g.{' '}
-            <span className="font-mono text-[var(--kc-accent,#c41e3a)]">BAANI-01.webp</span> for front,{' '}
-            <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]/80">BAANI-01_secondary.webp</span>{' '}
-            for back. Then pick many files at once on phone or laptop. One-by-one upload still works below.
+            {allBoxOnly ? (
+              <>
+                These products are <span className="font-semibold text-emerald-900">with-box only</span> — rename each
+                image to the with-box filename below (e.g.{' '}
+                <span className="font-mono text-emerald-800">ganesh-sfidol001_box.webp</span>), then bulk upload
+                with-box images.
+              </>
+            ) : (
+              <>
+                Rename each image file to the product barcode shown below — e.g.{' '}
+                <span className="font-mono text-[var(--kc-accent,#c41e3a)]">BAANI-01.webp</span> for front,{' '}
+                <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]/80">BAANI-01_secondary.webp</span>{' '}
+                for back
+                {hasBoxProducts ? (
+                  <>
+                    ,{' '}
+                    <span className="font-mono text-emerald-800">BAANI-01_box.webp</span> for with-box
+                  </>
+                ) : null}
+                . Then pick many files at once on phone or laptop. One-by-one upload still works below.
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -1098,25 +1125,29 @@ function BatchBulkPhotoUpload({
       ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <button
-          type="button"
-          disabled={Boolean(uploading)}
-          onClick={() => frontRef.current?.click()}
-          className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[var(--kc-accent,#c41e3a)]/25 bg-white px-3 py-2.5 text-sm font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/5 disabled:opacity-60"
-        >
-          {uploading === 'front' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-          Bulk upload front images
-        </button>
-        <button
-          type="button"
-          disabled={Boolean(uploading)}
-          onClick={() => backRef.current?.click()}
-          className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/30 disabled:opacity-60"
-        >
-          {uploading === 'back' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-          Bulk upload back images
-        </button>
-        {hasBoxProducts ? (
+        {!allBoxOnly && hasStandardPhotoProducts ? (
+          <>
+            <button
+              type="button"
+              disabled={Boolean(uploading)}
+              onClick={() => frontRef.current?.click()}
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[var(--kc-accent,#c41e3a)]/25 bg-white px-3 py-2.5 text-sm font-semibold text-[var(--kc-accent,#c41e3a)] transition hover:bg-[var(--kc-accent,#c41e3a)]/5 disabled:opacity-60"
+            >
+              {uploading === 'front' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              Bulk upload front images
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(uploading)}
+              onClick={() => backRef.current?.click()}
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)]/30 disabled:opacity-60"
+            >
+              {uploading === 'back' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              Bulk upload back images
+            </button>
+          </>
+        ) : null}
+        {hasBoxProducts || allBoxOnly ? (
           <button
             type="button"
             disabled={Boolean(uploading)}
@@ -1124,7 +1155,7 @@ function BatchBulkPhotoUpload({
             className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100/80 disabled:opacity-60 sm:col-span-2"
           >
             {uploading === 'box' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-            Bulk upload with-box images
+            {allBoxOnly ? 'Bulk upload with-box photos' : 'Bulk upload with-box images'}
           </button>
         ) : null}
       </div>
@@ -1150,12 +1181,21 @@ function BatchBulkPhotoUpload({
               <li key={row.id} className="px-3 py-2 text-[11px] leading-relaxed">
                 <p className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{row.label}</p>
                 <p className="mt-0.5 font-mono text-[var(--color-jewelry-black,#1a1814)]/70">
-                  Front: <span className="text-[var(--kc-accent,#c41e3a)]">{row.names.front}</span>
-                  {' · '}
-                  Back: {row.names.back}
-                  {hasBoxProducts && Number(products.find((p) => p.id === row.id)?.box_charges ?? 0) > 0
-                    ? ` · Box: ${row.names.box}`
-                    : ''}
+                  {row.names.boxOnly ? (
+                    <>
+                      With-box only:{' '}
+                      <span className="text-emerald-800">{row.names.box}</span>
+                    </>
+                  ) : (
+                    <>
+                      Front: <span className="text-[var(--kc-accent,#c41e3a)]">{row.names.front}</span>
+                      {' · '}
+                      Back: {row.names.back}
+                      {hasBoxProducts && Number(products.find((p) => p.id === row.id)?.box_charges ?? 0) > 0
+                        ? ` · Box: ${row.names.box}`
+                        : ''}
+                    </>
+                  )}
                 </p>
               </li>
             ))}
@@ -1206,11 +1246,12 @@ function BatchProductPhotoRow({
   const videoRef = useRef<HTMLInputElement>(null)
   const diskKey = submissionImageDiskKey(row)
   const displayCode = diskKey || row.barcode || row.sku || ''
-  const existingPrimary = submissionPreviewImageUrl(row)
-  const existingSecondary = row.secondary_image_url || ''
-  const existingBox = row.box_image_url || ''
+  const existingPrimary = submissionWithBoxOnly(row) ? '' : submissionPreviewImageUrl(row)
+  const existingSecondary = submissionWithBoxOnly(row) ? '' : row.secondary_image_url || ''
+  const existingBox = row.box_image_url || (submissionWithBoxOnly(row) ? submissionPreviewImageUrl(row) : '')
   const existingVideo = row.video_url || ''
   const hasBoxCharge = Number(row.box_charges ?? 0) > 0
+  const boxOnly = submissionWithBoxOnly(row)
   const photoNames = submissionPhotoFilenames(row)
   const livePriceHint = submissionLivePriceHint(row, rates)
 
@@ -1262,6 +1303,7 @@ function BatchProductPhotoRow({
             {row.size?.trim() ? ` · ${getCustomerDisplaySize(submissionToCatalogItem(row)) ?? row.size}` : ''}
             {row.fixed_price != null && Number(row.fixed_price) > 0 ? ` · ₹${row.fixed_price}` : ''}
             {hasBoxCharge ? ` · box +₹${Number(row.box_charges).toLocaleString('en-IN')}` : ''}
+            {boxOnly ? ' · with-box only' : ''}
           </p>
           {livePriceHint ? (
             <p className="mt-1 text-xs font-medium tabular-nums text-emerald-800">{livePriceHint}</p>
@@ -1272,56 +1314,72 @@ function BatchProductPhotoRow({
                 Rename files to
               </p>
               <p className="mt-1 break-all font-mono text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/85">
-                <span className="text-[var(--kc-accent,#c41e3a)]">{photoNames.front}</span>
-                {' · '}
-                {photoNames.back}
-                {hasBoxCharge ? (
+                {photoNames.boxOnly ? (
+                  <span className="text-emerald-800">{photoNames.box}</span>
+                ) : (
                   <>
+                    <span className="text-[var(--kc-accent,#c41e3a)]">{photoNames.front}</span>
                     {' · '}
-                    <span className="text-emerald-800">{photoNames.box}</span>
+                    {photoNames.back}
+                    {hasBoxCharge ? (
+                      <>
+                        {' · '}
+                        <span className="text-emerald-800">{photoNames.box}</span>
+                      </>
+                    ) : null}
                   </>
-                ) : null}
+                )}
               </p>
             </div>
           ) : null}
         </div>
         <div className="flex shrink-0 gap-2">
-          <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
-            {existingPrimary || primary ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={primary ? URL.createObjectURL(primary) : existingPrimary}
-                alt=""
-                className="size-full object-cover"
-              />
-            ) : (
-              <div className="flex size-full items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/25">
-                <ImagePlus className="size-5" />
+          {!boxOnly ? (
+            <>
+              <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
+                {existingPrimary || primary ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={primary ? URL.createObjectURL(primary) : existingPrimary}
+                    alt=""
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/25">
+                    <ImagePlus className="size-5" />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
-            {existingSecondary || secondary ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={secondary ? URL.createObjectURL(secondary) : existingSecondary}
-                alt=""
-                className="size-full object-cover"
-              />
-            ) : (
-              <div className="flex size-full items-center justify-center text-[10px] text-[var(--color-jewelry-black,#1a1814)]/30">
-                Back
+              <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
+                {existingSecondary || secondary ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={secondary ? URL.createObjectURL(secondary) : existingSecondary}
+                    alt=""
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center text-[10px] text-[var(--color-jewelry-black,#1a1814)]/30">
+                    Back
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          {(existingBox || boxImage) ? (
+            </>
+          ) : null}
+          {(existingBox || boxImage || boxOnly) ? (
             <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-emerald-500/30">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={boxImage ? URL.createObjectURL(boxImage) : existingBox}
-                alt=""
-                className="size-full object-cover"
-              />
+              {existingBox || boxImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={boxImage ? URL.createObjectURL(boxImage) : existingBox}
+                  alt=""
+                  className="size-full object-cover"
+                />
+              ) : (
+                <div className="flex size-full items-center justify-center text-[10px] font-medium text-emerald-800/70">
+                  Box
+                </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -1355,27 +1413,31 @@ function BatchProductPhotoRow({
           className="sr-only"
           onChange={(e) => setVideo(e.target.files?.[0] ?? null)}
         />
-        <button
-          type="button"
-          onClick={() => primaryRef.current?.click()}
-          className="min-h-[40px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
-        >
-          {primary ? 'Change front photo' : existingPrimary ? 'Replace front' : 'Add front photo'}
-        </button>
-        <button
-          type="button"
-          onClick={() => secondaryRef.current?.click()}
-          className="min-h-[40px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
-        >
-          {secondary ? 'Change back photo' : existingSecondary ? 'Replace back' : 'Add back photo (optional)'}
-        </button>
-        {hasBoxCharge ? (
+        {!boxOnly ? (
+          <>
+            <button
+              type="button"
+              onClick={() => primaryRef.current?.click()}
+              className="min-h-[40px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+            >
+              {primary ? 'Change front photo' : existingPrimary ? 'Replace front' : 'Add front photo'}
+            </button>
+            <button
+              type="button"
+              onClick={() => secondaryRef.current?.click()}
+              className="min-h-[40px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+            >
+              {secondary ? 'Change back photo' : existingSecondary ? 'Replace back' : 'Add back photo (optional)'}
+            </button>
+          </>
+        ) : null}
+        {hasBoxCharge || boxOnly ? (
           <button
             type="button"
             onClick={() => boxRef.current?.click()}
             className="min-h-[40px] rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900"
           >
-            {boxImage ? 'Change with-box photo' : existingBox ? 'Replace with-box' : 'Add with-box photo'}
+            {boxImage ? 'Change with-box photo' : existingBox ? 'Replace with-box' : boxOnly ? 'Add with-box photo (required)' : 'Add with-box photo'}
           </button>
         ) : null}
         <button

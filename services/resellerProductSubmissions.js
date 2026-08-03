@@ -40,11 +40,17 @@ function submissionRowToSyncItem(row) {
         fixedPrice: row.fixed_price ?? payload.fixedPrice,
         stoneCharges: row.stone_charges ?? payload.stoneCharges,
         boxCharges: row.box_charges ?? payload.boxCharges,
+        withBoxChargesOnly:
+            row.with_box_charges_only === true ||
+            payload.withBoxChargesOnly === true ||
+            payload.with_box_charges_only === true,
+        with_box_charges_only: row.with_box_charges_only ?? payload.with_box_charges_only ?? payload.withBoxChargesOnly,
+        mrpRateBehindBox: row.mrp_rate_behind_box ?? payload.mrpRateBehindBox ?? payload.mrp_rate_behind_box,
+        mrp_rate_behind_box: row.mrp_rate_behind_box ?? payload.mrp_rate_behind_box ?? payload.mrpRateBehindBox,
         itemCode: row.design_group ?? payload.itemCode,
         size: row.size ?? payload.size ?? payload.Size,
         secondaryImageUrl: row.secondary_image_url ?? payload.secondaryImageUrl,
         imageUrl: row.image_url ?? payload.imageUrl,
-        boxCharges: row.box_charges ?? payload.boxCharges,
         boxImageUrl: row.box_image_url ?? payload.boxImageUrl,
         videoUrl: row.video_url ?? payload.videoUrl,
         ...payload,
@@ -55,6 +61,18 @@ function trimExcelCell(value) {
     if (value == null) return undefined;
     const s = String(value).trim();
     return s === '' ? undefined : s;
+}
+
+function submissionIsBoxOnly(entry) {
+    if (!entry) return false;
+    if (entry.with_box_charges_only === true) return true;
+    const sync = submissionRowToSyncItem(entry);
+    if (sync.withBoxChargesOnly === true || sync.with_box_charges_only === true) return true;
+    const raw = sync.WithBoxChargesOnly ?? sync.withBoxChargesOnly;
+    if (raw === true || raw === 1 || raw === '1') return true;
+    if (['true', 'yes', 'y'].includes(String(raw ?? '').toLowerCase().trim())) return true;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0;
 }
 
 /** Excel `WithBoxChargesOnly` — numeric value is box charge; product is with-box only (no without-box option). */
@@ -87,6 +105,11 @@ function parseExcelBoxAndMrpFields(row, get) {
     );
     const mrpRateBehindBox =
         mrpRaw != null && Number.isFinite(Number(mrpRaw)) && Number(mrpRaw) > 0 ? Number(mrpRaw) : undefined;
+    if (!withBoxChargesOnly) {
+        if (row.with_box_charges_only === true || row.withBoxChargesOnly === true) {
+            withBoxChargesOnly = true;
+        }
+    }
     return { boxCharges, withBoxChargesOnly, mrpRateBehindBox };
 }
 
@@ -639,7 +662,7 @@ function buildBatchPhotoLookup(rows) {
         const enriched = enrichSubmissionRow(row);
         const prodSku = String(enriched.web_product_sku || '').trim();
         if (!prodSku) continue;
-        const entry = { id: row.id, prodSku };
+        const entry = { id: row.id, prodSku, row };
         registerBulkPhotoStemKey(map, prodSku, entry);
         const barcode = String(enriched.barcode || row.barcode || '').trim();
         if (barcode && barcode.toLowerCase() !== prodSku.toLowerCase()) {
@@ -985,11 +1008,21 @@ function registerResellerProductRoutes(app, deps) {
             const secondary =
                 (files.secondaryImage && files.secondaryImage[0]) ||
                 (files.secondaryImages && files.secondaryImages[0]);
+            const boxOnlyProduct =
+                fields.with_box_charges_only === true ||
+                submissionIsBoxOnly(existing[0]) ||
+                submissionIsBoxOnly({ ...existing[0], ...fields });
             if (primary && resolved.prodSku) {
                 const ext = path.extname(primary.filename) || '.webp';
-                const target = `${resolved.prodSku}${ext}`;
-                fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
-                fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+                if (boxOnlyProduct) {
+                    const target = `${resolved.prodSku}_box${ext}`;
+                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
+                    fields.box_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+                } else {
+                    const target = `${resolved.prodSku}${ext}`;
+                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
+                    fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+                }
             }
             if (secondary && resolved.prodSku) {
                 const ext = path.extname(secondary.filename) || '.webp';
@@ -1230,9 +1263,15 @@ function registerResellerProductRoutes(app, deps) {
                         const ext = path.extname(file.filename) || '.webp';
                         let target;
                         let urlField;
+                        const boxOnlyEntry = submissionIsBoxOnly(entry.row);
                         if (photoType === 'front') {
-                            target = `${entry.prodSku}${ext}`;
-                            urlField = 'image_url';
+                            if (boxOnlyEntry) {
+                                target = `${entry.prodSku}_box${ext}`;
+                                urlField = 'box_image_url';
+                            } else {
+                                target = `${entry.prodSku}${ext}`;
+                                urlField = 'image_url';
+                            }
                         } else if (photoType === 'back') {
                             target = `${entry.prodSku}_secondary${ext}`;
                             urlField = 'secondary_image_url';
@@ -1451,11 +1490,21 @@ function registerResellerProductRoutes(app, deps) {
             const files = req.files || {};
             const primary = (files.primaryImage && files.primaryImage[0]) || (files.images && files.images[0]);
             const secondary = (files.secondaryImage && files.secondaryImage[0]) || (files.secondaryImages && files.secondaryImages[0]);
+            const boxOnlyProduct =
+                fields.with_box_charges_only === true ||
+                submissionIsBoxOnly(existing[0]) ||
+                submissionIsBoxOnly({ ...existing[0], ...fields });
             if (primary && resolved.prodSku) {
                 const ext = path.extname(primary.filename) || '.webp';
-                const target = `${resolved.prodSku}${ext}`;
-                fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
-                fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+                if (boxOnlyProduct) {
+                    const target = `${resolved.prodSku}_box${ext}`;
+                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
+                    fields.box_image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+                } else {
+                    const target = `${resolved.prodSku}${ext}`;
+                    fs.renameSync(path.join(uploadsWebProductsDir, primary.filename), path.join(uploadsWebProductsDir, target));
+                    fields.image_url = `${getPublicApiBaseUrl()}/uploads/web_products/${target}`;
+                }
             }
             if (secondary && resolved.prodSku) {
                 const ext = path.extname(secondary.filename) || '.webp';
