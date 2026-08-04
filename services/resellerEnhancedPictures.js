@@ -496,11 +496,14 @@ function maskSecret(val) {
 }
 
 function parseAiSettingsRow(row) {
+    const batchDefault =
+        process.env.GEMINI_BATCH_DEFAULT !== '0' && process.env.GEMINI_BATCH_DEFAULT !== 'false';
     if (!row) {
         return {
             provider: 'gemini',
             gemini_model: getGeminiImageModel(),
             replicate_model: getReplicateDefaultModel(),
+            gemini_batch_enabled: batchDefault,
             gemini_api_key_configured: !!getGeminiApiKey(),
             replicate_api_token_configured: !!getReplicateApiToken(),
             gemini_api_key_masked: getGeminiApiKey() ? maskSecret(getGeminiApiKey()) : null,
@@ -514,10 +517,15 @@ function parseAiSettingsRow(row) {
     const provider = normalizeAiProvider(row.reseller_enhanced_ai_provider);
     const geminiKey = String(row.reseller_enhanced_gemini_api_key || '').trim();
     const replicateToken = String(row.reseller_enhanced_replicate_api_token || '').trim();
+    const batchEnabled =
+        row.reseller_enhanced_gemini_batch_enabled != null
+            ? !!row.reseller_enhanced_gemini_batch_enabled
+            : batchDefault;
     return {
         provider,
         gemini_model: String(row.reseller_enhanced_gemini_model || '').trim() || getGeminiImageModel(),
         replicate_model: String(row.reseller_enhanced_replicate_model || '').trim() || getReplicateDefaultModel(),
+        gemini_batch_enabled: batchEnabled,
         gemini_api_key_configured: !!geminiKey || !!getGeminiApiKey(),
         replicate_api_token_configured: !!replicateToken || !!getReplicateApiToken(),
         gemini_api_key_masked: geminiKey
@@ -543,7 +551,8 @@ async function loadResellerAiSettings(query, userId) {
                 reseller_enhanced_gemini_api_key,
                 reseller_enhanced_gemini_model,
                 reseller_enhanced_replicate_api_token,
-                reseller_enhanced_replicate_model
+                reseller_enhanced_replicate_model,
+                COALESCE(reseller_enhanced_gemini_batch_enabled, true) AS reseller_enhanced_gemini_batch_enabled
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -556,7 +565,8 @@ async function loadResellerAiConfigRaw(query, userId) {
                 reseller_enhanced_gemini_api_key,
                 reseller_enhanced_gemini_model,
                 reseller_enhanced_replicate_api_token,
-                reseller_enhanced_replicate_model
+                reseller_enhanced_replicate_model,
+                COALESCE(reseller_enhanced_gemini_batch_enabled, true) AS reseller_enhanced_gemini_batch_enabled
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -612,6 +622,11 @@ function resolveAiConfig(savedSettings, overrides = {}) {
         replicate_model: replicateModel,
         gemini_api_key: geminiKey,
         replicate_api_token: replicateToken,
+        gemini_batch_enabled:
+            savedSettings?.reseller_enhanced_gemini_batch_enabled != null
+                ? !!savedSettings.reseller_enhanced_gemini_batch_enabled
+                : process.env.GEMINI_BATCH_DEFAULT !== '0' &&
+                  process.env.GEMINI_BATCH_DEFAULT !== 'false',
     };
 }
 
@@ -709,6 +724,32 @@ async function ensureEnhancedPicturesSchema(pool) {
     `);
     await pool.query(`
         ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS ai_model VARCHAR(255)
+    `);
+    await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_enhanced_gemini_batch_enabled BOOLEAN NOT NULL DEFAULT true
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS generation_mode VARCHAR(16) NOT NULL DEFAULT 'sync'
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS gemini_batch_name TEXT
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS batch_state VARCHAR(64)
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS batch_submitted_at TIMESTAMP
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS batch_completed_at TIMESTAMP
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS credit_charged BOOLEAN NOT NULL DEFAULT false
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_enhanced_jobs_batch_pending
+            ON reseller_enhanced_picture_jobs (status, batch_submitted_at)
+            WHERE gemini_batch_name IS NOT NULL AND status IN ('batch_queued', 'batch_processing')
     `);
     await pool.query(`
         CREATE TABLE IF NOT EXISTS reseller_enhanced_picture_template_settings (
@@ -833,6 +874,354 @@ function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, 
     return `${main}\n\nNEGATIVE PROMPT:\n${neg}`;
 }
 
+const GEMINI_BATCH_TERMINAL_STATES = new Set([
+    'JOB_STATE_SUCCEEDED',
+    'JOB_STATE_FAILED',
+    'JOB_STATE_CANCELLED',
+    'JOB_STATE_EXPIRED',
+]);
+
+function buildGeminiUserParts({
+    promptText,
+    negativePrompt,
+    sourceImagePath,
+    aspectRatio,
+    canvasText,
+    workflowHighlights,
+}) {
+    const aspect = normalizeAspectRatio(aspectRatio);
+    const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
+        aspectRatio: aspect,
+        canvasText,
+        workflowHighlights,
+    });
+    const parts = [{ text: fullPrompt }];
+    if (sourceImagePath && fs.existsSync(sourceImagePath)) {
+        const buf = fs.readFileSync(sourceImagePath);
+        parts.push({
+            inline_data: {
+                mime_type: mimeFromExt(path.extname(sourceImagePath)),
+                data: buf.toString('base64'),
+            },
+        });
+    }
+    return { parts, aspect };
+}
+
+function parseGeminiBatchJobState(data) {
+    if (!data || typeof data !== 'object') return null;
+    return (
+        data.state ||
+        data.metadata?.state ||
+        (data.done === true ? 'JOB_STATE_SUCCEEDED' : null) ||
+        null
+    );
+}
+
+function extractImageFromGeminiResponse(response) {
+    const candidates = response?.candidates || [];
+    for (const c of candidates) {
+        for (const p of c?.content?.parts || []) {
+            const inline = p.inlineData || p.inline_data;
+            if (inline?.data) {
+                return {
+                    buffer: Buffer.from(inline.data, 'base64'),
+                    mimeType: inline.mimeType || inline.mime_type || 'image/png',
+                };
+            }
+        }
+    }
+    return null;
+}
+
+async function submitGeminiBatchJob({
+    model,
+    apiKey,
+    parts,
+    aspectRatio,
+    displayName,
+    metadataKey,
+}) {
+    if (!apiKey) {
+        const err = new Error('Gemini API key is not configured.');
+        err.status = 503;
+        throw err;
+    }
+    const aspect = normalizeAspectRatio(aspectRatio);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:batchGenerateContent`;
+    const body = {
+        batch: {
+            display_name: String(displayName || 'kc-enhanced-batch').slice(0, 120),
+            input_config: {
+                requests: {
+                    requests: [
+                        {
+                            request: {
+                                contents: [{ role: 'user', parts }],
+                                generationConfig: {
+                                    responseModalities: ['IMAGE'],
+                                    imageConfig: { aspectRatio: aspect, imageSize: '2K' },
+                                },
+                            },
+                            metadata: { key: String(metadataKey || 'job-1').slice(0, 64) },
+                        },
+                    ],
+                },
+            },
+        },
+    };
+    const res = await axios.post(url, body, {
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        timeout: 120000,
+        validateStatus: () => true,
+    });
+    if (res.status >= 400) {
+        const msg =
+            res.data?.error?.message || res.data?.message || `Gemini Batch API error (${res.status})`;
+        const err = new Error(msg);
+        err.status = res.status === 429 ? 429 : 502;
+        throw err;
+    }
+    const batchName = res.data?.name || res.data?.batch?.name;
+    if (!batchName) {
+        const err = new Error('Gemini Batch API did not return a batch job name.');
+        err.status = 502;
+        throw err;
+    }
+    return {
+        batchName,
+        batchState: parseGeminiBatchJobState(res.data) || 'JOB_STATE_PENDING',
+        model,
+    };
+}
+
+async function fetchGeminiBatchJob(batchName, apiKey) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/${encodeURIComponent(batchName)}`;
+    const res = await axios.get(url, {
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        timeout: 60000,
+        validateStatus: () => true,
+    });
+    if (res.status >= 400) {
+        const msg =
+            res.data?.error?.message || res.data?.message || `Gemini batch status error (${res.status})`;
+        const err = new Error(msg);
+        err.status = res.status === 429 ? 429 : 502;
+        throw err;
+    }
+    return res.data;
+}
+
+function extractImageFromGeminiBatchStatus(batchStatus) {
+    const inlineResponses =
+        batchStatus?.dest?.inlinedResponses ||
+        batchStatus?.dest?.inlined_responses ||
+        batchStatus?.response?.inlinedResponses ||
+        batchStatus?.response?.inlined_responses ||
+        [];
+    for (const inline of inlineResponses) {
+        const response = inline?.response || inline;
+        const img = extractImageFromGeminiResponse(response);
+        if (img) return img;
+        if (inline?.error) {
+            const err = new Error(
+                typeof inline.error === 'string'
+                    ? inline.error
+                    : inline.error?.message || JSON.stringify(inline.error),
+            );
+            err.status = 502;
+            throw err;
+        }
+    }
+    return null;
+}
+
+async function refundJobCreditIfNeeded(query, pool, job) {
+    if (!job?.credit_charged || !job?.reseller_user_id) return;
+    await addCredits(query, pool, {
+        userId: job.reseller_user_id,
+        amount: 1,
+        note: `Refund: batch job #${job.id} failed`,
+        reason: 'batch_refund',
+    });
+    await query(
+        `UPDATE reseller_enhanced_picture_jobs SET credit_charged = false WHERE id = $1`,
+        [job.id],
+    );
+}
+
+async function finalizeEnhancedPictureJob({
+    query,
+    pool,
+    job,
+    generated,
+    aiConfig,
+    enhancedDir,
+    getPublicApiBaseUrl,
+    uploadsWebProductsDir,
+    barcodeStem,
+    photoType,
+    downloadFilename,
+}) {
+    const outName = saveGeneratedBuffer(
+        enhancedDir,
+        generated.buffer,
+        generated.mimeType,
+        `enhanced-out-${job.reseller_user_id}`,
+    );
+    const resultUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${outName}`;
+    const resultPath = path.join(enhancedDir, outName);
+    const finalDownload =
+        (downloadFilename || `studio-${job.id}`) + extFromMime(generated.mimeType);
+
+    let attach = null;
+    const stem = barcodeStem || job.barcode_stem;
+    if (stem) {
+        attach = await attachGeneratedToProduct({
+            query,
+            getPublicApiBaseUrl,
+            uploadsWebProductsDir,
+            resellerUserId: job.reseller_user_id,
+            stem,
+            photoType: photoType || job.photo_type || 'front',
+            resultFilePath: resultPath,
+            resultMime: generated.mimeType,
+        });
+    }
+
+    const updated = await query(
+        `UPDATE reseller_enhanced_picture_jobs
+         SET result_image_url = $1, status = 'completed',
+             attached_submission_id = $2, attached_sku = $3,
+             barcode_stem = COALESCE($4, barcode_stem),
+             download_filename = $5,
+             ai_provider = $6,
+             ai_model = $7,
+             batch_completed_at = CURRENT_TIMESTAMP,
+             error_message = NULL
+         WHERE id = $8
+         RETURNING *`,
+        [
+            resultUrl,
+            attach?.submissionId || null,
+            attach?.sku || null,
+            stem || null,
+            finalDownload,
+            generated.provider || aiConfig?.provider || 'gemini',
+            generated.model || aiConfig?.gemini_model || null,
+            job.id,
+        ],
+    );
+    return { job: updated[0], resultUrl, finalDownload, attach };
+}
+
+async function processEnhancedBatchJobRow(job, deps) {
+    const { query, pool, enhancedDir, getPublicApiBaseUrl, uploadsWebProductsDir } = deps;
+    if (!job?.gemini_batch_name) return;
+    const aiConfig = await resolveAiConfigForUser(query, job.reseller_user_id);
+    const apiKey = aiConfig.gemini_api_key || getGeminiApiKey();
+    if (!apiKey) return;
+
+    let batchStatus;
+    try {
+        batchStatus = await fetchGeminiBatchJob(job.gemini_batch_name, apiKey);
+    } catch (e) {
+        console.warn(`enhanced batch poll #${job.id}:`, e.message);
+        return;
+    }
+
+    const state = parseGeminiBatchJobState(batchStatus) || job.batch_state || 'JOB_STATE_PENDING';
+    if (!GEMINI_BATCH_TERMINAL_STATES.has(state)) {
+        await query(
+            `UPDATE reseller_enhanced_picture_jobs
+             SET status = 'batch_processing', batch_state = $1
+             WHERE id = $2 AND status IN ('batch_queued', 'batch_processing')`,
+            [state, job.id],
+        );
+        return;
+    }
+
+    if (state !== 'JOB_STATE_SUCCEEDED') {
+        const errMsg =
+            batchStatus?.error?.message ||
+            batchStatus?.error ||
+            `Batch ended with ${state}`;
+        await query(
+            `UPDATE reseller_enhanced_picture_jobs
+             SET status = 'failed', batch_state = $1, batch_completed_at = CURRENT_TIMESTAMP,
+                 error_message = $2
+             WHERE id = $3`,
+            [state, String(errMsg).slice(0, 1000), job.id],
+        );
+        await refundJobCreditIfNeeded(query, pool, job);
+        return;
+    }
+
+    try {
+        const img = extractImageFromGeminiBatchStatus(batchStatus);
+        if (!img) {
+            throw new Error('Batch succeeded but returned no image.');
+        }
+        await finalizeEnhancedPictureJob({
+            query,
+            pool,
+            job,
+            generated: {
+                ...img,
+                provider: 'gemini',
+                model: job.ai_model || aiConfig.gemini_model,
+            },
+            aiConfig,
+            enhancedDir,
+            getPublicApiBaseUrl,
+            uploadsWebProductsDir,
+            barcodeStem: job.barcode_stem,
+            photoType: job.photo_type,
+            downloadFilename: job.download_filename,
+        });
+        await query(
+            `UPDATE reseller_enhanced_picture_jobs SET batch_state = $1 WHERE id = $2`,
+            ['JOB_STATE_SUCCEEDED', job.id],
+        );
+    } catch (e) {
+        console.error(`enhanced batch finalize #${job.id}:`, e);
+        await query(
+            `UPDATE reseller_enhanced_picture_jobs
+             SET status = 'failed', batch_state = 'JOB_STATE_FAILED',
+                 batch_completed_at = CURRENT_TIMESTAMP, error_message = $1
+             WHERE id = $2`,
+            [String(e.message || 'Batch finalize failed').slice(0, 1000), job.id],
+        );
+        await refundJobCreditIfNeeded(query, pool, job);
+    }
+}
+
+let batchPollerStarted = false;
+
+function startEnhancedBatchPoller(deps) {
+    if (batchPollerStarted) return;
+    batchPollerStarted = true;
+    const intervalMs = Math.max(15000, parseInt(process.env.GEMINI_BATCH_POLL_MS || '20000', 10));
+    setInterval(async () => {
+        try {
+            const { query, pool } = deps;
+            const rows = await query(
+                `SELECT * FROM reseller_enhanced_picture_jobs
+                 WHERE status IN ('batch_queued', 'batch_processing')
+                   AND gemini_batch_name IS NOT NULL
+                 ORDER BY batch_submitted_at ASC NULLS LAST, id ASC
+                 LIMIT 20`,
+            );
+            for (const job of rows) {
+                await processEnhancedBatchJobRow(job, deps);
+            }
+        } catch (e) {
+            console.warn('enhanced batch poller:', e.message);
+        }
+    }, intervalMs);
+    console.log(`✅ Enhanced picture Gemini batch poller every ${intervalMs / 1000}s`);
+}
+
 /**
  * Call Gemini image generation with an optional reference image.
  * Returns { buffer, mimeType, provider, model }.
@@ -855,21 +1244,14 @@ async function generateWithGemini({
         throw err;
     }
     const aspect = normalizeAspectRatio(aspectRatio);
-    const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
+    const { parts } = buildGeminiUserParts({
+        promptText,
+        negativePrompt,
+        sourceImagePath,
         aspectRatio: aspect,
         canvasText,
         workflowHighlights,
     });
-    const parts = [{ text: fullPrompt }];
-    if (sourceImagePath && fs.existsSync(sourceImagePath)) {
-        const buf = fs.readFileSync(sourceImagePath);
-        parts.push({
-            inline_data: {
-                mime_type: mimeFromExt(path.extname(sourceImagePath)),
-                data: buf.toString('base64'),
-            },
-        });
-    }
 
     const primaryModel = aiConfig?.gemini_model || getGeminiImageModel();
     const models = [...new Set([primaryModel, ...geminiImageModelCandidates()].filter(Boolean))];
@@ -1638,6 +2020,12 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 if (req.body.replicate_api_token != null && String(req.body.replicate_api_token).trim()) {
                     replicateToken = String(req.body.replicate_api_token).trim();
                 }
+                const geminiBatchEnabled =
+                    req.body.gemini_batch_enabled !== undefined
+                        ? !!req.body.gemini_batch_enabled
+                        : existing.reseller_enhanced_gemini_batch_enabled != null
+                          ? !!existing.reseller_enhanced_gemini_batch_enabled
+                          : true;
 
                 await query(
                     `UPDATE users SET
@@ -1645,9 +2033,18 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         reseller_enhanced_gemini_model = $2,
                         reseller_enhanced_replicate_model = $3,
                         reseller_enhanced_gemini_api_key = $4,
-                        reseller_enhanced_replicate_api_token = $5
-                     WHERE id = $6`,
-                    [provider, geminiModel, replicateModel, geminiKey, replicateToken, userId],
+                        reseller_enhanced_replicate_api_token = $5,
+                        reseller_enhanced_gemini_batch_enabled = $6
+                     WHERE id = $7`,
+                    [
+                        provider,
+                        geminiModel,
+                        replicateModel,
+                        geminiKey,
+                        replicateToken,
+                        geminiBatchEnabled,
+                        userId,
+                    ],
                 );
                 const aiSettings = await loadResellerAiSettings(query, userId);
                 res.json({ success: true, ai_settings: aiSettings });
@@ -2203,6 +2600,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                           provider: aiSettings.provider,
                           gemini_model: aiSettings.gemini_model,
                           replicate_model: aiSettings.replicate_model,
+                          gemini_batch_enabled: aiSettings.gemini_batch_enabled,
                       }
                     : null,
             });
@@ -2291,6 +2689,84 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         }
     });
 
+    app.get('/api/reseller/enhanced-pictures/jobs', checkAuth, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            await assertResellerEnhancedAccess(query, req.user.id);
+            const limitRaw = parseInt(String(req.query.limit || '30'), 10);
+            const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 30;
+            const jobs = await query(
+                `SELECT id, template_key, status, barcode_stem, photo_type, generation_mode,
+                        batch_state, result_image_url, source_image_url, download_filename,
+                        error_message, attached_sku, attached_submission_id,
+                        created_at, batch_submitted_at, batch_completed_at
+                 FROM reseller_enhanced_picture_jobs
+                 WHERE reseller_user_id = $1
+                 ORDER BY created_at DESC
+                 LIMIT $2`,
+                [req.user.id, limit],
+            );
+            res.json({ jobs });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
+    app.get('/api/reseller/enhanced-pictures/jobs/:id', checkAuth, async (req, res) => {
+        try {
+            await assertResellerEnhancedAccess(query, req.user.id);
+            const jobId = parseInt(String(req.params.id), 10);
+            if (!jobId) return res.status(400).json({ error: 'job id required' });
+            let rows = await query(
+                `SELECT * FROM reseller_enhanced_picture_jobs WHERE id = $1 AND reseller_user_id = $2`,
+                [jobId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Job not found' });
+            const job = rows[0];
+            if (
+                (job.status === 'batch_queued' || job.status === 'batch_processing') &&
+                job.gemini_batch_name
+            ) {
+                await processEnhancedBatchJobRow(job, {
+                    query,
+                    pool,
+                    enhancedDir,
+                    getPublicApiBaseUrl,
+                    uploadsWebProductsDir,
+                });
+                rows = await query(
+                    `SELECT id, status, result_image_url, source_image_url, barcode_stem, photo_type,
+                            download_filename, error_message, generation_mode, gemini_batch_name,
+                            batch_state, batch_submitted_at, batch_completed_at, created_at
+                     FROM reseller_enhanced_picture_jobs WHERE id = $1`,
+                    [jobId],
+                );
+            } else {
+                rows = [
+                    {
+                        id: job.id,
+                        status: job.status,
+                        result_image_url: job.result_image_url,
+                        source_image_url: job.source_image_url,
+                        barcode_stem: job.barcode_stem,
+                        photo_type: job.photo_type,
+                        download_filename: job.download_filename,
+                        error_message: job.error_message,
+                        generation_mode: job.generation_mode,
+                        gemini_batch_name: job.gemini_batch_name,
+                        batch_state: job.batch_state,
+                        batch_submitted_at: job.batch_submitted_at,
+                        batch_completed_at: job.batch_completed_at,
+                        created_at: job.created_at,
+                    },
+                ];
+            }
+            res.json({ job: rows[0] });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
     app.post('/api/reseller/enhanced-pictures/generate', checkAuth, async (req, res) => {
         try {
             await ensureEnhancedPicturesSchema(pool);
@@ -2360,6 +2836,65 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     prompt.prompt_text,
                     prompt.negative_prompt || '',
                 );
+                const useGeminiBatch =
+                    normalizeAiProvider(aiConfig.provider) === 'gemini' &&
+                    aiConfig.gemini_batch_enabled !== false;
+
+                if (useGeminiBatch) {
+                    const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
+                    const { parts, aspect } = buildGeminiUserParts({
+                        promptText: normalized.promptText,
+                        negativePrompt: normalized.negativePrompt,
+                        sourceImagePath: req.file.path,
+                        aspectRatio,
+                        canvasText,
+                        workflowHighlights: showcase.workflow_highlights,
+                    });
+                    const model = aiConfig.gemini_model || getGeminiImageModel();
+                    let batch;
+                    try {
+                        batch = await submitGeminiBatchJob({
+                            model,
+                            apiKey: aiConfig.gemini_api_key,
+                            parts,
+                            aspectRatio: aspect,
+                            displayName: `kc-enhanced-${job.id}`,
+                            metadataKey: `job-${job.id}`,
+                        });
+                    } catch (batchErr) {
+                        await addCredits(query, pool, {
+                            userId: req.user.id,
+                            amount: 1,
+                            note: `Refund: batch submit failed for job #${job.id}`,
+                            reason: 'batch_refund',
+                        });
+                        throw batchErr;
+                    }
+                    const updated = await query(
+                        `UPDATE reseller_enhanced_picture_jobs
+                         SET status = 'batch_processing', generation_mode = 'batch',
+                             gemini_batch_name = $1, batch_state = $2,
+                             batch_submitted_at = CURRENT_TIMESTAMP,
+                             credit_charged = true,
+                             ai_provider = 'gemini', ai_model = $3
+                         WHERE id = $4
+                         RETURNING *`,
+                        [batch.batchName, batch.batchState, model, job.id],
+                    );
+                    return res.status(202).json({
+                        success: true,
+                        async: true,
+                        job: updated[0],
+                        batch: {
+                            name: batch.batchName,
+                            state: batch.batchState,
+                        },
+                        credits: creditsLeft,
+                        message:
+                            'Queued in Gemini Batch API (~50% cost). Your studio shot will appear when processing completes — usually within minutes.',
+                    });
+                }
+
                 const generated = await generateStudioImage({
                     promptText: normalized.promptText,
                     negativePrompt: normalized.negativePrompt,
@@ -2370,63 +2905,34 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     workflowHighlights: showcase.workflow_highlights,
                 });
                 const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
-                const outName = saveGeneratedBuffer(
+                const finalized = await finalizeEnhancedPictureJob({
+                    query,
+                    pool,
+                    job: { ...job, reseller_user_id: req.user.id },
+                    generated,
+                    aiConfig,
                     enhancedDir,
-                    generated.buffer,
-                    generated.mimeType,
-                    `enhanced-out-${req.user.id}`,
-                );
-                const resultUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${outName}`;
-                const resultPath = path.join(enhancedDir, outName);
-                const finalDownload =
-                    (downloadFilename || `studio-${job.id}`) + extFromMime(generated.mimeType);
-
-                let attach = null;
-                if (barcodeStem) {
-                    attach = await attachGeneratedToProduct({
-                        query,
-                        getPublicApiBaseUrl,
-                        uploadsWebProductsDir,
-                        resellerUserId: req.user.id,
-                        stem: barcodeStem,
-                        photoType,
-                        resultFilePath: resultPath,
-                        resultMime: generated.mimeType,
-                    });
-                }
-
-                const updated = await query(
-                    `UPDATE reseller_enhanced_picture_jobs
-                     SET result_image_url = $1, status = 'completed',
-                         attached_submission_id = $2, attached_sku = $3,
-                         barcode_stem = COALESCE($4, barcode_stem),
-                         download_filename = $5,
-                         ai_provider = $6,
-                         ai_model = $7,
-                         error_message = NULL
-                     WHERE id = $8
-                     RETURNING *`,
-                    [
-                        resultUrl,
-                        attach?.submissionId || null,
-                        attach?.sku || null,
-                        barcodeStem || null,
-                        finalDownload,
-                        generated.provider || aiConfig.provider,
-                        generated.model || null,
-                        job.id,
-                    ],
+                    getPublicApiBaseUrl,
+                    uploadsWebProductsDir,
+                    barcodeStem,
+                    photoType,
+                    downloadFilename,
+                });
+                await query(
+                    `UPDATE reseller_enhanced_picture_jobs SET generation_mode = 'sync', credit_charged = true WHERE id = $1`,
+                    [job.id],
                 );
 
                 res.json({
                     success: true,
-                    job: updated[0],
-                    result_image_url: resultUrl,
-                    download_filename: finalDownload,
+                    async: false,
+                    job: finalized.job,
+                    result_image_url: finalized.resultUrl,
+                    download_filename: finalized.finalDownload,
                     aspect_ratio: aspectRatio,
                     canvas_text: canvasText || null,
                     credits: creditsLeft,
-                    attach,
+                    attach: finalized.attach,
                 });
             } catch (genErr) {
                 await query(
@@ -2723,11 +3229,20 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             }
         },
     );
+
+    startEnhancedBatchPoller({
+        query,
+        pool,
+        enhancedDir,
+        getPublicApiBaseUrl,
+        uploadsWebProductsDir,
+    });
 }
 
 module.exports = {
     registerResellerEnhancedPictureRoutes,
     ensureEnhancedPicturesSchema,
+    startEnhancedBatchPoller,
     DEFAULT_IDOLS_PROMPT,
     DEFAULT_IDOLS_NEGATIVE,
     TEMPLATES,

@@ -19,18 +19,22 @@ import { PROFILE_PATH, RESELLER_PRODUCTS_PATH } from '@/lib/routes'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
+import { EnhancedRecentJobsPanel } from '@/components/reseller/EnhancedRecentJobsPanel'
 import {
   attachEnhancedPicture,
   createEnhancedTopupOrder,
   enhancedPicturesZipUrl,
   fetchBarcodeHints,
+  fetchEnhancedJobs,
   fetchEnhancedStatus,
+  fetchEnhancedJobStatus,
   fetchProductLookup,
   generateEnhancedPicture,
   verifyEnhancedTopup,
   type EnhancedBarcodeHint,
   type EnhancedCreditPlan,
   type EnhancedPictureTemplate,
+  type EnhancedRecentJob,
 } from '@/lib/reseller-enhanced-pictures'
 
 type RazorpayCtor = new (opts: Record<string, unknown>) => { open: () => void }
@@ -93,9 +97,14 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [downloadName, setDownloadName] = useState('')
   const [attachMsg, setAttachMsg] = useState('')
   const [busy, setBusy] = useState(false)
-  const [phase, setPhase] = useState<'idle' | 'preparing' | 'done'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'preparing' | 'batch' | 'done'>('idle')
+  const [batchState, setBatchState] = useState<string | null>(null)
+  const [batchMessage, setBatchMessage] = useState('')
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
+  const [recentJobs, setRecentJobs] = useState<EnhancedRecentJob[]>([])
+  const [jobsLoading, setJobsLoading] = useState(true)
+  const [jobsRefreshing, setJobsRefreshing] = useState(false)
 
   const authReady = auth.hasChecked === true
   const subscriptionOn = Boolean(
@@ -149,9 +158,44 @@ export default function ResellerEnhancedPicturesPageClient() {
     }
   }, [auth.isAuthenticated, customerTier])
 
+  const loadRecentJobs = useCallback(
+    async (silent = false) => {
+      if (!auth.isAuthenticated || customerTier !== CUSTOMER_TIER.RESELLER) return
+      if (silent) setJobsRefreshing(true)
+      else setJobsLoading(true)
+      try {
+        const list = await fetchEnhancedJobs(30)
+        setRecentJobs(list)
+      } catch {
+        /* non-blocking */
+      } finally {
+        setJobsLoading(false)
+        setJobsRefreshing(false)
+      }
+    },
+    [auth.isAuthenticated, customerTier],
+  )
+
   useEffect(() => {
     if (authReady && tierReady) void load()
   }, [authReady, tierReady, load])
+
+  useEffect(() => {
+    if (authReady && tierReady && subscriptionOn && enabled) {
+      void loadRecentJobs()
+    }
+  }, [authReady, tierReady, subscriptionOn, enabled, loadRecentJobs])
+
+  useEffect(() => {
+    const hasPending = recentJobs.some((j) =>
+      ['batch_queued', 'batch_processing', 'processing'].includes(j.status),
+    )
+    if (!hasPending || !subscriptionOn || !enabled) return
+    const timer = window.setInterval(() => {
+      void loadRecentJobs(true)
+    }, 15000)
+    return () => window.clearInterval(timer)
+  }, [recentJobs, subscriptionOn, enabled, loadRecentJobs])
 
   useEffect(() => {
     return () => {
@@ -164,6 +208,12 @@ export default function ResellerEnhancedPicturesPageClient() {
     if (!stem) return ''
     return photoType === 'back' ? `${stem}_secondary.webp` : `${stem}.webp`
   }, [barcodeStem, photoType])
+
+  const templateLabels = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const t of templates) map[t.key] = t.label
+    return map
+  }, [templates])
 
   const activeTemplate = useMemo(
     () => templates.find((t) => t.key === templateKey) || templates[0] || null,
@@ -233,6 +283,96 @@ export default function ResellerEnhancedPicturesPageClient() {
     setPhase('idle')
   }
 
+  const pollBatchJob = useCallback(async (id: number) => {
+    const maxAttempts = 360
+    for (let i = 0; i < maxAttempts; i += 1) {
+      await new Promise((r) => setTimeout(r, 5000))
+      try {
+        const job = await fetchEnhancedJobStatus(id)
+        setBatchState(job.batch_state || job.status || null)
+        setProgress(Math.min(92, 18 + i * 0.25))
+        if (job.status === 'completed' && job.result_image_url) {
+          setResultUrl(job.result_image_url)
+          setDownloadName(job.download_filename || suggestedFilename || 'studio-shot.webp')
+          setPhase('done')
+          setProgress(100)
+          setAttachMsg('Generated. Rename with barcode, then attach or download.')
+          setBusy(false)
+          void loadRecentJobs(true)
+          const h = await fetchBarcodeHints().catch(() => null)
+          if (h) setHints(h)
+          return
+        }
+        if (job.status === 'failed') {
+          setPhase('idle')
+          setBusy(false)
+          setError(job.error_message || 'Batch generation failed. Your credit was refunded.')
+          void loadRecentJobs(true)
+          return
+        }
+      } catch {
+        /* keep polling */
+      }
+    }
+    setPhase('idle')
+    setBusy(false)
+    setError('Still processing in Gemini Batch queue. Check Recent studio jobs below — we keep tracking in the background.')
+    void loadRecentJobs(true)
+  }, [suggestedFilename, loadRecentJobs])
+
+  const handleSelectRecentJob = useCallback(
+    (job: EnhancedRecentJob) => {
+      setJobId(job.id)
+      setTemplateKey(job.template_key)
+      setPhotoType(job.photo_type === 'back' ? 'back' : 'front')
+      if (job.barcode_stem) setBarcodeStem(job.barcode_stem)
+      setError('')
+
+      if (job.status === 'completed' && job.result_image_url) {
+        setResultUrl(job.result_image_url)
+        setDownloadName(
+          job.download_filename ||
+            (job.barcode_stem
+              ? job.photo_type === 'back'
+                ? `${normalizeStem(job.barcode_stem)}_secondary.webp`
+                : `${normalizeStem(job.barcode_stem)}.webp`
+              : 'studio-shot.webp'),
+        )
+        setPhase('done')
+        setBusy(false)
+        setAttachMsg(
+          job.attached_sku
+            ? `Attached to ${job.attached_sku}.`
+            : 'Loaded from recent jobs. Download or attach to product.',
+        )
+        window.setTimeout(() => {
+          document.getElementById('studio-preview')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        }, 80)
+        return
+      }
+
+      if (job.status === 'failed') {
+        setPhase('idle')
+        setResultUrl(null)
+        setAttachMsg('')
+        setError(job.error_message || 'This job failed. Your credit was refunded if charged.')
+        return
+      }
+
+      if (['batch_queued', 'batch_processing', 'processing'].includes(job.status)) {
+        setPhase('batch')
+        setBusy(true)
+        setResultUrl(null)
+        setAttachMsg('')
+        setBatchMessage('Resuming batch job — usually ready within a few minutes.')
+        setBatchState(job.batch_state || job.status)
+        setProgress(22)
+        void pollBatchJob(job.id)
+      }
+    },
+    [pollBatchJob],
+  )
+
   const runGenerate = async () => {
     if (!sourceFile) {
       setError('Take or choose a product photo first.')
@@ -251,6 +391,7 @@ export default function ResellerEnhancedPicturesPageClient() {
     const tick = window.setInterval(() => {
       setProgress((p) => (p >= 88 ? p : p + Math.random() * 8))
     }, 900)
+    let queuedBatch = false
     try {
       const data = await generateEnhancedPicture({
         image: sourceFile,
@@ -261,10 +402,26 @@ export default function ResellerEnhancedPicturesPageClient() {
         aspectRatio,
         canvasText: includeCanvasText ? canvasText.trim() : undefined,
       })
-      setResultUrl(data.result_image_url)
+      if (typeof data.credits === 'number') setCredits(data.credits)
+
+      if (data.async && data.job?.id) {
+        queuedBatch = true
+        setJobId(data.job.id)
+        setBatchMessage(
+          data.message ||
+            'Queued in Gemini Batch (~50% cost). Usually ready within a few minutes.',
+        )
+        setBatchState(data.batch?.state || data.job.batch_state || 'JOB_STATE_PENDING')
+        setPhase('batch')
+        setProgress(22)
+        void loadRecentJobs(true)
+        void pollBatchJob(data.job.id)
+        return
+      }
+
+      setResultUrl(data.result_image_url || data.job?.result_image_url || null)
       setJobId(data.job?.id ?? null)
       setDownloadName(data.download_filename || suggestedFilename || 'studio-shot.webp')
-      if (typeof data.credits === 'number') setCredits(data.credits)
       if (data.attach?.attached) {
         setAttachMsg(`Attached to ${data.attach.sku} (${data.attach.status}).`)
       } else if (normalizeStem(barcodeStem)) {
@@ -274,6 +431,7 @@ export default function ResellerEnhancedPicturesPageClient() {
       }
       setPhase('done')
       setProgress(100)
+      void loadRecentJobs(true)
       const h = await fetchBarcodeHints().catch(() => null)
       if (h) setHints(h)
     } catch (e: unknown) {
@@ -287,7 +445,7 @@ export default function ResellerEnhancedPicturesPageClient() {
       setError(status?.data?.error || (e as { message?: string })?.message || 'Generation failed')
     } finally {
       window.clearInterval(tick)
-      setBusy(false)
+      if (!queuedBatch) setBusy(false)
     }
   }
 
@@ -313,6 +471,7 @@ export default function ResellerEnhancedPicturesPageClient() {
           ? `Attached to ${data.attach.sku}.`
           : data.attach?.reason || 'Could not attach',
       )
+      void loadRecentJobs(true)
       const h = await fetchBarcodeHints().catch(() => null)
       if (h) setHints(h)
     } catch (e: unknown) {
@@ -498,6 +657,16 @@ export default function ResellerEnhancedPicturesPageClient() {
             Top up
           </button>
         </div>
+
+        <EnhancedRecentJobsPanel
+          jobs={recentJobs}
+          loading={jobsLoading}
+          refreshing={jobsRefreshing}
+          activeJobId={jobId}
+          templateLabels={templateLabels}
+          onRefresh={() => void loadRecentJobs(true)}
+          onSelect={handleSelectRecentJob}
+        />
 
         <section>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
@@ -722,15 +891,28 @@ export default function ResellerEnhancedPicturesPageClient() {
           </div>
         </section>
 
-        {phase === 'preparing' ? (
+        {phase === 'preparing' || phase === 'batch' ? (
           <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-5 py-8 text-center">
             <Sparkles className="mx-auto size-8 text-[var(--kc-accent,#c41e3a)]" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--kc-accent,#c41e3a)]">
-              Preparing…
+              {phase === 'batch' ? 'Batch queue · 50% savings' : 'Preparing…'}
             </p>
             <p className="mt-1 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-              Crafting studio quality photo
+              {phase === 'batch'
+                ? 'Crafting studio quality photo (async)'
+                : 'Crafting studio quality photo'}
             </p>
+            {phase === 'batch' ? (
+              <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
+                {batchMessage ||
+                  'Your photo is in Google Gemini Batch — higher limits, half the cost. You can keep this tab open or come back shortly.'}
+              </p>
+            ) : null}
+            {batchState ? (
+              <p className="mt-2 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                Status: {batchState.replace(/^JOB_STATE_/, '').replace(/_/g, ' ').toLowerCase()}
+              </p>
+            ) : null}
             <div className="mx-auto mt-5 h-2 max-w-xs overflow-hidden rounded-full bg-[var(--color-slate-900,#f7f4ef)]">
               <div
                 className="h-full rounded-full bg-[var(--kc-accent,#c41e3a)] transition-all duration-500"
@@ -740,8 +922,11 @@ export default function ResellerEnhancedPicturesPageClient() {
           </div>
         ) : null}
 
-        {resultUrl && phase !== 'preparing' ? (
-          <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
+        {resultUrl && phase !== 'preparing' && phase !== 'batch' ? (
+          <section
+            id="studio-preview"
+            className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4"
+          >
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
               Studio preview
             </p>
@@ -783,11 +968,11 @@ export default function ResellerEnhancedPicturesPageClient() {
 
         <button
           type="button"
-          disabled={busy || !sourceFile || credits < 1}
+          disabled={busy || !sourceFile || credits < 1 || phase === 'batch'}
           onClick={() => void runGenerate()}
           className="kc-btn-theme flex w-full min-h-[52px] items-center justify-center gap-2 rounded-2xl text-base font-semibold disabled:opacity-50"
         >
-          {busy && phase === 'preparing' ? (
+          {busy && (phase === 'preparing' || phase === 'batch') ? (
             <Loader2 className="size-5 animate-spin" />
           ) : (
             <Sparkles className="size-5" />

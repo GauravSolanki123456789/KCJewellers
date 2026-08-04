@@ -82,6 +82,7 @@ function AdminEnhancedPicturesInner() {
   const [statusMsg, setStatusMsg] = useState('')
   const [aiProvider, setAiProvider] = useState<'gemini' | 'replicate'>('gemini')
   const [geminiModel, setGeminiModel] = useState('gemini-3.1-flash-lite-image')
+  const [geminiBatchEnabled, setGeminiBatchEnabled] = useState(true)
   const [replicateModel, setReplicateModel] = useState('black-forest-labs/flux-kontext-pro')
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('')
   const [replicateTokenInput, setReplicateTokenInput] = useState('')
@@ -220,6 +221,7 @@ function AdminEnhancedPicturesInner() {
           setAiProvider(data.ai_settings.provider)
           setGeminiModel(data.ai_settings.gemini_model)
           setReplicateModel(data.ai_settings.replicate_model)
+          setGeminiBatchEnabled(data.ai_settings.gemini_batch_enabled !== false)
         }
 
         const defaultKey =
@@ -505,6 +507,7 @@ function AdminEnhancedPicturesInner() {
           replicate_model: replicateModel.trim(),
           gemini_api_key: geminiApiKeyInput.trim() || undefined,
           replicate_api_token: replicateTokenInput.trim() || undefined,
+          gemini_batch_enabled: geminiBatchEnabled,
         })
         setAiSettingsMeta(saved)
         setGeminiApiKeyInput('')
@@ -918,7 +921,30 @@ function AdminEnhancedPicturesInner() {
                     </button>
                   ) : null}
                 </label>
-              ) : (
+              ) : null}
+
+              {aiProvider === 'gemini' ? (
+                <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/60 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={geminiBatchEnabled}
+                    onChange={(e) => setGeminiBatchEnabled(e.target.checked)}
+                    className="mt-1 size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                      Gemini Batch API for reseller studio (recommended)
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+                      Async queue — ~50% lower cost and much higher rate limits. Reseller staff see a
+                      progress card; results usually arrive within minutes. Prompt Lab tests stay
+                      instant (sync).
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+
+              {aiProvider === 'replicate' ? (
                 <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
                   Replicate API token (optional)
                   <input
@@ -958,7 +984,7 @@ function AdminEnhancedPicturesInner() {
                     .
                   </p>
                 </label>
-              )}
+              ) : null}
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <SaveFeedbackButton

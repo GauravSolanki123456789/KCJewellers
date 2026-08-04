@@ -65,6 +65,7 @@ export type EnhancedAiSettings = {
   provider: 'gemini' | 'replicate'
   gemini_model: string
   replicate_model: string
+  gemini_batch_enabled?: boolean
   gemini_api_key_configured: boolean
   replicate_api_token_configured: boolean
   gemini_api_key_masked: string | null
@@ -123,6 +124,9 @@ export type EnhancedProductLookup = {
 
 export type EnhancedGenerateResult = {
   success: boolean
+  async?: boolean
+  message?: string
+  batch?: { name?: string; state?: string }
   job: {
     id: number
     result_image_url?: string | null
@@ -130,8 +134,11 @@ export type EnhancedGenerateResult = {
     barcode_stem?: string | null
     photo_type?: string
     status?: string
+    generation_mode?: string
+    batch_state?: string | null
+    error_message?: string | null
   }
-  result_image_url: string
+  result_image_url?: string
   download_filename?: string
   credits?: number
   attach?: {
@@ -163,6 +170,7 @@ export async function fetchEnhancedStatus() {
       provider: 'gemini' | 'replicate'
       gemini_model: string
       replicate_model: string
+      gemini_batch_enabled?: boolean
     } | null
   }>(`${apiBase()}/api/reseller/enhanced-pictures/status`, { withCredentials: true })
   return res.data
@@ -182,6 +190,55 @@ export async function fetchProductLookup(stem: string) {
     { params: { stem }, withCredentials: true },
   )
   return res.data
+}
+
+export type EnhancedJobStatus = {
+  job: {
+    id: number
+    status: string
+    result_image_url?: string | null
+    download_filename?: string | null
+    error_message?: string | null
+    generation_mode?: string
+    batch_state?: string | null
+    batch_submitted_at?: string | null
+    batch_completed_at?: string | null
+  }
+}
+
+export type EnhancedRecentJob = {
+  id: number
+  status: string
+  template_key: string
+  barcode_stem?: string | null
+  photo_type: string
+  generation_mode?: string
+  batch_state?: string | null
+  result_image_url?: string | null
+  source_image_url?: string | null
+  download_filename?: string | null
+  error_message?: string | null
+  attached_sku?: string | null
+  attached_submission_id?: number | null
+  created_at: string
+  batch_submitted_at?: string | null
+  batch_completed_at?: string | null
+}
+
+export async function fetchEnhancedJobs(limit = 30) {
+  const res = await axios.get<{ jobs: EnhancedRecentJob[] }>(
+    `${apiBase()}/api/reseller/enhanced-pictures/jobs`,
+    { params: { limit }, withCredentials: true },
+  )
+  return res.data.jobs
+}
+
+export async function fetchEnhancedJobStatus(jobId: number) {
+  const res = await axios.get<EnhancedJobStatus>(
+    `${apiBase()}/api/reseller/enhanced-pictures/jobs/${jobId}`,
+    { withCredentials: true },
+  )
+  return res.data.job
 }
 
 export async function generateEnhancedPicture(opts: {
@@ -326,6 +383,7 @@ export async function patchAdminEnhancedAiSettings(
     replicate_api_token?: string
     clear_gemini_api_key?: boolean
     clear_replicate_api_token?: boolean
+    gemini_batch_enabled?: boolean
   },
 ) {
   const res = await axios.patch<{ success: boolean; ai_settings: EnhancedAiSettings }>(
