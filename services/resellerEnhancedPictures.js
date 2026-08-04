@@ -319,6 +319,22 @@ async function loadVarietiesForTemplate(query, resellerUserId, templateKey) {
     return rows.map(formatVarietyRow);
 }
 
+async function loadAllVarietiesForReseller(query, resellerUserId) {
+    const rows = await query(
+        `SELECT * FROM reseller_enhanced_picture_varieties
+         WHERE reseller_user_id = $1
+         ORDER BY template_key ASC, sort_order ASC, variety_label ASC, id ASC`,
+        [resellerUserId],
+    );
+    const byTemplate = new Map();
+    for (const row of rows) {
+        const key = String(row.template_key || '').trim().toLowerCase();
+        if (!byTemplate.has(key)) byTemplate.set(key, []);
+        byTemplate.get(key).push(formatVarietyRow(row));
+    }
+    return byTemplate;
+}
+
 async function loadTemplateShowcase(query, resellerUserId, templateKey) {
     const key = String(templateKey || TEMPLATE_IDOLS).trim().toLowerCase().slice(0, 64);
     const rows = await query(
@@ -427,15 +443,18 @@ async function createBlankTemplate(query, resellerUserId, body, adminId) {
 
 async function buildTemplatesForReseller(query, resellerUserId) {
     await ensureDefaultTemplateShowcase(query, resellerUserId, TEMPLATE_IDOLS);
-    const rows = await query(
-        `SELECT template_key, template_label, template_description, workflow_highlights,
-                system_resolutions, system_ratios, sample_label, output_label, output_subtitle,
-                footer_note, sample_source_image_url, sample_result_image_url
-         FROM reseller_enhanced_picture_template_settings
-         WHERE reseller_user_id = $1
-         ORDER BY template_key ASC`,
-        [resellerUserId],
-    );
+    const [rows, varietiesByTemplate] = await Promise.all([
+        query(
+            `SELECT template_key, template_label, template_description, workflow_highlights,
+                    system_resolutions, system_ratios, sample_label, output_label, output_subtitle,
+                    footer_note, sample_source_image_url, sample_result_image_url
+             FROM reseller_enhanced_picture_template_settings
+             WHERE reseller_user_id = $1
+             ORDER BY template_key ASC`,
+            [resellerUserId],
+        ),
+        loadAllVarietiesForReseller(query, resellerUserId),
+    ]);
     const byKey = new Map();
     for (const t of TEMPLATES) {
         byKey.set(t.key, { key: t.key, label: t.label, description: t.description, varieties: [] });
@@ -444,13 +463,12 @@ async function buildTemplatesForReseller(query, resellerUserId) {
         const key = String(row.template_key || '').trim().toLowerCase();
         if (!key) continue;
         const builtin = byKey.get(key);
-        const varieties = await loadVarietiesForTemplate(query, resellerUserId, key);
         byKey.set(key, {
             key,
             label: String(row.template_label || '').trim() || builtin?.label || key,
             description: String(row.template_description || '').trim() || builtin?.description || '',
             showcase: normalizeTemplateShowcaseRow(row, key),
-            varieties,
+            varieties: varietiesByTemplate.get(key) || [],
         });
     }
     if (!byKey.has(TEMPLATE_IDOLS)) {
@@ -460,7 +478,7 @@ async function buildTemplatesForReseller(query, resellerUserId) {
             label: 'Idols / Frames',
             description: 'Museum-style silver & gold idol and frame catalogue shots.',
             showcase,
-            varieties: [],
+            varieties: varietiesByTemplate.get(TEMPLATE_IDOLS) || [],
         });
     }
     return [...byKey.values()];
@@ -655,8 +673,12 @@ function stemKeys(stem) {
     return compact && compact !== s ? [s, compact] : [s];
 }
 
+let enhancedPicturesSchemaPromise = null;
+
 async function ensureEnhancedPicturesSchema(pool) {
-    await pool.query(`
+    if (enhancedPicturesSchemaPromise) return enhancedPicturesSchemaPromise;
+    enhancedPicturesSchemaPromise = (async () => {
+        await pool.query(`
         ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_enhanced_pictures_enabled BOOLEAN NOT NULL DEFAULT false
     `);
@@ -822,6 +844,11 @@ async function ensureEnhancedPicturesSchema(pool) {
             ON reseller_enhanced_picture_varieties (reseller_user_id, template_key, sort_order)
     `);
     await ensureCreditsSchema(pool);
+    })().catch((err) => {
+        enhancedPicturesSchemaPromise = null;
+        throw err;
+    });
+    return enhancedPicturesSchemaPromise;
 }
 
 function createEnhancedUploadMulter(uploadsDir) {
@@ -870,7 +897,7 @@ function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, 
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
-    main += `\n\nOUTPUT QUALITY (CRITICAL):\nRender at maximum sharpness — ultra-high resolution luxury jewellery catalogue grade. Crisp micro-textures on metal, accurate ray-traced reflections, deep cinematic contrast, zero blur, zero compression artifacts, no softness.`;
+    main += `\n\nOUTPUT QUALITY (CRITICAL):\nRender at maximum sharpness — ultra-high resolution luxury jewellery catalogue grade. Crisp micro-textures on metal, accurate ray-traced reflections, deep cinematic contrast, zero blur, zero compression artifacts, no softness. Professional studio lighting with soft key light and controlled rim highlights.`;
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
         neg = neg
@@ -905,6 +932,8 @@ function buildGeminiUserParts({
     });
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
+        parts[0].text +=
+            '\n\nSOURCE PRODUCT (CRITICAL):\nThe attached photo is the exact product to enhance. Preserve 100% identity — same shape, proportions, engravings, stone settings, and metal finish. Only improve lighting, background, and catalogue presentation. Do not redesign, recolor, or alter the product.';
         const buf = fs.readFileSync(sourceImagePath);
         parts.push({
             inline_data: {
@@ -1647,6 +1676,130 @@ async function assertResellerEnhancedAccess(query, userId) {
         throw err;
     }
     return u;
+}
+
+function mapBarcodeHintRows(rows) {
+    return rows.map((r) => {
+        const payload =
+            r.payload_json && typeof r.payload_json === 'object' ? r.payload_json : {};
+        const itemCode = payload.itemCode || payload.item_code || payload.ItemCode || r.design_group;
+        const stem = normalizeStem(r.web_product_sku || r.barcode || '');
+        return {
+            id: r.id,
+            barcode: r.barcode,
+            web_product_sku: r.web_product_sku,
+            product_name: r.product_name || null,
+            item_code: itemCode || null,
+            stem,
+            front_filename: stem ? `${stem}.webp` : null,
+            back_filename: stem ? `${stem}_secondary.webp` : null,
+            has_front: !!(r.image_url && String(r.image_url).trim()),
+            has_back: !!(r.secondary_image_url && String(r.secondary_image_url).trim()),
+            submission_status: r.submission_status,
+            batch_id: r.batch_id,
+            mrp_rate_behind_box: r.mrp_rate_behind_box ?? null,
+            show_mrp_field:
+                payload.excel_has_mrp_behind_box_column === true ||
+                payload.excelHasMrpBehindBoxColumn === true,
+        };
+    });
+}
+
+async function reconcileStaleEnhancedJobs(query, pool, userId) {
+    const stale = await query(
+        `SELECT * FROM reseller_enhanced_picture_jobs
+         WHERE reseller_user_id = $1 AND deleted_at IS NULL
+           AND status IN ('processing', 'pending')
+           AND created_at < NOW() - INTERVAL '20 minutes'
+           AND COALESCE(generation_mode, 'sync') NOT IN ('batch')`,
+        [userId],
+    );
+    for (const job of stale) {
+        await query(
+            `UPDATE reseller_enhanced_picture_jobs
+             SET status = 'failed', error_message = $1, batch_completed_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND status IN ('processing', 'pending')`,
+            ['Generation timed out — please try again.', job.id],
+        );
+        await refundJobCreditIfNeeded(query, pool, job, `Refund: job #${job.id} timed out`);
+    }
+}
+
+async function loadResellerEnhancedBootstrap(query, pool, userId, { jobLimit = 15, includeHints = true } = {}) {
+    await Promise.all([
+        ensureDefaultIdolsPrompt(query, userId, null),
+        ensureDefaultPlans(query, userId),
+        reconcileStaleEnhancedJobs(query, pool, userId),
+    ]);
+    const safeJobLimit = Number.isFinite(jobLimit) ? Math.min(Math.max(jobLimit, 1), 30) : 15;
+    const [
+        activePromptRows,
+        creditInfo,
+        plans,
+        templatesRaw,
+        aiSettings,
+        jobs,
+        hintRows,
+    ] = await Promise.all([
+        query(
+            `SELECT id, template_key, name, is_active
+             FROM reseller_enhanced_picture_prompts
+             WHERE reseller_user_id = $1 AND is_active = true`,
+            [userId],
+        ),
+        getCreditBalance(query, userId),
+        listPlans(query, userId, { activeOnly: true }),
+        buildTemplatesForReseller(query, userId),
+        loadResellerAiSettings(query, userId),
+        query(
+            `SELECT id, template_key, status, barcode_stem, photo_type, generation_mode,
+                    batch_state, result_image_url, source_image_url, download_filename,
+                    error_message, attached_sku, attached_submission_id,
+                    created_at, batch_submitted_at, batch_completed_at
+             FROM reseller_enhanced_picture_jobs
+             WHERE reseller_user_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at DESC
+             LIMIT $2`,
+            [userId, safeJobLimit],
+        ),
+        includeHints
+            ? query(
+                  `SELECT id, barcode, web_product_sku, product_name, design_group, payload_json,
+                          image_url, secondary_image_url, submission_status, batch_id, mrp_rate_behind_box
+                   FROM reseller_product_submissions
+                   WHERE submitted_by_user_id = $1
+                     AND submission_status IN ('draft', 'pending')
+                   ORDER BY updated_at DESC NULLS LAST, created_at DESC
+                   LIMIT 200`,
+                  [userId],
+              )
+            : Promise.resolve([]),
+    ]);
+    const templatesWithShowcase = templatesRaw.map((t) => ({
+        ...t,
+        varieties: (t.varieties || []).filter((v) => v.is_enabled),
+    }));
+    return {
+        enabled: true,
+        templates: templatesWithShowcase,
+        aspects: CANVAS_ASPECTS,
+        active_prompt: activePromptRows[0] || null,
+        credits: creditInfo?.credits ?? 0,
+        razorpay_enabled: !!creditInfo?.razorpay_enabled,
+        payment_qr_url: creditInfo?.payment_qr_url || null,
+        bank_details: creditInfo?.bank_details || null,
+        plans,
+        ai_settings: aiSettings
+            ? {
+                  provider: aiSettings.provider,
+                  gemini_model: aiSettings.gemini_model,
+                  replicate_model: aiSettings.replicate_model,
+                  gemini_batch_enabled: aiSettings.gemini_batch_enabled,
+              }
+            : null,
+        jobs,
+        hints: mapBarcodeHintRows(hintRows),
+    };
 }
 
 async function ensureDefaultIdolsPrompt(query, resellerUserId, adminId) {
@@ -2660,6 +2813,40 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
     });
 
     // ---- Reseller APIs ----
+    app.get('/api/reseller/enhanced-pictures/bootstrap', checkAuth, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            const u = await loadResellerFlags(query, req.user.id);
+            if (!u || String(u.customer_tier || '').toUpperCase() !== 'RESELLER') {
+                return res.json({
+                    enabled: false,
+                    templates: [],
+                    aspects: CANVAS_ASPECTS,
+                    jobs: [],
+                    hints: [],
+                });
+            }
+            if (!u.enhanced_pictures) {
+                return res.json({
+                    enabled: false,
+                    templates: [],
+                    aspects: CANVAS_ASPECTS,
+                    jobs: [],
+                    hints: [],
+                });
+            }
+            const jobLimitRaw = parseInt(String(req.query.job_limit || '15'), 10);
+            const payload = await loadResellerEnhancedBootstrap(query, pool, req.user.id, {
+                jobLimit: jobLimitRaw,
+                includeHints: req.query.hints !== '0',
+            });
+            res.json(payload);
+        } catch (e) {
+            console.error('reseller enhanced bootstrap:', e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     app.get('/api/reseller/enhanced-pictures/status', checkAuth, async (req, res) => {
         try {
             await ensureEnhancedPicturesSchema(pool);
@@ -2730,30 +2917,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                  LIMIT 200`,
                 [req.user.id],
             );
-            const hints = rows.map((r) => {
-                const payload =
-                    r.payload_json && typeof r.payload_json === 'object' ? r.payload_json : {};
-                const itemCode = payload.itemCode || payload.item_code || payload.ItemCode || r.design_group;
-                const stem = normalizeStem(r.web_product_sku || r.barcode || '');
-                return {
-                    id: r.id,
-                    barcode: r.barcode,
-                    web_product_sku: r.web_product_sku,
-                    product_name: r.product_name || null,
-                    item_code: itemCode || null,
-                    stem,
-                    front_filename: stem ? `${stem}.webp` : null,
-                    back_filename: stem ? `${stem}_secondary.webp` : null,
-                    has_front: !!(r.image_url && String(r.image_url).trim()),
-                    has_back: !!(r.secondary_image_url && String(r.secondary_image_url).trim()),
-                    submission_status: r.submission_status,
-                    batch_id: r.batch_id,
-                    mrp_rate_behind_box: r.mrp_rate_behind_box ?? null,
-                    show_mrp_field:
-                        payload.excel_has_mrp_behind_box_column === true ||
-                        payload.excelHasMrpBehindBoxColumn === true,
-                };
-            });
+            const hints = mapBarcodeHintRows(rows);
             res.json({ hints });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message });

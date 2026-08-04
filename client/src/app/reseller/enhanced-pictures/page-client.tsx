@@ -25,8 +25,8 @@ import {
   createEnhancedTopupOrder,
   enhancedPicturesZipUrl,
   fetchBarcodeHints,
+  fetchEnhancedBootstrap,
   fetchEnhancedJobs,
-  fetchEnhancedStatus,
   fetchEnhancedJobStatus,
   fetchProductLookup,
   generateEnhancedPicture,
@@ -66,6 +66,15 @@ function loadRazorpay(): Promise<boolean> {
   })
 }
 
+function formatBatchStateLabel(state: string | null | undefined) {
+  if (!state) return null
+  return state
+    .replace(/^JOB_STATE_/, '')
+    .replace(/^BATCH_STATE_/, '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+}
+
 export default function ResellerEnhancedPicturesPageClient() {
   const auth = useAuth()
   const { customerTier, tierReady } = useCustomerTier()
@@ -81,7 +90,8 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [paymentQrUrl, setPaymentQrUrl] = useState<string | null>(null)
   const [bankDetails, setBankDetails] = useState<string | null>(null)
   const [showTopup, setShowTopup] = useState(false)
-  const [statusLoading, setStatusLoading] = useState(true)
+  const [bootstrapLoading, setBootstrapLoading] = useState(true)
+  const [bootstrapReady, setBootstrapReady] = useState(false)
   const [templateKey, setTemplateKey] = useState('idols')
   const [varietyKey, setVarietyKey] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('1:1')
@@ -120,17 +130,18 @@ export default function ResellerEnhancedPicturesPageClient() {
 
   const load = useCallback(async () => {
     if (!auth.isAuthenticated || customerTier !== CUSTOMER_TIER.RESELLER) {
-      setStatusLoading(false)
+      setBootstrapLoading(false)
+      setBootstrapReady(true)
       return
     }
-    setStatusLoading(true)
+    setBootstrapLoading(true)
     try {
-      const status = await fetchEnhancedStatus()
-      setEnabled(status.enabled)
-      setTemplates(status.templates || [])
-      setActivePromptName(status.active_prompt?.name || null)
-      if (status.ai_settings) {
-        const ai = status.ai_settings
+      const data = await fetchEnhancedBootstrap({ jobLimit: 15, includeHints: true })
+      setEnabled(data.enabled)
+      setTemplates(data.templates || [])
+      setActivePromptName(data.active_prompt?.name || null)
+      if (data.ai_settings) {
+        const ai = data.ai_settings
         setAiModelLabel(
           ai.provider === 'replicate'
             ? `Replicate · ${ai.replicate_model}`
@@ -139,26 +150,23 @@ export default function ResellerEnhancedPicturesPageClient() {
       } else {
         setAiModelLabel(null)
       }
-      setCredits(status.credits ?? 0)
-      setPlans(status.plans || [])
-      setRazorpayEnabled(!!status.razorpay_enabled)
-      setPaymentQrUrl(status.payment_qr_url || null)
-      setBankDetails(status.bank_details || null)
-      if (status.templates?.[0]?.key) setTemplateKey(status.templates[0].key)
-      if (status.enabled) {
-        try {
-          setHints(await fetchBarcodeHints())
-        } catch {
-          setHints([])
-        }
-      }
+      setCredits(data.credits ?? 0)
+      setPlans(data.plans || [])
+      setRazorpayEnabled(!!data.razorpay_enabled)
+      setPaymentQrUrl(data.payment_qr_url || null)
+      setBankDetails(data.bank_details || null)
+      if (data.templates?.[0]?.key) setTemplateKey(data.templates[0].key)
+      setHints(data.hints || [])
+      setRecentJobs(data.jobs || [])
+      setJobsLoading(false)
     } catch (e: unknown) {
       setError(
         (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
           'Could not load Enhanced Pictures',
       )
     } finally {
-      setStatusLoading(false)
+      setBootstrapLoading(false)
+      setBootstrapReady(true)
     }
   }, [auth.isAuthenticated, customerTier])
 
@@ -168,7 +176,7 @@ export default function ResellerEnhancedPicturesPageClient() {
       if (silent) setJobsRefreshing(true)
       else setJobsLoading(true)
       try {
-        const list = await fetchEnhancedJobs(30)
+        const list = await fetchEnhancedJobs(15)
         setRecentJobs(list)
       } catch {
         /* non-blocking */
@@ -183,12 +191,6 @@ export default function ResellerEnhancedPicturesPageClient() {
   useEffect(() => {
     if (authReady && tierReady) void load()
   }, [authReady, tierReady, load])
-
-  useEffect(() => {
-    if (authReady && tierReady && subscriptionOn && enabled) {
-      void loadRecentJobs()
-    }
-  }, [authReady, tierReady, subscriptionOn, enabled, loadRecentJobs])
 
   useEffect(() => {
     const hasPending = recentJobs.some((j) =>
@@ -670,7 +672,7 @@ export default function ResellerEnhancedPicturesPageClient() {
     }
   }
 
-  if (!authReady || !tierReady || statusLoading) {
+  if (!authReady || !tierReady) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/60">
         Loading…
@@ -689,7 +691,7 @@ export default function ResellerEnhancedPicturesPageClient() {
     )
   }
 
-  if (customerTier !== CUSTOMER_TIER.RESELLER || !subscriptionOn || !enabled) {
+  if (customerTier !== CUSTOMER_TIER.RESELLER || !subscriptionOn) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <Sparkles className="mx-auto size-12 text-[var(--color-jewelry-black,#1a1814)]/25" />
@@ -706,7 +708,24 @@ export default function ResellerEnhancedPicturesPageClient() {
     )
   }
 
-  return (
+  if (bootstrapReady && !enabled) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-16 text-center">
+        <Sparkles className="mx-auto size-12 text-[var(--color-jewelry-black,#1a1814)]/25" />
+        <h1 className="mt-4 text-xl font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+          Enhanced Pictures not enabled
+        </h1>
+        <p className="mt-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/65">
+          Ask KC admin to turn on Enhanced Picture subscription for your reseller account.
+        </p>
+        <Link href={PROFILE_PATH} className="mt-6 inline-block text-sm font-medium text-[var(--kc-accent,#c41e3a)]">
+          Back to profile
+        </Link>
+      </div>
+    )
+  }
+
+  const pageShell = (
     <div className="kc-reseller-upload-panel min-h-screen bg-[var(--color-slate-950,#faf8f4)] pb-[var(--kc-mobile-nav-stack,5rem)] md:pb-12">
       <div className="border-b border-[var(--color-slate-700,#e8e4df)] bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4">
@@ -758,7 +777,8 @@ export default function ResellerEnhancedPicturesPageClient() {
           <button
             type="button"
             onClick={downloadZip}
-            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+            disabled={bootstrapLoading}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] disabled:opacity-60"
           >
             <Archive className="size-4" />
             Download all (ZIP)
@@ -766,12 +786,22 @@ export default function ResellerEnhancedPicturesPageClient() {
           <button
             type="button"
             onClick={() => setShowTopup(true)}
-            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+            disabled={bootstrapLoading}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] disabled:opacity-60"
           >
             Top up
           </button>
         </div>
 
+        {bootstrapLoading ? (
+          <div className="space-y-4" aria-hidden>
+            <div className="h-44 animate-pulse rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white" />
+            <div className="h-28 animate-pulse rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white" />
+            <div className="h-72 animate-pulse rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white" />
+            <p className="text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/50">Loading studio…</p>
+          </div>
+        ) : (
+          <>
         <EnhancedRecentJobsPanel
           jobs={recentJobs}
           loading={jobsLoading}
@@ -1027,7 +1057,7 @@ export default function ResellerEnhancedPicturesPageClient() {
             ) : null}
             {batchState ? (
               <p className="mt-2 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                Status: {batchState.replace(/^JOB_STATE_/, '').replace(/_/g, ' ').toLowerCase()}
+                Status: {formatBatchStateLabel(batchState) || 'pending'}
               </p>
             ) : null}
             <div className="mx-auto mt-5 h-2 max-w-xs overflow-hidden rounded-full bg-[var(--color-slate-900,#f7f4ef)]">
@@ -1105,6 +1135,8 @@ export default function ResellerEnhancedPicturesPageClient() {
             Recharge credits
           </button>
         ) : null}
+          </>
+        )}
       </div>
 
       {showTopup ? (
@@ -1178,4 +1210,6 @@ export default function ResellerEnhancedPicturesPageClient() {
       ) : null}
     </div>
   )
+
+  return pageShell
 }

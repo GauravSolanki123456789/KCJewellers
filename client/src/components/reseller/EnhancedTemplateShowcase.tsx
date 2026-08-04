@@ -47,6 +47,8 @@ export default function EnhancedTemplateShowcase({
                 <img
                   src={sample}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="mx-auto aspect-square max-h-56 w-full rounded-xl object-contain ring-1 ring-[var(--color-slate-700,#e8e4df)]"
                 />
               </div>
@@ -65,6 +67,8 @@ export default function EnhancedTemplateShowcase({
                 <img
                   src={result}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="mt-2 aspect-square max-h-56 w-full rounded-xl object-contain ring-1 ring-emerald-500/25"
                 />
               </div>

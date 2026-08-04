@@ -155,6 +155,35 @@ function apiBase() {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 }
 
+export async function fetchEnhancedBootstrap(opts?: { jobLimit?: number; includeHints?: boolean }) {
+  const res = await axios.get<{
+    enabled: boolean
+    templates: EnhancedPictureTemplate[]
+    aspects: string[]
+    active_prompt: { id: number; template_key: string; name: string } | null
+    credits: number
+    razorpay_enabled: boolean
+    payment_qr_url: string | null
+    bank_details: string | null
+    plans: EnhancedCreditPlan[]
+    ai_settings?: {
+      provider: 'gemini' | 'replicate'
+      gemini_model: string
+      replicate_model: string
+      gemini_batch_enabled?: boolean
+    } | null
+    jobs: EnhancedRecentJob[]
+    hints: EnhancedBarcodeHint[]
+  }>(`${apiBase()}/api/reseller/enhanced-pictures/bootstrap`, {
+    params: {
+      job_limit: opts?.jobLimit ?? 15,
+      hints: opts?.includeHints === false ? '0' : '1',
+    },
+    withCredentials: true,
+  })
+  return res.data
+}
+
 export async function fetchEnhancedStatus() {
   const res = await axios.get<{
     enabled: boolean

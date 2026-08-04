@@ -21,10 +21,17 @@ function isPendingJob(job: EnhancedRecentJob) {
   return ['batch_queued', 'batch_processing', 'processing', 'pending'].includes(job.status)
 }
 
+function formatBatchStateLabel(state: string | null | undefined) {
+  if (!state) return null
+  return state
+    .replace(/^JOB_STATE_/, '')
+    .replace(/^BATCH_STATE_/, '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+}
+
 function statusMeta(job: EnhancedRecentJob) {
-  const batchLabel = job.batch_state
-    ? job.batch_state.replace(/^JOB_STATE_/, '').replace(/_/g, ' ').toLowerCase()
-    : null
+  const batchLabel = formatBatchStateLabel(job.batch_state)
 
   if (job.status === 'cancelled') {
     return {
@@ -182,8 +189,14 @@ export function EnhancedRecentJobsPanel({
                   >
                     <div className="relative size-14 shrink-0 overflow-hidden rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white">
                       {thumb ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={thumb} alt="" className="size-full object-cover" />
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={thumb}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="size-full object-cover"
+                      />
                       ) : (
                         <div className="flex size-full items-center justify-center">
                           <ImageIcon className="size-5 text-[var(--color-jewelry-black,#1a1814)]/25" />
