@@ -7,8 +7,11 @@ export type EnhancedPictureTemplate = {
   key: string
   label: string
   description: string
+  is_enabled?: boolean
   showcase?: EnhancedTemplateShowcase
   varieties?: EnhancedPictureVariety[]
+  /** Alias for varieties — sub-templates under this template */
+  subtemplates?: EnhancedPictureVariety[]
 }
 
 export type EnhancedPictureVariety = {
@@ -66,6 +69,8 @@ export type EnhancedAiSettings = {
   gemini_model: string
   replicate_model: string
   gemini_batch_enabled?: boolean
+  /** 4-step cutout → lock → composite → upscale pipeline */
+  studio_pipeline_enabled?: boolean
   gemini_api_key_configured: boolean
   replicate_api_token_configured: boolean
   gemini_api_key_masked: string | null
@@ -413,6 +418,7 @@ export async function patchAdminEnhancedTemplateShowcase(
     footer_note?: string
     sample_source_image_url?: string | null
     sample_result_image_url?: string | null
+    is_enabled?: boolean
   },
 ) {
   const res = await axios.patch<{ success: boolean; showcase: EnhancedTemplateShowcase }>(
@@ -434,6 +440,7 @@ export async function patchAdminEnhancedAiSettings(
     clear_gemini_api_key?: boolean
     clear_replicate_api_token?: boolean
     gemini_batch_enabled?: boolean
+    studio_pipeline_enabled?: boolean
   },
 ) {
   const res = await axios.patch<{ success: boolean; ai_settings: EnhancedAiSettings }>(
@@ -442,6 +449,46 @@ export async function patchAdminEnhancedAiSettings(
     { withCredentials: true },
   )
   return res.data.ai_settings
+}
+
+export async function deleteAdminEnhancedTemplate(userId: number, templateKey: string) {
+  const res = await axios.delete<{ success: boolean; deleted: string }>(
+    `${apiBase()}/api/admin/users/${userId}/enhanced-picture-templates/${encodeURIComponent(templateKey)}`,
+    { withCredentials: true },
+  )
+  return res.data
+}
+
+export async function saveAdminEnhancedPromptLab(
+  userId: number,
+  body: {
+    template_key: string
+    variety_key?: string | null
+    prompt_id?: number | null
+    name: string
+    prompt_text: string
+    negative_prompt?: string
+    workflow_highlights?: string[] | string
+    system_resolutions?: string
+    system_ratios?: string
+    sample_label?: string
+    output_label?: string
+    output_subtitle?: string
+    footer_note?: string
+    template_enabled?: boolean
+    activate?: boolean
+  },
+) {
+  const res = await axios.post<{
+    success: boolean
+    prompt: EnhancedPicturePrompt
+    template_key: string
+    variety_key: string | null
+    template_enabled: boolean
+  }>(`${apiBase()}/api/admin/users/${userId}/enhanced-picture-lab/save`, body, {
+    withCredentials: true,
+  })
+  return res.data
 }
 
 export async function createAdminEnhancedTemplate(

@@ -7,30 +7,19 @@ import {
   ArrowLeft,
   CheckCircle2,
   Loader2,
-  Sparkles,
-  Trash2,
   Coins,
   Plus,
 } from 'lucide-react'
 import AdminGuard from '@/components/AdminGuard'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
 import { useSaveFeedback } from '@/hooks/useSaveFeedback'
-import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
-import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
-import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
-import EnhancedPictureVarietiesPanel from '@/components/admin/EnhancedPictureVarietiesPanel'
+import PromptLabWorkspace from '@/components/admin/PromptLabWorkspace'
 import {
-  activateAdminEnhancedPrompt,
   adminSaveEnhancedPayment,
   adminSaveEnhancedPlans,
   adminSetEnhancedCredits,
-  createAdminEnhancedTemplate,
-  deleteAdminEnhancedPrompt,
   fetchAdminEnhancedPrompts,
   patchAdminEnhancedAiSettings,
-  patchAdminEnhancedPrompt,
-  patchAdminEnhancedTemplateShowcase,
-  testGenerateAdminEnhanced,
   type EnhancedAiSettings,
   type EnhancedCreditPlan,
   type EnhancedPicturePrompt,
@@ -38,9 +27,6 @@ import {
   type EnhancedTemplateShowcase as EnhancedTemplateShowcaseData,
 } from '@/lib/reseller-enhanced-pictures'
 import { repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-formatting'
-
-const PROMPT_TEXTAREA_CLASS =
-  'mt-1.5 w-full resize-y rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--color-jewelry-black,#1a1814)]'
 
 type LoadPreserveOpts = {
   templateKey?: string
@@ -83,6 +69,7 @@ function AdminEnhancedPicturesInner() {
   const [aiProvider, setAiProvider] = useState<'gemini' | 'replicate'>('gemini')
   const [geminiModel, setGeminiModel] = useState('gemini-3.1-flash-lite-image')
   const [geminiBatchEnabled, setGeminiBatchEnabled] = useState(false)
+  const [studioPipelineEnabled, setStudioPipelineEnabled] = useState(true)
   const [replicateModel, setReplicateModel] = useState('black-forest-labs/flux-kontext-pro')
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('')
   const [replicateTokenInput, setReplicateTokenInput] = useState('')
@@ -104,8 +91,6 @@ function AdminEnhancedPicturesInner() {
   const plansSave = useSaveFeedback()
   const paymentSave = useSaveFeedback()
   const aiSave = useSaveFeedback()
-  const showcaseSave = useSaveFeedback()
-  const editsSave = useSaveFeedback()
 
   const applyShowcaseToForm = useCallback((s: EnhancedTemplateShowcaseData) => {
     setWorkflowHighlightsText((s.workflow_highlights || []).join('\n'))
@@ -169,19 +154,9 @@ function AdminEnhancedPicturesInner() {
     [templates, prompts, applyTemplateShowcase, selectPrompt],
   )
 
-  const selected = useMemo(
-    () => prompts.find((p) => p.id === selectedId) || null,
-    [prompts, selectedId],
-  )
-
   const activeTemplate = useMemo(
     () => templates.find((t) => t.key === templateKey) || templates[0] || null,
     [templates, templateKey],
-  )
-
-  const promptsForTemplate = useMemo(
-    () => prompts.filter((p) => p.template_key === templateKey),
-    [prompts, templateKey],
   )
 
   const load = useCallback(
@@ -222,6 +197,7 @@ function AdminEnhancedPicturesInner() {
           setGeminiModel(data.ai_settings.gemini_model)
           setReplicateModel(data.ai_settings.replicate_model)
           setGeminiBatchEnabled(data.ai_settings.gemini_batch_enabled === true)
+          setStudioPipelineEnabled(data.ai_settings.studio_pipeline_enabled !== false)
         }
 
         const defaultKey =
@@ -281,140 +257,10 @@ function AdminEnhancedPicturesInner() {
     void load()
   }, [load])
 
-  const restorePromptFormatting = () => {
-    const split = splitMasterAndNegative(promptText, negativePrompt)
-    setPromptText(split.promptText)
-    setNegativePrompt(split.negativePrompt)
-    setStatusMsg('Prompt line breaks restored. Click Save edits to persist.')
-  }
-
-  const addNewTemplate = async () => {
-    if (!userId) return
-    const label = window.prompt('New template name', 'Black velvet showcase')?.trim()
-    if (!label) return
-    setBusy(true)
-    setStatusMsg('Creating template…')
-    try {
-      const created = await createAdminEnhancedTemplate(userId, { label })
-      await load({ templateKey: created.key, selectedId: created.prompt.id })
-      setStatusMsg(`Template "${label}" created — fill in master prompt, negative prompt, and workflow highlights.`)
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Could not create template',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const onPickFile = (file: File | null) => {
     setSourceFile(file)
     if (sourcePreview && sourcePreview.startsWith('blob:')) URL.revokeObjectURL(sourcePreview)
     setSourcePreview(file ? URL.createObjectURL(file) : null)
-  }
-
-  const runTest = async (saveAsNew: boolean) => {
-    if (!userId || !sourceFile) {
-      setStatusMsg('Upload or take a sample idol photo first.')
-      return
-    }
-    if (!promptText.trim()) {
-      setStatusMsg('Prompt text is required.')
-      return
-    }
-    setBusy(true)
-    setStatusMsg(saveAsNew ? 'Testing as new prompt…' : 'Generating studio test…')
-    try {
-      const split = splitMasterAndNegative(promptText, negativePrompt)
-      const data = await testGenerateAdminEnhanced({
-        userId,
-        image: sourceFile,
-        promptText: split.promptText,
-        negativePrompt: split.negativePrompt,
-        name,
-        promptId: saveAsNew ? null : selectedId,
-        saveAsNew,
-        templateKey,
-        varietyKey: selectedVarietyKey || undefined,
-        aspectRatio,
-        canvasText: includeCanvasText ? canvasText.trim() : undefined,
-        aiProvider,
-        geminiModel,
-        geminiApiKey: geminiApiKeyInput.trim() || undefined,
-        replicateModel,
-        replicateApiToken: replicateTokenInput.trim() || undefined,
-      })
-      setResultUrl(data.result_image_url)
-      setSourcePreview(data.source_image_url)
-      setLastTestAi({ provider: data.ai_provider, model: data.ai_model })
-      await load({ templateKey, selectedId: data.prompt.id, silent: true })
-      setStatusMsg('Test image ready. Activate this prompt when you are happy with it.')
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data
-          ?.error ||
-          (e as { message?: string })?.message ||
-          'Generation failed',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const saveEdits = () =>
-    editsSave.runSave(async () => {
-      if (!selectedId) return
-      setStatusMsg('Saving prompt…')
-      const split = splitMasterAndNegative(promptText, negativePrompt)
-      try {
-        await patchAdminEnhancedPrompt(selectedId, {
-          name,
-          prompt_text: split.promptText,
-          negative_prompt: split.negativePrompt,
-        })
-        await load({ templateKey, selectedId, silent: true })
-        setStatusMsg('Prompt saved.')
-      } catch (e: unknown) {
-        setStatusMsg(
-          (e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Save failed',
-        )
-        throw e
-      }
-    })
-
-  const activate = async () => {
-    if (!selectedId) return
-    setBusy(true)
-    try {
-      await activateAdminEnhancedPrompt(selectedId)
-      await load({ templateKey, selectedId, silent: true })
-      setStatusMsg('This prompt is now active for the reseller studio.')
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Activate failed',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const remove = async (id: number) => {
-    if (!confirm('Delete this test prompt?')) return
-    setBusy(true)
-    try {
-      await deleteAdminEnhancedPrompt(id)
-      await load({ templateKey, silent: true })
-      setStatusMsg('Prompt deleted.')
-    } catch (e: unknown) {
-      setStatusMsg(
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-          'Delete failed',
-      )
-    } finally {
-      setBusy(false)
-    }
   }
 
   const saveCreditsSet = async () => {
@@ -508,6 +354,7 @@ function AdminEnhancedPicturesInner() {
           gemini_api_key: geminiApiKeyInput.trim() || undefined,
           replicate_api_token: replicateTokenInput.trim() || undefined,
           gemini_batch_enabled: geminiBatchEnabled,
+          studio_pipeline_enabled: studioPipelineEnabled,
         })
         setAiSettingsMeta(saved)
         setGeminiApiKeyInput('')
@@ -559,65 +406,6 @@ function AdminEnhancedPicturesInner() {
       setBusy(false)
     }
   }
-
-  const saveTemplateShowcase = () =>
-    showcaseSave.runSave(async () => {
-      if (!userId) return
-      setStatusMsg('Saving template showcase…')
-      try {
-        const saved = await patchAdminEnhancedTemplateShowcase(userId, {
-          template_key: templateKey,
-          workflow_highlights: workflowHighlightsText,
-          system_resolutions: systemResolutions,
-          system_ratios: systemRatios,
-          sample_label: sampleLabel,
-          output_label: outputLabel,
-          output_subtitle: outputSubtitle,
-          footer_note: footerNote,
-        })
-        applyShowcaseToForm(saved)
-        setStatusMsg('Template showcase saved — visible to reseller staff.')
-      } catch (e: unknown) {
-        setStatusMsg(
-          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-            'Could not save template showcase',
-        )
-        throw e
-      }
-    })
-
-  const showcasePreview = useMemo(
-    (): EnhancedTemplateShowcaseData => ({
-      template_key: templateKey,
-      workflow_highlights: workflowHighlightsText
-        .split(/\r?\n/)
-        .map((x) => x.replace(/^[-•*]\s*/, '').trim())
-        .filter(Boolean),
-      system_resolutions: systemResolutions,
-      system_ratios: systemRatios,
-      sample_label: sampleLabel,
-      output_label: outputLabel,
-      output_subtitle: outputSubtitle,
-      footer_note: footerNote,
-      sample_source_image_url:
-        sourcePreview || activeTemplate?.showcase?.sample_source_image_url || null,
-      sample_result_image_url:
-        resultUrl || activeTemplate?.showcase?.sample_result_image_url || null,
-    }),
-    [
-      templateKey,
-      workflowHighlightsText,
-      systemResolutions,
-      systemRatios,
-      sampleLabel,
-      outputLabel,
-      outputSubtitle,
-      footerNote,
-      sourcePreview,
-      resultUrl,
-      activeTemplate,
-    ],
-  )
 
   return (
     <div className="kc-reseller-upload-panel min-h-screen bg-[var(--color-slate-950,#faf8f4)] pb-12 text-[var(--color-jewelry-black,#1a1814)]">
@@ -937,11 +725,29 @@ function AdminEnhancedPicturesInner() {
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
                       Off by default — staff use Fast mode (~30–90s). When on, staff can opt into
-                      slower batch (~50% lower AI cost). Prompt Lab tests stay instant.
+                      slower batch (~50% lower AI cost).
                     </span>
                   </span>
                 </label>
               ) : null}
+
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/60 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={studioPipelineEnabled}
+                  onChange={(e) => setStudioPipelineEnabled(e.target.checked)}
+                  className="mt-1 size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                    4-step studio pipeline (recommended)
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+                    Cutout → spatial lock → composite/relight → AI upscale. Needs a Replicate token
+                    for rembg + upscale (Gemini/Replicate still used for the main generate step).
+                  </span>
+                </span>
+              </label>
 
               {aiProvider === 'replicate' ? (
                 <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
@@ -1004,371 +810,59 @@ function AdminEnhancedPicturesInner() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 sm:p-5">
-              <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                Template showcase · {activeTemplate?.label || 'Idols / Frames'}
-              </h2>
-              <div className="mt-2 rounded-xl border border-emerald-200/90 bg-emerald-50/70 px-3 py-2.5 text-xs leading-relaxed text-emerald-950">
-                <p>
-                  <span className="font-semibold">Sent to AI:</span> Master prompt, negative prompt, and workflow
-                  highlights (one per line).
-                </p>
-                <p className="mt-1">
-                  <span className="font-semibold">Reseller preview only:</span> Sample/output labels, resolutions,
-                  ratios, and footer — shown on the studio card (like Aurra Studio), not sent as extra AI instructions.
-                </p>
-              </div>
-
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className="space-y-3">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Workflow highlights
-                    <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold normal-case text-emerald-900">
-                      AI
-                    </span>
-                    <span className="ml-1 font-normal normal-case text-[var(--color-jewelry-black,#1a1814)]/45">
-                      (one per line)
-                    </span>
-                    <textarea
-                      value={workflowHighlightsText}
-                      onChange={(e) => setWorkflowHighlightsText(e.target.value)}
-                      rows={6}
-                      className={`${PROMPT_TEXTAREA_CLASS} text-sm`}
-                      placeholder={'100% Identity Preservation\nProfessional Studio Lighting\nHigh-Fidelity Textures'}
-                    />
-                  </label>
-                  <details className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/40 px-3 py-2">
-                    <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
-                      Reseller card labels (optional preview text)
-                    </summary>
-                    <div className="mt-3 space-y-3 pb-1">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                          Resolutions label
-                          <input
-                            value={systemResolutions}
-                            onChange={(e) => setSystemResolutions(e.target.value)}
-                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                          />
-                        </label>
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                          Ratios label
-                          <input
-                            value={systemRatios}
-                            onChange={(e) => setSystemRatios(e.target.value)}
-                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                          />
-                        </label>
-                      </div>
-                      <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                        Sample photo label
-                        <input
-                          value={sampleLabel}
-                          onChange={(e) => setSampleLabel(e.target.value)}
-                          className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                        />
-                      </label>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                          Output label
-                          <input
-                            value={outputLabel}
-                            onChange={(e) => setOutputLabel(e.target.value)}
-                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                          />
-                        </label>
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                          Output subtitle
-                          <input
-                            value={outputSubtitle}
-                            onChange={(e) => setOutputSubtitle(e.target.value)}
-                            className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                          />
-                        </label>
-                      </div>
-                      <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                        Footer note
-                        <input
-                          value={footerNote}
-                          onChange={(e) => setFooterNote(e.target.value)}
-                          className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                        />
-                      </label>
-                    </div>
-                  </details>
-                  <SaveFeedbackButton
-                    type="button"
-                    disabled={busy}
-                    saving={showcaseSave.saving}
-                    saved={showcaseSave.saved}
-                    onClick={() => void saveTemplateShowcase()}
-                    className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white"
-                  >
-                    Save template showcase
-                  </SaveFeedbackButton>
-                </div>
-
-                <EnhancedTemplateShowcase
-                  data={showcasePreview}
-                  sampleImageUrl={sourcePreview}
-                  resultImageUrl={resultUrl}
-                />
-              </div>
-            </section>
-
             {userId ? (
-              <EnhancedPictureVarietiesPanel
+              <PromptLabWorkspace
                 userId={userId}
+                templates={templates}
+                prompts={prompts}
                 templateKey={templateKey}
-                varieties={activeTemplate?.varieties || []}
                 selectedVarietyKey={selectedVarietyKey}
-                onSelectVariety={setSelectedVarietyKey}
-                onReload={() => load({ templateKey, selectedId, silent: true })}
+                selectedId={selectedId}
+                name={name}
+                promptText={promptText}
+                negativePrompt={negativePrompt}
+                workflowHighlightsText={workflowHighlightsText}
+                systemResolutions={systemResolutions}
+                systemRatios={systemRatios}
+                sampleLabel={sampleLabel}
+                outputLabel={outputLabel}
+                outputSubtitle={outputSubtitle}
+                footerNote={footerNote}
+                aspectRatio={aspectRatio}
+                includeCanvasText={includeCanvasText}
+                canvasText={canvasText}
+                sourcePreview={sourcePreview}
+                sourceFile={sourceFile}
+                resultUrl={resultUrl}
+                aiProvider={aiProvider}
+                geminiModel={geminiModel}
+                geminiApiKeyInput={geminiApiKeyInput}
+                replicateModel={replicateModel}
+                replicateTokenInput={replicateTokenInput}
+                onTemplateKey={setTemplateKey}
+                onSelectedVarietyKey={setSelectedVarietyKey}
+                onSelectedId={setSelectedId}
+                onName={setName}
+                onPromptText={setPromptText}
+                onNegativePrompt={setNegativePrompt}
+                onWorkflowHighlightsText={setWorkflowHighlightsText}
+                onSystemResolutions={setSystemResolutions}
+                onSystemRatios={setSystemRatios}
+                onSampleLabel={setSampleLabel}
+                onOutputLabel={setOutputLabel}
+                onOutputSubtitle={setOutputSubtitle}
+                onFooterNote={setFooterNote}
+                onAspectRatio={setAspectRatio}
+                onIncludeCanvasText={setIncludeCanvasText}
+                onCanvasText={setCanvasText}
+                onPickFile={onPickFile}
+                onResultUrl={setResultUrl}
+                onSourcePreview={setSourcePreview}
+                onReload={load}
+                onStatus={setStatusMsg}
+                onLastTestAi={setLastTestAi}
               />
             ) : null}
-
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-              <aside className="space-y-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Templates
-                  </p>
-                  <div className="mt-2 flex flex-col gap-2">
-                    {templates.map((t) => (
-                      <button
-                        key={t.key}
-                        type="button"
-                        onClick={() => selectTemplate(t.key)}
-                        className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                          templateKey === t.key
-                            ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
-                            : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
-                        }`}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void addNewTemplate()}
-                      className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]/75 hover:border-emerald-500 hover:text-emerald-900 disabled:opacity-50"
-                    >
-                      <Plus className="size-4" />
-                      New template
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Saved prompts
-                  </p>
-                  <div className="mt-2 space-y-2">
-                    {promptsForTemplate.length ? (
-                      promptsForTemplate.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => selectPrompt(p)}
-                          className={`w-full rounded-xl border px-3 py-2.5 text-left ${
-                            selectedId === p.id
-                              ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8'
-                              : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
-                              {p.name}
-                            </span>
-                            {p.variety_key ? (
-                              <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/40">
-                                {p.variety_key}
-                              </span>
-                            ) : null}
-                            {p.is_active ? (
-                              <span className="shrink-0 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                                ACTIVE
-                              </span>
-                            ) : null}
-                          </div>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="rounded-xl border border-dashed border-[var(--color-slate-700,#e8e4df)] px-3 py-4 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-                        No prompts for this template yet. Fill in master prompt below and use Test &amp; save as new.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </aside>
-
-              <div className="space-y-4">
-                <CanvasAspectPicker value={aspectRatio} onChange={setAspectRatio} label="Canvas aspect" />
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
-                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                      Sample photo
-                    </p>
-                    <PhotoImportControls
-                      previewUrl={sourcePreview}
-                      onPick={onPickFile}
-                      emptyLabel="Take or upload an idol photo"
-                    />
-                  </div>
-                  <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
-                    <span className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                      <Sparkles className="size-3.5" /> Studio result
-                    </span>
-                    {resultUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={resultUrl}
-                        alt="Generated"
-                        className="aspect-square w-full rounded-xl object-contain"
-                      />
-                    ) : (
-                      <div className="flex aspect-square items-center justify-center rounded-xl bg-[var(--color-slate-900,#f7f4ef)] text-sm text-[var(--color-jewelry-black,#1a1814)]/50">
-                        Run a test to preview
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
-                  <label className="flex cursor-pointer items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={includeCanvasText}
-                      onChange={(e) => setIncludeCanvasText(e.target.checked)}
-                      className="mt-1 size-4"
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold">
-                        Add text bottom of the visual canvas
-                      </span>
-                      <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                        Optional — preview how barcode / label text looks
-                      </span>
-                    </span>
-                  </label>
-                  {includeCanvasText ? (
-                    <input
-                      value={canvasText}
-                      onChange={(e) => setCanvasText(e.target.value)}
-                      placeholder="e.g. GANESH-SFIDOL001"
-                      className="mt-3 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm"
-                    />
-                  ) : null}
-                </div>
-
-                <label className="block">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Prompt name
-                  </span>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Master prompt
-                    <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold normal-case text-emerald-900">
-                      AI
-                    </span>
-                  </span>
-                  <textarea
-                    value={promptText}
-                    onChange={(e) => setPromptText(e.target.value)}
-                    rows={14}
-                    spellCheck={false}
-                    className={PROMPT_TEXTAREA_CLASS}
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                    Negative prompt
-                    <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold normal-case text-emerald-900">
-                      AI
-                    </span>
-                  </span>
-                  <textarea
-                    value={negativePrompt}
-                    onChange={(e) => setNegativePrompt(e.target.value)}
-                    rows={8}
-                    spellCheck={false}
-                    className={PROMPT_TEXTAREA_CLASS}
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={restorePromptFormatting}
-                  className="inline-flex min-h-[40px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/75"
-                >
-                  Restore line breaks (fix collapsed paste)
-                </button>
-
-                {statusMsg ? (
-                  <p className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 text-sm">
-                    {statusMsg}
-                  </p>
-                ) : null}
-
-                <div className="flex flex-wrap gap-2 pb-8">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void runTest(false)}
-                    className="kc-btn-theme inline-flex min-h-[44px] items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
-                  >
-                    {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                    Test this prompt
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void runTest(true)}
-                    className="inline-flex min-h-[44px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-2.5 text-sm font-semibold"
-                  >
-                    Test &amp; save as new
-                  </button>
-                  <SaveFeedbackButton
-                    type="button"
-                    disabled={busy || !selectedId}
-                    saving={editsSave.saving}
-                    saved={editsSave.saved}
-                    onClick={() => void saveEdits()}
-                    className="inline-flex min-h-[44px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-2.5 text-sm font-semibold"
-                  >
-                    Save edits
-                  </SaveFeedbackButton>
-                  <button
-                    type="button"
-                    disabled={busy || !selectedId || selected?.is_active}
-                    onClick={() => void activate()}
-                    className="inline-flex min-h-[44px] items-center rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    Activate for reseller
-                  </button>
-                  {selected && !selected.is_active ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void remove(selected.id)}
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-800"
-                    >
-                      <Trash2 className="size-4" />
-                      Delete test
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </div>

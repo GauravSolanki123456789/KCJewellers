@@ -873,7 +873,7 @@ export default function ResellerEnhancedPicturesPageClient() {
           {(activeTemplate?.varieties?.length ?? 0) > 0 ? (
             <div className="mt-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-                Product type
+                Sub-template
               </p>
               <div className="flex flex-wrap gap-2">
                 {activeTemplate!.varieties!.map((v) => (

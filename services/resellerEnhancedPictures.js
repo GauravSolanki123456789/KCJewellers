@@ -20,6 +20,7 @@ const {
     consumeOneCredit,
     DEFAULT_PLANS,
 } = require('./resellerEnhancedPictureCredits');
+const { runFourStepStudioPipeline } = require('./enhancedStudioPipeline');
 
 const TEMPLATE_IDOLS = 'idols';
 const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
@@ -445,9 +446,10 @@ async function buildTemplatesForReseller(query, resellerUserId) {
     await ensureDefaultTemplateShowcase(query, resellerUserId, TEMPLATE_IDOLS);
     const [rows, varietiesByTemplate] = await Promise.all([
         query(
-            `SELECT template_key, template_label, template_description, workflow_highlights,
-                    system_resolutions, system_ratios, sample_label, output_label, output_subtitle,
-                    footer_note, sample_source_image_url, sample_result_image_url
+        `SELECT template_key, template_label, template_description, workflow_highlights,
+                system_resolutions, system_ratios, sample_label, output_label, output_subtitle,
+                footer_note, sample_source_image_url, sample_result_image_url,
+                COALESCE(is_enabled, true) AS is_enabled
              FROM reseller_enhanced_picture_template_settings
              WHERE reseller_user_id = $1
              ORDER BY template_key ASC`,
@@ -457,28 +459,41 @@ async function buildTemplatesForReseller(query, resellerUserId) {
     ]);
     const byKey = new Map();
     for (const t of TEMPLATES) {
-        byKey.set(t.key, { key: t.key, label: t.label, description: t.description, varieties: [] });
+        byKey.set(t.key, {
+            key: t.key,
+            label: t.label,
+            description: t.description,
+            is_enabled: true,
+            varieties: [],
+            subtemplates: [],
+        });
     }
     for (const row of rows) {
         const key = String(row.template_key || '').trim().toLowerCase();
         if (!key) continue;
         const builtin = byKey.get(key);
+        const varieties = varietiesByTemplate.get(key) || [];
         byKey.set(key, {
             key,
             label: String(row.template_label || '').trim() || builtin?.label || key,
             description: String(row.template_description || '').trim() || builtin?.description || '',
+            is_enabled: row.is_enabled !== false,
             showcase: normalizeTemplateShowcaseRow(row, key),
-            varieties: varietiesByTemplate.get(key) || [],
+            varieties,
+            subtemplates: varieties,
         });
     }
     if (!byKey.has(TEMPLATE_IDOLS)) {
         const showcase = await ensureDefaultTemplateShowcase(query, resellerUserId, TEMPLATE_IDOLS);
+        const varieties = varietiesByTemplate.get(TEMPLATE_IDOLS) || [];
         byKey.set(TEMPLATE_IDOLS, {
             key: TEMPLATE_IDOLS,
             label: 'Idols / Frames',
             description: 'Museum-style silver & gold idol and frame catalogue shots.',
+            is_enabled: true,
             showcase,
-            varieties: varietiesByTemplate.get(TEMPLATE_IDOLS) || [],
+            varieties,
+            subtemplates: varieties,
         });
     }
     return [...byKey.values()];
@@ -522,6 +537,7 @@ function parseAiSettingsRow(row) {
             gemini_model: getGeminiImageModel(),
             replicate_model: getReplicateDefaultModel(),
             gemini_batch_enabled: batchDefault,
+            studio_pipeline_enabled: true,
             gemini_api_key_configured: !!getGeminiApiKey(),
             replicate_api_token_configured: !!getReplicateApiToken(),
             gemini_api_key_masked: getGeminiApiKey() ? maskSecret(getGeminiApiKey()) : null,
@@ -539,11 +555,16 @@ function parseAiSettingsRow(row) {
         row.reseller_enhanced_gemini_batch_enabled != null
             ? !!row.reseller_enhanced_gemini_batch_enabled
             : batchDefault;
+    const pipelineEnabled =
+        row.reseller_enhanced_studio_pipeline_enabled != null
+            ? !!row.reseller_enhanced_studio_pipeline_enabled
+            : true;
     return {
         provider,
         gemini_model: String(row.reseller_enhanced_gemini_model || '').trim() || getGeminiImageModel(),
         replicate_model: String(row.reseller_enhanced_replicate_model || '').trim() || getReplicateDefaultModel(),
         gemini_batch_enabled: batchEnabled,
+        studio_pipeline_enabled: pipelineEnabled,
         gemini_api_key_configured: !!geminiKey || !!getGeminiApiKey(),
         replicate_api_token_configured: !!replicateToken || !!getReplicateApiToken(),
         gemini_api_key_masked: geminiKey
@@ -570,7 +591,8 @@ async function loadResellerAiSettings(query, userId) {
                 reseller_enhanced_gemini_model,
                 reseller_enhanced_replicate_api_token,
                 reseller_enhanced_replicate_model,
-                COALESCE(reseller_enhanced_gemini_batch_enabled, false) AS reseller_enhanced_gemini_batch_enabled
+                COALESCE(reseller_enhanced_gemini_batch_enabled, false) AS reseller_enhanced_gemini_batch_enabled,
+                COALESCE(reseller_enhanced_studio_pipeline_enabled, true) AS reseller_enhanced_studio_pipeline_enabled
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -584,7 +606,8 @@ async function loadResellerAiConfigRaw(query, userId) {
                 reseller_enhanced_gemini_model,
                 reseller_enhanced_replicate_api_token,
                 reseller_enhanced_replicate_model,
-                COALESCE(reseller_enhanced_gemini_batch_enabled, false) AS reseller_enhanced_gemini_batch_enabled
+                COALESCE(reseller_enhanced_gemini_batch_enabled, false) AS reseller_enhanced_gemini_batch_enabled,
+                COALESCE(reseller_enhanced_studio_pipeline_enabled, true) AS reseller_enhanced_studio_pipeline_enabled
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -645,6 +668,10 @@ function resolveAiConfig(savedSettings, overrides = {}) {
                 ? !!savedSettings.reseller_enhanced_gemini_batch_enabled
                 : process.env.GEMINI_BATCH_DEFAULT === '1' ||
                   process.env.GEMINI_BATCH_DEFAULT === 'true',
+        studio_pipeline_enabled:
+            savedSettings?.reseller_enhanced_studio_pipeline_enabled != null
+                ? !!savedSettings.reseller_enhanced_studio_pipeline_enabled
+                : true,
     };
 }
 
@@ -817,6 +844,14 @@ async function ensureEnhancedPicturesSchema(pool) {
     await pool.query(`
         ALTER TABLE reseller_enhanced_picture_template_settings
             ADD COLUMN IF NOT EXISTS sample_result_image_url TEXT
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_template_settings
+            ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN NOT NULL DEFAULT true
+    `);
+    await pool.query(`
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_enhanced_studio_pipeline_enabled BOOLEAN NOT NULL DEFAULT true
     `);
     await pool.query(`
         ALTER TABLE reseller_enhanced_picture_prompts
@@ -1599,7 +1634,7 @@ async function generateWithReplicate({
     };
 }
 
-async function generateStudioImage({
+async function generateStudioImageCore({
     promptText,
     negativePrompt,
     sourceImagePath,
@@ -1628,6 +1663,31 @@ async function generateStudioImage({
         canvasText,
         aiConfig,
         workflowHighlights,
+    });
+}
+
+async function generateStudioImage({
+    promptText,
+    negativePrompt,
+    sourceImagePath,
+    aspectRatio,
+    canvasText,
+    aiConfig,
+    workflowHighlights,
+    usePipeline,
+}) {
+    const pipelineOn =
+        usePipeline !== false && aiConfig?.studio_pipeline_enabled !== false;
+    return runFourStepStudioPipeline({
+        promptText,
+        negativePrompt,
+        sourceImagePath,
+        aspectRatio,
+        canvasText,
+        aiConfig,
+        workflowHighlights,
+        generateStudioImage: generateStudioImageCore,
+        pipelineEnabled: pipelineOn,
     });
 }
 
@@ -1775,10 +1835,13 @@ async function loadResellerEnhancedBootstrap(query, pool, userId, { jobLimit = 1
               )
             : Promise.resolve([]),
     ]);
-    const templatesWithShowcase = templatesRaw.map((t) => ({
-        ...t,
-        varieties: (t.varieties || []).filter((v) => v.is_enabled),
-    }));
+    const templatesWithShowcase = templatesRaw
+        .filter((t) => t.is_enabled !== false)
+        .map((t) => ({
+            ...t,
+            varieties: (t.varieties || []).filter((v) => v.is_enabled),
+            subtemplates: (t.varieties || []).filter((v) => v.is_enabled),
+        }));
     return {
         enabled: true,
         templates: templatesWithShowcase,
@@ -1795,6 +1858,7 @@ async function loadResellerEnhancedBootstrap(query, pool, userId, { jobLimit = 1
                   gemini_model: aiSettings.gemini_model,
                   replicate_model: aiSettings.replicate_model,
                   gemini_batch_enabled: aiSettings.gemini_batch_enabled,
+                  studio_pipeline_enabled: aiSettings.studio_pipeline_enabled,
               }
             : null,
         jobs,
@@ -2097,6 +2161,188 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         },
     );
 
+    app.delete(
+        '/api/admin/users/:userId/enhanced-picture-templates/:templateKey',
+        isAdminStrict,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                const templateKey = String(req.params.templateKey || '')
+                    .trim()
+                    .toLowerCase()
+                    .slice(0, 64);
+                if (!userId || !templateKey) {
+                    return res.status(400).json({ error: 'userId and templateKey required' });
+                }
+                if (templateKey === TEMPLATE_IDOLS) {
+                    return res.status(400).json({
+                        error: 'Cannot delete the default Idols / Frames template. Disable it for the reseller instead.',
+                    });
+                }
+                await query(
+                    `DELETE FROM reseller_enhanced_picture_prompts
+                     WHERE reseller_user_id = $1 AND template_key = $2`,
+                    [userId, templateKey],
+                );
+                await query(
+                    `DELETE FROM reseller_enhanced_picture_varieties
+                     WHERE reseller_user_id = $1 AND template_key = $2`,
+                    [userId, templateKey],
+                );
+                await query(
+                    `DELETE FROM reseller_enhanced_picture_template_settings
+                     WHERE reseller_user_id = $1 AND template_key = $2`,
+                    [userId, templateKey],
+                );
+                res.json({ success: true, deleted: templateKey });
+            } catch (e) {
+                console.error('admin delete enhanced template:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
+    /** Unified Prompt Lab save: showcase + prompt + optional activate + template access. */
+    app.post(
+        '/api/admin/users/:userId/enhanced-picture-lab/save',
+        isAdminStrict,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                const templateKey = String(req.body.template_key || TEMPLATE_IDOLS)
+                    .trim()
+                    .toLowerCase()
+                    .slice(0, 64) || TEMPLATE_IDOLS;
+                const varietyKey = String(req.body.variety_key || '')
+                    .trim()
+                    .toLowerCase()
+                    .slice(0, 64) || null;
+                const promptId = req.body.prompt_id
+                    ? parseInt(String(req.body.prompt_id), 10)
+                    : null;
+                const activate = req.body.activate !== false;
+                const templateEnabled =
+                    req.body.template_enabled !== undefined ? !!req.body.template_enabled : true;
+
+                await ensureDefaultTemplateShowcase(query, userId, templateKey);
+                const highlights = parseWorkflowHighlights(req.body.workflow_highlights || []);
+                await query(
+                    `UPDATE reseller_enhanced_picture_template_settings SET
+                        workflow_highlights = $1::jsonb,
+                        system_resolutions = COALESCE(NULLIF($2, ''), system_resolutions),
+                        system_ratios = COALESCE(NULLIF($3, ''), system_ratios),
+                        sample_label = COALESCE(NULLIF($4, ''), sample_label),
+                        output_label = COALESCE(NULLIF($5, ''), output_label),
+                        output_subtitle = COALESCE(NULLIF($6, ''), output_subtitle),
+                        footer_note = COALESCE(NULLIF($7, ''), footer_note),
+                        is_enabled = $8,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE reseller_user_id = $9 AND template_key = $10`,
+                    [
+                        JSON.stringify(highlights),
+                        String(req.body.system_resolutions || '').trim().slice(0, 200),
+                        String(req.body.system_ratios || '').trim().slice(0, 120),
+                        String(req.body.sample_label || '').trim().slice(0, 120),
+                        String(req.body.output_label || '').trim().slice(0, 120),
+                        String(req.body.output_subtitle || '').trim().slice(0, 200),
+                        String(req.body.footer_note || '').trim().slice(0, 200),
+                        templateEnabled,
+                        userId,
+                        templateKey,
+                    ],
+                );
+
+                const normalized = normalizePromptFields(
+                    req.body.prompt_text || '',
+                    req.body.negative_prompt != null ? req.body.negative_prompt : '',
+                );
+                if (!normalized.promptText) {
+                    return res.status(400).json({ error: 'Master prompt is required' });
+                }
+                const promptName =
+                    String(req.body.name || 'Studio prompt').trim().slice(0, 200) || 'Studio prompt';
+
+                let promptRow = null;
+                if (promptId) {
+                    const existing = await query(
+                        `SELECT * FROM reseller_enhanced_picture_prompts
+                         WHERE id = $1 AND reseller_user_id = $2`,
+                        [promptId, userId],
+                    );
+                    if (!existing.length) return res.status(404).json({ error: 'Prompt not found' });
+                    const updated = await query(
+                        `UPDATE reseller_enhanced_picture_prompts
+                         SET name = $1, prompt_text = $2, negative_prompt = $3,
+                             template_key = $4, variety_key = $5, updated_at = CURRENT_TIMESTAMP
+                         WHERE id = $6
+                         RETURNING *`,
+                        [
+                            promptName,
+                            normalized.promptText,
+                            normalized.negativePrompt || null,
+                            templateKey,
+                            varietyKey,
+                            promptId,
+                        ],
+                    );
+                    promptRow = updated[0];
+                } else {
+                    const inserted = await query(
+                        `INSERT INTO reseller_enhanced_picture_prompts
+                            (reseller_user_id, template_key, variety_key, name, prompt_text, negative_prompt,
+                             is_active, is_test, created_by_admin_id)
+                         VALUES ($1, $2, $3, $4, $5, $6, false, false, $7)
+                         RETURNING *`,
+                        [
+                            userId,
+                            templateKey,
+                            varietyKey,
+                            promptName,
+                            normalized.promptText,
+                            normalized.negativePrompt || null,
+                            req.user?.id || null,
+                        ],
+                    );
+                    promptRow = inserted[0];
+                }
+
+                if (activate && promptRow) {
+                    await query(
+                        `UPDATE reseller_enhanced_picture_prompts
+                         SET is_active = false, updated_at = CURRENT_TIMESTAMP
+                         WHERE reseller_user_id = $1 AND template_key = $2
+                           AND COALESCE(variety_key, '') = COALESCE($3, '')
+                           AND id <> $4`,
+                        [userId, templateKey, varietyKey, promptRow.id],
+                    );
+                    const act = await query(
+                        `UPDATE reseller_enhanced_picture_prompts
+                         SET is_active = true, is_test = false, updated_at = CURRENT_TIMESTAMP
+                         WHERE id = $1
+                         RETURNING *`,
+                        [promptRow.id],
+                    );
+                    promptRow = act[0];
+                }
+
+                res.json({
+                    success: true,
+                    prompt: formatPromptRow(promptRow),
+                    template_key: templateKey,
+                    variety_key: varietyKey,
+                    template_enabled: templateEnabled,
+                });
+            } catch (e) {
+                console.error('admin enhanced lab save:', e);
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
     app.post(
         '/api/admin/users/:userId/enhanced-picture-prompts',
         isAdminStrict,
@@ -2285,6 +2531,12 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         ? !!req.body.gemini_batch_enabled
                         : existing.reseller_enhanced_gemini_batch_enabled != null
                           ? !!existing.reseller_enhanced_gemini_batch_enabled
+                          : false;
+                const studioPipelineEnabled =
+                    req.body.studio_pipeline_enabled !== undefined
+                        ? !!req.body.studio_pipeline_enabled
+                        : existing.reseller_enhanced_studio_pipeline_enabled != null
+                          ? !!existing.reseller_enhanced_studio_pipeline_enabled
                           : true;
 
                 await query(
@@ -2294,8 +2546,9 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         reseller_enhanced_replicate_model = $3,
                         reseller_enhanced_gemini_api_key = $4,
                         reseller_enhanced_replicate_api_token = $5,
-                        reseller_enhanced_gemini_batch_enabled = $6
-                     WHERE id = $7`,
+                        reseller_enhanced_gemini_batch_enabled = $6,
+                        reseller_enhanced_studio_pipeline_enabled = $7
+                     WHERE id = $8`,
                     [
                         provider,
                         geminiModel,
@@ -2303,6 +2556,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         geminiKey,
                         replicateToken,
                         geminiBatchEnabled,
+                        studioPipelineEnabled,
                         userId,
                     ],
                 );
@@ -2372,6 +2626,10 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     req.body.sample_result_image_url !== undefined
                         ? String(req.body.sample_result_image_url || '').trim().slice(0, 500) || null
                         : existing[0]?.sample_result_image_url || null;
+                const isEnabled =
+                    req.body.is_enabled !== undefined
+                        ? !!req.body.is_enabled
+                        : existing[0]?.is_enabled !== false;
 
                 const rows = await query(
                     `UPDATE reseller_enhanced_picture_template_settings SET
@@ -2384,8 +2642,9 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         footer_note = $7,
                         sample_source_image_url = $8,
                         sample_result_image_url = $9,
+                        is_enabled = $10,
                         updated_at = CURRENT_TIMESTAMP
-                     WHERE reseller_user_id = $10 AND template_key = $11
+                     WHERE reseller_user_id = $11 AND template_key = $12
                      RETURNING *`,
                     [
                         JSON.stringify(highlights),
@@ -2397,6 +2656,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         footerNote,
                         sampleSourceUrl,
                         sampleResultUrl,
+                        isEnabled,
                         userId,
                         templateKey,
                     ],
@@ -2871,10 +3131,13 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 plans = await listPlans(query, req.user.id, { activeOnly: true });
             }
             const templatesWithShowcase = u.enhanced_pictures
-                ? (await buildTemplatesForReseller(query, req.user.id)).map((t) => ({
-                      ...t,
-                      varieties: (t.varieties || []).filter((v) => v.is_enabled),
-                  }))
+                ? (await buildTemplatesForReseller(query, req.user.id))
+                      .filter((t) => t.is_enabled !== false)
+                      .map((t) => ({
+                          ...t,
+                          varieties: (t.varieties || []).filter((v) => v.is_enabled),
+                          subtemplates: (t.varieties || []).filter((v) => v.is_enabled),
+                      }))
                 : [];
             const aiSettings = u.enhanced_pictures
                 ? await loadResellerAiSettings(query, req.user.id)
@@ -2895,6 +3158,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                           gemini_model: aiSettings.gemini_model,
                           replicate_model: aiSettings.replicate_model,
                           gemini_batch_enabled: aiSettings.gemini_batch_enabled,
+                          studio_pipeline_enabled: aiSettings.studio_pipeline_enabled,
                       }
                     : null,
             });
