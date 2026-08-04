@@ -101,6 +101,10 @@ export type ErpBill = {
   notes?: string | null
   lines?: ErpBillLine[]
   session?: import('@/lib/erp-bill-session').ErpBillSession | null
+  compliance?: {
+    einvoice?: { irn?: string | null; ack_no?: string | null; status?: string; sandbox?: boolean }
+    eway?: { ewb_no?: string | null; status?: string; sandbox?: boolean; pdf_url?: string | null }
+  } | null
   created_at?: string | null
   updated_at?: string | null
 }

@@ -8,6 +8,15 @@ const {
     lookupStockPiece,
     markPiecesSold,
 } = require('./resellerErpStockPieces');
+const {
+    loadErpSettings,
+    validateGstSettings,
+    resolveEinvoiceConfig,
+    resolveEwayConfig,
+    parseCompliance,
+    generateEinvoiceForBill,
+    generateEwayForBill,
+} = require('./resellerErpGstzen');
 
 async function ensureResellerErpSchema(pool) {
     await pool.query(`
@@ -57,6 +66,9 @@ async function ensureResellerErpSchema(pool) {
 
         ALTER TABLE reseller_erp_bills
             ADD COLUMN IF NOT EXISTS session_json JSONB DEFAULT NULL;
+
+        ALTER TABLE reseller_erp_bills
+            ADD COLUMN IF NOT EXISTS compliance_json JSONB DEFAULT NULL;
 
         CREATE TABLE IF NOT EXISTS reseller_erp_stock_alerts (
             id SERIAL PRIMARY KEY,
@@ -253,6 +265,14 @@ function mapBill(row) {
             session = null;
         }
     }
+    let compliance = row.compliance_json;
+    if (typeof compliance === 'string') {
+        try {
+            compliance = JSON.parse(compliance);
+        } catch {
+            compliance = null;
+        }
+    }
     return {
         id: row.id,
         bill_number: row.bill_number,
@@ -265,6 +285,7 @@ function mapBill(row) {
         notes: row.notes,
         bill_date: row.bill_date,
         session: session && typeof session === 'object' ? session : null,
+        compliance: compliance && typeof compliance === 'object' ? compliance : null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -1154,6 +1175,154 @@ function registerResellerErpRoutes(app, deps) {
         } catch (e) {
             console.error('erp sales report:', e);
             res.status(500).json({ error: e.message || 'Failed to load sales report' });
+        }
+    });
+
+    // ——— GST compliance (GSTZen e-invoice / e-way) ———
+    app.get('/api/reseller/erp/compliance/status', checkAuth, erpGate, async (req, res) => {
+        try {
+            const settings = await loadErpSettings(query, req.user.id);
+            const gstCheck = validateGstSettings(settings.gst || {});
+            const einvoiceCfg = resolveEinvoiceConfig(settings);
+            const ewayCfg = resolveEwayConfig(settings);
+            res.json({
+                gst: gstCheck,
+                einvoice: {
+                    configured: !!(einvoiceCfg.url && einvoiceCfg.token),
+                    sandbox: einvoiceCfg.sandbox,
+                    url: einvoiceCfg.url,
+                },
+                eway: {
+                    configured: !!(ewayCfg.url && ewayCfg.token),
+                    sandbox: ewayCfg.sandbox,
+                    url: ewayCfg.url,
+                },
+            });
+        } catch (e) {
+            console.error('erp compliance status:', e);
+            res.status(500).json({ error: e.message || 'Failed to load compliance status' });
+        }
+    });
+
+    app.post('/api/reseller/erp/bills/:id/e-invoice', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!id) return res.status(400).json({ error: 'Bill id required' });
+
+            const rows = await query(
+                `SELECT * FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            const billRow = rows[0];
+            if (String(billRow.bill_type || '').toLowerCase() !== 'sale') {
+                return res.status(400).json({ error: 'E-invoice can only be generated for sales bills.' });
+            }
+
+            const existing = parseCompliance(billRow);
+            if (existing?.einvoice?.irn) {
+                return res.json({
+                    success: true,
+                    already_generated: true,
+                    irn: existing.einvoice.irn,
+                    bill: mapBill(billRow),
+                });
+            }
+
+            let customer = null;
+            if (billRow.customer_id) {
+                const custRows = await query(
+                    `SELECT * FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [billRow.customer_id, req.user.id],
+                );
+                customer = custRows[0] || null;
+            }
+
+            const bill = mapBill(billRow);
+            const result = await generateEinvoiceForBill({
+                query,
+                bill,
+                resellerUserId: req.user.id,
+                customer,
+            });
+
+            res.json({
+                success: true,
+                irn: result.irn,
+                ack_no: result.ackNo,
+                ack_date: result.ackDt,
+                sandbox: result.sandbox,
+                bill: mapBill(result.bill),
+                message: result.irn
+                    ? `E-invoice generated. IRN: ${result.irn}`
+                    : 'E-invoice submitted to GSTZen. Check response for details.',
+            });
+        } catch (e) {
+            console.error('erp e-invoice:', e);
+            res.status(e.status || 500).json({
+                error: e.message || 'E-invoice generation failed',
+                details: e.response || undefined,
+            });
+        }
+    });
+
+    app.post('/api/reseller/erp/bills/:id/e-way', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!id) return res.status(400).json({ error: 'Bill id required' });
+
+            const rows = await query(
+                `SELECT * FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            const billRow = rows[0];
+            if (String(billRow.bill_type || '').toLowerCase() !== 'sale') {
+                return res.status(400).json({ error: 'E-way bill can only be generated for sales bills.' });
+            }
+
+            const existing = parseCompliance(billRow);
+            if (existing?.eway?.ewb_no) {
+                return res.json({
+                    success: true,
+                    already_generated: true,
+                    ewb_no: existing.eway.ewb_no,
+                    bill: mapBill(billRow),
+                });
+            }
+
+            let customer = null;
+            if (billRow.customer_id) {
+                const custRows = await query(
+                    `SELECT * FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [billRow.customer_id, req.user.id],
+                );
+                customer = custRows[0] || null;
+            }
+
+            const bill = mapBill(billRow);
+            const result = await generateEwayForBill({
+                query,
+                bill,
+                resellerUserId: req.user.id,
+                customer,
+            });
+
+            res.json({
+                success: true,
+                ewb_no: result.ewbNo,
+                sandbox: result.sandbox,
+                bill: mapBill(result.bill),
+                message: result.ewbNo
+                    ? `E-way bill generated. Number: ${result.ewbNo}`
+                    : 'E-way bill submitted to GSTZen. Check response for details.',
+            });
+        } catch (e) {
+            console.error('erp e-way:', e);
+            res.status(e.status || 500).json({
+                error: e.message || 'E-way bill generation failed',
+                details: e.response || undefined,
+            });
         }
     });
 }

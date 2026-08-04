@@ -64,6 +64,11 @@ function trimExcelCell(value) {
 }
 
 /** Excel `BoxCharges` + optional `MRP RATE (BEHIND BOX)`. */
+function excelHasMrpBehindBoxColumn(item) {
+    if (!item || typeof item !== 'object') return false;
+    return Object.keys(item).some((k) => /mrp\s*rate.*behind.*box/i.test(String(k)));
+}
+
 function parseExcelBoxAndMrpFields(row, get) {
     const boxChargesRaw = get('BoxCharges', 'boxCharges', 'box_charges', 'BOXCHARGES');
     const mrpRaw = get(
@@ -244,6 +249,10 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         return undefined;
     };
     const boxMrp = parseExcelBoxAndMrpFields(item, itemGet);
+    if (excelHasMrpBehindBoxColumn(item)) {
+        payload.excel_has_mrp_behind_box_column = true;
+        payload.excelHasMrpBehindBoxColumn = true;
+    }
     const boxChargesNum =
         boxMrp.boxCharges != null && Number.isFinite(Number(boxMrp.boxCharges))
             ? Number(boxMrp.boxCharges)

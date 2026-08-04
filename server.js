@@ -54,7 +54,7 @@ const {
     CUSTOMER_TIER,
 } = require('./services/authService');
 const { sanitizeMiddleware, validateNumbers } = require('./middleware/sanitize');
-const { globalLimiter, authLimiter, adminLimiter, requireJson } = require('./middleware/rateLimit');
+const { globalLimiter, authLimiter, adminLimiter, skipRateLimitForCurrentUser, requireJson } = require('./middleware/rateLimit');
 const { hasPermission, getPermissionContext } = require('./middleware/checkPermission');
 const TallyIntegration = require('./config/tally-integration');
 const TallySyncService = require('./config/tally-sync-service');
@@ -442,7 +442,7 @@ app.use(securityHeaders);
 
 // SECURITY: Global input sanitation and baseline rate limit
 app.use(sanitizeMiddleware());
-app.use(globalLimiter);
+app.use(skipRateLimitForCurrentUser);
 
 // SECURITY: Middleware to sanitize password fields from logging
 app.use((req, res, next) => {

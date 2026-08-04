@@ -8,6 +8,19 @@ export type EnhancedPictureTemplate = {
   label: string
   description: string
   showcase?: EnhancedTemplateShowcase
+  varieties?: EnhancedPictureVariety[]
+}
+
+export type EnhancedPictureVariety = {
+  id?: number
+  template_key?: string
+  variety_key: string
+  variety_label: string
+  variety_description?: string
+  sample_source_image_url?: string | null
+  sample_result_image_url?: string | null
+  is_enabled?: boolean
+  sort_order?: number
 }
 
 export type EnhancedTemplateShowcase = {
@@ -19,12 +32,15 @@ export type EnhancedTemplateShowcase = {
   output_label: string
   output_subtitle: string
   footer_note: string
+  sample_source_image_url?: string | null
+  sample_result_image_url?: string | null
 }
 
 export type EnhancedPicturePrompt = {
   id: number
   reseller_user_id: number
   template_key: string
+  variety_key?: string | null
   name: string
   prompt_text: string
   negative_prompt?: string | null
@@ -75,6 +91,8 @@ export type EnhancedBarcodeHint = {
   id: number
   barcode?: string | null
   web_product_sku?: string | null
+  product_name?: string | null
+  item_code?: string | null
   stem: string
   front_filename: string | null
   back_filename: string | null
@@ -82,6 +100,25 @@ export type EnhancedBarcodeHint = {
   has_back: boolean
   submission_status: string
   batch_id?: string | null
+  mrp_rate_behind_box?: number | null
+  show_mrp_field?: boolean
+}
+
+export type EnhancedProductLookup = {
+  found: boolean
+  product: {
+    id: number
+    barcode?: string | null
+    web_product_sku?: string | null
+    product_name?: string | null
+    item_code?: string | null
+    stem: string
+    mrp_rate_behind_box?: number | null
+    show_mrp_field?: boolean
+    has_front?: boolean
+    has_back?: boolean
+    submission_status?: string
+  } | null
 }
 
 export type EnhancedGenerateResult = {
@@ -139,9 +176,18 @@ export async function fetchBarcodeHints() {
   return res.data.hints
 }
 
+export async function fetchProductLookup(stem: string) {
+  const res = await axios.get<EnhancedProductLookup>(
+    `${apiBase()}/api/reseller/enhanced-pictures/product-lookup`,
+    { params: { stem }, withCredentials: true },
+  )
+  return res.data
+}
+
 export async function generateEnhancedPicture(opts: {
   image: File
   templateKey?: string
+  varietyKey?: string
   barcodeStem?: string
   photoType?: 'front' | 'back'
   aspectRatio?: string
@@ -150,6 +196,7 @@ export async function generateEnhancedPicture(opts: {
   const fd = new FormData()
   fd.append('image', opts.image)
   fd.append('template_key', opts.templateKey || 'idols')
+  if (opts.varietyKey) fd.append('variety_key', opts.varietyKey)
   fd.append('photo_type', opts.photoType || 'front')
   fd.append('aspect_ratio', opts.aspectRatio || '1:1')
   if (opts.canvasText) fd.append('canvas_text', opts.canvasText)
@@ -166,6 +213,7 @@ export async function attachEnhancedPicture(opts: {
   jobId: number
   barcodeStem: string
   photoType?: 'front' | 'back'
+  mrpRateBehindBox?: number | string | null
 }) {
   const res = await axios.post(
     `${apiBase()}/api/reseller/enhanced-pictures/attach`,
@@ -173,6 +221,7 @@ export async function attachEnhancedPicture(opts: {
       job_id: opts.jobId,
       barcode_stem: opts.barcodeStem,
       photo_type: opts.photoType || 'front',
+      mrp_rate_behind_box: opts.mrpRateBehindBox ?? undefined,
     },
     { withCredentials: true },
   )
@@ -255,6 +304,8 @@ export async function patchAdminEnhancedTemplateShowcase(
     output_label?: string
     output_subtitle?: string
     footer_note?: string
+    sample_source_image_url?: string | null
+    sample_result_image_url?: string | null
   },
 ) {
   const res = await axios.patch<{ success: boolean; showcase: EnhancedTemplateShowcase }>(
@@ -304,6 +355,49 @@ export async function createAdminEnhancedTemplate(
   return res.data.template
 }
 
+export async function createAdminEnhancedVariety(
+  userId: number,
+  body: {
+    template_key: string
+    variety_label: string
+    variety_key?: string
+    variety_description?: string
+    sort_order?: number
+  },
+) {
+  const res = await axios.post<{ success: boolean; variety: EnhancedPictureVariety }>(
+    `${apiBase()}/api/admin/users/${userId}/enhanced-picture-varieties`,
+    body,
+    { withCredentials: true },
+  )
+  return res.data.variety
+}
+
+export async function patchAdminEnhancedVariety(
+  id: number,
+  body: Partial<{
+    variety_label: string
+    variety_description: string
+    is_enabled: boolean
+    sample_source_image_url: string | null
+    sample_result_image_url: string | null
+    sort_order: number
+  }>,
+) {
+  const res = await axios.patch<{ success: boolean; variety: EnhancedPictureVariety }>(
+    `${apiBase()}/api/admin/enhanced-picture-varieties/${id}`,
+    body,
+    { withCredentials: true },
+  )
+  return res.data.variety
+}
+
+export async function deleteAdminEnhancedVariety(id: number) {
+  await axios.delete(`${apiBase()}/api/admin/enhanced-picture-varieties/${id}`, {
+    withCredentials: true,
+  })
+}
+
 export async function patchAdminEnhancedPrompt(
   id: number,
   body: Partial<{ name: string; prompt_text: string; negative_prompt: string }>,
@@ -340,6 +434,7 @@ export async function testGenerateAdminEnhanced(opts: {
   promptId?: number | null
   saveAsNew?: boolean
   templateKey?: string
+  varietyKey?: string
   aspectRatio?: string
   canvasText?: string
   aiProvider?: 'gemini' | 'replicate'
@@ -363,6 +458,7 @@ export async function testGenerateAdminEnhanced(opts: {
   if (opts.geminiApiKey) fd.append('gemini_api_key', opts.geminiApiKey)
   if (opts.replicateModel) fd.append('replicate_model', opts.replicateModel)
   if (opts.replicateApiToken) fd.append('replicate_api_token', opts.replicateApiToken)
+  if (opts.varietyKey) fd.append('variety_key', opts.varietyKey)
   const res = await axios.post<{
     success: boolean
     source_image_url: string

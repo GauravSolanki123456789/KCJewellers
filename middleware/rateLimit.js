@@ -29,6 +29,19 @@
 const globalLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, message: 'Rate limit exceeded' });
 const authLimiter  = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, message: 'Too many auth attempts' });
 const adminLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, message: 'Admin rate limit exceeded' });
+/** Session read — high traffic from layout/nav; keep separate from auth POST limits. */
+const authSessionLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20000,
+  message: 'Too many session checks',
+});
+
+function skipRateLimitForCurrentUser(req, res, next) {
+  if (req.method === 'GET' && req.path === '/api/auth/current_user') {
+    return authSessionLimiter(req, res, next);
+  }
+  return globalLimiter(req, res, next);
+}
  
  function requireJson(req, res, next) {
    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || req.method === 'DELETE') return next();
@@ -43,7 +56,9 @@ const adminLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5000, me
    createRateLimiter,
    globalLimiter,
    authLimiter,
+   authSessionLimiter,
    adminLimiter,
+   skipRateLimitForCurrentUser,
    requireJson
  };
  

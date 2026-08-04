@@ -219,6 +219,9 @@ export type ErpQuotePdfDocumentProps = {
   totals: ErpQuoteTotals
   customerName?: string | null
   ratesUnfixed?: boolean
+  /** quote = estimation PDF; invoice = tax invoice / sales bill */
+  documentKind?: 'quote' | 'invoice'
+  gstin?: string | null
 }
 
 export function ErpQuotePdfDocument({
@@ -229,10 +232,15 @@ export function ErpQuotePdfDocument({
   totals,
   customerName,
   ratesUnfixed = false,
+  documentKind = 'quote',
+  gstin,
 }: ErpQuotePdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
   const lines = bill.lines ?? []
+  const isInvoice = documentKind === 'invoice'
+  const docLabel = isInvoice ? 'Tax Invoice' : 'Quotation'
+  const tableTitle = isInvoice ? 'Invoice details — full breakdown' : 'Order summary — full details'
 
   return (
     <Document>
@@ -241,9 +249,10 @@ export function ErpQuotePdfDocument({
           <View style={styles.headerMain}>
             <Text style={styles.brand}>{sanitizePdfText(brandName)}</Text>
             <Text style={styles.sub}>
-              Quotation {bill.bill_number}
+              {docLabel} {bill.bill_number}
               {customerName ? ` · ${sanitizePdfText(customerName)}` : ''} · {lines.length} line
               {lines.length !== 1 ? 's' : ''} · {totals.count} pc{totals.count !== 1 ? 's' : ''}
+              {isInvoice && gstin ? ` · GSTIN ${sanitizePdfText(gstin)}` : ''}
             </Text>
           </View>
           {ratesUnfixed ? (
@@ -258,7 +267,7 @@ export function ErpQuotePdfDocument({
         </View>
 
         <View style={styles.tableTitle}>
-          <Text style={styles.tableTitleText}>Order summary — full details</Text>
+          <Text style={styles.tableTitleText}>{tableTitle}</Text>
         </View>
         <View style={styles.headRow}>
           <Text style={[styles.headCell, { width: '3%' }]}>#</Text>

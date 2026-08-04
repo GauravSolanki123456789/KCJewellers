@@ -78,25 +78,50 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       )
     case 'e-invoice':
       return (
-        <SettingsWorkspace
-          settingsKey="einvoice"
-          fields={[
-            { key: 'apiUrl', label: 'E-invoice API URL' },
-            { key: 'apiKey', label: 'API key / username' },
-            { key: 'apiSecret', label: 'API secret', type: 'password' },
-          ]}
-        />
+        <div className="space-y-3">
+          <p className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950">
+            <span className="font-semibold">GSTZen sandbox:</span> Leave API key empty to use the demo token. Default URL:{' '}
+            <span className="font-mono text-[11px]">my.gstzen.in/.../einvoice-json/</span>
+          </p>
+          <SettingsWorkspace
+            settingsKey="einvoice"
+            fields={[
+              {
+                key: 'apiUrl',
+                label: 'E-invoice API URL',
+                placeholder: 'https://my.gstzen.in/~gstzen/a/post-einvoice-data/einvoice-json/',
+              },
+              {
+                key: 'apiKey',
+                label: 'API token (Token header)',
+                placeholder: 'Sandbox: de3a3a01-273a-4a81-8b75-13fe37f14dc6',
+              },
+              { key: 'apiSecret', label: 'API secret (optional)', type: 'password' },
+              { key: 'useSandbox', label: 'Use sandbox mode (yes/no)', placeholder: 'yes' },
+            ]}
+          />
+        </div>
       )
     case 'e-way':
       return (
-        <SettingsWorkspace
-          settingsKey="eway"
-          fields={[
-            { key: 'apiUrl', label: 'E-way bill API URL' },
-            { key: 'apiKey', label: 'API key' },
-            { key: 'gstin', label: 'Transporter GSTIN' },
-          ]}
-        />
+        <div className="space-y-3">
+          <p className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950">
+            E-way uses the same GSTZen token if e-way API key is empty. Default URL:{' '}
+            <span className="font-mono text-[11px]">my.gstzen.in/.../ewbapi/create/</span>
+          </p>
+          <SettingsWorkspace
+            settingsKey="eway"
+            fields={[
+              {
+                key: 'apiUrl',
+                label: 'E-way bill API URL',
+                placeholder: 'https://my.gstzen.in/~gstzen/a/ewbapi/create/',
+              },
+              { key: 'apiKey', label: 'API token', placeholder: 'Same as e-invoice token' },
+              { key: 'gstin', label: 'Transporter GSTIN' },
+            ]}
+          />
+        </div>
       )
     case 'tally':
       return (

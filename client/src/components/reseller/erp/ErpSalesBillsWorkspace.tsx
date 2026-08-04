@@ -11,10 +11,11 @@ import {
   type ErpBill,
 } from '@/components/reseller/erp/erp-ui'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
+import { ErpComplianceDialog } from '@/components/reseller/erp/ErpComplianceDialog'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
-import { Download, Eye, Loader2, Receipt, Trash2 } from 'lucide-react'
+import { Download, Eye, FileCheck, Loader2, Receipt, Trash2, Truck } from 'lucide-react'
 
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
 
@@ -27,6 +28,9 @@ export function ErpSalesBillsWorkspace() {
   const [to, setTo] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [viewBill, setViewBill] = useState<ErpBill | null>(null)
+  const [complianceBill, setComplianceBill] = useState<ErpBill | null>(null)
+  const [complianceKind, setComplianceKind] = useState<'e-invoice' | 'e-way'>('e-invoice')
+  const [complianceOpen, setComplianceOpen] = useState(false)
 
   const load = useCallback(async () => {
     const params: Record<string, string> = { bill_type: 'sale' }
@@ -137,6 +141,25 @@ export function ErpSalesBillsWorkspace() {
     XLSX.writeFile(wb, `erp-sales-bills-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
+  const openCompliance = async (id: number, kind: 'e-invoice' | 'e-way') => {
+    setBusy(true)
+    try {
+      const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
+      setComplianceBill(res.data.bill)
+      setComplianceKind(kind)
+      setComplianceOpen(true)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onComplianceSuccess = (bill: ErpBill) => {
+    setBills((prev) => prev.map((b) => (b.id === bill.id ? bill : b)))
+    if (viewBill?.id === bill.id) setViewBill(bill)
+  }
+
   const openView = async (id: number) => {
     setBusy(true)
     try {
@@ -230,13 +253,14 @@ export function ErpSalesBillsWorkspace() {
               <th className="px-3 py-2.5 font-semibold">Items</th>
               <th className="px-3 py-2.5 font-semibold">Net total</th>
               <th className="px-3 py-2.5 font-semibold">Status</th>
+              <th className="px-3 py-2.5 font-semibold">GST</th>
               <th className="px-3 py-2.5 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody>
             {bills.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                <td colSpan={9} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                   No sales bills in this period.
                 </td>
               </tr>
@@ -259,6 +283,16 @@ export function ErpSalesBillsWorkspace() {
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
+                    <div className="flex flex-col gap-1">
+                      {b.compliance?.einvoice?.irn ? (
+                        <span className="text-[9px] font-semibold text-emerald-700">IRN ✓</span>
+                      ) : null}
+                      {b.compliance?.eway?.ewb_no ? (
+                        <span className="text-[9px] font-semibold text-blue-700">EWB ✓</span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5">
                     <div className="flex flex-wrap gap-1">
                       <button
                         type="button"
@@ -267,6 +301,24 @@ export function ErpSalesBillsWorkspace() {
                         onClick={() => void openView(b.id)}
                       >
                         <Eye className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-semibold text-emerald-900 hover:bg-emerald-100"
+                        title="Generate e-invoice"
+                        onClick={() => void openCompliance(b.id, 'e-invoice')}
+                      >
+                        <FileCheck className="size-3.5" />
+                        <span className="hidden sm:inline">E-inv</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 text-[10px] font-semibold text-blue-900 hover:bg-blue-100"
+                        title="Generate e-way bill"
+                        onClick={() => void openCompliance(b.id, 'e-way')}
+                      >
+                        <Truck className="size-3.5" />
+                        <span className="hidden sm:inline">E-way</span>
                       </button>
                       <button
                         type="button"
@@ -290,6 +342,13 @@ export function ErpSalesBillsWorkspace() {
       </Link>
 
       <ErpBillPreviewModal bill={viewBill} kind="sale" onClose={() => setViewBill(null)} />
+      <ErpComplianceDialog
+        open={complianceOpen}
+        onOpenChange={setComplianceOpen}
+        bill={complianceBill}
+        kind={complianceKind}
+        onSuccess={onComplianceSuccess}
+      />
     </div>
   )
 }

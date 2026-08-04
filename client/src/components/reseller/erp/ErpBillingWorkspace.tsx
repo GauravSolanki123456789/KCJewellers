@@ -19,8 +19,10 @@ import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
+import { ErpBillSavedModal, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
+import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -185,6 +187,10 @@ export function ErpBillingWorkspace() {
   const [scanErrorMsg, setScanErrorMsg] = useState<string | null>(null)
   const [pdfShareOpen, setPdfShareOpen] = useState(false)
   const [pdfSharePayload, setPdfSharePayload] = useState<PdfShareSheetPayload | null>(null)
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
+  const [savedBillOpen, setSavedBillOpen] = useState(false)
+  const [savedBill, setSavedBill] = useState<ErpBill | null>(null)
+  const [savedPdfPayload, setSavedPdfPayload] = useState<PdfShareSheetPayload | null>(null)
   const scanRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
   const duplicateBannerRef = useRef<HTMLDivElement>(null)
@@ -602,9 +608,43 @@ export function ErpBillingWorkspace() {
     }
   }
 
-  const saveBill = async (billType: 'sale' | 'estimate', status: string) => {
+  const confirmSaveBill = async () => {
+    setSaveConfirmOpen(false)
     clearDuplicateState()
-    await persistBill(billType, status)
+    const bill = await persistBill('sale', 'completed', { skipReset: true })
+    if (!bill) return
+    try {
+      let gstin: string | null = null
+      try {
+        const s = await axios.get<{ settings: Record<string, { gstin?: string }> }>(
+          '/api/reseller/erp/settings',
+        )
+        gstin = s.data.settings?.gst?.gstin ?? null
+      } catch {
+        /* optional */
+      }
+      const payload = await buildErpSalesPdfPayload({
+        bill,
+        brandLabel,
+        customerName,
+        mobile,
+        slabSettingsRaw: auth.user,
+        gstin,
+      })
+      setSavedBill(bill)
+      setSavedPdfPayload(payload)
+      setSavedBillOpen(true)
+    } catch (e) {
+      console.error(e)
+      alert('Bill saved but invoice PDF could not be created.')
+      resetBill()
+    }
+  }
+
+  const onSavedBillDone = () => {
+    setSavedBill(null)
+    setSavedPdfPayload(null)
+    resetBill()
   }
 
   const generateQuote = async () => {
@@ -679,6 +719,23 @@ export function ErpBillingWorkspace() {
   return (
     <div className="space-y-4">
       <PdfShareSheet open={pdfShareOpen} onOpenChange={setPdfShareOpen} payload={pdfSharePayload} minimal />
+      <ErpSaveBillConfirmDialog
+        open={saveConfirmOpen}
+        onOpenChange={setSaveConfirmOpen}
+        customerName={customerName}
+        netTotal={totals.net}
+        itemCount={lines.length}
+        busy={saveBusy}
+        onConfirm={() => void confirmSaveBill()}
+      />
+      <ErpBillSavedModal
+        open={savedBillOpen}
+        onOpenChange={setSavedBillOpen}
+        bill={savedBill}
+        pdfPayload={savedPdfPayload}
+        defaultMobile={mobile}
+        onDone={onSavedBillDone}
+      />
 
       {editingBillNumber ? (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
@@ -877,7 +934,12 @@ export function ErpBillingWorkspace() {
             <FileText className="size-4" />
             {editingBillId ? 'Update & PDF quote' : 'Generate quote'}
           </button>
-          <button type="button" className={erpBtnPrimary} disabled={saveBusy || lines.length === 0} onClick={() => void saveBill('sale', 'completed')}>
+          <button
+            type="button"
+            className={erpBtnPrimary}
+            disabled={saveBusy || lines.length === 0}
+            onClick={() => setSaveConfirmOpen(true)}
+          >
             {saveBusy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
             Save bill
           </button>

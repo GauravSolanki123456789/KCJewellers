@@ -18,6 +18,7 @@ import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
+import EnhancedPictureVarietiesPanel from '@/components/admin/EnhancedPictureVarietiesPanel'
 import {
   activateAdminEnhancedPrompt,
   adminSaveEnhancedPayment,
@@ -87,6 +88,7 @@ function AdminEnhancedPicturesInner() {
   const [aiSettingsMeta, setAiSettingsMeta] = useState<EnhancedAiSettings | null>(null)
   const [lastTestAi, setLastTestAi] = useState<{ provider?: string; model?: string } | null>(null)
   const [templateKey, setTemplateKey] = useState('idols')
+  const [selectedVarietyKey, setSelectedVarietyKey] = useState<string | null>(null)
   const [workflowHighlightsText, setWorkflowHighlightsText] = useState('')
   const [systemResolutions, setSystemResolutions] = useState('2K, 4K High Definition')
   const [systemRatios, setSystemRatios] = useState('1:1')
@@ -149,6 +151,7 @@ function AdminEnhancedPicturesInner() {
       const prmpts = promptList ?? prompts
       stickyTemplateKeyRef.current = key
       setTemplateKey(key)
+      setSelectedVarietyKey(null)
       applyTemplateShowcase(key, tpls)
       const first = prmpts.find((p) => p.template_key === key)
       if (first) {
@@ -331,6 +334,7 @@ function AdminEnhancedPicturesInner() {
         promptId: saveAsNew ? null : selectedId,
         saveAsNew,
         templateKey,
+        varietyKey: selectedVarietyKey || undefined,
         aspectRatio,
         canvasText: includeCanvasText ? canvasText.trim() : undefined,
         aiProvider,
@@ -592,6 +596,10 @@ function AdminEnhancedPicturesInner() {
       output_label: outputLabel,
       output_subtitle: outputSubtitle,
       footer_note: footerNote,
+      sample_source_image_url:
+        sourcePreview || activeTemplate?.showcase?.sample_source_image_url || null,
+      sample_result_image_url:
+        resultUrl || activeTemplate?.showcase?.sample_result_image_url || null,
     }),
     [
       templateKey,
@@ -602,6 +610,9 @@ function AdminEnhancedPicturesInner() {
       outputLabel,
       outputSubtitle,
       footerNote,
+      sourcePreview,
+      resultUrl,
+      activeTemplate,
     ],
   )
 
@@ -1080,6 +1091,17 @@ function AdminEnhancedPicturesInner() {
               </div>
             </section>
 
+            {userId ? (
+              <EnhancedPictureVarietiesPanel
+                userId={userId}
+                templateKey={templateKey}
+                varieties={activeTemplate?.varieties || []}
+                selectedVarietyKey={selectedVarietyKey}
+                onSelectVariety={setSelectedVarietyKey}
+                onReload={() => load({ templateKey, selectedId, silent: true })}
+              />
+            ) : null}
+
             <div className="grid gap-5 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
               <aside className="space-y-4">
                 <div>
@@ -1134,6 +1156,11 @@ function AdminEnhancedPicturesInner() {
                             <span className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
                               {p.name}
                             </span>
+                            {p.variety_key ? (
+                              <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/40">
+                                {p.variety_key}
+                              </span>
+                            ) : null}
                             {p.is_active ? (
                               <span className="shrink-0 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
                                 ACTIVE

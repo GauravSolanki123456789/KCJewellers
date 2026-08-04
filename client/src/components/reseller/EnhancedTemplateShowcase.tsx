@@ -23,6 +23,9 @@ export default function EnhancedTemplateShowcase({
   const highlights = Array.isArray(data.workflow_highlights)
     ? data.workflow_highlights.filter(Boolean)
     : []
+  const sample = sampleImageUrl || data.sample_source_image_url || null
+  const result = resultImageUrl || data.sample_result_image_url || null
+  const showImages = !!(sample || result)
 
   return (
     <div
@@ -31,10 +34,10 @@ export default function EnhancedTemplateShowcase({
         className,
       )}
     >
-      <div className={cn('grid gap-0', compact ? 'grid-cols-1' : 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]')}>
-        {(sampleImageUrl || resultImageUrl) && (
+      <div className={cn('grid gap-0', compact ? 'grid-cols-1' : showImages ? 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]' : 'grid-cols-1')}>
+        {showImages ? (
           <div className="border-b border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-950,#faf8f4)] p-4 lg:border-b-0 lg:border-r">
-            {sampleImageUrl ? (
+            {sample ? (
               <div className="mb-4">
                 <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-jewelry-black,#1a1814)]/45">
                   <Sparkles className="size-3 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
@@ -42,13 +45,13 @@ export default function EnhancedTemplateShowcase({
                 </p>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={sampleImageUrl}
+                  src={sample}
                   alt=""
                   className="mx-auto aspect-square max-h-56 w-full rounded-xl object-contain ring-1 ring-[var(--color-slate-700,#e8e4df)]"
                 />
               </div>
             ) : null}
-            {resultImageUrl ? (
+            {result ? (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-jewelry-black,#1a1814)]/45">
                   {data.output_label || 'Studio result'}
@@ -60,14 +63,14 @@ export default function EnhancedTemplateShowcase({
                 ) : null}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={resultImageUrl}
+                  src={result}
                   alt=""
                   className="mt-2 aspect-square max-h-56 w-full rounded-xl object-contain ring-1 ring-emerald-500/25"
                 />
               </div>
             ) : null}
           </div>
-        )}
+        ) : null}
 
         <div className="space-y-4 p-4 sm:p-5">
           <div>

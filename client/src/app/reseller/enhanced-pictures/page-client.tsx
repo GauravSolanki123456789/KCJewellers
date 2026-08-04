@@ -25,6 +25,7 @@ import {
   enhancedPicturesZipUrl,
   fetchBarcodeHints,
   fetchEnhancedStatus,
+  fetchProductLookup,
   generateEnhancedPicture,
   verifyEnhancedTopup,
   type EnhancedBarcodeHint,
@@ -76,11 +77,15 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [showTopup, setShowTopup] = useState(false)
   const [statusLoading, setStatusLoading] = useState(true)
   const [templateKey, setTemplateKey] = useState('idols')
+  const [varietyKey, setVarietyKey] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('1:1')
   const [includeCanvasText, setIncludeCanvasText] = useState(false)
   const [canvasText, setCanvasText] = useState('')
   const [photoType, setPhotoType] = useState<'front' | 'back'>('front')
   const [barcodeStem, setBarcodeStem] = useState('')
+  const [mrpRateBehindBox, setMrpRateBehindBox] = useState('')
+  const [showMrpField, setShowMrpField] = useState(false)
+  const [lookupLabel, setLookupLabel] = useState<string | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
   const [sourcePreview, setSourcePreview] = useState<string | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
@@ -165,6 +170,58 @@ export default function ResellerEnhancedPicturesPageClient() {
     [templates, templateKey],
   )
 
+  const activeVariety = useMemo(() => {
+    const list = activeTemplate?.varieties || []
+    if (!list.length) return null
+    if (varietyKey) return list.find((v) => v.variety_key === varietyKey) || list[0]
+    return list[0]
+  }, [activeTemplate, varietyKey])
+
+  const showcaseSampleUrl = useMemo(() => {
+    if (sourcePreview) return sourcePreview
+    return activeVariety?.sample_source_image_url || activeTemplate?.showcase?.sample_source_image_url || null
+  }, [sourcePreview, activeVariety, activeTemplate])
+
+  const showcaseResultUrl = useMemo(() => {
+    if (resultUrl) return resultUrl
+    return activeVariety?.sample_result_image_url || activeTemplate?.showcase?.sample_result_image_url || null
+  }, [resultUrl, activeVariety, activeTemplate])
+
+  useEffect(() => {
+    const q = String(barcodeStem || '').trim()
+    if (q.length < 3) {
+      setShowMrpField(false)
+      setLookupLabel(null)
+      return
+    }
+    const t = window.setTimeout(() => {
+      void fetchProductLookup(q)
+        .then((data) => {
+          if (!data.found || !data.product) {
+            setShowMrpField(false)
+            setLookupLabel(null)
+            return
+          }
+          const p = data.product
+          setLookupLabel(p.product_name || p.item_code || p.web_product_sku || p.stem)
+          setShowMrpField(!!p.show_mrp_field)
+          if (p.mrp_rate_behind_box != null && Number(p.mrp_rate_behind_box) > 0) {
+            setMrpRateBehindBox(String(p.mrp_rate_behind_box))
+          } else if (!p.show_mrp_field) {
+            setMrpRateBehindBox('')
+          }
+          if (p.stem && !barcodeStem.includes('-')) {
+            /* keep user stem if they typed item code like SFIDOL009-001 */
+          }
+        })
+        .catch(() => {
+          setShowMrpField(false)
+          setLookupLabel(null)
+        })
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [barcodeStem])
+
   const onPick = (file: File | null) => {
     if (sourcePreview?.startsWith('blob:')) URL.revokeObjectURL(sourcePreview)
     setSourceFile(file)
@@ -198,6 +255,7 @@ export default function ResellerEnhancedPicturesPageClient() {
       const data = await generateEnhancedPicture({
         image: sourceFile,
         templateKey,
+        varietyKey: activeVariety?.variety_key || varietyKey || undefined,
         barcodeStem: normalizeStem(barcodeStem) || undefined,
         photoType,
         aspectRatio,
@@ -243,7 +301,12 @@ export default function ResellerEnhancedPicturesPageClient() {
     setBusy(true)
     setError('')
     try {
-      const data = await attachEnhancedPicture({ jobId, barcodeStem: stem, photoType })
+      const data = await attachEnhancedPicture({
+        jobId,
+        barcodeStem: stem,
+        photoType,
+        mrpRateBehindBox: showMrpField && mrpRateBehindBox.trim() ? mrpRateBehindBox.trim() : undefined,
+      })
       setDownloadName(data.download_filename || suggestedFilename)
       setAttachMsg(
         data.attach?.attached
@@ -446,7 +509,10 @@ export default function ResellerEnhancedPicturesPageClient() {
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() => setTemplateKey(t.key)}
+                  onClick={() => {
+                    setTemplateKey(t.key)
+                    setVarietyKey(null)
+                  }}
                   className={`rounded-2xl border px-4 py-3 text-left transition ${
                     templateKey === t.key
                       ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8 shadow-sm'
@@ -465,17 +531,40 @@ export default function ResellerEnhancedPicturesPageClient() {
               ),
             )}
           </div>
+          {(activeTemplate?.varieties?.length ?? 0) > 0 ? (
+            <div className="mt-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                Product type
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {activeTemplate!.varieties!.map((v) => (
+                  <button
+                    key={v.variety_key}
+                    type="button"
+                    onClick={() => setVarietyKey(v.variety_key)}
+                    className={`min-h-[40px] rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
+                      (varietyKey || activeVariety?.variety_key) === v.variety_key
+                        ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                        : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                    }`}
+                  >
+                    {v.variety_label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         {activeTemplate?.showcase ? (
           <section>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-              Template capabilities
+              Sample cinematic design
             </p>
             <EnhancedTemplateShowcase
               data={activeTemplate.showcase}
-              sampleImageUrl={sourcePreview}
-              resultImageUrl={resultUrl}
+              sampleImageUrl={showcaseSampleUrl}
+              resultImageUrl={showcaseResultUrl}
               compact
             />
           </section>
@@ -546,15 +635,39 @@ export default function ResellerEnhancedPicturesPageClient() {
             </div>
             <label className="block">
               <span className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                Filename stem (matches Excel upload)
+                Search product (SKU, barcode, or item code e.g. SFIDOL009-001)
               </span>
               <input
                 value={barcodeStem}
                 onChange={(e) => setBarcodeStem(e.target.value)}
-                placeholder="e.g. ganesh-ganesh-sfidol008"
+                placeholder="e.g. SFIDOL009-001 or ganesh-ganesh-sfidol008"
                 className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-3 font-mono text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
               />
             </label>
+            {lookupLabel ? (
+              <p className="mt-2 text-xs font-medium text-emerald-700">
+                Matched: {lookupLabel}
+              </p>
+            ) : null}
+            {showMrpField ? (
+              <label className="mt-3 block">
+                <span className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                  MRP rate (behind box) — ₹
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={mrpRateBehindBox}
+                  onChange={(e) => setMrpRateBehindBox(e.target.value)}
+                  placeholder="Enter MRP printed on box"
+                  className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
+                />
+                <span className="mt-1 block text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Your Excel batch includes this column but values were empty — enter here when attaching the photo.
+                </span>
+              </label>
+            ) : null}
             {suggestedFilename ? (
               <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                 Will save / attach as{' '}
@@ -570,18 +683,20 @@ export default function ResellerEnhancedPicturesPageClient() {
                     key={h.id}
                     type="button"
                     onClick={() => {
-                      setBarcodeStem(h.stem)
+                      setBarcodeStem(h.stem || h.product_name || h.item_code || h.web_product_sku || '')
+                      setShowMrpField(!!h.show_mrp_field)
+                      if (h.mrp_rate_behind_box != null) setMrpRateBehindBox(String(h.mrp_rate_behind_box))
                       if (!includeCanvasText) {
                         /* keep optional */
                       } else if (!canvasText.trim()) {
-                        setCanvasText(String(h.barcode || h.web_product_sku || h.stem).toUpperCase())
+                        setCanvasText(String(h.barcode || h.web_product_sku || h.product_name || h.stem).toUpperCase())
                       }
                     }}
                     className="flex w-full items-center justify-between gap-2 border-b border-[var(--color-slate-700,#e8e4df)] px-3 py-2 text-left last:border-0 hover:bg-[var(--color-slate-900,#f7f4ef)]"
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-mono text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                        {h.barcode || h.web_product_sku || h.stem}
+                        {h.product_name || h.item_code || h.barcode || h.web_product_sku || h.stem}
                       </span>
                       <span className="block truncate text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
                         {photoType === 'back' ? h.back_filename : h.front_filename}

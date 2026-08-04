@@ -52,6 +52,33 @@ export function downloadPdfBlob(blob: Blob, filename: string): void {
   triggerDownload(blob, filename)
 }
 
+/** Open PDF in a hidden iframe and trigger the browser print dialog. */
+export function printPdfBlob(blob: Blob): void {
+  if (typeof document === 'undefined') return
+  const url = URL.createObjectURL(blob)
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = 'none'
+  iframe.src = url
+  document.body.appendChild(iframe)
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+    } catch {
+      openPdfBlobInViewer(blob)
+    }
+  }
+  setTimeout(() => {
+    iframe.remove()
+    URL.revokeObjectURL(url)
+  }, 120_000)
+}
+
 /** Open PDF in a new tab — iOS Safari “Share ↗ → WhatsApp” flow. */
 export function openPdfBlobInViewer(blob: Blob): void {
   const url = URL.createObjectURL(blob)

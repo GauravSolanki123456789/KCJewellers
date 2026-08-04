@@ -191,6 +191,30 @@ export function ResellerProductSubmissionsPanel() {
     }
   }
 
+  const deleteBatch = async (batchId: string, count: number) => {
+    if (!batchId || batchId.startsWith('single-')) return
+    if (
+      !window.confirm(
+        `Delete all ${count} products in this Excel batch? This cannot be undone. Live products in this batch will be hidden.`,
+      )
+    )
+      return
+    setActingId(-4)
+    try {
+      await axios.delete(`/api/admin/reseller-product-submissions/batch/${batchId}`)
+      window.dispatchEvent(new Event(KC_ADMIN_INBOX_REFRESH_EVENT))
+      await load()
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null
+      alert(msg || 'Batch delete failed')
+    } finally {
+      setActingId(null)
+    }
+  }
+
   const reject = async (id: number) => {
     const notes = window.prompt('Rejection note (optional):') ?? ''
     setActingId(id)
@@ -298,15 +322,26 @@ export function ResellerProductSubmissionsPanel() {
                     </p>
                   </div>
                   {isExcelBatch ? (
-                    <button
-                      type="button"
-                      disabled={actingId === -2}
-                      onClick={() => void approveBatch(group.batchId, group.rows.length)}
-                      className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-                    >
-                      {actingId === -2 ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                      Approve entire batch
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={actingId === -2}
+                        onClick={() => void approveBatch(group.batchId, group.rows.length)}
+                        className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                      >
+                        {actingId === -2 ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                        Approve entire batch
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actingId === -4}
+                        onClick={() => void deleteBatch(group.batchId, group.rows.length)}
+                        className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200 disabled:opacity-60"
+                      >
+                        {actingId === -4 ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                        Delete entire batch
+                      </button>
+                    </div>
                   ) : null}
                 </div>
                 <ul className="space-y-3">
