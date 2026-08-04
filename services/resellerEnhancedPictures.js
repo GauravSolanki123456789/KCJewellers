@@ -752,6 +752,14 @@ async function ensureEnhancedPicturesSchema(pool) {
             WHERE gemini_batch_name IS NOT NULL AND status IN ('batch_queued', 'batch_processing')
     `);
     await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_enhanced_jobs_user_active
+            ON reseller_enhanced_picture_jobs (reseller_user_id, created_at DESC)
+            WHERE deleted_at IS NULL
+    `);
+    await pool.query(`
         CREATE TABLE IF NOT EXISTS reseller_enhanced_picture_template_settings (
             id SERIAL PRIMARY KEY,
             reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1036,18 +1044,101 @@ function extractImageFromGeminiBatchStatus(batchStatus) {
     return null;
 }
 
-async function refundJobCreditIfNeeded(query, pool, job) {
+async function refundJobCreditIfNeeded(query, pool, job, note) {
     if (!job?.credit_charged || !job?.reseller_user_id) return;
     await addCredits(query, pool, {
         userId: job.reseller_user_id,
         amount: 1,
-        note: `Refund: batch job #${job.id} failed`,
+        note: note || `Refund: batch job #${job.id} failed`,
         reason: 'batch_refund',
     });
     await query(
         `UPDATE reseller_enhanced_picture_jobs SET credit_charged = false WHERE id = $1`,
         [job.id],
     );
+}
+
+function enhancedJobResultDiskPath(enhancedDir, resultImageUrl) {
+    if (!resultImageUrl) return null;
+    const fileName = path.basename(String(resultImageUrl).split('?')[0]);
+    if (!fileName) return null;
+    return path.join(enhancedDir, fileName);
+}
+
+function removeEnhancedJobResultFile(enhancedDir, resultImageUrl) {
+    try {
+        const diskPath = enhancedJobResultDiskPath(enhancedDir, resultImageUrl);
+        if (diskPath && fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+    } catch (e) {
+        console.warn('enhanced job file delete:', e.message);
+    }
+}
+
+const ENHANCED_JOB_ACTIVE_STATUSES = new Set([
+    'pending',
+    'processing',
+    'batch_queued',
+    'batch_processing',
+]);
+
+async function cancelEnhancedPictureJob(query, pool, job, { note } = {}) {
+    if (!ENHANCED_JOB_ACTIVE_STATUSES.has(job.status)) {
+        const err = new Error('This job is not running anymore.');
+        err.status = 400;
+        throw err;
+    }
+    const updated = await query(
+        `UPDATE reseller_enhanced_picture_jobs
+         SET status = 'cancelled',
+             batch_state = COALESCE(batch_state, 'JOB_STATE_CANCELLED'),
+             batch_completed_at = CURRENT_TIMESTAMP,
+             error_message = $1
+         WHERE id = $2 AND reseller_user_id = $3
+           AND deleted_at IS NULL
+           AND status IN ('pending', 'processing', 'batch_queued', 'batch_processing')
+         RETURNING *`,
+        [note || 'Cancelled by user', job.id, job.reseller_user_id],
+    );
+    if (!updated.length) {
+        const err = new Error('Could not cancel this job.');
+        err.status = 409;
+        throw err;
+    }
+    await refundJobCreditIfNeeded(
+        query,
+        pool,
+        job,
+        `Refund: job #${job.id} cancelled`,
+    );
+    return updated[0];
+}
+
+async function deleteEnhancedPictureJob(query, pool, job, enhancedDir) {
+    if (job.deleted_at) {
+        const err = new Error('Job already removed.');
+        err.status = 410;
+        throw err;
+    }
+    let current = job;
+    if (ENHANCED_JOB_ACTIVE_STATUSES.has(job.status)) {
+        current = await cancelEnhancedPictureJob(query, pool, job, {
+            note: 'Cancelled before delete',
+        });
+    }
+    removeEnhancedJobResultFile(enhancedDir, current.result_image_url);
+    const updated = await query(
+        `UPDATE reseller_enhanced_picture_jobs
+         SET deleted_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND reseller_user_id = $2 AND deleted_at IS NULL
+         RETURNING id`,
+        [job.id, job.reseller_user_id],
+    );
+    if (!updated.length) {
+        const err = new Error('Could not remove this job.');
+        err.status = 409;
+        throw err;
+    }
+    return { id: job.id, removed: true };
 }
 
 async function finalizeEnhancedPictureJob({
@@ -1099,7 +1190,7 @@ async function finalizeEnhancedPictureJob({
              ai_model = $7,
              batch_completed_at = CURRENT_TIMESTAMP,
              error_message = NULL
-         WHERE id = $8
+         WHERE id = $8 AND deleted_at IS NULL AND status NOT IN ('cancelled')
          RETURNING *`,
         [
             resultUrl,
@@ -1117,7 +1208,15 @@ async function finalizeEnhancedPictureJob({
 
 async function processEnhancedBatchJobRow(job, deps) {
     const { query, pool, enhancedDir, getPublicApiBaseUrl, uploadsWebProductsDir } = deps;
-    if (!job?.gemini_batch_name) return;
+    if (!job?.gemini_batch_name || !job?.id) return;
+    const freshRows = await query(
+        `SELECT * FROM reseller_enhanced_picture_jobs WHERE id = $1`,
+        [job.id],
+    );
+    if (!freshRows.length) return;
+    job = freshRows[0];
+    if (job.deleted_at || job.status === 'cancelled') return;
+    if (!['batch_queued', 'batch_processing'].includes(job.status)) return;
     const aiConfig = await resolveAiConfigForUser(query, job.reseller_user_id);
     const apiKey = aiConfig.gemini_api_key || getGeminiApiKey();
     if (!apiKey) return;
@@ -1135,7 +1234,8 @@ async function processEnhancedBatchJobRow(job, deps) {
         await query(
             `UPDATE reseller_enhanced_picture_jobs
              SET status = 'batch_processing', batch_state = $1
-             WHERE id = $2 AND status IN ('batch_queued', 'batch_processing')`,
+             WHERE id = $2 AND status IN ('batch_queued', 'batch_processing')
+               AND deleted_at IS NULL`,
             [state, job.id],
         );
         return;
@@ -1150,7 +1250,7 @@ async function processEnhancedBatchJobRow(job, deps) {
             `UPDATE reseller_enhanced_picture_jobs
              SET status = 'failed', batch_state = $1, batch_completed_at = CURRENT_TIMESTAMP,
                  error_message = $2
-             WHERE id = $3`,
+             WHERE id = $3 AND deleted_at IS NULL AND status NOT IN ('cancelled')`,
             [state, String(errMsg).slice(0, 1000), job.id],
         );
         await refundJobCreditIfNeeded(query, pool, job);
@@ -1162,6 +1262,12 @@ async function processEnhancedBatchJobRow(job, deps) {
         if (!img) {
             throw new Error('Batch succeeded but returned no image.');
         }
+        const stillActive = await query(
+            `SELECT id FROM reseller_enhanced_picture_jobs
+             WHERE id = $1 AND deleted_at IS NULL AND status IN ('batch_queued', 'batch_processing')`,
+            [job.id],
+        );
+        if (!stillActive.length) return;
         await finalizeEnhancedPictureJob({
             query,
             pool,
@@ -1209,6 +1315,7 @@ function startEnhancedBatchPoller(deps) {
                 `SELECT * FROM reseller_enhanced_picture_jobs
                  WHERE status IN ('batch_queued', 'batch_processing')
                    AND gemini_batch_name IS NOT NULL
+                   AND deleted_at IS NULL
                  ORDER BY batch_submitted_at ASC NULLS LAST, id ASC
                  LIMIT 20`,
             );
@@ -2701,7 +2808,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         error_message, attached_sku, attached_submission_id,
                         created_at, batch_submitted_at, batch_completed_at
                  FROM reseller_enhanced_picture_jobs
-                 WHERE reseller_user_id = $1
+                 WHERE reseller_user_id = $1 AND deleted_at IS NULL
                  ORDER BY created_at DESC
                  LIMIT $2`,
                 [req.user.id, limit],
@@ -2723,6 +2830,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             );
             if (!rows.length) return res.status(404).json({ error: 'Job not found' });
             const job = rows[0];
+            if (job.deleted_at) return res.status(404).json({ error: 'Job not found' });
             if (
                 (job.status === 'batch_queued' || job.status === 'batch_processing') &&
                 job.gemini_batch_name
@@ -2762,6 +2870,55 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 ];
             }
             res.json({ job: rows[0] });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
+    app.post('/api/reseller/enhanced-pictures/jobs/:id/cancel', checkAuth, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            await assertResellerEnhancedAccess(query, req.user.id);
+            const jobId = parseInt(String(req.params.id), 10);
+            if (!jobId) return res.status(400).json({ error: 'job id required' });
+            const rows = await query(
+                `SELECT * FROM reseller_enhanced_picture_jobs
+                 WHERE id = $1 AND reseller_user_id = $2 AND deleted_at IS NULL`,
+                [jobId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Job not found' });
+            const cancelled = await cancelEnhancedPictureJob(query, pool, rows[0]);
+            const creditsRow = await getCreditBalance(query, req.user.id);
+            res.json({
+                success: true,
+                job: cancelled,
+                credits: creditsRow?.credits ?? null,
+                message: 'Job stopped. Your credit was refunded.',
+            });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
+    app.delete('/api/reseller/enhanced-pictures/jobs/:id', checkAuth, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            await assertResellerEnhancedAccess(query, req.user.id);
+            const jobId = parseInt(String(req.params.id), 10);
+            if (!jobId) return res.status(400).json({ error: 'job id required' });
+            const rows = await query(
+                `SELECT * FROM reseller_enhanced_picture_jobs
+                 WHERE id = $1 AND reseller_user_id = $2 AND deleted_at IS NULL`,
+                [jobId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Job not found' });
+            await deleteEnhancedPictureJob(query, pool, rows[0], enhancedDir);
+            const creditsRow = await getCreditBalance(query, req.user.id);
+            res.json({
+                success: true,
+                removed: true,
+                credits: creditsRow?.credits ?? null,
+            });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message });
         }
@@ -2975,6 +3132,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 );
                 if (!jobs.length) return res.status(404).json({ error: 'Job not found' });
                 const job = jobs[0];
+                if (job.deleted_at) return res.status(404).json({ error: 'Job not found' });
                 if (!job.result_image_url) {
                     return res.status(400).json({ error: 'Job has no generated image yet' });
                 }
@@ -3038,6 +3196,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                  FROM reseller_enhanced_picture_jobs
                  WHERE reseller_user_id = $1 AND status = 'completed'
                    AND result_image_url IS NOT NULL
+                   AND deleted_at IS NULL
                  ORDER BY template_key ASC, created_at ASC`,
                 [req.user.id],
             );

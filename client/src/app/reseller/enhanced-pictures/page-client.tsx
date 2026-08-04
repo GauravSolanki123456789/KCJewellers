@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -30,6 +30,8 @@ import {
   fetchEnhancedJobStatus,
   fetchProductLookup,
   generateEnhancedPicture,
+  cancelEnhancedJob,
+  deleteEnhancedJob,
   verifyEnhancedTopup,
   type EnhancedBarcodeHint,
   type EnhancedCreditPlan,
@@ -105,6 +107,8 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [recentJobs, setRecentJobs] = useState<EnhancedRecentJob[]>([])
   const [jobsLoading, setJobsLoading] = useState(true)
   const [jobsRefreshing, setJobsRefreshing] = useState(false)
+  const [actionJobId, setActionJobId] = useState<number | null>(null)
+  const pollGenerationRef = useRef(0)
 
   const authReady = auth.hasChecked === true
   const subscriptionOn = Boolean(
@@ -283,12 +287,20 @@ export default function ResellerEnhancedPicturesPageClient() {
     setPhase('idle')
   }
 
+  const abortPolling = useCallback(() => {
+    pollGenerationRef.current += 1
+  }, [])
+
   const pollBatchJob = useCallback(async (id: number) => {
+    const token = ++pollGenerationRef.current
     const maxAttempts = 360
     for (let i = 0; i < maxAttempts; i += 1) {
+      if (pollGenerationRef.current !== token) return
       await new Promise((r) => setTimeout(r, 5000))
+      if (pollGenerationRef.current !== token) return
       try {
         const job = await fetchEnhancedJobStatus(id)
+        if (pollGenerationRef.current !== token) return
         setBatchState(job.batch_state || job.status || null)
         setProgress(Math.min(92, 18 + i * 0.25))
         if (job.status === 'completed' && job.result_image_url) {
@@ -303,10 +315,15 @@ export default function ResellerEnhancedPicturesPageClient() {
           if (h) setHints(h)
           return
         }
-        if (job.status === 'failed') {
+        if (job.status === 'failed' || job.status === 'cancelled') {
           setPhase('idle')
           setBusy(false)
-          setError(job.error_message || 'Batch generation failed. Your credit was refunded.')
+          if (job.status === 'cancelled') {
+            setAttachMsg('Job stopped. Your credit was refunded.')
+            setError('')
+          } else {
+            setError(job.error_message || 'Batch generation failed. Your credit was refunded.')
+          }
           void loadRecentJobs(true)
           return
         }
@@ -314,6 +331,7 @@ export default function ResellerEnhancedPicturesPageClient() {
         /* keep polling */
       }
     }
+    if (pollGenerationRef.current !== token) return
     setPhase('idle')
     setBusy(false)
     setError('Still processing in Gemini Batch queue. Check Recent studio jobs below — we keep tracking in the background.')
@@ -359,6 +377,14 @@ export default function ResellerEnhancedPicturesPageClient() {
         return
       }
 
+      if (job.status === 'cancelled') {
+        setPhase('idle')
+        setResultUrl(null)
+        setAttachMsg('This job was stopped. Your credit was refunded.')
+        setError('')
+        return
+      }
+
       if (['batch_queued', 'batch_processing', 'processing'].includes(job.status)) {
         setPhase('batch')
         setBusy(true)
@@ -371,6 +397,94 @@ export default function ResellerEnhancedPicturesPageClient() {
       }
     },
     [pollBatchJob],
+  )
+
+  const clearActivePreviewIfJob = useCallback(
+    (id: number) => {
+      if (jobId !== id) return
+      setJobId(null)
+      setResultUrl(null)
+      setDownloadName('')
+      setAttachMsg('')
+      setPhase('idle')
+      setBusy(false)
+      abortPolling()
+    },
+    [jobId, abortPolling],
+  )
+
+  const handleCancelRecentJob = useCallback(
+    async (job: EnhancedRecentJob) => {
+      const title =
+        job.barcode_stem ||
+        job.download_filename?.replace(/\.[^.]+$/, '') ||
+        `Job #${job.id}`
+      if (
+        !window.confirm(
+          `Stop "${title}"?\n\nProcessing will be cancelled and your credit will be refunded.`,
+        )
+      ) {
+        return
+      }
+      setActionJobId(job.id)
+      setError('')
+      try {
+        const data = await cancelEnhancedJob(job.id)
+        if (typeof data.credits === 'number') setCredits(data.credits)
+        abortPolling()
+        if (jobId === job.id) {
+          setPhase('idle')
+          setBusy(false)
+          setResultUrl(null)
+          setAttachMsg(data.message || 'Job stopped. Credit refunded.')
+        }
+        void loadRecentJobs(true)
+      } catch (e: unknown) {
+        setError(
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not stop this job',
+        )
+      } finally {
+        setActionJobId(null)
+      }
+    },
+    [jobId, abortPolling, loadRecentJobs],
+  )
+
+  const handleDeleteRecentJob = useCallback(
+    async (job: EnhancedRecentJob) => {
+      const title =
+        job.barcode_stem ||
+        job.download_filename?.replace(/\.[^.]+$/, '') ||
+        `Job #${job.id}`
+      const pending = ['batch_queued', 'batch_processing', 'processing', 'pending'].includes(job.status)
+      if (
+        !window.confirm(
+          pending
+            ? `Remove "${title}"?\n\nThis will stop processing, refund your credit, and remove the image from your list and ZIP download.`
+            : `Delete "${title}"?\n\nIt will be removed from your list and excluded from Download all (ZIP). Product attachments already saved stay on the product.`,
+        )
+      ) {
+        return
+      }
+      setActionJobId(job.id)
+      setError('')
+      try {
+        const data = await deleteEnhancedJob(job.id)
+        if (typeof data.credits === 'number') setCredits(data.credits)
+        clearActivePreviewIfJob(job.id)
+        void loadRecentJobs(true)
+        setAttachMsg('Removed from your studio jobs.')
+      } catch (e: unknown) {
+        setError(
+          (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not delete this job',
+        )
+      } finally {
+        setActionJobId(null)
+      }
+    },
+    [clearActivePreviewIfJob, loadRecentJobs],
   )
 
   const runGenerate = async () => {
@@ -663,9 +777,12 @@ export default function ResellerEnhancedPicturesPageClient() {
           loading={jobsLoading}
           refreshing={jobsRefreshing}
           activeJobId={jobId}
+          actionJobId={actionJobId}
           templateLabels={templateLabels}
           onRefresh={() => void loadRecentJobs(true)}
           onSelect={handleSelectRecentJob}
+          onCancel={(job) => void handleCancelRecentJob(job)}
+          onDelete={(job) => void handleDeleteRecentJob(job)}
         />
 
         <section>

@@ -233,6 +233,24 @@ export async function fetchEnhancedJobs(limit = 30) {
   return res.data.jobs
 }
 
+export async function cancelEnhancedJob(jobId: number) {
+  const res = await axios.post<{
+    success: boolean
+    job: EnhancedRecentJob
+    credits?: number
+    message?: string
+  }>(`${apiBase()}/api/reseller/enhanced-pictures/jobs/${jobId}/cancel`, {}, { withCredentials: true })
+  return res.data
+}
+
+export async function deleteEnhancedJob(jobId: number) {
+  const res = await axios.delete<{ success: boolean; removed: boolean; credits?: number }>(
+    `${apiBase()}/api/reseller/enhanced-pictures/jobs/${jobId}`,
+    { withCredentials: true },
+  )
+  return res.data
+}
+
 export async function fetchEnhancedJobStatus(jobId: number) {
   const res = await axios.get<EnhancedJobStatus>(
     `${apiBase()}/api/reseller/enhanced-pictures/jobs/${jobId}`,
