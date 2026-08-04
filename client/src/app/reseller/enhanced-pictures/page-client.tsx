@@ -83,6 +83,8 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [templates, setTemplates] = useState<EnhancedPictureTemplate[]>([])
   const [activePromptName, setActivePromptName] = useState<string | null>(null)
   const [aiModelLabel, setAiModelLabel] = useState<string | null>(null)
+  const [geminiBatchAllowed, setGeminiBatchAllowed] = useState(false)
+  const [economyBatchMode, setEconomyBatchMode] = useState(false)
   const [hints, setHints] = useState<EnhancedBarcodeHint[]>([])
   const [credits, setCredits] = useState(0)
   const [plans, setPlans] = useState<EnhancedCreditPlan[]>([])
@@ -120,6 +122,24 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [actionJobId, setActionJobId] = useState<number | null>(null)
   const pollGenerationRef = useRef(0)
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      setEconomyBatchMode(window.localStorage.getItem('kc-enhanced-economy-batch') === '1')
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const toggleEconomyBatchMode = useCallback((next: boolean) => {
+    setEconomyBatchMode(next)
+    try {
+      window.localStorage.setItem('kc-enhanced-economy-batch', next ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   const authReady = auth.hasChecked === true
   const subscriptionOn = Boolean(
     auth.isAuthenticated &&
@@ -142,6 +162,7 @@ export default function ResellerEnhancedPicturesPageClient() {
       setActivePromptName(data.active_prompt?.name || null)
       if (data.ai_settings) {
         const ai = data.ai_settings
+        setGeminiBatchAllowed(!!ai.gemini_batch_enabled)
         setAiModelLabel(
           ai.provider === 'replicate'
             ? `Replicate · ${ai.replicate_model}`
@@ -149,6 +170,7 @@ export default function ResellerEnhancedPicturesPageClient() {
         )
       } else {
         setAiModelLabel(null)
+        setGeminiBatchAllowed(false)
       }
       setCredits(data.credits ?? 0)
       setPlans(data.plans || [])
@@ -298,7 +320,7 @@ export default function ResellerEnhancedPicturesPageClient() {
     const maxAttempts = 360
     for (let i = 0; i < maxAttempts; i += 1) {
       if (pollGenerationRef.current !== token) return
-      await new Promise((r) => setTimeout(r, 5000))
+      await new Promise((r) => setTimeout(r, 2500))
       if (pollGenerationRef.current !== token) return
       try {
         const job = await fetchEnhancedJobStatus(id)
@@ -517,6 +539,7 @@ export default function ResellerEnhancedPicturesPageClient() {
         photoType,
         aspectRatio,
         canvasText: includeCanvasText ? canvasText.trim() : undefined,
+        generationMode: economyBatchMode && geminiBatchAllowed ? 'batch' : 'fast',
       })
       if (typeof data.credits === 'number') setCredits(data.credits)
 
@@ -1046,15 +1069,19 @@ export default function ResellerEnhancedPicturesPageClient() {
             </p>
             <p className="mt-1 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               {phase === 'batch'
-                ? 'Crafting studio quality photo (async)'
-                : 'Crafting studio quality photo'}
+                ? 'Crafting studio quality photo (economy queue)'
+                : 'Crafting studio quality photo…'}
             </p>
             {phase === 'batch' ? (
               <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
                 {batchMessage ||
-                  'Your photo is in Google Gemini Batch — higher limits, half the cost. You can keep this tab open or come back shortly.'}
+                  'Economy batch mode — usually a few minutes. Use Fast mode next time for ~30–90 second results.'}
               </p>
-            ) : null}
+            ) : (
+              <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
+                Fast mode — your studio shot usually appears in 30–90 seconds.
+              </p>
+            )}
             {batchState ? (
               <p className="mt-2 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
                 Status: {formatBatchStateLabel(batchState) || 'pending'}
@@ -1113,6 +1140,34 @@ export default function ResellerEnhancedPicturesPageClient() {
           </p>
         ) : null}
 
+        {geminiBatchAllowed ? (
+          <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  {economyBatchMode ? 'Economy batch' : 'Fast mode'}
+                </p>
+                <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  {economyBatchMode
+                    ? 'Slower queue · ~50% lower AI cost · usually a few minutes'
+                    : 'Recommended · result in ~30–90 seconds'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleEconomyBatchMode(!economyBatchMode)}
+                className={`min-h-[40px] shrink-0 rounded-xl px-4 text-xs font-bold uppercase tracking-wide transition ${
+                  economyBatchMode
+                    ? 'border border-amber-200 bg-amber-50 text-amber-900'
+                    : 'border border-emerald-200 bg-emerald-50 text-emerald-800'
+                }`}
+              >
+                {economyBatchMode ? 'Switch to fast' : 'Use economy batch'}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <button
           type="button"
           disabled={busy || !sourceFile || credits < 1 || phase === 'batch'}
@@ -1124,7 +1179,7 @@ export default function ResellerEnhancedPicturesPageClient() {
           ) : (
             <Sparkles className="size-5" />
           )}
-          Generate studio shot · 1 credit
+          Generate studio shot · 1 credit{economyBatchMode && geminiBatchAllowed ? ' · economy' : ' · fast'}
         </button>
         {credits < 1 ? (
           <button

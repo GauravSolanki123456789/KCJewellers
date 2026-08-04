@@ -82,7 +82,7 @@ function AdminEnhancedPicturesInner() {
   const [statusMsg, setStatusMsg] = useState('')
   const [aiProvider, setAiProvider] = useState<'gemini' | 'replicate'>('gemini')
   const [geminiModel, setGeminiModel] = useState('gemini-3.1-flash-lite-image')
-  const [geminiBatchEnabled, setGeminiBatchEnabled] = useState(true)
+  const [geminiBatchEnabled, setGeminiBatchEnabled] = useState(false)
   const [replicateModel, setReplicateModel] = useState('black-forest-labs/flux-kontext-pro')
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('')
   const [replicateTokenInput, setReplicateTokenInput] = useState('')
@@ -221,7 +221,7 @@ function AdminEnhancedPicturesInner() {
           setAiProvider(data.ai_settings.provider)
           setGeminiModel(data.ai_settings.gemini_model)
           setReplicateModel(data.ai_settings.replicate_model)
-          setGeminiBatchEnabled(data.ai_settings.gemini_batch_enabled !== false)
+          setGeminiBatchEnabled(data.ai_settings.gemini_batch_enabled === true)
         }
 
         const defaultKey =
@@ -933,12 +933,11 @@ function AdminEnhancedPicturesInner() {
                   />
                   <span>
                     <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                      Gemini Batch API for reseller studio (recommended)
+                      Allow economy batch queue (optional)
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-                      Async queue — ~50% lower cost and much higher rate limits. Reseller staff see a
-                      progress card; results usually arrive within minutes. Prompt Lab tests stay
-                      instant (sync).
+                      Off by default — staff use Fast mode (~30–90s). When on, staff can opt into
+                      slower batch (~50% lower AI cost). Prompt Lab tests stay instant.
                     </span>
                   </span>
                 </label>

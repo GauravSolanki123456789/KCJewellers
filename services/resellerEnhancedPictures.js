@@ -515,7 +515,7 @@ function maskSecret(val) {
 
 function parseAiSettingsRow(row) {
     const batchDefault =
-        process.env.GEMINI_BATCH_DEFAULT !== '0' && process.env.GEMINI_BATCH_DEFAULT !== 'false';
+        process.env.GEMINI_BATCH_DEFAULT === '1' || process.env.GEMINI_BATCH_DEFAULT === 'true';
     if (!row) {
         return {
             provider: 'gemini',
@@ -570,7 +570,7 @@ async function loadResellerAiSettings(query, userId) {
                 reseller_enhanced_gemini_model,
                 reseller_enhanced_replicate_api_token,
                 reseller_enhanced_replicate_model,
-                COALESCE(reseller_enhanced_gemini_batch_enabled, true) AS reseller_enhanced_gemini_batch_enabled
+                COALESCE(reseller_enhanced_gemini_batch_enabled, false) AS reseller_enhanced_gemini_batch_enabled
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -584,7 +584,7 @@ async function loadResellerAiConfigRaw(query, userId) {
                 reseller_enhanced_gemini_model,
                 reseller_enhanced_replicate_api_token,
                 reseller_enhanced_replicate_model,
-                COALESCE(reseller_enhanced_gemini_batch_enabled, true) AS reseller_enhanced_gemini_batch_enabled
+                COALESCE(reseller_enhanced_gemini_batch_enabled, false) AS reseller_enhanced_gemini_batch_enabled
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -643,8 +643,8 @@ function resolveAiConfig(savedSettings, overrides = {}) {
         gemini_batch_enabled:
             savedSettings?.reseller_enhanced_gemini_batch_enabled != null
                 ? !!savedSettings.reseller_enhanced_gemini_batch_enabled
-                : process.env.GEMINI_BATCH_DEFAULT !== '0' &&
-                  process.env.GEMINI_BATCH_DEFAULT !== 'false',
+                : process.env.GEMINI_BATCH_DEFAULT === '1' ||
+                  process.env.GEMINI_BATCH_DEFAULT === 'true',
     };
 }
 
@@ -748,7 +748,7 @@ async function ensureEnhancedPicturesSchema(pool) {
         ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS ai_model VARCHAR(255)
     `);
     await pool.query(`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_enhanced_gemini_batch_enabled BOOLEAN NOT NULL DEFAULT true
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_enhanced_gemini_batch_enabled BOOLEAN NOT NULL DEFAULT false
     `);
     await pool.query(`
         ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS generation_mode VARCHAR(16) NOT NULL DEFAULT 'sync'
@@ -1336,7 +1336,7 @@ let batchPollerStarted = false;
 function startEnhancedBatchPoller(deps) {
     if (batchPollerStarted) return;
     batchPollerStarted = true;
-    const intervalMs = Math.max(15000, parseInt(process.env.GEMINI_BATCH_POLL_MS || '20000', 10));
+    const intervalMs = Math.max(8000, parseInt(process.env.GEMINI_BATCH_POLL_MS || '10000', 10));
     setInterval(async () => {
         try {
             const { query, pool } = deps;
@@ -3157,9 +3157,13 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     prompt.prompt_text,
                     prompt.negative_prompt || '',
                 );
+                const generationMode = String(req.body.generation_mode || 'fast')
+                    .trim()
+                    .toLowerCase();
                 const useGeminiBatch =
                     normalizeAiProvider(aiConfig.provider) === 'gemini' &&
-                    aiConfig.gemini_batch_enabled !== false;
+                    aiConfig.gemini_batch_enabled === true &&
+                    generationMode === 'batch';
 
                 if (useGeminiBatch) {
                     const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
@@ -3172,15 +3176,37 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         workflowHighlights: showcase.workflow_highlights,
                     });
                     const model = aiConfig.gemini_model || getGeminiImageModel();
-                    let batch;
                     try {
-                        batch = await submitGeminiBatchJob({
+                        const batch = await submitGeminiBatchJob({
                             model,
                             apiKey: aiConfig.gemini_api_key,
                             parts,
                             aspectRatio: aspect,
                             displayName: `kc-enhanced-${job.id}`,
                             metadataKey: `job-${job.id}`,
+                        });
+                        const updated = await query(
+                            `UPDATE reseller_enhanced_picture_jobs
+                             SET status = 'batch_processing', generation_mode = 'batch',
+                                 gemini_batch_name = $1, batch_state = $2,
+                                 batch_submitted_at = CURRENT_TIMESTAMP,
+                                 credit_charged = true,
+                                 ai_provider = 'gemini', ai_model = $3
+                             WHERE id = $4
+                             RETURNING *`,
+                            [batch.batchName, batch.batchState, model, job.id],
+                        );
+                        return res.status(202).json({
+                            success: true,
+                            async: true,
+                            job: updated[0],
+                            batch: {
+                                name: batch.batchName,
+                                state: batch.batchState,
+                            },
+                            credits: creditsLeft,
+                            message:
+                                'Queued in economy batch (~50% cost). Usually ready within a few minutes — switch to Fast mode for quicker results.',
                         });
                     } catch (batchErr) {
                         await addCredits(query, pool, {
@@ -3189,31 +3215,11 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                             note: `Refund: batch submit failed for job #${job.id}`,
                             reason: 'batch_refund',
                         });
-                        throw batchErr;
+                        console.warn(
+                            `enhanced batch submit #${job.id} failed, falling back to fast sync:`,
+                            batchErr.message,
+                        );
                     }
-                    const updated = await query(
-                        `UPDATE reseller_enhanced_picture_jobs
-                         SET status = 'batch_processing', generation_mode = 'batch',
-                             gemini_batch_name = $1, batch_state = $2,
-                             batch_submitted_at = CURRENT_TIMESTAMP,
-                             credit_charged = true,
-                             ai_provider = 'gemini', ai_model = $3
-                         WHERE id = $4
-                         RETURNING *`,
-                        [batch.batchName, batch.batchState, model, job.id],
-                    );
-                    return res.status(202).json({
-                        success: true,
-                        async: true,
-                        job: updated[0],
-                        batch: {
-                            name: batch.batchName,
-                            state: batch.batchState,
-                        },
-                        credits: creditsLeft,
-                        message:
-                            'Queued in Gemini Batch API (~50% cost). Your studio shot will appear when processing completes — usually within minutes.',
-                    });
                 }
 
                 const generated = await generateStudioImage({

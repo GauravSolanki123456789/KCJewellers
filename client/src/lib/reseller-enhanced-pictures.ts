@@ -296,10 +296,13 @@ export async function generateEnhancedPicture(opts: {
   photoType?: 'front' | 'back'
   aspectRatio?: string
   canvasText?: string
+  /** fast = sync (~30–90s). batch = economy queue (minutes, ~50% cost). */
+  generationMode?: 'fast' | 'batch'
 }) {
   const fd = new FormData()
   fd.append('image', opts.image)
   fd.append('template_key', opts.templateKey || 'idols')
+  fd.append('generation_mode', opts.generationMode || 'fast')
   if (opts.varietyKey) fd.append('variety_key', opts.varietyKey)
   fd.append('photo_type', opts.photoType || 'front')
   fd.append('aspect_ratio', opts.aspectRatio || '1:1')
