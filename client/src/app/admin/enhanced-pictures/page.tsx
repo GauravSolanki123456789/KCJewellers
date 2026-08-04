@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -40,6 +40,13 @@ import { repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-for
 
 const PROMPT_TEXTAREA_CLASS =
   'mt-1.5 w-full resize-y rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--color-jewelry-black,#1a1814)]'
+
+type LoadPreserveOpts = {
+  templateKey?: string
+  selectedId?: number | null
+  /** Refresh data without blanking the whole page (save / test / activate). */
+  silent?: boolean
+}
 
 function AdminEnhancedPicturesInner() {
   const searchParams = useSearchParams()
@@ -88,6 +95,9 @@ function AdminEnhancedPicturesInner() {
   const [outputSubtitle, setOutputSubtitle] = useState('4K hyper-realistic studio rendering')
   const [footerNote, setFooterNote] = useState('Preserves source details perfectly')
 
+  const stickyTemplateKeyRef = useRef<string | null>(null)
+  const stickySelectedIdRef = useRef<number | null>(null)
+
   const plansSave = useSaveFeedback()
   const paymentSave = useSaveFeedback()
   const aiSave = useSaveFeedback()
@@ -114,8 +124,46 @@ function AdminEnhancedPicturesInner() {
     setNegativePrompt(split.negativePrompt)
     if (p.test_result_image_url) setResultUrl(p.test_result_image_url)
     if (p.test_source_image_url) setSourcePreview(p.test_source_image_url)
-    if (p.template_key) setTemplateKey(p.template_key)
   }, [])
+
+  const applyTemplateShowcase = useCallback(
+    (key: string, list: EnhancedPictureTemplate[]) => {
+      const tpl = list.find((t) => t.key === key)
+      if (tpl?.showcase) applyShowcaseToForm(tpl.showcase)
+    },
+    [applyShowcaseToForm],
+  )
+
+  const selectPrompt = useCallback(
+    (p: EnhancedPicturePrompt) => {
+      stickySelectedIdRef.current = p.id
+      setSelectedId(p.id)
+      applyPromptToForm(p)
+    },
+    [applyPromptToForm],
+  )
+
+  const selectTemplate = useCallback(
+    (key: string, list?: EnhancedPictureTemplate[], promptList?: EnhancedPicturePrompt[]) => {
+      const tpls = list ?? templates
+      const prmpts = promptList ?? prompts
+      stickyTemplateKeyRef.current = key
+      setTemplateKey(key)
+      applyTemplateShowcase(key, tpls)
+      const first = prmpts.find((p) => p.template_key === key)
+      if (first) {
+        selectPrompt(first)
+      } else {
+        stickySelectedIdRef.current = null
+        setSelectedId(null)
+        setName('')
+        setPromptText('')
+        setNegativePrompt('')
+        setResultUrl(null)
+      }
+    },
+    [templates, prompts, applyTemplateShowcase, selectPrompt],
+  )
 
   const selected = useMemo(
     () => prompts.find((p) => p.id === selectedId) || null,
@@ -132,88 +180,101 @@ function AdminEnhancedPicturesInner() {
     [prompts, templateKey],
   )
 
-  const load = useCallback(async () => {
-    if (!userId) {
-      setError('Open this page from B2B clients → Edit reseller → Manage prompts.')
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    setError('')
-    try {
-      const data = await fetchAdminEnhancedPrompts(userId)
-      setBusinessName(data.user.business_name || '')
-      setEmail(data.user.email || '')
-      setEnabled(!!data.user.reseller_enhanced_pictures_enabled)
-      setCredits(data.user.credits ?? 0)
-      setCreditInput(String(data.user.credits ?? 0))
-      setRazorpayEnabled(!!data.user.razorpay_enabled)
-      setBankDetails(data.user.bank_details || '')
-      setPaymentQrUrl(data.user.payment_qr_url || null)
-      setPlans(
-        (data.plans || []).map((p) => ({
-          id: p.id,
-          name: p.name,
-          credits: Number(p.credits),
-          price_inr: Number(p.price_inr),
-          sort_order: p.sort_order,
-          is_active: p.is_active !== false,
-        })),
-      )
-      setPrompts(data.prompts)
-      setTemplates(data.templates || [])
-      if (data.ai_settings) {
-        setAiSettingsMeta(data.ai_settings)
-        setAiProvider(data.ai_settings.provider)
-        setGeminiModel(data.ai_settings.gemini_model)
-        setReplicateModel(data.ai_settings.replicate_model)
+  const load = useCallback(
+    async (preserve?: LoadPreserveOpts) => {
+      if (!userId) {
+        setError('Open this page from B2B clients → Edit reseller → Manage prompts.')
+        setLoading(false)
+        return
       }
-      const idolsTemplate = data.templates?.find((t) => t.key === 'idols') || data.templates?.[0]
-      if (idolsTemplate?.showcase) {
-        setTemplateKey(idolsTemplate.key)
-        applyShowcaseToForm(idolsTemplate.showcase)
+      if (!preserve?.silent) setLoading(true)
+      setError('')
+      try {
+        const data = await fetchAdminEnhancedPrompts(userId)
+        setBusinessName(data.user.business_name || '')
+        setEmail(data.user.email || '')
+        setEnabled(!!data.user.reseller_enhanced_pictures_enabled)
+        setCredits(data.user.credits ?? 0)
+        setCreditInput(String(data.user.credits ?? 0))
+        setRazorpayEnabled(!!data.user.razorpay_enabled)
+        setBankDetails(data.user.bank_details || '')
+        setPaymentQrUrl(data.user.payment_qr_url || null)
+        setPlans(
+          (data.plans || []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            credits: Number(p.credits),
+            price_inr: Number(p.price_inr),
+            sort_order: p.sort_order,
+            is_active: p.is_active !== false,
+          })),
+        )
+        setPrompts(data.prompts)
+        const nextTemplates = data.templates || []
+        setTemplates(nextTemplates)
+        if (data.ai_settings) {
+          setAiSettingsMeta(data.ai_settings)
+          setAiProvider(data.ai_settings.provider)
+          setGeminiModel(data.ai_settings.gemini_model)
+          setReplicateModel(data.ai_settings.replicate_model)
+        }
+
+        const defaultKey =
+          nextTemplates.find((t) => t.key === 'idols')?.key ?? nextTemplates[0]?.key ?? 'idols'
+        const preserveKey =
+          preserve?.templateKey ?? stickyTemplateKeyRef.current ?? defaultKey
+        const tpl =
+          nextTemplates.find((t) => t.key === preserveKey) ?? nextTemplates[0] ?? null
+        const resolvedKey = tpl?.key ?? preserveKey
+
+        stickyTemplateKeyRef.current = resolvedKey
+        setTemplateKey(resolvedKey)
+        if (tpl?.showcase) applyShowcaseToForm(tpl.showcase)
+
+        const preserveSelectedId =
+          preserve?.selectedId !== undefined
+            ? preserve.selectedId
+            : stickySelectedIdRef.current
+
+        let prompt: EnhancedPicturePrompt | null = null
+        if (preserveSelectedId != null) {
+          prompt =
+            data.prompts.find(
+              (p) => p.id === preserveSelectedId && p.template_key === resolvedKey,
+            ) ?? null
+        }
+        if (!prompt) {
+          prompt =
+            data.prompts.find((p) => p.is_active && p.template_key === resolvedKey) ??
+            data.prompts.find((p) => p.template_key === resolvedKey) ??
+            null
+        }
+
+        if (prompt) {
+          stickySelectedIdRef.current = prompt.id
+          setSelectedId(prompt.id)
+          applyPromptToForm(prompt)
+        } else {
+          stickySelectedIdRef.current = null
+          setSelectedId(null)
+        }
+      } catch (e: unknown) {
+        setError(
+          (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data
+            ?.error ||
+            (e as { message?: string })?.message ||
+            'Failed to load prompts',
+        )
+      } finally {
+        if (!preserve?.silent) setLoading(false)
       }
-      const active =
-        data.prompts.find((p) => p.is_active && p.template_key === (idolsTemplate?.key || 'idols')) ||
-        data.prompts.find((p) => p.template_key === (idolsTemplate?.key || 'idols')) ||
-        data.prompts.find((p) => p.is_active) ||
-        data.prompts[0]
-      if (active) {
-        setSelectedId(active.id)
-        applyPromptToForm(active)
-      }
-    } catch (e: unknown) {
-      setError(
-        (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data
-          ?.error ||
-          (e as { message?: string })?.message ||
-          'Failed to load prompts',
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [userId, applyShowcaseToForm, applyPromptToForm])
+    },
+    [userId, applyShowcaseToForm, applyPromptToForm],
+  )
 
   useEffect(() => {
     void load()
   }, [load])
-
-  useEffect(() => {
-    if (!selected) return
-    applyPromptToForm(selected)
-  }, [selected, applyPromptToForm])
-
-  useEffect(() => {
-    const tpl = templates.find((t) => t.key === templateKey)
-    if (tpl?.showcase) applyShowcaseToForm(tpl.showcase)
-  }, [templateKey, templates, applyShowcaseToForm])
-
-  useEffect(() => {
-    if (!promptsForTemplate.length) return
-    if (!promptsForTemplate.some((p) => p.id === selectedId)) {
-      setSelectedId(promptsForTemplate[0].id)
-    }
-  }, [templateKey, promptsForTemplate, selectedId])
 
   const restorePromptFormatting = () => {
     const split = splitMasterAndNegative(promptText, negativePrompt)
@@ -230,10 +291,7 @@ function AdminEnhancedPicturesInner() {
     setStatusMsg('Creating template…')
     try {
       const created = await createAdminEnhancedTemplate(userId, { label })
-      await load()
-      setTemplateKey(created.key)
-      setSelectedId(created.prompt.id)
-      applyPromptToForm(created.prompt)
+      await load({ templateKey: created.key, selectedId: created.prompt.id })
       setStatusMsg(`Template "${label}" created — fill in master prompt, negative prompt, and workflow highlights.`)
     } catch (e: unknown) {
       setStatusMsg(
@@ -284,8 +342,7 @@ function AdminEnhancedPicturesInner() {
       setResultUrl(data.result_image_url)
       setSourcePreview(data.source_image_url)
       setLastTestAi({ provider: data.ai_provider, model: data.ai_model })
-      await load()
-      setSelectedId(data.prompt.id)
+      await load({ templateKey, selectedId: data.prompt.id, silent: true })
       setStatusMsg('Test image ready. Activate this prompt when you are happy with it.')
     } catch (e: unknown) {
       setStatusMsg(
@@ -310,7 +367,7 @@ function AdminEnhancedPicturesInner() {
           prompt_text: split.promptText,
           negative_prompt: split.negativePrompt,
         })
-        await load()
+        await load({ templateKey, selectedId, silent: true })
         setStatusMsg('Prompt saved.')
       } catch (e: unknown) {
         setStatusMsg(
@@ -325,7 +382,7 @@ function AdminEnhancedPicturesInner() {
     setBusy(true)
     try {
       await activateAdminEnhancedPrompt(selectedId)
-      await load()
+      await load({ templateKey, selectedId, silent: true })
       setStatusMsg('This prompt is now active for the reseller studio.')
     } catch (e: unknown) {
       setStatusMsg(
@@ -342,7 +399,7 @@ function AdminEnhancedPicturesInner() {
     setBusy(true)
     try {
       await deleteAdminEnhancedPrompt(id)
-      await load()
+      await load({ templateKey, silent: true })
       setStatusMsg('Prompt deleted.')
     } catch (e: unknown) {
       setStatusMsg(
@@ -423,7 +480,7 @@ function AdminEnhancedPicturesInner() {
         setPaymentQrUrl(data.payment?.payment_qr_url || paymentQrUrl)
         setQrFile(null)
         setStatusMsg('Payment settings saved.')
-        await load()
+        await load({ templateKey, selectedId, silent: true })
       } catch (e: unknown) {
         setStatusMsg(
           (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
@@ -1034,7 +1091,7 @@ function AdminEnhancedPicturesInner() {
                       <button
                         key={t.key}
                         type="button"
-                        onClick={() => setTemplateKey(t.key)}
+                        onClick={() => selectTemplate(t.key)}
                         className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                           templateKey === t.key
                             ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
@@ -1066,7 +1123,7 @@ function AdminEnhancedPicturesInner() {
                         <button
                           key={p.id}
                           type="button"
-                          onClick={() => setSelectedId(p.id)}
+                          onClick={() => selectPrompt(p)}
                           className={`w-full rounded-xl border px-3 py-2.5 text-left ${
                             selectedId === p.id
                               ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8'
