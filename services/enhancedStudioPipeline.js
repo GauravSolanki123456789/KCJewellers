@@ -35,7 +35,7 @@ async function pollReplicatePrediction(token, predictionId, maxWaitMs = 120000) 
             err.status = 502;
             throw err;
         }
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 800));
     }
     const err = new Error('Replicate timed out.');
     err.status = 504;
@@ -191,23 +191,10 @@ async function upscaleImage(imagePath, replicateToken) {
 function spatialLockPromptBlock() {
     return `
 
-############################################
-PIPELINE STEP 2 — SPATIAL LOCK (CRITICAL)
-############################################
-The attached photo is the EXACT product to preserve.
-Treat every edge pixel as a HARD BOUNDARY.
-Do NOT alter silhouette, proportions, engravings, relief depth, ornaments, or metal finish by even 1mm.
-Do NOT redraw or reinvent the product geometry.
-The product identity is LOCKED — you may only generate environment, lighting, and reflections AROUND it.
-
-############################################
-PIPELINE STEP 3 — COMPOSITE + RELIGHT
-############################################
-Generate the luxury studio scene BEHIND and AROUND the locked product:
-background, tabletop, glass dome/base (if the style requires), atmospheric lighting.
-Relight the metal realistically from the new studio lights — natural speculars and soft contact shadows.
-Do NOT paint fake lighting that ignores metal physics.
-Preserve 100% product identity while making the photograph look like a real multi-million-dollar studio shot.`;
+[PIPELINE — SPATIAL LOCK]
+The attached photo is the EXACT product. Do NOT redraw, warp, melt, or alter silhouette, proportions, engravings, relief, ornaments, or metal finish.
+Generate ONLY the studio environment, lighting, and reflections AROUND the locked product.
+The product must remain pixel-faithful — no geometry changes, no invented details, no removed details.`;
 }
 
 function isGeminiProvider(aiConfig) {
@@ -275,8 +262,17 @@ async function runFourStepStudioPipeline({
     });
     steps.generate = true;
 
-    // Skip upscale for Gemini 2K — faster and avoids Real-ESRGAN tile seam artifacts.
-    const shouldUpscale = !geminiPath && token && process.env.ENHANCED_SKIP_UPSCALE !== '1';
+    // Skip AI upscale — Real-ESRGAN tile seams break silver/gold product photos.
+    // Gemini 2K and Replicate outputs are already catalogue-ready.
+    cleanupTemp(cutout.usedRembg ? cutout.path : null);
+    return {
+        ...generated,
+        pipeline: steps,
+        pipeline_mode: geminiPath ? 'studio_gemini_fast' : 'studio_4step',
+    };
+
+    /* upscale disabled — kept for reference if ENHANCED_FORCE_UPSCALE=1 is ever needed
+    const shouldUpscale = !geminiPath && token && process.env.ENHANCED_FORCE_UPSCALE === '1';
     if (!shouldUpscale) {
         cleanupTemp(cutout.usedRembg ? cutout.path : null);
         return {
@@ -285,36 +281,7 @@ async function runFourStepStudioPipeline({
             pipeline_mode: geminiPath ? 'studio_gemini_fast' : 'studio_4step',
         };
     }
-
-    const genPath = writeTempBuffer(
-        generated.buffer,
-        generated.mimeType?.includes('jpeg') || generated.mimeType?.includes('jpg')
-            ? '.jpg'
-            : generated.mimeType?.includes('webp')
-              ? '.webp'
-              : '.png',
-    );
-
-    const upscaled = await upscaleImage(genPath, token);
-    cleanupTemp(cutout.usedRembg && cutout.path !== sourceImagePath ? cutout.path : null, genPath);
-
-    if (upscaled?.buffer) {
-        steps.upscale = true;
-        return {
-            buffer: upscaled.buffer,
-            mimeType: upscaled.mimeType || 'image/png',
-            provider: generated.provider,
-            model: `${generated.model}+pipeline`,
-            pipeline: steps,
-            pipeline_mode: 'studio_4step',
-        };
-    }
-
-    return {
-        ...generated,
-        pipeline: steps,
-        pipeline_mode: 'studio_4step',
-    };
+    ... */
 }
 
 module.exports = {

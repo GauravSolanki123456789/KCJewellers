@@ -85,6 +85,7 @@ type Props = {
   onReload: (opts?: {
     templateKey?: string
     selectedId?: number | null
+    varietyKey?: string | null
     silent?: boolean
   }) => Promise<void>
   onStatus: (msg: string) => void
@@ -319,26 +320,46 @@ export default function PromptLabWorkspace(props: Props) {
 
   const saveChanges = () =>
     saveFb.runSave(async () => {
-      const split = splitMasterAndNegative(promptText, negativePrompt)
-      const data = await saveAdminEnhancedPromptLab(userId, {
-        template_key: templateKey,
-        variety_key: selectedVarietyKey,
-        prompt_id: selectedId,
-        name: name || 'Studio prompt',
-        prompt_text: split.promptText,
-        negative_prompt: split.negativePrompt,
-        workflow_highlights: workflowHighlightsText,
-        system_resolutions: systemResolutions,
-        system_ratios: systemRatios,
-        sample_label: sampleLabel,
-        output_label: outputLabel,
-        output_subtitle: outputSubtitle,
-        footer_note: footerNote,
-        template_enabled: templateEnabled,
-        activate: true,
-      })
-      await onReload({ templateKey, selectedId: data.prompt.id, silent: true })
-      onStatus('Saved & activated. Sub-template label updated for reseller.')
+      try {
+        const split = splitMasterAndNegative(promptText, negativePrompt)
+        const data = await saveAdminEnhancedPromptLab(userId, {
+          template_key: templateKey,
+          variety_key: selectedVarietyKey,
+          prompt_id: selectedId,
+          name: name || 'Studio prompt',
+          prompt_text: split.promptText,
+          negative_prompt: split.negativePrompt,
+          workflow_highlights: workflowHighlightsText,
+          system_resolutions: systemResolutions,
+          system_ratios: systemRatios,
+          sample_label: sampleLabel,
+          output_label: outputLabel,
+          output_subtitle: outputSubtitle,
+          footer_note: footerNote,
+          template_enabled: templateEnabled,
+          activate: true,
+        })
+        onName(data.prompt.name)
+        await onReload({
+          templateKey,
+          selectedId: data.prompt.id,
+          varietyKey: data.variety_key ?? selectedVarietyKey,
+          silent: true,
+        })
+        onStatus(
+          selectedVarietyKey
+            ? `Saved & activated. Sub-template renamed to “${data.prompt.name}”.`
+            : 'Saved & activated for reseller.',
+        )
+      } catch (e: unknown) {
+        onStatus(
+          (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data
+            ?.error ||
+            (e as { message?: string })?.message ||
+            'Save failed — please try again.',
+        )
+        throw e
+      }
     })
 
   const toggleTemplateAccess = async () => {
@@ -398,8 +419,13 @@ export default function PromptLabWorkspace(props: Props) {
       onResultUrl(data.result_image_url)
       onSourcePreview(data.source_image_url)
       onLastTestAi({ provider: data.ai_provider, model: data.ai_model })
-      await onReload({ templateKey, selectedId: data.prompt.id, silent: true })
-      onStatus('Test complete — preview updated. Click Save changes to activate for reseller.')
+      await onReload({
+        templateKey,
+        selectedId: data.prompt.id,
+        varietyKey: selectedVarietyKey,
+        silent: true,
+      })
+      onStatus('Test complete — preview updated below. Click Save changes to activate for reseller.')
     } catch (e: unknown) {
       onStatus(
         (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data
@@ -487,11 +513,19 @@ export default function PromptLabWorkspace(props: Props) {
                 onClick={() => selectTemplate(t.key)}
                 className={`min-h-[44px] rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
                   templateKey === t.key
-                    ? 'border-[var(--kc-accent,#047857)] bg-[var(--kc-accent,#047857)]/10 text-[var(--color-jewelry-black,#1a1814)] shadow-sm'
-                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                    ? 'border-emerald-700 bg-emerald-50 text-emerald-950 shadow-sm ring-1 ring-emerald-700/25'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-emerald-200'
                 }`}
               >
-                <span className="block">{t.label}</span>
+                <span
+                  className={`block ${
+                    templateKey === t.key
+                      ? 'text-emerald-950'
+                      : 'text-[var(--color-jewelry-black,#1a1814)]'
+                  }`}
+                >
+                  {t.label}
+                </span>
                 {t.is_enabled === false ? (
                   <span className="text-[10px] font-medium text-rose-700">Hidden</span>
                 ) : null}
@@ -534,7 +568,7 @@ export default function PromptLabWorkspace(props: Props) {
               onClick={() => selectSubtemplate(null)}
               className={`min-h-[40px] rounded-xl px-3 text-sm font-semibold ${
                 !selectedVarietyKey
-                  ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                  ? 'border border-emerald-700 bg-emerald-700 text-white shadow-sm'
                   : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
               }`}
             >
@@ -547,11 +581,11 @@ export default function PromptLabWorkspace(props: Props) {
                   onClick={() => selectSubtemplate(v)}
                   className={`min-h-[40px] rounded-xl px-3 text-sm font-semibold ${
                     selectedVarietyKey === v.variety_key
-                      ? 'border border-[var(--kc-accent,#047857)] bg-[var(--kc-accent,#047857)] text-white'
-                      : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                      ? 'border border-emerald-700 bg-emerald-700 text-white shadow-sm'
+                      : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-emerald-200'
                   }`}
                 >
-                  {selectedVarietyKey === v.variety_key && name.trim() ? name : v.variety_label}
+                  {v.variety_label}
                   {v.is_enabled === false ? (
                     <span className="ml-1 text-[10px] opacity-80">off</span>
                   ) : null}

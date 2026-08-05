@@ -316,7 +316,7 @@ export async function generateEnhancedPicture(opts: {
   const res = await axios.post<EnhancedGenerateResult>(
     `${apiBase()}/api/reseller/enhanced-pictures/generate`,
     fd,
-    { withCredentials: true, timeout: 360000 },
+    { withCredentials: true, timeout: 120000, validateStatus: (s) => s >= 200 && s < 300 },
   )
   return res.data
 }

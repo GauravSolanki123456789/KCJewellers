@@ -1277,6 +1277,80 @@ async function finalizeEnhancedPictureJob({
     return { job: updated[0], resultUrl, finalDownload, attach };
 }
 
+/** Background fast-mode generation — avoids proxy timeouts on long AI calls. */
+async function processEnhancedSyncJob(jobId, params, deps) {
+    const { query, pool, enhancedDir, getPublicApiBaseUrl, uploadsWebProductsDir } = deps;
+    const {
+        sourceImagePath,
+        aspectRatio,
+        canvasText,
+        barcodeStem,
+        photoType,
+        downloadFilename,
+        resellerUserId,
+        promptText,
+        negativePrompt,
+        workflowHighlights,
+    } = params;
+
+    try {
+        const active = await query(
+            `SELECT * FROM reseller_enhanced_picture_jobs
+             WHERE id = $1 AND deleted_at IS NULL AND status = 'processing'`,
+            [jobId],
+        );
+        if (!active.length) return;
+        const job = active[0];
+
+        const aiConfig = await resolveAiConfigForUser(query, resellerUserId);
+        const generated = await generateStudioImage({
+            promptText,
+            negativePrompt,
+            sourceImagePath,
+            aspectRatio,
+            canvasText,
+            aiConfig,
+            workflowHighlights,
+        });
+
+        const stillActive = await query(
+            `SELECT id FROM reseller_enhanced_picture_jobs
+             WHERE id = $1 AND deleted_at IS NULL AND status = 'processing'`,
+            [jobId],
+        );
+        if (!stillActive.length) return;
+
+        await consumeOneCredit(query, pool, resellerUserId);
+        await finalizeEnhancedPictureJob({
+            query,
+            pool,
+            job: { ...job, reseller_user_id: resellerUserId },
+            generated,
+            aiConfig,
+            enhancedDir,
+            getPublicApiBaseUrl,
+            uploadsWebProductsDir,
+            barcodeStem,
+            photoType,
+            downloadFilename,
+        });
+        await query(
+            `UPDATE reseller_enhanced_picture_jobs
+             SET generation_mode = 'sync', credit_charged = true
+             WHERE id = $1`,
+            [jobId],
+        );
+    } catch (genErr) {
+        console.error(`enhanced sync job #${jobId}:`, genErr);
+        await query(
+            `UPDATE reseller_enhanced_picture_jobs
+             SET status = 'failed', error_message = $1, batch_completed_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND status = 'processing' AND deleted_at IS NULL`,
+            [String(genErr.message || 'Generation failed').slice(0, 1000), jobId],
+        );
+    }
+}
+
 async function processEnhancedBatchJobRow(job, deps) {
     const { query, pool, enhancedDir, getPublicApiBaseUrl, uploadsWebProductsDir } = deps;
     if (!job?.gemini_batch_name || !job?.id) return;
@@ -3496,51 +3570,54 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                             reason: 'batch_refund',
                         });
                         console.warn(
-                            `enhanced batch submit #${job.id} failed, falling back to fast sync:`,
+                            `enhanced batch submit #${job.id} failed, falling back to fast async:`,
                             batchErr.message,
                         );
                     }
                 }
 
-                const generated = await generateStudioImage({
-                    promptText: normalized.promptText,
-                    negativePrompt: normalized.negativePrompt,
+                const syncParams = {
                     sourceImagePath: req.file.path,
                     aspectRatio,
                     canvasText,
-                    aiConfig,
-                    workflowHighlights: showcase.workflow_highlights,
-                });
-                const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
-                const finalized = await finalizeEnhancedPictureJob({
-                    query,
-                    pool,
-                    job: { ...job, reseller_user_id: req.user.id },
-                    generated,
-                    aiConfig,
-                    enhancedDir,
-                    getPublicApiBaseUrl,
-                    uploadsWebProductsDir,
                     barcodeStem,
                     photoType,
                     downloadFilename,
-                });
-                await query(
-                    `UPDATE reseller_enhanced_picture_jobs SET generation_mode = 'sync', credit_charged = true WHERE id = $1`,
-                    [job.id],
-                );
+                    resellerUserId: req.user.id,
+                    promptText: normalized.promptText,
+                    negativePrompt: normalized.negativePrompt,
+                    workflowHighlights: showcase.workflow_highlights,
+                };
+                const syncDeps = {
+                    query,
+                    pool,
+                    enhancedDir,
+                    getPublicApiBaseUrl,
+                    uploadsWebProductsDir,
+                };
 
-                res.json({
+                res.status(202).json({
                     success: true,
-                    async: false,
-                    job: finalized.job,
-                    result_image_url: finalized.resultUrl,
-                    download_filename: finalized.finalDownload,
-                    aspect_ratio: aspectRatio,
-                    canvas_text: canvasText || null,
-                    credits: creditsLeft,
-                    attach: finalized.attach,
+                    async: true,
+                    job: {
+                        id: job.id,
+                        status: 'processing',
+                        template_key: templateKey,
+                        source_image_url: sourceUrl,
+                        aspect_ratio: aspectRatio,
+                        generation_mode: 'sync',
+                    },
+                    credits: creditCheck.credits,
+                    message:
+                        'Crafting studio quality photo… Usually ready in 30–90 seconds. You can keep using the page.',
                 });
+
+                setImmediate(() => {
+                    processEnhancedSyncJob(job.id, syncParams, syncDeps).catch((e) => {
+                        console.error(`enhanced sync background #${job.id}:`, e);
+                    });
+                });
+                return;
             } catch (genErr) {
                 await query(
                     `UPDATE reseller_enhanced_picture_jobs

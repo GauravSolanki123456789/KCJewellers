@@ -31,6 +31,7 @@ import { repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-for
 type LoadPreserveOpts = {
   templateKey?: string
   selectedId?: number | null
+  varietyKey?: string | null
   /** Refresh data without blanking the whole page (save / test / activate). */
   silent?: boolean
 }
@@ -87,6 +88,7 @@ function AdminEnhancedPicturesInner() {
 
   const stickyTemplateKeyRef = useRef<string | null>(null)
   const stickySelectedIdRef = useRef<number | null>(null)
+  const stickyVarietyKeyRef = useRef<string | null>(null)
 
   const plansSave = useSaveFeedback()
   const paymentSave = useSaveFeedback()
@@ -235,9 +237,17 @@ function AdminEnhancedPicturesInner() {
           stickySelectedIdRef.current = prompt.id
           setSelectedId(prompt.id)
           applyPromptToForm(prompt)
+          const nextVarietyKey =
+            preserve?.varietyKey !== undefined
+              ? preserve.varietyKey
+              : prompt.variety_key || stickyVarietyKeyRef.current
+          stickyVarietyKeyRef.current = nextVarietyKey
+          setSelectedVarietyKey(nextVarietyKey)
         } else {
           stickySelectedIdRef.current = null
+          stickyVarietyKeyRef.current = null
           setSelectedId(null)
+          setSelectedVarietyKey(null)
         }
       } catch (e: unknown) {
         setError(
@@ -256,6 +266,12 @@ function AdminEnhancedPicturesInner() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!statusMsg) return
+    const t = window.setTimeout(() => setStatusMsg(''), 12000)
+    return () => window.clearTimeout(t)
+  }, [statusMsg])
 
   const onPickFile = (file: File | null) => {
     setSourceFile(file)

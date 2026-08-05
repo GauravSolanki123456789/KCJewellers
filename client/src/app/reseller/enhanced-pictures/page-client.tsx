@@ -315,28 +315,32 @@ export default function ResellerEnhancedPicturesPageClient() {
     pollGenerationRef.current += 1
   }, [])
 
-  const pollBatchJob = useCallback(async (id: number) => {
+  const pollBatchJob = useCallback(async (id: number, isEconomyBatch = false) => {
     const token = ++pollGenerationRef.current
-    const maxAttempts = 360
+    const maxAttempts = isEconomyBatch ? 360 : 90
+    const pollMs = isEconomyBatch ? 2500 : 2000
     for (let i = 0; i < maxAttempts; i += 1) {
       if (pollGenerationRef.current !== token) return
-      await new Promise((r) => setTimeout(r, 2500))
+      await new Promise((r) => setTimeout(r, pollMs))
       if (pollGenerationRef.current !== token) return
       try {
         const job = await fetchEnhancedJobStatus(id)
         if (pollGenerationRef.current !== token) return
         setBatchState(job.batch_state || job.status || null)
-        setProgress(Math.min(92, 18 + i * 0.25))
+        setProgress(Math.min(92, 18 + i * (isEconomyBatch ? 0.25 : 0.85)))
         if (job.status === 'completed' && job.result_image_url) {
           setResultUrl(job.result_image_url)
           setDownloadName(job.download_filename || suggestedFilename || 'studio-shot.webp')
           setPhase('done')
           setProgress(100)
-          setAttachMsg('Generated. Rename with barcode, then attach or download.')
+          setError('')
+          setAttachMsg('Studio shot ready! Download below or attach to a barcode.')
           setBusy(false)
           void loadRecentJobs(true)
           const h = await fetchBarcodeHints().catch(() => null)
           if (h) setHints(h)
+          const boot = await fetchEnhancedBootstrap({ jobLimit: 5, includeHints: false }).catch(() => null)
+          if (boot && typeof boot.credits === 'number') setCredits(boot.credits)
           return
         }
         if (job.status === 'failed' || job.status === 'cancelled') {
@@ -346,7 +350,7 @@ export default function ResellerEnhancedPicturesPageClient() {
             setAttachMsg('Job stopped. Your credit was refunded.')
             setError('')
           } else {
-            setError(job.error_message || 'Batch generation failed. Your credit was refunded.')
+            setError(job.error_message || 'Generation failed. Your credit was refunded if charged.')
           }
           void loadRecentJobs(true)
           return
@@ -358,7 +362,11 @@ export default function ResellerEnhancedPicturesPageClient() {
     if (pollGenerationRef.current !== token) return
     setPhase('idle')
     setBusy(false)
-    setError('Still processing in Gemini Batch queue. Check Recent studio jobs below — we keep tracking in the background.')
+    setError(
+      isEconomyBatch
+        ? 'Still processing in Gemini Batch queue. Check Recent studio jobs below — we keep tracking in the background.'
+        : 'Still processing — check Recent studio jobs below. Your image usually appears within a minute.',
+    )
     void loadRecentJobs(true)
   }, [suggestedFilename, loadRecentJobs])
 
@@ -417,7 +425,7 @@ export default function ResellerEnhancedPicturesPageClient() {
         setBatchMessage('Resuming batch job — usually ready within a few minutes.')
         setBatchState(job.batch_state || job.status)
         setProgress(22)
-        void pollBatchJob(job.id)
+        void pollBatchJob(job.id, job.generation_mode === 'batch')
       }
     },
     [pollBatchJob],
@@ -546,15 +554,19 @@ export default function ResellerEnhancedPicturesPageClient() {
       if (data.async && data.job?.id) {
         queuedBatch = true
         setJobId(data.job.id)
+        const isEconomyBatch =
+          data.job.generation_mode === 'batch' || !!data.batch?.name || !!data.batch?.state
         setBatchMessage(
           data.message ||
-            'Queued in Gemini Batch (~50% cost). Usually ready within a few minutes.',
+            (isEconomyBatch
+              ? 'Queued in Gemini Batch (~50% cost). Usually ready within a few minutes.'
+              : 'Crafting studio quality photo… Usually ready in 30–90 seconds.'),
         )
-        setBatchState(data.batch?.state || data.job.batch_state || 'JOB_STATE_PENDING')
-        setPhase('batch')
-        setProgress(22)
+        setBatchState(data.batch?.state || data.job.batch_state || data.job.status || 'processing')
+        setPhase(isEconomyBatch ? 'batch' : 'preparing')
+        setProgress(isEconomyBatch ? 22 : 18)
         void loadRecentJobs(true)
-        void pollBatchJob(data.job.id)
+        void pollBatchJob(data.job.id, isEconomyBatch)
         return
       }
 
@@ -587,28 +599,46 @@ export default function ResellerEnhancedPicturesPageClient() {
         /timeout|network error/i.test(err?.message || '')
 
       if (isTimeout) {
-        try {
-          const list = await fetchEnhancedJobs(5)
-          const fresh = list.find(
-            (j) =>
-              j.status === 'completed' &&
-              j.result_image_url &&
-              Date.now() - new Date(j.created_at).getTime() < 6 * 60 * 1000,
-          )
-          if (fresh) {
-            setResultUrl(fresh.result_image_url || null)
-            setJobId(fresh.id)
-            setDownloadName(fresh.download_filename || suggestedFilename || 'studio-shot.webp')
-            setPhase('done')
-            setProgress(100)
-            setAttachMsg(
-              'Studio shot finished — the connection timed out while waiting, but your image is ready below.',
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          await new Promise((r) => setTimeout(r, 3000))
+          try {
+            const list = await fetchEnhancedJobs(8)
+            const fresh = list.find(
+              (j) =>
+                j.status === 'completed' &&
+                j.result_image_url &&
+                Date.now() - new Date(j.created_at).getTime() < 8 * 60 * 1000,
             )
-            void loadRecentJobs(true)
-            return
+            if (fresh) {
+              setResultUrl(fresh.result_image_url || null)
+              setJobId(fresh.id)
+              setDownloadName(fresh.download_filename || suggestedFilename || 'studio-shot.webp')
+              setPhase('done')
+              setProgress(100)
+              setError('')
+              setAttachMsg(
+                'Studio shot finished — the connection timed out while waiting, but your image is ready below.',
+              )
+              setBusy(false)
+              void loadRecentJobs(true)
+              return
+            }
+            const processing = list.find(
+              (j) =>
+                j.status === 'processing' &&
+                Date.now() - new Date(j.created_at).getTime() < 8 * 60 * 1000,
+            )
+            if (processing?.id) {
+              setJobId(processing.id)
+              setPhase('preparing')
+              setAttachMsg('Still generating in the background…')
+              void pollBatchJob(processing.id, false)
+              setBusy(false)
+              return
+            }
+          } catch {
+            /* retry */
           }
-        } catch {
-          /* fall through */
         }
       }
 
