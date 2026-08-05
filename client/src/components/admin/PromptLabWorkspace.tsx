@@ -341,6 +341,8 @@ export default function PromptLabWorkspace(props: Props) {
           activate: true,
         })
         onName(data.prompt.name)
+        onPromptText(data.prompt.prompt_text)
+        onNegativePrompt(data.prompt.negative_prompt || '')
         await onReload({
           templateKey,
           selectedId: data.prompt.id,

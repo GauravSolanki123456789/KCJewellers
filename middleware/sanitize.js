@@ -17,18 +17,26 @@
    return DEFAULT_STRING_MAX;
  }
 
- function clampString(s, maxLen = DEFAULT_STRING_MAX) {
-   if (typeof s !== 'string') return s;
-   let v = s.replace(/[\u0000-\u001F\u007F]/g, '');
-   v = v.replace(/<\s*script[^>]*>.*?<\s*\/\s*script\s*>/gis, '');
-   v = v.trim();
-   if (v.length > maxLen) v = v.slice(0, maxLen);
-   return v;
- }
+function clampString(s, maxLen = DEFAULT_STRING_MAX, key = '') {
+  if (typeof s !== 'string') return s;
+  const preserveBreaks = LONG_TEXT_KEYS.has(String(key || ''));
+  let v;
+  if (preserveBreaks) {
+    // Keep newlines and tabs for AI prompts / multi-line settings; strip other control chars.
+    v = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+    v = v.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  } else {
+    v = s.replace(/[\u0000-\u001F\u007F]/g, '');
+  }
+  v = v.replace(/<\s*script[^>]*>.*?<\s*\/\s*script\s*>/gis, '');
+  v = v.trim();
+  if (v.length > maxLen) v = v.slice(0, maxLen);
+  return v;
+}
  
  function sanitizeValue(v, key) {
    if (v == null) return v;
-   if (typeof v === 'string') return clampString(v, maxLenForKey(key));
+  if (typeof v === 'string') return clampString(v, maxLenForKey(key), key);
    if (Array.isArray(v)) return v.map((entry) => sanitizeValue(entry, key));
    if (typeof v === 'object') return sanitizeObject(v);
    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
