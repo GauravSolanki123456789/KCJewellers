@@ -215,9 +215,16 @@ function repairPromptFormatting(text) {
     return s;
 }
 
+function stripSampleImgMarkers(text) {
+    return String(text || '')
+        .replace(/\[SampleImg:\s*data:image[^\]]*\]/gi, '')
+        .replace(/\[SampleImg:[^\]]*\]/gi, '')
+        .trim();
+}
+
 function splitMasterAndNegative(promptText, negativePrompt) {
-    let master = repairPromptFormatting(promptText);
-    let neg = repairPromptFormatting(negativePrompt);
+    let master = repairPromptFormatting(stripSampleImgMarkers(promptText));
+    let neg = repairPromptFormatting(stripSampleImgMarkers(negativePrompt));
     const re = /\n\nNEGATIVE PROMPT:\s*\n/i;
     const match = master.match(re);
     if (match && match.index != null) {
@@ -2327,6 +2334,15 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         [promptRow.id],
                     );
                     promptRow = act[0];
+                }
+
+                if (varietyKey && promptName) {
+                    await query(
+                        `UPDATE reseller_enhanced_picture_varieties
+                         SET variety_label = $1, updated_at = CURRENT_TIMESTAMP
+                         WHERE reseller_user_id = $2 AND template_key = $3 AND variety_key = $4`,
+                        [promptName, userId, templateKey, varietyKey],
+                    );
                 }
 
                 res.json({

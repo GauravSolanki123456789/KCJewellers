@@ -575,13 +575,48 @@ export default function ResellerEnhancedPicturesPageClient() {
       if (h) setHints(h)
     } catch (e: unknown) {
       setPhase('idle')
-      const status = (e as { response?: { status?: number; data?: { error?: string; credits?: number } } })
-        ?.response
+      const err = e as {
+        response?: { status?: number; data?: { error?: string; credits?: number } }
+        message?: string
+        code?: string
+      }
+      const status = err?.response
+      const isTimeout =
+        err?.code === 'ECONNABORTED' ||
+        err?.message === 'Network Error' ||
+        /timeout|network error/i.test(err?.message || '')
+
+      if (isTimeout) {
+        try {
+          const list = await fetchEnhancedJobs(5)
+          const fresh = list.find(
+            (j) =>
+              j.status === 'completed' &&
+              j.result_image_url &&
+              Date.now() - new Date(j.created_at).getTime() < 6 * 60 * 1000,
+          )
+          if (fresh) {
+            setResultUrl(fresh.result_image_url || null)
+            setJobId(fresh.id)
+            setDownloadName(fresh.download_filename || suggestedFilename || 'studio-shot.webp')
+            setPhase('done')
+            setProgress(100)
+            setAttachMsg(
+              'Studio shot finished — the connection timed out while waiting, but your image is ready below.',
+            )
+            void loadRecentJobs(true)
+            return
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+
       if (status?.status === 402) {
         setCredits(0)
         setShowTopup(true)
       }
-      setError(status?.data?.error || (e as { message?: string })?.message || 'Generation failed')
+      setError(status?.data?.error || err?.message || 'Generation failed')
     } finally {
       window.clearInterval(tick)
       if (!queuedBatch) setBusy(false)

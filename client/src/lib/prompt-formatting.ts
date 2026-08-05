@@ -17,9 +17,17 @@ const SECTION_MARKERS = [
   'Lighting should resemble luxury premium brand photography:',
 ]
 
+/** Remove embedded sample image data URIs from pasted prompts. */
+export function stripSampleImgMarkers(text: string | null | undefined): string {
+  return String(text ?? '')
+    .replace(/\[SampleImg:\s*data:image[^\]]*\]/gi, '')
+    .replace(/\[SampleImg:[^\]]*\]/gi, '')
+    .trim()
+}
+
 /** Repair prompts that lost line breaks (common paste / old saves). */
 export function repairPromptFormatting(text: string | null | undefined): string {
-  let s = normalizePromptNewlines(text).trim()
+  let s = stripSampleImgMarkers(normalizePromptNewlines(text)).trim()
   if (!s) return ''
 
   const newlineCount = (s.match(/\n/g) || []).length
@@ -30,6 +38,7 @@ export function repairPromptFormatting(text: string | null | undefined): string 
     s = s.replace(new RegExp(`(?<!\\n)${escaped}`, 'g'), `\n\n${marker}`)
   }
 
+  s = s.replace(/([a-z])([A-Z])/g, '$1\n$2')
   s = s.replace(/:([A-Z])/g, ':\n$1')
 
   s = s.replace(/•\s*/g, '\n• ')

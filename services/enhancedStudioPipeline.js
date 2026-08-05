@@ -1,9 +1,9 @@
 /**
  * 4-step studio pipeline for Enhanced Pictures:
- * 1) Background extraction (Replicate rembg)
- * 2) Spatial lock (cutout-only identity + edge-aware prompt)
+ * 1) Background extraction (Replicate rembg) — reference / Replicate path only
+ * 2) Spatial lock (prompt instructions + original product photo)
  * 3) Generative compositing / relighting (Gemini or Replicate)
- * 4) AI upscale (Replicate Real-ESRGAN when token available)
+ * 4) AI upscale (Replicate Real-ESRGAN — Replicate outputs only; skipped for Gemini 2K)
  */
 
 const fs = require('fs');
@@ -14,7 +14,7 @@ const os = require('os');
 const REMBG_MODEL = process.env.ENHANCED_REMBG_MODEL || 'cjwbw/rembg';
 const UPSCALE_MODEL = process.env.ENHANCED_UPSCALE_MODEL || 'nightmareai/real-esrgan';
 
-async function pollReplicatePrediction(token, predictionId, maxWaitMs = 180000) {
+async function pollReplicatePrediction(token, predictionId, maxWaitMs = 120000) {
     const started = Date.now();
     while (Date.now() - started < maxWaitMs) {
         const res = await axios.get(`https://api.replicate.com/v1/predictions/${predictionId}`, {
@@ -35,14 +35,14 @@ async function pollReplicatePrediction(token, predictionId, maxWaitMs = 180000) 
             err.status = 502;
             throw err;
         }
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1200));
     }
     const err = new Error('Replicate timed out.');
     err.status = 504;
     throw err;
 }
 
-async function runReplicateModel(token, model, input, maxWaitMs = 180000) {
+async function runReplicateModel(token, model, input, maxWaitMs = 120000) {
     const [owner, name] = String(model).split('/');
     if (!owner || !name) {
         const err = new Error(`Invalid Replicate model: ${model}`);
@@ -128,9 +128,20 @@ function writeTempBuffer(buffer, ext = '.png') {
     return full;
 }
 
+function cleanupTemp(...paths) {
+    for (const p of paths) {
+        if (!p) continue;
+        try {
+            fs.unlinkSync(p);
+        } catch (_) {
+            /* ignore */
+        }
+    }
+}
+
 /**
- * Step 1 — Flawless background extraction.
- * Returns path to cutout PNG (transparent). Falls back to original on failure.
+ * Step 1 — Background extraction (Replicate rembg).
+ * Used for Replicate img2img paths; Gemini always receives the original photo.
  */
 async function extractBackground(sourceImagePath, replicateToken) {
     if (!replicateToken || !sourceImagePath || !fs.existsSync(sourceImagePath)) {
@@ -138,9 +149,7 @@ async function extractBackground(sourceImagePath, replicateToken) {
     }
     try {
         const dataUri = toDataUri(sourceImagePath);
-        const out = await runReplicateModel(replicateToken, REMBG_MODEL, {
-            image: dataUri,
-        });
+        const out = await runReplicateModel(replicateToken, REMBG_MODEL, { image: dataUri }, 90000);
         const cutoutPath = writeTempBuffer(out.buffer, '.png');
         return { path: cutoutPath, usedRembg: true, mimeType: out.mimeType };
     } catch (e) {
@@ -150,10 +159,13 @@ async function extractBackground(sourceImagePath, replicateToken) {
 }
 
 /**
- * Step 4 — AI upscale for catalogue sharpness.
+ * Step 4 — AI upscale (Replicate outputs only — Gemini 2K is already catalogue-ready).
  */
 async function upscaleImage(imagePath, replicateToken) {
     if (!replicateToken || !imagePath || !fs.existsSync(imagePath)) {
+        return null;
+    }
+    if (process.env.ENHANCED_SKIP_UPSCALE === '1') {
         return null;
     }
     try {
@@ -166,7 +178,7 @@ async function upscaleImage(imagePath, replicateToken) {
                 scale: 2,
                 face_enhance: false,
             },
-            240000,
+            120000,
         );
         const upPath = writeTempBuffer(out.buffer, '.png');
         return { path: upPath, buffer: out.buffer, mimeType: out.mimeType || 'image/png' };
@@ -182,11 +194,11 @@ function spatialLockPromptBlock() {
 ############################################
 PIPELINE STEP 2 — SPATIAL LOCK (CRITICAL)
 ############################################
-The attached image is a CLEAN CUTOUT of the product on transparency (or isolated subject).
+The attached photo is the EXACT product to preserve.
 Treat every edge pixel as a HARD BOUNDARY.
 Do NOT alter silhouette, proportions, engravings, relief depth, ornaments, or metal finish by even 1mm.
 Do NOT redraw or reinvent the product geometry.
-The product layer is LOCKED — you may only generate environment, lighting, and reflections AROUND it.
+The product identity is LOCKED — you may only generate environment, lighting, and reflections AROUND it.
 
 ############################################
 PIPELINE STEP 3 — COMPOSITE + RELIGHT
@@ -198,10 +210,13 @@ Do NOT paint fake lighting that ignores metal physics.
 Preserve 100% product identity while making the photograph look like a real multi-million-dollar studio shot.`;
 }
 
+function isGeminiProvider(aiConfig) {
+    const p = String(aiConfig?.provider || 'gemini').trim().toLowerCase();
+    return p !== 'replicate';
+}
+
 /**
  * Run the full 4-step pipeline around an existing generateStudioImage function.
- * @param {object} opts
- * @param {Function} opts.generateStudioImage - existing single-step generator
  */
 async function runFourStepStudioPipeline({
     promptText,
@@ -215,6 +230,7 @@ async function runFourStepStudioPipeline({
     pipelineEnabled = true,
 }) {
     const token = aiConfig?.replicate_api_token || process.env.REPLICATE_API_TOKEN || '';
+    const geminiPath = isGeminiProvider(aiConfig);
     const steps = {
         rembg: false,
         spatial_lock: false,
@@ -236,18 +252,22 @@ async function runFourStepStudioPipeline({
         return { ...generated, pipeline: steps, pipeline_mode: 'single' };
     }
 
-    // Step 1 — background extraction
-    const cutout = await extractBackground(sourceImagePath, token);
-    steps.rembg = !!cutout.usedRembg;
-    const lockedSourcePath = cutout.path || sourceImagePath;
+    // Step 1 — rembg only for Replicate (cutout helps flux-kontext). Gemini uses original photo.
+    let cutout = { path: sourceImagePath, usedRembg: false };
+    if (!geminiPath && token) {
+        cutout = await extractBackground(sourceImagePath, token);
+        steps.rembg = !!cutout.usedRembg;
+    }
     steps.spatial_lock = true;
 
-    // Steps 2+3 — generate with spatial lock instructions + cutout
+    // Always pass original photo to Gemini — transparent cutouts cause misaligned regeneration.
+    const generateSourcePath = geminiPath ? sourceImagePath : cutout.path || sourceImagePath;
+
     const lockedPrompt = `${String(promptText || '').trim()}${spatialLockPromptBlock()}`;
     const generated = await generateStudioImage({
         promptText: lockedPrompt,
         negativePrompt,
-        sourceImagePath: lockedSourcePath,
+        sourceImagePath: generateSourcePath,
         aspectRatio,
         canvasText,
         aiConfig,
@@ -255,7 +275,17 @@ async function runFourStepStudioPipeline({
     });
     steps.generate = true;
 
-    // Persist generated to temp for upscale
+    // Skip upscale for Gemini 2K — faster and avoids Real-ESRGAN tile seam artifacts.
+    const shouldUpscale = !geminiPath && token && process.env.ENHANCED_SKIP_UPSCALE !== '1';
+    if (!shouldUpscale) {
+        cleanupTemp(cutout.usedRembg ? cutout.path : null);
+        return {
+            ...generated,
+            pipeline: steps,
+            pipeline_mode: geminiPath ? 'studio_gemini_fast' : 'studio_4step',
+        };
+    }
+
     const genPath = writeTempBuffer(
         generated.buffer,
         generated.mimeType?.includes('jpeg') || generated.mimeType?.includes('jpg')
@@ -265,22 +295,11 @@ async function runFourStepStudioPipeline({
               : '.png',
     );
 
-    // Step 4 — upscale
     const upscaled = await upscaleImage(genPath, token);
+    cleanupTemp(cutout.usedRembg && cutout.path !== sourceImagePath ? cutout.path : null, genPath);
+
     if (upscaled?.buffer) {
         steps.upscale = true;
-        try {
-            if (cutout.usedRembg && cutout.path && cutout.path !== sourceImagePath) {
-                fs.unlinkSync(cutout.path);
-            }
-        } catch (_) {
-            /* ignore */
-        }
-        try {
-            fs.unlinkSync(genPath);
-        } catch (_) {
-            /* ignore */
-        }
         return {
             buffer: upscaled.buffer,
             mimeType: upscaled.mimeType || 'image/png',
@@ -289,19 +308,6 @@ async function runFourStepStudioPipeline({
             pipeline: steps,
             pipeline_mode: 'studio_4step',
         };
-    }
-
-    try {
-        if (cutout.usedRembg && cutout.path && cutout.path !== sourceImagePath) {
-            fs.unlinkSync(cutout.path);
-        }
-    } catch (_) {
-        /* ignore */
-    }
-    try {
-        fs.unlinkSync(genPath);
-    } catch (_) {
-        /* ignore */
     }
 
     return {

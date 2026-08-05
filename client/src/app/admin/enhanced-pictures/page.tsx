@@ -861,6 +861,7 @@ function AdminEnhancedPicturesInner() {
                 onReload={load}
                 onStatus={setStatusMsg}
                 onLastTestAi={setLastTestAi}
+                statusMessage={statusMsg}
               />
             ) : null}
           </div>

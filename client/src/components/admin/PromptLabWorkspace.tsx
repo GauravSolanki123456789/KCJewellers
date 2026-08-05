@@ -89,6 +89,7 @@ type Props = {
   }) => Promise<void>
   onStatus: (msg: string) => void
   onLastTestAi: (v: { provider?: string; model?: string } | null) => void
+  statusMessage?: string
 }
 
 export default function PromptLabWorkspace(props: Props) {
@@ -137,6 +138,7 @@ export default function PromptLabWorkspace(props: Props) {
     onReload,
     onStatus,
     onLastTestAi,
+    statusMessage,
   } = props
 
   const [busy, setBusy] = useState(false)
@@ -336,7 +338,7 @@ export default function PromptLabWorkspace(props: Props) {
         activate: true,
       })
       await onReload({ templateKey, selectedId: data.prompt.id, silent: true })
-      onStatus('Saved & activated for reseller.')
+      onStatus('Saved & activated. Sub-template label updated for reseller.')
     })
 
   const toggleTemplateAccess = async () => {
@@ -372,7 +374,7 @@ export default function PromptLabWorkspace(props: Props) {
       return
     }
     setBusy(true)
-    onStatus('Running 4-step studio pipeline test…')
+    onStatus('Testing prompt — generating studio shot (usually 45–90 seconds)…')
     try {
       const split = splitMasterAndNegative(promptText, negativePrompt)
       const data = await testGenerateAdminEnhanced({
@@ -397,7 +399,7 @@ export default function PromptLabWorkspace(props: Props) {
       onSourcePreview(data.source_image_url)
       onLastTestAi({ provider: data.ai_provider, model: data.ai_model })
       await onReload({ templateKey, selectedId: data.prompt.id, silent: true })
-      onStatus('Test ready. Click Save changes to keep & activate for reseller.')
+      onStatus('Test complete — preview updated. Click Save changes to activate for reseller.')
     } catch (e: unknown) {
       onStatus(
         (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data
@@ -430,6 +432,20 @@ export default function PromptLabWorkspace(props: Props) {
 
   return (
     <section className="space-y-4">
+      {statusMessage ? (
+        <div
+          role="status"
+          className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+            /fail|error|required|could not/i.test(statusMessage)
+              ? 'border-rose-200 bg-rose-50 text-rose-900'
+              : /complete|saved|activated|added|deleted|ready|updated|cleared/i.test(statusMessage)
+                ? 'border-emerald-200 bg-emerald-100 text-emerald-900'
+                : 'border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] text-[var(--color-jewelry-black,#1a1814)]'
+          }`}
+        >
+          {statusMessage}
+        </div>
+      ) : null}
       <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 sm:p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -471,8 +487,8 @@ export default function PromptLabWorkspace(props: Props) {
                 onClick={() => selectTemplate(t.key)}
                 className={`min-h-[44px] rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
                   templateKey === t.key
-                    ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
-                    : 'border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-950,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]'
+                    ? 'border-[var(--kc-accent,#047857)] bg-[var(--kc-accent,#047857)]/10 text-[var(--color-jewelry-black,#1a1814)] shadow-sm'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
                 }`}
               >
                 <span className="block">{t.label}</span>
@@ -531,11 +547,11 @@ export default function PromptLabWorkspace(props: Props) {
                   onClick={() => selectSubtemplate(v)}
                   className={`min-h-[40px] rounded-xl px-3 text-sm font-semibold ${
                     selectedVarietyKey === v.variety_key
-                      ? 'bg-emerald-700 text-white'
+                      ? 'border border-[var(--kc-accent,#047857)] bg-[var(--kc-accent,#047857)] text-white'
                       : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
                   }`}
                 >
-                  {v.variety_label}
+                  {selectedVarietyKey === v.variety_key && name.trim() ? name : v.variety_label}
                   {v.is_enabled === false ? (
                     <span className="ml-1 text-[10px] opacity-80">off</span>
                   ) : null}
@@ -807,8 +823,8 @@ export default function PromptLabWorkspace(props: Props) {
                     }}
                     className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
                       selectedId === p.id
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
-                        : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                        ? 'border-[var(--kc-accent,#047857)] bg-[var(--kc-accent,#047857)]/10 text-[var(--color-jewelry-black,#1a1814)]'
+                        : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
                     }`}
                   >
                     {p.name}

@@ -316,7 +316,7 @@ export async function generateEnhancedPicture(opts: {
   const res = await axios.post<EnhancedGenerateResult>(
     `${apiBase()}/api/reseller/enhanced-pictures/generate`,
     fd,
-    { withCredentials: true, timeout: 200000 },
+    { withCredentials: true, timeout: 360000 },
   )
   return res.data
 }
@@ -623,7 +623,7 @@ export async function testGenerateAdminEnhanced(opts: {
     prompt: EnhancedPicturePrompt
   }>(`${apiBase()}/api/admin/users/${opts.userId}/enhanced-pictures/test-generate`, fd, {
     withCredentials: true,
-    timeout: 200000,
+    timeout: 360000,
   })
   return res.data
 }
