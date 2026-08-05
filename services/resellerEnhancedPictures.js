@@ -160,16 +160,23 @@ function stripSampleImgMarkers(text) {
         .replace(/\[SampleImg:[^\]]*\]/gi, '');
 }
 
-/** Gentle normalization for load/save — never merge or split sentences. */
 function normalizePromptText(text) {
-    return stripSampleImgMarkers(normalizePromptNewlines(text)).trimEnd();
+    return stripSampleImgMarkers(normalizePromptNewlines(text)).trim();
 }
+
+function removeEmptyPromptLines(text) {
+    return normalizePromptNewlines(text)
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .join('\n');
+}
+
+const EMBEDDED_NEGATIVE_RE = /\n+NEGATIVE PROMPT:\s*(?:\n|$)/i;
 
 function splitMasterAndNegative(promptText, negativePrompt) {
     let master = normalizePromptText(promptText);
     let neg = normalizePromptText(negativePrompt);
-    const re = /\n+\s*NEGATIVE PROMPT:\s*\n/i;
-    const match = master.match(re);
+    const match = master.match(EMBEDDED_NEGATIVE_RE);
     if (match && match.index != null) {
         const idx = match.index;
         const embedded = master.slice(idx + match[0].length).trim();

@@ -5,27 +5,6 @@ export function normalizePromptNewlines(text: string | null | undefined): string
     .replace(/\r/g, '\n')
 }
 
-/** Remove embedded sample image data URIs from pasted prompts. */
-export function stripSampleImgMarkers(text: string | null | undefined): string {
-  return String(text ?? '')
-    .replace(/\[SampleImg:\s*data:image[^\]]*\]/gi, '')
-    .replace(/\[SampleImg:[^\]]*\]/gi, '')
-}
-
-/** Gentle normalization for load/save — never merge or split sentences. */
-export function normalizePromptText(text: string | null | undefined): string {
-  return stripSampleImgMarkers(normalizePromptNewlines(text)).trimEnd()
-}
-
-/** Remove blank lines only (whitespace-only lines). Preserves all other formatting. */
-export function removeEmptyPromptLines(text: string | null | undefined): string {
-  return normalizePromptNewlines(text)
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .join('\n')
-    .trim()
-}
-
 const SECTION_MARKERS = [
   'STRICT PRODUCT PRESERVATION:',
   'Preserve 100%:',
@@ -38,12 +17,32 @@ const SECTION_MARKERS = [
   'Lighting should resemble luxury premium brand photography:',
 ]
 
+/** Remove embedded sample image data URIs from pasted prompts. */
+export function stripSampleImgMarkers(text: string | null | undefined): string {
+  return String(text ?? '')
+    .replace(/\[SampleImg:\s*data:image[^\]]*\]/gi, '')
+    .replace(/\[SampleImg:[^\]]*\]/gi, '')
+}
+
+/** Normalize line endings and strip sample markers — never restructure user text. */
+export function normalizePromptText(text: string | null | undefined): string {
+  return stripSampleImgMarkers(normalizePromptNewlines(text)).trim()
+}
+
+/** Remove blank / whitespace-only lines only — used by "Fix line breaks". */
+export function removeEmptyPromptLines(text: string | null | undefined): string {
+  return normalizePromptNewlines(text)
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .join('\n')
+}
+
 /**
- * Repair prompts that lost line breaks (single-line paste / very old saves).
- * Not applied automatically on load/save — only for optional recovery flows.
+ * Repair prompts that lost line breaks (legacy single-line saves).
+ * Not used on save/load — only for optional recovery of mashed text.
  */
 export function repairPromptFormatting(text: string | null | undefined): string {
-  let s = normalizePromptText(text).trim()
+  let s = normalizePromptText(text)
   if (!s) return ''
 
   const newlineCount = (s.match(/\n/g) || []).length
@@ -56,7 +55,6 @@ export function repairPromptFormatting(text: string | null | undefined): string 
 
   s = s.replace(/([a-z])([A-Z])/g, '$1\n$2')
   s = s.replace(/:([A-Z])/g, ':\n$1')
-
   s = s.replace(/•\s*/g, '\n• ')
   s = s.replace(/(?<!\\n)(No [a-z])/gi, '\n$1')
   s = s.replace(/\n{3,}/g, '\n\n').trim()
@@ -91,6 +89,8 @@ export function parseWorkflowHighlightsText(raw: string | null | undefined): str
     .filter(Boolean)
 }
 
+const EMBEDDED_NEGATIVE_RE = /\n+NEGATIVE PROMPT:\s*(?:\n|$)/i
+
 /** Split embedded NEGATIVE PROMPT block from master prompt into separate fields. */
 export function splitMasterAndNegative(
   promptText: string,
@@ -99,8 +99,7 @@ export function splitMasterAndNegative(
   let master = normalizePromptText(promptText)
   let neg = normalizePromptText(negativePrompt)
 
-  const re = /\n+\s*NEGATIVE PROMPT:\s*\n/i
-  const match = master.match(re)
+  const match = master.match(EMBEDDED_NEGATIVE_RE)
   if (match && match.index != null) {
     const idx = match.index
     const embedded = master.slice(idx + match[0].length).trim()

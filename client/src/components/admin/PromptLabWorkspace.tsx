@@ -443,7 +443,7 @@ export default function PromptLabWorkspace(props: Props) {
     const split = splitMasterAndNegative(promptText, negativePrompt)
     onPromptText(removeEmptyPromptLines(split.promptText))
     onNegativePrompt(removeEmptyPromptLines(split.negativePrompt))
-    onStatus('Empty lines removed. Click Save changes to persist.')
+    onStatus('Empty lines removed — your wording and line breaks are unchanged. Click Save changes to persist.')
   }
 
   const samplePreview =
@@ -793,7 +793,8 @@ export default function PromptLabWorkspace(props: Props) {
               type="button"
               disabled={busy}
               onClick={restoreFormatting}
-              className="inline-flex min-h-[48px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70"
+              title="Removes blank lines only — does not change your wording or existing line breaks"
+              className="inline-flex min-h-[48px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--color-slate-900,#f7f4ef)]"
             >
               Fix line breaks
             </button>
