@@ -30,7 +30,11 @@ import {
   type EnhancedPictureVariety,
   type EnhancedTemplateShowcase as ShowcaseData,
 } from '@/lib/reseller-enhanced-pictures'
-import { parseWorkflowHighlightsText, repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-formatting'
+import {
+  parseWorkflowHighlightsText,
+  removeEmptyPromptLines,
+  splitMasterAndNegative,
+} from '@/lib/prompt-formatting'
 
 const PROMPT_CLASS =
   'mt-1.5 w-full resize-y rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--color-jewelry-black,#1a1814)]'
@@ -437,9 +441,9 @@ export default function PromptLabWorkspace(props: Props) {
 
   const restoreFormatting = () => {
     const split = splitMasterAndNegative(promptText, negativePrompt)
-    onPromptText(repairPromptFormatting(split.promptText))
-    onNegativePrompt(repairPromptFormatting(split.negativePrompt))
-    onStatus('Line breaks restored. Click Save changes to persist.')
+    onPromptText(removeEmptyPromptLines(split.promptText))
+    onNegativePrompt(removeEmptyPromptLines(split.negativePrompt))
+    onStatus('Empty lines removed. Click Save changes to persist.')
   }
 
   const samplePreview =

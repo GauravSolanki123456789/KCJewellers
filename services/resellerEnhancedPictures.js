@@ -154,46 +154,21 @@ function normalizePromptNewlines(text) {
         .replace(/\r/g, '\n');
 }
 
-const PROMPT_SECTION_MARKERS = [
-    'STRICT PRODUCT PRESERVATION:',
-    'Preserve 100%:',
-    'SCENE:',
-    'QUALITY:',
-    'BACKGROUND DETAILS:',
-    'TEXT AREA:',
-    'NEGATIVE PROMPT:',
-    'Camera:',
-    'Lighting should resemble luxury premium brand photography:',
-];
-
-function repairPromptFormatting(text) {
-    let s = normalizePromptNewlines(text).trim();
-    if (!s) return '';
-    const newlineCount = (s.match(/\n/g) || []).length;
-    if (newlineCount >= 8) return s;
-    for (const marker of PROMPT_SECTION_MARKERS) {
-        const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        s = s.replace(new RegExp(`(?<!\\n)${escaped}`, 'g'), `\n\n${marker}`);
-    }
-    s = s.replace(/([a-z])([A-Z])/g, '$1\n$2');
-    s = s.replace(/:([A-Z])/g, ':\n$1');
-    s = s.replace(/•\s*/g, '\n• ');
-    s = s.replace(/(?<!\\n)(No [a-z])/gi, '\n$1');
-    s = s.replace(/\n{3,}/g, '\n\n').trim();
-    return s;
-}
-
 function stripSampleImgMarkers(text) {
     return String(text || '')
         .replace(/\[SampleImg:\s*data:image[^\]]*\]/gi, '')
-        .replace(/\[SampleImg:[^\]]*\]/gi, '')
-        .trim();
+        .replace(/\[SampleImg:[^\]]*\]/gi, '');
+}
+
+/** Gentle normalization for load/save — never merge or split sentences. */
+function normalizePromptText(text) {
+    return stripSampleImgMarkers(normalizePromptNewlines(text)).trimEnd();
 }
 
 function splitMasterAndNegative(promptText, negativePrompt) {
-    let master = repairPromptFormatting(stripSampleImgMarkers(promptText));
-    let neg = repairPromptFormatting(stripSampleImgMarkers(negativePrompt));
-    const re = /\n\nNEGATIVE PROMPT:\s*\n/i;
+    let master = normalizePromptText(promptText);
+    let neg = normalizePromptText(negativePrompt);
+    const re = /\n+\s*NEGATIVE PROMPT:\s*\n/i;
     const match = master.match(re);
     if (match && match.index != null) {
         const idx = match.index;
@@ -205,10 +180,7 @@ function splitMasterAndNegative(promptText, negativePrompt) {
 }
 
 function normalizePromptFields(promptText, negativePrompt) {
-    return splitMasterAndNegative(
-        repairPromptFormatting(promptText),
-        repairPromptFormatting(negativePrompt),
-    );
+    return splitMasterAndNegative(promptText, negativePrompt);
 }
 
 function slugifyTemplateKey(label) {

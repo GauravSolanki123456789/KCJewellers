@@ -26,7 +26,7 @@ import {
   type EnhancedPictureTemplate,
   type EnhancedTemplateShowcase as EnhancedTemplateShowcaseData,
 } from '@/lib/reseller-enhanced-pictures'
-import { repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-formatting'
+import { splitMasterAndNegative } from '@/lib/prompt-formatting'
 
 type LoadPreserveOpts = {
   templateKey?: string
@@ -105,10 +105,7 @@ function AdminEnhancedPicturesInner() {
   }, [])
 
   const applyPromptToForm = useCallback((p: EnhancedPicturePrompt) => {
-    const split = splitMasterAndNegative(
-      repairPromptFormatting(p.prompt_text),
-      repairPromptFormatting(p.negative_prompt || ''),
-    )
+    const split = splitMasterAndNegative(p.prompt_text, p.negative_prompt || '')
     setName(p.name)
     setPromptText(split.promptText)
     setNegativePrompt(split.negativePrompt)

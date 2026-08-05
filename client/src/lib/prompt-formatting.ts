@@ -5,6 +5,27 @@ export function normalizePromptNewlines(text: string | null | undefined): string
     .replace(/\r/g, '\n')
 }
 
+/** Remove embedded sample image data URIs from pasted prompts. */
+export function stripSampleImgMarkers(text: string | null | undefined): string {
+  return String(text ?? '')
+    .replace(/\[SampleImg:\s*data:image[^\]]*\]/gi, '')
+    .replace(/\[SampleImg:[^\]]*\]/gi, '')
+}
+
+/** Gentle normalization for load/save — never merge or split sentences. */
+export function normalizePromptText(text: string | null | undefined): string {
+  return stripSampleImgMarkers(normalizePromptNewlines(text)).trimEnd()
+}
+
+/** Remove blank lines only (whitespace-only lines). Preserves all other formatting. */
+export function removeEmptyPromptLines(text: string | null | undefined): string {
+  return normalizePromptNewlines(text)
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .join('\n')
+    .trim()
+}
+
 const SECTION_MARKERS = [
   'STRICT PRODUCT PRESERVATION:',
   'Preserve 100%:',
@@ -17,17 +38,12 @@ const SECTION_MARKERS = [
   'Lighting should resemble luxury premium brand photography:',
 ]
 
-/** Remove embedded sample image data URIs from pasted prompts. */
-export function stripSampleImgMarkers(text: string | null | undefined): string {
-  return String(text ?? '')
-    .replace(/\[SampleImg:\s*data:image[^\]]*\]/gi, '')
-    .replace(/\[SampleImg:[^\]]*\]/gi, '')
-    .trim()
-}
-
-/** Repair prompts that lost line breaks (common paste / old saves). */
+/**
+ * Repair prompts that lost line breaks (single-line paste / very old saves).
+ * Not applied automatically on load/save — only for optional recovery flows.
+ */
 export function repairPromptFormatting(text: string | null | undefined): string {
-  let s = stripSampleImgMarkers(normalizePromptNewlines(text)).trim()
+  let s = normalizePromptText(text).trim()
   if (!s) return ''
 
   const newlineCount = (s.match(/\n/g) || []).length
@@ -80,10 +96,10 @@ export function splitMasterAndNegative(
   promptText: string,
   negativePrompt: string,
 ): { promptText: string; negativePrompt: string } {
-  let master = repairPromptFormatting(promptText)
-  let neg = repairPromptFormatting(negativePrompt)
+  let master = normalizePromptText(promptText)
+  let neg = normalizePromptText(negativePrompt)
 
-  const re = /\n\nNEGATIVE PROMPT:\s*\n/i
+  const re = /\n+\s*NEGATIVE PROMPT:\s*\n/i
   const match = master.match(re)
   if (match && match.index != null) {
     const idx = match.index
