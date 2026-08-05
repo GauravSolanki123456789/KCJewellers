@@ -1,9 +1,9 @@
 /**
  * 4-step studio pipeline for Enhanced Pictures:
- * 1) Background extraction (Replicate rembg) — Replicate path only
+ * 1) Background extraction (Replicate rembg) when token available — Gemini & Replicate
  * 2) Spatial lock + Aurra cinematic prompt block
  * 3) Generative compositing / relighting (Gemini or Replicate)
- * 4) Output finish pass (sharp sharpen / upscale when available)
+ * 4) Output finish (sharp sharpen + vignette) + optional Real-ESRGAN upscale
  */
 
 const fs = require('fs');
@@ -15,6 +15,14 @@ const {
     spatialLockPromptBlock,
     writeTempBuffer,
 } = require('./enhancedImageProcessing');
+
+function cutoutPlacementBlock() {
+    return `
+
+[CUTOUT COMPOSITE]
+The attached image is an isolated product cutout. Place it on a premium dark navy-black stone tabletop with a deep charcoal/midnight studio backdrop.
+Relight professionally — do NOT paste shop shadows or leave floating edges. Soft contact shadow under the base only.`;
+}
 
 const REMBG_MODEL = process.env.ENHANCED_REMBG_MODEL || 'cjwbw/rembg';
 const UPSCALE_MODEL = process.env.ENHANCED_UPSCALE_MODEL || 'nightmareai/real-esrgan';
@@ -197,9 +205,10 @@ async function runFourStepStudioPipeline({
         upscale: false,
     };
 
-    const runGenerate = async (srcPath, useSpatialLock) => {
+    const runGenerate = async (srcPath, useSpatialLock, usedCutout = false) => {
         const base = String(promptText || '').trim();
-        const lockedPrompt = useSpatialLock ? `${base}${spatialLockPromptBlock()}` : base;
+        let lockedPrompt = useSpatialLock ? `${base}${spatialLockPromptBlock()}` : base;
+        if (usedCutout) lockedPrompt += cutoutPlacementBlock();
         return generateStudioImage({
             promptText: lockedPrompt,
             negativePrompt,
@@ -214,19 +223,27 @@ async function runFourStepStudioPipeline({
     if (!pipelineEnabled) {
         const generated = await runGenerate(sourceImagePath, false);
         steps.generate = true;
-        return { ...generated, pipeline: steps, pipeline_mode: 'single' };
+        let result = generated;
+        if (result?.buffer?.length) {
+            const finished = await postprocessStudioOutput(result.buffer, result.mimeType);
+            if (finished.buffer !== result.buffer) {
+                result = { ...result, buffer: finished.buffer, mimeType: finished.mimeType };
+                steps.postprocess = true;
+            }
+        }
+        return { ...result, pipeline: steps, pipeline_mode: 'single' };
     }
 
     let cutout = { path: sourceImagePath, usedRembg: false };
-    if (!geminiPath && token) {
+    if (token) {
         cutout = await extractBackground(sourceImagePath, token);
         steps.rembg = !!cutout.usedRembg;
     }
     steps.spatial_lock = true;
 
-    let generateSourcePath = geminiPath ? sourceImagePath : cutout.path || sourceImagePath;
+    let generateSourcePath = cutout.usedRembg ? cutout.path : sourceImagePath;
     let preprocessedTemp = null;
-    if (geminiPath) {
+    if (geminiPath && !cutout.usedRembg) {
         const pre = await preprocessSourceForGemini(sourceImagePath);
         if (pre.preprocessed) {
             generateSourcePath = pre.path;
@@ -234,7 +251,7 @@ async function runFourStepStudioPipeline({
         }
     }
 
-    let generated = await runGenerate(generateSourcePath, true);
+    let generated = await runGenerate(generateSourcePath, true, cutout.usedRembg);
     steps.generate = true;
 
     if (generated?.buffer?.length) {
@@ -245,11 +262,34 @@ async function runFourStepStudioPipeline({
         }
     }
 
-    cleanupTemp(cutout.usedRembg ? cutout.path : null, preprocessedTemp);
+    let upscaleTemp = null;
+    let upscaledFile = null;
+    if (token && generated?.buffer?.length) {
+        upscaleTemp = writeTempBuffer(generated.buffer, '.png');
+        const up = await upscaleImage(upscaleTemp, token);
+        if (up?.buffer?.length) {
+            generated = { ...generated, buffer: up.buffer, mimeType: up.mimeType || 'image/png' };
+            steps.upscale = true;
+            upscaledFile = up.path;
+        }
+    }
+
+    cleanupTemp(
+        cutout.usedRembg ? cutout.path : null,
+        preprocessedTemp,
+        upscaleTemp,
+        upscaledFile && upscaledFile !== upscaleTemp ? upscaledFile : null,
+    );
     return {
         ...generated,
         pipeline: steps,
-        pipeline_mode: geminiPath ? 'studio_gemini_aurra' : 'studio_4step',
+        pipeline_mode: cutout.usedRembg
+            ? geminiPath
+                ? 'studio_gemini_cutout_aurra'
+                : 'studio_4step'
+            : geminiPath
+              ? 'studio_gemini_aurra'
+              : 'studio_4step',
     };
 }
 

@@ -21,7 +21,7 @@ const {
     DEFAULT_PLANS,
 } = require('./resellerEnhancedPictureCredits');
 const { runFourStepStudioPipeline } = require('./enhancedStudioPipeline');
-const { aurraCinematicPromptBlock, postprocessStudioOutput } = require('./enhancedImageProcessing');
+const { aurraCinematicPromptBlock, mergeSystemNegativePrompt } = require('./enhancedImageProcessing');
 
 const TEMPLATE_IDOLS = 'idols';
 const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
@@ -104,7 +104,11 @@ No hands
 No human model
 No flowers
 No shop shelves or warehouse background
-No unnecessary props`;
+No unnecessary props
+No cast shadow on backdrop wall
+No box shadow on background
+No harsh spotlight circle on tabletop
+No long projected shadow behind product`;
 
 const TEMPLATES = [
     {
@@ -886,7 +890,7 @@ function mimeFromExt(ext) {
 function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, workflowHighlights } = {}) {
     const normalized = normalizePromptFields(promptText, negativePrompt);
     let main = normalized.promptText;
-    let neg = normalized.negativePrompt;
+    let neg = mergeSystemNegativePrompt(normalized.negativePrompt);
     const aspect = normalizeAspectRatio(aspectRatio);
     const text = String(canvasText || '').trim().slice(0, 120);
     const highlights = Array.isArray(workflowHighlights)
@@ -896,7 +900,7 @@ function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, 
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
-    main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal, ray-traced style reflections on glass and silver/gold, deep cinematic contrast, zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background with a cinematic charcoal studio backdrop. Preserve exact product colors from the source photo — especially halo, stone, and metal tones.`;
+    main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal, ray-traced style reflections on glass and silver/gold, deep cinematic contrast, zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background with a cinematic charcoal studio backdrop. Preserve exact product colors from the source photo — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall, no harsh spotlight ring on the surface.`;
     main += aurraCinematicPromptBlock();
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
@@ -933,7 +937,7 @@ function buildGeminiUserParts({
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
         parts[0].text +=
-            '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. Match metal and halo colors exactly as in the source image.';
+            '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. Match metal and halo colors exactly as in the source image. Replace shop/warehouse backgrounds completely. Do NOT copy messy shop shadows, wall shadows, or spotlight rings onto the new studio backdrop — use only a soft contact shadow under the base.';
         const buf = fs.readFileSync(sourceImagePath);
         parts.push({
             inline_data: {
@@ -1506,11 +1510,8 @@ async function generateWithGemini({
                 for (const p of outParts) {
                     const inline = p.inlineData || p.inline_data;
                     if (inline?.data) {
-                        let buffer = Buffer.from(inline.data, 'base64');
-                        let mimeType = inline.mimeType || inline.mime_type || 'image/png';
-                        const finished = await postprocessStudioOutput(buffer, mimeType);
-                        buffer = finished.buffer;
-                        mimeType = finished.mimeType;
+                        const buffer = Buffer.from(inline.data, 'base64');
+                        const mimeType = inline.mimeType || inline.mime_type || 'image/png';
                         return {
                             buffer,
                             mimeType,
