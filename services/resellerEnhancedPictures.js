@@ -21,16 +21,17 @@ const {
     DEFAULT_PLANS,
 } = require('./resellerEnhancedPictureCredits');
 const { runFourStepStudioPipeline } = require('./enhancedStudioPipeline');
+const { aurraCinematicPromptBlock, postprocessStudioOutput } = require('./enhancedImageProcessing');
 
 const TEMPLATE_IDOLS = 'idols';
 const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
 const AI_PROVIDERS = new Set(['gemini', 'replicate']);
-const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite-image';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-image';
 const DEFAULT_REPLICATE_MODEL = 'black-forest-labs/flux-kontext-pro';
 const GEMINI_MODEL_PRESETS = [
-    'gemini-3.1-flash-lite-image',
     'gemini-2.5-flash-image',
     'gemini-2.5-flash-image-preview',
+    'gemini-3.1-flash-lite-image',
 ];
 const REPLICATE_MODEL_PRESETS = [
     'black-forest-labs/flux-kontext-pro',
@@ -43,81 +44,41 @@ function normalizeAspectRatio(raw) {
     return CANVAS_ASPECTS.includes(a) ? a : '1:1';
 }
 
-const DEFAULT_IDOLS_PROMPT = `Create an ultra-premium luxury product photoshoot using ONLY the uploaded idol or frame.
+const DEFAULT_IDOLS_PROMPT = `Create an ultra-premium luxury product photoshoot using ONLY the uploaded idol, frame, or jewellery piece.
 
-STRICT PRODUCT PRESERVATION:
-Use the uploaded product exactly as it is.
-Do NOT redesign, recreate, stylize, simplify, or modify any part.
+STRICT PRODUCT PRESERVATION (HIGHEST PRIORITY):
+Use the uploaded product exactly as photographed — phone photo, shop background, glass cloche, low light, or any angle.
+Do NOT redesign, recreate, stylize, simplify, smooth away detail, recolor, or modify any part.
 
 Preserve 100%:
-• Shape
-• Size
-• Carvings
-• Engravings
-• Relief work
-• Metal finish
-• Silver/Gold tone
-• Oxidized texture
-• Antique finish
-• Gemstones
-• Borders
-• Frame proportions
-• Surface details
-• Every tiny ornament
-• Every engraving
-Everything must remain identical to the uploaded product.
+• Exact shape, size, proportions, and silhouette
+• All carvings, engravings, relief work, and surface ornament
+• Exact metal finish — silver tone, gold accents, oxidized/antique texture
+• Exact gemstone and halo/backdrop colors from the source (do NOT shift orange to red, blue to cyan, etc.)
+• Glass cloche/dome shape and base if present — realistic refraction only
+• Wood or display base exactly as in source
 
-SCENE:
+SCENE (replace cluttered backgrounds completely):
+Premium dark navy-black stone tabletop with subtle natural texture.
+Deep charcoal to midnight blue cinematic studio backdrop with soft vignette.
+Minimal luxury environment — no shop shelves, boxes, scissors, or warehouse clutter.
 
-Place the product on a premium dark navy-black stone tabletop with subtle natural texture.
+LIGHTING (Aurra Studio grade):
+Professional catalogue lighting — soft key from front-left, gentle rim from right, controlled top spotlight.
+Natural metallic specular highlights with micro-texture visible — NOT flat CGI plastic.
+Deep but readable shadows — no crushed blacks, no heavy noise/grain in background.
 
-Background should be a deep charcoal to midnight blue luxury studio backdrop with soft vignette and slight texture, creating a high-end catalog atmosphere.
-
-Lighting should resemble luxury premium brand photography:
-Soft rim light from right
-Gentle top light
-Natural metallic reflections
-Deep cinematic shadows
-Museum-quality lighting
-Balanced contrast
-
-Camera:
-Front 3/4 angle (approximately 30°)
-Eye-level perspective
-85mm product photography lens
-Entire product perfectly visible
-Centered composition
-Plenty of elegant negative space around the product
+CAMERA:
+Front 3/4 angle (~30°) when possible while keeping product identity; eye-level; 85mm product lens look.
+Centered composition with elegant negative space for catalogue use.
 
 QUALITY:
-
-Ultra photorealistic
-Luxury catalogue photography
-Commercial product advertisement
-HDR
-8K resolution
-Extreme micro details
-Macro sharpness
-Perfect focus
-Natural reflections
-Realistic metal texture
-True silver/gold colors
-Premium editorial finish
-
-BACKGROUND DETAILS:
-
-Minimal luxury environment
-Dark textured backdrop
-Soft spotlight behind the product
-No distractions
-No decorative props unless naturally blurred
-Premium museum display feel
+4K hyper-realistic commercial product render.
+High-fidelity textures, ray-traced style reflections on glass and metal.
+Zero blur, zero AI mushiness, zero compression artifacts.
 
 TEXT AREA:
-
-Leave clean negative space at the top-left for headline.
-Leave space on the right side for product specifications.
-Do NOT generate any text, logo, watermark, labels, or branding.`;
+Leave clean negative space top-left and right. No text, logo, watermark, or branding.`;
 
 const DEFAULT_IDOLS_NEGATIVE = `No redesign
 No AI-generated carvings
@@ -125,18 +86,24 @@ No altered proportions
 No missing engravings
 No extra ornaments
 No added gemstones
-No color changes
+No color changes or recoloring
+No shifted halo or stone colors
 No blur
 No low resolution
-No noise
-No oversharpening
+No background noise or grain
+No oversharpening halos
 No unrealistic reflections
+No white glare bars on glass
+No double-image ghosting through glass
+No melted or warped glass dome
+No flat CGI plastic metal
 No watermark
 No logo
 No text
 No hands
 No human model
 No flowers
+No shop shelves or warehouse background
 No unnecessary props`;
 
 const TEMPLATES = [
@@ -208,6 +175,7 @@ function repairPromptFormatting(text) {
         const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         s = s.replace(new RegExp(`(?<!\\n)${escaped}`, 'g'), `\n\n${marker}`);
     }
+    s = s.replace(/([a-z])([A-Z])/g, '$1\n$2');
     s = s.replace(/:([A-Z])/g, ':\n$1');
     s = s.replace(/•\s*/g, '\n• ');
     s = s.replace(/(?<!\\n)(No [a-z])/gi, '\n$1');
@@ -264,7 +232,17 @@ function parseWorkflowHighlights(raw) {
                 return parsed.map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
             }
         } catch {
-            return raw
+            let text = raw.trim();
+            if (!text.includes('\n')) {
+                text = text
+                    .replace(/(\d+%)/g, '$1\n')
+                    .replace(/([a-z])([A-Z])/g, '$1\n$2')
+                    .replace(/(Preservation)(Professional)/gi, '$1\n$2')
+                    .replace(/(Lighting)(High)/gi, '$1\n$2')
+                    .replace(/(Textures)(Cinematic)/gi, '$1\n$2')
+                    .replace(/(Backgrounds)(AI)/gi, '$1\n$2');
+            }
+            return text
                 .split(/\r?\n/)
                 .map((x) => x.replace(/^[-•*]\s*/, '').trim())
                 .filter(Boolean)
@@ -684,12 +662,12 @@ function resolveAiConfig(savedSettings, overrides = {}) {
 
 function geminiImageModelCandidates() {
     const primary = getGeminiImageModel();
-    const fallbacks = [
-        'gemini-3.1-flash-lite-image',
+    const qualityFirst = [
         'gemini-2.5-flash-image',
         'gemini-2.5-flash-image-preview',
+        'gemini-3.1-flash-lite-image',
     ];
-    return [...new Set([primary, ...fallbacks].filter(Boolean))];
+    return [...new Set([primary, ...qualityFirst].filter(Boolean))];
 }
 
 function normalizeStem(raw) {
@@ -939,7 +917,8 @@ function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, 
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
-    main += `\n\nOUTPUT QUALITY (CRITICAL):\nRender at maximum sharpness — ultra-high resolution luxury jewellery catalogue grade. Crisp micro-textures on metal, accurate ray-traced reflections, deep cinematic contrast, zero blur, zero compression artifacts, no softness. Professional studio lighting with soft key light and controlled rim highlights.`;
+    main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal, ray-traced style reflections on glass and silver/gold, deep cinematic contrast, zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background with a cinematic charcoal studio backdrop. Preserve exact product colors from the source photo — especially halo, stone, and metal tones.`;
+    main += aurraCinematicPromptBlock();
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
         neg = neg
@@ -975,7 +954,7 @@ function buildGeminiUserParts({
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
         parts[0].text +=
-            '\n\nSOURCE PRODUCT (CRITICAL):\nThe attached photo is the exact product to enhance. Preserve 100% identity — same shape, proportions, engravings, stone settings, and metal finish. Only improve lighting, background, and catalogue presentation. Do not redesign, recolor, or alter the product.';
+            '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. Match metal and halo colors exactly as in the source image.';
         const buf = fs.readFileSync(sourceImagePath);
         parts.push({
             inline_data: {
@@ -1039,7 +1018,7 @@ async function submitGeminiBatchJob({
                                 contents: [{ role: 'user', parts }],
                                 generationConfig: {
                                     responseModalities: ['IMAGE'],
-                                    imageConfig: { aspectRatio: aspect, imageSize: '2K' },
+                                    imageConfig: { aspectRatio: aspect, imageSize: '4K' },
                                 },
                             },
                             metadata: { key: String(metadataKey || 'job-1').slice(0, 64) },
@@ -1507,10 +1486,12 @@ async function generateWithGemini({
 
     const primaryModel = aiConfig?.gemini_model || getGeminiImageModel();
     const models = [...new Set([primaryModel, ...geminiImageModelCandidates()].filter(Boolean))];
+    const imageSizes = ['4K', '2K'];
     let lastError = null;
     let usedModel = primaryModel;
     for (const model of models) {
         usedModel = model;
+        for (const imageSize of imageSizes) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
         try {
             const res = await axios.post(
@@ -1519,7 +1500,7 @@ async function generateWithGemini({
                     contents: [{ role: 'user', parts }],
                     generationConfig: {
                         responseModalities: ['IMAGE'],
-                        imageConfig: { aspectRatio: aspect, imageSize: '2K' },
+                        imageConfig: { aspectRatio: aspect, imageSize },
                     },
                 },
                 { timeout: 180000, validateStatus: () => true },
@@ -1532,7 +1513,11 @@ async function generateWithGemini({
                 const err = new Error(msg);
                 err.status = res.status === 429 ? 429 : 502;
                 lastError = err;
-                if (/not found|not supported/i.test(msg)) continue;
+                if (/not found|not supported|invalid.*imageSize|imageSize/i.test(msg)) {
+                    if (imageSize === '4K') continue;
+                    continue;
+                }
+                if (/not found|not supported/i.test(msg)) break;
                 throw err;
             }
             const data = res.data;
@@ -1542,11 +1527,17 @@ async function generateWithGemini({
                 for (const p of outParts) {
                     const inline = p.inlineData || p.inline_data;
                     if (inline?.data) {
+                        let buffer = Buffer.from(inline.data, 'base64');
+                        let mimeType = inline.mimeType || inline.mime_type || 'image/png';
+                        const finished = await postprocessStudioOutput(buffer, mimeType);
+                        buffer = finished.buffer;
+                        mimeType = finished.mimeType;
                         return {
-                            buffer: Buffer.from(inline.data, 'base64'),
-                            mimeType: inline.mimeType || inline.mime_type || 'image/png',
+                            buffer,
+                            mimeType,
                             provider: 'gemini',
                             model: usedModel,
+                            imageSize,
                         };
                     }
                 }
@@ -1564,8 +1555,9 @@ async function generateWithGemini({
             );
             lastError.status = 502;
         } catch (e) {
-            if (e.status && !/not found|not supported/i.test(String(e.message || ''))) throw e;
+            if (e.status && !/not found|not supported|imageSize/i.test(String(e.message || ''))) throw e;
             lastError = e;
+        }
         }
     }
     if (lastError) throw lastError;

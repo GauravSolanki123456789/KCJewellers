@@ -13,6 +13,10 @@ export type ErpBillSession = {
   ratesUnfixed?: boolean
   /** Advance amount customer has paid (₹). */
   advancePaidInr?: number
+  /** Customer PAN for tax invoice */
+  pan?: string
+  /** Customer GSTIN for tax invoice */
+  customerGst?: string
 }
 
 export function buildErpBillSession(input: {
@@ -25,6 +29,8 @@ export function buildErpBillSession(input: {
   address: string
   lines: ErpBillLine[]
   advancePaidInr?: number | null
+  pan?: string
+  customerGst?: string
 }): ErpBillSession {
   const ratesUnfixed =
     input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
@@ -39,6 +45,8 @@ export function buildErpBillSession(input: {
     address: input.address.trim() || undefined,
     ratesUnfixed: ratesUnfixed || undefined,
     advancePaidInr: advance > 0 ? advance : undefined,
+    pan: input.pan?.trim() || undefined,
+    customerGst: input.customerGst?.trim() || undefined,
   }
 }
 

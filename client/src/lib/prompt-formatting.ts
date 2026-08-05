@@ -47,6 +47,34 @@ export function repairPromptFormatting(text: string | null | undefined): string 
   return s
 }
 
+/** Split workflow highlights pasted as one mashed line (e.g. PreservationProfessional…). */
+export function parseWorkflowHighlightsText(raw: string | null | undefined): string[] {
+  const trimmed = String(raw ?? '').trim()
+  if (!trimmed) return []
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (Array.isArray(parsed)) {
+      return parsed.map((x) => String(x).trim()).filter(Boolean)
+    }
+  } catch {
+    /* plain text */
+  }
+  let text = trimmed
+  if (!text.includes('\n')) {
+    text = text
+      .replace(/(\d+%)/g, '$1\n')
+      .replace(/([a-z])([A-Z])/g, '$1\n$2')
+      .replace(/(Preservation)(Professional)/gi, '$1\n$2')
+      .replace(/(Lighting)(High)/gi, '$1\n$2')
+      .replace(/(Textures)(Cinematic)/gi, '$1\n$2')
+      .replace(/(Backgrounds)(AI)/gi, '$1\n$2')
+  }
+  return text
+    .split(/\r?\n/)
+    .map((x) => x.replace(/^[-•*]\s*/, '').trim())
+    .filter(Boolean)
+}
+
 /** Split embedded NEGATIVE PROMPT block from master prompt into separate fields. */
 export function splitMasterAndNegative(
   promptText: string,

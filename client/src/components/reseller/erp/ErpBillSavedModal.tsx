@@ -37,6 +37,10 @@ type Props = {
   pdfPayload: PdfShareSheetPayload | null
   defaultMobile?: string
   onDone: () => void
+  /** saved = after Save bill; e-invoice = after e-invoice generation */
+  variant?: 'saved' | 'e-invoice' | 'e-way'
+  complianceNote?: string | null
+  autoDownload?: boolean
 }
 
 export function ErpBillSavedModal({
@@ -46,6 +50,9 @@ export function ErpBillSavedModal({
   pdfPayload,
   defaultMobile = '',
   onDone,
+  variant = 'saved',
+  complianceNote = null,
+  autoDownload = true,
 }: Props) {
   const [mobile, setMobile] = useState(defaultMobile)
   const [autoDownloaded, setAutoDownloaded] = useState(false)
@@ -58,10 +65,10 @@ export function ErpBillSavedModal({
   }, [open, defaultMobile])
 
   useEffect(() => {
-    if (!open || !pdfPayload || autoDownloaded) return
+    if (!open || !pdfPayload || autoDownload === false || autoDownloaded) return
     downloadPdfBlob(pdfPayload.blob, pdfPayload.filename)
     setAutoDownloaded(true)
-  }, [open, pdfPayload, autoDownloaded])
+  }, [open, pdfPayload, autoDownloaded, autoDownload])
 
   const handlePrint = useCallback(() => {
     if (!pdfPayload) return
@@ -100,13 +107,18 @@ export function ErpBillSavedModal({
 
   if (!bill) return null
 
+  const isEinvoice = variant === 'e-invoice'
+  const isEway = variant === 'e-way'
+  const title = isEinvoice ? 'E-invoice generated' : isEway ? 'E-way bill generated' : 'Bill saved'
+  const Icon = isEinvoice || isEway ? CheckCircle2 : CheckCircle2
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto border-[var(--color-slate-700,#e8e4df)] bg-white sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-[var(--color-jewelry-black,#1a1814)]">
-            <CheckCircle2 className="size-5 text-emerald-600" />
-            Bill saved
+            <Icon className="size-5 text-emerald-600" />
+            {title}
           </DialogTitle>
           <DialogDescription className="text-[var(--color-jewelry-black,#1a1814)]/65">
             <span className="font-semibold text-emerald-800">{bill.bill_number}</span> ·{' '}
@@ -115,7 +127,14 @@ export function ErpBillSavedModal({
         </DialogHeader>
 
         <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs leading-relaxed text-emerald-950">
-          Your invoice PDF was downloaded automatically. You can print it or send it on WhatsApp below.
+          {isEinvoice
+            ? 'Your tax invoice PDF was downloaded automatically. Share or print it below.'
+            : isEway
+              ? 'E-way bill was generated successfully. You can share related documents below.'
+              : 'Your invoice PDF was downloaded automatically. You can print it or send it on WhatsApp below.'}
+          {complianceNote ? (
+            <span className="mt-2 block font-medium text-emerald-900">{complianceNote}</span>
+          ) : null}
         </p>
 
         <div className="grid grid-cols-2 gap-2">
@@ -163,18 +182,20 @@ export function ErpBillSavedModal({
           <button type="button" className={`${erpBtnPrimary} w-full`} onClick={closeAndDone}>
             Done
           </button>
-          <div className="flex w-full flex-col gap-2 sm:flex-row">
-            <Link href={resellerErpModulePath('billing')} className={`${erpBtnGhost} flex-1 justify-center`}>
-              <Receipt className="size-4" />
-              Back to billing
-            </Link>
-            <Link
-              href={resellerErpModulePath('sales-bills')}
-              className={`${erpBtnGhost} flex-1 justify-center border-emerald-300 bg-emerald-50 text-emerald-900`}
-            >
-              Sales bills
-            </Link>
-          </div>
+          {variant === 'saved' ? (
+            <div className="flex w-full flex-col gap-2 sm:flex-row">
+              <Link href={resellerErpModulePath('billing')} className={`${erpBtnGhost} flex-1 justify-center`}>
+                <Receipt className="size-4" />
+                Back to billing
+              </Link>
+              <Link
+                href={resellerErpModulePath('sales-bills')}
+                className={`${erpBtnGhost} flex-1 justify-center border-emerald-300 bg-emerald-50 text-emerald-900`}
+              >
+                Sales bills
+              </Link>
+            </div>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

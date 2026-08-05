@@ -39,6 +39,7 @@
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.11.3",
     "puppeteer": "^23.11.1",
+    "sharp": "^0.34.5",
     "socket.io": "^4.8.1",
     "yahoo-finance2": "^3.13.1"
   },

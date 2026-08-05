@@ -87,6 +87,10 @@ export type ErpBillLine = {
   fixed_price?: number | null
   stock_piece_id?: number | null
   availability?: string | null
+  /** Invoice line label e.g. SILVER JEWELLERY */
+  invoice_item_name?: string | null
+  /** HSN code for tax invoice */
+  hsn_code?: string | null
 }
 
 export type ErpBill = {
@@ -102,7 +106,14 @@ export type ErpBill = {
   lines?: ErpBillLine[]
   session?: import('@/lib/erp-bill-session').ErpBillSession | null
   compliance?: {
-    einvoice?: { irn?: string | null; ack_no?: string | null; status?: string; sandbox?: boolean }
+    einvoice?: {
+      irn?: string | null
+      ack_no?: string | null
+      ack_date?: string | null
+      status?: string
+      sandbox?: boolean
+      response?: unknown
+    }
     eway?: { ewb_no?: string | null; status?: string; sandbox?: boolean; pdf_url?: string | null }
   } | null
   created_at?: string | null

@@ -67,14 +67,38 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <IntegrationsWorkspace />
     case 'gst':
       return (
-        <SettingsWorkspace
-          settingsKey="gst"
-          fields={[
-            { key: 'gstin', label: 'Business GSTIN', placeholder: '22AAAAA0000A1Z5' },
-            { key: 'legalName', label: 'Legal name' },
-            { key: 'placeOfSupply', label: 'Place of supply' },
-          ]}
-        />
+        <div className="space-y-4">
+          <SettingsWorkspace
+            settingsKey="gst"
+            fields={[
+              { key: 'gstin', label: 'Business GSTIN', placeholder: '33AADFJ4897R1ZJ' },
+              { key: 'legalName', label: 'Legal name / shop name on invoice' },
+              {
+                key: 'address',
+                label: 'Business address (on invoice)',
+                placeholder: '2ND FLOOR, OLD NO.34, NEW NO.21, BOTHRA EMPORIUM…',
+                multiline: true,
+              },
+              { key: 'phone', label: 'Phone / contact', placeholder: '044-43593474' },
+              { key: 'placeOfSupply', label: 'Place of supply' },
+            ]}
+          />
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+              Payment details (on invoice)
+            </p>
+            <SettingsWorkspace
+              settingsKey="bank"
+              fields={[
+                { key: 'bankName', label: 'Bank name', placeholder: 'HDFC BANK' },
+                { key: 'accountName', label: 'Account name', placeholder: 'JPJEWELLERY' },
+                { key: 'accountNo', label: 'Account number' },
+                { key: 'ifsc', label: 'IFSC code' },
+                { key: 'branch', label: 'Branch' },
+              ]}
+            />
+          </div>
+        </div>
       )
     case 'e-invoice':
       return (

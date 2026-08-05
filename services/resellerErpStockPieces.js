@@ -240,6 +240,135 @@ async function lookupStockPiece(query, resellerUserId, code) {
     return { piece: p, availability };
 }
 
+function normalizeBarcodeList(barcodes) {
+    return [...new Set((barcodes || []).map((b) => String(b || '').trim().toLowerCase()).filter(Boolean))];
+}
+
+function parseSessionMobile(sessionJson) {
+    if (!sessionJson) return null;
+    let session = sessionJson;
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch {
+            return null;
+        }
+    }
+    const mobile = session?.mobile;
+    return mobile != null && String(mobile).trim() ? String(mobile).trim() : null;
+}
+
+async function mapSoldBillRow(row) {
+    if (!row) return null;
+    return {
+        bill_id: row.id,
+        bill_number: row.bill_number,
+        customer_name: row.customer_name || null,
+        mobile: parseSessionMobile(row.session_json),
+        address: (() => {
+            let session = row.session_json;
+            if (typeof session === 'string') {
+                try {
+                    session = JSON.parse(session);
+                } catch {
+                    return null;
+                }
+            }
+            return session?.address ? String(session.address).trim() : null;
+        })(),
+        bill_date: row.bill_date,
+        created_at: row.created_at,
+        total_inr: row.total_inr != null ? Number(row.total_inr) : null,
+        status: row.status,
+    };
+}
+
+/** Find barcodes already sold in completed sales bills or marked sold in stock. */
+async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, excludeBillId = null) {
+    const normalized = normalizeBarcodeList(barcodes);
+    if (!normalized.length) return [];
+
+    const conflicts = [];
+    const seen = new Set();
+
+    const stockRows = await query(
+        `SELECT p.barcode, p.status, p.sold_bill_id,
+                b.id, b.bill_number, b.customer_name, b.bill_date, b.created_at, b.session_json, b.total_inr, b.status AS bill_status
+         FROM reseller_erp_stock_pieces p
+         LEFT JOIN reseller_erp_bills b ON b.id = p.sold_bill_id AND b.reseller_user_id = p.reseller_user_id
+         WHERE p.reseller_user_id = $1
+           AND lower(trim(p.barcode)) = ANY($2::text[])
+           AND p.status = 'sold'`,
+        [resellerUserId, normalized],
+    );
+    for (const row of stockRows) {
+        const bc = String(row.barcode || '').trim();
+        const key = bc.toLowerCase();
+        if (!key || seen.has(key)) continue;
+        if (excludeBillId && row.sold_bill_id === excludeBillId) continue;
+        seen.add(key);
+        conflicts.push({
+            barcode: bc,
+            source: 'stock_piece',
+            sold_bill: row.bill_number
+                ? await mapSoldBillRow({
+                      id: row.id,
+                      bill_number: row.bill_number,
+                      customer_name: row.customer_name,
+                      bill_date: row.bill_date,
+                      created_at: row.created_at,
+                      session_json: row.session_json,
+                      total_inr: row.total_inr,
+                      status: row.bill_status,
+                  })
+                : row.sold_bill_id
+                  ? (
+                        await mapSoldBillRow(
+                            (
+                                await query(
+                                    `SELECT id, bill_number, customer_name, bill_date, created_at, session_json, total_inr, status
+                                     FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                                    [row.sold_bill_id, resellerUserId],
+                                )
+                            )[0],
+                        )
+                    )
+                  : null,
+        });
+    }
+
+    const billRows = await query(
+        `SELECT DISTINCT ON (lower(trim(line->>'barcode')))
+                lower(trim(line->>'barcode')) AS bc_key,
+                COALESCE(NULLIF(trim(line->>'barcode'), ''), NULLIF(trim(line->>'code'), '')) AS barcode,
+                b.id, b.bill_number, b.customer_name, b.bill_date, b.created_at, b.session_json, b.total_inr, b.status
+         FROM reseller_erp_bills b,
+              jsonb_array_elements(b.lines_json) AS line
+         WHERE b.reseller_user_id = $1
+           AND b.bill_type = 'sale'
+           AND lower(b.status) IN ('completed', 'paid', 'final')
+           AND ($3::int IS NULL OR b.id <> $3)
+           AND (
+             lower(trim(line->>'barcode')) = ANY($2::text[])
+             OR lower(trim(line->>'code')) = ANY($2::text[])
+           )
+         ORDER BY lower(trim(line->>'barcode')), b.created_at DESC`,
+        [resellerUserId, normalized, excludeBillId],
+    );
+    for (const row of billRows) {
+        const key = String(row.bc_key || '').trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        conflicts.push({
+            barcode: String(row.barcode || key).trim(),
+            source: 'prior_sale',
+            sold_bill: await mapSoldBillRow(row),
+        });
+    }
+
+    return conflicts;
+}
+
 function registerStockPieceRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, erpGate } = deps;
 
@@ -716,7 +845,7 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
-    return { lookupStockPiece, markPiecesSold, syncStockAlertCounts, mapPiece, parseExcelRowToPiece };
+    return { lookupStockPiece, markPiecesSold, syncStockAlertCounts, mapPiece, parseExcelRowToPiece, findSoldBarcodeConflicts };
 }
 
 module.exports = {
@@ -726,4 +855,5 @@ module.exports = {
     markPiecesSold,
     mapPiece,
     parseExcelRowToPiece,
+    findSoldBarcodeConflicts,
 };

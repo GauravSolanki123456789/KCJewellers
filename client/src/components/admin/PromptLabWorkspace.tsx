@@ -30,7 +30,7 @@ import {
   type EnhancedPictureVariety,
   type EnhancedTemplateShowcase as ShowcaseData,
 } from '@/lib/reseller-enhanced-pictures'
-import { repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-formatting'
+import { parseWorkflowHighlightsText, repairPromptFormatting, splitMasterAndNegative } from '@/lib/prompt-formatting'
 
 const PROMPT_CLASS =
   'mt-1.5 w-full resize-y rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--color-jewelry-black,#1a1814)]'
@@ -165,10 +165,7 @@ export default function PromptLabWorkspace(props: Props) {
 
   const showcasePreview: ShowcaseData = {
     template_key: templateKey,
-    workflow_highlights: workflowHighlightsText
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean),
+    workflow_highlights: parseWorkflowHighlightsText(workflowHighlightsText),
     system_resolutions: systemResolutions,
     system_ratios: systemRatios,
     sample_label: sampleLabel,
@@ -329,7 +326,7 @@ export default function PromptLabWorkspace(props: Props) {
           name: name || 'Studio prompt',
           prompt_text: split.promptText,
           negative_prompt: split.negativePrompt,
-          workflow_highlights: workflowHighlightsText,
+          workflow_highlights: parseWorkflowHighlightsText(workflowHighlightsText),
           system_resolutions: systemResolutions,
           system_ratios: systemRatios,
           sample_label: sampleLabel,

@@ -7,6 +7,7 @@ const {
     registerStockPieceRoutes,
     lookupStockPiece,
     markPiecesSold,
+    findSoldBarcodeConflicts,
 } = require('./resellerErpStockPieces');
 const {
     loadErpSettings,
@@ -617,6 +618,18 @@ function registerResellerErpRoutes(app, deps) {
             if (!Number.isFinite(total)) {
                 total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
             }
+            const statusRaw = trimStr(req.body.status, 32) || 'draft';
+            const status = statusRaw.toLowerCase();
+            if (['completed', 'paid', 'final'].includes(status) && billType === 'sale') {
+                const barcodes = lines.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
+                const conflicts = await findSoldBarcodeConflicts(query, req.user.id, barcodes);
+                if (conflicts.length) {
+                    return res.status(409).json({
+                        error: 'One or more items are already sold',
+                        conflicts,
+                    });
+                }
+            }
             const typePrefix = billTypePrefix(billType);
             const billNumber =
                 trimStr(req.body.bill_number, 64) ||
@@ -647,7 +660,6 @@ function registerResellerErpRoutes(app, deps) {
                 ],
             );
             const bill = mapBill(rows[0]);
-            const status = String(bill.status || '').toLowerCase();
             if (['completed', 'paid', 'final'].includes(status)) {
                 await markPiecesSold(query, req.user.id, lines, bill.id);
             }
@@ -672,6 +684,24 @@ function registerResellerErpRoutes(app, deps) {
                     ? JSON.stringify(req.body.session)
                     : null;
             const status = trimStr(req.body.status, 32);
+            const stLower = String(status || '').toLowerCase();
+            if (['completed', 'paid', 'final'].includes(stLower)) {
+                const billTypeRow = await query(
+                    `SELECT bill_type FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [id, req.user.id],
+                );
+                const bt = String(billTypeRow[0]?.bill_type || req.body.bill_type || 'sale').toLowerCase();
+                if (bt === 'sale') {
+                    const barcodes = lines.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
+                    const conflicts = await findSoldBarcodeConflicts(query, req.user.id, barcodes, id);
+                    if (conflicts.length) {
+                        return res.status(409).json({
+                            error: 'One or more items are already sold',
+                            conflicts,
+                        });
+                    }
+                }
+            }
             const rows = await query(
                 `UPDATE reseller_erp_bills SET
                     customer_id = COALESCE($1, customer_id),
@@ -951,7 +981,16 @@ function registerResellerErpRoutes(app, deps) {
             if (stockHit?.piece) {
                 const p = stockHit.piece;
                 if (p.status === 'sold') {
-                    return res.status(409).json({ error: 'This piece is already sold', availability: stockHit.availability });
+                    const conflicts = await findSoldBarcodeConflicts(query, req.user.id, [code]);
+                    const soldBill = conflicts[0]?.sold_bill || null;
+                    return res.status(409).json({
+                        error: soldBill
+                            ? `This piece is already sold in bill ${soldBill.bill_number}`
+                            : 'This piece is already sold',
+                        availability: stockHit.availability,
+                        sold_bill: soldBill,
+                        conflicts,
+                    });
                 }
                 if (p.status !== 'in_stock') {
                     return res.status(409).json({ error: `Piece status: ${p.status}` });
@@ -993,6 +1032,18 @@ function registerResellerErpRoutes(app, deps) {
                         fixed_price: p.fixed_price,
                     },
                     availability: stockHit.availability,
+                });
+            }
+
+            const priorSold = await findSoldBarcodeConflicts(query, req.user.id, [code]);
+            if (priorSold.length) {
+                const soldBill = priorSold[0]?.sold_bill || null;
+                return res.status(409).json({
+                    error: soldBill
+                        ? `This piece is already sold in bill ${soldBill.bill_number}`
+                        : 'This piece is already sold',
+                    sold_bill: soldBill,
+                    conflicts: priorSold,
                 });
             }
 

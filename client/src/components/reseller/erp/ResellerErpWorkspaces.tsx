@@ -795,7 +795,7 @@ export function SettingsWorkspace({
   fields,
 }: {
   settingsKey: string
-  fields: { key: string; label: string; placeholder?: string; type?: string }[]
+  fields: { key: string; label: string; placeholder?: string; type?: string; multiline?: boolean }[]
 }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
@@ -833,13 +833,22 @@ export function SettingsWorkspace({
         {fields.map((f) => (
           <label key={f.key} className="block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
             {f.label}
-            <input
-              type={f.type || 'text'}
-              className={`${erpInputCls} mt-1`}
-              placeholder={f.placeholder}
-              value={values[f.key] || ''}
-              onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-            />
+            {f.multiline ? (
+              <textarea
+                className={`${erpInputCls} mt-1 min-h-[88px] py-2.5`}
+                placeholder={f.placeholder}
+                value={values[f.key] || ''}
+                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+              />
+            ) : (
+              <input
+                type={f.type || 'text'}
+                className={`${erpInputCls} mt-1`}
+                placeholder={f.placeholder}
+                value={values[f.key] || ''}
+                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+              />
+            )}
           </label>
         ))}
       </div>

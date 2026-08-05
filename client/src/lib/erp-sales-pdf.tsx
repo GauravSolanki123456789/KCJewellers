@@ -1,36 +1,38 @@
 import { pdf } from '@react-pdf/renderer'
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
-import { ErpQuotePdfDocument } from '@/lib/erp-quote-pdf-document'
-import { resolveItemsForPdf } from '@/lib/pdf-embed-images'
+import { ErpTaxInvoicePdfDocument, type ErpTaxInvoiceCompliance } from '@/lib/erp-tax-invoice-pdf-document'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
-import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import {
   buildErpQuotePdfFilename,
   billRatesUnfixed,
   computeErpQuoteTotals,
   erpCustomerWhatsAppHref,
-  erpLinesToPdfItems,
-  resolveErpLineImages,
 } from '@/lib/erp-quote-pdf'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { loadErpSettingsBundle, resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
+import type { ErpBillSession } from '@/lib/erp-bill-session'
 
 export function buildErpSalesWhatsAppMessage(params: {
   brandLabel: string
   bill: ErpBill
   customerName?: string | null
   filename: string
+  isTaxInvoice?: boolean
 }): string {
-  const { brandLabel, bill, customerName, filename } = params
+  const { brandLabel, bill, customerName, filename, isTaxInvoice } = params
   const greeting = customerName?.trim() ? `Hi ${customerName.trim()},` : 'Hi,'
   const lines = bill.lines ?? []
   const itemLines = lines
     .map((l, i) => {
       const amt = l.lineTotalInr != null ? formatErpInr(l.lineTotalInr) : '—'
       const wt = l.weightGm != null ? ` · ${l.weightGm} gm` : ''
-      return `${i + 1}. ${l.name}${wt} — ${amt}`
+      return `${i + 1}. ${l.invoice_item_name || l.name}${wt} — ${amt}`
     })
     .join('\n')
-  return `${greeting}\n\nYour tax invoice *${bill.bill_number}* from ${brandLabel} is attached (${filename}).\n\n${itemLines}\n\n*Net total (incl. GST):* ${formatErpInr(bill.total_inr)}\n\nThank you for your purchase!`
+  const docLabel = isTaxInvoice ? 'tax invoice (e-invoice)' : 'tax invoice'
+  const irn = bill.compliance?.einvoice?.irn
+  const irnLine = irn ? `\n*IRN:* ${irn}` : ''
+  return `${greeting}\n\nYour ${docLabel} *${bill.bill_number}* from ${brandLabel} is attached (${filename}).${irnLine}\n\n${itemLines}\n\n*Net total (incl. GST):* ${formatErpInr(bill.total_inr)}\n\nThank you for your purchase!`
 }
 
 export async function buildErpSalesPdfPayload(params: {
@@ -38,34 +40,66 @@ export async function buildErpSalesPdfPayload(params: {
   brandLabel: string
   customerName?: string | null
   mobile?: string | null
-  kcThemeId?: string | null
+  customerAddress?: string | null
+  customerPan?: string | null
+  customerGst?: string | null
   slabSettingsRaw?: unknown
   gstin?: string | null
+  /** When true, include IRN / ACK / QR from bill compliance */
+  taxInvoiceMode?: boolean
 }): Promise<PdfShareSheetPayload> {
   const lines = params.bill.lines ?? []
   if (!lines.length) {
     throw new Error('No line items on this bill.')
   }
 
-  const linesWithImages = await resolveErpLineImages(lines)
-  const billForPdf = { ...params.bill, lines: linesWithImages }
-  const itemsForPdf = await resolveItemsForPdf(erpLinesToPdfItems(linesWithImages))
-  const brandLabel = params.brandLabel.trim() || 'Our store'
-  const kcThemeId = normalizeKcThemeId(params.kcThemeId ?? null)
-  const totals = computeErpQuoteTotals(billForPdf, params.slabSettingsRaw)
-  const ratesUnfixed = billRatesUnfixed(billForPdf)
+  const settings = await loadErpSettingsBundle()
+  const gst = {
+    gstin: params.gstin ?? settings.gst?.gstin ?? null,
+    legalName: settings.gst?.legalName ?? null,
+    address: settings.gst?.address ?? null,
+    phone: settings.gst?.phone ?? null,
+    placeOfSupply: settings.gst?.placeOfSupply ?? null,
+  }
+  const bank = {
+    bankName: settings.bank?.bankName ?? null,
+    accountName: settings.bank?.accountName ?? null,
+    accountNo: settings.bank?.accountNo ?? null,
+    ifsc: settings.bank?.ifsc ?? null,
+    branch: settings.bank?.branch ?? null,
+  }
+
+  const session = (params.bill.session || {}) as ErpBillSession
+  const totals = computeErpQuoteTotals(params.bill, params.slabSettingsRaw)
+  const brandLabel = params.brandLabel.trim() || gst.legalName?.trim() || 'Our store'
+
+  let compliance: ErpTaxInvoiceCompliance | null = null
+  const einvoice = params.bill.compliance?.einvoice
+  if (params.taxInvoiceMode && einvoice?.irn) {
+    const response = (einvoice as { response?: unknown }).response
+    const qrImageSrc = await resolveEinvoiceQrImageSrc({ irn: einvoice.irn, complianceResponse: response })
+    compliance = {
+      irn: einvoice.irn,
+      ack_no: einvoice.ack_no ?? null,
+      ack_date: einvoice.ack_date ?? null,
+      qrImageSrc,
+      sandbox: einvoice.sandbox,
+    }
+  }
 
   const blob = await pdf(
-    <ErpQuotePdfDocument
-      bill={billForPdf}
+    <ErpTaxInvoicePdfDocument
+      bill={params.bill}
       brandName={brandLabel}
-      kcThemeId={kcThemeId}
-      products={itemsForPdf}
       totals={totals}
+      gst={gst}
+      bank={bank}
       customerName={params.customerName ?? params.bill.customer_name}
-      ratesUnfixed={ratesUnfixed}
-      documentKind="invoice"
-      gstin={params.gstin ?? null}
+      customerAddress={params.customerAddress ?? session.address ?? null}
+      customerMobile={params.mobile ?? session.mobile ?? null}
+      customerPan={params.customerPan ?? session.pan ?? null}
+      customerGst={params.customerGst ?? session.customerGst ?? null}
+      compliance={compliance}
     />,
   ).toBlob()
 
@@ -73,19 +107,20 @@ export async function buildErpSalesPdfPayload(params: {
     billNumber: params.bill.bill_number,
     customerName: params.customerName ?? params.bill.customer_name,
     createdAt: params.bill.created_at ?? null,
-  }).replace(/quote/i, 'invoice')
+  }).replace(/quote/i, params.taxInvoiceMode ? 'tax-invoice' : 'invoice')
 
   const text = buildErpSalesWhatsAppMessage({
     brandLabel,
     bill: params.bill,
     customerName: params.customerName ?? params.bill.customer_name,
     filename,
+    isTaxInvoice: !!compliance?.irn,
   })
 
   return {
     blob,
     filename,
-    title: `${brandLabel} — Invoice ${params.bill.bill_number}`,
+    title: `${brandLabel} — ${params.taxInvoiceMode ? 'Tax invoice' : 'Invoice'} ${params.bill.bill_number}`,
     text,
     fallbackWhatsAppText: text,
     fallbackWhatsAppHref: erpCustomerWhatsAppHref(params.mobile, text),

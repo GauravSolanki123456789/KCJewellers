@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import axios from '@/lib/axios'
+import { useAuth } from '@/hooks/useAuth'
+import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
   erpBtnPrimary,
   erpCardCls,
@@ -11,8 +13,12 @@ import {
   type ErpBill,
 } from '@/components/reseller/erp/erp-ui'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
-import { ErpComplianceDialog } from '@/components/reseller/erp/ErpComplianceDialog'
+import { ErpBillSavedModal } from '@/components/reseller/erp/ErpBillSavedModal'
+import { ErpComplianceDialog, type ErpComplianceSuccessMeta } from '@/components/reseller/erp/ErpComplianceDialog'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
+import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
+import type { PdfShareSheetPayload } from '@/lib/pdf-share'
+import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { Download, Eye, FileCheck, Loader2, Receipt, Trash2, Truck } from 'lucide-react'
@@ -20,6 +26,12 @@ import { Download, Eye, FileCheck, Loader2, Receipt, Trash2, Truck } from 'lucid
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
 
 export function ErpSalesBillsWorkspace() {
+  const auth = useAuth()
+  const brandLabel = useMemo(() => {
+    const name = auth.user && (auth.user as WholesaleUserFields).business_name
+    return typeof name === 'string' && name.trim() ? name.trim() : 'Our store'
+  }, [auth.user])
+
   const [bills, setBills] = useState<ErpBill[]>([])
   const [busy, setBusy] = useState(false)
   const [q, setQ] = useState('')
@@ -31,6 +43,12 @@ export function ErpSalesBillsWorkspace() {
   const [complianceBill, setComplianceBill] = useState<ErpBill | null>(null)
   const [complianceKind, setComplianceKind] = useState<'e-invoice' | 'e-way'>('e-invoice')
   const [complianceOpen, setComplianceOpen] = useState(false)
+  const [complianceSuccessOpen, setComplianceSuccessOpen] = useState(false)
+  const [complianceSuccessBill, setComplianceSuccessBill] = useState<ErpBill | null>(null)
+  const [complianceSuccessPdf, setComplianceSuccessPdf] = useState<PdfShareSheetPayload | null>(null)
+  const [complianceSuccessVariant, setComplianceSuccessVariant] = useState<'e-invoice' | 'e-way'>('e-invoice')
+  const [complianceSuccessNote, setComplianceSuccessNote] = useState<string | null>(null)
+  const [complianceSuccessMobile, setComplianceSuccessMobile] = useState('')
 
   const load = useCallback(async () => {
     const params: Record<string, string> = { bill_type: 'sale' }
@@ -155,9 +173,53 @@ export function ErpSalesBillsWorkspace() {
     }
   }
 
-  const onComplianceSuccess = (bill: ErpBill) => {
+  const onComplianceSuccess = async (bill: ErpBill, meta?: ErpComplianceSuccessMeta) => {
     setBills((prev) => prev.map((b) => (b.id === bill.id ? bill : b)))
     if (viewBill?.id === bill.id) setViewBill(bill)
+
+    const session = (bill.session || {}) as ErpBillSession
+    const isEinvoice = complianceKind === 'e-invoice'
+    setComplianceSuccessVariant(isEinvoice ? 'e-invoice' : 'e-way')
+    setComplianceSuccessMobile(session.mobile || '')
+    setComplianceSuccessBill(bill)
+
+    const noteParts: string[] = []
+    if (meta?.irn) noteParts.push(`IRN: ${meta.irn}`)
+    if (meta?.ewb_no) noteParts.push(`EWB: ${meta.ewb_no}`)
+    if (meta?.sandbox) noteParts.push('(Sandbox mode)')
+    setComplianceSuccessNote(noteParts.length ? noteParts.join(' · ') : meta?.message || null)
+
+    if (isEinvoice) {
+      try {
+        const payload = await buildErpSalesPdfPayload({
+          bill,
+          brandLabel,
+          customerName: bill.customer_name,
+          mobile: session.mobile,
+          customerAddress: session.address,
+          customerPan: session.pan,
+          customerGst: session.customerGst,
+          slabSettingsRaw: auth.user,
+          taxInvoiceMode: true,
+        })
+        setComplianceSuccessPdf(payload)
+        setComplianceSuccessOpen(true)
+      } catch (e) {
+        console.error(e)
+        alert(
+          `E-invoice generated${meta?.irn ? `: ${meta.irn}` : ''}${meta?.sandbox ? '\n\n(Sandbox mode)' : ''}\n\nTax invoice PDF could not be created.`,
+        )
+      }
+    } else {
+      setComplianceSuccessPdf(null)
+      setComplianceSuccessOpen(true)
+    }
+  }
+
+  const onComplianceSuccessDone = () => {
+    setComplianceSuccessBill(null)
+    setComplianceSuccessPdf(null)
+    setComplianceSuccessNote(null)
   }
 
   const openView = async (id: number) => {
@@ -347,7 +409,18 @@ export function ErpSalesBillsWorkspace() {
         onOpenChange={setComplianceOpen}
         bill={complianceBill}
         kind={complianceKind}
-        onSuccess={onComplianceSuccess}
+        onSuccess={(bill, meta) => void onComplianceSuccess(bill, meta)}
+      />
+      <ErpBillSavedModal
+        open={complianceSuccessOpen}
+        onOpenChange={setComplianceSuccessOpen}
+        bill={complianceSuccessBill}
+        pdfPayload={complianceSuccessPdf}
+        defaultMobile={complianceSuccessMobile}
+        variant={complianceSuccessVariant}
+        complianceNote={complianceSuccessNote}
+        autoDownload={!!complianceSuccessPdf}
+        onDone={onComplianceSuccessDone}
       />
     </div>
   )

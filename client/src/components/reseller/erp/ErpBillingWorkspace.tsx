@@ -24,6 +24,12 @@ import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
 import {
+  defaultHsnCode,
+  defaultInvoiceItemName,
+  formatSoldStockMessage,
+  type SoldBillConflict,
+} from '@/lib/erp-invoice-defaults'
+import {
   erpBtnGhost,
   erpBtnPrimary,
   erpCardCls,
@@ -43,6 +49,13 @@ import {
   Search,
   X,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const BILLING_DRAFT_KEY = 'kc-erp-billing-draft-v1'
 
@@ -51,6 +64,8 @@ type BillingDraft = {
   customerName: string
   mobile: string
   address: string
+  customerPan: string
+  customerGst: string
   rateSlab: ErpRateSlab
   lines: ErpBillLine[]
   wholesaleGold: number | null
@@ -65,6 +80,8 @@ const TABLE_COLS = [
   { key: 'sku', label: 'SKU', w: 'min-w-[80px]' },
   { key: 'style_code', label: 'StyleCode', w: 'min-w-[80px]' },
   { key: 'name', label: 'ProductName', w: 'min-w-[100px]' },
+  { key: 'invoice_item_name', label: 'Invoice item', w: 'min-w-[120px]', edit: true },
+  { key: 'hsn_code', label: 'HSN', w: 'min-w-[72px]', edit: true },
   { key: 'size', label: 'Size', w: 'min-w-[56px]' },
   { key: 'weightGm', label: 'AvgWeight', w: 'min-w-[64px]', edit: true },
   { key: 'purity', label: 'Purity', w: 'min-w-[52px]', edit: true },
@@ -106,6 +123,8 @@ function productToLine(p: ErpProductHit, code: string): ErpBillLine {
     stock_piece_id: p.id,
     availability: null,
     lineTotalInr: null,
+    invoice_item_name: defaultInvoiceItemName(metal, p.product_name || p.name),
+    hsn_code: defaultHsnCode(metal),
   }
 }
 
@@ -157,6 +176,8 @@ export function ErpBillingWorkspace() {
   const [customerName, setCustomerName] = useState('')
   const [mobile, setMobile] = useState('')
   const [address, setAddress] = useState('')
+  const [customerPan, setCustomerPan] = useState('')
+  const [customerGst, setCustomerGst] = useState('')
   const [rateSlab, setRateSlab] = useState<ErpRateSlab>('R')
   const [lines, setLines] = useState<ErpBillLine[]>([])
   const [displayRates, setDisplayRates] = useState<unknown>([])
@@ -191,6 +212,8 @@ export function ErpBillingWorkspace() {
   const [savedBillOpen, setSavedBillOpen] = useState(false)
   const [savedBill, setSavedBill] = useState<ErpBill | null>(null)
   const [savedPdfPayload, setSavedPdfPayload] = useState<PdfShareSheetPayload | null>(null)
+  const [soldStockOpen, setSoldStockOpen] = useState(false)
+  const [soldStockMessage, setSoldStockMessage] = useState('')
   const scanRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
   const duplicateBannerRef = useRef<HTMLDivElement>(null)
@@ -256,6 +279,8 @@ export function ErpBillingWorkspace() {
       if (d.customerName) setCustomerName(d.customerName)
       if (d.mobile) setMobile(d.mobile)
       if (d.address) setAddress(d.address)
+      if (d.customerPan) setCustomerPan(d.customerPan)
+      if (d.customerGst) setCustomerGst(d.customerGst)
       if (d.rateSlab) setRateSlab(d.rateSlab)
       if (d.lines?.length) setLines(d.lines)
       if (d.wholesaleGold != null) setWholesaleGold(d.wholesaleGold)
@@ -279,6 +304,8 @@ export function ErpBillingWorkspace() {
       setCustomerName(bill.customer_name || '')
       setMobile(session.mobile || '')
       setAddress(session.address || '')
+      setCustomerPan(session.pan || '')
+      setCustomerGst(session.customerGst || '')
       if (session.rateSlab) setRateSlab(session.rateSlab)
       if (session.wholesaleGold != null) setWholesaleGold(session.wholesaleGold)
       if (session.wholesaleSilver != null) setWholesaleSilver(session.wholesaleSilver)
@@ -319,6 +346,8 @@ export function ErpBillingWorkspace() {
       customerName,
       mobile,
       address,
+      customerPan,
+      customerGst,
       rateSlab,
       lines,
       wholesaleGold,
@@ -327,7 +356,7 @@ export function ErpBillingWorkspace() {
       silverPerG,
       advancePaidInr,
     })
-  }, [hydrated, customerId, customerName, mobile, address, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, advancePaidInr, editingBillId])
+  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, advancePaidInr, editingBillId])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
@@ -351,6 +380,7 @@ export function ErpBillingWorkspace() {
     setCustomerName(c.name)
     setMobile(c.mobile || '')
     setAddress(c.address || '')
+    setCustomerGst(c.gstin || '')
     setSelectedCustomer(c)
     setCustomerQ('')
     setCustomerPickIdx(-1)
@@ -431,7 +461,23 @@ export function ErpBillingWorkspace() {
       setScanCode('')
       scanRef.current?.focus()
     } catch (e) {
-      setScanErrorMsg(erpErr(e))
+      const err = e as {
+        response?: {
+          status?: number
+          data?: { error?: string; conflicts?: SoldBillConflict[]; sold_bill?: SoldBillConflict['sold_bill'] }
+        }
+      }
+      if (err.response?.status === 409) {
+        const conflicts = err.response.data?.conflicts
+        const msg = conflicts?.length
+          ? formatSoldStockMessage(conflicts)
+          : err.response.data?.error || 'This item is already sold.'
+        setSoldStockMessage(msg)
+        setSoldStockOpen(true)
+        setScanErrorMsg(null)
+      } else {
+        setScanErrorMsg(erpErr(e))
+      }
       setScanCode('')
       scanRef.current?.focus()
     } finally {
@@ -532,6 +578,8 @@ export function ErpBillingWorkspace() {
     setCustomerName('')
     setMobile('')
     setAddress('')
+    setCustomerPan('')
+    setCustomerGst('')
     setSelectedCustomer(null)
     setRateSlab('R')
     setWholesaleGold(null)
@@ -566,6 +614,8 @@ export function ErpBillingWorkspace() {
       address,
       lines,
       advancePaidInr: parsedAdvance,
+      pan: customerPan,
+      customerGst,
     }),
   })
 
@@ -601,7 +651,15 @@ export function ErpBillingWorkspace() {
       setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
       return bill
     } catch (e) {
-      alert(erpErr(e))
+      const err = e as {
+        response?: { status?: number; data?: { error?: string; conflicts?: SoldBillConflict[] } }
+      }
+      if (err.response?.status === 409 && err.response.data?.conflicts?.length) {
+        setSoldStockMessage(formatSoldStockMessage(err.response.data.conflicts))
+        setSoldStockOpen(true)
+      } else {
+        alert(erpErr(e))
+      }
       return null
     } finally {
       setSaveBusy(false)
@@ -614,22 +672,15 @@ export function ErpBillingWorkspace() {
     const bill = await persistBill('sale', 'completed', { skipReset: true })
     if (!bill) return
     try {
-      let gstin: string | null = null
-      try {
-        const s = await axios.get<{ settings: Record<string, { gstin?: string }> }>(
-          '/api/reseller/erp/settings',
-        )
-        gstin = s.data.settings?.gst?.gstin ?? null
-      } catch {
-        /* optional */
-      }
       const payload = await buildErpSalesPdfPayload({
         bill,
         brandLabel,
         customerName,
         mobile,
+        customerAddress: address,
+        customerPan,
+        customerGst,
         slabSettingsRaw: auth.user,
-        gstin,
       })
       setSavedBill(bill)
       setSavedPdfPayload(payload)
@@ -685,6 +736,10 @@ export function ErpBillingWorkspace() {
         return line.style_code || '—'
       case 'name':
         return line.name
+      case 'invoice_item_name':
+        return line.invoice_item_name || line.name
+      case 'hsn_code':
+        return line.hsn_code || ''
       case 'size':
         return line.size || '—'
       case 'weightGm':
@@ -736,6 +791,22 @@ export function ErpBillingWorkspace() {
         defaultMobile={mobile}
         onDone={onSavedBillDone}
       />
+
+      <Dialog open={soldStockOpen} onOpenChange={setSoldStockOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto border-rose-200 bg-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-rose-900">Stock already sold</DialogTitle>
+          </DialogHeader>
+          <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/75">
+            {soldStockMessage}
+          </p>
+          <DialogFooter>
+            <button type="button" className={`${erpBtnPrimary} w-full`} onClick={() => setSoldStockOpen(false)}>
+              OK
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {editingBillNumber ? (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
@@ -870,6 +941,39 @@ export function ErpBillingWorkspace() {
               value={advancePaidInr}
               onChange={(e) => setAdvancePaidInr(e.target.value)}
               placeholder="0"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Customer address
+            </label>
+            <textarea
+              className={`${erpInputCls} min-h-[72px] py-2.5`}
+              placeholder="Address for tax invoice"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              PAN
+            </label>
+            <input
+              className={erpInputCls}
+              placeholder="Customer PAN"
+              value={customerPan}
+              onChange={(e) => setCustomerPan(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              GST no
+            </label>
+            <input
+              className={erpInputCls}
+              placeholder="Customer GSTIN"
+              value={customerGst}
+              onChange={(e) => setCustomerGst(e.target.value.toUpperCase())}
             />
           </div>
         </div>
