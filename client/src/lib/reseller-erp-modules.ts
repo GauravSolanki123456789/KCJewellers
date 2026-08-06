@@ -7,6 +7,7 @@ import {
   FileText,
   Gem,
   Layers,
+  BookMarked,
   Package,
   Percent,
   Printer,
@@ -30,6 +31,7 @@ export type ResellerErpModuleId =
   | 'orders'
   | 'estimations'
   | 'customers'
+  | 'ledger'
   | 'products'
   | 'hardware'
   | 'stock'
@@ -113,6 +115,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'CRM',
     description: '',
     icon: Users,
+    group: 'crm',
+    kind: 'workspace',
+  },
+  {
+    id: 'ledger',
+    title: 'Payment ledger',
+    short: 'Ledger',
+    description: '',
+    icon: BookMarked,
     group: 'crm',
     kind: 'workspace',
   },

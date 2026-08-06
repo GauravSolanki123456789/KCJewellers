@@ -18,6 +18,10 @@ const {
     generateEinvoiceForBill,
     generateEwayForBill,
 } = require('./resellerErpGstzen');
+const {
+    registerResellerErpLedgerRoutes,
+    createBillAdvanceLedgerEntry,
+} = require('./resellerErpLedger');
 
 async function ensureResellerErpSchema(pool) {
     await pool.query(`
@@ -38,6 +42,8 @@ async function ensureResellerErpSchema(pool) {
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        ALTER TABLE reseller_erp_customers
+            ADD COLUMN IF NOT EXISTS pan VARCHAR(20);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_customers_reseller
             ON reseller_erp_customers (reseller_user_id, created_at DESC);
 
@@ -238,6 +244,7 @@ function mapCustomer(row) {
         mobile: row.mobile,
         email: row.email,
         gstin: row.gstin,
+        pan: row.pan || null,
         address: row.address,
         birthdate: row.birthdate,
         anniversary_date: row.anniversary_date,
@@ -245,6 +252,14 @@ function mapCustomer(row) {
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
+}
+
+function billRatesUnfixedFromPayload(session, lines) {
+    if (session && session.ratesUnfixed === true) return true;
+    if (Array.isArray(lines) && lines.length > 0) {
+        return lines.every((l) => l && l.rateLocked === true);
+    }
+    return false;
 }
 
 function mapBill(row) {
@@ -315,6 +330,8 @@ function registerResellerErpRoutes(app, deps) {
 
     registerStockPieceRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
+    registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+
     app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
         try {
             await ensureResellerErpSchema(pool);
@@ -375,6 +392,7 @@ function registerResellerErpRoutes(app, deps) {
                 sql += ` AND (
                     name ILIKE $2 OR COALESCE(mobile,'') ILIKE $2
                     OR COALESCE(email,'') ILIKE $2 OR COALESCE(gstin,'') ILIKE $2
+                    OR COALESCE(pan,'') ILIKE $2
                 )`;
             }
             sql += ` ORDER BY updated_at DESC, id DESC LIMIT 500`;
@@ -392,9 +410,9 @@ function registerResellerErpRoutes(app, deps) {
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const rows = await query(
                 `INSERT INTO reseller_erp_customers (
-                    reseller_user_id, name, mobile, email, gstin, address,
+                    reseller_user_id, name, mobile, email, gstin, pan, address,
                     birthdate, anniversary_date, notes
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -402,6 +420,7 @@ function registerResellerErpRoutes(app, deps) {
                     trimStr(req.body.mobile, 32),
                     trimStr(req.body.email, 255),
                     trimStr(req.body.gstin, 20),
+                    trimStr(req.body.pan, 20).toUpperCase(),
                     trimStr(req.body.address, 2000),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
@@ -425,15 +444,16 @@ function registerResellerErpRoutes(app, deps) {
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const rows = await query(
                 `UPDATE reseller_erp_customers SET
-                    name = $1, mobile = $2, email = $3, gstin = $4, address = $5,
-                    birthdate = $6, anniversary_date = $7, notes = $8, updated_at = NOW()
-                 WHERE id = $9 AND reseller_user_id = $10
+                    name = $1, mobile = $2, email = $3, gstin = $4, pan = $5, address = $6,
+                    birthdate = $7, anniversary_date = $8, notes = $9, updated_at = NOW()
+                 WHERE id = $10 AND reseller_user_id = $11
                  RETURNING *`,
                 [
                     name,
                     trimStr(req.body.mobile, 32),
                     trimStr(req.body.email, 255),
                     trimStr(req.body.gstin, 20),
+                    trimStr(req.body.pan, 20).toUpperCase(),
                     trimStr(req.body.address, 2000),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
@@ -468,7 +488,7 @@ function registerResellerErpRoutes(app, deps) {
     app.get('/api/reseller/erp/customers/export', checkAuth, erpGate, async (req, res) => {
         try {
             const rows = await query(
-                `SELECT name, mobile, email, gstin, address, birthdate, anniversary_date, notes
+                `SELECT name, mobile, email, gstin, pan, address, birthdate, anniversary_date, notes
                  FROM reseller_erp_customers WHERE reseller_user_id = $1
                  ORDER BY name ASC LIMIT 5000`,
                 [req.user.id],
@@ -496,15 +516,16 @@ function registerResellerErpRoutes(app, deps) {
                 }
                 await query(
                     `INSERT INTO reseller_erp_customers (
-                        reseller_user_id, name, mobile, email, gstin, address,
+                        reseller_user_id, name, mobile, email, gstin, pan, address,
                         birthdate, anniversary_date, notes
-                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
                     [
                         req.user.id,
                         name,
                         trimStr(row.mobile || row.Mobile, 32),
                         trimStr(row.email || row.Email, 255),
                         trimStr(row.gstin || row.GSTIN, 20),
+                        trimStr(row.pan || row.PAN, 20).toUpperCase(),
                         trimStr(row.address || row.Address, 2000),
                         parseDateOrNull(row.birthdate || row.Birthday),
                         parseDateOrNull(row.anniversary_date || row.Anniversary),
@@ -620,6 +641,17 @@ function registerResellerErpRoutes(app, deps) {
             }
             const statusRaw = trimStr(req.body.status, 32) || 'draft';
             const status = statusRaw.toLowerCase();
+            const sessionObj =
+                req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
+            if (
+                billType === 'sale' &&
+                ['completed', 'paid', 'final'].includes(status) &&
+                billRatesUnfixedFromPayload(sessionObj, lines)
+            ) {
+                return res.status(400).json({
+                    error: 'Cannot save a completed sales bill while rates are unfixed. Fix rates first, or save as an estimate.',
+                });
+            }
             if (['completed', 'paid', 'final'].includes(status) && billType === 'sale') {
                 const barcodes = lines.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
                 const conflicts = await findSoldBarcodeConflicts(query, req.user.id, barcodes);
@@ -663,6 +695,13 @@ function registerResellerErpRoutes(app, deps) {
             if (['completed', 'paid', 'final'].includes(status)) {
                 await markPiecesSold(query, req.user.id, lines, bill.id);
             }
+            if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
+                try {
+                    await createBillAdvanceLedgerEntry(query, req.user.id, bill);
+                } catch (le) {
+                    console.warn('erp ledger bill advance:', le.message);
+                }
+            }
             res.json({ success: true, bill });
         } catch (e) {
             console.error('erp bill create:', e);
@@ -683,8 +722,26 @@ function registerResellerErpRoutes(app, deps) {
                 req.body.session && typeof req.body.session === 'object'
                     ? JSON.stringify(req.body.session)
                     : null;
+            const sessionObj =
+                req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
             const status = trimStr(req.body.status, 32);
             const stLower = String(status || '').toLowerCase();
+            if (
+                stLower &&
+                ['completed', 'paid', 'final'].includes(stLower) &&
+                billRatesUnfixedFromPayload(sessionObj, lines)
+            ) {
+                const billTypeRow = await query(
+                    `SELECT bill_type FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [id, req.user.id],
+                );
+                const bt = String(billTypeRow[0]?.bill_type || req.body.bill_type || 'sale').toLowerCase();
+                if (bt === 'sale') {
+                    return res.status(400).json({
+                        error: 'Cannot save a completed sales bill while rates are unfixed. Fix rates first, or save as an estimate.',
+                    });
+                }
+            }
             if (['completed', 'paid', 'final'].includes(stLower)) {
                 const billTypeRow = await query(
                     `SELECT bill_type FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,

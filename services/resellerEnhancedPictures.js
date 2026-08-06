@@ -900,7 +900,7 @@ function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, 
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
-    main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal, ray-traced style reflections on glass and silver/gold, deep cinematic contrast, zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background with a cinematic charcoal studio backdrop. Preserve exact product colors from the source photo — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall, no harsh spotlight ring on the surface.`;
+    main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
     main += aurraCinematicPromptBlock();
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
@@ -937,7 +937,7 @@ function buildGeminiUserParts({
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
         parts[0].text +=
-            '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. Match metal and halo colors exactly as in the source image. Replace shop/warehouse backgrounds completely. Do NOT copy messy shop shadows, wall shadows, or spotlight rings onto the new studio backdrop — use only a soft contact shadow under the base.';
+            '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. Match metal and halo colors exactly as in the source image. Replace shop/warehouse backgrounds with a smooth smoky blue-charcoal Aurra-style studio — no grain, no speckled noise. Use soft diffused multi-light studio relighting — NOT a single harsh overhead spotlight or bright circular floor hotspot. Glass dome: soft curved highlights only — NO white rectangular glare bars. Do NOT copy messy shop shadows, wall shadows, or spotlight rings onto the new backdrop — use only a soft contact shadow under the base.';
         const buf = fs.readFileSync(sourceImagePath);
         parts.push({
             inline_data: {
@@ -1486,7 +1486,7 @@ async function generateWithGemini({
                         imageConfig: { aspectRatio: aspect, imageSize },
                     },
                 },
-                { timeout: 180000, validateStatus: () => true },
+                { timeout: 240000, validateStatus: () => true },
             );
             if (res.status >= 400) {
                 const msg =

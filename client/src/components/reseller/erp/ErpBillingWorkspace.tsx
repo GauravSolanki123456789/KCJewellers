@@ -381,6 +381,7 @@ export function ErpBillingWorkspace() {
     setMobile(c.mobile || '')
     setAddress(c.address || '')
     setCustomerGst(c.gstin || '')
+    setCustomerPan(c.pan || '')
     setSelectedCustomer(c)
     setCustomerQ('')
     setCustomerPickIdx(-1)
@@ -554,6 +555,11 @@ export function ErpBillingWorkspace() {
     setLines((prev) => prev.map((l) => ({ ...l, ratePerGram: null, rateLocked: true })))
   }
 
+  const ratesUnfixed = useMemo(
+    () => lines.length > 0 && lines.every((l) => l.rateLocked),
+    [lines],
+  )
+
   const totals = useMemo(() => {
     let taxable = 0
     let gst = 0
@@ -667,6 +673,11 @@ export function ErpBillingWorkspace() {
   }
 
   const confirmSaveBill = async () => {
+    if (ratesUnfixed) {
+      setSaveConfirmOpen(false)
+      alert('Rates are unfixed. Fix rates before saving a completed sales bill — use Generate quote for rate-unfix estimates.')
+      return
+    }
     setSaveConfirmOpen(false)
     clearDuplicateState()
     const bill = await persistBill('sale', 'completed', { skipReset: true })
@@ -1041,13 +1052,25 @@ export function ErpBillingWorkspace() {
           <button
             type="button"
             className={erpBtnPrimary}
-            disabled={saveBusy || lines.length === 0}
-            onClick={() => setSaveConfirmOpen(true)}
+            disabled={saveBusy || lines.length === 0 || ratesUnfixed}
+            title={ratesUnfixed ? 'Fix rates before saving a sales bill' : undefined}
+            onClick={() => {
+              if (ratesUnfixed) {
+                alert('Rates are unfixed. Fix rates or use Generate quote to save as an estimate.')
+                return
+              }
+              setSaveConfirmOpen(true)
+            }}
           >
             {saveBusy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
             Save bill
           </button>
         </div>
+        {ratesUnfixed ? (
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+            Rates are unfixed — sales bill save is disabled. Use <strong>Generate quote</strong> to save as a rate-unfix estimate.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[240px_1fr]">

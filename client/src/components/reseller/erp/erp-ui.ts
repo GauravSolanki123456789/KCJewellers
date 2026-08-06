@@ -126,10 +126,31 @@ export type ErpCustomer = {
   mobile?: string | null
   email?: string | null
   gstin?: string | null
+  pan?: string | null
   address?: string | null
   birthdate?: string | null
   anniversary_date?: string | null
   notes?: string | null
+}
+
+export type ErpLedgerEntry = {
+  id: number
+  entry_date: string
+  entry_type: string
+  amount_inr: number
+  customer_id?: number | null
+  customer_name?: string | null
+  bill_id?: number | null
+  bill_number?: string | null
+  payment_mode: string
+  reference_no?: string | null
+  bank_name?: string | null
+  counterparty_name?: string | null
+  narration?: string | null
+  is_suspense: boolean
+  resolved_at?: string | null
+  import_batch_id?: number | null
+  created_at?: string | null
 }
 
 export type ErpStockItem = {

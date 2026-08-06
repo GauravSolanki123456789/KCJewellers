@@ -13,15 +13,19 @@ const {
     preprocessSourceForGemini,
     postprocessStudioOutput,
     spatialLockPromptBlock,
+    studioShadowAndSurfaceBlock,
     writeTempBuffer,
 } = require('./enhancedImageProcessing');
 
 function cutoutPlacementBlock() {
     return `
 
-[CUTOUT COMPOSITE]
-The attached image is an isolated product cutout. Place it on a premium dark navy-black stone tabletop with a deep charcoal/midnight studio backdrop.
-Relight professionally — do NOT paste shop shadows or leave floating edges. Soft contact shadow under the base only.`;
+[CUTOUT COMPOSITE — AURRA PLACEMENT]
+The attached image is an isolated product cutout on transparency.
+Place it centered on a premium dark navy-charcoal stone tabletop with a smooth smoky blue-grey cinematic studio backdrop (Aurra Studio reference).
+Relight with soft diffused multi-source studio lighting — NOT a single harsh overhead spotlight.
+Preserve razor-sharp metal micro-texture and natural curved glass highlights on the dome.
+Do NOT paste shop shadows, floating edges, or white rectangular glare bars on glass.${studioShadowAndSurfaceBlock()}`;
 }
 
 const REMBG_MODEL = process.env.ENHANCED_REMBG_MODEL || 'cjwbw/rembg';
@@ -254,7 +258,26 @@ async function runFourStepStudioPipeline({
     let generated = await runGenerate(generateSourcePath, true, cutout.usedRembg);
     steps.generate = true;
 
+    const tempPaths = [
+        cutout.usedRembg ? cutout.path : null,
+        preprocessedTemp,
+    ];
+
     if (generated?.buffer?.length) {
+        let upscaleTemp = null;
+        let upscaledFile = null;
+        if (token) {
+            upscaleTemp = writeTempBuffer(generated.buffer, '.png');
+            tempPaths.push(upscaleTemp);
+            const up = await upscaleImage(upscaleTemp, token);
+            if (up?.buffer?.length) {
+                generated = { ...generated, buffer: up.buffer, mimeType: up.mimeType || 'image/png' };
+                steps.upscale = true;
+                upscaledFile = up.path;
+                if (upscaledFile && upscaledFile !== upscaleTemp) tempPaths.push(upscaledFile);
+            }
+        }
+
         const finished = await postprocessStudioOutput(generated.buffer, generated.mimeType);
         if (finished.buffer !== generated.buffer) {
             generated = { ...generated, buffer: finished.buffer, mimeType: finished.mimeType };
@@ -262,24 +285,7 @@ async function runFourStepStudioPipeline({
         }
     }
 
-    let upscaleTemp = null;
-    let upscaledFile = null;
-    if (token && generated?.buffer?.length) {
-        upscaleTemp = writeTempBuffer(generated.buffer, '.png');
-        const up = await upscaleImage(upscaleTemp, token);
-        if (up?.buffer?.length) {
-            generated = { ...generated, buffer: up.buffer, mimeType: up.mimeType || 'image/png' };
-            steps.upscale = true;
-            upscaledFile = up.path;
-        }
-    }
-
-    cleanupTemp(
-        cutout.usedRembg ? cutout.path : null,
-        preprocessedTemp,
-        upscaleTemp,
-        upscaledFile && upscaledFile !== upscaleTemp ? upscaledFile : null,
-    );
+    cleanupTemp(...tempPaths);
     return {
         ...generated,
         pipeline: steps,

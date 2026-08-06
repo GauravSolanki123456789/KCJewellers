@@ -10,6 +10,7 @@ import { erpBtnPrimary } from '@/components/reseller/erp/erp-ui'
 import { ErpBillingWorkspace } from '@/components/reseller/erp/ErpBillingWorkspace'
 import { ErpEstimationsWorkspace } from '@/components/reseller/erp/ErpEstimationsWorkspace'
 import { ErpSalesBillsWorkspace } from '@/components/reseller/erp/ErpSalesBillsWorkspace'
+import { ErpLedgerWorkspace } from '@/components/reseller/erp/ErpLedgerWorkspace'
 import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import { ErpDigiWorkspace } from '@/components/reseller/erp/ErpDigiWorkspace'
@@ -29,6 +30,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
   switch (moduleId) {
     case 'customers':
       return <CustomersWorkspace />
+    case 'ledger':
+      return <ErpLedgerWorkspace />
     case 'products':
       return <ErpProductsWorkspace />
     case 'hardware':

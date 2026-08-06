@@ -115,6 +115,7 @@ export function CustomersWorkspace() {
     mobile: '',
     email: '',
     gstin: '',
+    pan: '',
     address: '',
     birthdate: '',
     anniversary_date: '',
@@ -146,6 +147,7 @@ export function CustomersWorkspace() {
         mobile: '',
         email: '',
         gstin: '',
+        pan: '',
         address: '',
         birthdate: '',
         anniversary_date: '',
@@ -165,7 +167,7 @@ export function CustomersWorkspace() {
     await load()
   }
 
-  const CUSTOMER_COLS = ['Name', 'Mobile', 'Email', 'GSTIN', 'Address', 'Birthday', 'Anniversary', 'Notes'] as const
+  const CUSTOMER_COLS = ['Name', 'Mobile', 'Email', 'GSTIN', 'PAN', 'Address', 'Birthday', 'Anniversary', 'Notes'] as const
 
   const downloadAllExcel = async () => {
     setBusy(true)
@@ -177,6 +179,7 @@ export function CustomersWorkspace() {
         Mobile: c.mobile ?? '',
         Email: c.email ?? '',
         GSTIN: c.gstin ?? '',
+        PAN: c.pan ?? '',
         Address: c.address ?? '',
         Birthday: c.birthdate ? formatErpDateDdMmYyyy(String(c.birthdate)) : '',
         Anniversary: c.anniversary_date ? formatErpDateDdMmYyyy(String(c.anniversary_date)) : '',
@@ -203,6 +206,7 @@ export function CustomersWorkspace() {
         Mobile: '9876543210',
         Email: 'sample@example.com',
         GSTIN: '',
+        PAN: 'ABCDE1234F',
         Address: 'City, State',
         Birthday: '15/01/1990',
         Anniversary: '20/06/2015',
@@ -349,6 +353,7 @@ export function CustomersWorkspace() {
           <input className={erpInputCls} placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
           <input className={erpInputCls} placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <input className={erpInputCls} placeholder="GSTIN" value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} />
+          <input className={erpInputCls} placeholder="PAN" value={form.pan} onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })} />
           <input className={erpInputCls} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
             Birthday (dd/mm/yyyy)
@@ -379,7 +384,7 @@ export function CustomersWorkspace() {
               <div className="min-w-0">
                 <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{c.name}</p>
                 <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                  {[c.mobile, c.gstin, c.email].filter(Boolean).join(' · ') || '—'}
+                  {[c.mobile, c.gstin, c.pan, c.email].filter(Boolean).join(' · ') || '—'}
                 </p>
                 {(c.birthdate || c.anniversary_date) && (
                   <p className="mt-1 text-[11px] text-[var(--kc-accent,#c41e3a)]">
