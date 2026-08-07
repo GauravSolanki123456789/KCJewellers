@@ -9,6 +9,7 @@ const {
     markPiecesSold,
     findSoldBarcodeConflicts,
 } = require('./resellerErpStockPieces');
+const { registerTagOpsRoutes } = require('./resellerErpTagOps');
 const {
     loadErpSettings,
     validateGstSettings,
@@ -329,6 +330,7 @@ function registerResellerErpRoutes(app, deps) {
     ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
 
     registerStockPieceRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 

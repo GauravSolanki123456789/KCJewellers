@@ -21,6 +21,8 @@ const path = require('path');
  * @param {number} itemData.pcs - Number of pieces (e.g., 1)
  * @param {string} itemData.companyCode - Company code with MC/GM (e.g., "MY92575")
  * @param {string} itemData.material - Material type (e.g., "STERLING SILVER")
+ * @param {string} [itemData.grossWeight] - Gross weight in grams
+ * @param {string} [itemData.bags] - Bag notation
  * @returns {string} TSPL command string
  */
 function generateTSPLLabel(itemData) {
@@ -30,7 +32,9 @@ function generateTSPLLabel(itemData) {
         weight = '0.000',
         pcs = 1,
         companyCode = 'MY925',
-        material = 'STERLING SILVER'
+        material = 'STERLING SILVER',
+        grossWeight = '',
+        bags = '',
     } = itemData;
 
     // Label dimensions (in dots, 203 DPI = 8 dots/mm)
@@ -113,10 +117,17 @@ function generateTSPLLabel(itemData) {
     tspl += `TEXT 30,${STYLE_CODE_Y},"4",0,1,1,"${styleCode}"\n`;
     
     // Weight (with "WT:" prefix)
-    tspl += `TEXT 30,${WEIGHT_Y},"3",0,1,1,"WT:${weight}"\n`;
+    const wtLine = grossWeight ? `WT:${weight} G:${grossWeight}` : `WT:${weight}`;
+    tspl += `TEXT 30,${WEIGHT_Y},"3",0,1,1,"${wtLine}"\n`;
     
     // Pcs (with "Pcs:" prefix)
     tspl += `TEXT 30,${PCS_Y},"3",0,1,1,"Pcs:${pcs}"\n`;
+
+    if (bags) {
+        const bagsY = PCS_Y + 25;
+        const safeBags = String(bags).slice(0, 42);
+        tspl += `TEXT 30,${bagsY},"2",0,1,1,"${safeBags}"\n`;
+    }
     
     // Print command
     tspl += 'PRINT 1,1\n';

@@ -57,6 +57,9 @@ export type ErpStockPiece = {
   attr_color?: string | null
   attr_stone?: string | null
   fixed_price?: number | null
+  gross_weight?: number | null
+  bags?: string | null
+  bag_wt?: number | null
   status: string
   sold_bill_id?: number | null
 }

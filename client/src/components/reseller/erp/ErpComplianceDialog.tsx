@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from '@/lib/axios'
-import { FileCheck, Loader2, Truck } from 'lucide-react'
+import { Download, FileCheck, Loader2, Truck } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -28,15 +28,37 @@ type Props = {
   bill: ErpBill | null
   kind: Kind
   onSuccess: (bill: ErpBill, meta?: ErpComplianceSuccessMeta) => void
+  onDownloadTaxInvoice?: (bill: ErpBill) => void | Promise<void>
 }
 
-export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess }: Props) {
+export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess, onDownloadTaxInvoice }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [regenerateMode, setRegenerateMode] = useState(false)
 
   const isEinvoice = kind === 'e-invoice'
   const existingIrn = bill?.compliance?.einvoice?.irn
   const existingEwb = bill?.compliance?.eway?.ewb_no
+  const hasExisting = isEinvoice ? !!existingIrn : !!existingEwb
+  const showDownloadOnly = hasExisting && !regenerateMode && isEinvoice && !!onDownloadTaxInvoice
+
+  useEffect(() => {
+    if (!open) setRegenerateMode(false)
+  }, [open, bill?.id])
+
+  const runDownload = async () => {
+    if (!bill || !onDownloadTaxInvoice) return
+    setBusy(true)
+    setError('')
+    try {
+      await onDownloadTaxInvoice(bill)
+      onOpenChange(false)
+    } catch (e) {
+      setError(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const run = async () => {
     if (!bill) return
@@ -89,11 +111,13 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess 
             Bill <span className="font-semibold text-emerald-800">{bill.bill_number}</span> ·{' '}
             {bill.customer_name || 'Customer'}
           </p>
-          <p className="break-words rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-2 text-xs leading-relaxed text-amber-950">
-            GST details from your ERP GST settings will be validated and sent to GSTZen
-            {isEinvoice ? ' e-invoice API' : ' e-way bill API'}. Use sandbox token in E-invoice settings for
-            testing.
-          </p>
+          {!showDownloadOnly ? (
+            <p className="break-words rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-2 text-xs leading-relaxed text-amber-950">
+              GST details from your ERP GST settings will be validated and sent to GSTZen
+              {isEinvoice ? ' e-invoice API' : ' e-way bill API'}. Use sandbox token in E-invoice settings for
+              testing.
+            </p>
+          ) : null}
           {isEinvoice && existingIrn ? (
             <p className="break-all text-xs font-medium text-emerald-700">Already generated — IRN: {existingIrn}</p>
           ) : null}
@@ -112,10 +136,27 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess 
           <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </button>
-          <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void run()}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-            Yes, generate
-          </button>
+          {showDownloadOnly ? (
+            <>
+              <button
+                type="button"
+                className={erpBtnGhost}
+                disabled={busy}
+                onClick={() => setRegenerateMode(true)}
+              >
+                Regenerate
+              </button>
+              <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void runDownload()}>
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                Download tax invoice
+              </button>
+            </>
+          ) : (
+            <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void run()}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+              Yes, generate
+            </button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

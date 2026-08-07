@@ -23,6 +23,9 @@ export type StockEditableField =
   | 'attr_color'
   | 'attr_stone'
   | 'fixed_price'
+  | 'gross_weight'
+  | 'bags'
+  | 'bag_wt'
 
 export type StockRowDraft = {
   id: number
@@ -55,6 +58,9 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'attr_color', label: 'Attr:Color', type: 'text' },
   { key: 'attr_stone', label: 'Attr:Stone', type: 'text' },
   { key: 'fixed_price', label: 'FixedPrice', type: 'number' },
+  { key: 'gross_weight', label: 'Gross', shortLabel: 'Gross', type: 'number' },
+  { key: 'bags', label: 'Bags', type: 'text' },
+  { key: 'bag_wt', label: 'BagWt', shortLabel: 'Bag Wt', type: 'number' },
 ]
 
 function fieldToString(val: unknown): string {
@@ -86,6 +92,9 @@ export function pieceToRowDraft(p: ErpStockPiece): StockRowDraft {
       attr_color: fieldToString(p.attr_color),
       attr_stone: fieldToString(p.attr_stone),
       fixed_price: fieldToString(p.fixed_price),
+      gross_weight: fieldToString(p.gross_weight),
+      bags: fieldToString(p.bags),
+      bag_wt: fieldToString(p.bag_wt),
     },
   }
 }
@@ -117,6 +126,9 @@ export function rowDraftToApiPayload(d: StockRowDraft): Record<string, unknown> 
     attr_color: v.attr_color.trim() || null,
     attr_stone: v.attr_stone.trim() || null,
     fixed_price: num('fixed_price'),
+    gross_weight: num('gross_weight'),
+    bags: v.bags.trim() || null,
+    bag_wt: num('bag_wt'),
   }
 }
 

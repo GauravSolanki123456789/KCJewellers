@@ -25,6 +25,9 @@ const EXCEL_ALIASES = {
     attr_color: ['Attr:Color', 'attr_color', 'Color'],
     attr_stone: ['Attr:Stone', 'attr_stone', 'Stone'],
     fixed_price: ['FixedPrice', 'fixed_price', 'Price'],
+    gross_weight: ['Gross', 'GrossWeight', 'gross_weight', 'Gross Wt'],
+    bags: ['Bags', 'bags'],
+    bag_wt: ['BagWt', 'bag_wt', 'Bag Wt', 'BagWeight'],
 };
 
 function pickRowVal(row, keys) {
@@ -79,6 +82,11 @@ function parseExcelRowToPiece(row) {
             ? String(pickRowVal(row, EXCEL_ALIASES.attr_stone)).trim().slice(0, 128)
             : null,
         fixed_price: num(EXCEL_ALIASES.fixed_price),
+        gross_weight: num(EXCEL_ALIASES.gross_weight),
+        bags: pickRowVal(row, EXCEL_ALIASES.bags)
+            ? String(pickRowVal(row, EXCEL_ALIASES.bags)).trim().slice(0, 200)
+            : null,
+        bag_wt: num(EXCEL_ALIASES.bag_wt),
         payload_json: row,
     };
 }
@@ -107,6 +115,9 @@ function mapPiece(row) {
         attr_color: row.attr_color,
         attr_stone: row.attr_stone,
         fixed_price: row.fixed_price != null ? Number(row.fixed_price) : null,
+        gross_weight: row.gross_weight != null ? Number(row.gross_weight) : null,
+        bags: row.bags,
+        bag_wt: row.bag_wt != null ? Number(row.bag_wt) : null,
         status: row.status,
         sold_bill_id: row.sold_bill_id,
         created_at: row.created_at,
@@ -160,6 +171,13 @@ async function ensureStockPiecesSchema(pool) {
             ON reseller_erp_stock_pieces (reseller_user_id, barcode);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_stock_pieces_item_code
             ON reseller_erp_stock_pieces (reseller_user_id, item_code, status);
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS gross_weight NUMERIC(12, 3);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS bags TEXT;
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS bag_wt NUMERIC(12, 3);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS split_from_barcode VARCHAR(128);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS merged_into_barcode VARCHAR(128);
     `);
 }
 
@@ -405,6 +423,7 @@ function registerStockPieceRoutes(app, deps) {
             const pieces = await query(
                 `SELECT * FROM reseller_erp_stock_pieces
                  WHERE batch_id = $1::uuid AND reseller_user_id = $2
+                   AND status NOT IN ('split', 'merged')
                  ORDER BY id ASC`,
                 [batchId, req.user.id],
             );
@@ -461,10 +480,11 @@ function registerStockPieceRoutes(app, deps) {
                             mc_rate = $9, mc_type = $10, pcs = $11, box_charges = $12,
                             stone_charges = $13, metal_type = $14, item_code = $15,
                             image_url = $16, attr_color = $17, attr_stone = $18,
-                            fixed_price = $19, payload_json = $20::jsonb,
+                            fixed_price = $19, gross_weight = $20, bags = $21, bag_wt = $22,
+                            payload_json = $23::jsonb,
                             status = CASE WHEN status = 'sold' THEN status ELSE 'in_stock' END,
                             updated_at = NOW()
-                         WHERE id = $21`,
+                         WHERE id = $24`,
                         [
                             batchId,
                             p.sku,
@@ -485,6 +505,9 @@ function registerStockPieceRoutes(app, deps) {
                             p.attr_color,
                             p.attr_stone,
                             p.fixed_price,
+                            p.gross_weight,
+                            p.bags,
+                            p.bag_wt,
                             JSON.stringify(p.payload_json || {}),
                             existing[0].id,
                         ],
@@ -496,8 +519,8 @@ function registerStockPieceRoutes(app, deps) {
                             reseller_user_id, batch_id, barcode, sku, style_code, product_name,
                             size, avg_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
                             box_charges, stone_charges, metal_type, item_code, image_url,
-                            attr_color, attr_stone, fixed_price, payload_json
-                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb)`,
+                            attr_color, attr_stone, fixed_price, gross_weight, bags, bag_wt, payload_json
+                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb)`,
                         [
                             req.user.id,
                             batchId,
@@ -520,6 +543,9 @@ function registerStockPieceRoutes(app, deps) {
                             p.attr_color,
                             p.attr_stone,
                             p.fixed_price,
+                            p.gross_weight,
+                            p.bags,
+                            p.bag_wt,
                             JSON.stringify(p.payload_json || {}),
                         ],
                     );
@@ -565,8 +591,9 @@ function registerStockPieceRoutes(app, deps) {
                         mc_type = $10, pcs = $11, box_charges = $12, stone_charges = $13,
                         metal_type = $14, item_code = $15, image_url = $16,
                         attr_color = $17, attr_stone = $18, fixed_price = $19,
+                        gross_weight = $20, bags = $21, bag_wt = $22,
                         updated_at = NOW()
-                     WHERE id = $20 AND batch_id = $21::uuid AND reseller_user_id = $22
+                     WHERE id = $23 AND batch_id = $24::uuid AND reseller_user_id = $25
                        AND status <> 'sold'`,
                     [
                         r.barcode ? String(r.barcode).trim().slice(0, 128) : null,
@@ -588,6 +615,9 @@ function registerStockPieceRoutes(app, deps) {
                         r.attr_color ?? null,
                         r.attr_stone ?? null,
                         r.fixed_price != null ? Number(r.fixed_price) : null,
+                        r.gross_weight != null ? Number(r.gross_weight) : null,
+                        r.bags ?? null,
+                        r.bag_wt != null ? Number(r.bag_wt) : null,
                         id,
                         batchId,
                         req.user.id,
@@ -778,6 +808,9 @@ function registerStockPieceRoutes(app, deps) {
     app.post('/api/reseller/erp/print/barcodes', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const pieceIds = Array.isArray(req.body.piece_ids) ? req.body.piece_ids : [];
+            const barcodes = Array.isArray(req.body.barcodes)
+                ? req.body.barcodes.map((b) => String(b).trim()).filter(Boolean)
+                : [];
             const batchId = req.body.batch_id ? String(req.body.batch_id) : null;
             let pieces = [];
             if (pieceIds.length) {
@@ -785,6 +818,13 @@ function registerStockPieceRoutes(app, deps) {
                     `SELECT * FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
                     [req.user.id, pieceIds.map((id) => parseInt(String(id), 10)).filter((n) => n > 0)],
+                );
+                pieces = rows.map(mapPiece);
+            } else if (barcodes.length) {
+                const rows = await query(
+                    `SELECT * FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND lower(trim(barcode)) = ANY($2::text[])`,
+                    [req.user.id, barcodes.map((b) => b.toLowerCase())],
                 );
                 pieces = rows.map(mapPiece);
             } else if (batchId) {
@@ -795,7 +835,10 @@ function registerStockPieceRoutes(app, deps) {
                 );
                 pieces = rows.map(mapPiece);
             } else {
-                return res.status(400).json({ error: 'piece_ids or batch_id required' });
+                return res.status(400).json({ error: 'piece_ids, barcodes, or batch_id required' });
+            }
+            if (!pieces.length) {
+                return res.status(404).json({ error: 'No matching stock pieces found for printing' });
             }
 
             const settingsRows = await query(
@@ -819,6 +862,8 @@ function registerStockPieceRoutes(app, deps) {
                     barcodeNumber: p.barcode,
                     styleCode: p.product_name || p.item_code || '',
                     weight: p.avg_weight != null ? Number(p.avg_weight).toFixed(3) : '0.000',
+                    grossWeight: p.gross_weight != null ? Number(p.gross_weight).toFixed(3) : '',
+                    bags: p.bags || '',
                     pcs: p.pcs || 1,
                     companyCode: hw.companyCode || 'KC925',
                     material: (p.metal_type || 'SILVER').toUpperCase(),
@@ -826,13 +871,14 @@ function registerStockPieceRoutes(app, deps) {
                 if (printerConfig?.type && printerConfig?.address) {
                     try {
                         await labelPrinter.printLabel(itemData, printerConfig);
-                        results.push({ barcode: p.barcode, printed: true });
+                        results.push({ barcode: p.barcode, piece_id: p.id, printed: true });
                     } catch (err) {
-                        results.push({ barcode: p.barcode, printed: false, error: err.message });
+                        results.push({ barcode: p.barcode, piece_id: p.id, printed: false, error: err.message });
                     }
                 } else {
                     results.push({
                         barcode: p.barcode,
+                        piece_id: p.id,
                         printed: false,
                         tspl: labelPrinter.generateTSPLLabel(itemData),
                     });

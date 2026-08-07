@@ -93,6 +93,52 @@ async function smoothBackdropKeepProductSharp(sharp, buffer, w, h) {
 /**
  * Catalogue finish pass — Aurra-style: smooth backdrop, suppress floor hotspot, crisp metal.
  */
+async function applyIdolHeroFraming(sharp, buffer, w, h) {
+    try {
+        const trimmed = await sharp(buffer).trim({ threshold: 14 }).toBuffer({ resolveWithObject: true });
+        const tw = trimmed.info.width || w;
+        const th = trimmed.info.height || h;
+        if (tw < 32 || th < 32) return buffer;
+
+        const targetFill = 0.8;
+        const long = Math.max(tw, th);
+        const canvas = Math.round(long / targetFill);
+        const padX = Math.max(0, Math.round((canvas - tw) / 2));
+        const padY = Math.max(0, Math.round((canvas - th) / 2));
+
+        let framed = await sharp(trimmed.data)
+            .extend({
+                top: padY,
+                bottom: padY,
+                left: padX,
+                right: padX,
+                background: { r: 20, g: 26, b: 36, alpha: 1 },
+            })
+            .resize(2048, 2048, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+            .toBuffer();
+
+        const fw = 2048;
+        const fh = 2048;
+        const glassMask = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="48%" r="46%">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="72%" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0.18"/>
+    </radialGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+</svg>`;
+        framed = await sharp(framed)
+            .composite([{ input: Buffer.from(glassMask), blend: 'soft-light' }])
+            .toBuffer();
+        return framed;
+    } catch (e) {
+        console.warn('idol hero framing skipped:', e.message);
+        return buffer;
+    }
+}
+
 async function postprocessStudioOutput(buffer, mimeType = 'image/png', options = {}) {
     const sharp = getSharp();
     if (!sharp || !buffer?.length) {
@@ -124,6 +170,10 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
         } else if (profile === 'idol') {
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
+            baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h);
+            const heroMeta = await sharp(baseBuf).metadata();
+            w = heroMeta.width || w;
+            h = heroMeta.height || h;
         }
 
         const composites = [];
@@ -228,8 +278,9 @@ No watermark, no logo, no generated text. Preserve exact jewellery geometry and 
 
 [PIPELINE — IDOL CATALOGUE STUDIO]
 Smoky blue-charcoal cinematic backdrop (smooth gradient, zero grain), soft diffused multi-light relighting.
-Hero framing: product including glass dome fills 72–82% of frame height — readable without zooming.
-Natural curved glass highlights — never white rectangular glare bars. Museum display feel.${studioShadowAndSurfaceBlock()}`;
+Hero framing: product including glass dome fills 82–88% of frame height — large, close, readable without zooming.
+Natural curved glass highlights only — NO vertical white glare bars, NO pink/magenta reflection stripes on dome exterior, NO shadow of dome cast on backdrop.
+Museum display feel — idol appears close to camera.${studioShadowAndSurfaceBlock()}`;
     }
     return aurraCinematicPromptBlock();
 }
@@ -369,8 +420,11 @@ const SYSTEM_STUDIO_NEGATIVE_LINES = [
     'No film grain or noise in background',
     'No mottled or speckled backdrop texture',
     'No white rectangular glare bar on glass dome',
+    'No pink or magenta vertical reflection stripe on glass dome',
     'No fake barcode stripe reflections on glass',
     'No ghost or duplicated idol reflection on backdrop',
+    'No shadow silhouette of glass dome on background wall',
+    'No tiny distant product with excessive empty headroom',
     'No harsh single overhead spotlight',
     'No bright circular light pool on tabletop',
     'No melted or softened CGI metal texture',

@@ -13,6 +13,7 @@ import { ErpSalesBillsWorkspace } from '@/components/reseller/erp/ErpSalesBillsW
 import { ErpLedgerWorkspace } from '@/components/reseller/erp/ErpLedgerWorkspace'
 import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
+import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
 import { ErpDigiWorkspace } from '@/components/reseller/erp/ErpDigiWorkspace'
 import {
   BillsWorkspace,
@@ -184,15 +185,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
         />
       )
     case 'tag-splitting':
-      return (
-        <SettingsWorkspace
-          settingsKey="tagSplit"
-          fields={[
-            { key: 'rules', label: 'Split / merge rules' },
-            { key: 'notes', label: 'Staff SOP notes' },
-          ]}
-        />
-      )
+      return <ErpTagSplitWorkspace />
     default:
       return <ErpFallbackPanel />
   }

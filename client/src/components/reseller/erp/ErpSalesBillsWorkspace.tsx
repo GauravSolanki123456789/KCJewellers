@@ -222,6 +222,29 @@ export function ErpSalesBillsWorkspace() {
     setComplianceSuccessNote(null)
   }
 
+  const downloadTaxInvoiceForBill = async (bill: ErpBill) => {
+    const session = (bill.session || {}) as ErpBillSession
+    const payload = await buildErpSalesPdfPayload({
+      bill,
+      brandLabel,
+      customerName: bill.customer_name,
+      mobile: session.mobile,
+      customerAddress: session.address,
+      customerPan: session.pan,
+      customerGst: session.customerGst,
+      slabSettingsRaw: auth.user,
+      taxInvoiceMode: true,
+    })
+    setComplianceSuccessVariant('e-invoice')
+    setComplianceSuccessMobile(session.mobile || '')
+    setComplianceSuccessBill(bill)
+    setComplianceSuccessPdf(payload)
+    setComplianceSuccessNote(
+      bill.compliance?.einvoice?.irn ? `IRN: ${bill.compliance.einvoice.irn}` : null,
+    )
+    setComplianceSuccessOpen(true)
+  }
+
   const openView = async (id: number) => {
     setBusy(true)
     try {
@@ -367,11 +390,15 @@ export function ErpSalesBillsWorkspace() {
                       <button
                         type="button"
                         className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-semibold text-emerald-900 hover:bg-emerald-100"
-                        title="Generate e-invoice"
+                        title={b.compliance?.einvoice?.irn ? 'Download tax invoice' : 'Generate e-invoice'}
                         onClick={() => void openCompliance(b.id, 'e-invoice')}
                       >
-                        <FileCheck className="size-3.5" />
-                        <span className="hidden sm:inline">E-inv</span>
+                        {b.compliance?.einvoice?.irn ? (
+                          <Download className="size-3.5" />
+                        ) : (
+                          <FileCheck className="size-3.5" />
+                        )}
+                        <span className="hidden sm:inline">{b.compliance?.einvoice?.irn ? 'Tax inv' : 'E-inv'}</span>
                       </button>
                       <button
                         type="button"
@@ -410,6 +437,7 @@ export function ErpSalesBillsWorkspace() {
         bill={complianceBill}
         kind={complianceKind}
         onSuccess={(bill, meta) => void onComplianceSuccess(bill, meta)}
+        onDownloadTaxInvoice={downloadTaxInvoiceForBill}
       />
       <ErpBillSavedModal
         open={complianceSuccessOpen}
