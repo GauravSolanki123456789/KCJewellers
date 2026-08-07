@@ -929,6 +929,15 @@ async function loadOverlaySettingsForUser(query, userId) {
     return normalizeOverlaySettings(raw && typeof raw === 'object' ? raw : defaultOverlaySettings());
 }
 
+function idolWhiteTemplateOverrideBlock() {
+    return `
+
+[WHITE TEMPLATE OVERRIDE — HIGHEST PRIORITY]
+Ignore any dark charcoal, navy, stone tabletop, or cinematic vignette instructions elsewhere in this prompt.
+The final image MUST use a pure seamless white (#FFFFFF) e-commerce catalogue background only — matching premium jewellery listing references.
+Transform even a bad phone photo into a sharp, professional studio product shot: clean white background, even lighting, hero framing, crisp metal detail.`;
+}
+
 function buildFullPrompt(
     promptText,
     negativePrompt,
@@ -942,7 +951,10 @@ function buildFullPrompt(
 ) {
     const normalized = normalizePromptFields(promptText, negativePrompt);
     let main = normalized.promptText;
-    let neg = mergeSystemNegativePrompt(normalized.negativePrompt);
+    const isWhiteIdol = profile === 'idol' && generationOptions.backgroundPreset === 'white';
+    let neg = mergeSystemNegativePrompt(normalized.negativePrompt, {
+        backgroundPreset: generationOptions.backgroundPreset,
+    });
     const aspect = normalizeAspectRatio(aspectRatio);
     const text = String(canvasText || '').trim().slice(0, 120);
     const highlights = Array.isArray(workflowHighlights)
@@ -952,11 +964,23 @@ function buildFullPrompt(
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
-    if (!isComprehensiveUserPrompt(normalized.promptText)) {
-        main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
+    if (isWhiteIdol) {
+        main += idolWhiteTemplateOverrideBlock();
     }
-    main += profileStudioQualityBlock(profile);
-    main += compositionPromptBlock(profile);
+    if (!isComprehensiveUserPrompt(normalized.promptText)) {
+        if (isWhiteIdol) {
+            main += `\n\nOUTPUT QUALITY (CRITICAL — WHITE CATALOGUE GRADE):
+Premium e-commerce jewellery product photography on pure white (#FFFFFF). Crisp micro-textures on silver/gold metal and engravings, natural wood grain on bases, clean curved glass highlights when dome present (never white rectangular glare bars).
+Bright even diffused studio lighting — no harsh shadows on white backdrop, no dark vignette, no grey or cream color cast.
+Hero framing: product fills 78–88% of frame height — large, close, readable without zooming.
+Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse/table clutter entirely.
+Soft contact shadow under the product base only — no cast shadows on the white wall.`;
+        } else {
+            main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
+        }
+    }
+    main += profileStudioQualityBlock(profile, generationOptions.backgroundPreset);
+    main += compositionPromptBlock(profile, generationOptions);
     main += generationOptionsPromptBlock({
         backgroundPreset: generationOptions.backgroundPreset,
         visualization: generationOptions.visualization,
@@ -980,9 +1004,13 @@ const GEMINI_BATCH_TERMINAL_STATES = new Set([
     'JOB_STATE_EXPIRED',
 ]);
 
-function sourceLockPromptForProfile(profile) {
+function sourceLockPromptForProfile(profile, backgroundPreset) {
+    const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
     if (profile === 'kada') {
         return '\n\nSOURCE JEWELLERY (CRITICAL — STRICT REFERENCE LOCK):\nThe attached photo is the exact kada/bracelet. Preserve 100% identity — same shape, proportions, engravings, emblem, textures, metal finish, stone colors, and polish. Only improve studio lighting, pedestal, background, and commercial presentation. Do NOT redesign, recolor, resize, rotate, mirror, or alter any detail. Replace any casual background with matte black luxury studio. Soft diffused HDR lighting — no harsh spotlight rings. Leave bottom-right corner clear for macro inset overlay.';
+    }
+    if (profile === 'idol' && isWhite) {
+        return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base — NO cast shadow on white backdrop.';
     }
     if (profile === 'idol') {
         return '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 72–82% of frame height — clearly readable without zooming (Aurra Studio scale). Match metal and halo colors exactly as in the source image. Replace shop/warehouse backgrounds with a smooth smoky blue-charcoal Aurra-style studio — no grain, no speckled noise. Use soft diffused multi-light studio relighting — NOT a single harsh overhead spotlight or bright circular floor hotspot. Glass dome: soft curved highlights only — NO white rectangular glare bars. Do NOT copy messy shop shadows, wall shadows, or spotlight rings onto the new backdrop — use only a soft contact shadow under the base.';
@@ -1010,7 +1038,7 @@ function buildGeminiUserParts({
     });
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
-        parts[0].text += sourceLockPromptForProfile(profile);
+        parts[0].text += sourceLockPromptForProfile(profile, generationOptions.backgroundPreset);
         const buf = fs.readFileSync(sourceImagePath);
         parts.push({
             inline_data: {
@@ -1886,6 +1914,7 @@ async function generateStudioImage({
         profile,
         originalSourcePath: sourceImagePath,
         fastMode: generationOptions.fastMode !== false,
+        backgroundPreset: generationOptions.backgroundPreset || 'charcoal',
     });
 }
 

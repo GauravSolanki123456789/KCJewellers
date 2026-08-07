@@ -90,8 +90,76 @@ async function smoothBackdropKeepProductSharp(sharp, buffer, w, h) {
     return sharp(smoothBg).composite([{ input: productLayer, blend: 'over' }]).toBuffer();
 }
 
+function isWhiteCatalogMode(options = {}) {
+    return String(options.backgroundPreset || '').toLowerCase() === 'white';
+}
+
 /**
- * Catalogue finish pass — Aurra-style: smooth backdrop, suppress floor hotspot, crisp metal.
+ * Hero framing on pure white — e-commerce catalogue (matches sample references).
+ */
+async function applyIdolWhiteHeroFraming(sharp, buffer, w, h, fastMode = true) {
+    try {
+        const trimmed = await sharp(buffer).trim({ threshold: 12 }).toBuffer({ resolveWithObject: true });
+        const tw = trimmed.info.width || w;
+        const th = trimmed.info.height || h;
+        if (tw < 32 || th < 32) return buffer;
+
+        const targetFill = 0.84;
+        const long = Math.max(tw, th);
+        const canvas = Math.round(long / targetFill);
+        const padX = Math.max(0, Math.round((canvas - tw) / 2));
+        const padY = Math.max(0, Math.round((canvas - th) / 2));
+        const targetSize = fastMode ? 1600 : 2048;
+
+        let framed = await sharp(trimmed.data)
+            .extend({
+                top: padY,
+                bottom: padY,
+                left: padX,
+                right: padX,
+                background: { r: 255, g: 255, b: 255, alpha: 1 },
+            })
+            .resize(targetSize, targetSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+            .toBuffer();
+
+        const fw = targetSize;
+        const fh = targetSize;
+        const shadowSvg = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="s" cx="50%" cy="86%" rx="26%" ry="5%">
+      <stop offset="0%" stop-color="#000" stop-opacity="0.2"/>
+      <stop offset="55%" stop-color="#000" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#s)"/>
+</svg>`;
+        framed = await sharp(framed)
+            .composite([{ input: Buffer.from(shadowSvg), blend: 'multiply' }])
+            .toBuffer();
+
+        const whitenSvg = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="w" cx="50%" cy="42%" r="72%">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="68%" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0.55"/>
+    </radialGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#w)"/>
+</svg>`;
+        framed = await sharp(framed)
+            .composite([{ input: Buffer.from(whitenSvg), blend: 'lighten' }])
+            .toBuffer();
+        return framed;
+    } catch (e) {
+        console.warn('idol white hero framing skipped:', e.message);
+        return buffer;
+    }
+}
+
+/**
+ * Dark cinematic hero framing — charcoal pad + subtle glass anti-glare.
  */
 async function applyIdolHeroFraming(sharp, buffer, w, h) {
     try {
@@ -146,17 +214,19 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
     }
     const profile = options.profile || 'generic';
     const fastMode = options.fastMode !== false;
+    const whiteCatalog = isWhiteCatalogMode(options);
     try {
         let working = sharp(buffer).rotate();
         const meta = await working.metadata();
         let w = meta.width || 0;
         let h = meta.height || 0;
         const longEdge = Math.max(w, h);
+        const targetLong = whiteCatalog && fastMode ? 1600 : 2048;
 
-        if (longEdge > 0 && longEdge < 1800) {
+        if (longEdge > 0 && longEdge < (whiteCatalog ? 1500 : 1800)) {
             working = working.resize({
-                width: w >= h ? 2048 : undefined,
-                height: h > w ? 2048 : undefined,
+                width: w >= h ? targetLong : undefined,
+                height: h > w ? targetLong : undefined,
                 withoutEnlargement: false,
                 kernel: sharp.kernel.lanczos3,
             });
@@ -166,7 +236,12 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
         }
 
         let baseBuf = await working.toBuffer();
-        if (profile !== 'kada' && !fastMode) {
+        if (profile === 'idol' && whiteCatalog) {
+            baseBuf = await applyIdolWhiteHeroFraming(sharp, baseBuf, w, h, fastMode);
+            const heroMeta = await sharp(baseBuf).metadata();
+            w = heroMeta.width || w;
+            h = heroMeta.height || h;
+        } else if (profile !== 'kada' && !fastMode) {
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
         } else if (profile === 'idol') {
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
@@ -177,7 +252,7 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
         }
 
         const composites = [];
-        if (profile !== 'kada') {
+        if (!whiteCatalog && profile !== 'kada') {
             const hotspotSvg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="h" cx="50%" cy="76%" r="42%">
@@ -191,7 +266,8 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
             composites.push({ input: Buffer.from(hotspotSvg), blend: 'multiply' });
         }
 
-        const vignetteSvg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+        if (!whiteCatalog) {
+            const vignetteSvg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="v" cx="50%" cy="40%" r="78%">
       <stop offset="58%" stop-color="#000" stop-opacity="0"/>
@@ -200,16 +276,19 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
   </defs>
   <rect width="100%" height="100%" fill="url(#v)"/>
 </svg>`;
-        composites.push({ input: Buffer.from(vignetteSvg), blend: 'multiply' });
+            composites.push({ input: Buffer.from(vignetteSvg), blend: 'multiply' });
+        }
 
         let pipeline = sharp(baseBuf).sharpen({
-            sigma: fastMode ? 0.45 : 0.55,
+            sigma: whiteCatalog ? (fastMode ? 0.5 : 0.58) : fastMode ? 0.45 : 0.55,
             m1: 0.45,
             m2: 0.28,
         });
 
         if (profile === 'kada') {
             pipeline = pipeline.modulate({ saturation: 1.02, brightness: 1.01 });
+        } else if (whiteCatalog) {
+            pipeline = pipeline.modulate({ saturation: 1.04, brightness: 1.015 });
         } else {
             pipeline = pipeline
                 .modulate({ saturation: 1.03, brightness: 1.008 })
@@ -264,7 +343,33 @@ function isComprehensiveUserPrompt(promptText) {
     );
 }
 
-function profileStudioQualityBlock(profile) {
+function whiteCatalogShadowBlock() {
+    return `
+
+[SHADOW & SURFACE — WHITE CATALOGUE]
+• Pure seamless white (#FFFFFF) infinity-cove background — NO grey gradient wall, NO cream cast, NO dark vignette.
+• Bright even diffused studio lighting — soft key + fill like premium Amazon/Flipkart jewellery listings.
+• ONLY a very soft subtle contact shadow directly under the product base on the white floor.
+• NO cast shadow on the white backdrop wall, NO dark shadow blob, NO harsh spotlight ring.
+• Preserve crisp silver/gold micro-texture, natural wood grain on bases, and clean glass refraction when dome is present.
+• Remove ALL shop clutter, plastic bags, hands, price tags, messy tables from the scene.`;
+}
+
+function idolWhiteCatalogPromptBlock() {
+    return `
+
+[PIPELINE — IDOL WHITE CATALOGUE (E-COMMERCE REFERENCE)]
+Pure seamless white background (#FFFFFF) — identical to premium jewellery product photography references.
+Product (idol + wooden/metal base, with OR without glass dome) centered, fills 78–88% of frame height.
+Bright even diffused studio lighting — no harsh shadows on white backdrop.
+ONLY soft subtle grey contact shadow directly under the base — never a dark blob on the white floor.
+Crisp silver/gold micro-texture, natural metallic speculars, engraved detail sharp and readable.
+Wood bases: warm natural grain, polished finish preserved exactly.
+Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${whiteCatalogShadowBlock()}`;
+}
+
+function profileStudioQualityBlock(profile, backgroundPreset) {
+    const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
     if (profile === 'kada') {
         return `
 
@@ -272,6 +377,9 @@ function profileStudioQualityBlock(profile) {
 Matte black natural slate pedestal, soft diffused invisible studio lighting, balanced HDR metallic reflections.
 Do NOT draw or generate a macro inset circle — leave bottom-right corner clear; a real inset from the source photo is composited automatically in post.
 No watermark, no logo, no generated text. Preserve exact jewellery geometry and colors from source.`;
+    }
+    if (profile === 'idol' && isWhite) {
+        return idolWhiteCatalogPromptBlock();
     }
     if (profile === 'idol') {
         return `
@@ -397,7 +505,17 @@ Match premium jewellery catalogue output (Aurra Studio grade):
 • Centered composition, elegant negative space, square catalogue crop.${studioShadowAndSurfaceBlock()}`;
 }
 
-function spatialLockPromptBlock() {
+function spatialLockPromptBlock(options = {}) {
+    if (isWhiteCatalogMode(options)) {
+        return `
+
+[PIPELINE — SPATIAL LOCK (WHITE CATALOGUE)]
+The attached photo is the EXACT product. Do NOT redraw, warp, melt, recolor, or alter silhouette, proportions, engravings, halo color, gemstones, glass dome, or wood base.
+Generate ONLY a pure white seamless studio environment and professional relighting AROUND the locked product.
+Replace any shop/warehouse/table clutter with clean #FFFFFF infinity-cove background.
+If shot through glass: keep the real dome shape and natural refraction — never fake white glare bars or duplicated ghost images.
+Do NOT copy messy shop shadows onto the white backdrop — use only a soft contact shadow under the base.${whiteCatalogShadowBlock()}`;
+    }
     return `
 
 [PIPELINE — SPATIAL LOCK]
@@ -406,6 +524,18 @@ Generate ONLY the studio environment, lighting, and reflections AROUND the locke
 If shot through glass: keep the real dome shape and natural refraction — never replace with fake white reflection bars or duplicated ghost images.
 Relight the scene; do NOT copy messy shop shadows, wall shadows, or spotlight rings from the source photo onto the new backdrop.${studioShadowAndSurfaceBlock()}`;
 }
+
+const WHITE_CATALOG_NEGATIVE_LINES = [
+    'No grey or cream background',
+    'No dark charcoal or navy backdrop',
+    'No dark vignette or edge darkening',
+    'No smoky gradient wall on white template',
+    'No dark shadow blob on white floor',
+    'No yellow or green color cast on white background',
+    'No visible table edge or horizon line',
+    'No plastic bag or packaging in frame',
+    'No price tag or sticker visible',
+];
 
 /** Always appended to negative prompts for catalogue shadow cleanup. */
 const SYSTEM_STUDIO_NEGATIVE_LINES = [
@@ -434,13 +564,14 @@ const SYSTEM_STUDIO_NEGATIVE_LINES = [
     'No visible studio equipment or clutter in frame',
 ];
 
-function mergeSystemNegativePrompt(userNegative) {
+function mergeSystemNegativePrompt(userNegative, options = {}) {
     const lines = String(userNegative || '')
         .split(/\r?\n/)
         .map((l) => l.trim())
         .filter(Boolean);
     const seen = new Set(lines.map((l) => l.toLowerCase()));
-    for (const line of SYSTEM_STUDIO_NEGATIVE_LINES) {
+    const extra = isWhiteCatalogMode(options) ? WHITE_CATALOG_NEGATIVE_LINES : [];
+    for (const line of [...SYSTEM_STUDIO_NEGATIVE_LINES, ...extra]) {
         const key = line.toLowerCase();
         if (!seen.has(key)) {
             lines.push(line);
@@ -457,12 +588,16 @@ module.exports = {
     aurraCinematicPromptBlock,
     spatialLockPromptBlock,
     studioShadowAndSurfaceBlock,
+    whiteCatalogShadowBlock,
+    idolWhiteCatalogPromptBlock,
     mergeSystemNegativePrompt,
     SYSTEM_STUDIO_NEGATIVE_LINES,
+    WHITE_CATALOG_NEGATIVE_LINES,
     writeTempBuffer,
     detectEnhancementProfile,
     isComprehensiveUserPrompt,
     profileStudioQualityBlock,
     composeFeatureMacroInset,
     shouldUseRembgForProfile,
+    isWhiteCatalogMode,
 };

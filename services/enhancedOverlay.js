@@ -259,7 +259,7 @@ async function applyImageOverlays(buffer, mimeType, settingsRaw, meta = {}, deps
 const BACKGROUND_PRESETS = {
     charcoal: 'Deep charcoal to midnight blue smoky cinematic studio backdrop with soft vignette',
     black: 'Pure matte black luxury studio background with subtle gradient',
-    white: 'Clean premium white seamless studio background — bright catalogue look',
+    white: 'Pure seamless white infinity-cove studio background (#FFFFFF) — premium e-commerce catalogue identical to Amazon/Flipkart jewellery product shots',
     red: 'Deep rich burgundy-red luxury studio backdrop',
     blue: 'Deep navy blue luxury studio backdrop',
     emerald: 'Dark emerald green luxury studio backdrop',
@@ -285,7 +285,11 @@ function generationOptionsPromptBlock({ backgroundPreset, visualization, profile
     const bgText = BACKGROUND_PRESETS[bgKey] || BACKGROUND_PRESETS.charcoal;
     if (bgKey === 'white') {
         parts.push(
-            `\n\n[BACKGROUND — ${bgKey.toUpperCase()}]\n${bgText}. Soft even lighting suitable for white-background catalogue.`,
+            `\n\n[BACKGROUND — WHITE CATALOGUE (CRITICAL)]
+Pure seamless white background (#FFFFFF) — clean infinity-cove e-commerce look matching premium jewellery catalogue references.
+Bright, even, diffused studio lighting. NO grey backdrop, NO cream gradient wall, NO dark vignette.
+ONLY a very soft subtle contact shadow directly under the product base on the white floor — never a dark shadow blob, never cast shadow on the white backdrop.
+Product centered with generous white margin — catalogue-ready for website listing.`,
         );
     } else {
         parts.push(`\n\n[BACKGROUND — ${bgKey.toUpperCase()}]\n${bgText}.`);
@@ -298,7 +302,7 @@ function generationOptionsPromptBlock({ backgroundPreset, visualization, profile
     return parts.join('');
 }
 
-function compositionPromptBlock(profile) {
+function compositionPromptBlock(profile, options = {}) {
     if (profile === 'kada') {
         return `
 
@@ -306,6 +310,15 @@ function compositionPromptBlock(profile) {
 Product fills approximately 75–85% of frame width, centered on pedestal. Close hero shot — engravings and emblem details must be clearly readable WITHOUT the customer zooming in. Not tiny in frame, not extreme macro crop.`;
     }
     if (profile === 'idol') {
+        const isWhite = String(options?.backgroundPreset || '').toLowerCase() === 'white';
+        if (isWhite) {
+            return `
+
+[COMPOSITION — WHITE CATALOGUE HERO]
+Product (idol + base, with or without glass dome) fills 78–88% of frame HEIGHT — large close hero shot like premium e-commerce references.
+Centered on pure white. Detail clearly readable without zooming. NOT tiny with excessive empty space. NOT extreme macro crop.
+Modest even margins on all sides for website grid display.`;
+        }
         return `
 
 [COMPOSITION — HERO FRAMING]

@@ -14,12 +14,24 @@ const {
     postprocessStudioOutput,
     spatialLockPromptBlock,
     studioShadowAndSurfaceBlock,
+    whiteCatalogShadowBlock,
     composeFeatureMacroInset,
     shouldUseRembgForProfile,
     writeTempBuffer,
 } = require('./enhancedImageProcessing');
 
-function cutoutPlacementBlock() {
+function cutoutPlacementBlock(backgroundPreset = 'charcoal') {
+    if (String(backgroundPreset || '').toLowerCase() === 'white') {
+        return `
+
+[CUTOUT COMPOSITE — WHITE CATALOGUE PLACEMENT]
+The attached image is an isolated product cutout on transparency.
+Place it centered on a pure seamless white (#FFFFFF) infinity-cove studio background — premium e-commerce jewellery catalogue style.
+Relight with bright even diffused multi-source studio lighting — soft key, fill, and subtle rim; NOT a single harsh overhead spotlight.
+Preserve razor-sharp silver/gold micro-texture, natural wood grain on bases, and clean curved glass highlights when a dome is present.
+Do NOT paste shop shadows, floating edges, grey backdrop, dark vignette, or white rectangular glare bars on glass.
+ONLY a very soft subtle contact shadow directly under the product base.${whiteCatalogShadowBlock()}`;
+    }
     return `
 
 [CUTOUT COMPOSITE — AURRA PLACEMENT]
@@ -147,13 +159,13 @@ function cleanupTemp(...paths) {
     }
 }
 
-async function extractBackground(sourceImagePath, replicateToken) {
+async function extractBackground(sourceImagePath, replicateToken, maxWaitMs = 90000) {
     if (!replicateToken || !sourceImagePath || !fs.existsSync(sourceImagePath)) {
         return { path: sourceImagePath, usedRembg: false };
     }
     try {
         const dataUri = toDataUri(sourceImagePath);
-        const out = await runReplicateModel(replicateToken, REMBG_MODEL, { image: dataUri }, 90000);
+        const out = await runReplicateModel(replicateToken, REMBG_MODEL, { image: dataUri }, maxWaitMs);
         const cutoutPath = writeTempBuffer(out.buffer, '.png');
         return { path: cutoutPath, usedRembg: true, mimeType: out.mimeType };
     } catch (e) {
@@ -203,6 +215,7 @@ async function runFourStepStudioPipeline({
     profile = 'generic',
     originalSourcePath,
     fastMode = true,
+    backgroundPreset = 'charcoal',
 }) {
     const token = aiConfig?.replicate_api_token || process.env.REPLICATE_API_TOKEN || '';
     const geminiPath = isGeminiProvider(aiConfig);
@@ -214,10 +227,15 @@ async function runFourStepStudioPipeline({
         upscale: false,
     };
 
+    const whiteCatalog = String(backgroundPreset || '').toLowerCase() === 'white';
+    const rembgWaitMs = fastMode ? 90000 : 120000;
+
     const runGenerate = async (srcPath, useSpatialLock, usedCutout = false) => {
         const base = String(promptText || '').trim();
-        let lockedPrompt = useSpatialLock ? `${base}${spatialLockPromptBlock()}` : base;
-        if (usedCutout) lockedPrompt += cutoutPlacementBlock();
+        let lockedPrompt = useSpatialLock
+            ? `${base}${spatialLockPromptBlock({ backgroundPreset })}`
+            : base;
+        if (usedCutout) lockedPrompt += cutoutPlacementBlock(backgroundPreset);
         return generateStudioImage({
             promptText: lockedPrompt,
             negativePrompt,
@@ -237,6 +255,7 @@ async function runFourStepStudioPipeline({
             const finished = await postprocessStudioOutput(result.buffer, result.mimeType, {
                 profile,
                 fastMode: true,
+                backgroundPreset,
             });
             if (finished.buffer !== result.buffer) {
                 result = { ...result, buffer: finished.buffer, mimeType: finished.mimeType };
@@ -257,17 +276,26 @@ async function runFourStepStudioPipeline({
         return { ...result, pipeline: steps, pipeline_mode: 'single' };
     }
 
-    let cutout = { path: sourceImagePath, usedRembg: false };
+    let rembgSourcePath = sourceImagePath;
+    let preprocessedTemp = null;
+    if (geminiPath && (profile === 'idol' && whiteCatalog)) {
+        const pre = await preprocessSourceForGemini(sourceImagePath);
+        if (pre.preprocessed) {
+            rembgSourcePath = pre.path;
+            preprocessedTemp = pre.path;
+        }
+    }
+
+    let cutout = { path: rembgSourcePath, usedRembg: false };
     const useRembg = shouldUseRembgForProfile(profile) && !!token;
     if (useRembg) {
-        cutout = await extractBackground(sourceImagePath, token);
+        cutout = await extractBackground(rembgSourcePath, token, rembgWaitMs);
         steps.rembg = !!cutout.usedRembg;
     }
     steps.spatial_lock = true;
 
-    let generateSourcePath = cutout.usedRembg ? cutout.path : sourceImagePath;
-    let preprocessedTemp = null;
-    if (geminiPath && !cutout.usedRembg) {
+    let generateSourcePath = cutout.usedRembg ? cutout.path : rembgSourcePath;
+    if (geminiPath && !cutout.usedRembg && !preprocessedTemp) {
         const pre = await preprocessSourceForGemini(sourceImagePath);
         if (pre.preprocessed) {
             generateSourcePath = pre.path;
@@ -300,7 +328,8 @@ async function runFourStepStudioPipeline({
 
         const finished = await postprocessStudioOutput(generated.buffer, generated.mimeType, {
             profile,
-            fastMode: true,
+            fastMode,
+            backgroundPreset,
         });
         if (finished.buffer !== generated.buffer) {
             generated = { ...generated, buffer: finished.buffer, mimeType: finished.mimeType };
