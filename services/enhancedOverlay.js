@@ -1,0 +1,329 @@
+/**
+ * Post-process watermark + informational text overlays for Enhanced Pictures.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const { getSharp } = require('./enhancedImageProcessing');
+
+const OVERLAY_POSITIONS = new Set([
+    'top-left',
+    'top-right',
+    'bottom-left',
+    'bottom-right',
+    'center',
+]);
+
+function defaultOverlaySettings() {
+    return {
+        watermark_enabled: false,
+        watermark_url: null,
+        watermark_position: 'bottom-right',
+        watermark_opacity: 0.88,
+        watermark_scale: 0.16,
+        info_text_enabled: false,
+        info_text_lines: ['{variety}', '{sku}', '{weight}'],
+        info_text_position: 'top-left',
+        info_text_color: '#ffffff',
+        info_text_size: 26,
+    };
+}
+
+function normalizeOverlaySettings(raw) {
+    const base = defaultOverlaySettings();
+    if (!raw || typeof raw !== 'object') return base;
+    const pos = String(raw.watermark_position || base.watermark_position).toLowerCase();
+    const textPos = String(raw.info_text_position || base.info_text_position).toLowerCase();
+    return {
+        watermark_enabled: !!raw.watermark_enabled,
+        watermark_url: raw.watermark_url ? String(raw.watermark_url).trim().slice(0, 500) : null,
+        watermark_position: OVERLAY_POSITIONS.has(pos) ? pos : base.watermark_position,
+        watermark_opacity: Math.min(1, Math.max(0.2, Number(raw.watermark_opacity) || base.watermark_opacity)),
+        watermark_scale: Math.min(0.4, Math.max(0.06, Number(raw.watermark_scale) || base.watermark_scale)),
+        info_text_enabled: !!raw.info_text_enabled,
+        info_text_lines: Array.isArray(raw.info_text_lines)
+            ? raw.info_text_lines.map((l) => String(l).trim()).filter(Boolean).slice(0, 8)
+            : base.info_text_lines,
+        info_text_position: OVERLAY_POSITIONS.has(textPos) ? textPos : base.info_text_position,
+        info_text_color: /^#[0-9a-fA-F]{3,8}$/.test(String(raw.info_text_color || ''))
+            ? String(raw.info_text_color)
+            : base.info_text_color,
+        info_text_size: Math.min(48, Math.max(14, parseInt(String(raw.info_text_size || base.info_text_size), 10) || base.info_text_size)),
+    };
+}
+
+function escapeXml(s) {
+    return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function formatWeight(productMeta) {
+    if (!productMeta) return '';
+    const wd = productMeta.weight_display || productMeta.weightDisplay;
+    if (wd) return String(wd).trim();
+    const net = productMeta.net_weight ?? productMeta.netWeight;
+    const gross = productMeta.gross_weight ?? productMeta.grossWeight;
+    const n = net != null ? Number(net) : NaN;
+    const g = gross != null ? Number(gross) : NaN;
+    if (Number.isFinite(n) && n > 0) return `${n.toFixed(2)} g`;
+    if (Number.isFinite(g) && g > 0) return `${g.toFixed(2)} g`;
+    return '';
+}
+
+function resolveOverlayTextLines(settings, meta = {}) {
+    const lines = settings.info_text_lines?.length ? settings.info_text_lines : ['{variety}', '{sku}', '{weight}'];
+    const tokens = {
+        '{variety}': String(meta.variety_label || meta.variety || '').trim(),
+        '{template}': String(meta.template_label || meta.template || '').trim(),
+        '{sku}': String(meta.sku || meta.barcode_stem || meta.item_code || '').trim(),
+        '{style_code}': String(meta.style_code || meta.item_code || meta.design_group || '').trim(),
+        '{weight}': formatWeight(meta.product),
+        '{product_name}': String(meta.product_name || '').trim(),
+        '{barcode}': String(meta.barcode || meta.barcode_stem || '').trim(),
+    };
+    return lines
+        .map((line) => {
+            let out = String(line);
+            for (const [key, val] of Object.entries(tokens)) {
+                out = out.split(key).join(val);
+            }
+            return out.trim();
+        })
+        .filter(Boolean);
+}
+
+function positionCoords(position, w, h, boxW, boxH, margin) {
+    const m = margin;
+    switch (position) {
+        case 'top-right':
+            return { left: w - boxW - m, top: m };
+        case 'bottom-left':
+            return { left: m, top: h - boxH - m };
+        case 'bottom-right':
+            return { left: w - boxW - m, top: h - boxH - m };
+        case 'center':
+            return { left: Math.round((w - boxW) / 2), top: Math.round((h - boxH) / 2) };
+        case 'top-left':
+        default:
+            return { left: m, top: m };
+    }
+}
+
+function buildInfoTextSvg(lines, w, h, position, color, fontSize) {
+    const lineHeight = Math.round(fontSize * 1.28);
+    const pad = 20;
+    const maxChars = Math.max(...lines.map((l) => l.length), 1);
+    const boxW = Math.min(w - pad * 2, Math.max(120, maxChars * fontSize * 0.52));
+    const boxH = lines.length * lineHeight + pad;
+    const { left, top } = positionCoords(position, w, h, boxW, boxH, pad);
+    const anchor =
+        position === 'top-right' || position === 'bottom-right'
+            ? 'end'
+            : position === 'center'
+              ? 'middle'
+              : 'start';
+    const textX =
+        position === 'top-right' || position === 'bottom-right'
+            ? left + boxW - 8
+            : position === 'center'
+              ? left + boxW / 2
+              : left + 8;
+    const textY = top + fontSize + 4;
+    const tspans = lines
+        .map(
+            (line, i) =>
+                `<tspan x="${textX}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`,
+        )
+        .join('');
+    const shadow = `<filter id="tshadow" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.55"/>
+  </filter>`;
+    return Buffer.from(
+        `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+  <defs>${shadow}</defs>
+  <text x="${textX}" y="${textY}" fill="${escapeXml(color)}" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="700" text-anchor="${anchor}" filter="url(#tshadow)">${tspans}</text>
+</svg>`,
+    );
+}
+
+async function loadWatermarkBuffer(watermarkUrl, enhancedDir, getPublicApiBaseUrl) {
+    const url = String(watermarkUrl || '').trim();
+    if (!url) return null;
+    try {
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+            return Buffer.from(res.data);
+        }
+        const base = String(getPublicApiBaseUrl?.() || '').replace(/\/$/, '');
+        const rel = url.replace(/^\/+/, '');
+        const localPath = rel.includes('uploads/')
+            ? path.join(process.cwd(), rel.replace(/^uploads\//, 'uploads/'))
+            : path.join(enhancedDir || path.join(process.cwd(), 'uploads/web_products/enhanced'), path.basename(url));
+        if (fs.existsSync(localPath)) return fs.readFileSync(localPath);
+        if (base) {
+            const res = await axios.get(`${base}/${rel}`, { responseType: 'arraybuffer', timeout: 30000 });
+            return Buffer.from(res.data);
+        }
+    } catch (e) {
+        console.warn('watermark load failed:', e.message);
+    }
+    return null;
+}
+
+/**
+ * Apply watermark and/or info text onto a generated image buffer.
+ */
+async function applyImageOverlays(buffer, mimeType, settingsRaw, meta = {}, deps = {}) {
+    const sharp = getSharp();
+    if (!sharp || !buffer?.length) return { buffer, mimeType };
+
+    const settings = normalizeOverlaySettings(settingsRaw);
+    const applyWatermark =
+        (meta.apply_watermark != null ? !!meta.apply_watermark : settings.watermark_enabled) &&
+        settings.watermark_url;
+    const applyText =
+        (meta.apply_info_text != null ? !!meta.apply_info_text : settings.info_text_enabled);
+
+    if (!applyWatermark && !applyText) return { buffer, mimeType };
+
+    try {
+        const metaImg = await sharp(buffer).metadata();
+        const w = metaImg.width || 1024;
+        const h = metaImg.height || 1024;
+        const composites = [];
+
+        if (applyText) {
+            const lines = resolveOverlayTextLines(settings, meta);
+            if (lines.length) {
+                const svg = buildInfoTextSvg(
+                    lines,
+                    w,
+                    h,
+                    settings.info_text_position,
+                    settings.info_text_color,
+                    settings.info_text_size,
+                );
+                composites.push({ input: svg, blend: 'over' });
+            }
+        }
+
+        if (applyWatermark) {
+            const wmBuf = await loadWatermarkBuffer(
+                settings.watermark_url,
+                deps.enhancedDir,
+                deps.getPublicApiBaseUrl,
+            );
+            if (wmBuf?.length) {
+                const targetW = Math.round(w * settings.watermark_scale);
+                const wmMeta = await sharp(wmBuf).metadata();
+                const aspect = (wmMeta.width || 1) / (wmMeta.height || 1);
+                const targetH = Math.round(targetW / aspect);
+                const wmResized = await sharp(wmBuf)
+                    .resize(targetW, targetH, { fit: 'inside' })
+                    .ensureAlpha()
+                    .modulate({ brightness: 1 })
+                    .toBuffer();
+                const margin = Math.round(Math.min(w, h) * 0.035);
+                const { left, top } = positionCoords(
+                    settings.watermark_position,
+                    w,
+                    h,
+                    targetW,
+                    targetH,
+                    margin,
+                );
+                composites.push({
+                    input: wmResized,
+                    top,
+                    left,
+                    blend: 'over',
+                    opacity: settings.watermark_opacity,
+                });
+            }
+        }
+
+        if (!composites.length) return { buffer, mimeType };
+
+        const out = await sharp(buffer).composite(composites).png({ compressionLevel: 6, quality: 100 }).toBuffer();
+        return { buffer: out, mimeType: 'image/png' };
+    } catch (e) {
+        console.warn('overlay apply skipped:', e.message);
+        return { buffer, mimeType };
+    }
+}
+
+const BACKGROUND_PRESETS = {
+    charcoal: 'Deep charcoal to midnight blue smoky cinematic studio backdrop with soft vignette',
+    black: 'Pure matte black luxury studio background with subtle gradient',
+    white: 'Clean premium white seamless studio background — bright catalogue look',
+    red: 'Deep rich burgundy-red luxury studio backdrop',
+    blue: 'Deep navy blue luxury studio backdrop',
+    emerald: 'Dark emerald green luxury studio backdrop',
+    cream: 'Warm ivory cream luxury studio backdrop',
+};
+
+const VISUALIZATION_PRESETS = {
+    studio: '',
+    prop: 'Place the product on an elegant minimal luxury display prop or pedestal appropriate for jewellery catalogue photography.',
+    hand_female:
+        'Show the jewellery naturally on an elegant female hand — manicured, soft skin tone, cropped at wrist. Premium editorial look.',
+    hand_male:
+        'Show the jewellery naturally on a male hand — cropped at wrist. Premium editorial catalogue look.',
+    standing: 'Display the product in an upright standing position on the pedestal — premium catalogue arrangement.',
+    sleeping: 'Display the product in a flat sleeping/laying position on the pedestal — classic catalogue flat lay.',
+    mixed_bangles:
+        'For paired bangles/kadas: one piece standing upright inside the circle of the other lying flat — classic dual-angle catalogue arrangement.',
+};
+
+function generationOptionsPromptBlock({ backgroundPreset, visualization, profile } = {}) {
+    const parts = [];
+    const bgKey = String(backgroundPreset || 'charcoal').toLowerCase();
+    const bgText = BACKGROUND_PRESETS[bgKey] || BACKGROUND_PRESETS.charcoal;
+    if (bgKey === 'white') {
+        parts.push(
+            `\n\n[BACKGROUND — ${bgKey.toUpperCase()}]\n${bgText}. Soft even lighting suitable for white-background catalogue.`,
+        );
+    } else {
+        parts.push(`\n\n[BACKGROUND — ${bgKey.toUpperCase()}]\n${bgText}.`);
+    }
+    const vizKey = String(visualization || 'studio').toLowerCase();
+    const vizText = VISUALIZATION_PRESETS[vizKey];
+    if (vizText) {
+        parts.push(`\n\n[VISUALIZATION — ${vizKey.toUpperCase()}]\n${vizText}`);
+    }
+    return parts.join('');
+}
+
+function compositionPromptBlock(profile) {
+    if (profile === 'kada') {
+        return `
+
+[COMPOSITION — HERO FRAMING]
+Product fills approximately 75–85% of frame width, centered on pedestal. Close hero shot — engravings and emblem details must be clearly readable WITHOUT the customer zooming in. Not tiny in frame, not extreme macro crop.`;
+    }
+    if (profile === 'idol') {
+        return `
+
+[COMPOSITION — HERO FRAMING]
+Product including glass dome and base fills approximately 72–82% of frame HEIGHT — Aurra Studio catalogue scale. Close hero shot: idol detail clearly visible WITHOUT zooming. NOT a tiny distant product with excessive empty space above/below. NOT extreme macro that crops the dome. Balanced premium framing with modest top margin for optional text overlay.`;
+    }
+    return `
+
+[COMPOSITION]
+Product fills 70–80% of the frame — clear hero shot readable without zoom.`;
+}
+
+module.exports = {
+    defaultOverlaySettings,
+    normalizeOverlaySettings,
+    resolveOverlayTextLines,
+    applyImageOverlays,
+    BACKGROUND_PRESETS,
+    VISUALIZATION_PRESETS,
+    generationOptionsPromptBlock,
+    compositionPromptBlock,
+};

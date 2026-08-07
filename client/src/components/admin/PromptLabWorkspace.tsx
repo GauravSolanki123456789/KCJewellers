@@ -44,6 +44,7 @@ type Props = {
   templates: EnhancedPictureTemplate[]
   prompts: EnhancedPicturePrompt[]
   templateKey: string
+  templateLabel: string
   selectedVarietyKey: string | null
   selectedId: number | null
   name: string
@@ -68,6 +69,7 @@ type Props = {
   replicateModel: string
   replicateTokenInput: string
   onTemplateKey: (key: string) => void
+  onTemplateLabel: (v: string) => void
   onSelectedVarietyKey: (key: string | null) => void
   onSelectedId: (id: number | null) => void
   onName: (v: string) => void
@@ -103,6 +105,7 @@ export default function PromptLabWorkspace(props: Props) {
     templates,
     prompts,
     templateKey,
+    templateLabel,
     selectedVarietyKey,
     selectedId,
     name,
@@ -122,6 +125,7 @@ export default function PromptLabWorkspace(props: Props) {
     sourceFile,
     resultUrl,
     onTemplateKey,
+    onTemplateLabel,
     onSelectedVarietyKey,
     onSelectedId,
     onName,
@@ -338,6 +342,7 @@ export default function PromptLabWorkspace(props: Props) {
           output_subtitle: outputSubtitle,
           footer_note: footerNote,
           template_enabled: templateEnabled,
+          template_label: templateLabel.trim() || activeTemplate?.label || undefined,
           activate: true,
         })
         onName(data.prompt.name)
@@ -516,19 +521,11 @@ export default function PromptLabWorkspace(props: Props) {
                 onClick={() => selectTemplate(t.key)}
                 className={`min-h-[44px] rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
                   templateKey === t.key
-                    ? 'border-emerald-700 bg-emerald-50 text-emerald-950 shadow-sm ring-1 ring-emerald-700/25'
-                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-emerald-200'
+                    ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)] text-white shadow-sm'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-[var(--kc-accent,#c41e3a)]/35'
                 }`}
               >
-                <span
-                  className={`block ${
-                    templateKey === t.key
-                      ? 'text-emerald-950'
-                      : 'text-[var(--color-jewelry-black,#1a1814)]'
-                  }`}
-                >
-                  {t.label}
-                </span>
+                <span className="block">{t.label}</span>
                 {t.is_enabled === false ? (
                   <span className="text-[10px] font-medium text-rose-700">Hidden</span>
                 ) : null}
@@ -571,7 +568,7 @@ export default function PromptLabWorkspace(props: Props) {
               onClick={() => selectSubtemplate(null)}
               className={`min-h-[40px] rounded-xl px-3 text-sm font-semibold ${
                 !selectedVarietyKey
-                  ? 'border border-emerald-700 bg-emerald-700 text-white shadow-sm'
+                  ? 'border border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)] text-white shadow-sm'
                   : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
               }`}
             >
@@ -584,8 +581,8 @@ export default function PromptLabWorkspace(props: Props) {
                   onClick={() => selectSubtemplate(v)}
                   className={`min-h-[40px] rounded-xl px-3 text-sm font-semibold ${
                     selectedVarietyKey === v.variety_key
-                      ? 'border border-emerald-700 bg-emerald-700 text-white shadow-sm'
-                      : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-emerald-200'
+                      ? 'border border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)] text-white shadow-sm'
+                      : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-[var(--kc-accent,#c41e3a)]/35'
                   }`}
                 >
                   {v.variety_label}
@@ -637,6 +634,16 @@ export default function PromptLabWorkspace(props: Props) {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
             3 · Edit everything · save once
           </p>
+
+          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+            Template display name
+            <input
+              value={templateLabel}
+              onChange={(e) => onTemplateLabel(e.target.value)}
+              placeholder="e.g. Idols / Frames"
+              className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2.5 text-sm normal-case font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+            />
+          </label>
 
           <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
             Prompt name

@@ -14,6 +14,8 @@ const {
     postprocessStudioOutput,
     spatialLockPromptBlock,
     studioShadowAndSurfaceBlock,
+    composeFeatureMacroInset,
+    shouldUseRembgForProfile,
     writeTempBuffer,
 } = require('./enhancedImageProcessing');
 
@@ -52,7 +54,7 @@ async function pollReplicatePrediction(token, predictionId, maxWaitMs = 120000) 
             err.status = 502;
             throw err;
         }
-        await new Promise((r) => setTimeout(r, 800));
+        await new Promise((r) => setTimeout(r, 500));
     }
     const err = new Error('Replicate timed out.');
     err.status = 504;
@@ -198,6 +200,9 @@ async function runFourStepStudioPipeline({
     workflowHighlights,
     generateStudioImage,
     pipelineEnabled = true,
+    profile = 'generic',
+    originalSourcePath,
+    fastMode = true,
 }) {
     const token = aiConfig?.replicate_api_token || process.env.REPLICATE_API_TOKEN || '';
     const geminiPath = isGeminiProvider(aiConfig);
@@ -229,17 +234,32 @@ async function runFourStepStudioPipeline({
         steps.generate = true;
         let result = generated;
         if (result?.buffer?.length) {
-            const finished = await postprocessStudioOutput(result.buffer, result.mimeType);
+            const finished = await postprocessStudioOutput(result.buffer, result.mimeType, {
+                profile,
+                fastMode: true,
+            });
             if (finished.buffer !== result.buffer) {
                 result = { ...result, buffer: finished.buffer, mimeType: finished.mimeType };
                 steps.postprocess = true;
+            }
+            if (profile === 'kada') {
+                const insetBuf = await composeFeatureMacroInset(
+                    result.buffer,
+                    originalSourcePath || sourceImagePath,
+                    profile,
+                );
+                if (insetBuf !== result.buffer) {
+                    result = { ...result, buffer: insetBuf, mimeType: 'image/png' };
+                    steps.macro_inset = true;
+                }
             }
         }
         return { ...result, pipeline: steps, pipeline_mode: 'single' };
     }
 
     let cutout = { path: sourceImagePath, usedRembg: false };
-    if (token) {
+    const useRembg = shouldUseRembgForProfile(profile) && !!token;
+    if (useRembg) {
         cutout = await extractBackground(sourceImagePath, token);
         steps.rembg = !!cutout.usedRembg;
     }
@@ -266,7 +286,7 @@ async function runFourStepStudioPipeline({
     if (generated?.buffer?.length) {
         let upscaleTemp = null;
         let upscaledFile = null;
-        if (token) {
+        if (token && !fastMode) {
             upscaleTemp = writeTempBuffer(generated.buffer, '.png');
             tempPaths.push(upscaleTemp);
             const up = await upscaleImage(upscaleTemp, token);
@@ -278,10 +298,24 @@ async function runFourStepStudioPipeline({
             }
         }
 
-        const finished = await postprocessStudioOutput(generated.buffer, generated.mimeType);
+        const finished = await postprocessStudioOutput(generated.buffer, generated.mimeType, {
+            profile,
+            fastMode: true,
+        });
         if (finished.buffer !== generated.buffer) {
             generated = { ...generated, buffer: finished.buffer, mimeType: finished.mimeType };
             steps.postprocess = true;
+        }
+        if (profile === 'kada') {
+            const insetBuf = await composeFeatureMacroInset(
+                generated.buffer,
+                originalSourcePath || sourceImagePath,
+                profile,
+            );
+            if (insetBuf !== generated.buffer) {
+                generated = { ...generated, buffer: insetBuf, mimeType: 'image/png' };
+                steps.macro_inset = true;
+            }
         }
     }
 

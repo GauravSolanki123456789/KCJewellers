@@ -21,7 +21,22 @@ const {
     DEFAULT_PLANS,
 } = require('./resellerEnhancedPictureCredits');
 const { runFourStepStudioPipeline } = require('./enhancedStudioPipeline');
-const { aurraCinematicPromptBlock, mergeSystemNegativePrompt } = require('./enhancedImageProcessing');
+const {
+    aurraCinematicPromptBlock,
+    mergeSystemNegativePrompt,
+    detectEnhancementProfile,
+    isComprehensiveUserPrompt,
+    profileStudioQualityBlock,
+} = require('./enhancedImageProcessing');
+const {
+    defaultOverlaySettings,
+    normalizeOverlaySettings,
+    applyImageOverlays,
+    generationOptionsPromptBlock,
+    compositionPromptBlock,
+    BACKGROUND_PRESETS,
+    VISUALIZATION_PRESETS,
+} = require('./enhancedOverlay');
 
 const TEMPLATE_IDOLS = 'idols';
 const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
@@ -70,7 +85,7 @@ Deep but readable shadows — no crushed blacks, no heavy noise/grain in backgro
 
 CAMERA:
 Front 3/4 angle (~30°) when possible while keeping product identity; eye-level; 85mm product lens look.
-Centered composition with elegant negative space for catalogue use.
+Hero framing: product including dome and base fills 72–82% of frame height — clearly readable without zooming (Aurra Studio scale). Not tiny with excessive empty space.
 
 QUALITY:
 4K hyper-realistic commercial product render.
@@ -822,6 +837,10 @@ async function ensureEnhancedPicturesSchema(pool) {
             ADD COLUMN IF NOT EXISTS reseller_enhanced_studio_pipeline_enabled BOOLEAN NOT NULL DEFAULT true
     `);
     await pool.query(`
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_enhanced_overlay_settings JSONB NOT NULL DEFAULT '{}'::jsonb
+    `);
+    await pool.query(`
         ALTER TABLE reseller_enhanced_picture_prompts
             ADD COLUMN IF NOT EXISTS variety_key VARCHAR(64)
     `);
@@ -887,7 +906,40 @@ function mimeFromExt(ext) {
     return 'image/jpeg';
 }
 
-function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, workflowHighlights } = {}) {
+function parseGenerationOptions(body = {}) {
+    const bg = String(body.background_preset || body.background || 'charcoal')
+        .trim()
+        .toLowerCase();
+    const viz = String(body.visualization || body.visualization_preset || 'studio')
+        .trim()
+        .toLowerCase();
+    return {
+        backgroundPreset: BACKGROUND_PRESETS[bg] ? bg : 'charcoal',
+        visualization: VISUALIZATION_PRESETS[viz] !== undefined ? viz : 'studio',
+        fastMode: body.fast_mode !== false && String(body.generation_mode || 'fast').toLowerCase() !== 'quality',
+    };
+}
+
+async function loadOverlaySettingsForUser(query, userId) {
+    const rows = await query(
+        `SELECT reseller_enhanced_overlay_settings FROM users WHERE id = $1 LIMIT 1`,
+        [userId],
+    );
+    const raw = rows[0]?.reseller_enhanced_overlay_settings;
+    return normalizeOverlaySettings(raw && typeof raw === 'object' ? raw : defaultOverlaySettings());
+}
+
+function buildFullPrompt(
+    promptText,
+    negativePrompt,
+    {
+        aspectRatio,
+        canvasText,
+        workflowHighlights,
+        profile = 'generic',
+        generationOptions = {},
+    } = {},
+) {
     const normalized = normalizePromptFields(promptText, negativePrompt);
     let main = normalized.promptText;
     let neg = mergeSystemNegativePrompt(normalized.negativePrompt);
@@ -900,8 +952,16 @@ function buildFullPrompt(promptText, negativePrompt, { aspectRatio, canvasText, 
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
-    main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
-    main += aurraCinematicPromptBlock();
+    if (!isComprehensiveUserPrompt(normalized.promptText)) {
+        main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
+    }
+    main += profileStudioQualityBlock(profile);
+    main += compositionPromptBlock(profile);
+    main += generationOptionsPromptBlock({
+        backgroundPreset: generationOptions.backgroundPreset,
+        visualization: generationOptions.visualization,
+        profile,
+    });
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
         neg = neg
@@ -920,6 +980,16 @@ const GEMINI_BATCH_TERMINAL_STATES = new Set([
     'JOB_STATE_EXPIRED',
 ]);
 
+function sourceLockPromptForProfile(profile) {
+    if (profile === 'kada') {
+        return '\n\nSOURCE JEWELLERY (CRITICAL — STRICT REFERENCE LOCK):\nThe attached photo is the exact kada/bracelet. Preserve 100% identity — same shape, proportions, engravings, emblem, textures, metal finish, stone colors, and polish. Only improve studio lighting, pedestal, background, and commercial presentation. Do NOT redesign, recolor, resize, rotate, mirror, or alter any detail. Replace any casual background with matte black luxury studio. Soft diffused HDR lighting — no harsh spotlight rings. Leave bottom-right corner clear for macro inset overlay.';
+    }
+    if (profile === 'idol') {
+        return '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 72–82% of frame height — clearly readable without zooming (Aurra Studio scale). Match metal and halo colors exactly as in the source image. Replace shop/warehouse backgrounds with a smooth smoky blue-charcoal Aurra-style studio — no grain, no speckled noise. Use soft diffused multi-light studio relighting — NOT a single harsh overhead spotlight or bright circular floor hotspot. Glass dome: soft curved highlights only — NO white rectangular glare bars. Do NOT copy messy shop shadows, wall shadows, or spotlight rings onto the new backdrop — use only a soft contact shadow under the base.';
+    }
+    return '\n\nSOURCE PRODUCT (CRITICAL):\nThe attached photo is the exact product. Preserve identity, colors, and proportions. Only improve studio lighting and background quality.';
+}
+
 function buildGeminiUserParts({
     promptText,
     negativePrompt,
@@ -927,17 +997,20 @@ function buildGeminiUserParts({
     aspectRatio,
     canvasText,
     workflowHighlights,
+    profile = 'generic',
+    generationOptions = {},
 }) {
     const aspect = normalizeAspectRatio(aspectRatio);
     const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
         aspectRatio: aspect,
         canvasText,
         workflowHighlights,
+        profile,
+        generationOptions,
     });
     const parts = [{ text: fullPrompt }];
     if (sourceImagePath && fs.existsSync(sourceImagePath)) {
-        parts[0].text +=
-            '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. Match metal and halo colors exactly as in the source image. Replace shop/warehouse backgrounds with a smooth smoky blue-charcoal Aurra-style studio — no grain, no speckled noise. Use soft diffused multi-light studio relighting — NOT a single harsh overhead spotlight or bright circular floor hotspot. Glass dome: soft curved highlights only — NO white rectangular glare bars. Do NOT copy messy shop shadows, wall shadows, or spotlight rings onto the new backdrop — use only a soft contact shadow under the base.';
+        parts[0].text += sourceLockPromptForProfile(profile);
         const buf = fs.readFileSync(sourceImagePath);
         parts.push({
             inline_data: {
@@ -1253,6 +1326,10 @@ async function processEnhancedSyncJob(jobId, params, deps) {
         promptText,
         negativePrompt,
         workflowHighlights,
+        templateKey,
+        varietyKey,
+        generationOptions = {},
+        overlayMeta = {},
     } = params;
 
     try {
@@ -1265,7 +1342,7 @@ async function processEnhancedSyncJob(jobId, params, deps) {
         const job = active[0];
 
         const aiConfig = await resolveAiConfigForUser(query, resellerUserId);
-        const generated = await generateStudioImage({
+        let generated = await generateStudioImage({
             promptText,
             negativePrompt,
             sourceImagePath,
@@ -1273,7 +1350,45 @@ async function processEnhancedSyncJob(jobId, params, deps) {
             canvasText,
             aiConfig,
             workflowHighlights,
+            templateKey,
+            varietyKey,
+            generationOptions,
         });
+
+        const overlaySettings = await loadOverlaySettingsForUser(query, resellerUserId);
+        if (generated?.buffer?.length) {
+            const productMatch = barcodeStem
+                ? await findSubmissionByStem(query, resellerUserId, barcodeStem)
+                : null;
+            const payload =
+                productMatch?.payload_json && typeof productMatch.payload_json === 'object'
+                    ? productMatch.payload_json
+                    : {};
+            const overlaid = await applyImageOverlays(
+                generated.buffer,
+                generated.mimeType,
+                overlaySettings,
+                {
+                    apply_watermark: overlayMeta.apply_watermark,
+                    apply_info_text: overlayMeta.apply_info_text,
+                    sku: barcodeStem || productMatch?.web_product_sku || null,
+                    barcode_stem: barcodeStem || null,
+                    barcode: productMatch?.barcode || barcodeStem || null,
+                    variety_label: overlayMeta.variety_label || null,
+                    template_label: overlayMeta.template_label || null,
+                    style_code: productMatch?.design_group || payload.itemCode || null,
+                    item_code: payload.itemCode || payload.item_code || productMatch?.design_group || null,
+                    product_name: productMatch?.product_name || null,
+                    product: {
+                        net_weight: payload.netWeight ?? payload.net_weight,
+                        gross_weight: payload.grossWeight ?? payload.gross_weight,
+                        weight_display: payload.weightDisplay ?? payload.weight_display,
+                    },
+                },
+                { enhancedDir, getPublicApiBaseUrl },
+            );
+            generated = { ...generated, buffer: overlaid.buffer, mimeType: overlaid.mimeType };
+        }
 
         const stillActive = await query(
             `SELECT id FROM reseller_enhanced_picture_jobs
@@ -1440,6 +1555,14 @@ function startEnhancedBatchPoller(deps) {
  * Call Gemini image generation with an optional reference image.
  * Returns { buffer, mimeType, provider, model }.
  */
+function geminiImageSizeCandidates(aiConfig) {
+    const prefer4k =
+        process.env.ENHANCED_PREFER_4K === '1' ||
+        process.env.ENHANCED_PREFER_4K === 'true' ||
+        aiConfig?.prefer_4k === true;
+    return prefer4k ? ['4K', '2K'] : ['2K'];
+}
+
 async function generateWithGemini({
     promptText,
     negativePrompt,
@@ -1448,6 +1571,8 @@ async function generateWithGemini({
     canvasText,
     aiConfig,
     workflowHighlights,
+    profile = 'generic',
+    generationOptions = {},
 }) {
     const apiKey = aiConfig?.gemini_api_key || getGeminiApiKey();
     if (!apiKey) {
@@ -1465,11 +1590,13 @@ async function generateWithGemini({
         aspectRatio: aspect,
         canvasText,
         workflowHighlights,
+        profile,
+        generationOptions,
     });
 
     const primaryModel = aiConfig?.gemini_model || getGeminiImageModel();
     const models = [...new Set([primaryModel, ...geminiImageModelCandidates()].filter(Boolean))];
-    const imageSizes = ['4K', '2K'];
+    const imageSizes = geminiImageSizeCandidates(aiConfig);
     let lastError = null;
     let usedModel = primaryModel;
     for (const model of models) {
@@ -1610,6 +1737,8 @@ async function generateWithReplicate({
     canvasText,
     aiConfig,
     workflowHighlights,
+    profile = 'generic',
+    generationOptions = {},
 }) {
     const token = aiConfig?.replicate_api_token || getReplicateApiToken();
     if (!token) {
@@ -1629,6 +1758,8 @@ async function generateWithReplicate({
         aspectRatio,
         canvasText,
         workflowHighlights,
+        profile,
+        generationOptions,
     });
     const input = buildReplicateInput(model, { fullPrompt, sourceImagePath, aspectRatio });
     const [owner, name] = model.split('/');
@@ -1695,6 +1826,8 @@ async function generateStudioImageCore({
     canvasText,
     aiConfig,
     workflowHighlights,
+    profile = 'generic',
+    generationOptions = {},
 }) {
     const provider = normalizeAiProvider(aiConfig?.provider);
     if (provider === 'replicate') {
@@ -1706,6 +1839,8 @@ async function generateStudioImageCore({
             canvasText,
             aiConfig,
             workflowHighlights,
+            profile,
+            generationOptions,
         });
     }
     return generateWithGemini({
@@ -1716,6 +1851,8 @@ async function generateStudioImageCore({
         canvasText,
         aiConfig,
         workflowHighlights,
+        profile,
+        generationOptions,
     });
 }
 
@@ -1728,7 +1865,11 @@ async function generateStudioImage({
     aiConfig,
     workflowHighlights,
     usePipeline,
+    templateKey,
+    varietyKey,
+    generationOptions = {},
 }) {
+    const profile = detectEnhancementProfile({ templateKey, varietyKey, promptText });
     const pipelineOn =
         usePipeline !== false && aiConfig?.studio_pipeline_enabled !== false;
     return runFourStepStudioPipeline({
@@ -1739,8 +1880,12 @@ async function generateStudioImage({
         canvasText,
         aiConfig,
         workflowHighlights,
-        generateStudioImage: generateStudioImageCore,
+        generateStudioImage: (opts) =>
+            generateStudioImageCore({ ...opts, profile, generationOptions }),
         pipelineEnabled: pipelineOn,
+        profile,
+        originalSourcePath: sourceImagePath,
+        fastMode: generationOptions.fastMode !== false,
     });
 }
 
@@ -1916,6 +2061,9 @@ async function loadResellerEnhancedBootstrap(query, pool, userId, { jobLimit = 1
             : null,
         jobs,
         hints: mapBarcodeHintRows(hintRows),
+        overlay_settings: await loadOverlaySettingsForUser(query, userId),
+        background_presets: Object.keys(BACKGROUND_PRESETS),
+        visualization_presets: Object.keys(VISUALIZATION_PRESETS).filter((k) => k !== 'studio'),
     };
 }
 
@@ -2280,6 +2428,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 const activate = req.body.activate !== false;
                 const templateEnabled =
                     req.body.template_enabled !== undefined ? !!req.body.template_enabled : true;
+                const templateLabel = String(req.body.template_label || '').trim().slice(0, 120);
 
                 await ensureDefaultTemplateShowcase(query, userId, templateKey);
                 const highlights = parseWorkflowHighlights(req.body.workflow_highlights || []);
@@ -2293,8 +2442,9 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         output_subtitle = COALESCE(NULLIF($6, ''), output_subtitle),
                         footer_note = COALESCE(NULLIF($7, ''), footer_note),
                         is_enabled = $8,
+                        template_label = COALESCE(NULLIF($9, ''), template_label),
                         updated_at = CURRENT_TIMESTAMP
-                     WHERE reseller_user_id = $9 AND template_key = $10`,
+                     WHERE reseller_user_id = $10 AND template_key = $11`,
                     [
                         JSON.stringify(highlights),
                         String(req.body.system_resolutions || '').trim().slice(0, 200),
@@ -2304,6 +2454,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         String(req.body.output_subtitle || '').trim().slice(0, 200),
                         String(req.body.footer_note || '').trim().slice(0, 200),
                         templateEnabled,
+                        templateLabel || null,
                         userId,
                         templateKey,
                     ],
@@ -2798,6 +2949,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     canvasText,
                     aiConfig,
                     workflowHighlights: showcase.workflow_highlights,
+                    templateKey,
+                    varietyKey,
                 });
                 const outName = saveGeneratedBuffer(
                     enhancedDir,
@@ -3250,6 +3403,45 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         }
     });
 
+    app.put('/api/reseller/enhanced-pictures/overlay-settings', checkAuth, requireJson, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            await assertResellerEnhancedAccess(query, req.user.id);
+            const current = await loadOverlaySettingsForUser(query, req.user.id);
+            const merged = normalizeOverlaySettings({ ...current, ...(req.body || {}) });
+            await query(
+                `UPDATE users SET reseller_enhanced_overlay_settings = $1::jsonb WHERE id = $2`,
+                [JSON.stringify(merged), req.user.id],
+            );
+            res.json({ success: true, overlay_settings: merged });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
+    app.post('/api/reseller/enhanced-pictures/watermark', checkAuth, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            await assertResellerEnhancedAccess(query, req.user.id);
+            await runUpload(req, res);
+            if (!req.file) return res.status(400).json({ error: 'watermark image required' });
+            const url = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${req.file.filename}`;
+            const current = await loadOverlaySettingsForUser(query, req.user.id);
+            const merged = normalizeOverlaySettings({
+                ...current,
+                watermark_enabled: true,
+                watermark_url: url,
+            });
+            await query(
+                `UPDATE users SET reseller_enhanced_overlay_settings = $1::jsonb WHERE id = $2`,
+                [JSON.stringify(merged), req.user.id],
+            );
+            res.json({ success: true, watermark_url: url, overlay_settings: merged });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
     app.get('/api/reseller/enhanced-pictures/product-lookup', checkAuth, async (req, res) => {
         try {
             await assertResellerEnhancedAccess(query, req.user.id);
@@ -3442,6 +3634,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 .trim()
                 .toLowerCase()
                 .slice(0, 64) || null;
+            const generationOptions = parseGenerationOptions(req.body);
             const prompt = await resolveActivePrompt(query, req.user.id, templateKey, varietyKey);
             if (!prompt) {
                 return res.status(400).json({
@@ -3493,6 +3686,11 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
 
                 if (useGeminiBatch) {
                     const creditsLeft = await consumeOneCredit(query, pool, req.user.id);
+                    const batchProfile = detectEnhancementProfile({
+                        templateKey,
+                        varietyKey,
+                        promptText: normalized.promptText,
+                    });
                     const { parts, aspect } = buildGeminiUserParts({
                         promptText: normalized.promptText,
                         negativePrompt: normalized.negativePrompt,
@@ -3500,6 +3698,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         aspectRatio,
                         canvasText,
                         workflowHighlights: showcase.workflow_highlights,
+                        profile: batchProfile,
+                        generationOptions,
                     });
                     const model = aiConfig.gemini_model || getGeminiImageModel();
                     try {
@@ -3548,6 +3748,23 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     }
                 }
 
+                let varietyLabel = null;
+                let templateLabel = null;
+                if (varietyKey) {
+                    const vrows = await query(
+                        `SELECT variety_label FROM reseller_enhanced_picture_varieties
+                         WHERE reseller_user_id = $1 AND template_key = $2 AND variety_key = $3 LIMIT 1`,
+                        [req.user.id, templateKey, varietyKey],
+                    );
+                    varietyLabel = vrows[0]?.variety_label || null;
+                }
+                const trows = await query(
+                    `SELECT template_label FROM reseller_enhanced_picture_template_settings
+                     WHERE reseller_user_id = $1 AND template_key = $2 LIMIT 1`,
+                    [req.user.id, templateKey],
+                );
+                templateLabel = trows[0]?.template_label || null;
+
                 const syncParams = {
                     sourceImagePath: req.file.path,
                     aspectRatio,
@@ -3559,6 +3776,25 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     promptText: normalized.promptText,
                     negativePrompt: normalized.negativePrompt,
                     workflowHighlights: showcase.workflow_highlights,
+                    templateKey,
+                    varietyKey,
+                    generationOptions,
+                    overlayMeta: {
+                        apply_watermark:
+                            req.body.apply_watermark === '0' || req.body.apply_watermark === 'false'
+                                ? false
+                                : req.body.apply_watermark === '1' || req.body.apply_watermark === 'true'
+                                  ? true
+                                  : undefined,
+                        apply_info_text:
+                            req.body.apply_info_text === '0' || req.body.apply_info_text === 'false'
+                                ? false
+                                : req.body.apply_info_text === '1' || req.body.apply_info_text === 'true'
+                                  ? true
+                                  : undefined,
+                        variety_label: varietyLabel,
+                        template_label: templateLabel,
+                    },
                 };
                 const syncDeps = {
                     query,

@@ -19,6 +19,9 @@ import { PROFILE_PATH, RESELLER_PRODUCTS_PATH } from '@/lib/routes'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
+import EnhancedStudioOptions, {
+  type StudioGenerationOptions,
+} from '@/components/reseller/EnhancedStudioOptions'
 import { EnhancedRecentJobsPanel } from '@/components/reseller/EnhancedRecentJobsPanel'
 import {
   attachEnhancedPicture,
@@ -33,8 +36,10 @@ import {
   cancelEnhancedJob,
   deleteEnhancedJob,
   verifyEnhancedTopup,
+  DEFAULT_OVERLAY_SETTINGS,
   type EnhancedBarcodeHint,
   type EnhancedCreditPlan,
+  type EnhancedOverlaySettings,
   type EnhancedPictureTemplate,
   type EnhancedRecentJob,
 } from '@/lib/reseller-enhanced-pictures'
@@ -99,6 +104,13 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [aspectRatio, setAspectRatio] = useState('1:1')
   const [includeCanvasText, setIncludeCanvasText] = useState(false)
   const [canvasText, setCanvasText] = useState('')
+  const [overlaySettings, setOverlaySettings] = useState<EnhancedOverlaySettings>(DEFAULT_OVERLAY_SETTINGS)
+  const [generationOptions, setGenerationOptions] = useState<StudioGenerationOptions>({
+    backgroundPreset: 'charcoal',
+    visualization: 'studio',
+    applyWatermark: false,
+    applyInfoText: false,
+  })
   const [photoType, setPhotoType] = useState<'front' | 'back'>('front')
   const [barcodeStem, setBarcodeStem] = useState('')
   const [mrpRateBehindBox, setMrpRateBehindBox] = useState('')
@@ -180,6 +192,14 @@ export default function ResellerEnhancedPicturesPageClient() {
       if (data.templates?.[0]?.key) setTemplateKey(data.templates[0].key)
       setHints(data.hints || [])
       setRecentJobs(data.jobs || [])
+      if (data.overlay_settings) {
+        setOverlaySettings({ ...DEFAULT_OVERLAY_SETTINGS, ...data.overlay_settings })
+        setGenerationOptions((g) => ({
+          ...g,
+          applyWatermark: !!data.overlay_settings?.watermark_enabled,
+          applyInfoText: !!data.overlay_settings?.info_text_enabled,
+        }))
+      }
       setJobsLoading(false)
     } catch (e: unknown) {
       setError(
@@ -259,6 +279,22 @@ export default function ResellerEnhancedPicturesPageClient() {
     if (sourcePreview) return sourcePreview
     return activeVariety?.sample_source_image_url || activeTemplate?.showcase?.sample_source_image_url || null
   }, [sourcePreview, activeVariety, activeTemplate])
+
+  const previewOverlayLines = useMemo(() => {
+    const lines = overlaySettings.info_text_lines || []
+    const variety = activeVariety?.variety_label || ''
+    const sku = normalizeStem(barcodeStem) || lookupLabel || ''
+    return lines.map((line) =>
+      line
+        .replace(/\{variety\}/gi, variety)
+        .replace(/\{template\}/gi, activeTemplate?.label || '')
+        .replace(/\{sku\}/gi, sku)
+        .replace(/\{style_code\}/gi, sku)
+        .replace(/\{weight\}/gi, '— g')
+        .replace(/\{product_name\}/gi, lookupLabel || '')
+        .replace(/\{barcode\}/gi, sku),
+    )
+  }, [overlaySettings.info_text_lines, activeVariety, activeTemplate, barcodeStem, lookupLabel])
 
   const showcaseResultUrl = useMemo(() => {
     if (resultUrl) return resultUrl
@@ -548,6 +584,10 @@ export default function ResellerEnhancedPicturesPageClient() {
         aspectRatio,
         canvasText: includeCanvasText ? canvasText.trim() : undefined,
         generationMode: economyBatchMode && geminiBatchAllowed ? 'batch' : 'fast',
+        backgroundPreset: generationOptions.backgroundPreset,
+        visualization: generationOptions.visualization,
+        applyWatermark: generationOptions.applyWatermark,
+        applyInfoText: generationOptions.applyInfoText,
       })
       if (typeof data.credits === 'number') setCredits(data.credits)
 
@@ -978,7 +1018,22 @@ export default function ResellerEnhancedPicturesPageClient() {
 
         <section>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-            03 · Import asset
+            03 · Style & branding
+          </p>
+          <EnhancedStudioOptions
+            overlaySettings={overlaySettings}
+            onOverlayChange={setOverlaySettings}
+            generationOptions={generationOptions}
+            onGenerationChange={setGenerationOptions}
+            previewImageUrl={showcaseResultUrl || sourcePreview}
+            previewLines={previewOverlayLines}
+            onStatus={setAttachMsg}
+          />
+        </section>
+
+        <section>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+            04 · Import asset
           </p>
           <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
             <PhotoImportControls
@@ -1018,7 +1073,7 @@ export default function ResellerEnhancedPicturesPageClient() {
 
         <section>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-            04 · Rename to barcode
+            05 · Rename to barcode
           </p>
           <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
             <div className="mb-3 flex gap-2">

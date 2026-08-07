@@ -93,11 +93,13 @@ async function smoothBackdropKeepProductSharp(sharp, buffer, w, h) {
 /**
  * Catalogue finish pass — Aurra-style: smooth backdrop, suppress floor hotspot, crisp metal.
  */
-async function postprocessStudioOutput(buffer, mimeType = 'image/png') {
+async function postprocessStudioOutput(buffer, mimeType = 'image/png', options = {}) {
     const sharp = getSharp();
     if (!sharp || !buffer?.length) {
         return { buffer, mimeType };
     }
+    const profile = options.profile || 'generic';
+    const fastMode = options.fastMode !== false;
     try {
         let working = sharp(buffer).rotate();
         const meta = await working.metadata();
@@ -118,9 +120,15 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png') {
         }
 
         let baseBuf = await working.toBuffer();
-        baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
+        if (profile !== 'kada' && !fastMode) {
+            baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
+        } else if (profile === 'idol') {
+            baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
+        }
 
-        const hotspotSvg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+        const composites = [];
+        if (profile !== 'kada') {
+            const hotspotSvg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="h" cx="50%" cy="76%" r="42%">
       <stop offset="0%" stop-color="#000" stop-opacity="0.38"/>
@@ -130,37 +138,183 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png') {
   </defs>
   <rect width="100%" height="100%" fill="url(#h)"/>
 </svg>`;
+            composites.push({ input: Buffer.from(hotspotSvg), blend: 'multiply' });
+        }
 
         const vignetteSvg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="v" cx="50%" cy="40%" r="78%">
       <stop offset="58%" stop-color="#000" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#141a24" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#141a24" stop-opacity="${profile === 'kada' ? '0.18' : '0.22'}"/>
     </radialGradient>
   </defs>
   <rect width="100%" height="100%" fill="url(#v)"/>
 </svg>`;
+        composites.push({ input: Buffer.from(vignetteSvg), blend: 'multiply' });
 
-        const out = await sharp(baseBuf)
-            .sharpen({ sigma: 0.55, m1: 0.45, m2: 0.28 })
-            .modulate({ saturation: 1.03, brightness: 1.008 })
-            .recomb([
-                [0.985, 0, 0.015],
-                [0, 0.99, 0.01],
-                [0, 0.012, 1.025],
-            ])
-            .composite([
-                { input: Buffer.from(hotspotSvg), blend: 'multiply' },
-                { input: Buffer.from(vignetteSvg), blend: 'multiply' },
-            ])
-            .png({ compressionLevel: 6, quality: 100, effort: 7 })
-            .toBuffer();
+        let pipeline = sharp(baseBuf).sharpen({
+            sigma: fastMode ? 0.45 : 0.55,
+            m1: 0.45,
+            m2: 0.28,
+        });
+
+        if (profile === 'kada') {
+            pipeline = pipeline.modulate({ saturation: 1.02, brightness: 1.01 });
+        } else {
+            pipeline = pipeline
+                .modulate({ saturation: 1.03, brightness: 1.008 })
+                .recomb([
+                    [0.985, 0, 0.015],
+                    [0, 0.99, 0.01],
+                    [0, 0.012, 1.025],
+                ]);
+        }
+
+        const out = await pipeline.composite(composites).png({ compressionLevel: 6, quality: 100, effort: 7 }).toBuffer();
 
         return { buffer: out, mimeType: 'image/png' };
     } catch (e) {
         console.warn('enhanced postprocess skipped:', e.message);
         return { buffer, mimeType };
     }
+}
+
+function detectEnhancementProfile({ templateKey, varietyKey, promptText } = {}) {
+    const tk = String(templateKey || '').toLowerCase();
+    const vk = String(varietyKey || '').toLowerCase();
+    const pt = String(promptText || '').toLowerCase();
+    if (
+        vk.includes('kada') ||
+        tk.includes('kada') ||
+        tk.includes('bangle') ||
+        pt.includes('uploaded kada') ||
+        (pt.includes('kada') && pt.includes('macro close-up inset'))
+    ) {
+        return 'kada';
+    }
+    if (
+        tk.includes('idol') ||
+        vk.includes('idol') ||
+        vk.includes('emerald') ||
+        vk.includes('frame') ||
+        pt.includes('uploaded idol') ||
+        pt.includes('glass cloche') ||
+        pt.includes('glass dome')
+    ) {
+        return 'idol';
+    }
+    return 'generic';
+}
+
+function isComprehensiveUserPrompt(promptText) {
+    const t = String(promptText || '').toLowerCase();
+    return (
+        t.length > 650 ||
+        /strict (reference|product) lock|strict product preservation|absolute color lock/.test(t)
+    );
+}
+
+function profileStudioQualityBlock(profile) {
+    if (profile === 'kada') {
+        return `
+
+[PIPELINE — KADA LUXURY ADVERT]
+Matte black natural slate pedestal, soft diffused invisible studio lighting, balanced HDR metallic reflections.
+Do NOT draw or generate a macro inset circle — leave bottom-right corner clear; a real inset from the source photo is composited automatically in post.
+No watermark, no logo, no generated text. Preserve exact jewellery geometry and colors from source.`;
+    }
+    if (profile === 'idol') {
+        return `
+
+[PIPELINE — IDOL CATALOGUE STUDIO]
+Smoky blue-charcoal cinematic backdrop (smooth gradient, zero grain), soft diffused multi-light relighting.
+Hero framing: product including glass dome fills 72–82% of frame height — readable without zooming.
+Natural curved glass highlights — never white rectangular glare bars. Museum display feel.${studioShadowAndSurfaceBlock()}`;
+    }
+    return aurraCinematicPromptBlock();
+}
+
+/**
+ * Real macro inset from the SOURCE photo — exact feature preservation (Aurra-style kada ads).
+ */
+async function composeFeatureMacroInset(outputBuffer, sourceImagePath, profile = 'generic') {
+    const sharp = getSharp();
+    if (!sharp || profile !== 'kada' || !sourceImagePath || !fs.existsSync(sourceImagePath)) {
+        return outputBuffer;
+    }
+    try {
+        const outMeta = await sharp(outputBuffer).metadata();
+        const w = outMeta.width || 1024;
+        const h = outMeta.height || 1024;
+        const insetDiam = Math.round(Math.min(w, h) * 0.21);
+        const borderPad = 4;
+        const frameSize = insetDiam + borderPad * 2;
+
+        const srcMeta = await sharp(sourceImagePath).metadata();
+        const sw = srcMeta.width || 0;
+        const sh = srcMeta.height || 0;
+        if (!sw || !sh) return outputBuffer;
+
+        const cropW = Math.round(sw * 0.42);
+        const cropH = Math.round(sh * 0.42);
+        const left = Math.max(0, Math.round((sw - cropW) / 2));
+        const top = Math.max(0, Math.round((sh - cropH) / 2));
+
+        const feature = await sharp(sourceImagePath)
+            .extract({ left, top, width: Math.min(cropW, sw - left), height: Math.min(cropH, sh - top) })
+            .resize(insetDiam, insetDiam, { fit: 'cover', position: 'centre' })
+            .sharpen({ sigma: 0.75, m1: 0.5, m2: 0.3 })
+            .toBuffer();
+
+        const maskSvg = `<svg width="${insetDiam}" height="${insetDiam}" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="${insetDiam / 2}" cy="${insetDiam / 2}" r="${insetDiam / 2 - 1}" fill="white"/>
+</svg>`;
+        const circular = await sharp(feature)
+            .composite([{ input: Buffer.from(maskSvg), blend: 'dest-in' }])
+            .png()
+            .toBuffer();
+
+        const frameSvg = `<svg width="${frameSize}" height="${frameSize}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <circle cx="${frameSize / 2}" cy="${frameSize / 2}" r="${insetDiam / 2 + borderPad - 1}" fill="none" stroke="white" stroke-width="2" filter="url(#s)"/>
+</svg>`;
+        const frameBg = await sharp({
+            create: {
+                width: frameSize,
+                height: frameSize,
+                channels: 4,
+                background: { r: 0, g: 0, b: 0, alpha: 0 },
+            },
+        })
+            .composite([
+                { input: Buffer.from(frameSvg), top: 0, left: 0 },
+                { input: circular, top: borderPad, left: borderPad },
+            ])
+            .png()
+            .toBuffer();
+
+        const margin = Math.round(Math.min(w, h) * 0.035);
+        const posLeft = w - frameSize - margin;
+        const posTop = h - frameSize - margin;
+
+        return sharp(outputBuffer)
+            .composite([{ input: frameBg, top: posTop, left: posLeft }])
+            .png()
+            .toBuffer();
+    } catch (e) {
+        console.warn('macro inset skipped:', e.message);
+        return outputBuffer;
+    }
+}
+
+function shouldUseRembgForProfile(profile) {
+    if (process.env.ENHANCED_SKIP_REMBG === '1') return false;
+    if (profile === 'kada') return process.env.ENHANCED_REMBG_KADA === '1';
+    return true;
 }
 
 function studioShadowAndSurfaceBlock() {
@@ -187,6 +341,7 @@ Match premium jewellery catalogue output (Aurra Studio grade):
 • Smoky blue-charcoal cinematic backdrop — smooth atmospheric gradient, soft edge vignette; replace cluttered shop backgrounds entirely; NO film grain or mottled noise on walls.
 • Glass dome: soft curved natural highlights following dome curvature; physically plausible refraction; NO white rectangular glare bars or fake stripe reflections.
 • Product must feel naturally integrated in the studio — not pasted onto the background.
+• Hero catalogue framing — product fills 72–82% of frame height (idols) or 75–85% width (kadas); clearly readable without zooming; not tiny with excessive empty space.
 • 4K hyper-realistic commercial product render — editorial luxury, museum display feel.
 • Centered composition, elegant negative space, square catalogue crop.${studioShadowAndSurfaceBlock()}`;
 }
@@ -251,4 +406,9 @@ module.exports = {
     mergeSystemNegativePrompt,
     SYSTEM_STUDIO_NEGATIVE_LINES,
     writeTempBuffer,
+    detectEnhancementProfile,
+    isComprehensiveUserPrompt,
+    profileStudioQualityBlock,
+    composeFeatureMacroInset,
+    shouldUseRembgForProfile,
 };

@@ -127,6 +127,32 @@ export type EnhancedProductLookup = {
   } | null
 }
 
+export type EnhancedOverlaySettings = {
+  watermark_enabled: boolean
+  watermark_url: string | null
+  watermark_position: string
+  watermark_opacity: number
+  watermark_scale: number
+  info_text_enabled: boolean
+  info_text_lines: string[]
+  info_text_position: string
+  info_text_color: string
+  info_text_size: number
+}
+
+export const DEFAULT_OVERLAY_SETTINGS: EnhancedOverlaySettings = {
+  watermark_enabled: false,
+  watermark_url: null,
+  watermark_position: 'bottom-right',
+  watermark_opacity: 0.88,
+  watermark_scale: 0.16,
+  info_text_enabled: false,
+  info_text_lines: ['{variety}', '{sku}', '{weight}'],
+  info_text_position: 'top-left',
+  info_text_color: '#ffffff',
+  info_text_size: 26,
+}
+
 export type EnhancedGenerateResult = {
   success: boolean
   async?: boolean
@@ -179,6 +205,9 @@ export async function fetchEnhancedBootstrap(opts?: { jobLimit?: number; include
     } | null
     jobs: EnhancedRecentJob[]
     hints: EnhancedBarcodeHint[]
+    overlay_settings?: EnhancedOverlaySettings
+    background_presets?: string[]
+    visualization_presets?: string[]
   }>(`${apiBase()}/api/reseller/enhanced-pictures/bootstrap`, {
     params: {
       job_limit: opts?.jobLimit ?? 15,
@@ -303,6 +332,10 @@ export async function generateEnhancedPicture(opts: {
   canvasText?: string
   /** fast = sync (~30–90s). batch = economy queue (minutes, ~50% cost). */
   generationMode?: 'fast' | 'batch'
+  backgroundPreset?: string
+  visualization?: string
+  applyWatermark?: boolean
+  applyInfoText?: boolean
 }) {
   const fd = new FormData()
   fd.append('image', opts.image)
@@ -313,11 +346,40 @@ export async function generateEnhancedPicture(opts: {
   fd.append('aspect_ratio', opts.aspectRatio || '1:1')
   if (opts.canvasText) fd.append('canvas_text', opts.canvasText)
   if (opts.barcodeStem) fd.append('barcode_stem', opts.barcodeStem)
+  if (opts.backgroundPreset) fd.append('background_preset', opts.backgroundPreset)
+  if (opts.visualization) fd.append('visualization', opts.visualization)
+  if (opts.applyWatermark) fd.append('apply_watermark', '1')
+  else if (opts.applyWatermark === false) fd.append('apply_watermark', '0')
+  if (opts.applyInfoText) fd.append('apply_info_text', '1')
+  else if (opts.applyInfoText === false) fd.append('apply_info_text', '0')
   const res = await axios.post<EnhancedGenerateResult>(
     `${apiBase()}/api/reseller/enhanced-pictures/generate`,
     fd,
     { withCredentials: true, timeout: 120000, validateStatus: (s) => s >= 200 && s < 300 },
   )
+  return res.data
+}
+
+export async function saveEnhancedOverlaySettings(settings: EnhancedOverlaySettings) {
+  const res = await axios.put<{ success: boolean; overlay_settings: EnhancedOverlaySettings }>(
+    `${apiBase()}/api/reseller/enhanced-pictures/overlay-settings`,
+    settings,
+    { withCredentials: true },
+  )
+  return res.data.overlay_settings
+}
+
+export async function uploadEnhancedWatermark(file: File) {
+  const fd = new FormData()
+  fd.append('image', file)
+  const res = await axios.post<{
+    success: boolean
+    watermark_url: string
+    overlay_settings: EnhancedOverlaySettings
+  }>(`${apiBase()}/api/reseller/enhanced-pictures/watermark`, fd, {
+    withCredentials: true,
+    timeout: 60000,
+  })
   return res.data
 }
 
@@ -476,6 +538,7 @@ export async function saveAdminEnhancedPromptLab(
     output_subtitle?: string
     footer_note?: string
     template_enabled?: boolean
+    template_label?: string
     activate?: boolean
   },
 ) {

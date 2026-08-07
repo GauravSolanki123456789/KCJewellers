@@ -77,6 +77,7 @@ function AdminEnhancedPicturesInner() {
   const [aiSettingsMeta, setAiSettingsMeta] = useState<EnhancedAiSettings | null>(null)
   const [lastTestAi, setLastTestAi] = useState<{ provider?: string; model?: string } | null>(null)
   const [templateKey, setTemplateKey] = useState('idols')
+  const [templateLabel, setTemplateLabel] = useState('Idols / Frames')
   const [selectedVarietyKey, setSelectedVarietyKey] = useState<string | null>(null)
   const [workflowHighlightsText, setWorkflowHighlightsText] = useState('')
   const [systemResolutions, setSystemResolutions] = useState('2K, 4K High Definition')
@@ -136,6 +137,8 @@ function AdminEnhancedPicturesInner() {
       const prmpts = promptList ?? prompts
       stickyTemplateKeyRef.current = key
       setTemplateKey(key)
+      const tpl = tpls.find((t) => t.key === key)
+      if (tpl?.label) setTemplateLabel(tpl.label)
       setSelectedVarietyKey(null)
       applyTemplateShowcase(key, tpls)
       const first = prmpts.find((p) => p.template_key === key)
@@ -209,6 +212,7 @@ function AdminEnhancedPicturesInner() {
 
         stickyTemplateKeyRef.current = resolvedKey
         setTemplateKey(resolvedKey)
+        if (tpl?.label) setTemplateLabel(tpl.label)
         if (tpl?.showcase) applyShowcaseToForm(tpl.showcase)
 
         const preserveSelectedId =
@@ -829,6 +833,7 @@ function AdminEnhancedPicturesInner() {
                 templates={templates}
                 prompts={prompts}
                 templateKey={templateKey}
+                templateLabel={templateLabel}
                 selectedVarietyKey={selectedVarietyKey}
                 selectedId={selectedId}
                 name={name}
@@ -853,6 +858,7 @@ function AdminEnhancedPicturesInner() {
                 replicateModel={replicateModel}
                 replicateTokenInput={replicateTokenInput}
                 onTemplateKey={setTemplateKey}
+                onTemplateLabel={setTemplateLabel}
                 onSelectedVarietyKey={setSelectedVarietyKey}
                 onSelectedId={setSelectedId}
                 onName={setName}
