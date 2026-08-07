@@ -17,6 +17,10 @@ export type ErpBillSession = {
   pan?: string
   /** Customer GSTIN for tax invoice */
   customerGst?: string
+  /** Set when this estimate was converted to a sales bill */
+  billedSaleBillId?: number
+  billedSaleBillNumber?: string
+  billedAt?: string
 }
 
 export function buildErpBillSession(input: {

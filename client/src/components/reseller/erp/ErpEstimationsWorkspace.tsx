@@ -19,11 +19,14 @@ import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
+  ESTIMATE_FILTER_STATUSES,
   ESTIMATE_STATUSES,
   estimateStatusBadgeClass,
   formatEstimateStatusLabel,
+  isEstimateBilled,
   resolveBillEstimateStatus,
 } from '@/lib/erp-estimate-status'
+import type { ErpBillSession } from '@/lib/erp-bill-session'
 import {
   Download,
   Eye,
@@ -35,6 +38,7 @@ import {
 } from 'lucide-react'
 
 const STATUSES = ESTIMATE_STATUSES
+const FILTER_STATUSES = ESTIMATE_FILTER_STATUSES
 
 export function ErpEstimationsWorkspace() {
   const auth = useAuth()
@@ -64,7 +68,13 @@ export function ErpEstimationsWorkspace() {
       const list = (res.data.bills || []).filter(
         (b) => String(b.bill_type || '').toLowerCase() === 'estimate',
       )
-      setBills(list)
+      const filtered =
+        status === 'billed'
+          ? list.filter((b) => isEstimateBilled(b))
+          : status === 'unbilled'
+            ? list.filter((b) => !isEstimateBilled(b))
+            : list
+      setBills(filtered)
       setSelected(new Set())
     } catch (e) {
       console.error('erp estimations load:', e)
@@ -163,6 +173,11 @@ export function ErpEstimationsWorkspace() {
   }
 
   const changeStatus = async (id: number, nextStatus: string) => {
+    const bill = bills.find((b) => b.id === id)
+    if (bill && isEstimateBilled(bill)) {
+      alert('This estimation is already billed — status cannot be changed.')
+      return
+    }
     setStatusBusyId(id)
     try {
       await axios.patch(`/api/reseller/erp/bills/${id}`, { status: nextStatus })
@@ -228,7 +243,7 @@ export function ErpEstimationsWorkspace() {
         />
         <select className={erpInputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
-          {STATUSES.map((s) => (
+          {FILTER_STATUSES.map((s) => (
             <option key={s} value={s}>
               {formatEstimateStatusLabel(s)}
             </option>
@@ -289,15 +304,28 @@ export function ErpEstimationsWorkspace() {
             ) : (
               bills.map((b) => {
                 const effectiveStatus = resolveBillEstimateStatus(b)
+                const billed = isEstimateBilled(b) || effectiveStatus === 'billed'
+                const session = (b.session || {}) as ErpBillSession
+                const saleBillNo = session.billedSaleBillNumber
                 return (
                 <tr key={b.id} className="border-b border-[var(--color-slate-700,#e8e4df)]/50">
                   <td className="px-3 py-2.5">
                     <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggleOne(b.id)} aria-label={`Select ${b.bill_number}`} />
                   </td>
                   <td className="px-3 py-2.5">
-                    <Link href={billingEditPath(b.id)} className="font-semibold text-blue-700 hover:underline">
-                      {b.bill_number}
-                    </Link>
+                    {billed ? (
+                      <button
+                        type="button"
+                        className="font-semibold text-emerald-800 hover:underline"
+                        onClick={() => void openPreview(b.id)}
+                      >
+                        {b.bill_number}
+                      </button>
+                    ) : (
+                      <Link href={billingEditPath(b.id)} className="font-semibold text-blue-700 hover:underline">
+                        {b.bill_number}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">{formatErpDateDdMmYyyy(b.created_at ?? b.bill_date)}</td>
                   <td className="max-w-[140px] truncate px-3 py-2.5">{b.customer_name || '—'}</td>
@@ -306,29 +334,44 @@ export function ErpEstimationsWorkspace() {
                     {formatErpInr(b.total_inr)}
                   </td>
                   <td className="px-3 py-2.5">
-                    <select
-                      className={`min-h-[36px] rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${estimateStatusBadgeClass(effectiveStatus)}`}
-                      value={effectiveStatus}
-                      disabled={statusBusyId === b.id}
-                      onChange={(e) => void changeStatus(b.id, e.target.value)}
-                      aria-label={`Status for ${b.bill_number}`}
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {formatEstimateStatusLabel(s)}
-                        </option>
-                      ))}
-                    </select>
+                    {billed ? (
+                      <div className="space-y-1">
+                        <span
+                          className={`inline-flex min-h-[36px] items-center rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase ${estimateStatusBadgeClass('billed')}`}
+                        >
+                          Billed
+                        </span>
+                        {saleBillNo ? (
+                          <p className="text-[10px] font-medium text-emerald-800/80">→ {saleBillNo}</p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <select
+                        className={`min-h-[36px] rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${estimateStatusBadgeClass(effectiveStatus)}`}
+                        value={effectiveStatus}
+                        disabled={statusBusyId === b.id}
+                        onChange={(e) => void changeStatus(b.id, e.target.value)}
+                        aria-label={`Status for ${b.bill_number}`}
+                      >
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {formatEstimateStatusLabel(s)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex flex-wrap gap-1">
-                      <Link
-                        href={billingEditPath(b.id)}
-                        className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
-                        title="Edit in billing"
-                      >
-                        <Pencil className="size-4" />
-                      </Link>
+                      {!billed ? (
+                        <Link
+                          href={billingEditPath(b.id)}
+                          className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
+                          title="Edit in billing"
+                        >
+                          <Pencil className="size-4" />
+                        </Link>
+                      ) : null}
                       <button
                         type="button"
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"

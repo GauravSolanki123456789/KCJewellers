@@ -579,6 +579,10 @@ function registerResellerErpRoutes(app, deps) {
                     sql += ` AND LOWER(COALESCE(status, 'draft')) = 'draft'
                         AND COALESCE(session_json->>'ratesUnfixed', 'false') != 'true'
                         AND COALESCE((session_json->>'advancePaidInr')::numeric, 0) <= 0`;
+                } else if (st === 'billed') {
+                    sql += ` AND LOWER(COALESCE(status, 'draft')) = 'billed'`;
+                } else if (st === 'unbilled') {
+                    sql += ` AND LOWER(COALESCE(status, 'draft')) != 'billed'`;
                 } else {
                     params.push(st);
                     sql += ` AND LOWER(status) = $${params.length}`;
@@ -704,6 +708,51 @@ function registerResellerErpRoutes(app, deps) {
                     console.warn('erp ledger bill advance:', le.message);
                 }
             }
+            const sourceEstimateId =
+                req.body.source_estimate_id != null
+                    ? parseInt(String(req.body.source_estimate_id), 10)
+                    : null;
+            if (
+                billType === 'sale' &&
+                Number.isFinite(sourceEstimateId) &&
+                sourceEstimateId > 0 &&
+                ['completed', 'paid', 'final'].includes(status)
+            ) {
+                const estRows = await query(
+                    `SELECT id, bill_type, status, session_json FROM reseller_erp_bills
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [sourceEstimateId, req.user.id],
+                );
+                if (
+                    estRows.length &&
+                    String(estRows[0].bill_type || '').toLowerCase() === 'estimate' &&
+                    String(estRows[0].status || '').toLowerCase() !== 'billed'
+                ) {
+                    let prevSession = estRows[0].session_json;
+                    if (typeof prevSession === 'string') {
+                        try {
+                            prevSession = JSON.parse(prevSession);
+                        } catch {
+                            prevSession = {};
+                        }
+                    }
+                    if (!prevSession || typeof prevSession !== 'object') prevSession = {};
+                    const mergedSession = {
+                        ...prevSession,
+                        billedSaleBillId: bill.id,
+                        billedSaleBillNumber: bill.bill_number,
+                        billedAt: new Date().toISOString(),
+                    };
+                    await query(
+                        `UPDATE reseller_erp_bills SET
+                            status = 'billed',
+                            session_json = $1::jsonb,
+                            updated_at = NOW()
+                         WHERE id = $2 AND reseller_user_id = $3`,
+                        [JSON.stringify(mergedSession), sourceEstimateId, req.user.id],
+                    );
+                }
+            }
             res.json({ success: true, bill });
         } catch (e) {
             console.error('erp bill create:', e);
@@ -715,6 +764,17 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const id = parseInt(String(req.params.id), 10);
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const existingRows = await query(
+                `SELECT bill_type, status FROM reseller_erp_bills
+                 WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!existingRows.length) return res.status(404).json({ error: 'Bill not found' });
+            const existingType = String(existingRows[0].bill_type || '').toLowerCase();
+            const existingStatus = String(existingRows[0].status || '').toLowerCase();
+            if (existingType === 'estimate' && existingStatus === 'billed') {
+                return res.status(400).json({ error: 'This estimation is already billed and cannot be edited.' });
+            }
             const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
             let total = Number(req.body.total_inr);
             if (!Number.isFinite(total)) {
@@ -803,6 +863,27 @@ function registerResellerErpRoutes(app, deps) {
             const id = parseInt(String(req.params.id), 10);
             const status = trimStr(req.body.status, 32);
             if (!status) return res.status(400).json({ error: 'status required' });
+            const existingRows = await query(
+                `SELECT bill_type, status FROM reseller_erp_bills
+                 WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!existingRows.length) return res.status(404).json({ error: 'Bill not found' });
+            const existingType = String(existingRows[0].bill_type || '').toLowerCase();
+            const existingStatus = String(existingRows[0].status || '').toLowerCase();
+            const nextStatus = String(status).toLowerCase();
+            if (existingType === 'estimate') {
+                if (existingStatus === 'billed') {
+                    return res.status(400).json({
+                        error: 'This estimation is already billed — status cannot be changed.',
+                    });
+                }
+                if (nextStatus === 'billed') {
+                    return res.status(400).json({
+                        error: 'Billed status is set automatically when you save a sales bill from this estimate.',
+                    });
+                }
+            }
             const rows = await query(
                 `UPDATE reseller_erp_bills SET status = $1, updated_at = NOW()
                  WHERE id = $2 AND reseller_user_id = $3

@@ -199,6 +199,7 @@ export function ErpBillingWorkspace() {
   const [hydrated, setHydrated] = useState(false)
   const [editingBillId, setEditingBillId] = useState<number | null>(null)
   const [editingBillNumber, setEditingBillNumber] = useState<string | null>(null)
+  const [editingBillType, setEditingBillType] = useState<string | null>(null)
   const [editingBillStatus, setEditingBillStatus] = useState<string | null>(null)
   const [advancePaidInr, setAdvancePaidInr] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
@@ -296,9 +297,16 @@ export function ErpBillingWorkspace() {
     async (id: number) => {
       const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
       const bill = res.data.bill
+      const billType = String(bill.bill_type || '').toLowerCase()
+      if (billType === 'estimate' && String(bill.status || '').toLowerCase() === 'billed') {
+        alert('This estimation is already billed and cannot be edited.')
+        router.replace(resellerErpModulePath('estimations'))
+        return
+      }
       const session = (bill.session || {}) as ErpBillSession
       setEditingBillId(bill.id)
       setEditingBillNumber(bill.bill_number)
+      setEditingBillType(billType)
       setEditingBillStatus(bill.status || 'draft')
       setCustomerId(bill.customer_id ?? null)
       setCustomerName(bill.customer_name || '')
@@ -329,7 +337,7 @@ export function ErpBillingWorkspace() {
       }
       clearDraftStorage()
     },
-    [],
+    [router],
   )
 
   useEffect(() => {
@@ -592,6 +600,7 @@ export function ErpBillingWorkspace() {
     setWholesaleSilver(null)
     setEditingBillId(null)
     setEditingBillNumber(null)
+    setEditingBillType(null)
     setEditingBillStatus(null)
     setAdvancePaidInr('')
     clearDraftStorage()
@@ -623,6 +632,9 @@ export function ErpBillingWorkspace() {
       pan: customerPan,
       customerGst,
     }),
+    ...(editingBillId &&
+    editingBillType === 'estimate' &&
+    billType === 'sale' && { source_estimate_id: editingBillId }),
   })
 
   const persistBill = async (
@@ -822,7 +834,14 @@ export function ErpBillingWorkspace() {
       {editingBillNumber ? (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
           <span className="font-semibold text-blue-900">Editing {editingBillNumber}</span>
-          <span className="text-blue-800/70">Changes update this estimate — no new number.</span>
+          {editingBillType === 'estimate' ? (
+            <span className="text-blue-800/70">
+              Update quote with <strong>Generate quote</strong>, or use <strong>Save bill</strong> to create a sales bill
+              and mark this estimate as billed.
+            </span>
+          ) : (
+            <span className="text-blue-800/70">Changes update this bill — no new number.</span>
+          )}
           <Link href={resellerErpModulePath('estimations')} className="ml-auto text-xs font-semibold text-blue-700 underline">
             Back to estimations
           </Link>
