@@ -28,6 +28,11 @@ const {
     detectEnhancementProfile,
     isComprehensiveUserPrompt,
     profileStudioQualityBlock,
+    studioPolishPromptBlock,
+    assessOutputResolution,
+    geminiNativeUpscale,
+    resolveOutputLongEdge,
+    getSharp,
 } = require('./enhancedImageProcessing');
 const {
     defaultOverlaySettings,
@@ -80,7 +85,7 @@ Deep charcoal to midnight blue cinematic studio backdrop with soft vignette.
 Minimal luxury environment — no shop shelves, boxes, scissors, or warehouse clutter.
 
 LIGHTING (Aurra Studio grade):
-Professional catalogue lighting — soft key from front-left, gentle rim from right, controlled top spotlight.
+Soft diffused multi-source studio lighting — large softbox key, gentle fill, subtle rim. NOT a harsh overhead spotlight cone.
 Natural metallic specular highlights with micro-texture visible — NOT flat CGI plastic.
 Deep but readable shadows — no crushed blacks, no heavy noise/grain in background.
 
@@ -978,6 +983,16 @@ The final image MUST use a pure seamless white (#FFFFFF) e-commerce catalogue ba
 Transform even a bad phone photo into a sharp, professional studio product shot: clean white background, even lighting, hero framing, crisp metal detail.`;
 }
 
+function idolDarkAurraOverrideBlock() {
+    return `
+
+[IDOL DARK STUDIO — AURRA OVERRIDE (HIGHEST PRIORITY)]
+Transform even a bad phone photo into Aurra Studio-grade output in ONE generation.
+Ignore harsh overhead spotlight or warehouse lighting from the source — relight with soft diffused premium studio lighting.
+Glass cloche must stay crystal clear; idol inside must remain sharp, colorful, and identity-locked.
+Backdrop: elegant smoky charcoal OR soft draped champagne fabric — never flat muddy grey, never blown-out white hotspots.`;
+}
+
 function buildFullPrompt(
     promptText,
     negativePrompt,
@@ -992,6 +1007,10 @@ function buildFullPrompt(
     const normalized = normalizePromptFields(promptText, negativePrompt);
     let main = normalized.promptText;
     const isWhiteIdol = profile === 'idol' && generationOptions.backgroundPreset === 'white';
+    const isPremiumIdol =
+        profile === 'idol' &&
+        !isWhiteIdol &&
+        (generationOptions.renderQuality === '2k' || generationOptions.renderQuality === '4k');
     let neg = mergeSystemNegativePrompt(normalized.negativePrompt, {
         backgroundPreset: generationOptions.backgroundPreset,
     });
@@ -1006,6 +1025,8 @@ function buildFullPrompt(
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
     if (isWhiteIdol) {
         main += idolWhiteTemplateOverrideBlock();
+    } else if (isPremiumIdol) {
+        main += idolDarkAurraOverrideBlock();
     }
     if (!isComprehensiveUserPrompt(normalized.promptText)) {
         if (isWhiteIdol) {
@@ -1054,7 +1075,7 @@ function sourceLockPromptForProfile(profile, backgroundPreset) {
         return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base — NO cast shadow on white backdrop.';
     }
     if (profile === 'idol') {
-        return '\n\nSOURCE PRODUCT (CRITICAL — COLOR & IDENTITY LOCK):\nThe attached photo is the exact product. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Only improve lighting, background, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 72–82% of frame height — clearly readable without zooming (Aurra Studio scale). Match metal and halo colors exactly as in the source image. Replace shop/warehouse backgrounds with a smooth smoky blue-charcoal Aurra-style studio — no grain, no speckled noise. Use soft diffused multi-light studio relighting — NOT a single harsh overhead spotlight or bright circular floor hotspot. Glass dome: soft curved highlights only — NO white rectangular glare bars. Do NOT copy messy shop shadows, wall shadows, or spotlight rings onto the new backdrop — use only a soft contact shadow under the base.';
+        return '\n\nSOURCE PRODUCT (CRITICAL — AURRA STUDIO LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic wrap, or harsh flash. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Transform ONLY lighting, backdrop, and catalogue presentation into Aurra Studio premium quality. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 82–88% of frame height — large close hero readable without zooming. Match metal and halo colors exactly as in the source. Replace shop/warehouse backgrounds with elegant smoky charcoal or soft draped fabric studio. Soft diffused multi-light relighting — NOT harsh overhead spotlight cone or bright floor ring. Glass dome: soft curved highlights only — idol inside must stay sharp — NO white rectangular glare bars. ONLY soft contact shadow under the base — NO cast shadow on backdrop wall.';
     }
     return '\n\nSOURCE PRODUCT (CRITICAL):\nThe attached photo is the exact product. Preserve identity, colors, and proportions. Only improve studio lighting and background quality.';
 }
@@ -1068,25 +1089,41 @@ function buildGeminiUserParts({
     workflowHighlights,
     profile = 'generic',
     generationOptions = {},
+    polishMode = false,
+    identitySourcePath = null,
 }) {
     const aspect = normalizeAspectRatio(aspectRatio);
-    const fullPrompt = buildFullPrompt(promptText, negativePrompt, {
-        aspectRatio: aspect,
-        canvasText,
-        workflowHighlights,
-        profile,
-        generationOptions,
-    });
+    let fullPrompt;
+    if (polishMode) {
+        fullPrompt = `${studioPolishPromptBlock(profile, generationOptions.backgroundPreset)}\n\n${renderQualityPromptBlock(generationOptions.renderQuality)}`;
+    } else {
+        fullPrompt = buildFullPrompt(promptText, negativePrompt, {
+            aspectRatio: aspect,
+            canvasText,
+            workflowHighlights,
+            profile,
+            generationOptions,
+        });
+    }
     const parts = [{ text: fullPrompt }];
-    if (sourceImagePath && fs.existsSync(sourceImagePath)) {
-        parts[0].text += sourceLockPromptForProfile(profile, generationOptions.backgroundPreset);
-        const buf = fs.readFileSync(sourceImagePath);
+    const attachImage = (filePath) => {
+        if (!filePath || !fs.existsSync(filePath)) return;
+        const buf = fs.readFileSync(filePath);
         parts.push({
             inline_data: {
-                mime_type: mimeFromExt(path.extname(sourceImagePath)),
+                mime_type: mimeFromExt(path.extname(filePath)),
                 data: buf.toString('base64'),
             },
         });
+    };
+    if (polishMode && sourceImagePath) {
+        parts[0].text +=
+            '\n\nPOLISH INPUTS: Image 1 = draft render to polish. Image 2 = original product identity reference.';
+        attachImage(sourceImagePath);
+        attachImage(identitySourcePath || sourceImagePath);
+    } else if (sourceImagePath && fs.existsSync(sourceImagePath)) {
+        parts[0].text += sourceLockPromptForProfile(profile, generationOptions.backgroundPreset);
+        attachImage(sourceImagePath);
     }
     return { parts, aspect };
 }
@@ -1650,6 +1687,8 @@ async function generateWithGemini({
     workflowHighlights,
     profile = 'generic',
     generationOptions = {},
+    polishMode = false,
+    identitySourcePath = null,
 }) {
     const apiKey = aiConfig?.gemini_api_key || getGeminiApiKey();
     if (!apiKey) {
@@ -1669,6 +1708,8 @@ async function generateWithGemini({
         workflowHighlights,
         profile,
         generationOptions,
+        polishMode,
+        identitySourcePath,
     });
 
     const primaryModel = aiConfig?.gemini_model || getGeminiImageModel();
@@ -1714,14 +1755,28 @@ async function generateWithGemini({
                 for (const p of outParts) {
                     const inline = p.inlineData || p.inline_data;
                     if (inline?.data) {
-                        const buffer = Buffer.from(inline.data, 'base64');
+                        let buffer = Buffer.from(inline.data, 'base64');
                         const mimeType = inline.mimeType || inline.mime_type || 'image/png';
+                        const targetLong = resolveOutputLongEdge({
+                            renderQuality: generationOptions.renderQuality,
+                            backgroundPreset: generationOptions.backgroundPreset,
+                            fastMode: generationOptions.fastMode === true,
+                        });
+                        let qa = await assessOutputResolution(buffer, targetLong);
+                        if (!qa.ok) {
+                            const sharp = getSharp();
+                            if (sharp) {
+                                buffer = await geminiNativeUpscale(sharp, buffer, targetLong);
+                                qa = await assessOutputResolution(buffer, targetLong);
+                            }
+                        }
                         return {
                             buffer,
                             mimeType,
                             provider: 'gemini',
                             model: usedModel,
                             imageSize,
+                            outputLongEdge: qa.longEdge || null,
                         };
                     }
                 }
@@ -1905,9 +1960,11 @@ async function generateStudioImageCore({
     workflowHighlights,
     profile = 'generic',
     generationOptions = {},
+    polishMode = false,
+    identitySourcePath = null,
 }) {
     const provider = normalizeAiProvider(aiConfig?.provider);
-    if (provider === 'replicate') {
+    if (provider === 'replicate' && !polishMode) {
         return generateWithReplicate({
             promptText,
             negativePrompt,
@@ -1930,6 +1987,8 @@ async function generateStudioImageCore({
         workflowHighlights,
         profile,
         generationOptions,
+        polishMode,
+        identitySourcePath,
     });
 }
 
@@ -1962,7 +2021,7 @@ async function generateStudioImage({
         pipelineEnabled: pipelineOn,
         profile,
         originalSourcePath: sourceImagePath,
-        fastMode: generationOptions.fastMode !== false,
+        fastMode: generationOptions.fastMode === true,
         backgroundPreset: generationOptions.backgroundPreset || 'charcoal',
         renderQuality: generationOptions.renderQuality || '2k',
     });

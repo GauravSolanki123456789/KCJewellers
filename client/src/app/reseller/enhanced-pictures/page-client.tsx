@@ -21,6 +21,7 @@ import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
 import EnhancedStudioOptions, {
   renderQualityCreditCost,
+  RENDER_QUALITY_OPTIONS,
   type StudioGenerationOptions,
 } from '@/components/reseller/EnhancedStudioOptions'
 import { EnhancedRecentJobsPanel } from '@/components/reseller/EnhancedRecentJobsPanel'
@@ -98,6 +99,9 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [paymentQrUrl, setPaymentQrUrl] = useState<string | null>(null)
   const [bankDetails, setBankDetails] = useState<string | null>(null)
   const [showTopup, setShowTopup] = useState(false)
+  const [showConfirmGenerate, setShowConfirmGenerate] = useState(false)
+  const [genStartedAt, setGenStartedAt] = useState<number | null>(null)
+  const [genElapsedSec, setGenElapsedSec] = useState(0)
   const [bootstrapLoading, setBootstrapLoading] = useState(true)
   const [bootstrapReady, setBootstrapReady] = useState(false)
   const [templateKey, setTemplateKey] = useState('idols')
@@ -135,6 +139,28 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [jobsRefreshing, setJobsRefreshing] = useState(false)
   const [actionJobId, setActionJobId] = useState<number | null>(null)
   const pollGenerationRef = useRef(0)
+
+  useEffect(() => {
+    if (phase !== 'preparing' && phase !== 'batch') {
+      setGenStartedAt(null)
+      setGenElapsedSec(0)
+      return
+    }
+    if (!genStartedAt) setGenStartedAt(Date.now())
+    const t = window.setInterval(() => {
+      setGenElapsedSec((s) => (genStartedAt ? Math.max(s, Math.round((Date.now() - genStartedAt) / 1000)) : s + 1))
+    }, 1000)
+    return () => window.clearInterval(t)
+  }, [phase, genStartedAt])
+
+  const activeRenderQuality = useMemo(() => {
+    if (economyBatchMode && geminiBatchAllowed) return RENDER_QUALITY_OPTIONS.find((o) => o.key === 'standard')
+    return RENDER_QUALITY_OPTIONS.find((o) => o.key === generationOptions.renderQuality)
+  }, [economyBatchMode, geminiBatchAllowed, generationOptions.renderQuality])
+
+  const creditCost = renderQualityCreditCost(
+    economyBatchMode && geminiBatchAllowed ? 'standard' : generationOptions.renderQuality,
+  )
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -562,7 +588,7 @@ export default function ResellerEnhancedPicturesPageClient() {
       setError('Take or choose a product photo first.')
       return
     }
-    if (credits < renderQualityCreditCost(generationOptions.renderQuality)) {
+    if (credits < creditCost) {
       setShowTopup(true)
       setError(
         generationOptions.renderQuality === '4k'
@@ -576,6 +602,9 @@ export default function ResellerEnhancedPicturesPageClient() {
     setAttachMsg('')
     setPhase('preparing')
     setProgress(12)
+    setGenStartedAt(Date.now())
+    setGenElapsedSec(0)
+    setShowConfirmGenerate(false)
     const tick = window.setInterval(() => {
       setProgress((p) => (p >= 88 ? p : p + Math.random() * 8))
     }, 900)
@@ -1193,23 +1222,21 @@ export default function ResellerEnhancedPicturesPageClient() {
           <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-5 py-8 text-center">
             <Sparkles className="mx-auto size-8 text-[var(--kc-accent,#c41e3a)]" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--kc-accent,#c41e3a)]">
-              {phase === 'batch' ? 'Batch queue · 50% savings' : 'Preparing…'}
+              {phase === 'batch' ? 'Batch queue · 50% savings' : 'Generating luxury render…'}
             </p>
             <p className="mt-1 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-              {phase === 'batch'
-                ? 'Crafting studio quality photo (economy queue)'
-                : 'Crafting studio quality photo…'}
+              Crafting studio quality photo
             </p>
-            {phase === 'batch' ? (
-              <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-                {batchMessage ||
-                  'Economy batch mode — usually a few minutes. Use Fast mode next time for ~30–90 second results.'}
-              </p>
-            ) : (
-              <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-                Fast mode — your studio shot usually appears in 30–90 seconds.
-              </p>
-            )}
+            <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
+              {batchMessage ||
+                (phase === 'batch'
+                  ? 'Economy batch mode — usually a few minutes.'
+                  : activeRenderQuality?.key === '4k'
+                    ? 'Ultra HD 4K · native Gemini render · usually 60–120 seconds.'
+                    : activeRenderQuality?.key === '2k'
+                      ? 'HD 2K Aurra-grade · native Gemini render · usually 30–90 seconds.'
+                      : 'Fast preview mode · usually 30–60 seconds.')}
+            </p>
             {batchState ? (
               <p className="mt-2 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
                 Status: {formatBatchStateLabel(batchState) || 'pending'}
@@ -1221,6 +1248,10 @@ export default function ResellerEnhancedPicturesPageClient() {
                 style={{ width: `${Math.min(100, Math.round(progress))}%` }}
               />
             </div>
+            <p className="mt-3 text-[11px] font-medium text-[var(--color-jewelry-black,#1a1814)]/50">
+              {Math.min(100, Math.round(progress))}% · {genElapsedSec}s elapsed
+              {activeRenderQuality?.hint ? ` · ${activeRenderQuality.hint}` : ''}
+            </p>
           </div>
         ) : null}
 
@@ -1232,12 +1263,17 @@ export default function ResellerEnhancedPicturesPageClient() {
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
               Studio preview
             </p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={resultUrl}
-              alt="Studio result"
-              className="mx-auto max-h-[420px] w-full rounded-xl object-contain"
-            />
+            <div className="relative mx-auto max-w-md overflow-hidden rounded-xl bg-black/90">
+              <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-950">
+                Studio grade output
+              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={resultUrl}
+                alt="Studio result"
+                className="mx-auto max-h-[420px] w-full object-contain"
+              />
+            </div>
             {attachMsg ? (
               <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{attachMsg}</p>
             ) : null}
@@ -1301,10 +1337,10 @@ export default function ResellerEnhancedPicturesPageClient() {
           disabled={
             busy ||
             !sourceFile ||
-            credits < renderQualityCreditCost(generationOptions.renderQuality) ||
+            credits < creditCost ||
             phase === 'batch'
           }
-          onClick={() => void runGenerate()}
+          onClick={() => setShowConfirmGenerate(true)}
           className="kc-btn-theme flex w-full min-h-[52px] items-center justify-center gap-2 rounded-2xl text-base font-semibold disabled:opacity-50"
         >
           {busy && (phase === 'preparing' || phase === 'batch') ? (
@@ -1312,16 +1348,16 @@ export default function ResellerEnhancedPicturesPageClient() {
           ) : (
             <Sparkles className="size-5" />
           )}
-          Generate studio shot · {renderQualityCreditCost(generationOptions.renderQuality)} credit
-          {renderQualityCreditCost(generationOptions.renderQuality) > 1 ? 's' : ''}
-          {generationOptions.renderQuality === '4k'
+          Generate studio shot · {creditCost} credit{creditCost > 1 ? 's' : ''}
+          {generationOptions.renderQuality === '4k' && !(economyBatchMode && geminiBatchAllowed)
             ? ' · 4K'
-            : generationOptions.renderQuality === '2k'
+            : generationOptions.renderQuality === '2k' && !(economyBatchMode && geminiBatchAllowed)
               ? ' · 2K HD'
-              : ' · fast'}
-          {economyBatchMode && geminiBatchAllowed ? ' · economy' : ''}
+              : economyBatchMode && geminiBatchAllowed
+                ? ' · economy'
+                : ''}
         </button>
-        {credits < renderQualityCreditCost(generationOptions.renderQuality) ? (
+        {credits < creditCost ? (
           <button
             type="button"
             onClick={() => setShowTopup(true)}
@@ -1334,6 +1370,62 @@ export default function ResellerEnhancedPicturesPageClient() {
         )}
       </div>
 
+      {showConfirmGenerate ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--kc-accent,#c41e3a)]">
+              Confirm generation
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Craft a new studio photo
+            </h2>
+            <p className="mt-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
+              {activeRenderQuality?.detail ||
+                'Premium AI studio render with identity-locked product preservation.'}
+            </p>
+            <div className="mt-4 space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/50 p-3 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--color-jewelry-black,#1a1814)]/60">Quality</span>
+                <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  {activeRenderQuality?.label || 'HD 2K'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--color-jewelry-black,#1a1814)]/60">Render fee</span>
+                <span className="font-semibold text-amber-700">
+                  {creditCost} credit{creditCost > 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--color-jewelry-black,#1a1814)]/60">Your balance</span>
+                <span className="font-semibold">{credits} credits</span>
+              </div>
+              <div className="flex items-center justify-between gap-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-2">
+                <span className="text-[var(--color-jewelry-black,#1a1814)]/60">Remaining after</span>
+                <span className="font-bold text-emerald-700">{Math.max(0, credits - creditCost)} credits</span>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowConfirmGenerate(false)}
+                className="min-h-[48px] flex-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] text-sm font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runGenerate()}
+                className="kc-btn-theme min-h-[48px] flex-[1.4] rounded-xl text-sm font-bold"
+              >
+                Confirm & generate
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showTopup ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
@@ -1343,7 +1435,7 @@ export default function ResellerEnhancedPicturesPageClient() {
                   Recharge credits
                 </h2>
                 <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
-                  Balance: {credits} · 1 credit = 1 image
+                  Balance: {credits} · 1 credit = 1 HD 2K image · 4K uses 2 credits
                 </p>
               </div>
               <button

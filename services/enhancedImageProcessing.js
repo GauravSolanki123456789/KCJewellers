@@ -32,30 +32,36 @@ function writeTempBuffer(buffer, ext = '.png') {
 /**
  * Upscale/normalize source photos before Gemini — phone shots benefit from higher-res input.
  */
-async function preprocessSourceForGemini(sourceImagePath) {
+async function preprocessSourceForGemini(sourceImagePath, options = {}) {
     const sharp = getSharp();
     if (!sharp || !sourceImagePath || !fs.existsSync(sourceImagePath)) {
         return { path: sourceImagePath, preprocessed: false };
     }
     try {
+        const rq = String(options.renderQuality || '2k').toLowerCase();
+        let target = 1536;
+        if (rq === '4k') target = 2560;
+        else if (rq === '2k') target = 2048;
+        else if (options.preferHighRes) target = 2048;
+
         const meta = await sharp(sourceImagePath).metadata();
         const w = meta.width || 0;
         const h = meta.height || 0;
         const longEdge = Math.max(w, h);
         let pipeline = sharp(sourceImagePath).rotate();
 
-        // Upscale small phone photos so Gemini sees fine engravings / glass detail.
-        if (longEdge > 0 && longEdge < 1400) {
-            const target = 1536;
+        // Upscale phone photos so Gemini sees fine engravings, glass dome detail, and gemstone color.
+        if (longEdge > 0 && longEdge < target) {
             pipeline =
                 w >= h
-                    ? pipeline.resize({ width: target, withoutEnlargement: false })
-                    : pipeline.resize({ height: target, withoutEnlargement: false });
+                    ? pipeline.resize({ width: target, withoutEnlargement: false, kernel: sharp.kernel.lanczos3 })
+                    : pipeline.resize({ height: target, withoutEnlargement: false, kernel: sharp.kernel.lanczos3 });
         }
 
         const buf = await pipeline
             .normalize()
-            .jpeg({ quality: 96, mozjpeg: true, chromaSubsampling: '4:4:4' })
+            .sharpen({ sigma: rq === '4k' ? 0.35 : 0.28, m1: 0.4, m2: 0.22 })
+            .jpeg({ quality: rq === '4k' ? 98 : 96, mozjpeg: true, chromaSubsampling: '4:4:4' })
             .toBuffer();
 
         const outPath = writeTempBuffer(buf, '.jpg');
@@ -92,6 +98,60 @@ async function smoothBackdropKeepProductSharp(sharp, buffer, w, h) {
 
 function isWhiteCatalogMode(options = {}) {
     return String(options.backgroundPreset || '').toLowerCase() === 'white';
+}
+
+function studioPolishPromptBlock(profile, backgroundPreset) {
+    const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
+    if (isWhite) {
+        return `[AURRA PASS 2 — WHITE CATALOGUE POLISH]
+Image 1 = draft studio render. Image 2 = original product photo (ground truth identity).
+Polish Image 1 to finished e-commerce white-background quality. Preserve exact product identity, pose, framing, and composition from Image 1.
+Enhance: metal micro-texture, wood grain, glass clarity, pure white backdrop, even lighting, overall sharpness.
+Fix: grey backdrop cast, glass glare bars, blur, plastic CGI look, floating edges.
+Do NOT recolor, reposition, crop differently, or redesign the product.`;
+    }
+    return `[AURRA PASS 2 — STUDIO POLISH]
+Image 1 = draft studio render. Image 2 = original product photo (ground truth identity).
+Polish Image 1 to finished Aurra Studio catalogue quality. Preserve exact product identity, pose, framing, and composition from Image 1.
+Enhance: metallic micro-texture, glass dome clarity, backdrop smoothness, cinematic depth, overall sharpness.
+Fix: harsh overhead spotlight cone, glass glare bars, ghost reflections, muddy shadows, blur, plastic CGI look.
+Do NOT recolor, reposition, crop differently, or redesign the product.`;
+}
+
+async function assessOutputResolution(buffer, targetLong = 2048) {
+    const sharp = getSharp();
+    if (!sharp || !buffer?.length) return { ok: true, longEdge: 0, targetLong };
+    try {
+        const meta = await sharp(buffer).metadata();
+        const longEdge = Math.max(meta.width || 0, meta.height || 0);
+        const minOk = Math.round(targetLong * 0.72);
+        return { ok: longEdge >= minOk, longEdge, targetLong, minOk };
+    } catch {
+        return { ok: true, longEdge: 0, targetLong };
+    }
+}
+
+async function geminiNativeUpscale(sharp, buffer, targetLong) {
+    if (!sharp || !buffer?.length || targetLong <= 0) return buffer;
+    try {
+        const meta = await sharp(buffer).metadata();
+        const w = meta.width || 0;
+        const h = meta.height || 0;
+        const longEdge = Math.max(w, h);
+        if (longEdge >= targetLong) return buffer;
+        return sharp(buffer)
+            .resize({
+                width: w >= h ? targetLong : undefined,
+                height: h > w ? targetLong : undefined,
+                withoutEnlargement: false,
+                kernel: sharp.kernel.lanczos3,
+            })
+            .sharpen({ sigma: 0.42, m1: 0.45, m2: 0.25 })
+            .png()
+            .toBuffer();
+    } catch {
+        return buffer;
+    }
 }
 
 /**
@@ -178,7 +238,7 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         const th = trimmed.info.height || h;
         if (tw < 32 || th < 32) return buffer;
 
-        const targetFill = 0.8;
+        const targetFill = targetSize >= 4096 ? 0.86 : targetSize >= 2048 ? 0.84 : 0.8;
         const long = Math.max(tw, th);
         const canvas = Math.round(long / targetFill);
         const padX = Math.max(0, Math.round((canvas - tw) / 2));
@@ -391,6 +451,18 @@ Wood bases: warm natural grain, polished finish preserved exactly.
 Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${whiteCatalogShadowBlock()}`;
 }
 
+function idolAurraPremiumBlock() {
+    return `
+
+[PIPELINE — IDOL AURRA PREMIUM STUDIO]
+Match Aurra Studio reference idol photography — one-shot museum-grade output from any phone photo.
+Backdrop: soft champagne/silver-grey draped fabric OR smooth smoky blue-charcoal gradient — elegant depth, zero grain, zero muddy flat grey.
+Glass cloche/dome when present: crystal-clear with soft curved natural highlights; idol inside sharp and readable through refraction; NO vertical white glare bars, NO pink/magenta stripes, NO ghost duplicate on backdrop.
+Lighting: soft diffused multi-source studio (large softbox key + fill + subtle rim) — NOT a harsh overhead spotlight cone, NOT bright circular floor hotspot.
+Surface: dark polished stone or matte black pedestal; soft contact shadow under base only — no cast shadow on backdrop wall.
+Hero framing: product including glass dome fills 82–88% of frame height — large close catalogue hero.${studioShadowAndSurfaceBlock()}`;
+}
+
 function profileStudioQualityBlock(profile, backgroundPreset) {
     const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
     if (profile === 'kada') {
@@ -405,14 +477,7 @@ No watermark, no logo, no generated text. Preserve exact jewellery geometry and 
         return idolWhiteCatalogPromptBlock();
     }
     if (profile === 'idol') {
-        return `
-
-[PIPELINE — IDOL CATALOGUE STUDIO]
-Smoky blue-charcoal cinematic backdrop with soft atmospheric haze behind the product (Aurra Studio reference), smooth gradient, zero grain.
-Dark polished stone tabletop with subtle natural reflection under the base.
-Hero framing: product including glass dome fills 82–88% of frame height — large, close, readable without zooming.
-Natural curved glass highlights only — NO vertical white glare bars, NO pink/magenta reflection stripes on dome exterior, NO shadow of dome cast on backdrop.
-Museum display feel — idol appears close to camera with premium cinematic depth.${studioShadowAndSurfaceBlock()}`;
+        return idolAurraPremiumBlock();
     }
     return aurraCinematicPromptBlock();
 }
@@ -614,6 +679,7 @@ module.exports = {
     studioShadowAndSurfaceBlock,
     whiteCatalogShadowBlock,
     idolWhiteCatalogPromptBlock,
+    idolAurraPremiumBlock,
     mergeSystemNegativePrompt,
     SYSTEM_STUDIO_NEGATIVE_LINES,
     WHITE_CATALOG_NEGATIVE_LINES,
@@ -624,4 +690,8 @@ module.exports = {
     composeFeatureMacroInset,
     shouldUseRembgForProfile,
     isWhiteCatalogMode,
+    studioPolishPromptBlock,
+    assessOutputResolution,
+    geminiNativeUpscale,
+    resolveOutputLongEdge,
 };

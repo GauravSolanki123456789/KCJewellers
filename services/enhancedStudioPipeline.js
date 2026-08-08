@@ -224,6 +224,7 @@ async function runFourStepStudioPipeline({
         rembg: false,
         spatial_lock: false,
         generate: false,
+        polish: false,
         postprocess: false,
         upscale: false,
     };
@@ -283,7 +284,7 @@ async function runFourStepStudioPipeline({
     let rembgSourcePath = sourceImagePath;
     let preprocessedTemp = null;
     if (geminiPath && (wantsQualityPrep || (profile === 'idol' && whiteCatalog))) {
-        const pre = await preprocessSourceForGemini(sourceImagePath);
+        const pre = await preprocessSourceForGemini(sourceImagePath, { renderQuality: qualityTier });
         if (pre.preprocessed) {
             rembgSourcePath = pre.path;
             preprocessedTemp = pre.path;
@@ -300,7 +301,7 @@ async function runFourStepStudioPipeline({
 
     let generateSourcePath = cutout.usedRembg ? cutout.path : rembgSourcePath;
     if (geminiPath && !cutout.usedRembg && !preprocessedTemp) {
-        const pre = await preprocessSourceForGemini(sourceImagePath);
+        const pre = await preprocessSourceForGemini(sourceImagePath, { renderQuality: qualityTier });
         if (pre.preprocessed) {
             generateSourcePath = pre.path;
             preprocessedTemp = pre.path;
@@ -314,6 +315,35 @@ async function runFourStepStudioPipeline({
         cutout.usedRembg ? cutout.path : null,
         preprocessedTemp,
     ];
+
+    if (
+        generated?.buffer?.length &&
+        wantsQualityPrep &&
+        geminiPath &&
+        profile !== 'kada'
+    ) {
+        const draftPath = writeTempBuffer(generated.buffer, '.png');
+        tempPaths.push(draftPath);
+        try {
+            const polished = await generateStudioImage({
+                promptText: '',
+                negativePrompt: '',
+                sourceImagePath: draftPath,
+                aspectRatio,
+                canvasText: '',
+                aiConfig,
+                workflowHighlights: [],
+                polishMode: true,
+                identitySourcePath: originalSourcePath || sourceImagePath,
+            });
+            if (polished?.buffer?.length) {
+                generated = polished;
+                steps.polish = true;
+            }
+        } catch (e) {
+            console.warn('aurra polish pass skipped, keeping pass-1 output:', e.message);
+        }
+    }
 
     if (generated?.buffer?.length) {
         let upscaleTemp = null;
@@ -357,13 +387,15 @@ async function runFourStepStudioPipeline({
     return {
         ...generated,
         pipeline: steps,
-        pipeline_mode: cutout.usedRembg
-            ? geminiPath
-                ? 'studio_gemini_cutout_aurra'
-                : 'studio_4step'
-            : geminiPath
-              ? 'studio_gemini_aurra'
-              : 'studio_4step',
+        pipeline_mode: steps.polish
+            ? 'studio_gemini_aurra_2pass'
+            : cutout.usedRembg
+              ? geminiPath
+                  ? 'studio_gemini_cutout_aurra'
+                  : 'studio_4step'
+              : geminiPath
+                ? 'studio_gemini_aurra'
+                : 'studio_4step',
     };
 }
 

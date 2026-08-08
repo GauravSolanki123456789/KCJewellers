@@ -68,7 +68,7 @@ function AdminEnhancedPicturesInner() {
   const [busy, setBusy] = useState(false)
   const [statusMsg, setStatusMsg] = useState('')
   const [aiProvider, setAiProvider] = useState<'gemini' | 'replicate'>('gemini')
-  const [geminiModel, setGeminiModel] = useState('gemini-3.1-flash-lite-image')
+  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-image')
   const [geminiBatchEnabled, setGeminiBatchEnabled] = useState(false)
   const [studioPipelineEnabled, setStudioPipelineEnabled] = useState(true)
   const [replicateModel, setReplicateModel] = useState('black-forest-labs/flux-kontext-pro')
