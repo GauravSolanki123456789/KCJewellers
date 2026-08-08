@@ -1232,9 +1232,9 @@ export default function ResellerEnhancedPicturesPageClient() {
                 (phase === 'batch'
                   ? 'Economy batch mode — usually a few minutes.'
                   : activeRenderQuality?.key === '4k'
-                    ? 'Ultra HD 4K · native Gemini render · usually 60–120 seconds.'
+                    ? 'Ultra HD 4K · usually 60–120 seconds.'
                     : activeRenderQuality?.key === '2k'
-                      ? 'HD 2K Aurra-grade · native Gemini render · usually 30–90 seconds.'
+                      ? 'HD 2K · usually 30–90 seconds.'
                       : 'Fast preview mode · usually 30–60 seconds.')}
             </p>
             {batchState ? (

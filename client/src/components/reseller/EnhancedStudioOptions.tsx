@@ -13,7 +13,7 @@ import {
 export type StudioGenerationOptions = {
   backgroundPreset: string
   visualization: string
-  /** standard = fast preview · 2k = Aurra HD (default) · 4k = ultra print grade */
+  /** standard = fast preview · 2k = HD studio (default) · 4k = ultra print grade */
   renderQuality: 'standard' | '2k' | '4k'
   applyWatermark: boolean
   applyInfoText: boolean
@@ -33,8 +33,8 @@ export const RENDER_QUALITY_OPTIONS: {
     key: '2k',
     label: 'HD 2K Quality',
     badge: 'Recommended',
-    hint: '2048×2048 · Aurra Studio grade',
-    detail: 'Best balance — Aurra-style 2-pass polish · 2048×2048 native Gemini · catalogues & ads.',
+    hint: '2048×2048 · studio catalogue',
+    detail: 'Sharp cinematic output for catalogues, ads, and WhatsApp.',
     credits: 1,
   },
   {
@@ -42,7 +42,7 @@ export const RENDER_QUALITY_OPTIONS: {
     label: 'Ultra HD 4K',
     badge: 'Print grade',
     hint: '4096×4096 · maximum detail',
-    detail: 'Maximum detail · 2-pass polish · 4096×4096 native Gemini · print & premium listings.',
+    detail: 'Maximum detail for print, posters, and premium listings.',
     credits: 2,
   },
   {

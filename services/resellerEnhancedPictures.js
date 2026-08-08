@@ -126,6 +126,13 @@ No human model
 No flowers
 No shop shelves or warehouse background
 No unnecessary props
+No added drum or mridangam if not in source
+No added flute or accessories not in source
+No pose change from source photo
+No added golden arch or halo if not in source
+No garment or dhoti color change
+No harsh overhead spotlight cone
+No bright circular floor spotlight pool
 No cast shadow on backdrop wall
 No box shadow on background
 No harsh spotlight circle on tabletop
@@ -960,8 +967,8 @@ High-quality commercial studio output optimized for quick turnaround. Clean cine
     }
     return `
 
-[RENDER QUALITY — HD 2K (AURRA STUDIO GRADE)]
-Export at 2048×2048 high density. Match premium Aurra Studio reference output — crisp metallic textures, cinematic smoky backdrop, natural curved glass highlights.
+[RENDER QUALITY — HD 2K STUDIO]
+Export at 2048×2048 high density. Premium jewellery catalogue output — crisp metallic textures, smooth cinematic backdrop, natural curved glass highlights.
 One-shot catalogue ready for digital ads, WhatsApp catalogues, and online storefronts.`;
 }
 
@@ -983,13 +990,14 @@ The final image MUST use a pure seamless white (#FFFFFF) e-commerce catalogue ba
 Transform even a bad phone photo into a sharp, professional studio product shot: clean white background, even lighting, hero framing, crisp metal detail.`;
 }
 
-function idolDarkAurraOverrideBlock() {
+function idolDarkStudioOverrideBlock() {
     return `
 
-[IDOL DARK STUDIO — AURRA OVERRIDE (HIGHEST PRIORITY)]
-Transform even a bad phone photo into Aurra Studio-grade output in ONE generation.
+[IDOL DARK STUDIO — OVERRIDE (HIGHEST PRIORITY)]
+Transform even a bad phone photo into premium studio output in ONE generation.
 Ignore harsh overhead spotlight or warehouse lighting from the source — relight with soft diffused premium studio lighting.
-Glass cloche must stay crystal clear; idol inside must remain sharp, colorful, and identity-locked.
+Glass cloche must stay crystal clear; idol inside must remain sharp and EXACTLY as in the source photo — same pose, same accessories, same colors.
+Do NOT add drum/mridangam/flute, golden arch, or ornaments that are not in the source photo.
 Backdrop: elegant smoky charcoal OR soft draped champagne fabric — never flat muddy grey, never blown-out white hotspots.`;
 }
 
@@ -1026,7 +1034,7 @@ function buildFullPrompt(
     if (isWhiteIdol) {
         main += idolWhiteTemplateOverrideBlock();
     } else if (isPremiumIdol) {
-        main += idolDarkAurraOverrideBlock();
+        main += idolDarkStudioOverrideBlock();
     }
     if (!isComprehensiveUserPrompt(normalized.promptText)) {
         if (isWhiteIdol) {
@@ -1075,7 +1083,7 @@ function sourceLockPromptForProfile(profile, backgroundPreset) {
         return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base — NO cast shadow on white backdrop.';
     }
     if (profile === 'idol') {
-        return '\n\nSOURCE PRODUCT (CRITICAL — AURRA STUDIO LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic wrap, or harsh flash. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Transform ONLY lighting, backdrop, and catalogue presentation into Aurra Studio premium quality. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 82–88% of frame height — large close hero readable without zooming. Match metal and halo colors exactly as in the source. Replace shop/warehouse backgrounds with elegant smoky charcoal or soft draped fabric studio. Soft diffused multi-light relighting — NOT harsh overhead spotlight cone or bright floor ring. Glass dome: soft curved highlights only — idol inside must stay sharp — NO white rectangular glare bars. ONLY soft contact shadow under the base — NO cast shadow on backdrop wall.';
+        return '\n\nSOURCE PRODUCT (CRITICAL — STUDIO IDENTITY LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic wrap, or harsh flash. Preserve 100% identity — same shape, pose, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Do NOT add drum/mridangam/flute, golden arch, extra ornaments, or accessories not visible in the source. Do NOT change dhoti/garment color. Transform ONLY lighting, backdrop, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 82–88% of frame height — large close hero readable without zooming. Match metal and halo colors exactly as in the source. Replace shop/warehouse backgrounds with elegant smoky charcoal or soft draped fabric studio. Soft diffused multi-light relighting — NOT harsh overhead spotlight cone or bright floor ring. Glass dome: soft curved highlights only — idol inside must stay sharp — NO white rectangular glare bars. ONLY soft contact shadow under the base — NO cast shadow on backdrop wall.';
     }
     return '\n\nSOURCE PRODUCT (CRITICAL):\nThe attached photo is the exact product. Preserve identity, colors, and proportions. Only improve studio lighting and background quality.';
 }
@@ -3969,7 +3977,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         generationOptions.renderQuality === '4k'
                             ? 'Crafting Ultra HD 4K studio photo… Usually ready in 60–120 seconds.'
                             : generationOptions.renderQuality === '2k'
-                              ? 'Crafting HD 2K Aurra-grade studio photo… Usually ready in 30–90 seconds.'
+                              ? 'Crafting HD 2K studio photo… Usually ready in 30–90 seconds.'
                               : 'Crafting studio quality photo… Usually ready in 30–90 seconds. You can keep using the page.',
                 });
 

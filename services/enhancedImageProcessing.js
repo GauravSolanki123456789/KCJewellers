@@ -103,19 +103,19 @@ function isWhiteCatalogMode(options = {}) {
 function studioPolishPromptBlock(profile, backgroundPreset) {
     const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
     if (isWhite) {
-        return `[AURRA PASS 2 — WHITE CATALOGUE POLISH]
-Image 1 = draft studio render. Image 2 = original product photo (ground truth identity).
-Polish Image 1 to finished e-commerce white-background quality. Preserve exact product identity, pose, framing, and composition from Image 1.
-Enhance: metal micro-texture, wood grain, glass clarity, pure white backdrop, even lighting, overall sharpness.
+        return `[PASS 2 — WHITE CATALOGUE POLISH]
+Image 1 = draft studio render. Image 2 = original product photo (ABSOLUTE ground truth).
+Final product must match Image 2 exactly — same pose, accessories, colors, and proportions. Polish only backdrop, lighting, glass clarity, and sharpness.
+Enhance: metal micro-texture, wood grain, glass clarity, pure white backdrop, even lighting.
 Fix: grey backdrop cast, glass glare bars, blur, plastic CGI look, floating edges.
-Do NOT recolor, reposition, crop differently, or redesign the product.`;
+Do NOT add drum, flute, arch, or ornaments not in Image 2. Do NOT recolor or redesign.`;
     }
-    return `[AURRA PASS 2 — STUDIO POLISH]
-Image 1 = draft studio render. Image 2 = original product photo (ground truth identity).
-Polish Image 1 to finished Aurra Studio catalogue quality. Preserve exact product identity, pose, framing, and composition from Image 1.
-Enhance: metallic micro-texture, glass dome clarity, backdrop smoothness, cinematic depth, overall sharpness.
+    return `[PASS 2 — STUDIO POLISH]
+Image 1 = draft studio render. Image 2 = original product photo (ABSOLUTE ground truth).
+Final product must match Image 2 exactly — same pose, accessories, colors, and proportions. Polish only backdrop, lighting, glass clarity, and sharpness.
+Enhance: metallic micro-texture, glass dome clarity, backdrop smoothness, cinematic depth.
 Fix: harsh overhead spotlight cone, glass glare bars, ghost reflections, muddy shadows, blur, plastic CGI look.
-Do NOT recolor, reposition, crop differently, or redesign the product.`;
+Do NOT add drum, flute, arch, or ornaments not in Image 2. Do NOT recolor or redesign.`;
 }
 
 async function assessOutputResolution(buffer, targetLong = 2048) {
@@ -335,7 +335,7 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
         }
 
         const composites = [];
-        if (!whiteCatalog && profile !== 'kada') {
+        if (!whiteCatalog && profile !== 'kada' && profile !== 'idol') {
             const hotspotSvg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="h" cx="50%" cy="76%" r="42%">
@@ -451,13 +451,13 @@ Wood bases: warm natural grain, polished finish preserved exactly.
 Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${whiteCatalogShadowBlock()}`;
 }
 
-function idolAurraPremiumBlock() {
+function idolPremiumStudioBlock() {
     return `
 
-[PIPELINE — IDOL AURRA PREMIUM STUDIO]
-Match Aurra Studio reference idol photography — one-shot museum-grade output from any phone photo.
+[PIPELINE — IDOL PREMIUM STUDIO]
+Match premium jewellery catalogue idol photography — one-shot museum-grade output from any phone photo.
 Backdrop: soft champagne/silver-grey draped fabric OR smooth smoky blue-charcoal gradient — elegant depth, zero grain, zero muddy flat grey.
-Glass cloche/dome when present: crystal-clear with soft curved natural highlights; idol inside sharp and readable through refraction; NO vertical white glare bars, NO pink/magenta stripes, NO ghost duplicate on backdrop.
+Glass cloche/dome when present: crystal-clear with soft curved natural highlights; idol inside sharp and identical to source — same pose, same accessories; NO vertical white glare bars, NO pink/magenta stripes, NO ghost duplicate on backdrop.
 Lighting: soft diffused multi-source studio (large softbox key + fill + subtle rim) — NOT a harsh overhead spotlight cone, NOT bright circular floor hotspot.
 Surface: dark polished stone or matte black pedestal; soft contact shadow under base only — no cast shadow on backdrop wall.
 Hero framing: product including glass dome fills 82–88% of frame height — large close catalogue hero.${studioShadowAndSurfaceBlock()}`;
@@ -477,7 +477,7 @@ No watermark, no logo, no generated text. Preserve exact jewellery geometry and 
         return idolWhiteCatalogPromptBlock();
     }
     if (profile === 'idol') {
-        return idolAurraPremiumBlock();
+        return idolPremiumStudioBlock();
     }
     return aurraCinematicPromptBlock();
 }
@@ -628,6 +628,13 @@ const WHITE_CATALOG_NEGATIVE_LINES = [
 
 /** Always appended to negative prompts for catalogue shadow cleanup. */
 const SYSTEM_STUDIO_NEGATIVE_LINES = [
+    'No added drum or mridangam if not in source',
+    'No added flute or accessories not in source',
+    'No pose change from source photo',
+    'No added golden arch or halo if not in source',
+    'No garment or dhoti color change',
+    'No harsh overhead spotlight cone',
+    'No bright circular floor spotlight pool',
     'No cast shadow on backdrop wall',
     'No box shadow on background',
     'No duplicate product silhouette on backdrop',
@@ -679,7 +686,7 @@ module.exports = {
     studioShadowAndSurfaceBlock,
     whiteCatalogShadowBlock,
     idolWhiteCatalogPromptBlock,
-    idolAurraPremiumBlock,
+    idolPremiumStudioBlock,
     mergeSystemNegativePrompt,
     SYSTEM_STUDIO_NEGATIVE_LINES,
     WHITE_CATALOG_NEGATIVE_LINES,
