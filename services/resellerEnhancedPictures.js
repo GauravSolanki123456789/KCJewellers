@@ -77,7 +77,7 @@ Preserve 100%:
 • Exact metal finish — silver tone, gold accents, oxidized/antique texture
 • Exact gemstone and halo/backdrop colors from the source (do NOT shift orange to red, blue to cyan, etc.)
 • Glass cloche/dome shape and base if present — realistic refraction only
-• Wood or display base exactly as in source
+• Wood or display base exactly as in source — preserve if present; do NOT add a wooden pedestal if the source has none
 
 SCENE (replace cluttered backgrounds completely):
 Premium dark navy-black stone tabletop with subtle natural texture.
@@ -136,7 +136,10 @@ No bright circular floor spotlight pool
 No cast shadow on backdrop wall
 No box shadow on background
 No harsh spotlight circle on tabletop
-No long projected shadow behind product`;
+No long projected shadow behind product
+No added wooden pedestal if not in source
+No invented wooden plinth or platform
+No converting black or metal base to wood`;
 
 const TEMPLATES = [
     {
@@ -987,7 +990,8 @@ function idolWhiteTemplateOverrideBlock() {
 [WHITE TEMPLATE OVERRIDE — HIGHEST PRIORITY]
 Ignore any dark charcoal, navy, stone tabletop, or cinematic vignette instructions elsewhere in this prompt.
 The final image MUST use a pure seamless white (#FFFFFF) e-commerce catalogue background only — matching premium jewellery listing references.
-Transform even a bad phone photo into a sharp, professional studio product shot: clean white background, even lighting, hero framing, crisp metal detail.`;
+Transform even a bad phone photo into a sharp, professional studio product shot: clean white background, even lighting, hero framing, crisp metal detail.
+BASE RULE: Only include a wooden pedestal if the uploaded source photo already has one. If the source has no wood base, do NOT add one.`;
 }
 
 function idolDarkStudioOverrideBlock() {
@@ -1039,11 +1043,12 @@ function buildFullPrompt(
     if (!isComprehensiveUserPrompt(normalized.promptText)) {
         if (isWhiteIdol) {
             main += `\n\nOUTPUT QUALITY (CRITICAL — WHITE CATALOGUE GRADE):
-Premium e-commerce jewellery product photography on pure white (#FFFFFF). Crisp micro-textures on silver/gold metal and engravings, natural wood grain on bases, clean curved glass highlights when dome present (never white rectangular glare bars).
+Premium e-commerce jewellery product photography on pure white (#FFFFFF). Crisp micro-textures on silver/gold metal and engravings, natural wood grain only when a wood base is present in source, clean curved glass highlights when dome present (never white rectangular glare bars).
+Do NOT add a wooden pedestal if the uploaded source has none — preserve base type exactly (wood, black, metal, or direct floor contact).
 Bright even diffused studio lighting — no harsh shadows on white backdrop, no dark vignette, no grey or cream color cast.
 Hero framing: product fills 78–88% of frame height — large, close, readable without zooming.
 Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse/table clutter entirely.
-Soft contact shadow under the product base only — no cast shadows on the white wall.`;
+Soft contact shadow under the product base only when a base exists — no cast shadows on the white wall.`;
         } else {
             main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
         }
@@ -1080,7 +1085,7 @@ function sourceLockPromptForProfile(profile, backgroundPreset) {
         return '\n\nSOURCE JEWELLERY (CRITICAL — STRICT REFERENCE LOCK):\nThe attached photo is the exact kada/bracelet. Preserve 100% identity — same shape, proportions, engravings, emblem, textures, metal finish, stone colors, and polish. Only improve studio lighting, pedestal, background, and commercial presentation. Do NOT redesign, recolor, resize, rotate, mirror, or alter any detail. Replace any casual background with matte black luxury studio. Soft diffused HDR lighting — no harsh spotlight rings. Leave bottom-right corner clear for macro inset overlay.';
     }
     if (profile === 'idol' && isWhite) {
-        return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base — NO cast shadow on white backdrop.';
+        return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and display base (wood, black, metal, or none — exactly as in source). Do NOT add a wooden pedestal if the source has none. Do NOT convert a black/metal base to wood. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base when a base exists — NO cast shadow on white backdrop.';
     }
     if (profile === 'idol') {
         return '\n\nSOURCE PRODUCT (CRITICAL — STUDIO IDENTITY LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic wrap, or harsh flash. Preserve 100% identity — same shape, pose, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Do NOT add drum/mridangam/flute, golden arch, extra ornaments, or accessories not visible in the source. Do NOT change dhoti/garment color. Transform ONLY lighting, backdrop, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 82–88% of frame height — large close hero readable without zooming. Match metal and halo colors exactly as in the source. Replace shop/warehouse backgrounds with elegant smoky charcoal or soft draped fabric studio. Soft diffused multi-light relighting — NOT harsh overhead spotlight cone or bright floor ring. Glass dome: soft curved highlights only — idol inside must stay sharp — NO white rectangular glare bars. ONLY soft contact shadow under the base — NO cast shadow on backdrop wall.';

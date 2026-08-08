@@ -105,10 +105,10 @@ function studioPolishPromptBlock(profile, backgroundPreset) {
     if (isWhite) {
         return `[PASS 2 — WHITE CATALOGUE POLISH]
 Image 1 = draft studio render. Image 2 = original product photo (ABSOLUTE ground truth).
-Final product must match Image 2 exactly — same pose, accessories, colors, and proportions. Polish only backdrop, lighting, glass clarity, and sharpness.
-Enhance: metal micro-texture, wood grain, glass clarity, pure white backdrop, even lighting.
+Final product must match Image 2 exactly — same pose, accessories, colors, proportions, and base type. Polish only backdrop, lighting, glass clarity, and sharpness.
+Enhance: metal micro-texture, wood grain only if present in Image 2, glass clarity, pure white backdrop, even lighting.
 Fix: grey backdrop cast, glass glare bars, blur, plastic CGI look, floating edges.
-Do NOT add drum, flute, arch, or ornaments not in Image 2. Do NOT recolor or redesign.`;
+Do NOT add drum, flute, arch, ornaments, or wooden pedestal not in Image 2. Do NOT recolor, redesign, or convert base material.`;
     }
     return `[PASS 2 — STUDIO POLISH]
 Image 1 = draft studio render. Image 2 = original product photo (ABSOLUTE ground truth).
@@ -434,8 +434,19 @@ function whiteCatalogShadowBlock() {
 • Bright even diffused studio lighting — soft key + fill like premium Amazon/Flipkart jewellery listings.
 • ONLY a very soft subtle contact shadow directly under the product base on the white floor.
 • NO cast shadow on the white backdrop wall, NO dark shadow blob, NO harsh spotlight ring.
-• Preserve crisp silver/gold micro-texture, natural wood grain on bases, and clean glass refraction when dome is present.
+• Preserve crisp silver/gold micro-texture, natural wood grain on bases when present in source, and clean glass refraction when dome is present.
 • Remove ALL shop clutter, plastic bags, hands, price tags, messy tables from the scene.`;
+}
+
+function woodBaseConditionalBlock() {
+    return `
+
+[BASE / PEDESTAL — CONDITIONAL (CRITICAL)]
+Inspect the uploaded source photo carefully before generating:
+• If the source HAS a wooden base/pedestal/plinth under the idol → preserve it exactly (same shape, size, tier count, wood grain, finish). Polish only — do NOT remove, replace, or convert to a different material.
+• If the source has NO wooden base (idol sits directly on white/table surface, only metal feet, or no visible pedestal) → do NOT add any wooden pedestal, wooden plinth, wooden platform, or wooden "display base". Never invent wood at the bottom.
+• If the source has a black, metal, acrylic, or stone display base (not wood) → keep that exact base type — do NOT convert it to wood.
+• Never add a new base type that was not visible in the source photo.`;
 }
 
 function idolWhiteCatalogPromptBlock() {
@@ -443,12 +454,11 @@ function idolWhiteCatalogPromptBlock() {
 
 [PIPELINE — IDOL WHITE CATALOGUE (E-COMMERCE REFERENCE)]
 Pure seamless white background (#FFFFFF) — identical to premium jewellery product photography references.
-Product (idol + wooden/metal base, with OR without glass dome) centered, fills 78–88% of frame height.
+Product (idol + whatever base is in the source — wood, black, metal, or none — with OR without glass dome) centered, fills 78–88% of frame height.
 Bright even diffused studio lighting — no harsh shadows on white backdrop.
-ONLY soft subtle grey contact shadow directly under the base — never a dark blob on the white floor.
+ONLY soft subtle grey contact shadow directly under the base when a base exists — never a dark blob on the white floor.
 Crisp silver/gold micro-texture, natural metallic speculars, engraved detail sharp and readable.
-Wood bases: warm natural grain, polished finish preserved exactly.
-Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${whiteCatalogShadowBlock()}`;
+Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${woodBaseConditionalBlock()}${whiteCatalogShadowBlock()}`;
 }
 
 function idolPremiumStudioBlock() {
@@ -599,11 +609,11 @@ function spatialLockPromptBlock(options = {}) {
         return `
 
 [PIPELINE — SPATIAL LOCK (WHITE CATALOGUE)]
-The attached photo is the EXACT product. Do NOT redraw, warp, melt, recolor, or alter silhouette, proportions, engravings, halo color, gemstones, glass dome, or wood base.
+The attached photo is the EXACT product. Do NOT redraw, warp, melt, recolor, or alter silhouette, proportions, engravings, halo color, gemstones, glass dome, or display base.
 Generate ONLY a pure white seamless studio environment and professional relighting AROUND the locked product.
 Replace any shop/warehouse/table clutter with clean #FFFFFF infinity-cove background.
 If shot through glass: keep the real dome shape and natural refraction — never fake white glare bars or duplicated ghost images.
-Do NOT copy messy shop shadows onto the white backdrop — use only a soft contact shadow under the base.${whiteCatalogShadowBlock()}`;
+Do NOT copy messy shop shadows onto the white backdrop — use only a soft contact shadow under the base when a base exists in source.${woodBaseConditionalBlock()}${whiteCatalogShadowBlock()}`;
     }
     return `
 
@@ -624,6 +634,9 @@ const WHITE_CATALOG_NEGATIVE_LINES = [
     'No visible table edge or horizon line',
     'No plastic bag or packaging in frame',
     'No price tag or sticker visible',
+    'No added wooden pedestal if not in source',
+    'No invented wooden plinth or platform',
+    'No converting black or metal base to wood',
 ];
 
 /** Always appended to negative prompts for catalogue shadow cleanup. */
@@ -685,6 +698,7 @@ module.exports = {
     spatialLockPromptBlock,
     studioShadowAndSurfaceBlock,
     whiteCatalogShadowBlock,
+    woodBaseConditionalBlock,
     idolWhiteCatalogPromptBlock,
     idolPremiumStudioBlock,
     mergeSystemNegativePrompt,

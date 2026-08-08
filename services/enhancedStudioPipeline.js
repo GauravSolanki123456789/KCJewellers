@@ -15,6 +15,7 @@ const {
     spatialLockPromptBlock,
     studioShadowAndSurfaceBlock,
     whiteCatalogShadowBlock,
+    woodBaseConditionalBlock,
     composeFeatureMacroInset,
     shouldUseRembgForProfile,
     writeTempBuffer,
@@ -28,9 +29,9 @@ function cutoutPlacementBlock(backgroundPreset = 'charcoal') {
 The attached image is an isolated product cutout on transparency.
 Place it centered on a pure seamless white (#FFFFFF) infinity-cove studio background — premium e-commerce jewellery catalogue style.
 Relight with bright even diffused multi-source studio lighting — soft key, fill, and subtle rim; NOT a single harsh overhead spotlight.
-Preserve razor-sharp silver/gold micro-texture, natural wood grain on bases, and clean curved glass highlights when a dome is present.
+Preserve razor-sharp silver/gold micro-texture, and clean curved glass highlights when a dome is present.
 Do NOT paste shop shadows, floating edges, grey backdrop, dark vignette, or white rectangular glare bars on glass.
-ONLY a very soft subtle contact shadow directly under the product base.${whiteCatalogShadowBlock()}`;
+ONLY a very soft subtle contact shadow directly under the product base when a base exists in source.${woodBaseConditionalBlock()}${whiteCatalogShadowBlock()}`;
     }
     return `
 

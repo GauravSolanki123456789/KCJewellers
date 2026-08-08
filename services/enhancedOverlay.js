@@ -288,7 +288,8 @@ function generationOptionsPromptBlock({ backgroundPreset, visualization, profile
             `\n\n[BACKGROUND — WHITE CATALOGUE (CRITICAL)]
 Pure seamless white background (#FFFFFF) — clean infinity-cove e-commerce look matching premium jewellery catalogue references.
 Bright, even, diffused studio lighting. NO grey backdrop, NO cream gradient wall, NO dark vignette.
-ONLY a very soft subtle contact shadow directly under the product base on the white floor — never a dark shadow blob, never cast shadow on the white backdrop.
+ONLY a very soft subtle contact shadow directly under the product base on the white floor when a base exists in source — never a dark shadow blob, never cast shadow on the white backdrop.
+Do NOT add a wooden pedestal if the uploaded source has none — preserve base type exactly (wood, black, metal, or direct floor contact).
 Product centered with generous white margin — catalogue-ready for website listing.`,
         );
     } else {
@@ -315,9 +316,9 @@ Product fills approximately 75–85% of frame width, centered on pedestal. Close
             return `
 
 [COMPOSITION — WHITE CATALOGUE HERO]
-Product (idol + base, with or without glass dome) fills 78–88% of frame HEIGHT — large close hero shot like premium e-commerce references.
+Product (idol + whatever base is in source, with or without glass dome) fills 78–88% of frame HEIGHT — large close hero shot like premium e-commerce references.
 Centered on pure white. Detail clearly readable without zooming. NOT tiny with excessive empty space. NOT extreme macro crop.
-Modest even margins on all sides for website grid display.`;
+Modest even margins on all sides for website grid display. Do NOT invent a wooden base if source has none.`;
         }
         return `
 
