@@ -20,6 +20,7 @@ import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
 import EnhancedStudioOptions, {
+  renderQualityCreditCost,
   type StudioGenerationOptions,
 } from '@/components/reseller/EnhancedStudioOptions'
 import { EnhancedRecentJobsPanel } from '@/components/reseller/EnhancedRecentJobsPanel'
@@ -108,6 +109,7 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [generationOptions, setGenerationOptions] = useState<StudioGenerationOptions>({
     backgroundPreset: 'charcoal',
     visualization: 'studio',
+    renderQuality: '2k',
     applyWatermark: false,
     applyInfoText: false,
   })
@@ -560,9 +562,13 @@ export default function ResellerEnhancedPicturesPageClient() {
       setError('Take or choose a product photo first.')
       return
     }
-    if (credits < 1) {
+    if (credits < renderQualityCreditCost(generationOptions.renderQuality)) {
       setShowTopup(true)
-      setError('No credits remaining. Top up to continue.')
+      setError(
+        generationOptions.renderQuality === '4k'
+          ? 'Need 2 credits for Ultra HD 4K. Top up to continue.'
+          : 'No credits remaining. Top up to continue.',
+      )
       return
     }
     setBusy(true)
@@ -584,6 +590,8 @@ export default function ResellerEnhancedPicturesPageClient() {
         aspectRatio,
         canvasText: includeCanvasText ? canvasText.trim() : undefined,
         generationMode: economyBatchMode && geminiBatchAllowed ? 'batch' : 'fast',
+        renderQuality:
+          economyBatchMode && geminiBatchAllowed ? 'standard' : generationOptions.renderQuality,
         backgroundPreset: generationOptions.backgroundPreset,
         visualization: generationOptions.visualization,
         applyWatermark: generationOptions.applyWatermark,
@@ -1290,7 +1298,12 @@ export default function ResellerEnhancedPicturesPageClient() {
 
         <button
           type="button"
-          disabled={busy || !sourceFile || credits < 1 || phase === 'batch'}
+          disabled={
+            busy ||
+            !sourceFile ||
+            credits < renderQualityCreditCost(generationOptions.renderQuality) ||
+            phase === 'batch'
+          }
           onClick={() => void runGenerate()}
           className="kc-btn-theme flex w-full min-h-[52px] items-center justify-center gap-2 rounded-2xl text-base font-semibold disabled:opacity-50"
         >
@@ -1299,9 +1312,16 @@ export default function ResellerEnhancedPicturesPageClient() {
           ) : (
             <Sparkles className="size-5" />
           )}
-          Generate studio shot · 1 credit{economyBatchMode && geminiBatchAllowed ? ' · economy' : ' · fast'}
+          Generate studio shot · {renderQualityCreditCost(generationOptions.renderQuality)} credit
+          {renderQualityCreditCost(generationOptions.renderQuality) > 1 ? 's' : ''}
+          {generationOptions.renderQuality === '4k'
+            ? ' · 4K'
+            : generationOptions.renderQuality === '2k'
+              ? ' · 2K HD'
+              : ' · fast'}
+          {economyBatchMode && geminiBatchAllowed ? ' · economy' : ''}
         </button>
-        {credits < 1 ? (
+        {credits < renderQualityCreditCost(generationOptions.renderQuality) ? (
           <button
             type="button"
             onClick={() => setShowTopup(true)}

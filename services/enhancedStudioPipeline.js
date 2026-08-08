@@ -216,6 +216,7 @@ async function runFourStepStudioPipeline({
     originalSourcePath,
     fastMode = true,
     backgroundPreset = 'charcoal',
+    renderQuality = '2k',
 }) {
     const token = aiConfig?.replicate_api_token || process.env.REPLICATE_API_TOKEN || '';
     const geminiPath = isGeminiProvider(aiConfig);
@@ -228,7 +229,9 @@ async function runFourStepStudioPipeline({
     };
 
     const whiteCatalog = String(backgroundPreset || '').toLowerCase() === 'white';
+    const qualityTier = String(renderQuality || '2k').toLowerCase();
     const rembgWaitMs = fastMode ? 90000 : 120000;
+    const wantsQualityPrep = qualityTier === '2k' || qualityTier === '4k';
 
     const runGenerate = async (srcPath, useSpatialLock, usedCutout = false) => {
         const base = String(promptText || '').trim();
@@ -254,8 +257,9 @@ async function runFourStepStudioPipeline({
         if (result?.buffer?.length) {
             const finished = await postprocessStudioOutput(result.buffer, result.mimeType, {
                 profile,
-                fastMode: true,
+                fastMode,
                 backgroundPreset,
+                renderQuality,
             });
             if (finished.buffer !== result.buffer) {
                 result = { ...result, buffer: finished.buffer, mimeType: finished.mimeType };
@@ -278,7 +282,7 @@ async function runFourStepStudioPipeline({
 
     let rembgSourcePath = sourceImagePath;
     let preprocessedTemp = null;
-    if (geminiPath && (profile === 'idol' && whiteCatalog)) {
+    if (geminiPath && (wantsQualityPrep || (profile === 'idol' && whiteCatalog))) {
         const pre = await preprocessSourceForGemini(sourceImagePath);
         if (pre.preprocessed) {
             rembgSourcePath = pre.path;
@@ -330,6 +334,7 @@ async function runFourStepStudioPipeline({
             profile,
             fastMode,
             backgroundPreset,
+            renderQuality,
         });
         if (finished.buffer !== generated.buffer) {
             generated = { ...generated, buffer: finished.buffer, mimeType: finished.mimeType };

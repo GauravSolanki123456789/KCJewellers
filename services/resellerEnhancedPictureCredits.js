@@ -155,17 +155,25 @@ async function addCredits(query, _pool, { userId, amount, adminId, note, reason 
 
 /** Deduct 1 credit atomically. Throws 402 if insufficient. */
 async function consumeOneCredit(query, _pool, userId) {
+    return consumeCredits(query, _pool, userId, 1);
+}
+
+/** Deduct N credits atomically. Throws 402 if insufficient. */
+async function consumeCredits(query, _pool, userId, amount = 1) {
+    const n = Math.max(1, Math.min(10, Math.floor(Number(amount) || 1)));
     const list = await query(
         `UPDATE users
-         SET reseller_enhanced_picture_credits = reseller_enhanced_picture_credits - 1,
+         SET reseller_enhanced_picture_credits = reseller_enhanced_picture_credits - $2,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1 AND COALESCE(reseller_enhanced_picture_credits, 0) >= 1
+         WHERE id = $1 AND COALESCE(reseller_enhanced_picture_credits, 0) >= $2
          RETURNING COALESCE(reseller_enhanced_picture_credits, 0)::int AS credits`,
-        [userId],
+        [userId, n],
     );
     if (!list.length) {
         const err = new Error(
-            'No credits remaining. Top up credits to continue generating studio photos.',
+            n > 1
+                ? `Need ${n} credits for this quality tier. Top up credits to continue.`
+                : 'No credits remaining. Top up credits to continue generating studio photos.',
         );
         err.status = 402;
         throw err;
@@ -174,8 +182,8 @@ async function consumeOneCredit(query, _pool, userId) {
     await query(
         `INSERT INTO reseller_enhanced_credit_ledger
             (reseller_user_id, delta, balance_after, reason, note)
-         VALUES ($1, -1, $2, 'generate', '1 image generation')`,
-        [userId, balance],
+         VALUES ($1, $2, $3, 'generate', $4)`,
+        [userId, -n, balance, `${n} image generation${n > 1 ? 's' : ''}`],
     );
     return balance;
 }
@@ -190,4 +198,5 @@ module.exports = {
     setCreditBalance,
     addCredits,
     consumeOneCredit,
+    consumeCredits,
 };

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { ImagePlus, Type, Upload } from 'lucide-react'
+import { ImagePlus, Sparkles, Type, Upload } from 'lucide-react'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
 import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import {
@@ -13,8 +13,49 @@ import {
 export type StudioGenerationOptions = {
   backgroundPreset: string
   visualization: string
+  /** standard = fast preview · 2k = Aurra HD (default) · 4k = ultra print grade */
+  renderQuality: 'standard' | '2k' | '4k'
   applyWatermark: boolean
   applyInfoText: boolean
+}
+
+export type RenderQualityKey = StudioGenerationOptions['renderQuality']
+
+export const RENDER_QUALITY_OPTIONS: {
+  key: RenderQualityKey
+  label: string
+  badge?: string
+  hint: string
+  detail: string
+  credits: number
+}[] = [
+  {
+    key: '2k',
+    label: 'HD 2K Quality',
+    badge: 'Recommended',
+    hint: '2048×2048 · Aurra Studio grade',
+    detail: 'Best balance — sharp cinematic output for catalogues, ads, and WhatsApp.',
+    credits: 1,
+  },
+  {
+    key: '4k',
+    label: 'Ultra HD 4K',
+    badge: 'Print grade',
+    hint: '4096×4096 · maximum detail',
+    detail: 'Pristine engravings and glass detail for print, posters, and premium listings.',
+    credits: 2,
+  },
+  {
+    key: 'standard',
+    label: 'Studio Fast',
+    hint: '~30s · quick turnaround',
+    detail: 'Lighter processing for rapid previews when you need speed over maximum polish.',
+    credits: 1,
+  },
+]
+
+export function renderQualityCreditCost(quality: string): number {
+  return quality === '4k' ? 2 : 1
 }
 
 const BACKGROUND_SWATCHES: { key: string; label: string; className: string }[] = [
@@ -136,6 +177,68 @@ export default function EnhancedStudioOptions({
 
   return (
     <div className="space-y-4">
+      <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+            Render quality
+          </p>
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-slate-900,#f7f4ef)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+            <Sparkles className="size-3 text-[var(--kc-accent,#c41e3a)]" />
+            Gemini AI
+          </span>
+        </div>
+        <div className="mt-3 space-y-2">
+          {RENDER_QUALITY_OPTIONS.map((opt) => {
+            const selected = generationOptions.renderQuality === opt.key
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => onGenerationChange({ ...generationOptions, renderQuality: opt.key })}
+                className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                  selected
+                    ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/6 ring-2 ring-[var(--kc-accent,#c41e3a)]/20'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/40'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                      selected
+                        ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]'
+                        : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                    }`}
+                  >
+                    {selected ? <span className="size-1.5 rounded-full bg-white" /> : null}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-bold text-[var(--color-jewelry-black,#1a1814)]">
+                        {opt.label}
+                      </span>
+                      {opt.badge ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                          {opt.badge}
+                        </span>
+                      ) : null}
+                      <span className="ml-auto text-[11px] font-semibold text-[var(--color-jewelry-black,#1a1814)]/55">
+                        {opt.credits} credit{opt.credits > 1 ? 's' : ''}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block text-xs font-semibold text-[var(--kc-accent,#c41e3a)]">
+                      {opt.hint}
+                    </span>
+                    <span className="mt-1 block text-[11px] leading-snug text-[var(--color-jewelry-black,#1a1814)]/55">
+                      {opt.detail}
+                    </span>
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
       <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
           Style · background colour

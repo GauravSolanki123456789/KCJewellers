@@ -18,6 +18,7 @@ const {
     setCreditBalance,
     addCredits,
     consumeOneCredit,
+    consumeCredits,
     DEFAULT_PLANS,
 } = require('./resellerEnhancedPictureCredits');
 const { runFourStepStudioPipeline } = require('./enhancedStudioPipeline');
@@ -906,6 +907,17 @@ function mimeFromExt(ext) {
     return 'image/jpeg';
 }
 
+function resolveRenderQuality(raw) {
+    const rq = String(raw || '2k').trim().toLowerCase();
+    if (rq === '4k' || rq === '4k_hd' || rq === 'ultra' || rq === 'ultra_hd') return '4k';
+    if (rq === 'standard' || rq === 'fast' || rq === 'aurra') return 'standard';
+    return '2k';
+}
+
+function creditCostForRenderQuality(renderQuality) {
+    return resolveRenderQuality(renderQuality) === '4k' ? 2 : 1;
+}
+
 function parseGenerationOptions(body = {}) {
     const bg = String(body.background_preset || body.background || 'charcoal')
         .trim()
@@ -913,11 +925,39 @@ function parseGenerationOptions(body = {}) {
     const viz = String(body.visualization || body.visualization_preset || 'studio')
         .trim()
         .toLowerCase();
+    const renderQuality = resolveRenderQuality(body.render_quality || body.quality);
+    const economyBatch =
+        String(body.generation_mode || 'fast').trim().toLowerCase() === 'batch';
+    const fastMode = renderQuality === 'standard' && !economyBatch;
     return {
         backgroundPreset: BACKGROUND_PRESETS[bg] ? bg : 'charcoal',
         visualization: VISUALIZATION_PRESETS[viz] !== undefined ? viz : 'studio',
-        fastMode: body.fast_mode !== false && String(body.generation_mode || 'fast').toLowerCase() !== 'quality',
+        renderQuality,
+        fastMode,
+        geminiImageSize: renderQuality === '4k' ? '4K' : '2K',
     };
+}
+
+function renderQualityPromptBlock(renderQuality) {
+    const rq = resolveRenderQuality(renderQuality);
+    if (rq === '4k') {
+        return `
+
+[RENDER QUALITY — ULTRA HD 4K]
+Export at maximum 4096×4096 definition. Pristine micro-detail on engravings, gemstones, glass refraction, and wood grain.
+Museum-grade catalogue precision suitable for high-end print, posters, and billboards. Zero blur, zero compression artifacts, zero AI mushiness.`;
+    }
+    if (rq === 'standard') {
+        return `
+
+[RENDER QUALITY — STUDIO FAST]
+High-quality commercial studio output optimized for quick turnaround. Clean cinematic presentation with sharp product detail readable on mobile and web.`;
+    }
+    return `
+
+[RENDER QUALITY — HD 2K (AURRA STUDIO GRADE)]
+Export at 2048×2048 high density. Match premium Aurra Studio reference output — crisp metallic textures, cinematic smoky backdrop, natural curved glass highlights.
+One-shot catalogue ready for digital ads, WhatsApp catalogues, and online storefronts.`;
 }
 
 async function loadOverlaySettingsForUser(query, userId) {
@@ -979,6 +1019,7 @@ Soft contact shadow under the product base only — no cast shadows on the white
             main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
         }
     }
+    main += renderQualityPromptBlock(generationOptions.renderQuality);
     main += profileStudioQualityBlock(profile, generationOptions.backgroundPreset);
     main += compositionPromptBlock(profile, generationOptions);
     main += generationOptionsPromptBlock({
@@ -1425,7 +1466,12 @@ async function processEnhancedSyncJob(jobId, params, deps) {
         );
         if (!stillActive.length) return;
 
-        await consumeOneCredit(query, pool, resellerUserId);
+        await consumeCredits(
+            query,
+            pool,
+            resellerUserId,
+            creditCostForRenderQuality(generationOptions.renderQuality),
+        );
         await finalizeEnhancedPictureJob({
             query,
             pool,
@@ -1583,7 +1629,10 @@ function startEnhancedBatchPoller(deps) {
  * Call Gemini image generation with an optional reference image.
  * Returns { buffer, mimeType, provider, model }.
  */
-function geminiImageSizeCandidates(aiConfig) {
+function geminiImageSizeCandidates(aiConfig, generationOptions = {}) {
+    const rq = resolveRenderQuality(generationOptions.renderQuality);
+    if (rq === '4k') return ['4K', '2K'];
+    if (generationOptions.geminiImageSize === '4K') return ['4K', '2K'];
     const prefer4k =
         process.env.ENHANCED_PREFER_4K === '1' ||
         process.env.ENHANCED_PREFER_4K === 'true' ||
@@ -1624,7 +1673,7 @@ async function generateWithGemini({
 
     const primaryModel = aiConfig?.gemini_model || getGeminiImageModel();
     const models = [...new Set([primaryModel, ...geminiImageModelCandidates()].filter(Boolean))];
-    const imageSizes = geminiImageSizeCandidates(aiConfig);
+    const imageSizes = geminiImageSizeCandidates(aiConfig, generationOptions);
     let lastError = null;
     let usedModel = primaryModel;
     for (const model of models) {
@@ -1641,7 +1690,7 @@ async function generateWithGemini({
                         imageConfig: { aspectRatio: aspect, imageSize },
                     },
                 },
-                { timeout: 240000, validateStatus: () => true },
+                { timeout: generationOptions.renderQuality === '4k' ? 360000 : 240000, validateStatus: () => true },
             );
             if (res.status >= 400) {
                 const msg =
@@ -1915,6 +1964,7 @@ async function generateStudioImage({
         originalSourcePath: sourceImagePath,
         fastMode: generationOptions.fastMode !== false,
         backgroundPreset: generationOptions.backgroundPreset || 'charcoal',
+        renderQuality: generationOptions.renderQuality || '2k',
     });
 }
 
@@ -3639,15 +3689,22 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         try {
             await ensureEnhancedPicturesSchema(pool);
             await assertResellerEnhancedAccess(query, req.user.id);
-            const creditCheck = await getCreditBalance(query, req.user.id);
-            if (!creditCheck || creditCheck.credits < 1) {
-                return res.status(402).json({
-                    error: 'No credits remaining. Top up credits to continue generating studio photos.',
-                    credits: 0,
-                });
-            }
             await runUpload(req, res);
             if (!req.file) return res.status(400).json({ error: 'image file required' });
+
+            const generationOptions = parseGenerationOptions(req.body);
+            const creditCost = creditCostForRenderQuality(generationOptions.renderQuality);
+            const creditCheck = await getCreditBalance(query, req.user.id);
+            if (!creditCheck || creditCheck.credits < creditCost) {
+                return res.status(402).json({
+                    error:
+                        creditCost > 1
+                            ? `Need ${creditCost} credits for Ultra HD 4K. You have ${creditCheck?.credits ?? 0}.`
+                            : 'No credits remaining. Top up credits to continue generating studio photos.',
+                    credits: creditCheck?.credits ?? 0,
+                    credit_cost: creditCost,
+                });
+            }
 
             const templateKey = String(req.body.template_key || TEMPLATE_IDOLS)
                 .trim()
@@ -3663,7 +3720,9 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 .trim()
                 .toLowerCase()
                 .slice(0, 64) || null;
-            const generationOptions = parseGenerationOptions(req.body);
+            if (generationOptions.renderQuality === '2k' || generationOptions.renderQuality === '4k') {
+                generationOptions.fastMode = false;
+            }
             const prompt = await resolveActivePrompt(query, req.user.id, templateKey, varietyKey);
             if (!prompt) {
                 return res.status(400).json({
@@ -3845,8 +3904,14 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         generation_mode: 'sync',
                     },
                     credits: creditCheck.credits,
+                    credit_cost: creditCost,
+                    render_quality: generationOptions.renderQuality,
                     message:
-                        'Crafting studio quality photo… Usually ready in 30–90 seconds. You can keep using the page.',
+                        generationOptions.renderQuality === '4k'
+                            ? 'Crafting Ultra HD 4K studio photo… Usually ready in 60–120 seconds.'
+                            : generationOptions.renderQuality === '2k'
+                              ? 'Crafting HD 2K Aurra-grade studio photo… Usually ready in 30–90 seconds.'
+                              : 'Crafting studio quality photo… Usually ready in 30–90 seconds. You can keep using the page.',
                 });
 
                 setImmediate(() => {

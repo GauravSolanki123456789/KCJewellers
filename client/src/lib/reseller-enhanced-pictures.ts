@@ -332,6 +332,8 @@ export async function generateEnhancedPicture(opts: {
   canvasText?: string
   /** fast = sync (~30–90s). batch = economy queue (minutes, ~50% cost). */
   generationMode?: 'fast' | 'batch'
+  /** standard | 2k | 4k — HD render tier (Gemini native resolution) */
+  renderQuality?: 'standard' | '2k' | '4k'
   backgroundPreset?: string
   visualization?: string
   applyWatermark?: boolean
@@ -341,6 +343,7 @@ export async function generateEnhancedPicture(opts: {
   fd.append('image', opts.image)
   fd.append('template_key', opts.templateKey || 'idols')
   fd.append('generation_mode', opts.generationMode || 'fast')
+  if (opts.renderQuality) fd.append('render_quality', opts.renderQuality)
   if (opts.varietyKey) fd.append('variety_key', opts.varietyKey)
   fd.append('photo_type', opts.photoType || 'front')
   fd.append('aspect_ratio', opts.aspectRatio || '1:1')
@@ -355,7 +358,11 @@ export async function generateEnhancedPicture(opts: {
   const res = await axios.post<EnhancedGenerateResult>(
     `${apiBase()}/api/reseller/enhanced-pictures/generate`,
     fd,
-    { withCredentials: true, timeout: 120000, validateStatus: (s) => s >= 200 && s < 300 },
+    {
+      withCredentials: true,
+      timeout: opts.renderQuality === '4k' ? 300000 : opts.renderQuality === '2k' ? 180000 : 120000,
+      validateStatus: (s) => s >= 200 && s < 300,
+    },
   )
   return res.data
 }

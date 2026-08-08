@@ -97,7 +97,8 @@ function isWhiteCatalogMode(options = {}) {
 /**
  * Hero framing on pure white — e-commerce catalogue (matches sample references).
  */
-async function applyIdolWhiteHeroFraming(sharp, buffer, w, h, fastMode = true) {
+async function applyIdolWhiteHeroFraming(sharp, buffer, w, h, fastMode = true, outputSize) {
+    const canvasSize = outputSize || (fastMode ? 1600 : 2048);
     try {
         const trimmed = await sharp(buffer).trim({ threshold: 12 }).toBuffer({ resolveWithObject: true });
         const tw = trimmed.info.width || w;
@@ -109,7 +110,6 @@ async function applyIdolWhiteHeroFraming(sharp, buffer, w, h, fastMode = true) {
         const canvas = Math.round(long / targetFill);
         const padX = Math.max(0, Math.round((canvas - tw) / 2));
         const padY = Math.max(0, Math.round((canvas - th) / 2));
-        const targetSize = fastMode ? 1600 : 2048;
 
         let framed = await sharp(trimmed.data)
             .extend({
@@ -119,11 +119,11 @@ async function applyIdolWhiteHeroFraming(sharp, buffer, w, h, fastMode = true) {
                 right: padX,
                 background: { r: 255, g: 255, b: 255, alpha: 1 },
             })
-            .resize(targetSize, targetSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+            .resize(canvasSize, canvasSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
             .toBuffer();
 
-        const fw = targetSize;
-        const fh = targetSize;
+        const fw = canvasSize;
+        const fh = canvasSize;
         const shadowSvg = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="s" cx="50%" cy="86%" rx="26%" ry="5%">
@@ -158,10 +158,20 @@ async function applyIdolWhiteHeroFraming(sharp, buffer, w, h, fastMode = true) {
     }
 }
 
+function resolveOutputLongEdge(options = {}) {
+    const rq = String(options.renderQuality || '2k').toLowerCase();
+    const whiteCatalog = isWhiteCatalogMode(options);
+    const fastMode = options.fastMode !== false;
+    if (rq === '4k') return 4096;
+    if (rq === '2k') return 2048;
+    if (whiteCatalog && fastMode) return 1600;
+    return 2048;
+}
+
 /**
  * Dark cinematic hero framing — charcoal pad + subtle glass anti-glare.
  */
-async function applyIdolHeroFraming(sharp, buffer, w, h) {
+async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
     try {
         const trimmed = await sharp(buffer).trim({ threshold: 14 }).toBuffer({ resolveWithObject: true });
         const tw = trimmed.info.width || w;
@@ -182,11 +192,11 @@ async function applyIdolHeroFraming(sharp, buffer, w, h) {
                 right: padX,
                 background: { r: 20, g: 26, b: 36, alpha: 1 },
             })
-            .resize(2048, 2048, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+            .resize(targetSize, targetSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
             .toBuffer();
 
-        const fw = 2048;
-        const fh = 2048;
+        const fw = targetSize;
+        const fh = targetSize;
         const glassMask = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="g" cx="50%" cy="48%" r="46%">
@@ -215,15 +225,17 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
     const profile = options.profile || 'generic';
     const fastMode = options.fastMode !== false;
     const whiteCatalog = isWhiteCatalogMode(options);
+    const targetLong = resolveOutputLongEdge(options);
+    const qualityTier = String(options.renderQuality || '2k').toLowerCase();
     try {
         let working = sharp(buffer).rotate();
         const meta = await working.metadata();
         let w = meta.width || 0;
         let h = meta.height || 0;
         const longEdge = Math.max(w, h);
-        const targetLong = whiteCatalog && fastMode ? 1600 : 2048;
+        const upscaleThreshold = Math.round(targetLong * 0.88);
 
-        if (longEdge > 0 && longEdge < (whiteCatalog ? 1500 : 1800)) {
+        if (longEdge > 0 && longEdge < upscaleThreshold) {
             working = working.resize({
                 width: w >= h ? targetLong : undefined,
                 height: h > w ? targetLong : undefined,
@@ -237,18 +249,29 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
 
         let baseBuf = await working.toBuffer();
         if (profile === 'idol' && whiteCatalog) {
-            baseBuf = await applyIdolWhiteHeroFraming(sharp, baseBuf, w, h, fastMode);
+            baseBuf = await applyIdolWhiteHeroFraming(sharp, baseBuf, w, h, fastMode, targetLong);
+            const heroMeta = await sharp(baseBuf).metadata();
+            w = heroMeta.width || w;
+            h = heroMeta.height || h;
+        } else if (profile === 'idol') {
+            if (!fastMode || qualityTier !== 'standard') {
+                baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
+            }
+            baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h, targetLong);
             const heroMeta = await sharp(baseBuf).metadata();
             w = heroMeta.width || w;
             h = heroMeta.height || h;
         } else if (profile !== 'kada' && !fastMode) {
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
-        } else if (profile === 'idol') {
-            baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
-            baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h);
-            const heroMeta = await sharp(baseBuf).metadata();
-            w = heroMeta.width || w;
-            h = heroMeta.height || h;
+        }
+
+        if (longEdge > 0 && longEdge < targetLong && profile !== 'idol') {
+            baseBuf = await sharp(baseBuf)
+                .resize(targetLong, targetLong, { fit: 'inside', kernel: sharp.kernel.lanczos3 })
+                .toBuffer();
+            const upMeta = await sharp(baseBuf).metadata();
+            w = upMeta.width || w;
+            h = upMeta.height || h;
         }
 
         const composites = [];
@@ -280,9 +303,9 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
         }
 
         let pipeline = sharp(baseBuf).sharpen({
-            sigma: whiteCatalog ? (fastMode ? 0.5 : 0.58) : fastMode ? 0.45 : 0.55,
-            m1: 0.45,
-            m2: 0.28,
+            sigma: qualityTier === '4k' ? 0.62 : whiteCatalog ? (fastMode ? 0.5 : 0.58) : fastMode ? 0.45 : 0.55,
+            m1: qualityTier === '4k' ? 0.52 : 0.45,
+            m2: qualityTier === '4k' ? 0.32 : 0.28,
         });
 
         if (profile === 'kada') {
@@ -385,10 +408,11 @@ No watermark, no logo, no generated text. Preserve exact jewellery geometry and 
         return `
 
 [PIPELINE — IDOL CATALOGUE STUDIO]
-Smoky blue-charcoal cinematic backdrop (smooth gradient, zero grain), soft diffused multi-light relighting.
+Smoky blue-charcoal cinematic backdrop with soft atmospheric haze behind the product (Aurra Studio reference), smooth gradient, zero grain.
+Dark polished stone tabletop with subtle natural reflection under the base.
 Hero framing: product including glass dome fills 82–88% of frame height — large, close, readable without zooming.
 Natural curved glass highlights only — NO vertical white glare bars, NO pink/magenta reflection stripes on dome exterior, NO shadow of dome cast on backdrop.
-Museum display feel — idol appears close to camera.${studioShadowAndSurfaceBlock()}`;
+Museum display feel — idol appears close to camera with premium cinematic depth.${studioShadowAndSurfaceBlock()}`;
     }
     return aurraCinematicPromptBlock();
 }
