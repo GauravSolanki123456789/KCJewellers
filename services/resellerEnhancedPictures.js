@@ -2528,6 +2528,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     prompts: prompts.map(formatPromptRow),
                     plans,
                     default_plans: DEFAULT_PLANS,
+                    overlay_settings: await loadOverlaySettingsForUser(query, userId),
                 });
             } catch (e) {
                 console.error('admin list enhanced prompts:', e);
@@ -3133,6 +3134,28 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     userId,
                     parseAiOverridesFromBody(req.body),
                 );
+                const generationOptions = parseGenerationOptions(req.body);
+                generationOptions.templateKey = templateKey;
+                if (generationOptions.renderQuality === '2k' || generationOptions.renderQuality === '4k') {
+                    generationOptions.fastMode = false;
+                }
+                let varietyLabel = null;
+                let templateLabel = null;
+                if (varietyKey) {
+                    const vrows = await query(
+                        `SELECT variety_label FROM reseller_enhanced_picture_varieties
+                         WHERE reseller_user_id = $1 AND template_key = $2 AND variety_key = $3 LIMIT 1`,
+                        [userId, templateKey, varietyKey],
+                    );
+                    varietyLabel = vrows[0]?.variety_label || varietyKey;
+                }
+                const trows = await query(
+                    `SELECT template_label FROM reseller_enhanced_picture_template_settings
+                     WHERE reseller_user_id = $1 AND template_key = $2 LIMIT 1`,
+                    [userId, templateKey],
+                );
+                templateLabel = trows[0]?.template_label || templateKey;
+
                 const generated = await generateStudioImage({
                     promptText,
                     negativePrompt,
@@ -3143,11 +3166,43 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     workflowHighlights: showcase.workflow_highlights,
                     templateKey,
                     varietyKey,
+                    generationOptions,
                 });
+
+                let resultBuffer = generated.buffer;
+                let resultMime = generated.mimeType;
+                const overlaySettings = await loadOverlaySettingsForUser(query, userId);
+                if (resultBuffer?.length) {
+                    const applyWatermark =
+                        req.body.apply_watermark === '1' || req.body.apply_watermark === 'true';
+                    const applyInfoText =
+                        req.body.apply_info_text === '1' || req.body.apply_info_text === 'true';
+                    const overlaid = await applyImageOverlays(
+                        resultBuffer,
+                        resultMime,
+                        overlaySettings,
+                        {
+                            apply_watermark: applyWatermark,
+                            apply_info_text: applyInfoText,
+                            variety_label: varietyLabel,
+                            template_label: templateLabel,
+                            sku: 'SAMPLE-SKU',
+                            barcode_stem: 'SAMPLE-SKU',
+                            style_code: 'SAMPLE',
+                            item_code: 'SAMPLE',
+                            product_name: name,
+                            product: { net_weight: 125, gross_weight: 130, weight_display: '125.00 g' },
+                        },
+                        { enhancedDir, getPublicApiBaseUrl },
+                    );
+                    resultBuffer = overlaid.buffer;
+                    resultMime = overlaid.mimeType;
+                }
+
                 const outName = saveGeneratedBuffer(
                     enhancedDir,
-                    generated.buffer,
-                    generated.mimeType,
+                    resultBuffer,
+                    resultMime,
                     `enhanced-test-${userId}`,
                 );
                 const resultUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${outName}`;

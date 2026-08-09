@@ -221,11 +221,16 @@ export default function ResellerEnhancedPicturesPageClient() {
       setHints(data.hints || [])
       setRecentJobs(data.jobs || [])
       if (data.overlay_settings) {
-        setOverlaySettings({ ...DEFAULT_OVERLAY_SETTINGS, ...data.overlay_settings })
+        const os = { ...DEFAULT_OVERLAY_SETTINGS, ...data.overlay_settings }
+        setOverlaySettings(os)
+        const sp = os.studio_prefs
         setGenerationOptions((g) => ({
           ...g,
-          applyWatermark: !!data.overlay_settings?.watermark_enabled,
-          applyInfoText: !!data.overlay_settings?.info_text_enabled,
+          backgroundPreset: sp?.backgroundPreset || g.backgroundPreset,
+          visualization: sp?.visualization || g.visualization,
+          renderQuality: sp?.renderQuality || g.renderQuality,
+          applyWatermark: sp?.apply_watermark ?? os.watermark_enabled ?? g.applyWatermark,
+          applyInfoText: sp?.apply_info_text ?? os.info_text_enabled ?? g.applyInfoText,
         }))
       }
       setJobsLoading(false)
@@ -328,9 +333,10 @@ export default function ResellerEnhancedPicturesPageClient() {
         .replace(/\{template\}/gi, activeTemplate?.label || '')
         .replace(/\{sku\}/gi, sku)
         .replace(/\{style_code\}/gi, sku)
-        .replace(/\{weight\}/gi, '— g')
+        .replace(/\{weight\}/gi, '— G')
         .replace(/\{product_name\}/gi, lookupLabel || '')
-        .replace(/\{barcode\}/gi, sku),
+        .replace(/\{barcode\}/gi, sku)
+        .toUpperCase(),
     )
   }, [overlaySettings.info_text_lines, activeVariety, activeTemplate, barcodeStem, lookupLabel])
 

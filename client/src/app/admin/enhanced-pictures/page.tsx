@@ -20,12 +20,15 @@ import {
   adminSetEnhancedCredits,
   fetchAdminEnhancedPrompts,
   patchAdminEnhancedAiSettings,
+  DEFAULT_OVERLAY_SETTINGS,
   type EnhancedAiSettings,
   type EnhancedCreditPlan,
+  type EnhancedOverlaySettings,
   type EnhancedPicturePrompt,
   type EnhancedPictureTemplate,
   type EnhancedTemplateShowcase as EnhancedTemplateShowcaseData,
 } from '@/lib/reseller-enhanced-pictures'
+import type { StudioGenerationOptions } from '@/components/reseller/EnhancedStudioOptions'
 import { splitMasterAndNegative } from '@/lib/prompt-formatting'
 
 type LoadPreserveOpts = {
@@ -86,6 +89,14 @@ function AdminEnhancedPicturesInner() {
   const [outputLabel, setOutputLabel] = useState('Professional output')
   const [outputSubtitle, setOutputSubtitle] = useState('4K hyper-realistic studio rendering')
   const [footerNote, setFooterNote] = useState('Preserves source details perfectly')
+  const [overlaySettings, setOverlaySettings] = useState<EnhancedOverlaySettings>(DEFAULT_OVERLAY_SETTINGS)
+  const [generationOptions, setGenerationOptions] = useState<StudioGenerationOptions>({
+    backgroundPreset: 'charcoal',
+    visualization: 'studio',
+    renderQuality: '2k',
+    applyWatermark: false,
+    applyInfoText: false,
+  })
 
   const stickyTemplateKeyRef = useRef<string | null>(null)
   const stickySelectedIdRef = useRef<number | null>(null)
@@ -200,6 +211,19 @@ function AdminEnhancedPicturesInner() {
           setReplicateModel(data.ai_settings.replicate_model)
           setGeminiBatchEnabled(data.ai_settings.gemini_batch_enabled === true)
           setStudioPipelineEnabled(data.ai_settings.studio_pipeline_enabled !== false)
+        }
+        if (data.overlay_settings) {
+          const os = { ...DEFAULT_OVERLAY_SETTINGS, ...data.overlay_settings }
+          setOverlaySettings(os)
+          const sp = os.studio_prefs
+          setGenerationOptions((g) => ({
+            ...g,
+            backgroundPreset: sp?.backgroundPreset || g.backgroundPreset,
+            visualization: sp?.visualization || g.visualization,
+            renderQuality: sp?.renderQuality || g.renderQuality,
+            applyWatermark: sp?.apply_watermark ?? os.watermark_enabled ?? g.applyWatermark,
+            applyInfoText: sp?.apply_info_text ?? os.info_text_enabled ?? g.applyInfoText,
+          }))
         }
 
         const defaultKey =
@@ -881,6 +905,10 @@ function AdminEnhancedPicturesInner() {
                 onStatus={setStatusMsg}
                 onLastTestAi={setLastTestAi}
                 statusMessage={statusMsg}
+                overlaySettings={overlaySettings}
+                onOverlaySettingsChange={setOverlaySettings}
+                generationOptions={generationOptions}
+                onGenerationOptionsChange={setGenerationOptions}
               />
             ) : null}
           </div>

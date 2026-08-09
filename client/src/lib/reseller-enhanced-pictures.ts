@@ -127,6 +127,14 @@ export type EnhancedProductLookup = {
   } | null
 }
 
+export type StudioPrefs = {
+  backgroundPreset: string
+  visualization: string
+  renderQuality: 'standard' | '2k' | '4k'
+  apply_watermark: boolean
+  apply_info_text: boolean
+}
+
 export type EnhancedOverlaySettings = {
   watermark_enabled: boolean
   watermark_url: string | null
@@ -138,6 +146,7 @@ export type EnhancedOverlaySettings = {
   info_text_position: string
   info_text_color: string
   info_text_size: number
+  studio_prefs?: StudioPrefs
 }
 
 export const DEFAULT_OVERLAY_SETTINGS: EnhancedOverlaySettings = {
@@ -148,9 +157,40 @@ export const DEFAULT_OVERLAY_SETTINGS: EnhancedOverlaySettings = {
   watermark_scale: 0.16,
   info_text_enabled: false,
   info_text_lines: ['{variety}', '{sku}', '{weight}'],
-  info_text_position: 'top-left',
-  info_text_color: '#ffffff',
-  info_text_size: 26,
+  info_text_position: 'bottom-right',
+  info_text_color: '#1a1814',
+  info_text_size: 32,
+  studio_prefs: {
+    backgroundPreset: 'charcoal',
+    visualization: 'studio',
+    renderQuality: '2k',
+    apply_watermark: false,
+    apply_info_text: false,
+  },
+}
+
+export function mergeStudioPreferences(
+  overlay: EnhancedOverlaySettings,
+  gen: {
+    backgroundPreset: string
+    visualization: string
+    renderQuality: 'standard' | '2k' | '4k'
+    applyWatermark: boolean
+    applyInfoText: boolean
+  },
+): EnhancedOverlaySettings {
+  return {
+    ...overlay,
+    watermark_enabled: gen.applyWatermark,
+    info_text_enabled: gen.applyInfoText,
+    studio_prefs: {
+      backgroundPreset: gen.backgroundPreset,
+      visualization: gen.visualization,
+      renderQuality: gen.renderQuality,
+      apply_watermark: gen.applyWatermark,
+      apply_info_text: gen.applyInfoText,
+    },
+  }
 }
 
 export type EnhancedGenerateResult = {
@@ -468,6 +508,7 @@ export async function fetchAdminEnhancedPrompts(userId: number) {
     aspects: string[]
     prompts: EnhancedPicturePrompt[]
     plans: EnhancedCreditPlan[]
+    overlay_settings?: EnhancedOverlaySettings
   }>(`${apiBase()}/api/admin/users/${userId}/enhanced-picture-prompts`, {
     withCredentials: true,
   })
@@ -667,6 +708,11 @@ export async function testGenerateAdminEnhanced(opts: {
   geminiApiKey?: string
   replicateModel?: string
   replicateApiToken?: string
+  backgroundPreset?: string
+  visualization?: string
+  renderQuality?: 'standard' | '2k' | '4k'
+  applyWatermark?: boolean
+  applyInfoText?: boolean
 }) {
   const fd = new FormData()
   fd.append('image', opts.image)
@@ -684,6 +730,13 @@ export async function testGenerateAdminEnhanced(opts: {
   if (opts.replicateModel) fd.append('replicate_model', opts.replicateModel)
   if (opts.replicateApiToken) fd.append('replicate_api_token', opts.replicateApiToken)
   if (opts.varietyKey) fd.append('variety_key', opts.varietyKey)
+  if (opts.backgroundPreset) fd.append('background_preset', opts.backgroundPreset)
+  if (opts.visualization) fd.append('visualization', opts.visualization)
+  if (opts.renderQuality) fd.append('render_quality', opts.renderQuality)
+  if (opts.applyWatermark) fd.append('apply_watermark', '1')
+  else if (opts.applyWatermark === false) fd.append('apply_watermark', '0')
+  if (opts.applyInfoText) fd.append('apply_info_text', '1')
+  else if (opts.applyInfoText === false) fd.append('apply_info_text', '0')
   const res = await axios.post<{
     success: boolean
     source_image_url: string

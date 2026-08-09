@@ -260,7 +260,7 @@ async function applyIdolWhiteHeroFraming(sharp, buffer, w, h, fastMode = true, o
         const th = trimmed.info.height || h;
         if (tw < 32 || th < 32) return buffer;
 
-        const targetFill = 0.84;
+        const targetFill = 0.91;
         const long = Math.max(tw, th);
         const canvas = Math.round(long / targetFill);
         const padX = Math.max(0, Math.round((canvas - tw) / 2));

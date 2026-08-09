@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { ImagePlus, Sparkles, Type, Upload } from 'lucide-react'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
 import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import {
+  mergeStudioPreferences,
   saveEnhancedOverlaySettings,
   uploadEnhancedWatermark,
   type EnhancedOverlaySettings,
@@ -101,6 +102,8 @@ type Props = {
   previewImageUrl?: string | null
   previewLines?: string[]
   onStatus?: (msg: string) => void
+  /** When true (default), saves background/visualization/branding toggles to the server automatically. */
+  autoPersist?: boolean
 }
 
 function positionStyle(pos: string): React.CSSProperties {
@@ -127,15 +130,40 @@ export default function EnhancedStudioOptions({
   previewImageUrl,
   previewLines = [],
   onStatus,
+  autoPersist = true,
 }: Props) {
   const saveFb = useSaveFeedback()
   const [uploading, setUploading] = useState(false)
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const schedulePersist = useCallback(
+    (nextOverlay: EnhancedOverlaySettings, nextGen: StudioGenerationOptions) => {
+      if (!autoPersist) return
+      if (persistTimer.current) clearTimeout(persistTimer.current)
+      persistTimer.current = setTimeout(() => {
+        void saveEnhancedOverlaySettings(mergeStudioPreferences(nextOverlay, nextGen)).catch(() => {
+          /* silent — manual Save branding still available */
+        })
+      }, 700)
+    },
+    [autoPersist],
+  )
 
   const patchOverlay = useCallback(
     (patch: Partial<EnhancedOverlaySettings>) => {
-      onOverlayChange({ ...overlaySettings, ...patch })
+      const next = { ...overlaySettings, ...patch }
+      onOverlayChange(next)
+      schedulePersist(next, generationOptions)
     },
-    [overlaySettings, onOverlayChange],
+    [overlaySettings, onOverlayChange, generationOptions, schedulePersist],
+  )
+
+  const patchGeneration = useCallback(
+    (next: StudioGenerationOptions) => {
+      onGenerationChange(next)
+      schedulePersist(overlaySettings, next)
+    },
+    [onGenerationChange, overlaySettings, schedulePersist],
   )
 
   const infoLinesText = useMemo(
@@ -146,7 +174,9 @@ export default function EnhancedStudioOptions({
   const saveSettings = () =>
     saveFb.runSave(async () => {
       try {
-        const saved = await saveEnhancedOverlaySettings(overlaySettings)
+        const saved = await saveEnhancedOverlaySettings(
+          mergeStudioPreferences(overlaySettings, generationOptions),
+        )
         onOverlayChange(saved)
         onStatus?.('Branding settings saved.')
       } catch (e: unknown) {
@@ -194,7 +224,7 @@ export default function EnhancedStudioOptions({
               <button
                 key={opt.key}
                 type="button"
-                onClick={() => onGenerationChange({ ...generationOptions, renderQuality: opt.key })}
+                onClick={() => patchGeneration({ ...generationOptions, renderQuality: opt.key })}
                 className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
                   selected
                     ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/6 ring-2 ring-[var(--kc-accent,#c41e3a)]/20'
@@ -249,7 +279,7 @@ export default function EnhancedStudioOptions({
               key={sw.key}
               type="button"
               title={sw.label}
-              onClick={() => onGenerationChange({ ...generationOptions, backgroundPreset: sw.key })}
+              onClick={() => patchGeneration({ ...generationOptions, backgroundPreset: sw.key })}
               className={`flex min-h-[44px] min-w-[72px] flex-col items-center gap-1 rounded-xl border px-2 py-2 text-[10px] font-semibold transition ${
                 generationOptions.backgroundPreset === sw.key
                   ? 'border-[var(--kc-accent,#c41e3a)] ring-2 ring-[var(--kc-accent,#c41e3a)]/25'
@@ -272,7 +302,7 @@ export default function EnhancedStudioOptions({
             <button
               key={v.key}
               type="button"
-              onClick={() => onGenerationChange({ ...generationOptions, visualization: v.key })}
+              onClick={() => patchGeneration({ ...generationOptions, visualization: v.key })}
               className={`rounded-xl border px-3 py-2.5 text-left transition ${
                 generationOptions.visualization === v.key
                   ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8'
@@ -307,7 +337,7 @@ export default function EnhancedStudioOptions({
             type="checkbox"
             checked={generationOptions.applyWatermark}
             onChange={(e) =>
-              onGenerationChange({ ...generationOptions, applyWatermark: e.target.checked })
+              patchGeneration({ ...generationOptions, applyWatermark: e.target.checked })
             }
             className="mt-1 size-4"
           />
@@ -361,7 +391,7 @@ export default function EnhancedStudioOptions({
             type="checkbox"
             checked={generationOptions.applyInfoText}
             onChange={(e) =>
-              onGenerationChange({ ...generationOptions, applyInfoText: e.target.checked })
+              patchGeneration({ ...generationOptions, applyInfoText: e.target.checked })
             }
             className="mt-1 size-4"
           />
@@ -382,7 +412,7 @@ export default function EnhancedStudioOptions({
                   })
                 }
                 rows={4}
-                placeholder={'EMERALD IDOLS\n{sku}\n{weight}'}
+                placeholder={'IDOLS\n{sku}\n{weight}'}
                 className="mt-1 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 font-mono text-xs text-[var(--color-jewelry-black,#1a1814)]"
               />
             </label>
@@ -439,9 +469,11 @@ export default function EnhancedStudioOptions({
                 style={{
                   ...positionStyle(overlaySettings.info_text_position),
                   color: overlaySettings.info_text_color,
-                  fontSize: Math.max(10, overlaySettings.info_text_size * 0.35),
-                  fontWeight: 700,
-                  textShadow: '0 1px 4px rgba(0,0,0,0.75)',
+                  fontSize: Math.max(11, overlaySettings.info_text_size * 0.38),
+                  fontWeight: 800,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  textShadow: 'none',
                   whiteSpace: 'pre-line',
                   lineHeight: 1.25,
                 }}

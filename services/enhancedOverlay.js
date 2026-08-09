@@ -24,9 +24,31 @@ function defaultOverlaySettings() {
         watermark_scale: 0.16,
         info_text_enabled: false,
         info_text_lines: ['{variety}', '{sku}', '{weight}'],
-        info_text_position: 'top-left',
-        info_text_color: '#ffffff',
-        info_text_size: 26,
+        info_text_position: 'bottom-right',
+        info_text_color: '#1a1814',
+        info_text_size: 32,
+        studio_prefs: {
+            backgroundPreset: 'charcoal',
+            visualization: 'studio',
+            renderQuality: '2k',
+            apply_watermark: false,
+            apply_info_text: false,
+        },
+    };
+}
+
+function normalizeStudioPrefs(raw, base) {
+    const sp = raw && typeof raw.studio_prefs === 'object' ? raw.studio_prefs : {};
+    const b = base.studio_prefs || {};
+    const rq = String(sp.renderQuality || sp.render_quality || b.renderQuality || '2k').toLowerCase();
+    return {
+        backgroundPreset: String(sp.backgroundPreset || sp.background_preset || b.backgroundPreset || 'charcoal')
+            .trim()
+            .toLowerCase(),
+        visualization: String(sp.visualization || b.visualization || 'studio').trim().toLowerCase(),
+        renderQuality: rq === '4k' ? '4k' : rq === 'standard' ? 'standard' : '2k',
+        apply_watermark: sp.apply_watermark != null ? !!sp.apply_watermark : !!b.apply_watermark,
+        apply_info_text: sp.apply_info_text != null ? !!sp.apply_info_text : !!b.apply_info_text,
     };
 }
 
@@ -49,7 +71,8 @@ function normalizeOverlaySettings(raw) {
         info_text_color: /^#[0-9a-fA-F]{3,8}$/.test(String(raw.info_text_color || ''))
             ? String(raw.info_text_color)
             : base.info_text_color,
-        info_text_size: Math.min(48, Math.max(14, parseInt(String(raw.info_text_size || base.info_text_size), 10) || base.info_text_size)),
+        info_text_size: Math.min(56, Math.max(16, parseInt(String(raw.info_text_size || base.info_text_size), 10) || base.info_text_size)),
+        studio_prefs: normalizeStudioPrefs(raw, base),
     };
 }
 
@@ -69,9 +92,26 @@ function formatWeight(productMeta) {
     const gross = productMeta.gross_weight ?? productMeta.grossWeight;
     const n = net != null ? Number(net) : NaN;
     const g = gross != null ? Number(gross) : NaN;
-    if (Number.isFinite(n) && n > 0) return `${n.toFixed(2)} g`;
-    if (Number.isFinite(g) && g > 0) return `${g.toFixed(2)} g`;
+    if (Number.isFinite(n) && n > 0) return `${n.toFixed(2)} G`;
+    if (Number.isFinite(g) && g > 0) return `${g.toFixed(2)} G`;
     return '';
+}
+
+function isLightColor(hex) {
+    const h = String(hex || '#ffffff').replace('#', '');
+    if (h.length < 3) return true;
+    const full =
+        h.length === 3
+            ? h
+                  .split('')
+                  .map((c) => c + c)
+                  .join('')
+            : h.slice(0, 6);
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return true;
+    return (r * 299 + g * 587 + b * 114) / 1000 > 160;
 }
 
 function resolveOverlayTextLines(settings, meta = {}) {
@@ -91,7 +131,7 @@ function resolveOverlayTextLines(settings, meta = {}) {
             for (const [key, val] of Object.entries(tokens)) {
                 out = out.split(key).join(val);
             }
-            return out.trim();
+            return out.trim().toUpperCase();
         })
         .filter(Boolean);
 }
@@ -114,12 +154,16 @@ function positionCoords(position, w, h, boxW, boxH, margin) {
 }
 
 function buildInfoTextSvg(lines, w, h, position, color, fontSize) {
-    const lineHeight = Math.round(fontSize * 1.28);
-    const pad = 20;
+    const scale = 2;
+    const sw = w * scale;
+    const sh = h * scale;
+    const fs = Math.round(fontSize * scale);
+    const lineHeight = Math.round(fs * 1.22);
+    const pad = 20 * scale;
     const maxChars = Math.max(...lines.map((l) => l.length), 1);
-    const boxW = Math.min(w - pad * 2, Math.max(120, maxChars * fontSize * 0.52));
+    const boxW = Math.min(sw - pad * 2, Math.max(120 * scale, maxChars * fs * 0.56));
     const boxH = lines.length * lineHeight + pad;
-    const { left, top } = positionCoords(position, w, h, boxW, boxH, pad);
+    const { left, top } = positionCoords(position, sw, sh, boxW, boxH, pad);
     const anchor =
         position === 'top-right' || position === 'bottom-right'
             ? 'end'
@@ -128,24 +172,31 @@ function buildInfoTextSvg(lines, w, h, position, color, fontSize) {
               : 'start';
     const textX =
         position === 'top-right' || position === 'bottom-right'
-            ? left + boxW - 8
+            ? left + boxW - 8 * scale
             : position === 'center'
               ? left + boxW / 2
-              : left + 8;
-    const textY = top + fontSize + 4;
+              : left + 8 * scale;
+    const textY = top + fs + 4 * scale;
+    const light = isLightColor(color);
+    const defs = light
+        ? `<filter id="tshadow" x="-30%" y="-30%" width="160%" height="160%">
+    <feDropShadow dx="0" dy="${scale}" stdDeviation="${scale * 1.5}" flood-color="#000" flood-opacity="0.65"/>
+  </filter>`
+        : '';
+    const filterAttr = light ? ' filter="url(#tshadow)"' : '';
+    const strokeAttr = light
+        ? ''
+        : ` stroke="#ffffff" stroke-width="${Math.max(2, scale * 1.2)}" paint-order="stroke fill"`;
     const tspans = lines
         .map(
             (line, i) =>
                 `<tspan x="${textX}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`,
         )
         .join('');
-    const shadow = `<filter id="tshadow" x="-20%" y="-20%" width="140%" height="140%">
-    <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.55"/>
-  </filter>`;
     return Buffer.from(
-        `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-  <defs>${shadow}</defs>
-  <text x="${textX}" y="${textY}" fill="${escapeXml(color)}" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="700" text-anchor="${anchor}" filter="url(#tshadow)">${tspans}</text>
+        `<svg width="${sw}" height="${sh}" xmlns="http://www.w3.org/2000/svg">
+  <defs>${defs}</defs>
+  <text x="${textX}" y="${textY}" fill="${escapeXml(color)}" font-family="Arial, Helvetica, sans-serif" font-size="${fs}" font-weight="800" letter-spacing="0.04em" text-anchor="${anchor}"${filterAttr}${strokeAttr}>${tspans}</text>
 </svg>`,
     );
 }
@@ -207,7 +258,11 @@ async function applyImageOverlays(buffer, mimeType, settingsRaw, meta = {}, deps
                     settings.info_text_color,
                     settings.info_text_size,
                 );
-                composites.push({ input: svg, blend: 'over' });
+                const textLayer = await sharp(svg)
+                    .resize(w, h, { kernel: sharp.kernel.lanczos3 })
+                    .png()
+                    .toBuffer();
+                composites.push({ input: textLayer, blend: 'over' });
             }
         }
 

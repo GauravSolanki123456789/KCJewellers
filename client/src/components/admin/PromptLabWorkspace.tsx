@@ -14,6 +14,9 @@ import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
+import EnhancedStudioOptions, {
+  type StudioGenerationOptions,
+} from '@/components/reseller/EnhancedStudioOptions'
 import {
   activateAdminEnhancedPrompt,
   createAdminEnhancedTemplate,
@@ -25,6 +28,7 @@ import {
   patchAdminEnhancedTemplateShowcase,
   saveAdminEnhancedPromptLab,
   testGenerateAdminEnhanced,
+  type EnhancedOverlaySettings,
   type EnhancedPicturePrompt,
   type EnhancedPictureTemplate,
   type EnhancedPictureVariety,
@@ -97,6 +101,10 @@ type Props = {
   onStatus: (msg: string) => void
   onLastTestAi: (v: { provider?: string; model?: string } | null) => void
   statusMessage?: string
+  overlaySettings: EnhancedOverlaySettings
+  onOverlaySettingsChange: (s: EnhancedOverlaySettings) => void
+  generationOptions: StudioGenerationOptions
+  onGenerationOptionsChange: (o: StudioGenerationOptions) => void
 }
 
 export default function PromptLabWorkspace(props: Props) {
@@ -148,6 +156,10 @@ export default function PromptLabWorkspace(props: Props) {
     onStatus,
     onLastTestAi,
     statusMessage,
+    overlaySettings,
+    onOverlaySettingsChange,
+    generationOptions,
+    onGenerationOptionsChange,
   } = props
 
   const [busy, setBusy] = useState(false)
@@ -183,6 +195,25 @@ export default function PromptLabWorkspace(props: Props) {
     sample_source_image_url: activeTemplate?.showcase?.sample_source_image_url,
     sample_result_image_url: activeTemplate?.showcase?.sample_result_image_url,
   }
+
+  const previewOverlayLines = useMemo(() => {
+    const variety =
+      subtemplates.find((v) => v.variety_key === selectedVarietyKey)?.variety_label ||
+      name ||
+      'IDOLS'
+    const lines = overlaySettings.info_text_lines || []
+    return lines.map((line) =>
+      line
+        .replace(/\{variety\}/gi, variety)
+        .replace(/\{template\}/gi, templateLabel || '')
+        .replace(/\{sku\}/gi, 'SAMPLE-SKU')
+        .replace(/\{style_code\}/gi, 'SAMPLE')
+        .replace(/\{weight\}/gi, '125.00 G')
+        .replace(/\{product_name\}/gi, name || '')
+        .replace(/\{barcode\}/gi, 'SAMPLE-SKU')
+        .toUpperCase(),
+    )
+  }, [overlaySettings.info_text_lines, subtemplates, selectedVarietyKey, templateLabel, name])
 
   const selectTemplate = (key: string) => {
     onTemplateKey(key)
@@ -423,6 +454,11 @@ export default function PromptLabWorkspace(props: Props) {
         geminiApiKey: props.geminiApiKeyInput.trim() || undefined,
         replicateModel: props.replicateModel,
         replicateApiToken: props.replicateTokenInput.trim() || undefined,
+        backgroundPreset: generationOptions.backgroundPreset,
+        visualization: generationOptions.visualization,
+        renderQuality: generationOptions.renderQuality,
+        applyWatermark: generationOptions.applyWatermark,
+        applyInfoText: generationOptions.applyInfoText,
       })
       onResultUrl(data.result_image_url)
       onSourcePreview(data.source_image_url)
@@ -755,6 +791,26 @@ export default function PromptLabWorkspace(props: Props) {
           </details>
 
           <CanvasAspectPicker value={aspectRatio} onChange={onAspectRatio} label="Canvas aspect" />
+
+          <section>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+              Style & branding (test preview)
+            </p>
+            <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Pick background colour, visualization, and text/watermark — then Test prompt to see
+              exactly what the reseller will get.
+            </p>
+            <EnhancedStudioOptions
+              overlaySettings={overlaySettings}
+              onOverlayChange={onOverlaySettingsChange}
+              generationOptions={generationOptions}
+              onGenerationChange={onGenerationOptionsChange}
+              previewImageUrl={resultUrl || samplePreview}
+              previewLines={previewOverlayLines}
+              onStatus={onStatus}
+              autoPersist={false}
+            />
+          </section>
 
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-3">
             <input
