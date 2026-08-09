@@ -136,6 +136,48 @@ export type ErpCustomer = {
   notes?: string | null
 }
 
+export type ErpKarigar = {
+  id: number
+  name: string
+  mobile?: string | null
+  specialty?: string | null
+  address?: string | null
+  notes?: string | null
+  is_active: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export type ErpOrderJobHistoryEvent = {
+  at: string
+  action: string
+  karigar_id?: number | null
+  karigar_name?: string | null
+  notes?: string | null
+}
+
+export type ErpOrderJobStatus = 'in_shop' | 'with_karigar' | 'returned' | 'completed' | 'cancelled'
+
+export type ErpOrderJob = {
+  id: number
+  bill_id: number
+  current_karigar_id?: number | null
+  current_karigar_name?: string | null
+  status: ErpOrderJobStatus
+  work_description?: string | null
+  due_date?: string | null
+  history: ErpOrderJobHistoryEvent[]
+  bill_number?: string | null
+  customer_name?: string | null
+  total_inr?: number | null
+  bill_status?: string | null
+  bill_date?: string | null
+  notes?: string | null
+  lines?: ErpBillLine[]
+  created_at?: string | null
+  updated_at?: string | null
+}
+
 export type ErpLedgerEntry = {
   id: number
   entry_date: string

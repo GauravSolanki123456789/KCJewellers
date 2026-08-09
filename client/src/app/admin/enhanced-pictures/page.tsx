@@ -38,6 +38,8 @@ type LoadPreserveOpts = {
   varietyKey?: string | null
   /** Refresh data without blanking the whole page (save / test / activate). */
   silent?: boolean
+  /** Keep local Style · background / visualization picks after silent reload. */
+  keepStudioPrefs?: boolean
 }
 
 function AdminEnhancedPicturesInner() {
@@ -222,15 +224,17 @@ function AdminEnhancedPicturesInner() {
         if (data.overlay_settings) {
           const os = { ...DEFAULT_OVERLAY_SETTINGS, ...data.overlay_settings }
           setOverlaySettings(os)
-          const sp = os.studio_prefs
-          setGenerationOptions((g) => ({
-            ...g,
-            backgroundPreset: sp?.backgroundPreset || g.backgroundPreset,
-            visualization: sp?.visualization || g.visualization,
-            renderQuality: sp?.renderQuality || g.renderQuality,
-            applyWatermark: sp?.apply_watermark ?? os.watermark_enabled ?? g.applyWatermark,
-            applyInfoText: sp?.apply_info_text ?? os.info_text_enabled ?? g.applyInfoText,
-          }))
+          if (!preserve?.keepStudioPrefs) {
+            const sp = os.studio_prefs
+            setGenerationOptions((g) => ({
+              ...g,
+              backgroundPreset: sp?.backgroundPreset || g.backgroundPreset,
+              visualization: sp?.visualization || g.visualization,
+              renderQuality: sp?.renderQuality || g.renderQuality,
+              applyWatermark: sp?.apply_watermark ?? os.watermark_enabled ?? g.applyWatermark,
+              applyInfoText: sp?.apply_info_text ?? os.info_text_enabled ?? g.applyInfoText,
+            }))
+          }
         }
 
         const defaultKey =

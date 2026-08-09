@@ -324,11 +324,11 @@ const BACKGROUND_PRESETS = {
 const VISUALIZATION_PRESETS = {
     studio:
         'Classic luxury studio pedestal/tabletop presentation. Product centered on an elegant matte stone, velvet, or suede surface matching the selected background colour. Eye-level catalogue framing with soft contact shadow.',
-    prop: 'Place the product on an elegant minimal luxury display prop or pedestal appropriate for jewellery catalogue photography. Premium showroom look.',
+    prop: 'LUXURY DISPLAY PROP (MANDATORY): Place the product on an elegant minimal luxury display stand, velvet block, or jewellery prop. Premium showroom look — NOT a plain empty tabletop.',
     hand_female:
-        'Show the jewellery naturally worn on an elegant female hand — manicured, soft skin tone, cropped at wrist. Premium editorial catalogue look. Product identity unchanged.',
+        'FEMALE HAND EDITORIAL SHOT (MANDATORY): Show the jewellery naturally worn on an elegant female hand — manicured, soft skin tone, cropped at wrist. Premium QuickSell/Aurra-style editorial catalogue. Product MUST be on the hand — NOT floating, NOT on a pedestal.',
     hand_male:
-        'Show the jewellery naturally worn on a male hand — cropped at wrist. Premium editorial catalogue look. Product identity unchanged.',
+        'MALE HAND EDITORIAL SHOT (MANDATORY): Show the jewellery naturally worn on a male hand — cropped at wrist. Premium editorial catalogue. Product MUST be on the hand — NOT floating, NOT on a pedestal.',
     standing:
         'STANDING UPRIGHT DISPLAY: For bangles/bracelets — place the jewellery standing vertically on its edge (portrait orientation), balanced naturally on the studio surface with a subtle contact shadow. Rotate so the decorative centerpiece faces the camera with a slight 10–15° angle for depth. For rings — upright on band edge when possible. For idols — upright on existing base. Change ONLY pose/arrangement — preserve 100% design, metal colour, stones, and proportions from the uploaded photo.',
     sleeping:
@@ -352,7 +352,11 @@ Centered hero framing, soft contact shadow, premium commercial catalogue quality
             ? '\nIf the source photo shows the product flat, change ONLY the pose to standing upright while keeping every design detail identical to the source.'
             : vizKey === 'sleeping'
               ? '\nIf the source photo shows the product standing, change ONLY the pose to flat lay while keeping every design detail identical to the source.'
-              : '';
+              : vizKey === 'hand_female' || vizKey === 'hand_male'
+                ? '\nCRITICAL: The final image MUST show the product worn on a human hand — NOT on a pedestal, NOT floating, NOT flat lay on table.'
+                : vizKey === 'prop'
+                  ? '\nCRITICAL: The final image MUST show the product on a visible luxury display prop — NOT a plain empty tabletop.'
+                  : '';
     const profileNote =
         profile === 'kada' || profile === 'generic'
             ? '\nJewellery identity lock: same gold tone, stone placement, engravings, and proportions as the uploaded reference.'

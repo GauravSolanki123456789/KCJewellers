@@ -3758,6 +3758,28 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         }
     });
 
+    app.put(
+        '/api/admin/users/:userId/enhanced-pictures/overlay-settings',
+        isAdminStrict,
+        requireJson,
+        async (req, res) => {
+            try {
+                await ensureEnhancedPicturesSchema(pool);
+                const userId = parseInt(String(req.params.userId), 10);
+                if (!userId) return res.status(400).json({ error: 'userId required' });
+                const current = await loadOverlaySettingsForUser(query, userId);
+                const merged = normalizeOverlaySettings({ ...current, ...(req.body || {}) });
+                await query(
+                    `UPDATE users SET reseller_enhanced_overlay_settings = $1::jsonb WHERE id = $2`,
+                    [JSON.stringify(merged), userId],
+                );
+                res.json({ success: true, overlay_settings: merged });
+            } catch (e) {
+                res.status(e.status || 500).json({ error: e.message });
+            }
+        },
+    );
+
     app.post('/api/reseller/enhanced-pictures/watermark', checkAuth, async (req, res) => {
         try {
             await ensureEnhancedPicturesSchema(pool);

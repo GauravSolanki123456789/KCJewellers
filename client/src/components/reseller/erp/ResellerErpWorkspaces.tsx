@@ -49,7 +49,7 @@ function ProductThumb({ url, name }: { url?: string | null; name?: string | null
   )
 }
 
-function BarcodeLookupField({
+export function BarcodeLookupField({
   onHit,
   placeholder = 'Scan or type barcode / SKU',
 }: {

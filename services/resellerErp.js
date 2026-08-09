@@ -23,6 +23,7 @@ const {
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
 } = require('./resellerErpLedger');
+const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 
 async function ensureResellerErpSchema(pool) {
     await pool.query(`
@@ -89,6 +90,37 @@ async function ensureResellerErpSchema(pool) {
             notes TEXT,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_karigars (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name VARCHAR(255) NOT NULL,
+            mobile VARCHAR(32),
+            specialty VARCHAR(128),
+            address TEXT,
+            notes TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_reseller_erp_karigars_reseller
+            ON reseller_erp_karigars (reseller_user_id, is_active, name);
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_order_jobs (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            bill_id INTEGER NOT NULL REFERENCES reseller_erp_bills(id) ON DELETE CASCADE,
+            current_karigar_id INTEGER REFERENCES reseller_erp_karigars(id) ON DELETE SET NULL,
+            status VARCHAR(32) NOT NULL DEFAULT 'in_shop',
+            work_description TEXT,
+            due_date DATE,
+            history_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (bill_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_reseller_erp_order_jobs_reseller
+            ON reseller_erp_order_jobs (reseller_user_id, status, updated_at DESC);
     `);
     await ensureStockPiecesSchema(pool);
 }
@@ -141,6 +173,16 @@ function trimStr(v, max = 255) {
 function trimStrLower(v, max = 255) {
     const s = trimStr(v, max);
     return s ? s.toLowerCase() : '';
+}
+
+function normalizePan(v) {
+    const s = trimStr(v, 20);
+    return s ? s.toUpperCase() : null;
+}
+
+function normalizeGstin(v) {
+    const s = trimStr(v, 20);
+    return s ? s.toUpperCase() : null;
 }
 
 function daysUntilAnnualEvent(isoDate) {
@@ -333,6 +375,7 @@ function registerResellerErpRoutes(app, deps) {
     registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerKarigarRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
         try {
@@ -421,8 +464,8 @@ function registerResellerErpRoutes(app, deps) {
                     name,
                     trimStr(req.body.mobile, 32),
                     trimStr(req.body.email, 255),
-                    trimStr(req.body.gstin, 20),
-                    trimStr(req.body.pan, 20).toUpperCase(),
+                    normalizeGstin(req.body.gstin),
+                    normalizePan(req.body.pan),
                     trimStr(req.body.address, 2000),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
@@ -454,8 +497,8 @@ function registerResellerErpRoutes(app, deps) {
                     name,
                     trimStr(req.body.mobile, 32),
                     trimStr(req.body.email, 255),
-                    trimStr(req.body.gstin, 20),
-                    trimStr(req.body.pan, 20).toUpperCase(),
+                    normalizeGstin(req.body.gstin),
+                    normalizePan(req.body.pan),
                     trimStr(req.body.address, 2000),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
@@ -526,8 +569,8 @@ function registerResellerErpRoutes(app, deps) {
                         name,
                         trimStr(row.mobile || row.Mobile, 32),
                         trimStr(row.email || row.Email, 255),
-                        trimStr(row.gstin || row.GSTIN, 20),
-                        trimStr(row.pan || row.PAN, 20).toUpperCase(),
+                        normalizeGstin(row.gstin || row.GSTIN),
+                        normalizePan(row.pan || row.PAN),
                         trimStr(row.address || row.Address, 2000),
                         parseDateOrNull(row.birthdate || row.Birthday),
                         parseDateOrNull(row.anniversary_date || row.Anniversary),
@@ -751,6 +794,13 @@ function registerResellerErpRoutes(app, deps) {
                          WHERE id = $2 AND reseller_user_id = $3`,
                         [JSON.stringify(mergedSession), sourceEstimateId, req.user.id],
                     );
+                }
+            }
+            if (billType === 'order') {
+                try {
+                    await ensureOrderJobForBill(query, req.user.id, bill.id);
+                } catch (je) {
+                    console.warn('erp order job create:', je.message);
                 }
             }
             res.json({ success: true, bill });

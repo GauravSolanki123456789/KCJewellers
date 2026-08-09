@@ -22,6 +22,7 @@ const {
     writeTempBuffer,
     compositeProductCutoutOntoStudio,
     isSamePoseVisualization,
+    requiresGenerativeVisualization,
     jewelryStructuralIdentityBlock,
 } = require('./enhancedImageProcessing');
 
@@ -351,7 +352,7 @@ async function runFourStepStudioPipeline({
     const compositeFirst =
         cutout.usedRembg &&
         profile !== 'idol' &&
-        isSamePoseVisualization(visualization) &&
+        !requiresGenerativeVisualization(visualization) &&
         process.env.ENHANCED_COMPOSITE_FIRST !== '0';
 
     if (compositeFirst) {

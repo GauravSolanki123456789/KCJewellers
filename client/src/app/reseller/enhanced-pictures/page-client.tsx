@@ -314,12 +314,14 @@ export default function ResellerEnhancedPicturesPageClient() {
     return activeVariety?.sample_source_image_url || activeTemplate?.showcase?.sample_source_image_url || null
   }, [sourcePreview, activeVariety, activeTemplate])
 
+  const prevTemplateKeyRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (!activeTemplate?.key) return
+    if (prevTemplateKeyRef.current === activeTemplate.key) return
+    prevTemplateKeyRef.current = activeTemplate.key
     const bg = defaultBackgroundForTemplate(activeTemplate.key, activeTemplate.label)
-    setGenerationOptions((g) =>
-      g.backgroundPreset === bg ? g : { ...g, backgroundPreset: bg },
-    )
+    setGenerationOptions((g) => ({ ...g, backgroundPreset: bg }))
   }, [activeTemplate?.key, activeTemplate?.label])
 
   const previewOverlayLines = useMemo(() => {

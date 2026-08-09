@@ -7,9 +7,18 @@ import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import {
   mergeStudioPreferences,
   saveEnhancedOverlaySettings,
+  saveAdminEnhancedOverlaySettings,
   uploadEnhancedWatermark,
   type EnhancedOverlaySettings,
 } from '@/lib/reseller-enhanced-pictures'
+import {
+  BACKGROUND_PREVIEW,
+  VISUALIZATION_PREVIEW,
+  BACKGROUND_SWATCH_KEYS,
+  VISUALIZATION_KEYS,
+  backgroundPreviewStyle,
+  studioPreviewLabel,
+} from '@/lib/enhanced-studio-previews'
 
 export type StudioGenerationOptions = {
   backgroundPreset: string
@@ -59,25 +68,18 @@ export function renderQualityCreditCost(quality: string): number {
   return quality === '4k' ? 2 : 1
 }
 
-const BACKGROUND_SWATCHES: { key: string; label: string; className: string }[] = [
-  { key: 'charcoal', label: 'Charcoal', className: 'bg-gradient-to-br from-zinc-700 to-slate-900' },
-  { key: 'black', label: 'Black', className: 'bg-black' },
-  { key: 'white', label: 'White', className: 'bg-white ring-1 ring-black/10' },
-  { key: 'blue', label: 'Navy', className: 'bg-gradient-to-br from-slate-800 to-blue-950' },
-  { key: 'red', label: 'Burgundy', className: 'bg-gradient-to-br from-rose-950 to-red-950' },
-  { key: 'emerald', label: 'Emerald', className: 'bg-gradient-to-br from-emerald-950 to-teal-950' },
-  { key: 'cream', label: 'Cream', className: 'bg-gradient-to-br from-amber-50 to-stone-200' },
-]
+const BACKGROUND_SWATCHES = BACKGROUND_SWATCH_KEYS.map((key) => ({
+  key,
+  label: BACKGROUND_PREVIEW[key]?.label || key,
+  gradient: BACKGROUND_PREVIEW[key]?.gradient || BACKGROUND_PREVIEW.charcoal.gradient,
+}))
 
-const VISUALIZATION_OPTIONS: { key: string; label: string; hint: string }[] = [
-  { key: 'studio', label: 'Studio', hint: 'Classic pedestal / tabletop' },
-  { key: 'prop', label: 'On prop', hint: 'Luxury display stand' },
-  { key: 'hand_female', label: 'Female hand', hint: 'Editorial wear shot' },
-  { key: 'hand_male', label: 'Male hand', hint: 'Editorial wear shot' },
-  { key: 'standing', label: 'Standing', hint: 'Upright display' },
-  { key: 'sleeping', label: 'Flat lay', hint: 'Sleeping / flat position' },
-  { key: 'mixed_bangles', label: 'Pair layout', hint: 'One up, one flat' },
-]
+const VISUALIZATION_OPTIONS = VISUALIZATION_KEYS.map((key) => ({
+  key,
+  label: VISUALIZATION_PREVIEW[key]?.label || key,
+  hint: VISUALIZATION_PREVIEW[key]?.hint || '',
+  icon: VISUALIZATION_PREVIEW[key]?.icon || '✨',
+}))
 
 const POSITIONS = [
   { key: 'top-left', label: 'Top left' },
@@ -104,6 +106,8 @@ type Props = {
   onStatus?: (msg: string) => void
   /** When true (default), saves background/visualization/branding toggles to the server automatically. */
   autoPersist?: boolean
+  /** Admin Prompt Lab: persist studio prefs for this reseller user id. */
+  adminPersistUserId?: number
 }
 
 function positionStyle(pos: string): React.CSSProperties {
@@ -131,22 +135,34 @@ export default function EnhancedStudioOptions({
   previewLines = [],
   onStatus,
   autoPersist = true,
+  adminPersistUserId,
 }: Props) {
   const saveFb = useSaveFeedback()
   const [uploading, setUploading] = useState(false)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const persistSettings = useCallback(
+    async (nextOverlay: EnhancedOverlaySettings, nextGen: StudioGenerationOptions) => {
+      const merged = mergeStudioPreferences(nextOverlay, nextGen)
+      if (adminPersistUserId) {
+        return saveAdminEnhancedOverlaySettings(adminPersistUserId, merged)
+      }
+      return saveEnhancedOverlaySettings(merged)
+    },
+    [adminPersistUserId],
+  )
 
   const schedulePersist = useCallback(
     (nextOverlay: EnhancedOverlaySettings, nextGen: StudioGenerationOptions) => {
       if (!autoPersist) return
       if (persistTimer.current) clearTimeout(persistTimer.current)
       persistTimer.current = setTimeout(() => {
-        void saveEnhancedOverlaySettings(mergeStudioPreferences(nextOverlay, nextGen)).catch(() => {
+        void persistSettings(nextOverlay, nextGen).catch(() => {
           /* silent — manual Save branding still available */
         })
       }, 700)
     },
-    [autoPersist],
+    [autoPersist, persistSettings],
   )
 
   const patchOverlay = useCallback(
@@ -174,11 +190,9 @@ export default function EnhancedStudioOptions({
   const saveSettings = () =>
     saveFb.runSave(async () => {
       try {
-        const saved = await saveEnhancedOverlaySettings(
-          mergeStudioPreferences(overlaySettings, generationOptions),
-        )
+        const saved = await persistSettings(overlaySettings, generationOptions)
         onOverlayChange(saved)
-        onStatus?.('Branding settings saved.')
+        onStatus?.('Style & branding settings saved.')
       } catch (e: unknown) {
         onStatus?.(
           (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
@@ -270,26 +284,46 @@ export default function EnhancedStudioOptions({
       </section>
 
       <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-          Style · background colour
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {BACKGROUND_SWATCHES.map((sw) => (
-            <button
-              key={sw.key}
-              type="button"
-              title={sw.label}
-              onClick={() => patchGeneration({ ...generationOptions, backgroundPreset: sw.key })}
-              className={`flex min-h-[44px] min-w-[72px] flex-col items-center gap-1 rounded-xl border px-2 py-2 text-[10px] font-semibold transition ${
-                generationOptions.backgroundPreset === sw.key
-                  ? 'border-[var(--kc-accent,#c41e3a)] ring-2 ring-[var(--kc-accent,#c41e3a)]/25'
-                  : 'border-[var(--color-slate-700,#e8e4df)]'
-              }`}
-            >
-              <span className={`size-6 rounded-full ${sw.className}`} />
-              <span className="text-[var(--color-jewelry-black,#1a1814)]">{sw.label}</span>
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+            Style · background colour
+          </p>
+          <span className="rounded-full bg-[var(--color-slate-900,#f7f4ef)] px-2.5 py-1 text-[10px] font-bold text-[var(--color-jewelry-black,#1a1814)]">
+            {studioPreviewLabel(generationOptions.backgroundPreset, generationOptions.visualization)}
+          </span>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {BACKGROUND_SWATCHES.map((sw) => {
+            const selected = generationOptions.backgroundPreset === sw.key
+            return (
+              <button
+                key={sw.key}
+                type="button"
+                title={sw.label}
+                onClick={() => patchGeneration({ ...generationOptions, backgroundPreset: sw.key })}
+                className={`overflow-hidden rounded-xl border text-left transition ${
+                  selected
+                    ? 'border-[var(--kc-accent,#c41e3a)] ring-2 ring-[var(--kc-accent,#c41e3a)]/25'
+                    : 'border-[var(--color-slate-700,#e8e4df)]'
+                }`}
+              >
+                <div
+                  className="relative flex h-14 w-full items-end justify-center p-1.5 sm:h-16"
+                  style={{ background: sw.gradient }}
+                >
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                      sw.key === 'white' || sw.key === 'cream'
+                        ? 'bg-black/75 text-white'
+                        : 'bg-black/55 text-white'
+                    }`}
+                  >
+                    {sw.label}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
         </div>
       </section>
 
@@ -298,21 +332,34 @@ export default function EnhancedStudioOptions({
           Visualization
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {VISUALIZATION_OPTIONS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => patchGeneration({ ...generationOptions, visualization: v.key })}
-              className={`rounded-xl border px-3 py-2.5 text-left transition ${
-                generationOptions.visualization === v.key
-                  ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8'
-                  : 'border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]'
-              }`}
-            >
-              <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">{v.label}</p>
-              <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">{v.hint}</p>
-            </button>
-          ))}
+          {VISUALIZATION_OPTIONS.map((v) => {
+            const selected = generationOptions.visualization === v.key
+            return (
+              <button
+                key={v.key}
+                type="button"
+                onClick={() => patchGeneration({ ...generationOptions, visualization: v.key })}
+                className={`overflow-hidden rounded-xl border text-left transition ${
+                  selected
+                    ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/8 ring-2 ring-[var(--kc-accent,#c41e3a)]/20'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]'
+                }`}
+              >
+                <div
+                  className="flex h-12 items-center justify-center text-2xl sm:h-14"
+                  style={backgroundPreviewStyle(generationOptions.backgroundPreset)}
+                >
+                  {v.icon}
+                </div>
+                <div className="border-t border-[var(--color-slate-700,#e8e4df)]/60 px-3 py-2">
+                  <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                    {v.label}
+                  </p>
+                  <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">{v.hint}</p>
+                </div>
+              </button>
+            )
+          })}
         </div>
       </section>
 
@@ -455,15 +502,52 @@ export default function EnhancedStudioOptions({
         ) : null}
       </section>
 
-      {previewImageUrl ? (
-        <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
-          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-            <ImagePlus className="size-3.5" />
-            Live preview (approximate)
-          </p>
-          <div className="relative mx-auto aspect-square max-w-sm overflow-hidden rounded-xl bg-black/90">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewImageUrl} alt="Preview" className="size-full object-contain" />
+      <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
+        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+          <ImagePlus className="size-3.5" />
+          Style preview
+          <span className="ml-auto normal-case tracking-normal text-[var(--color-jewelry-black,#1a1814)]/45">
+            {studioPreviewLabel(generationOptions.backgroundPreset, generationOptions.visualization)}
+          </span>
+        </p>
+        <div
+          className="relative mx-auto aspect-square max-w-sm overflow-hidden rounded-xl"
+          style={backgroundPreviewStyle(generationOptions.backgroundPreset)}
+        >
+          {previewImageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewImageUrl}
+              alt="Preview"
+              className="size-full object-contain p-2"
+            />
+          ) : (
+            <div className="flex size-full flex-col items-center justify-center gap-2 p-4 text-center">
+              <span className="text-4xl">
+                {VISUALIZATION_PREVIEW[generationOptions.visualization]?.icon || '✨'}
+              </span>
+              <p
+                className={`text-xs font-semibold drop-shadow-md ${
+                  generationOptions.backgroundPreset === 'white' ||
+                  generationOptions.backgroundPreset === 'cream'
+                    ? 'text-[var(--color-jewelry-black,#1a1814)]'
+                    : 'text-white'
+                }`}
+              >
+                {VISUALIZATION_PREVIEW[generationOptions.visualization]?.label || 'Studio'}
+              </p>
+              <p
+                className={`text-[10px] drop-shadow ${
+                  generationOptions.backgroundPreset === 'white' ||
+                  generationOptions.backgroundPreset === 'cream'
+                    ? 'text-[var(--color-jewelry-black,#1a1814)]/55'
+                    : 'text-white/80'
+                }`}
+              >
+                Upload a photo to preview with your product
+              </p>
+            </div>
+          )}
             {generationOptions.applyInfoText && previewLines.length ? (
               <div
                 style={{
@@ -500,7 +584,6 @@ export default function EnhancedStudioOptions({
             Final burn-in applied after AI generation — preview is approximate.
           </p>
         </section>
-      ) : null}
     </div>
   )
 }

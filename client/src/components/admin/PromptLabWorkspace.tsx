@@ -25,8 +25,10 @@ import {
   deleteAdminEnhancedPrompt,
   deleteAdminEnhancedTemplate,
   deleteAdminEnhancedVariety,
+  mergeStudioPreferences,
   patchAdminEnhancedVariety,
   patchAdminEnhancedTemplateShowcase,
+  saveAdminEnhancedOverlaySettings,
   saveAdminEnhancedPromptLab,
   testGenerateAdminEnhanced,
   type EnhancedOverlaySettings,
@@ -98,6 +100,7 @@ type Props = {
     selectedId?: number | null
     varietyKey?: string | null
     silent?: boolean
+    keepStudioPrefs?: boolean
   }) => Promise<void>
   onStatus: (msg: string) => void
   onLastTestAi: (v: { provider?: string; model?: string } | null) => void
@@ -476,7 +479,16 @@ export default function PromptLabWorkspace(props: Props) {
         selectedId: data.prompt.id,
         varietyKey: selectedVarietyKey,
         silent: true,
+        keepStudioPrefs: true,
       })
+      try {
+        await saveAdminEnhancedOverlaySettings(
+          userId,
+          mergeStudioPreferences(overlaySettings, generationOptions),
+        )
+      } catch {
+        /* non-fatal */
+      }
       onStatus('Test complete — preview updated below. Click Save changes to activate for reseller.')
     } catch (e: unknown) {
       onStatus(
@@ -816,7 +828,8 @@ export default function PromptLabWorkspace(props: Props) {
               previewImageUrl={resultUrl || samplePreview}
               previewLines={previewOverlayLines}
               onStatus={onStatus}
-              autoPersist={false}
+              autoPersist
+              adminPersistUserId={userId}
             />
           </section>
 

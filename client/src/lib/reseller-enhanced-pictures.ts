@@ -416,6 +416,19 @@ export async function saveEnhancedOverlaySettings(settings: EnhancedOverlaySetti
   return res.data.overlay_settings
 }
 
+/** Admin: save overlay + studio prefs for a reseller (Prompt Lab test settings). */
+export async function saveAdminEnhancedOverlaySettings(
+  userId: number,
+  settings: EnhancedOverlaySettings,
+) {
+  const res = await axios.put<{ success: boolean; overlay_settings: EnhancedOverlaySettings }>(
+    `${apiBase()}/api/admin/users/${userId}/enhanced-pictures/overlay-settings`,
+    settings,
+    { withCredentials: true },
+  )
+  return res.data.overlay_settings
+}
+
 export async function uploadEnhancedWatermark(file: File) {
   const fd = new FormData()
   fd.append('image', file)

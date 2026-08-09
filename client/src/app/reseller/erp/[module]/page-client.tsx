@@ -15,6 +15,7 @@ import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorks
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
 import { ErpDigiWorkspace } from '@/components/reseller/erp/ErpDigiWorkspace'
+import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
 import {
   BillsWorkspace,
   CustomersWorkspace,
@@ -48,7 +49,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'credit-bills':
       return <BillsWorkspace billTypeFilter="credit" />
     case 'orders':
-      return <BillsWorkspace billTypeFilter="order" />
+      return <ErpOrderManagementWorkspace />
     case 'estimations':
       return <ErpEstimationsWorkspace />
     case 'stock':

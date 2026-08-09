@@ -734,6 +734,10 @@ function isSamePoseVisualization(visualization) {
     return v === 'studio' || v === 'sleeping';
 }
 
+function requiresGenerativeVisualization(visualization) {
+    return !isSamePoseVisualization(visualization);
+}
+
 async function createLuxuryStudioBackground(width, height, backgroundPreset = 'charcoal') {
     const sharp = getSharp();
     if (!sharp) return null;
@@ -983,5 +987,6 @@ module.exports = {
     createLuxuryStudioBackground,
     compositeProductCutoutOntoStudio,
     isSamePoseVisualization,
+    requiresGenerativeVisualization,
     backgroundColorsForPreset,
 };
