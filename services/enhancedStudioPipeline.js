@@ -20,11 +20,15 @@ const {
     composeFeatureMacroInset,
     shouldUseRembgForProfile,
     writeTempBuffer,
+    compositeProductCutoutOntoStudio,
+    isSamePoseVisualization,
+    jewelryStructuralIdentityBlock,
 } = require('./enhancedImageProcessing');
 
 function cutoutPlacementBlock(options = 'charcoal') {
     const opts =
         typeof options === 'string' ? { backgroundPreset: options } : options || {};
+    const bg = String(opts.backgroundPreset || 'charcoal').toLowerCase();
     if (isWhiteCatalogMode(opts)) {
         return `
 
@@ -36,14 +40,24 @@ Preserve razor-sharp silver/gold micro-texture, and clean curved glass highlight
 Do NOT paste shop shadows, floating edges, grey backdrop, dark vignette, or white rectangular glare bars on glass.
 ONLY a very soft subtle contact shadow directly under the product base when a base exists in source.${woodBaseConditionalBlock()}${whiteCatalogShadowBlock()}`;
     }
+    const bgNote =
+        bg === 'blue'
+            ? 'deep navy-blue velvet/suede studio backdrop with elegant soft folds (Aurra Studio blue campaign reference)'
+            : bg === 'black'
+              ? 'pure matte black luxury studio background with subtle gradient'
+              : bg === 'red'
+                ? 'deep burgundy-red velvet luxury studio backdrop'
+                : bg === 'emerald'
+                  ? 'dark emerald green velvet luxury studio backdrop'
+                  : 'premium dark navy-charcoal stone tabletop with smoky cinematic studio backdrop (Aurra Studio reference)';
     return `
 
-[CUTOUT COMPOSITE — AURRA PLACEMENT]
-The attached image is an isolated product cutout on transparency.
-Place it centered on a premium dark navy-charcoal stone tabletop with a smooth smoky blue-grey cinematic studio backdrop (Aurra Studio reference).
+[CUTOUT COMPOSITE — STUDIO PLACEMENT]
+The attached image is an isolated product cutout on transparency — the product pixels are LOCKED; do NOT redraw, merge, or simplify the jewellery structure.
+Place it centered on ${bgNote}.
 Relight with soft diffused multi-source studio lighting — NOT a single harsh overhead spotlight.
-Preserve razor-sharp metal micro-texture and natural curved glass highlights on the dome.
-Do NOT paste shop shadows, floating edges, or white rectangular glare bars on glass.${studioShadowAndSurfaceBlock()}`;
+Preserve razor-sharp metal micro-texture, individual chain links, and natural curved glass highlights when present.
+Do NOT convert flexible chain bracelets into solid bangles. Do NOT paste shop shadows, floating edges, or white rectangular glare bars.${studioShadowAndSurfaceBlock()}`;
 }
 
 const REMBG_MODEL = process.env.ENHANCED_REMBG_MODEL || 'cjwbw/rembg';
@@ -222,22 +236,35 @@ async function runFourStepStudioPipeline({
     backgroundPreset = 'charcoal',
     renderQuality = '2k',
     templateKey = '',
+    generationOptions = {},
+    identityBrief = null,
 }) {
     const token = aiConfig?.replicate_api_token || process.env.REPLICATE_API_TOKEN || '';
     const geminiPath = isGeminiProvider(aiConfig);
+    const visualization = generationOptions.visualization || 'studio';
     const steps = {
         rembg: false,
         spatial_lock: false,
+        vlm_analysis: !!identityBrief,
+        composite: false,
         generate: false,
         polish: false,
         postprocess: false,
         upscale: false,
     };
 
+    let effectivePrompt = String(promptText || '').trim();
+    if (identityBrief) {
+        effectivePrompt += `\n\n[AI VISION PRODUCT ANALYSIS — ABSOLUTE GROUND TRUTH]\n${identityBrief}\n\nThe analysis above describes the EXACT product in the uploaded photo. Every structural detail must match — do NOT simplify, merge, or redesign.`;
+    }
+    if (profile === 'kada') {
+        effectivePrompt += jewelryStructuralIdentityBlock();
+    }
+
     const whiteCatalogOpts = {
         backgroundPreset,
         templateKey,
-        promptText,
+        promptText: effectivePrompt,
     };
     const whiteCatalog = isWhiteCatalogMode(whiteCatalogOpts);
     const qualityTier = String(renderQuality || '2k').toLowerCase();
@@ -245,7 +272,7 @@ async function runFourStepStudioPipeline({
     const wantsQualityPrep = qualityTier === '2k' || qualityTier === '4k';
 
     const runGenerate = async (srcPath, useSpatialLock, usedCutout = false) => {
-        const base = String(promptText || '').trim();
+        const base = String(effectivePrompt || '').trim();
         let lockedPrompt = useSpatialLock
             ? `${base}${spatialLockPromptBlock(whiteCatalogOpts)}`
             : base;
@@ -320,25 +347,55 @@ async function runFourStepStudioPipeline({
         }
     }
 
-    let generated = await runGenerate(generateSourcePath, true, cutout.usedRembg);
-    steps.generate = true;
+    let generated = null;
+    const compositeFirst =
+        cutout.usedRembg &&
+        profile !== 'idol' &&
+        isSamePoseVisualization(visualization) &&
+        process.env.ENHANCED_COMPOSITE_FIRST !== '0';
+
+    if (compositeFirst) {
+        try {
+            const cutoutBuf = fs.readFileSync(cutout.path);
+            const composite = await compositeProductCutoutOntoStudio(cutoutBuf, {
+                backgroundPreset,
+                visualization,
+                renderQuality,
+                profile,
+                templateKey,
+                fastMode,
+            });
+            if (composite?.buffer?.length) {
+                generated = {
+                    ...composite,
+                    provider: aiConfig?.provider || 'gemini',
+                    model: 'kc-composite-studio',
+                };
+                steps.composite = true;
+            }
+        } catch (e) {
+            console.warn('composite-first path failed, falling back to generative:', e.message);
+        }
+    }
+
+    if (!generated?.buffer?.length) {
+        generated = await runGenerate(generateSourcePath, true, cutout.usedRembg);
+        steps.generate = true;
+    }
 
     const tempPaths = [
         cutout.usedRembg ? cutout.path : null,
         preprocessedTemp,
     ];
 
-    if (
-        generated?.buffer?.length &&
-        wantsQualityPrep &&
-        geminiPath &&
-        profile !== 'kada'
-    ) {
+    if (generated?.buffer?.length && wantsQualityPrep && geminiPath) {
         const draftPath = writeTempBuffer(generated.buffer, '.png');
         tempPaths.push(draftPath);
         try {
             const polished = await generateStudioImage({
-                promptText: '',
+                promptText: identityBrief
+                    ? `[IDENTITY REFERENCE]\n${identityBrief}`
+                    : '',
                 negativePrompt: '',
                 sourceImagePath: draftPath,
                 aspectRatio,
@@ -401,15 +458,19 @@ async function runFourStepStudioPipeline({
     return {
         ...generated,
         pipeline: steps,
-        pipeline_mode: steps.polish
-            ? 'studio_gemini_aurra_2pass'
-            : cutout.usedRembg
-              ? geminiPath
-                  ? 'studio_gemini_cutout_aurra'
-                  : 'studio_4step'
-              : geminiPath
-                ? 'studio_gemini_aurra'
-                : 'studio_4step',
+        pipeline_mode: steps.composite
+            ? steps.polish
+                ? 'composite_gemini_polish'
+                : 'composite_pixel_lock'
+            : steps.polish
+              ? 'studio_gemini_aurra_2pass'
+              : cutout.usedRembg
+                ? geminiPath
+                    ? 'studio_gemini_cutout_aurra'
+                    : 'studio_4step'
+                : geminiPath
+                  ? 'studio_gemini_aurra'
+                  : 'studio_4step',
     };
 }
 

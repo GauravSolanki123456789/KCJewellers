@@ -192,6 +192,15 @@ The uploaded source photo is ABSOLUTE GROUND TRUTH for base type, metal color, a
 }
 
 function studioPolishPromptBlock(profile, backgroundPreset, options = {}) {
+    if (profile === 'kada') {
+        return `[PASS 2 — JEWELLERY IDENTITY POLISH (CRITICAL)]
+Image 1 = draft studio render. Image 2 = original product photo (ABSOLUTE ground truth).
+The jewellery in Image 2 is the exact product — preserve chain link structure, individual charms, enamel flower colors, stone placement, clasp type, and metal tone.
+If Image 2 shows a FLEXIBLE CHAIN BRACELET with visible links and spaced charms, the output MUST NOT become a solid rigid bangle or merged band — restore every link and charm from Image 2.
+If Image 2 shows a solid kada/bangle, preserve exact band width, engravings, and profile.
+Fix: wrong product topology, melted metal, missing/extra charms, wrong gold/silver tone, blur, plastic CGI look, invented props.
+Polish ONLY: backdrop velvet/studio surface, lighting, contact shadow, micro-sharpness. Do NOT redesign the jewellery.`;
+    }
     const isWhite = isWhiteCatalogMode({
         backgroundPreset,
         templateKey: options.templateKey,
@@ -677,8 +686,147 @@ async function composeFeatureMacroInset(outputBuffer, sourceImagePath, profile =
 
 function shouldUseRembgForProfile(profile) {
     if (process.env.ENHANCED_SKIP_REMBG === '1') return false;
-    if (profile === 'kada') return process.env.ENHANCED_REMBG_KADA === '1';
     return true;
+}
+
+function jewelryStructuralIdentityBlock() {
+    return `
+
+[JEWELLERY STRUCTURAL IDENTITY — CRITICAL (READ BEFORE GENERATING)]
+Classify the uploaded product precisely:
+• FLEXIBLE CHAIN / LINK BRACELET: visible individual chain links, lobster clasp, charms spaced along the chain — preserve EVERY link, charm, flower, and stone. Do NOT convert to a solid rigid bangle, cuff, or merged band. Do NOT simplify into a vertical pillar or stacked disc shape.
+• SOLID BANGLE / KADA: continuous rigid band — preserve exact width, curvature, engravings, and emblem.
+• RING / NECKLACE / EARRINGS: preserve exact design topology and component count.
+
+If standing/upright pose is requested on a flat chain bracelet: rearrange the SAME chain into an upright circle or oval balanced on edge — identical links, charms, colors, and clasp — NOT a different rigid bangle silhouette.
+Change ONLY pose, background, lighting, and environment — never product design.`;
+}
+
+const JEWELRY_NEGATIVE_LINES = [
+    'No converting chain bracelet to solid bangle',
+    'No converting flexible links to rigid band',
+    'No vertical pillar or stacked disc shape',
+    'No missing or extra flower charms',
+    'No changed enamel flower colors',
+    'No melted or merged chain links',
+    'No simplified jewellery geometry',
+    'No invented clasp or heart charm if not in source',
+    'No jewellery holder or stand unless requested',
+    'No floating disconnected charms',
+];
+
+function backgroundColorsForPreset(preset) {
+    const key = String(preset || 'charcoal').toLowerCase();
+    const map = {
+        white: { top: '#ffffff', mid: '#fafafa', bottom: '#f0f0f0', surface: '#ffffff', accent: '#e8e8e8' },
+        black: { top: '#222222', mid: '#111111', bottom: '#000000', surface: '#0a0a0a', accent: '#1a1a1a' },
+        blue: { top: '#0f1a2e', mid: '#1a2844', bottom: '#0a1220', surface: '#152238', accent: '#1e3050' },
+        charcoal: { top: '#2a3140', mid: '#1a2030', bottom: '#121820', surface: '#252b38', accent: '#303848' },
+        red: { top: '#4a1020', mid: '#5c1428', bottom: '#2a0810', surface: '#401018', accent: '#581828' },
+        emerald: { top: '#0f2818', mid: '#183828', bottom: '#081810', surface: '#123020', accent: '#1a4030' },
+        cream: { top: '#f5efe6', mid: '#ebe3d6', bottom: '#ddd4c4', surface: '#f0e8dc', accent: '#e5dcc8' },
+    };
+    return map[key] || map.charcoal;
+}
+
+function isSamePoseVisualization(visualization) {
+    const v = String(visualization || 'studio').toLowerCase();
+    return v === 'studio' || v === 'sleeping';
+}
+
+async function createLuxuryStudioBackground(width, height, backgroundPreset = 'charcoal') {
+    const sharp = getSharp();
+    if (!sharp) return null;
+    const w = Math.max(512, Math.round(width));
+    const h = Math.max(512, Math.round(height));
+    const c = backgroundColorsForPreset(backgroundPreset);
+    const isWhite = String(backgroundPreset).toLowerCase() === 'white';
+    const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="${c.top}"/>
+      <stop offset="55%" stop-color="${c.mid}"/>
+      <stop offset="100%" stop-color="${c.bottom}"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="50%" cy="72%" r="55%">
+      <stop offset="0%" stop-color="${c.surface}" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="${c.accent}" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="50%" cy="38%" r="82%">
+      <stop offset="55%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="${isWhite ? '0.04' : '0.22'}"/>
+    </radialGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <rect width="100%" height="100%" fill="url(#spot)"/>
+  <rect width="100%" height="100%" fill="url(#vig)"/>
+</svg>`;
+    try {
+        let bg = await sharp(Buffer.from(svg)).resize(w, h).png().toBuffer();
+        if (!isWhite) {
+            const grain = await sharp({
+                create: { width: w, height: h, channels: 3, background: { r: 128, g: 128, b: 128 } },
+            })
+                .png()
+                .toBuffer();
+            bg = await sharp(bg)
+                .composite([{ input: grain, blend: 'overlay', opacity: 0.035 }])
+                .png()
+                .toBuffer();
+        }
+        return bg;
+    } catch (e) {
+        console.warn('studio background generation skipped:', e.message);
+        return null;
+    }
+}
+
+async function compositeProductCutoutOntoStudio(cutoutBuffer, options = {}) {
+    const sharp = getSharp();
+    if (!sharp || !cutoutBuffer?.length) return null;
+    const targetLong = resolveOutputLongEdge(options);
+    const size = targetLong;
+    const bg = await createLuxuryStudioBackground(size, size, options.backgroundPreset || 'charcoal');
+    if (!bg) return null;
+    try {
+        const trimmed = await sharp(cutoutBuffer).trim({ threshold: 12 }).toBuffer({ resolveWithObject: true });
+        const tw = trimmed.info.width || 0;
+        const th = trimmed.info.height || 0;
+        if (tw < 24 || th < 24) return null;
+
+        const targetFill = options.profile === 'kada' ? 0.84 : 0.78;
+        const maxDim = Math.round(size * targetFill);
+        const scale = maxDim / Math.max(tw, th);
+        const nw = Math.round(tw * scale);
+        const nh = Math.round(th * scale);
+        const product = await sharp(trimmed.data)
+            .resize(nw, nh, { kernel: sharp.kernel.lanczos3 })
+            .png()
+            .toBuffer();
+
+        const left = Math.round((size - nw) / 2);
+        const top = Math.round((size - nh) / 2 + size * 0.03);
+        const shadowW = Math.round(nw * 0.72);
+        const shadowH = Math.round(nh * 0.1);
+        const shadowSvg = `<svg width="${shadowW}" height="${shadowH}" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="${shadowW / 2}" cy="${shadowH / 2}" rx="${shadowW / 2}" ry="${shadowH / 2}" fill="#000" fill-opacity="0.38"/>
+</svg>`;
+        const shadowBuf = await sharp(Buffer.from(shadowSvg)).blur(2.5).png().toBuffer();
+        const shadowLeft = left + Math.round((nw - shadowW) / 2);
+        const shadowTop = top + nh - Math.round(shadowH * 0.35);
+
+        const result = await sharp(bg)
+            .composite([
+                { input: shadowBuf, left: shadowLeft, top: shadowTop, blend: 'multiply' },
+                { input: product, left, top, blend: 'over' },
+            ])
+            .png()
+            .toBuffer();
+        return { buffer: result, mimeType: 'image/png' };
+    } catch (e) {
+        console.warn('cutout composite skipped:', e.message);
+        return null;
+    }
 }
 
 function studioShadowAndSurfaceBlock() {
@@ -789,7 +937,9 @@ function mergeSystemNegativePrompt(userNegative, options = {}) {
         .filter(Boolean);
     const seen = new Set(lines.map((l) => l.toLowerCase()));
     const extra = isWhiteCatalogMode(options) ? WHITE_CATALOG_NEGATIVE_LINES : [];
-    for (const line of [...SYSTEM_STUDIO_NEGATIVE_LINES, ...extra]) {
+    const profile = options.profile || 'generic';
+    const jewelryExtra = profile === 'kada' ? JEWELRY_NEGATIVE_LINES : [];
+    for (const line of [...SYSTEM_STUDIO_NEGATIVE_LINES, ...extra, ...jewelryExtra]) {
         const key = line.toLowerCase();
         if (!seen.has(key)) {
             lines.push(line);
@@ -828,4 +978,10 @@ module.exports = {
     assessOutputResolution,
     geminiNativeUpscale,
     resolveOutputLongEdge,
+    jewelryStructuralIdentityBlock,
+    JEWELRY_NEGATIVE_LINES,
+    createLuxuryStudioBackground,
+    compositeProductCutoutOntoStudio,
+    isSamePoseVisualization,
+    backgroundColorsForPreset,
 };

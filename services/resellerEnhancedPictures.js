@@ -34,6 +34,8 @@ const {
     filterWorkflowHighlightsForWhiteIdol,
     idolWhiteSupremacyOverrideBlock,
     metalColorPreservationBlock,
+    jewelryStructuralIdentityBlock,
+    postprocessStudioOutput,
     assessOutputResolution,
     geminiNativeUpscale,
     resolveOutputLongEdge,
@@ -1043,6 +1045,7 @@ function buildFullPrompt(
         backgroundPreset: generationOptions.backgroundPreset,
         templateKey: whiteCatalogOpts.templateKey,
         promptText: normalized.promptText,
+        profile,
     });
     const aspect = normalizeAspectRatio(aspectRatio);
     const text = String(canvasText || '').trim().slice(0, 120);
@@ -1091,6 +1094,9 @@ Soft contact shadow under the product base only when a base exists — no cast s
         main += metalColorPreservationBlock();
         main += idolWhiteSupremacyOverrideBlock();
     }
+    if (profile === 'kada') {
+        main += jewelryStructuralIdentityBlock();
+    }
     main += studioOptionsSupremacyBlock(generationOptions, profile);
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
@@ -1117,7 +1123,7 @@ function sourceLockPromptForProfile(profile, backgroundPreset, options = {}) {
         promptText: options.promptText,
     });
     if (profile === 'kada') {
-        return '\n\nSOURCE JEWELLERY (CRITICAL — STRICT REFERENCE LOCK):\nThe attached photo is the exact kada/bracelet. Preserve 100% identity — same shape, proportions, engravings, emblem, textures, metal finish, stone colors, and polish. Only improve studio lighting, pedestal, background, and commercial presentation. Do NOT redesign, recolor, resize, rotate, mirror, or alter any detail. Replace any casual background with matte black luxury studio. Soft diffused HDR lighting — no harsh spotlight rings. Leave bottom-right corner clear for macro inset overlay.';
+        return '\n\nSOURCE JEWELLERY (CRITICAL — STRICT REFERENCE LOCK):\nThe attached photo is the exact jewellery piece. Preserve 100% identity — same topology (flexible chain vs solid bangle), link structure, charm count, enamel flower colors, stone placement, clasp, engravings, metal finish, and proportions. If the source is a flexible chain bracelet with visible links and spaced charms, do NOT convert it into a solid rigid bangle, vertical pillar, or merged band. Only improve studio lighting, background, pose (when requested), and commercial presentation. Do NOT redesign, recolor, resize, mirror, or alter any detail. Replace casual backgrounds with the selected luxury studio backdrop. Soft diffused HDR lighting — no harsh spotlight rings.';
     }
     if (profile === 'idol' && isWhite) {
         return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and display base (wood, black, metal, or none — exactly as in source). Do NOT add a wooden pedestal if the source has none. Do NOT convert a black/metal base to wood. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base when a base exists — NO cast shadow on white backdrop.';
@@ -1650,6 +1656,23 @@ async function processEnhancedBatchJobRow(job, deps) {
         if (!img) {
             throw new Error('Batch succeeded but returned no image.');
         }
+        const batchProfile = detectEnhancementProfile({
+            templateKey: job.template_key,
+            varietyKey: job.variety_key,
+            promptText: job.prompt_text,
+        });
+        const finished = await postprocessStudioOutput(img.buffer, img.mimeType, {
+            profile: batchProfile,
+            fastMode: false,
+            backgroundPreset: 'charcoal',
+            renderQuality: '2k',
+            templateKey: job.template_key || '',
+        });
+        const processedImg = {
+            ...img,
+            buffer: finished.buffer,
+            mimeType: finished.mimeType,
+        };
         const stillActive = await query(
             `SELECT id FROM reseller_enhanced_picture_jobs
              WHERE id = $1 AND deleted_at IS NULL AND status IN ('batch_queued', 'batch_processing')`,
@@ -1661,7 +1684,7 @@ async function processEnhancedBatchJobRow(job, deps) {
             pool,
             job,
             generated: {
-                ...img,
+                ...processedImg,
                 provider: 'gemini',
                 model: job.ai_model || aiConfig.gemini_model,
             },
@@ -2047,6 +2070,67 @@ async function generateStudioImageCore({
     });
 }
 
+/**
+ * Vision-language analysis — like ChatGPT web silently describing the product before generation.
+ */
+async function analyzeProductIdentityWithGemini(sourceImagePath, aiConfig) {
+    const apiKey = aiConfig?.gemini_api_key || getGeminiApiKey();
+    if (!apiKey || !sourceImagePath || !fs.existsSync(sourceImagePath)) return null;
+    if (process.env.ENHANCED_SKIP_VLM_ANALYSIS === '1') return null;
+    const analysisModel =
+        String(process.env.ENHANCED_VLM_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
+    const buf = fs.readFileSync(sourceImagePath);
+    const parts = [
+        {
+            text: `You are a senior jewellery product photographer and QA analyst. Analyze this product photo for e-commerce studio regeneration.
+
+Return ONLY a technical identity brief (max 350 words) covering:
+1. Exact product type (flexible chain bracelet, solid bangle/kada, ring, necklace, idol in glass dome, etc.)
+2. CRITICAL structure: if you see individual chain links → state "FLEXIBLE CHAIN — NOT a solid bangle". Count charms/flowers and list their colors in order.
+3. Metal type and exact tone (rose gold, yellow gold, silver, etc.)
+4. Stones, enamel, clasp, extender chain, heart charm — only if visible
+5. Current pose in the photo (flat lay, standing, on hand, etc.)
+6. What must NEVER change in a studio re-render
+
+Be extremely precise. Wrong topology (chain→bangle) is a fatal error.`,
+        },
+        {
+            inline_data: {
+                mime_type: mimeFromExt(path.extname(sourceImagePath)),
+                data: buf.toString('base64'),
+            },
+        },
+    ];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(analysisModel)}:generateContent`;
+    try {
+        const res = await axios.post(
+            url,
+            {
+                contents: [{ role: 'user', parts }],
+                generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+            },
+            {
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+                timeout: 45000,
+                validateStatus: () => true,
+            },
+        );
+        if (res.status >= 400) {
+            console.warn('VLM product analysis skipped:', res.status, res.data?.error?.message);
+            return null;
+        }
+        const text = (res.data?.candidates || [])
+            .flatMap((c) => c?.content?.parts || [])
+            .map((p) => p.text || '')
+            .join('')
+            .trim();
+        return text.length > 40 ? text.slice(0, 2000) : null;
+    } catch (e) {
+        console.warn('VLM product analysis failed:', e.message);
+        return null;
+    }
+}
+
 async function generateStudioImage({
     promptText,
     negativePrompt,
@@ -2063,6 +2147,10 @@ async function generateStudioImage({
     const profile = detectEnhancementProfile({ templateKey, varietyKey, promptText });
     const pipelineOn =
         usePipeline !== false && aiConfig?.studio_pipeline_enabled !== false;
+    let identityBrief = null;
+    if (pipelineOn && sourceImagePath && fs.existsSync(sourceImagePath)) {
+        identityBrief = await analyzeProductIdentityWithGemini(sourceImagePath, aiConfig);
+    }
     return runFourStepStudioPipeline({
         promptText,
         negativePrompt,
@@ -2080,6 +2168,8 @@ async function generateStudioImage({
         backgroundPreset: generationOptions.backgroundPreset || 'charcoal',
         renderQuality: generationOptions.renderQuality || '2k',
         templateKey: templateKey || generationOptions.templateKey || '',
+        generationOptions,
+        identityBrief,
     });
 }
 
