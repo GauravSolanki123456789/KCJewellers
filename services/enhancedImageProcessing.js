@@ -492,10 +492,17 @@ function detectEnhancementProfile({ templateKey, varietyKey, promptText } = {}) 
     const pt = String(promptText || '').toLowerCase();
     if (
         vk.includes('kada') ||
+        vk.includes('bracelet') ||
+        vk.includes('bangle') ||
+        vk.includes('ladies') ||
         tk.includes('kada') ||
         tk.includes('bangle') ||
+        tk.includes('bracelet') ||
         pt.includes('uploaded kada') ||
-        (pt.includes('kada') && pt.includes('macro close-up inset'))
+        pt.includes('uploaded jewellery') ||
+        pt.includes('standing upright') ||
+        (pt.includes('kada') && pt.includes('macro close-up inset')) ||
+        (pt.includes('bracelet') && pt.includes('100% identity'))
     ) {
         return 'kada';
     }

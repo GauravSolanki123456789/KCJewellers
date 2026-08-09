@@ -322,17 +322,83 @@ const BACKGROUND_PRESETS = {
 };
 
 const VISUALIZATION_PRESETS = {
-    studio: '',
-    prop: 'Place the product on an elegant minimal luxury display prop or pedestal appropriate for jewellery catalogue photography.',
+    studio:
+        'Classic luxury studio pedestal/tabletop presentation. Product centered on an elegant matte stone, velvet, or suede surface matching the selected background colour. Eye-level catalogue framing with soft contact shadow.',
+    prop: 'Place the product on an elegant minimal luxury display prop or pedestal appropriate for jewellery catalogue photography. Premium showroom look.',
     hand_female:
-        'Show the jewellery naturally on an elegant female hand — manicured, soft skin tone, cropped at wrist. Premium editorial look.',
+        'Show the jewellery naturally worn on an elegant female hand — manicured, soft skin tone, cropped at wrist. Premium editorial catalogue look. Product identity unchanged.',
     hand_male:
-        'Show the jewellery naturally on a male hand — cropped at wrist. Premium editorial catalogue look.',
-    standing: 'Display the product in an upright standing position on the pedestal — premium catalogue arrangement.',
-    sleeping: 'Display the product in a flat sleeping/laying position on the pedestal — classic catalogue flat lay.',
+        'Show the jewellery naturally worn on a male hand — cropped at wrist. Premium editorial catalogue look. Product identity unchanged.',
+    standing:
+        'STANDING UPRIGHT DISPLAY: For bangles/bracelets — place the jewellery standing vertically on its edge (portrait orientation), balanced naturally on the studio surface with a subtle contact shadow. Rotate so the decorative centerpiece faces the camera with a slight 10–15° angle for depth. For rings — upright on band edge when possible. For idols — upright on existing base. Change ONLY pose/arrangement — preserve 100% design, metal colour, stones, and proportions from the uploaded photo.',
+    sleeping:
+        'FLAT LAY / SLEEPING POSE: Product lying flat in classic catalogue flat-lay arrangement on the studio surface. Full design visible. Preserve 100% identity — only change to horizontal resting pose.',
     mixed_bangles:
-        'For paired bangles/kadas: one piece standing upright inside the circle of the other lying flat — classic dual-angle catalogue arrangement.',
+        'For paired bangles/kadas: one piece standing upright inside the circle of the other lying flat — classic dual-angle catalogue arrangement. Preserve exact design on both pieces.',
 };
+
+function visualizationOverrideBlock(visualization, profile = 'generic') {
+    const vizKey = String(visualization || 'studio').toLowerCase();
+    const vizText = VISUALIZATION_PRESETS[vizKey];
+    if (!vizText || vizKey === 'studio') {
+        return `
+
+[USER VISUALIZATION — STUDIO (HIGHEST PRIORITY)]
+Present the product in a classic luxury studio pedestal/tabletop arrangement matching the selected background colour.
+Centered hero framing, soft contact shadow, premium commercial catalogue quality.`;
+    }
+    const poseNote =
+        vizKey === 'standing'
+            ? '\nIf the source photo shows the product flat, change ONLY the pose to standing upright while keeping every design detail identical to the source.'
+            : vizKey === 'sleeping'
+              ? '\nIf the source photo shows the product standing, change ONLY the pose to flat lay while keeping every design detail identical to the source.'
+              : '';
+    const profileNote =
+        profile === 'kada' || profile === 'generic'
+            ? '\nJewellery identity lock: same gold tone, stone placement, engravings, and proportions as the uploaded reference.'
+            : '';
+    return `
+
+[USER VISUALIZATION — ${vizKey.toUpperCase()} (HIGHEST PRIORITY — OVERRIDE CONFLICTING POSE/BACKGROUND TEXT ABOVE)]
+${vizText}${poseNote}${profileNote}
+Ignore any conflicting pose or background instructions elsewhere in this prompt — this visualization selection wins.`;
+}
+
+function backgroundPresetOverrideBlock(backgroundPreset, profile = 'generic') {
+    const bgKey = String(backgroundPreset || 'charcoal').toLowerCase();
+    const bgText = BACKGROUND_PRESETS[bgKey] || BACKGROUND_PRESETS.charcoal;
+    if (bgKey === 'white') {
+        return `
+
+[USER BACKGROUND — WHITE (HIGHEST PRIORITY — OVERRIDE CONFLICTING BACKGROUND TEXT ABOVE)]
+Pure seamless white (#FFFFFF) infinity-cove background only. Ignore any dark, blue, charcoal, or velvet background instructions above.
+Bright even diffused studio lighting. Soft contact shadow under product when a base exists.`;
+    }
+    if (bgKey === 'blue') {
+        return `
+
+[USER BACKGROUND — NAVY BLUE (HIGHEST PRIORITY — OVERRIDE CONFLICTING BACKGROUND TEXT ABOVE)]
+Luxurious deep navy-blue velvet/suede studio backdrop with elegant soft folds and smooth gradients, fading to darker blue-black at top.
+Premium showroom atmosphere. NO flowers, NO props, NO text. Match Aurra Studio luxury blue campaign quality.`;
+    }
+    if (bgKey === 'black') {
+        return `
+
+[USER BACKGROUND — BLACK (HIGHEST PRIORITY — OVERRIDE CONFLICTING BACKGROUND TEXT ABOVE)]
+Pure matte black luxury studio background with subtle gradient. Ignore any white or coloured backdrop instructions above.`;
+    }
+    return `
+
+[USER BACKGROUND — ${bgKey.toUpperCase()} (HIGHEST PRIORITY — OVERRIDE CONFLICTING BACKGROUND TEXT ABOVE)]
+${bgText}
+Ignore any conflicting background colour instructions elsewhere in this prompt — this background selection wins.${profile === 'idol' && bgKey !== 'white' ? ' Relight only — preserve product identity exactly.' : ''}`;
+}
+
+function studioOptionsSupremacyBlock(generationOptions = {}, profile = 'generic') {
+    const bg = generationOptions.backgroundPreset || 'charcoal';
+    const viz = generationOptions.visualization || 'studio';
+    return `${backgroundPresetOverrideBlock(bg, profile)}${visualizationOverrideBlock(viz, profile)}`;
+}
 
 function generationOptionsPromptBlock({ backgroundPreset, visualization, profile } = {}) {
     const parts = [];
@@ -352,7 +418,7 @@ Product centered with generous white margin — catalogue-ready for website list
     }
     const vizKey = String(visualization || 'studio').toLowerCase();
     const vizText = VISUALIZATION_PRESETS[vizKey];
-    if (vizText) {
+    if (vizText && vizKey !== 'studio') {
         parts.push(`\n\n[VISUALIZATION — ${vizKey.toUpperCase()}]\n${vizText}`);
     }
     return parts.join('');
@@ -389,6 +455,17 @@ Product including glass dome and base fills approximately 72–82% of frame HEIG
 Product fills 70–80% of the frame — clear hero shot readable without zoom.`;
 }
 
+function defaultBackgroundForTemplate(templateKey, templateLabel) {
+    const combined = `${templateKey || ''} ${templateLabel || ''}`.toLowerCase();
+    if (/\bwhite\b/.test(combined) || combined.includes('white-layout')) return 'white';
+    if (/\bblue\b/.test(combined) || /\bnavy\b/.test(combined)) return 'blue';
+    if (/\bblack\b/.test(combined)) return 'black';
+    if (/\bemerald\b/.test(combined)) return 'emerald';
+    if (/\bcream\b/.test(combined) || /\bivory\b/.test(combined)) return 'cream';
+    if (/\bred\b/.test(combined) || /\bburgundy\b/.test(combined)) return 'red';
+    return 'charcoal';
+}
+
 module.exports = {
     defaultOverlaySettings,
     normalizeOverlaySettings,
@@ -398,4 +475,8 @@ module.exports = {
     VISUALIZATION_PRESETS,
     generationOptionsPromptBlock,
     compositionPromptBlock,
+    backgroundPresetOverrideBlock,
+    visualizationOverrideBlock,
+    studioOptionsSupremacyBlock,
+    defaultBackgroundForTemplate,
 };

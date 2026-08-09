@@ -14,6 +14,7 @@ import AdminGuard from '@/components/AdminGuard'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
 import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import PromptLabWorkspace from '@/components/admin/PromptLabWorkspace'
+import { defaultBackgroundForTemplate } from '@/lib/enhanced-studio-defaults'
 import {
   adminSaveEnhancedPayment,
   adminSaveEnhancedPlans,
@@ -150,6 +151,12 @@ function AdminEnhancedPicturesInner() {
       setTemplateKey(key)
       const tpl = tpls.find((t) => t.key === key)
       if (tpl?.label) setTemplateLabel(tpl.label)
+      if (tpl) {
+        setGenerationOptions((g) => ({
+          ...g,
+          backgroundPreset: defaultBackgroundForTemplate(tpl.key, tpl.label),
+        }))
+      }
       setSelectedVarietyKey(null)
       applyTemplateShowcase(key, tpls)
       const first = prmpts.find((p) => p.template_key === key)

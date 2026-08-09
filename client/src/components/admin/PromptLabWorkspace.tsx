@@ -17,6 +17,7 @@ import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShow
 import EnhancedStudioOptions, {
   type StudioGenerationOptions,
 } from '@/components/reseller/EnhancedStudioOptions'
+import { defaultBackgroundForTemplate } from '@/lib/enhanced-studio-defaults'
 import {
   activateAdminEnhancedPrompt,
   createAdminEnhancedTemplate,
@@ -218,6 +219,14 @@ export default function PromptLabWorkspace(props: Props) {
   const selectTemplate = (key: string) => {
     onTemplateKey(key)
     onSelectedVarietyKey(null)
+    const t = templates.find((x) => x.key === key)
+    if (t?.label) onTemplateLabel(t.label)
+    if (t) {
+      onGenerationOptionsChange({
+        ...generationOptions,
+        backgroundPreset: defaultBackgroundForTemplate(t.key, t.label),
+      })
+    }
     const tPrompts = prompts.filter((p) => p.template_key === key && !p.variety_key)
     const active = tPrompts.find((p) => p.is_active) || tPrompts[0] || null
     if (active) {
@@ -228,7 +237,6 @@ export default function PromptLabWorkspace(props: Props) {
     } else {
       onSelectedId(null)
     }
-    const t = templates.find((x) => x.key === key)
     if (t?.showcase) {
       onWorkflowHighlightsText((t.showcase.workflow_highlights || []).join('\n'))
       onSystemResolutions(t.showcase.system_resolutions || '2K, 4K High Definition')

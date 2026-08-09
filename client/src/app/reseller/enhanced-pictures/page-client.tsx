@@ -24,6 +24,7 @@ import EnhancedStudioOptions, {
   RENDER_QUALITY_OPTIONS,
   type StudioGenerationOptions,
 } from '@/components/reseller/EnhancedStudioOptions'
+import { defaultBackgroundForTemplate } from '@/lib/enhanced-studio-defaults'
 import { EnhancedRecentJobsPanel } from '@/components/reseller/EnhancedRecentJobsPanel'
 import {
   attachEnhancedPicture,
@@ -315,13 +316,11 @@ export default function ResellerEnhancedPicturesPageClient() {
 
   useEffect(() => {
     if (!activeTemplate?.key) return
-    const key = activeTemplate.key.toLowerCase()
-    if (/\bwhite\b/.test(key) || key.includes('white-layout') || key.includes('white_layout')) {
-      setGenerationOptions((g) =>
-        g.backgroundPreset === 'white' ? g : { ...g, backgroundPreset: 'white' },
-      )
-    }
-  }, [activeTemplate?.key])
+    const bg = defaultBackgroundForTemplate(activeTemplate.key, activeTemplate.label)
+    setGenerationOptions((g) =>
+      g.backgroundPreset === bg ? g : { ...g, backgroundPreset: bg },
+    )
+  }, [activeTemplate?.key, activeTemplate?.label])
 
   const previewOverlayLines = useMemo(() => {
     const lines = overlaySettings.info_text_lines || []
@@ -1009,6 +1008,10 @@ export default function ResellerEnhancedPicturesPageClient() {
                   onClick={() => {
                     setTemplateKey(t.key)
                     setVarietyKey(null)
+                    setGenerationOptions((g) => ({
+                      ...g,
+                      backgroundPreset: defaultBackgroundForTemplate(t.key, t.label),
+                    }))
                   }}
                   className={`rounded-2xl border px-4 py-3 text-left transition ${
                     templateKey === t.key

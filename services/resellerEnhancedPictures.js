@@ -45,6 +45,7 @@ const {
     applyImageOverlays,
     generationOptionsPromptBlock,
     compositionPromptBlock,
+    studioOptionsSupremacyBlock,
     BACKGROUND_PRESETS,
     VISUALIZATION_PRESETS,
 } = require('./enhancedOverlay');
@@ -1090,6 +1091,7 @@ Soft contact shadow under the product base only when a base exists — no cast s
         main += metalColorPreservationBlock();
         main += idolWhiteSupremacyOverrideBlock();
     }
+    main += studioOptionsSupremacyBlock(generationOptions, profile);
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
         neg = neg
