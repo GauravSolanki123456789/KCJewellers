@@ -27,8 +27,13 @@ const {
     mergeSystemNegativePrompt,
     detectEnhancementProfile,
     isComprehensiveUserPrompt,
+    isWhiteCatalogMode,
     profileStudioQualityBlock,
     studioPolishPromptBlock,
+    sanitizePromptForWhiteCatalog,
+    filterWorkflowHighlightsForWhiteIdol,
+    idolWhiteSupremacyOverrideBlock,
+    metalColorPreservationBlock,
     assessOutputResolution,
     geminiNativeUpscale,
     resolveOutputLongEdge,
@@ -139,7 +144,10 @@ No harsh spotlight circle on tabletop
 No long projected shadow behind product
 No added wooden pedestal if not in source
 No invented wooden plinth or platform
-No converting black or metal base to wood`;
+No converting black or metal base to wood
+No added gold plating if source is plain silver
+No added red blue or purple enamel if not in source
+No added colored garments or tilak if not in source`;
 
 const TEMPLATES = [
     {
@@ -1014,23 +1022,36 @@ function buildFullPrompt(
         workflowHighlights,
         profile = 'generic',
         generationOptions = {},
+        templateKey = '',
     } = {},
 ) {
     const normalized = normalizePromptFields(promptText, negativePrompt);
     let main = normalized.promptText;
-    const isWhiteIdol = profile === 'idol' && generationOptions.backgroundPreset === 'white';
+    const whiteCatalogOpts = {
+        backgroundPreset: generationOptions.backgroundPreset,
+        templateKey: templateKey || generationOptions.templateKey,
+        promptText: normalized.promptText,
+    };
+    const isWhiteCatalog = isWhiteCatalogMode(whiteCatalogOpts);
+    const isWhiteIdol = profile === 'idol' && isWhiteCatalog;
     const isPremiumIdol =
         profile === 'idol' &&
         !isWhiteIdol &&
         (generationOptions.renderQuality === '2k' || generationOptions.renderQuality === '4k');
     let neg = mergeSystemNegativePrompt(normalized.negativePrompt, {
         backgroundPreset: generationOptions.backgroundPreset,
+        templateKey: whiteCatalogOpts.templateKey,
+        promptText: normalized.promptText,
     });
     const aspect = normalizeAspectRatio(aspectRatio);
     const text = String(canvasText || '').trim().slice(0, 120);
-    const highlights = Array.isArray(workflowHighlights)
+    let highlights = Array.isArray(workflowHighlights)
         ? workflowHighlights.map((x) => String(x).trim()).filter(Boolean)
         : [];
+    if (isWhiteIdol) {
+        main = sanitizePromptForWhiteCatalog(main);
+        highlights = filterWorkflowHighlightsForWhiteIdol(highlights);
+    }
     if (highlights.length) {
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
@@ -1045,6 +1066,7 @@ function buildFullPrompt(
             main += `\n\nOUTPUT QUALITY (CRITICAL — WHITE CATALOGUE GRADE):
 Premium e-commerce jewellery product photography on pure white (#FFFFFF). Crisp micro-textures on silver/gold metal and engravings, natural wood grain only when a wood base is present in source, clean curved glass highlights when dome present (never white rectangular glare bars).
 Do NOT add a wooden pedestal if the uploaded source has none — preserve base type exactly (wood, black, metal, or direct floor contact).
+Do NOT add gold plating or colored enamel if not present in the uploaded source photo.
 Bright even diffused studio lighting — no harsh shadows on white backdrop, no dark vignette, no grey or cream color cast.
 Hero framing: product fills 78–88% of frame height — large, close, readable without zooming.
 Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse/table clutter entirely.
@@ -1054,13 +1076,20 @@ Soft contact shadow under the product base only when a base exists — no cast s
         }
     }
     main += renderQualityPromptBlock(generationOptions.renderQuality);
-    main += profileStudioQualityBlock(profile, generationOptions.backgroundPreset);
-    main += compositionPromptBlock(profile, generationOptions);
+    main += profileStudioQualityBlock(profile, generationOptions.backgroundPreset, whiteCatalogOpts);
+    main += compositionPromptBlock(profile, {
+        ...generationOptions,
+        templateKey: whiteCatalogOpts.templateKey,
+    });
     main += generationOptionsPromptBlock({
         backgroundPreset: generationOptions.backgroundPreset,
         visualization: generationOptions.visualization,
         profile,
     });
+    if (isWhiteIdol) {
+        main += metalColorPreservationBlock();
+        main += idolWhiteSupremacyOverrideBlock();
+    }
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
         neg = neg
@@ -1079,8 +1108,12 @@ const GEMINI_BATCH_TERMINAL_STATES = new Set([
     'JOB_STATE_EXPIRED',
 ]);
 
-function sourceLockPromptForProfile(profile, backgroundPreset) {
-    const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
+function sourceLockPromptForProfile(profile, backgroundPreset, options = {}) {
+    const isWhite = isWhiteCatalogMode({
+        backgroundPreset,
+        templateKey: options.templateKey,
+        promptText: options.promptText,
+    });
     if (profile === 'kada') {
         return '\n\nSOURCE JEWELLERY (CRITICAL — STRICT REFERENCE LOCK):\nThe attached photo is the exact kada/bracelet. Preserve 100% identity — same shape, proportions, engravings, emblem, textures, metal finish, stone colors, and polish. Only improve studio lighting, pedestal, background, and commercial presentation. Do NOT redesign, recolor, resize, rotate, mirror, or alter any detail. Replace any casual background with matte black luxury studio. Soft diffused HDR lighting — no harsh spotlight rings. Leave bottom-right corner clear for macro inset overlay.';
     }
@@ -1108,7 +1141,10 @@ function buildGeminiUserParts({
     const aspect = normalizeAspectRatio(aspectRatio);
     let fullPrompt;
     if (polishMode) {
-        fullPrompt = `${studioPolishPromptBlock(profile, generationOptions.backgroundPreset)}\n\n${renderQualityPromptBlock(generationOptions.renderQuality)}`;
+        fullPrompt = `${studioPolishPromptBlock(profile, generationOptions.backgroundPreset, {
+            templateKey: generationOptions.templateKey,
+            promptText,
+        })}\n\n${renderQualityPromptBlock(generationOptions.renderQuality)}`;
     } else {
         fullPrompt = buildFullPrompt(promptText, negativePrompt, {
             aspectRatio: aspect,
@@ -1116,6 +1152,7 @@ function buildGeminiUserParts({
             workflowHighlights,
             profile,
             generationOptions,
+            templateKey: generationOptions.templateKey,
         });
     }
     const parts = [{ text: fullPrompt }];
@@ -1135,7 +1172,10 @@ function buildGeminiUserParts({
         attachImage(sourceImagePath);
         attachImage(identitySourcePath || sourceImagePath);
     } else if (sourceImagePath && fs.existsSync(sourceImagePath)) {
-        parts[0].text += sourceLockPromptForProfile(profile, generationOptions.backgroundPreset);
+        parts[0].text += sourceLockPromptForProfile(profile, generationOptions.backgroundPreset, {
+            templateKey: generationOptions.templateKey,
+            promptText,
+        });
         attachImage(sourceImagePath);
     }
     return { parts, aspect };
@@ -2037,6 +2077,7 @@ async function generateStudioImage({
         fastMode: generationOptions.fastMode === true,
         backgroundPreset: generationOptions.backgroundPreset || 'charcoal',
         renderQuality: generationOptions.renderQuality || '2k',
+        templateKey: templateKey || generationOptions.templateKey || '',
     });
 }
 
@@ -3765,6 +3806,10 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
             if (!req.file) return res.status(400).json({ error: 'image file required' });
 
             const generationOptions = parseGenerationOptions(req.body);
+            generationOptions.templateKey = String(req.body.template_key || TEMPLATE_IDOLS)
+                .trim()
+                .toLowerCase()
+                .slice(0, 64) || TEMPLATE_IDOLS;
             const creditCost = creditCostForRenderQuality(generationOptions.renderQuality);
             const creditCheck = await getCreditBalance(query, req.user.id);
             if (!creditCheck || creditCheck.credits < creditCost) {

@@ -16,13 +16,16 @@ const {
     studioShadowAndSurfaceBlock,
     whiteCatalogShadowBlock,
     woodBaseConditionalBlock,
+    isWhiteCatalogMode,
     composeFeatureMacroInset,
     shouldUseRembgForProfile,
     writeTempBuffer,
 } = require('./enhancedImageProcessing');
 
-function cutoutPlacementBlock(backgroundPreset = 'charcoal') {
-    if (String(backgroundPreset || '').toLowerCase() === 'white') {
+function cutoutPlacementBlock(options = 'charcoal') {
+    const opts =
+        typeof options === 'string' ? { backgroundPreset: options } : options || {};
+    if (isWhiteCatalogMode(opts)) {
         return `
 
 [CUTOUT COMPOSITE — WHITE CATALOGUE PLACEMENT]
@@ -218,6 +221,7 @@ async function runFourStepStudioPipeline({
     fastMode = true,
     backgroundPreset = 'charcoal',
     renderQuality = '2k',
+    templateKey = '',
 }) {
     const token = aiConfig?.replicate_api_token || process.env.REPLICATE_API_TOKEN || '';
     const geminiPath = isGeminiProvider(aiConfig);
@@ -230,7 +234,12 @@ async function runFourStepStudioPipeline({
         upscale: false,
     };
 
-    const whiteCatalog = String(backgroundPreset || '').toLowerCase() === 'white';
+    const whiteCatalogOpts = {
+        backgroundPreset,
+        templateKey,
+        promptText,
+    };
+    const whiteCatalog = isWhiteCatalogMode(whiteCatalogOpts);
     const qualityTier = String(renderQuality || '2k').toLowerCase();
     const rembgWaitMs = fastMode ? 90000 : 120000;
     const wantsQualityPrep = qualityTier === '2k' || qualityTier === '4k';
@@ -238,9 +247,9 @@ async function runFourStepStudioPipeline({
     const runGenerate = async (srcPath, useSpatialLock, usedCutout = false) => {
         const base = String(promptText || '').trim();
         let lockedPrompt = useSpatialLock
-            ? `${base}${spatialLockPromptBlock({ backgroundPreset })}`
+            ? `${base}${spatialLockPromptBlock(whiteCatalogOpts)}`
             : base;
-        if (usedCutout) lockedPrompt += cutoutPlacementBlock(backgroundPreset);
+        if (usedCutout) lockedPrompt += cutoutPlacementBlock(whiteCatalogOpts);
         return generateStudioImage({
             promptText: lockedPrompt,
             negativePrompt,
@@ -262,6 +271,8 @@ async function runFourStepStudioPipeline({
                 fastMode,
                 backgroundPreset,
                 renderQuality,
+                templateKey,
+                promptText,
             });
             if (finished.buffer !== result.buffer) {
                 result = { ...result, buffer: finished.buffer, mimeType: finished.mimeType };
@@ -366,6 +377,8 @@ async function runFourStepStudioPipeline({
             fastMode,
             backgroundPreset,
             renderQuality,
+            templateKey,
+            promptText,
         });
         if (finished.buffer !== generated.buffer) {
             generated = { ...generated, buffer: finished.buffer, mimeType: finished.mimeType };

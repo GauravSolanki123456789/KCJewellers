@@ -69,7 +69,7 @@ function statusMeta(job: EnhancedRecentJob) {
     }
   }
   return {
-    label: job.status.replace(/_/g, ' '),
+    label: (job.status || 'unknown').replace(/_/g, ' '),
     tone: 'slate' as const,
     hint: 'Tap for details',
   }
@@ -167,8 +167,10 @@ export function EnhancedRecentJobsPanel({
               job.download_filename?.replace(/\.[^.]+$/, '') ||
               `Job #${job.id}`
             const templateLabel =
-              templateLabels[job.template_key] ||
-              job.template_key.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+              (job.template_key && templateLabels[job.template_key]) ||
+              (job.template_key
+                ? job.template_key.replace(/-/g, ' ').replace(/\b\w/g, (c) => (c ? c.toUpperCase() : ''))
+                : 'Studio')
             const isActive = activeJobId === job.id
             const isPending = isPendingJob(job)
             const isBusy = actionJobId === job.id

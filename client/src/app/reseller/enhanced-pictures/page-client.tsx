@@ -308,6 +308,16 @@ export default function ResellerEnhancedPicturesPageClient() {
     return activeVariety?.sample_source_image_url || activeTemplate?.showcase?.sample_source_image_url || null
   }, [sourcePreview, activeVariety, activeTemplate])
 
+  useEffect(() => {
+    if (!activeTemplate?.key) return
+    const key = activeTemplate.key.toLowerCase()
+    if (/\bwhite\b/.test(key) || key.includes('white-layout') || key.includes('white_layout')) {
+      setGenerationOptions((g) =>
+        g.backgroundPreset === 'white' ? g : { ...g, backgroundPreset: 'white' },
+      )
+    }
+  }, [activeTemplate?.key])
+
   const previewOverlayLines = useMemo(() => {
     const lines = overlaySettings.info_text_lines || []
     const variety = activeVariety?.variety_label || ''

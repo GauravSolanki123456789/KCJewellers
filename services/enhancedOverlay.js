@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { getSharp } = require('./enhancedImageProcessing');
+const { getSharp, isWhiteCatalogMode } = require('./enhancedImageProcessing');
 
 const OVERLAY_POSITIONS = new Set([
     'top-left',
@@ -311,7 +311,10 @@ function compositionPromptBlock(profile, options = {}) {
 Product fills approximately 75–85% of frame width, centered on pedestal. Close hero shot — engravings and emblem details must be clearly readable WITHOUT the customer zooming in. Not tiny in frame, not extreme macro crop.`;
     }
     if (profile === 'idol') {
-        const isWhite = String(options?.backgroundPreset || '').toLowerCase() === 'white';
+        const isWhite = isWhiteCatalogMode({
+            backgroundPreset: options?.backgroundPreset,
+            templateKey: options?.templateKey,
+        });
         if (isWhite) {
             return `
 

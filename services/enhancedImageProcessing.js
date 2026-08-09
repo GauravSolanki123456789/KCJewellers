@@ -97,11 +97,106 @@ async function smoothBackdropKeepProductSharp(sharp, buffer, w, h) {
 }
 
 function isWhiteCatalogMode(options = {}) {
-    return String(options.backgroundPreset || '').toLowerCase() === 'white';
+    const bg = String(options.backgroundPreset || '').toLowerCase();
+    if (bg === 'white') return true;
+    const tk = String(options.templateKey || '').toLowerCase();
+    if (/\bwhite\b/.test(tk) || tk.includes('white-layout') || tk.includes('white_layout')) {
+        return true;
+    }
+    const pt = String(options.promptText || '').toLowerCase();
+    if (
+        /pure.{0,24}white|sterile white|white void|white catalogue|#ffffff|infinity-cove|high-key white|e-commerce.{0,20}white|warm white.{0,40}background/.test(
+            pt,
+        )
+    ) {
+        return true;
+    }
+    return false;
 }
 
-function studioPolishPromptBlock(profile, backgroundPreset) {
-    const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
+function metalColorPreservationBlock() {
+    return `
+
+[METAL & COLOR — CONDITIONAL (CRITICAL)]
+Inspect the uploaded source photo before generating:
+• If the source is plain silver/pewter/antique silver with NO gold → do NOT add gold plating, gold crowns, or gold ornaments.
+• If the source has NO red, blue, or purple enamel/paint/garments → do NOT add tilak, colored dhotis, saris, or enamel accents.
+• Preserve exact metal tone, oxidation, and paint from source — polish and sharpen only, never recolor or "upgrade" to gold/enamel.
+• If gold or color IS present in source → preserve those exact hues and placement.`;
+}
+
+function sanitizePromptForWhiteCatalog(promptText) {
+    let t = String(promptText || '');
+    const replacements = [
+        [
+            /Center the enhanced idol on a luxurious, highly polished, rich wood display base[^\n.]*/gi,
+            'Preserve whatever base is in the uploaded source — wood only if already present; do NOT add a wooden display base if the source has none',
+        ],
+        [
+            /No props \(other than the required wood base\)/gi,
+            'No props unless already part of the uploaded product',
+        ],
+        [
+            /All ornamentation, clothing, and crowns are gold-plated[^\n.]*/gi,
+            'Preserve ornamentation metal colors exactly as in the uploaded source — do NOT add gold plating if the source is plain silver',
+        ],
+        [
+            /Enamel colors \(like the reds and blues[^\n.]*/gi,
+            'Preserve paint/enamel colors exactly as in source only — do NOT add red, blue, or purple if not in the uploaded photo',
+        ],
+        [/Deep ruby reds\.[^\n]*/gi, ''],
+        [/Royal muted purples\.[^\n]*/gi, ''],
+        [/Rich champagne gold\.[^\n]*/gi, 'Preserve exact metal colors from source.'],
+        [/Warm white\.[^\n]*ivory[^\n]*/gi, 'Pure white (#FFFFFF) background only'],
+        [/Very subtle studio vignette/gi, 'No vignette on white background'],
+        [/True-to-Life Wood Grain Preservation/gi, 'Wood grain only when wood base exists in source'],
+    ];
+    for (const [re, rep] of replacements) {
+        t = t.replace(re, rep);
+    }
+    return t.trim();
+}
+
+function filterWorkflowHighlightsForWhiteIdol(highlights) {
+    return (Array.isArray(highlights) ? highlights : [])
+        .map((h) => {
+            const l = String(h).trim();
+            const lower = l.toLowerCase();
+            if (!l) return null;
+            if (lower.includes('wood grain') && !lower.includes('when') && !lower.includes('only')) {
+                return 'Wood grain preservation only when present in source photo';
+            }
+            if (lower.includes('gold color') || lower.includes('silver & gold color')) {
+                return 'Accurate metal colors from source — no added gold or enamel';
+            }
+            if (lower.includes('cinematic background')) {
+                return 'Pure white studio background';
+            }
+            return l;
+        })
+        .filter(Boolean)
+        .filter((h, i, arr) => arr.indexOf(h) === i);
+}
+
+function idolWhiteSupremacyOverrideBlock() {
+    return `
+
+[FINAL OVERRIDE — HIGHEST PRIORITY (SUPERSEDES ALL CONFLICTING TEXT ABOVE)]
+The uploaded source photo is ABSOLUTE GROUND TRUTH for base type, metal color, and paint/enamel.
+• Plain silver source with no wood base → output plain silver on pure #FFFFFF white with NO wooden pedestal.
+• Wood base in source → preserve that exact wood base (shape, tiers, grain).
+• Do NOT add gold plating, red/blue/purple enamel, colored garments, or tilak unless visible in the source.
+• Do NOT add drum, flute, arch, or extra ornaments not in source.
+• Background MUST be pure seamless #FFFFFF white — no cream, ivory, grey gradient, or vignette.
+• Only improve lighting, sharpness, and background cleanup — never redesign the product.`;
+}
+
+function studioPolishPromptBlock(profile, backgroundPreset, options = {}) {
+    const isWhite = isWhiteCatalogMode({
+        backgroundPreset,
+        templateKey: options.templateKey,
+        promptText: options.promptText,
+    });
     if (isWhite) {
         return `[PASS 2 — WHITE CATALOGUE POLISH]
 Image 1 = draft studio render. Image 2 = original product photo (ABSOLUTE ground truth).
@@ -458,7 +553,7 @@ Product (idol + whatever base is in the source — wood, black, metal, or none �
 Bright even diffused studio lighting — no harsh shadows on white backdrop.
 ONLY soft subtle grey contact shadow directly under the base when a base exists — never a dark blob on the white floor.
 Crisp silver/gold micro-texture, natural metallic speculars, engraved detail sharp and readable.
-Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${woodBaseConditionalBlock()}${whiteCatalogShadowBlock()}`;
+Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${woodBaseConditionalBlock()}${metalColorPreservationBlock()}${whiteCatalogShadowBlock()}`;
 }
 
 function idolPremiumStudioBlock() {
@@ -473,8 +568,12 @@ Surface: dark polished stone or matte black pedestal; soft contact shadow under 
 Hero framing: product including glass dome fills 82–88% of frame height — large close catalogue hero.${studioShadowAndSurfaceBlock()}`;
 }
 
-function profileStudioQualityBlock(profile, backgroundPreset) {
-    const isWhite = String(backgroundPreset || '').toLowerCase() === 'white';
+function profileStudioQualityBlock(profile, backgroundPreset, options = {}) {
+    const isWhite = isWhiteCatalogMode({
+        backgroundPreset,
+        templateKey: options.templateKey,
+        promptText: options.promptText,
+    });
     if (profile === 'kada') {
         return `
 
@@ -613,7 +712,7 @@ The attached photo is the EXACT product. Do NOT redraw, warp, melt, recolor, or 
 Generate ONLY a pure white seamless studio environment and professional relighting AROUND the locked product.
 Replace any shop/warehouse/table clutter with clean #FFFFFF infinity-cove background.
 If shot through glass: keep the real dome shape and natural refraction — never fake white glare bars or duplicated ghost images.
-Do NOT copy messy shop shadows onto the white backdrop — use only a soft contact shadow under the base when a base exists in source.${woodBaseConditionalBlock()}${whiteCatalogShadowBlock()}`;
+Do NOT copy messy shop shadows onto the white backdrop — use only a soft contact shadow under the base when a base exists in source.${woodBaseConditionalBlock()}${metalColorPreservationBlock()}${whiteCatalogShadowBlock()}`;
     }
     return `
 
@@ -637,6 +736,9 @@ const WHITE_CATALOG_NEGATIVE_LINES = [
     'No added wooden pedestal if not in source',
     'No invented wooden plinth or platform',
     'No converting black or metal base to wood',
+    'No added gold plating if source is plain silver',
+    'No added red blue or purple enamel if not in source',
+    'No added colored garments or tilak if not in source',
 ];
 
 /** Always appended to negative prompts for catalogue shadow cleanup. */
@@ -711,6 +813,10 @@ module.exports = {
     composeFeatureMacroInset,
     shouldUseRembgForProfile,
     isWhiteCatalogMode,
+    metalColorPreservationBlock,
+    sanitizePromptForWhiteCatalog,
+    filterWorkflowHighlightsForWhiteIdol,
+    idolWhiteSupremacyOverrideBlock,
     studioPolishPromptBlock,
     assessOutputResolution,
     geminiNativeUpscale,
