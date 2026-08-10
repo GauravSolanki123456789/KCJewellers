@@ -97,21 +97,35 @@ async function smoothBackdropKeepProductSharp(sharp, buffer, w, h) {
     return sharp(smoothBg).composite([{ input: productLayer, blend: 'over' }]).toBuffer();
 }
 
+const DARK_BACKGROUND_PRESETS = new Set([
+    'black',
+    'charcoal',
+    'blue',
+    'navy',
+    'emerald',
+    'red',
+    'burgundy',
+    'cream',
+]);
+
+/**
+ * White catalogue mode — user's Style · background selection wins over template name and prompt text.
+ * (Prompt-text heuristics caused false positives when master prompts mention #FFFFFF in negatives.)
+ */
 function isWhiteCatalogMode(options = {}) {
     const bg = String(options.backgroundPreset || '').toLowerCase();
     if (bg === 'white') return true;
+    if (DARK_BACKGROUND_PRESETS.has(bg)) return false;
+
     const tk = String(options.templateKey || '').toLowerCase();
     if (/\bwhite\b/.test(tk) || tk.includes('white-layout') || tk.includes('white_layout')) {
         return true;
     }
-    const pt = String(options.promptText || '').toLowerCase();
-    if (
-        /pure.{0,24}white|sterile white|white void|white catalogue|#ffffff|infinity-cove|high-key white|e-commerce.{0,20}white|warm white.{0,40}background/.test(
-            pt,
-        )
-    ) {
-        return true;
+    if (/\bblack\b/.test(tk) || tk.includes('black-layout') || tk.includes('black_layout')) {
+        return false;
     }
+    if (/\bblue\b/.test(tk) || tk.includes('blue-layout')) return false;
+
     return false;
 }
 

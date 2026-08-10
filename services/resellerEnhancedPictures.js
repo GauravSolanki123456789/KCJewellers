@@ -1161,15 +1161,12 @@ const GEMINI_BATCH_TERMINAL_STATES = new Set([
 ]);
 
 function sourceLockPromptForProfile(profile, backgroundPreset, options = {}) {
-    const isWhite = isWhiteCatalogMode({
-        backgroundPreset,
-        templateKey: options.templateKey,
-        promptText: options.promptText,
-    });
+    const bg = String(backgroundPreset || 'charcoal').toLowerCase();
+    const whiteByStyle = bg === 'white';
     if (profile === 'kada') {
         return '\n\nSOURCE JEWELLERY (CRITICAL — STRICT REFERENCE LOCK):\nThe attached photo is the exact jewellery piece. Preserve 100% identity — same topology (flexible chain vs solid bangle), link structure, charm count, enamel flower colors, stone placement, clasp, engravings, metal finish, and proportions. If the source is a flexible chain bracelet with visible links and spaced charms, do NOT convert it into a solid rigid bangle, vertical pillar, or merged band. Only improve studio lighting, background, pose (when requested), and commercial presentation. Do NOT redesign, recolor, resize, mirror, or alter any detail. Replace casual backgrounds with the selected luxury studio backdrop. Soft diffused HDR lighting — no harsh spotlight rings.';
     }
-    if (profile === 'idol' && isWhite) {
+    if (profile === 'idol' && whiteByStyle) {
         return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and display base (wood, black, metal, or none — exactly as in source). Do NOT add a wooden pedestal if the source has none. Do NOT convert a black/metal base to wood. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base when a base exists — NO cast shadow on white backdrop.';
     }
     if (profile === 'idol') {

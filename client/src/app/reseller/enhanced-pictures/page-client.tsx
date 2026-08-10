@@ -85,6 +85,9 @@ function formatBatchStateLabel(state: string | null | undefined) {
     .toLowerCase()
 }
 
+const ENHANCED_TEMPLATE_KEY_STORAGE = 'kc-enhanced-template-key'
+const ENHANCED_VARIETY_KEY_STORAGE = 'kc-enhanced-variety-key'
+
 export default function ResellerEnhancedPicturesPageClient() {
   const auth = useAuth()
   const { customerTier, tierReady } = useCustomerTier()
@@ -220,7 +223,23 @@ export default function ResellerEnhancedPicturesPageClient() {
       setRazorpayEnabled(!!data.razorpay_enabled)
       setPaymentQrUrl(data.payment_qr_url || null)
       setBankDetails(data.bank_details || null)
-      if (data.templates?.[0]?.key) setTemplateKey(data.templates[0].key)
+      const templateList = data.templates || []
+      let restoredTemplateKey: string | null = null
+      let restoredVarietyKey: string | null = null
+      try {
+        restoredTemplateKey = window.localStorage.getItem(ENHANCED_TEMPLATE_KEY_STORAGE)
+        restoredVarietyKey = window.localStorage.getItem(ENHANCED_VARIETY_KEY_STORAGE)
+      } catch {
+        /* ignore */
+      }
+      if (restoredTemplateKey && templateList.some((t) => t.key === restoredTemplateKey)) {
+        setTemplateKey(restoredTemplateKey)
+      } else if (templateList[0]?.key) {
+        setTemplateKey(templateList[0].key)
+      }
+      if (restoredVarietyKey) {
+        setVarietyKey(restoredVarietyKey)
+      }
       setHints(data.hints || [])
       setRecentJobs(data.jobs || [])
       if (data.overlay_settings) {
@@ -1015,6 +1034,12 @@ export default function ResellerEnhancedPicturesPageClient() {
                   onClick={() => {
                     setTemplateKey(t.key)
                     setVarietyKey(null)
+                    try {
+                      window.localStorage.setItem(ENHANCED_TEMPLATE_KEY_STORAGE, t.key)
+                      window.localStorage.removeItem(ENHANCED_VARIETY_KEY_STORAGE)
+                    } catch {
+                      /* ignore */
+                    }
                     setGenerationOptions((g) => ({
                       ...g,
                       backgroundPreset: defaultBackgroundForTemplate(t.key, t.label),
@@ -1048,7 +1073,14 @@ export default function ResellerEnhancedPicturesPageClient() {
                   <button
                     key={v.variety_key}
                     type="button"
-                    onClick={() => setVarietyKey(v.variety_key)}
+                    onClick={() => {
+                      setVarietyKey(v.variety_key)
+                      try {
+                        window.localStorage.setItem(ENHANCED_VARIETY_KEY_STORAGE, v.variety_key)
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
                     className={`min-h-[40px] rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
                       (varietyKey || activeVariety?.variety_key) === v.variety_key
                         ? 'bg-[var(--kc-accent,#c41e3a)] text-white'

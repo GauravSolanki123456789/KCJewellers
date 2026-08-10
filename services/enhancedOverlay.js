@@ -390,7 +390,8 @@ Premium showroom atmosphere. NO flowers, NO props, NO text. Match Aurra Studio l
         return `
 
 [USER BACKGROUND — BLACK (HIGHEST PRIORITY — OVERRIDE CONFLICTING BACKGROUND TEXT ABOVE)]
-Pure matte black luxury studio background with subtle gradient. Ignore any white or coloured backdrop instructions above.`;
+Deep charcoal-to-midnight-blue museum studio gradient with soft radial glow behind product — NOT flat pure white, NOT e-commerce white catalogue.
+Dark navy-black stone surface beneath product. Ignore any white, cream, or infinity-cove background instructions above.`;
     }
     return `
 
