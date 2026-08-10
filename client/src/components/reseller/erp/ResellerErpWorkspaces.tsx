@@ -781,15 +781,17 @@ export function ReportsWorkspace({ percentagesOnly = false }: { percentagesOnly?
         ))}
       </div>
       <ul className="space-y-2">
-        {data.byType.map((row) => (
-          <li key={row.bill_type} className={`${erpCardCls} flex items-center justify-between text-sm`}>
-            <span className="font-medium capitalize text-[var(--color-jewelry-black,#1a1814)]">{row.bill_type}</span>
-            <span className="tabular-nums text-[var(--color-jewelry-black,#1a1814)]/70">
-              {row.n} · {formatErpInr(row.total)}
-              {s.totalInr > 0 ? ` · ${Math.round((row.total / s.totalInr) * 1000) / 10}%` : ''}
-            </span>
-          </li>
-        ))}
+        {!percentagesOnly
+          ? data.byType.map((row) => (
+              <li key={row.bill_type} className={`${erpCardCls} flex items-center justify-between text-sm`}>
+                <span className="font-medium capitalize text-[var(--color-jewelry-black,#1a1814)]">{row.bill_type}</span>
+                <span className="tabular-nums text-[var(--color-jewelry-black,#1a1814)]/70">
+                  {row.n} · {formatErpInr(row.total)}
+                  {s.totalInr > 0 ? ` · ${Math.round((row.total / s.totalInr) * 1000) / 10}%` : ''}
+                </span>
+              </li>
+            ))
+          : null}
       </ul>
     </div>
   )

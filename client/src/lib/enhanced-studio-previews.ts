@@ -37,15 +37,15 @@ export const BACKGROUND_PREVIEW: Record<
 
 export const VISUALIZATION_PREVIEW: Record<
   string,
-  { label: string; hint: string; icon: string }
+  { label: string; hint: string }
 > = {
-  studio: { label: 'Studio', hint: 'Classic pedestal / tabletop', icon: '🪨' },
-  prop: { label: 'On prop', hint: 'Luxury display stand', icon: '🏛️' },
-  hand_female: { label: 'Female hand', hint: 'Editorial wear shot', icon: '💅' },
-  hand_male: { label: 'Male hand', hint: 'Editorial wear shot', icon: '🤚' },
-  standing: { label: 'Standing', hint: 'Upright display', icon: '🧍' },
-  sleeping: { label: 'Flat lay', hint: 'Sleeping / flat position', icon: '➖' },
-  mixed_bangles: { label: 'Pair layout', hint: 'One up, one flat', icon: '⭕' },
+  studio: { label: 'Studio', hint: 'Classic pedestal / tabletop' },
+  prop: { label: 'On prop', hint: 'Luxury display stand' },
+  hand_female: { label: 'Female hand', hint: 'Editorial wear shot' },
+  hand_male: { label: 'Male hand', hint: 'Editorial wear shot' },
+  standing: { label: 'Standing', hint: 'Upright display' },
+  sleeping: { label: 'Flat lay', hint: 'Sleeping / flat position' },
+  mixed_bangles: { label: 'Pair layout', hint: 'One up, one flat' },
 }
 
 export function studioPreviewLabel(backgroundPreset: string, visualization: string): string {

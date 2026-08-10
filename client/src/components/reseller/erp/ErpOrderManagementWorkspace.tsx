@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   ArrowRightLeft,
@@ -19,6 +19,11 @@ import {
 } from 'lucide-react'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import {
+  clearErpOrderDraft,
+  loadErpOrderDraft,
+  saveErpOrderDraft,
+} from '@/lib/erp-order-draft'
 import { BarcodeLookupField } from '@/components/reseller/erp/ResellerErpWorkspaces'
 import {
   erpBtnGhost,
@@ -166,6 +171,26 @@ function OrderJobCard({
   const canTransfer = job.status === 'with_karigar'
   const canComplete = job.status === 'in_shop' || job.status === 'returned'
   const canCancel = !['completed', 'cancelled'].includes(job.status)
+
+  const deleteOrder = async () => {
+    if (busy) return
+    if (
+      !window.confirm(
+        `Delete ${job.bill_number}? This removes the order and karigar tracking. The order number can be reused.`,
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      await axios.delete(`/api/reseller/erp/bills/${job.bill_id}`)
+      await onRefresh()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <li className={erpCardCls}>
@@ -322,6 +347,16 @@ function OrderJobCard({
           {karigars.length === 0 && (canHandTo || canTransfer) ? (
             <p className="text-xs text-amber-800">Add at least one karigar in the Karigars tab to assign work.</p>
           ) : null}
+
+          <button
+            type="button"
+            disabled={busy}
+            className={`${erpBtnGhost} w-full border-rose-200 text-rose-700`}
+            onClick={() => void deleteOrder()}
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            Delete order
+          </button>
         </div>
       ) : null}
     </li>
@@ -467,15 +502,33 @@ function KarigarsPanel({ karigars, onRefresh }: { karigars: ErpKarigar[]; onRefr
 }
 
 export function ErpOrderManagementWorkspace() {
-  const [tab, setTab] = useState<'orders' | 'karigars'>('orders')
+  const initialDraft = useMemo(() => loadErpOrderDraft(), [])
+  const [tab, setTab] = useState<'orders' | 'karigars'>(initialDraft.tab)
   const [jobs, setJobs] = useState<ErpOrderJob[]>([])
   const [karigars, setKarigars] = useState<ErpKarigar[]>([])
   const [filter, setFilter] = useState<'all' | ErpOrderJobStatus>('all')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
-  const [customerName, setCustomerName] = useState('')
-  const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState<ErpBillLine[]>([])
+  const [customerName, setCustomerName] = useState(initialDraft.customerName)
+  const [notes, setNotes] = useState(initialDraft.notes)
+  const [lines, setLines] = useState<ErpBillLine[]>(initialDraft.lines)
+  const [freeTextLine, setFreeTextLine] = useState(initialDraft.freeTextLine)
+  const draftReady = useRef(false)
+
+  useEffect(() => {
+    draftReady.current = true
+  }, [])
+
+  useEffect(() => {
+    if (!draftReady.current) return
+    saveErpOrderDraft({
+      customerName,
+      notes,
+      lines,
+      freeTextLine,
+      tab,
+    })
+  }, [customerName, notes, lines, freeTextLine, tab])
 
   const loadJobs = useCallback(async () => {
     const params: Record<string, string> = {}
@@ -516,6 +569,22 @@ export function ErpOrderManagementWorkspace() {
     ])
   }
 
+  const addFreeTextLine = () => {
+    const text = freeTextLine.trim()
+    if (!text) return
+    setLines((prev) => [
+      ...prev,
+      {
+        name: text,
+        code: text,
+        qty: 1,
+        unitInr: null,
+        lineTotalInr: null,
+      },
+    ])
+    setFreeTextLine('')
+  }
+
   const total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0)
 
   const saveOrder = async () => {
@@ -533,6 +602,8 @@ export function ErpOrderManagementWorkspace() {
       setCustomerName('')
       setNotes('')
       setLines([])
+      setFreeTextLine('')
+      clearErpOrderDraft()
       await refreshAll()
     } catch (e) {
       alert(erpErr(e))
@@ -600,6 +671,34 @@ export function ErpOrderManagementWorkspace() {
                 onChange={(e) => setCustomerName(e.target.value)}
               />
               <BarcodeLookupField onHit={addLineFromProduct} />
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Or type item / order line
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    className={erpInputCls}
+                    placeholder="e.g. 500 pcs payal, 150 rings, 125 curb packets"
+                    value={freeTextLine}
+                    onChange={(e) => setFreeTextLine(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addFreeTextLine()
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className={`${erpBtnGhost} shrink-0 sm:min-w-[120px]`}
+                    disabled={!freeTextLine.trim()}
+                    onClick={() => addFreeTextLine()}
+                  >
+                    <Plus className="size-4" />
+                    Add line
+                  </button>
+                </div>
+              </div>
               {lines.length > 0 ? (
                 <ul className="space-y-2">
                   {lines.map((line, idx) => (

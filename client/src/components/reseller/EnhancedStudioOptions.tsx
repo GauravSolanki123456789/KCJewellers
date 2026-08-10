@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { ImagePlus, Sparkles, Type, Upload } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState, type ComponentType } from 'react'
+import { ImagePlus, Sparkles, Type, Upload, Box, Landmark, Hand, MoveVertical, Minus, CircleDot } from 'lucide-react'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
 import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 import {
@@ -74,11 +74,21 @@ const BACKGROUND_SWATCHES = BACKGROUND_SWATCH_KEYS.map((key) => ({
   gradient: BACKGROUND_PREVIEW[key]?.gradient || BACKGROUND_PREVIEW.charcoal.gradient,
 }))
 
+const VISUALIZATION_ICON: Record<string, ComponentType<{ className?: string }>> = {
+  studio: Box,
+  prop: Landmark,
+  hand_female: Hand,
+  hand_male: Hand,
+  standing: MoveVertical,
+  sleeping: Minus,
+  mixed_bangles: CircleDot,
+}
+
 const VISUALIZATION_OPTIONS = VISUALIZATION_KEYS.map((key) => ({
   key,
   label: VISUALIZATION_PREVIEW[key]?.label || key,
   hint: VISUALIZATION_PREVIEW[key]?.hint || '',
-  icon: VISUALIZATION_PREVIEW[key]?.icon || '✨',
+  Icon: VISUALIZATION_ICON[key] || Sparkles,
 }))
 
 const POSITIONS = [
@@ -346,10 +356,18 @@ export default function EnhancedStudioOptions({
                 }`}
               >
                 <div
-                  className="flex h-12 items-center justify-center text-2xl sm:h-14"
+                  className="flex h-12 items-center justify-center sm:h-14"
                   style={backgroundPreviewStyle(generationOptions.backgroundPreset)}
                 >
-                  {v.icon}
+                  <v.Icon
+                    className={`size-6 ${
+                      generationOptions.backgroundPreset === 'white' ||
+                      generationOptions.backgroundPreset === 'cream'
+                        ? 'text-[var(--color-jewelry-black,#1a1814)]/70'
+                        : 'text-white/90'
+                    }`}
+                    aria-hidden
+                  />
                 </div>
                 <div className="border-t border-[var(--color-slate-700,#e8e4df)]/60 px-3 py-2">
                   <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
@@ -523,9 +541,21 @@ export default function EnhancedStudioOptions({
             />
           ) : (
             <div className="flex size-full flex-col items-center justify-center gap-2 p-4 text-center">
-              <span className="text-4xl">
-                {VISUALIZATION_PREVIEW[generationOptions.visualization]?.icon || '✨'}
-              </span>
+              {(() => {
+                const VizIcon =
+                  VISUALIZATION_ICON[generationOptions.visualization] || Sparkles
+                return (
+                  <VizIcon
+                    className={`size-10 ${
+                      generationOptions.backgroundPreset === 'white' ||
+                      generationOptions.backgroundPreset === 'cream'
+                        ? 'text-[var(--color-jewelry-black,#1a1814)]/55'
+                        : 'text-white/85'
+                    }`}
+                    aria-hidden
+                  />
+                )
+              })()}
               <p
                 className={`text-xs font-semibold drop-shadow-md ${
                   generationOptions.backgroundPreset === 'white' ||

@@ -391,7 +391,9 @@ function registerResellerErpRoutes(app, deps) {
                 ),
                 query(
                     `SELECT COUNT(*)::int AS n,
-                            COALESCE(SUM(total_inr) FILTER (WHERE status <> 'cancelled'), 0)::float AS total
+                            COALESCE(SUM(total_inr) FILTER (
+                                WHERE status <> 'cancelled' AND bill_type <> 'order'
+                            ), 0)::float AS total
                      FROM reseller_erp_bills WHERE reseller_user_id = $1`,
                     [req.user.id],
                 ),
@@ -1377,12 +1379,14 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const rows = await query(
                 `SELECT
-                    COUNT(*)::int AS bill_count,
-                    COALESCE(SUM(total_inr) FILTER (WHERE status IN ('completed','paid','final')), 0)::float AS completed_inr,
+                    COUNT(*) FILTER (WHERE bill_type <> 'order')::int AS bill_count,
+                    COALESCE(SUM(total_inr) FILTER (
+                        WHERE status IN ('completed','paid','final') AND bill_type = 'sale'
+                    ), 0)::float AS completed_inr,
                     COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'credit'), 0)::float AS credit_inr,
                     COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'estimate'), 0)::float AS estimate_inr,
                     COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'order'), 0)::float AS order_inr,
-                    COALESCE(SUM(total_inr), 0)::float AS total_inr
+                    COALESCE(SUM(total_inr) FILTER (WHERE bill_type <> 'order'), 0)::float AS total_inr
                  FROM reseller_erp_bills
                  WHERE reseller_user_id = $1
                    AND created_at >= NOW() - INTERVAL '30 days'`,
@@ -1393,6 +1397,7 @@ function registerResellerErpRoutes(app, deps) {
                  FROM reseller_erp_bills
                  WHERE reseller_user_id = $1
                    AND created_at >= NOW() - INTERVAL '30 days'
+                   AND bill_type <> 'order'
                  GROUP BY bill_type
                  ORDER BY total DESC`,
                 [req.user.id],

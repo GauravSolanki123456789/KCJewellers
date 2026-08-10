@@ -818,7 +818,8 @@ export default function PromptLabWorkspace(props: Props) {
             </p>
             <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Pick background colour, visualization, and text/watermark — then Test prompt to see
-              exactly what the reseller will get.
+              exactly what the reseller will get. The server automatically adapts your master prompt,
+              negatives, and workflow for each background + visualization combination (Aurra-grade tuning).
             </p>
             <EnhancedStudioOptions
               overlaySettings={overlaySettings}

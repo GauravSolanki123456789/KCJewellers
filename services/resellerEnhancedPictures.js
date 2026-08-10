@@ -51,6 +51,7 @@ const {
     BACKGROUND_PRESETS,
     VISUALIZATION_PRESETS,
 } = require('./enhancedOverlay');
+const { composeAdaptivePromptBlock, adaptNegativePrompt } = require('./enhancedPromptComposer');
 
 const TEMPLATE_IDOLS = 'idols';
 const CANVAS_ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
@@ -1059,6 +1060,12 @@ function buildFullPrompt(
     if (highlights.length) {
         main += `\n\nWORKFLOW PRIORITIES (follow strictly):\n${highlights.map((h) => `• ${h}`).join('\n')}`;
     }
+    main += composeAdaptivePromptBlock(normalized.promptText, {
+        backgroundPreset: generationOptions.backgroundPreset,
+        visualization: generationOptions.visualization,
+        profile,
+        renderQuality: generationOptions.renderQuality,
+    });
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
     if (isWhiteIdol) {
         main += idolWhiteTemplateOverrideBlock();
@@ -1105,7 +1112,22 @@ Soft contact shadow under the product base only when a base exists — no cast s
             .filter((line) => !/^no\s+text$/i.test(String(line).trim()))
             .join('\n');
     }
-    if (!neg) return main;
+    if (!neg) {
+        neg = adaptNegativePrompt(
+            '',
+            generationOptions.backgroundPreset,
+            generationOptions.visualization,
+            profile,
+        );
+    } else {
+        neg = adaptNegativePrompt(
+            neg,
+            generationOptions.backgroundPreset,
+            generationOptions.visualization,
+            profile,
+        );
+    }
+    if (!String(neg).trim()) return main;
     return `${main}\n\nNEGATIVE PROMPT:\n${neg}`;
 }
 
