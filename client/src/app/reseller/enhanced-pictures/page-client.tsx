@@ -40,6 +40,8 @@ import {
   deleteEnhancedJob,
   verifyEnhancedTopup,
   DEFAULT_OVERLAY_SETTINGS,
+  mergeStudioPreferences,
+  saveEnhancedOverlaySettings,
   type EnhancedBarcodeHint,
   type EnhancedCreditPlan,
   type EnhancedOverlaySettings,
@@ -627,6 +629,9 @@ export default function ResellerEnhancedPicturesPageClient() {
     }, 900)
     let queuedBatch = false
     try {
+      await saveEnhancedOverlaySettings(
+        mergeStudioPreferences(overlaySettings, generationOptions),
+      )
       const data = await generateEnhancedPicture({
         image: sourceFile,
         templateKey,

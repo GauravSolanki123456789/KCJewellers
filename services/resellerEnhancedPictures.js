@@ -815,6 +815,12 @@ async function ensureEnhancedPicturesSchema(pool) {
         ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP
     `);
     await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS overlay_meta_json JSONB
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_enhanced_picture_jobs ADD COLUMN IF NOT EXISTS generation_options_json JSONB
+    `);
+    await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_enhanced_jobs_user_active
             ON reseller_enhanced_picture_jobs (reseller_user_id, created_at DESC)
             WHERE deleted_at IS NULL
@@ -963,6 +969,27 @@ function parseGenerationOptions(body = {}) {
         fastMode,
         geminiImageSize: renderQuality === '4k' ? '4K' : '2K',
     };
+}
+
+function parseOverlayToggle(body, key) {
+    const raw = body[key];
+    if (raw === '0' || raw === 'false' || raw === false) return false;
+    if (raw === '1' || raw === 'true' || raw === true) return true;
+    return undefined;
+}
+
+async function saveJobGenerationMeta(query, jobId, generationOptions, overlayMeta) {
+    await query(
+        `UPDATE reseller_enhanced_picture_jobs SET
+            generation_options_json = $1::jsonb,
+            overlay_meta_json = $2::jsonb
+         WHERE id = $3`,
+        [
+            JSON.stringify(generationOptions || {}),
+            JSON.stringify(overlayMeta || {}),
+            jobId,
+        ],
+    );
 }
 
 function renderQualityPromptBlock(renderQuality) {
@@ -1683,11 +1710,20 @@ async function processEnhancedBatchJobRow(job, deps) {
             varietyKey: job.variety_key,
             promptText: job.prompt_text,
         });
+        let batchGenOpts = {};
+        try {
+            batchGenOpts =
+                typeof job.generation_options_json === 'string'
+                    ? JSON.parse(job.generation_options_json)
+                    : job.generation_options_json || {};
+        } catch {
+            batchGenOpts = {};
+        }
         const finished = await postprocessStudioOutput(img.buffer, img.mimeType, {
             profile: batchProfile,
             fastMode: false,
-            backgroundPreset: 'charcoal',
-            renderQuality: '2k',
+            backgroundPreset: batchGenOpts.backgroundPreset || 'charcoal',
+            renderQuality: batchGenOpts.renderQuality || '2k',
             templateKey: job.template_key || '',
         });
         const processedImg = {
@@ -1695,6 +1731,59 @@ async function processEnhancedBatchJobRow(job, deps) {
             buffer: finished.buffer,
             mimeType: finished.mimeType,
         };
+
+        let genOpts = {};
+        let overlayMeta = {};
+        try {
+            genOpts =
+                typeof job.generation_options_json === 'string'
+                    ? JSON.parse(job.generation_options_json)
+                    : job.generation_options_json || {};
+        } catch {
+            genOpts = {};
+        }
+        try {
+            overlayMeta =
+                typeof job.overlay_meta_json === 'string'
+                    ? JSON.parse(job.overlay_meta_json)
+                    : job.overlay_meta_json || {};
+        } catch {
+            overlayMeta = {};
+        }
+
+        const overlaySettings = await loadOverlaySettingsForUser(query, job.reseller_user_id);
+        const productMatch = job.barcode_stem
+            ? await findSubmissionByStem(query, job.reseller_user_id, job.barcode_stem)
+            : null;
+        const payload =
+            productMatch?.payload_json && typeof productMatch.payload_json === 'object'
+                ? productMatch.payload_json
+                : {};
+        const overlaid = await applyImageOverlays(
+            processedImg.buffer,
+            processedImg.mimeType,
+            overlaySettings,
+            {
+                apply_watermark: overlayMeta.apply_watermark,
+                apply_info_text: overlayMeta.apply_info_text,
+                sku: job.barcode_stem || productMatch?.web_product_sku || null,
+                barcode_stem: job.barcode_stem || null,
+                barcode: productMatch?.barcode || job.barcode_stem || null,
+                variety_label: overlayMeta.variety_label || null,
+                template_label: overlayMeta.template_label || null,
+                style_code: productMatch?.design_group || payload.itemCode || null,
+                item_code: payload.itemCode || payload.item_code || productMatch?.design_group || null,
+                product_name: productMatch?.product_name || null,
+                product: {
+                    net_weight: payload.netWeight ?? payload.net_weight,
+                    gross_weight: payload.grossWeight ?? payload.gross_weight,
+                    weight_display: payload.weightDisplay ?? payload.weight_display,
+                },
+            },
+            { enhancedDir, getPublicApiBaseUrl },
+        );
+        const finalImg = { ...processedImg, buffer: overlaid.buffer, mimeType: overlaid.mimeType };
+
         const stillActive = await query(
             `SELECT id FROM reseller_enhanced_picture_jobs
              WHERE id = $1 AND deleted_at IS NULL AND status IN ('batch_queued', 'batch_processing')`,
@@ -1706,7 +1795,7 @@ async function processEnhancedBatchJobRow(job, deps) {
             pool,
             job,
             generated: {
-                ...processedImg,
+                ...finalImg,
                 provider: 'gemini',
                 model: job.ai_model || aiConfig.gemini_model,
             },
@@ -3287,10 +3376,8 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 let resultMime = generated.mimeType;
                 const overlaySettings = await loadOverlaySettingsForUser(query, userId);
                 if (resultBuffer?.length) {
-                    const applyWatermark =
-                        req.body.apply_watermark === '1' || req.body.apply_watermark === 'true';
-                    const applyInfoText =
-                        req.body.apply_info_text === '1' || req.body.apply_info_text === 'true';
+                    const applyWatermark = parseOverlayToggle(req.body, 'apply_watermark');
+                    const applyInfoText = parseOverlayToggle(req.body, 'apply_info_text');
                     const overlaid = await applyImageOverlays(
                         resultBuffer,
                         resultMime,
@@ -3814,6 +3901,12 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 ...current,
                 watermark_enabled: true,
                 watermark_url: url,
+                studio_prefs: {
+                    ...(current.studio_prefs && typeof current.studio_prefs === 'object'
+                        ? current.studio_prefs
+                        : {}),
+                    apply_watermark: true,
+                },
             });
             await query(
                 `UPDATE users SET reseller_enhanced_overlay_settings = $1::jsonb WHERE id = $2`,
@@ -4075,6 +4168,30 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 const generationMode = String(req.body.generation_mode || 'fast')
                     .trim()
                     .toLowerCase();
+                let varietyLabel = null;
+                let templateLabel = null;
+                if (varietyKey) {
+                    const vrows = await query(
+                        `SELECT variety_label FROM reseller_enhanced_picture_varieties
+                         WHERE reseller_user_id = $1 AND template_key = $2 AND variety_key = $3 LIMIT 1`,
+                        [req.user.id, templateKey, varietyKey],
+                    );
+                    varietyLabel = vrows[0]?.variety_label || null;
+                }
+                const trows = await query(
+                    `SELECT template_label FROM reseller_enhanced_picture_template_settings
+                     WHERE reseller_user_id = $1 AND template_key = $2 LIMIT 1`,
+                    [req.user.id, templateKey],
+                );
+                templateLabel = trows[0]?.template_label || null;
+                const overlayMeta = {
+                    apply_watermark: parseOverlayToggle(req.body, 'apply_watermark'),
+                    apply_info_text: parseOverlayToggle(req.body, 'apply_info_text'),
+                    variety_label: varietyLabel,
+                    template_label: templateLabel,
+                };
+                await saveJobGenerationMeta(query, job.id, generationOptions, overlayMeta);
+
                 const useGeminiBatch =
                     normalizeAiProvider(aiConfig.provider) === 'gemini' &&
                     aiConfig.gemini_batch_enabled === true &&
@@ -4144,23 +4261,6 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     }
                 }
 
-                let varietyLabel = null;
-                let templateLabel = null;
-                if (varietyKey) {
-                    const vrows = await query(
-                        `SELECT variety_label FROM reseller_enhanced_picture_varieties
-                         WHERE reseller_user_id = $1 AND template_key = $2 AND variety_key = $3 LIMIT 1`,
-                        [req.user.id, templateKey, varietyKey],
-                    );
-                    varietyLabel = vrows[0]?.variety_label || null;
-                }
-                const trows = await query(
-                    `SELECT template_label FROM reseller_enhanced_picture_template_settings
-                     WHERE reseller_user_id = $1 AND template_key = $2 LIMIT 1`,
-                    [req.user.id, templateKey],
-                );
-                templateLabel = trows[0]?.template_label || null;
-
                 const syncParams = {
                     sourceImagePath: req.file.path,
                     aspectRatio,
@@ -4175,22 +4275,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     templateKey,
                     varietyKey,
                     generationOptions,
-                    overlayMeta: {
-                        apply_watermark:
-                            req.body.apply_watermark === '0' || req.body.apply_watermark === 'false'
-                                ? false
-                                : req.body.apply_watermark === '1' || req.body.apply_watermark === 'true'
-                                  ? true
-                                  : undefined,
-                        apply_info_text:
-                            req.body.apply_info_text === '0' || req.body.apply_info_text === 'false'
-                                ? false
-                                : req.body.apply_info_text === '1' || req.body.apply_info_text === 'true'
-                                  ? true
-                                  : undefined,
-                        variety_label: varietyLabel,
-                        template_label: templateLabel,
-                    },
+                    overlayMeta,
                 };
                 const syncDeps = {
                     query,

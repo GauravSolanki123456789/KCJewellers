@@ -26,7 +26,7 @@ export default function Footer() {
   const { businessName, logoUrl, active: resellerActive } = useResellerBranding();
   const displayName = resellerActive ? businessName : "KC Jewellers";
 
-  if (pathname?.startsWith("/shared/")) {
+  if (pathname?.startsWith("/shared/") || pathname?.startsWith("/pricelist/")) {
     return null;
   }
   return (

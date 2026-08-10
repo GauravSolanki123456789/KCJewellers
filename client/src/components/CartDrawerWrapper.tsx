@@ -7,6 +7,6 @@ import CartDrawer from './CartDrawer'
 export default function CartDrawerWrapper() {
   const pathname = usePathname()
   const { isCartOpen, closeCart } = useCart()
-  if (pathname?.startsWith('/shared/')) return null
+  if (pathname?.startsWith('/shared/') || pathname?.startsWith('/pricelist/')) return null
   return <CartDrawer isOpen={isCartOpen} onClose={closeCart} />
 }

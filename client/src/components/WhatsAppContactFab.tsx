@@ -47,7 +47,7 @@ export default function WhatsAppContactFab({ className = "" }: Props) {
   const href = buildWhatsAppBusinessChatLink(contactPrompt(brand), waPhone);
   if (!href) return null;
   if (pathname?.startsWith("/admin")) return null;
-  if (pathname?.startsWith("/shared/")) return null;
+  if (pathname?.startsWith("/shared/") || pathname?.startsWith("/pricelist/")) return null;
   /* Catalogue has its own share control; avoid duplicate entry points. */
   if (
     pathname === "/catalog" ||

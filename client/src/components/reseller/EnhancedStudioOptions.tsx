@@ -187,9 +187,13 @@ export default function EnhancedStudioOptions({
   const patchGeneration = useCallback(
     (next: StudioGenerationOptions) => {
       onGenerationChange(next)
-      schedulePersist(overlaySettings, next)
+      if (!autoPersist) return
+      if (persistTimer.current) clearTimeout(persistTimer.current)
+      void persistSettings(overlaySettings, next).catch(() => {
+        /* silent — manual Save branding still available */
+      })
     },
-    [onGenerationChange, overlaySettings, schedulePersist],
+    [onGenerationChange, overlaySettings, autoPersist, persistSettings],
   )
 
   const infoLinesText = useMemo(

@@ -591,6 +591,51 @@ async function insertSubmission(query, fields) {
     return rows[0];
 }
 
+/** Recreate submission rows for live catalog products orphaned by batch delete. */
+async function repairOrphanLiveSubmissions(query) {
+    const orphans = await query(
+        `SELECT wp.id, wp.sku, wp.barcode, wp.name, wp.design_group, wp.subcategory_sku,
+                wp.net_weight, wp.gross_weight, wp.mc_rate, wp.mc_type, wp.metal_type,
+                wp.image_url, wp.secondary_image_url, wp.box_image_url, wp.submitted_by_user_id,
+                wp.created_at, wp.updated_at
+         FROM web_products wp
+         WHERE wp.is_active = true
+           AND wp.submitted_by_user_id IS NOT NULL
+           AND wp.reseller_submission_id IS NULL
+         ORDER BY wp.id ASC
+         LIMIT 300`,
+    );
+    let repaired = 0;
+    for (const wp of orphans) {
+        const ins = await insertSubmission(query, {
+            submitted_by_user_id: wp.submitted_by_user_id,
+            submission_status: 'approved',
+            style_code: wp.design_group || null,
+            sku: wp.subcategory_sku || null,
+            barcode: wp.barcode || wp.sku,
+            product_name: wp.name || wp.sku,
+            net_weight: wp.net_weight,
+            gross_weight: wp.gross_weight,
+            mc_rate: wp.mc_rate,
+            mc_type: wp.mc_type,
+            metal_type: wp.metal_type,
+            image_url: wp.image_url,
+            secondary_image_url: wp.secondary_image_url,
+            box_image_url: wp.box_image_url,
+            web_product_sku: wp.sku,
+            reviewed_at: new Date(),
+            batch_id: null,
+            batch_label: null,
+        });
+        await query(`UPDATE web_products SET reseller_submission_id = $1 WHERE id = $2`, [
+            ins.id,
+            wp.id,
+        ]);
+        repaired += 1;
+    }
+    return repaired;
+}
+
 async function approveSubmissionToCatalog(deps, submissionRow, reviewerUserId) {
     const { query, pool, getPublicApiBaseUrl, lookUpSecondaryDisk, resolveSecondaryUrlFromPayload } = deps;
     const syncItem = submissionRowToSyncItem(submissionRow);
@@ -1381,6 +1426,7 @@ function registerResellerProductRoutes(app, deps) {
     // ---- Admin: list all submissions ----
     app.get('/api/admin/reseller-product-submissions', isAdminStrict, async (req, res) => {
         try {
+            await repairOrphanLiveSubmissions(query);
             const status = String(req.query.submission_status || '').trim().toLowerCase();
             const submitterId = parseInt(String(req.query.submitted_by_user_id || ''), 10);
             const batchId = String(req.query.batch_id || '').trim();
@@ -1592,18 +1638,42 @@ function registerResellerProductRoutes(app, deps) {
             if (!batchId) return res.status(400).json({ error: 'batchId required' });
             const deleteLive = req.query.delete_live_product === '1' || req.query.delete_live_product === 'true';
             const rows = await query(
-                'SELECT id, web_product_sku FROM reseller_product_submissions WHERE batch_id = $1::uuid',
+                `SELECT id, submission_status, web_product_sku
+                 FROM reseller_product_submissions WHERE batch_id = $1::uuid`,
                 [batchId],
             );
-            await query('DELETE FROM reseller_product_submissions WHERE batch_id = $1::uuid', [batchId]);
+            const approved = rows.filter((r) => String(r.submission_status).toLowerCase() === 'approved');
+            const pendingLike = rows.filter((r) => String(r.submission_status).toLowerCase() !== 'approved');
+
+            if (pendingLike.length) {
+                await query(
+                    `DELETE FROM reseller_product_submissions
+                     WHERE batch_id = $1::uuid AND submission_status <> 'approved'`,
+                    [batchId],
+                );
+            }
+            if (approved.length) {
+                await query(
+                    `UPDATE reseller_product_submissions SET
+                        batch_id = NULL,
+                        batch_label = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE batch_id = $1::uuid AND submission_status = 'approved'`,
+                    [batchId],
+                );
+            }
             if (deleteLive) {
-                for (const r of rows) {
+                for (const r of approved) {
                     if (r.web_product_sku) {
                         await query('UPDATE web_products SET is_active = false WHERE sku = $1', [r.web_product_sku]);
                     }
                 }
             }
-            res.json({ success: true, deleted_count: rows.length });
+            res.json({
+                success: true,
+                deleted_count: pendingLike.length,
+                preserved_approved: approved.length,
+            });
         } catch (e) {
             res.status(500).json({ error: e.message });
         }

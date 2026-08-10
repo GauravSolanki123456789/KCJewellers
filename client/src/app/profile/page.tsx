@@ -21,6 +21,7 @@ import {
   RESELLER_MC_SLABS_PATH,
   RESELLER_ERP_PATH,
   RESELLER_ENHANCED_PICTURES_PATH,
+  RESELLER_PRICELIST_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
 import { useCustomerTier } from '@/context/CustomerTierContext'
@@ -51,6 +52,7 @@ import {
   Percent,
   Sparkles,
   LayoutGrid,
+  ListOrdered,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -229,6 +231,12 @@ function ProfilePageContent() {
       (auth.user as { reseller_enhanced_pictures_enabled?: boolean })
         .reseller_enhanced_pictures_enabled,
   )
+  const resellerPricelistEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_pricelist_enabled?: boolean }).reseller_pricelist_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -299,6 +307,7 @@ function ProfilePageContent() {
               resellerUploadSlabsEnabled ||
               resellerErpEnabled ||
               resellerEnhancedPicturesEnabled ||
+              resellerPricelistEnabled ||
               isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
@@ -341,6 +350,15 @@ function ProfilePageContent() {
                     icon={Sparkles}
                     title="Enhanced pictures"
                     subtitle="AI studio idol photos — rename by barcode & auto-attach to Excel uploads"
+                    primary
+                  />
+                ) : null}
+                {resellerPricelistEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_PRICELIST_PATH}
+                    icon={ListOrdered}
+                    title="Pricelist"
+                    subtitle="B2B Excel categories, price slabs & WhatsApp share links — separate from live catalogue"
                     primary
                   />
                 ) : null}

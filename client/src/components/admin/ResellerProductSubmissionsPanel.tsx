@@ -195,7 +195,7 @@ export function ResellerProductSubmissionsPanel() {
     if (!batchId || batchId.startsWith('single-')) return
     if (
       !window.confirm(
-        `Delete all ${count} products in this Excel batch? This cannot be undone. Live products in this batch will be hidden.`,
+        `Delete all ${count} pending items in this Excel batch? Already-approved live products will stay on the catalogue and remain editable under All.`,
       )
     )
       return
