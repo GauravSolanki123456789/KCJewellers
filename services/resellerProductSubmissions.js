@@ -593,45 +593,85 @@ async function insertSubmission(query, fields) {
 
 /** Recreate submission rows for live catalog products orphaned by batch delete. */
 async function repairOrphanLiveSubmissions(query) {
-    const orphans = await query(
-        `SELECT wp.id, wp.sku, wp.barcode, wp.name, wp.design_group, wp.subcategory_sku,
-                wp.net_weight, wp.gross_weight, wp.mc_rate, wp.mc_type, wp.metal_type,
-                wp.image_url, wp.secondary_image_url, wp.box_image_url, wp.submitted_by_user_id,
-                wp.created_at, wp.updated_at
-         FROM web_products wp
-         WHERE wp.is_active = true
-           AND wp.submitted_by_user_id IS NOT NULL
-           AND wp.reseller_submission_id IS NULL
-         ORDER BY wp.id ASC
-         LIMIT 300`,
-    );
+    let orphans;
+    try {
+        orphans = await query(
+            `SELECT wp.id, wp.sku, wp.barcode, wp.name, wp.design_group,
+                    wp.net_weight, wp.gross_weight, wp.mc_rate, wp.mc_type, wp.metal_type,
+                    wp.image_url, wp.secondary_image_url, wp.box_image_url, wp.submitted_by_user_id,
+                    wp.reseller_submission_id, wp.created_at, wp.updated_at,
+                    ws.sku AS subcategory_sku_code,
+                    wc.name AS category_style_name
+             FROM web_products wp
+             LEFT JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+             LEFT JOIN web_categories wc ON wc.id = ws.category_id
+             WHERE wp.is_active = true
+               AND wp.submitted_by_user_id IS NOT NULL
+               AND (
+                   wp.reseller_submission_id IS NULL
+                   OR NOT EXISTS (
+                       SELECT 1 FROM reseller_product_submissions rps
+                       WHERE rps.id = wp.reseller_submission_id
+                   )
+               )
+             ORDER BY wp.id ASC
+             LIMIT 500`,
+        );
+    } catch (e) {
+        const msg = String(e.message || '');
+        if (msg.includes('submitted_by_user_id') || msg.includes('reseller_submission_id')) {
+            return 0;
+        }
+        throw e;
+    }
+
     let repaired = 0;
     for (const wp of orphans) {
-        const ins = await insertSubmission(query, {
-            submitted_by_user_id: wp.submitted_by_user_id,
-            submission_status: 'approved',
-            style_code: wp.design_group || null,
-            sku: wp.subcategory_sku || null,
-            barcode: wp.barcode || wp.sku,
-            product_name: wp.name || wp.sku,
-            net_weight: wp.net_weight,
-            gross_weight: wp.gross_weight,
-            mc_rate: wp.mc_rate,
-            mc_type: wp.mc_type,
-            metal_type: wp.metal_type,
-            image_url: wp.image_url,
-            secondary_image_url: wp.secondary_image_url,
-            box_image_url: wp.box_image_url,
-            web_product_sku: wp.sku,
-            reviewed_at: new Date(),
-            batch_id: null,
-            batch_label: null,
-        });
-        await query(`UPDATE web_products SET reseller_submission_id = $1 WHERE id = $2`, [
-            ins.id,
-            wp.id,
-        ]);
-        repaired += 1;
+        try {
+            const existing = await query(
+                `SELECT id FROM reseller_product_submissions
+                 WHERE web_product_sku = $1 AND submission_status = 'approved'
+                 ORDER BY id DESC LIMIT 1`,
+                [wp.sku],
+            );
+            if (existing.length) {
+                await query(
+                    `UPDATE web_products SET reseller_submission_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                    [existing[0].id, wp.id],
+                );
+                repaired += 1;
+                continue;
+            }
+
+            const ins = await insertSubmission(query, {
+                submitted_by_user_id: wp.submitted_by_user_id,
+                submission_status: 'approved',
+                style_code: wp.category_style_name || null,
+                sku: wp.subcategory_sku_code || null,
+                barcode: wp.barcode || wp.sku,
+                product_name: wp.name || wp.sku,
+                design_group: wp.design_group || null,
+                net_weight: wp.net_weight,
+                gross_weight: wp.gross_weight,
+                mc_rate: wp.mc_rate,
+                mc_type: wp.mc_type,
+                metal_type: wp.metal_type,
+                image_url: wp.image_url,
+                secondary_image_url: wp.secondary_image_url,
+                box_image_url: wp.box_image_url,
+                web_product_sku: wp.sku,
+                reviewed_at: new Date(),
+                batch_id: null,
+                batch_label: null,
+            });
+            await query(
+                `UPDATE web_products SET reseller_submission_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                [ins.id, wp.id],
+            );
+            repaired += 1;
+        } catch (rowErr) {
+            console.warn('repairOrphanLiveSubmissions:', wp.sku, rowErr.message);
+        }
     }
     return repaired;
 }
@@ -778,6 +818,11 @@ function registerResellerProductRoutes(app, deps) {
     // ---- Reseller: list own submissions ----
     app.get('/api/reseller/product-submissions', requireResellerProductPortal, async (req, res) => {
         try {
+            try {
+                await repairOrphanLiveSubmissions(query);
+            } catch (repairErr) {
+                console.warn('repairOrphanLiveSubmissions (reseller list):', repairErr.message);
+            }
             const status = String(req.query.submission_status || '').trim().toLowerCase();
             const batchId = String(req.query.batch_id || '').trim();
             const params = [req.user.id];
@@ -1426,7 +1471,11 @@ function registerResellerProductRoutes(app, deps) {
     // ---- Admin: list all submissions ----
     app.get('/api/admin/reseller-product-submissions', isAdminStrict, async (req, res) => {
         try {
-            await repairOrphanLiveSubmissions(query);
+            try {
+                await repairOrphanLiveSubmissions(query);
+            } catch (repairErr) {
+                console.warn('repairOrphanLiveSubmissions (admin list):', repairErr.message);
+            }
             const status = String(req.query.submission_status || '').trim().toLowerCase();
             const submitterId = parseInt(String(req.query.submitted_by_user_id || ''), 10);
             const batchId = String(req.query.batch_id || '').trim();
