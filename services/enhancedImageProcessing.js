@@ -334,16 +334,82 @@ function resolveOutputLongEdge(options = {}) {
 }
 
 /**
- * Dark cinematic hero framing — charcoal pad + subtle glass anti-glare.
+ * Find approximate product bounding box (idol + dome) on dark studio backgrounds.
+ */
+async function detectSubjectBoundingBox(sharp, buffer, origW, origH) {
+    const sampleMax = 480;
+    const scale = Math.min(1, sampleMax / Math.max(origW, origH, 1));
+    const sw = Math.max(1, Math.round(origW * scale));
+    const sh = Math.max(1, Math.round(origH * scale));
+    const { data } = await sharp(buffer).resize(sw, sh).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    let minX = sw;
+    let minY = sh;
+    let maxX = 0;
+    let maxY = 0;
+    let hits = 0;
+    for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < sw; x++) {
+            const i = (y * sw + x) * 3;
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            const maxC = Math.max(r, g, b);
+            const minC = Math.min(r, g, b);
+            const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+            // Silver idol, glass highlights, wood base — skip flat dark backdrop
+            if (lum > 40 || maxC > 55 || sat > 0.1) {
+                hits += 1;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+    if (hits < 40 || maxX <= minX || maxY <= minY) return null;
+
+    const bw = (maxX - minX + 1) / scale;
+    const bh = (maxY - minY + 1) / scale;
+    const padX = bw * 0.05;
+    const padY = bh * 0.05;
+    const left = Math.max(0, Math.floor(minX / scale - padX));
+    const top = Math.max(0, Math.floor(minY / scale - padY));
+    const width = Math.min(origW - left, Math.ceil(bw + padX * 2));
+    const height = Math.min(origH - top, Math.ceil(bh + padY * 2));
+    if (width < 32 || height < 32) return null;
+    return { left, top, width, height };
+}
+
+/**
+ * Dark cinematic hero framing — auto-zoom subject + luxury backdrop pad.
  */
 async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
     try {
-        const trimmed = await sharp(buffer).trim({ threshold: 14 }).toBuffer({ resolveWithObject: true });
-        const tw = trimmed.info.width || w;
-        const th = trimmed.info.height || h;
+        let working = buffer;
+        let cw = w;
+        let ch = h;
+
+        const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
+        if (bbox) {
+            const fillW = bbox.width / w;
+            const fillH = bbox.height / h;
+            // AI often renders tiny product — crop to subject and zoom in
+            if (fillW < 0.78 || fillH < 0.78) {
+                working = await sharp(buffer)
+                    .extract({ left: bbox.left, top: bbox.top, width: bbox.width, height: bbox.height })
+                    .toBuffer();
+                cw = bbox.width;
+                ch = bbox.height;
+            }
+        }
+
+        const trimmed = await sharp(working).trim({ threshold: 12 }).toBuffer({ resolveWithObject: true });
+        const tw = trimmed.info.width || cw;
+        const th = trimmed.info.height || ch;
         if (tw < 32 || th < 32) return buffer;
 
-        const targetFill = targetSize >= 4096 ? 0.86 : targetSize >= 2048 ? 0.84 : 0.8;
+        const targetFill = targetSize >= 4096 ? 0.93 : targetSize >= 2048 ? 0.91 : 0.88;
         const long = Math.max(tw, th);
         const canvas = Math.round(long / targetFill);
         const padX = Math.max(0, Math.round((canvas - tw) / 2));
@@ -355,19 +421,40 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
                 bottom: padY,
                 left: padX,
                 right: padX,
-                background: { r: 20, g: 26, b: 36, alpha: 1 },
+                background: { r: 18, g: 24, b: 34, alpha: 1 },
             })
             .resize(targetSize, targetSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
             .toBuffer();
 
         const fw = targetSize;
         const fh = targetSize;
+
+        // Radial spotlight glow behind product (reference catalogue look)
+        const glowSvg = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="44%" r="52%">
+      <stop offset="0%" stop-color="#3a4a62" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#1e2838" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#0a0e14" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="50%" cy="42%" r="78%">
+      <stop offset="55%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.35"/>
+    </radialGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#glow)"/>
+  <rect width="100%" height="100%" fill="url(#vig)"/>
+</svg>`;
+        framed = await sharp(framed)
+            .composite([{ input: Buffer.from(glowSvg), blend: 'screen' }])
+            .toBuffer();
+
         const glassMask = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="g" cx="50%" cy="48%" r="46%">
       <stop offset="0%" stop-color="#fff" stop-opacity="0"/>
       <stop offset="72%" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#fff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0.14"/>
     </radialGradient>
   </defs>
   <rect width="100%" height="100%" fill="url(#g)"/>
@@ -578,6 +665,17 @@ Crisp silver/gold micro-texture, natural metallic speculars, engraved detail sha
 Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${woodBaseConditionalBlock()}${metalColorPreservationBlock()}${whiteCatalogShadowBlock()}`;
 }
 
+function idolCloseHeroCatalogBlock() {
+    return `
+
+[CLOSE HERO FRAMING — CRITICAL (REFERENCE CATALOGUE MATCH)]
+The product assembly (glass dome + base + idol when present) must fill 88–94% of the frame HEIGHT — large close-up catalogue hero like premium reference shots.
+The customer must see fine carving detail WITHOUT zooming on a phone screen.
+Minimal margins: only 3–6% breathing room at top and bottom. NOT a tiny distant product floating in empty space.
+Camera feels slightly closer than the source phone photo — professional 85–105mm product lens, adaptive angle.
+Entire product tack-sharp from dome top to base bottom.`;
+}
+
 function idolPremiumStudioBlock() {
     return `
 
@@ -586,8 +684,7 @@ Transform even a bad phone photo into world-class luxury museum product photogra
 Backdrop: deep charcoal-to-midnight-blue gradient with soft radial glow behind product — elegant atmospheric depth, zero grain, zero muddy flat grey, NO champagne fabric, NO draped cloth.
 Glass cloche/dome WHEN PRESENT IN SOURCE: ultra-clear optical glass with soft curved natural highlights; idol inside tack-sharp and identical to source — same pose, same accessories, same colours; NO vertical white glare bars, NO pink/magenta stripes, NO ghost duplicate on backdrop. If source has NO dome — do NOT add one.
 Lighting: large soft key above-forward + soft fill + subtle rim + restrained rear separation — NOT a harsh overhead spotlight cone, NOT bright circular floor hotspot.
-Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER mirror-black glass floor.
-Hero framing: product including dome and base fills 55–75% of frame height — premium catalogue hero, entire sculpture sharp.${studioShadowAndSurfaceBlock()}${woodBaseConditionalBlock()}`;
+Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER mirror-black glass floor.${idolCloseHeroCatalogBlock()}${studioShadowAndSurfaceBlock()}${woodBaseConditionalBlock()}`;
 }
 
 function profileStudioQualityBlock(profile, backgroundPreset, options = {}) {
@@ -863,7 +960,7 @@ Match premium jewellery catalogue output (Aurra Studio grade):
 • Smoky blue-charcoal cinematic backdrop — smooth atmospheric gradient, soft edge vignette; replace cluttered shop backgrounds entirely; NO film grain or mottled noise on walls.
 • Glass dome: soft curved natural highlights following dome curvature; physically plausible refraction; NO white rectangular glare bars or fake stripe reflections.
 • Product must feel naturally integrated in the studio — not pasted onto the background.
-• Hero catalogue framing — product fills 72–82% of frame height (idols) or 75–85% width (kadas); clearly readable without zooming; not tiny with excessive empty space.
+• Hero catalogue framing — product fills 88–94% of frame height (idols) or 75–85% width (kadas); clearly readable without zooming; not tiny with excessive empty space.
 • 4K hyper-realistic commercial product render — editorial luxury, museum display feel.
 • Centered composition, elegant negative space, square catalogue crop.${studioShadowAndSurfaceBlock()}`;
 }

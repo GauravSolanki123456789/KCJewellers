@@ -452,7 +452,7 @@ Modest even margins on all sides for website grid display. Do NOT invent a woode
         return `
 
 [COMPOSITION — HERO FRAMING]
-Product including glass dome and base (when present) fills approximately 55–75% of frame HEIGHT — museum catalogue scale. Close hero shot: entire sculpture tack-sharp and clearly visible WITHOUT zooming. NOT a tiny distant product with excessive empty space. NOT extreme macro that crops the dome. Balanced premium framing with controlled negative space.`;
+Product including glass dome and base (when present) fills approximately 88–94% of frame HEIGHT — close-up museum catalogue hero like premium reference shots. Entire sculpture tack-sharp and clearly visible WITHOUT zooming. NOT a tiny distant product with excessive empty space. NOT extreme macro that crops the dome. Minimal breathing room (3–6%) at top and bottom only.`;
     }
     return `
 
