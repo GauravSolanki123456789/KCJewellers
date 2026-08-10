@@ -74,84 +74,58 @@ function normalizeAspectRatio(raw) {
     return CANVAS_ASPECTS.includes(a) ? a : '1:1';
 }
 
-const DEFAULT_IDOLS_PROMPT = `Create an ultra-premium luxury product photoshoot using ONLY the uploaded idol, frame, or jewellery piece.
+const DEFAULT_IDOLS_PROMPT = `CATEGORY: Luxury Jewelry / Precious Metal Idol / Religious Sculpture
+PRIMARY OBJECTIVE: Transform the uploaded product photograph into an ultra-premium luxury commercial product photograph.
+The uploaded image is the ONLY authoritative source for the product's identity.
+PHOTOGRAPH THE SAME PRODUCT BETTER — do NOT redesign, recreate, or beautify the physical design.
 
-STRICT PRODUCT PRESERVATION (HIGHEST PRIORITY):
-Use the uploaded product exactly as photographed — phone photo, shop background, glass cloche, low light, or any angle.
-Do NOT redesign, recreate, stylize, simplify, smooth away detail, recolor, or modify any part.
+PRODUCT IDENTITY LOCK (HIGHEST PRIORITY):
+Preserve exact silhouette, proportions, pose, carvings, engravings, metal finish, gemstones, enamel, base, and glass dome IF present.
+Never invent ornaments, glass domes, or pedestals not visible in the source.
 
-Preserve 100%:
-• Exact shape, size, proportions, and silhouette
-• All carvings, engravings, relief work, and surface ornament
-• Exact metal finish — silver tone, gold accents, oxidized/antique texture
-• Exact gemstone and halo/backdrop colors from the source (do NOT shift orange to red, blue to cyan, etc.)
-• Glass cloche/dome shape and base if present — realistic refraction only
-• Wood or display base exactly as in source — preserve if present; do NOT add a wooden pedestal if the source has none
+SOURCE CORRECTION:
+Ignore blur, noise, compression, clutter, shop background, hands, harsh phone lighting, wrong white balance, and perspective defects.
+Bad source quality must NOT produce bad output.
 
-SCENE (replace cluttered backgrounds completely):
-Premium dark navy-black stone tabletop with subtle natural texture.
-Deep charcoal to midnight blue cinematic studio backdrop with soft vignette.
-Minimal luxury environment — no shop shelves, boxes, scissors, or warehouse clutter.
+VISUAL STYLE: Dark Luxury + Museum Display + High-End Jewelry Photography.
+Background: deep charcoal-to-midnight-blue gradient with soft radial glow. Dark navy-black stone surface — matte-to-satin, never wet mirror glass.
+Lighting: large soft key + fill + subtle rim — controlled silver/gold highlights, deep readable shadows, NO harsh spotlight cone.
+Glass: if present in source — ultra-clear optical glass; if absent — do NOT add.
+Camera: 85–105mm product lens look, adaptive professional angle, FULL product tack-sharp.
+Composition: product 55–75% frame height, centered catalogue hero. No text, logo, or watermark.`;
 
-LIGHTING (Aurra Studio grade):
-Soft diffused multi-source studio lighting — large softbox key, gentle fill, subtle rim. NOT a harsh overhead spotlight cone.
-Natural metallic specular highlights with micro-texture visible — NOT flat CGI plastic.
-Deep but readable shadows — no crushed blacks, no heavy noise/grain in background.
-
-CAMERA:
-Front 3/4 angle (~30°) when possible while keeping product identity; eye-level; 85mm product lens look.
-Hero framing: product including dome and base fills 72–82% of frame height — clearly readable without zooming (Aurra Studio scale). Not tiny with excessive empty space.
-
-QUALITY:
-4K hyper-realistic commercial product render.
-High-fidelity textures, ray-traced style reflections on glass and metal.
-Zero blur, zero AI mushiness, zero compression artifacts.
-
-TEXT AREA:
-Leave clean negative space top-left and right. No text, logo, watermark, or branding.`;
-
-const DEFAULT_IDOLS_NEGATIVE = `No redesign
-No AI-generated carvings
-No altered proportions
-No missing engravings
-No extra ornaments
-No added gemstones
-No color changes or recoloring
-No shifted halo or stone colors
-No blur
-No low resolution
-No background noise or grain
-No oversharpening halos
-No unrealistic reflections
-No white glare bars on glass
-No double-image ghosting through glass
-No melted or warped glass dome
-No flat CGI plastic metal
-No watermark
-No logo
-No text
-No hands
-No human model
-No flowers
-No shop shelves or warehouse background
-No unnecessary props
-No added drum or mridangam if not in source
-No added flute or accessories not in source
-No pose change from source photo
-No added golden arch or halo if not in source
-No garment or dhoti color change
-No harsh overhead spotlight cone
-No bright circular floor spotlight pool
-No cast shadow on backdrop wall
-No box shadow on background
-No harsh spotlight circle on tabletop
-No long projected shadow behind product
-No added wooden pedestal if not in source
-No invented wooden plinth or platform
-No converting black or metal base to wood
-No added gold plating if source is plain silver
-No added red blue or purple enamel if not in source
-No added colored garments or tilak if not in source`;
+const DEFAULT_IDOLS_NEGATIVE = `redesigned product
+different product
+altered proportions
+missing carvings
+invented ornaments
+invented glass dome
+invented wooden pedestal
+plastic metal
+fake silver
+chrome appearance
+soft product
+out-of-focus product
+harsh spotlight
+blown highlights
+busy background
+shop shelves
+clutter
+hands
+cloudy glass
+milky glass
+wet tabletop
+mirror-like black floor
+tiny product
+cropped product
+cartoon
+illustration
+CGI appearance
+champagne fabric backdrop
+white background when dark studio selected
+text
+watermark
+logo`;
 
 const TEMPLATES = [
     {
@@ -162,11 +136,24 @@ const TEMPLATES = [
 ];
 
 const DEFAULT_WORKFLOW_HIGHLIGHTS = [
-    '100% Identity Preservation',
-    'Professional Studio Lighting',
-    'High-Fidelity Textures',
-    'Cinematic Backgrounds',
-    'AI Ray-Traced Reflections',
+    '100% Product Identity Lock',
+    'Automatic Product Reconstruction',
+    'Professional Studio Re-Photography',
+    'Luxury Jewelry Lighting',
+    'Physically Accurate Materials',
+    'High-Fidelity Metal & Gemstone Detail',
+    'Micro-Detail Preservation',
+    'Optical Glass Realism',
+    'Midnight Luxury Environment',
+    'Cinematic Tonal Depth',
+    'Premium Dark Stone Surface',
+    'Controlled Studio Reflections',
+    'Adaptive Camera & Composition',
+    'Full-Product Sharpness',
+    'True Product Color Preservation',
+    'Background & Photography Defect Removal',
+    'Museum-Grade Presentation',
+    'Luxury Catalogue Finish',
 ];
 
 function defaultTemplateShowcase(templateKey) {
@@ -1037,11 +1024,13 @@ function idolDarkStudioOverrideBlock() {
     return `
 
 [IDOL DARK STUDIO — OVERRIDE (HIGHEST PRIORITY)]
-Transform even a bad phone photo into premium studio output in ONE generation.
-Ignore harsh overhead spotlight or warehouse lighting from the source — relight with soft diffused premium studio lighting.
-Glass cloche must stay crystal clear; idol inside must remain sharp and EXACTLY as in the source photo — same pose, same accessories, same colors.
-Do NOT add drum/mridangam/flute, golden arch, or ornaments that are not in the source photo.
-Backdrop: elegant smoky charcoal OR soft draped champagne fabric — never flat muddy grey, never blown-out white hotspots.`;
+PRESERVE THE PRODUCT. REPLACE THE PHOTOGRAPHY.
+Transform even a bad phone photo into museum-grade luxury studio output in ONE generation.
+Ignore harsh overhead spotlight, shop clutter, and warehouse lighting from the source — relight with large soft key + fill + subtle rim.
+Glass cloche must stay optically clear IF present in source; idol inside tack-sharp and EXACTLY as in source — same pose, same accessories, same colours. Do NOT add dome if source has none.
+Do NOT add drum/mridangam/flute, golden arch, wooden pedestal, or ornaments that are not in the source photo.
+Backdrop: deep charcoal-to-midnight-blue gradient with soft radial glow — NEVER champagne fabric, NEVER draped cloth, NEVER flat muddy grey, NEVER blown-out white hotspots.
+Surface: dark navy-black stone with subtle mineral texture — controlled soft reflection, NEVER wet mirror glass.`;
 }
 
 function buildFullPrompt(
@@ -1092,6 +1081,7 @@ function buildFullPrompt(
         visualization: generationOptions.visualization,
         profile,
         renderQuality: generationOptions.renderQuality,
+        comprehensive: isComprehensiveUserPrompt(normalized.promptText),
     });
     main += `\n\nCANVAS ASPECT RATIO:\nCompose and export the final image at ${aspect} aspect ratio. Fill the frame elegantly; do not letterbox with empty bars unless needed for composition.`;
     if (isWhiteIdol) {
@@ -1110,7 +1100,10 @@ Hero framing: product fills 78–88% of frame height — large, close, readable 
 Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse/table clutter entirely.
 Soft contact shadow under the product base only when a base exists — no cast shadows on the white wall.`;
         } else {
-            main += `\n\nOUTPUT QUALITY (CRITICAL — AURRA STUDIO GRADE):\n4K hyper-realistic luxury jewellery catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), soft diffused studio lighting (never a harsh overhead spotlight or bright floor ring). Smoky blue-charcoal cinematic backdrop — smooth gradient, zero film grain, zero speckled noise. Deep contrast without crushed blacks. Zero blur, zero compression artifacts, no AI smoothing or plastic look. Replace any shop/warehouse background entirely. Preserve exact product colors from the source — especially halo, stone, and metal tones. Soft contact shadow under the product base only — no cast shadows on the backdrop wall.`;
+            main += `\n\nOUTPUT QUALITY (CRITICAL — MUSEUM STUDIO GRADE):
+Ultra-photorealistic luxury jewellery / idol catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), large soft diffused studio lighting (never harsh overhead spotlight or bright floor ring).
+Deep charcoal-to-midnight-blue cinematic backdrop with dark stone surface — smooth gradient, zero film grain. Full product tack-sharp. Zero blur, zero compression artifacts, no AI smoothing or plastic look.
+Replace any shop/warehouse background entirely. Preserve exact product colours from source. Bad phone input must NOT reduce output quality.`;
         }
     }
     main += renderQualityPromptBlock(generationOptions.renderQuality);

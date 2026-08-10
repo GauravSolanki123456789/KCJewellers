@@ -58,9 +58,10 @@ async function preprocessSourceForGemini(sourceImagePath, options = {}) {
                     : pipeline.resize({ height: target, withoutEnlargement: false, kernel: sharp.kernel.lanczos3 });
         }
 
+        const sharpenSigma = rq === '4k' ? 0.42 : rq === '2k' ? 0.38 : 0.32;
         const buf = await pipeline
             .normalize()
-            .sharpen({ sigma: rq === '4k' ? 0.35 : 0.28, m1: 0.4, m2: 0.22 })
+            .sharpen({ sigma: sharpenSigma, m1: 0.45, m2: 0.24 })
             .jpeg({ quality: rq === '4k' ? 98 : 96, mozjpeg: true, chromaSubsampling: '4:4:4' })
             .toBuffer();
 
@@ -522,7 +523,10 @@ function detectEnhancementProfile({ templateKey, varietyKey, promptText } = {}) 
         vk.includes('frame') ||
         pt.includes('uploaded idol') ||
         pt.includes('glass cloche') ||
-        pt.includes('glass dome')
+        pt.includes('glass dome') ||
+        pt.includes('product identity lock') ||
+        pt.includes('religious sculpture') ||
+        pt.includes('museum display')
     ) {
         return 'idol';
     }
@@ -533,7 +537,9 @@ function isComprehensiveUserPrompt(promptText) {
     const t = String(promptText || '').toLowerCase();
     return (
         t.length > 650 ||
-        /strict (reference|product) lock|strict product preservation|absolute color lock/.test(t)
+        /strict (reference|product) lock|strict product preservation|absolute color lock/.test(t) ||
+        /product identity lock|primary objective|photograph the same product better/.test(t) ||
+        /preserve the product\. replace the photography/.test(t)
     );
 }
 
@@ -575,13 +581,13 @@ Glass dome when present: clean natural refraction — NO pink/magenta stripes, N
 function idolPremiumStudioBlock() {
     return `
 
-[PIPELINE — IDOL PREMIUM STUDIO]
-Match premium jewellery catalogue idol photography — one-shot museum-grade output from any phone photo.
-Backdrop: soft champagne/silver-grey draped fabric OR smooth smoky blue-charcoal gradient — elegant depth, zero grain, zero muddy flat grey.
-Glass cloche/dome when present: crystal-clear with soft curved natural highlights; idol inside sharp and identical to source — same pose, same accessories; NO vertical white glare bars, NO pink/magenta stripes, NO ghost duplicate on backdrop.
-Lighting: soft diffused multi-source studio (large softbox key + fill + subtle rim) — NOT a harsh overhead spotlight cone, NOT bright circular floor hotspot.
-Surface: dark polished stone or matte black pedestal; soft contact shadow under base only — no cast shadow on backdrop wall.
-Hero framing: product including glass dome fills 82–88% of frame height — large close catalogue hero.${studioShadowAndSurfaceBlock()}`;
+[PIPELINE — IDOL PREMIUM MUSEUM STUDIO]
+Transform even a bad phone photo into world-class luxury museum product photography in ONE generation.
+Backdrop: deep charcoal-to-midnight-blue gradient with soft radial glow behind product — elegant atmospheric depth, zero grain, zero muddy flat grey, NO champagne fabric, NO draped cloth.
+Glass cloche/dome WHEN PRESENT IN SOURCE: ultra-clear optical glass with soft curved natural highlights; idol inside tack-sharp and identical to source — same pose, same accessories, same colours; NO vertical white glare bars, NO pink/magenta stripes, NO ghost duplicate on backdrop. If source has NO dome — do NOT add one.
+Lighting: large soft key above-forward + soft fill + subtle rim + restrained rear separation — NOT a harsh overhead spotlight cone, NOT bright circular floor hotspot.
+Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER mirror-black glass floor.
+Hero framing: product including dome and base fills 55–75% of frame height — premium catalogue hero, entire sculpture sharp.${studioShadowAndSurfaceBlock()}${woodBaseConditionalBlock()}`;
 }
 
 function profileStudioQualityBlock(profile, backgroundPreset, options = {}) {

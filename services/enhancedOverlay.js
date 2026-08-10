@@ -312,12 +312,13 @@ async function applyImageOverlays(buffer, mimeType, settingsRaw, meta = {}, deps
 }
 
 const BACKGROUND_PRESETS = {
-    charcoal: 'Deep charcoal to midnight blue smoky cinematic studio backdrop with soft vignette',
-    black: 'Pure matte black luxury studio background with subtle gradient',
+    charcoal:
+        'Deep charcoal-to-midnight-blue gradient studio with soft radial glow behind product. Dark navy-black stone surface with subtle mineral texture — matte-to-satin, never wet mirror glass. Museum vignette.',
+    black: 'Near-black charcoal-to-midnight-blue cinematic gradient — NOT flat pure black. Dark premium stone surface, soft atmospheric depth, luxury jewellery campaign mood.',
     white: 'Pure seamless white infinity-cove studio background (#FFFFFF) — premium e-commerce catalogue identical to Amazon/Flipkart jewellery product shots',
     red: 'Deep rich burgundy-red luxury studio backdrop',
-    blue: 'Deep navy blue luxury studio backdrop',
-    emerald: 'Dark emerald green luxury studio backdrop',
+    blue: 'Deep navy / midnight blue gradient studio with cool atmospheric separation',
+    emerald: 'Dark emerald-to-charcoal gradient studio backdrop — regal heritage mood',
     cream: 'Warm ivory cream luxury studio backdrop',
 };
 
@@ -451,7 +452,7 @@ Modest even margins on all sides for website grid display. Do NOT invent a woode
         return `
 
 [COMPOSITION — HERO FRAMING]
-Product including glass dome and base fills approximately 72–82% of frame HEIGHT — Aurra Studio catalogue scale. Close hero shot: idol detail clearly visible WITHOUT zooming. NOT a tiny distant product with excessive empty space above/below. NOT extreme macro that crops the dome. Balanced premium framing with modest top margin for optional text overlay.`;
+Product including glass dome and base (when present) fills approximately 55–75% of frame HEIGHT — museum catalogue scale. Close hero shot: entire sculpture tack-sharp and clearly visible WITHOUT zooming. NOT a tiny distant product with excessive empty space. NOT extreme macro that crops the dome. Balanced premium framing with controlled negative space.`;
     }
     return `
 

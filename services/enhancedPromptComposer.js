@@ -1,6 +1,6 @@
 /**
  * Adaptive prompt composer — augments admin master prompts per background + visualization.
- * Keeps one template in Prompt Lab; runtime adds Aurra-grade scene-specific instructions.
+ * Museum Dark Luxury engine for idol / frame catalogue shots (Black Layout, emerald idols, etc.).
  */
 
 const WEAK_PROMPT_MAX_LEN = 280;
@@ -8,6 +8,16 @@ const WEAK_PROMPT_MAX_LEN = 280;
 function normKey(v, fallback) {
     const s = String(v || fallback).trim().toLowerCase();
     return s || fallback;
+}
+
+function isComprehensiveMasterPrompt(text) {
+    const t = String(text || '').toLowerCase();
+    return (
+        t.length > 650 ||
+        /strict (reference|product) lock|strict product preservation|absolute color lock/.test(t) ||
+        /product identity lock|primary objective|photograph the same product better/.test(t) ||
+        /preserve the product\. replace the photography/.test(t)
+    );
 }
 
 function isWeakBasePrompt(text) {
@@ -33,37 +43,47 @@ function profileLabel(profile) {
 
 function aurraGradeBaseEnhancement(profile) {
     const subject = profileLabel(profile);
-    return `[AUTOMATIC PROMPT ENHANCEMENT — AURRA STUDIO GRADE]
-Transform any casual phone photo of this ${subject} into a hyper-realistic luxury commercial catalogue image.
-Preserve 100% product identity from the uploaded reference — exact shape, metal tone, stone colours, engravings, proportions, base type, and glass dome if present.
-Replace shop clutter, plastic bags, hands, tables, and warehouse backgrounds entirely.
-Apply cinematic studio lighting with soft diffused key light, gentle rim light, and controlled specular highlights on metal and glass.
+    return `[AUTOMATIC PROMPT ENHANCEMENT — MUSEUM STUDIO GRADE]
+Transform any casual phone photo of this ${subject} into an ultra-premium luxury commercial catalogue image.
+The uploaded image is the ONLY authoritative source for product identity — exact shape, metal tone, stone colours, engravings, proportions, base type, and glass dome if present.
+PHOTOGRAPH THE SAME PRODUCT BETTER: replace shop clutter, plastic bags, hands, tables, warehouse backgrounds, harsh phone lighting, noise, and compression entirely.
+Apply cinematic museum-grade studio lighting with large soft key light, gentle fill, subtle rim — controlled specular highlights on metal and optical glass.
 Micro-texture fidelity on metal grain, stone facets, and enamel — zero plastic AI smoothing.
-Deep rich backdrop with smooth gradient vignette unless white catalogue mode is selected.
-Hero framing: product fills 72–88% of frame height, centered, catalogue-ready for e-commerce and WhatsApp.`;
+Deep charcoal-to-midnight luxury backdrop with premium dark stone surface unless white catalogue mode is selected.
+Hero framing: product fills 55–75% of frame height, centered, catalogue-ready for e-commerce and WhatsApp.`;
 }
 
 const BG_SCENE_BLOCKS = {
-    charcoal: `Scene: smoky charcoal-to-midnight gradient studio with soft vignette. Matte stone or velvet surface. Premium Aurra-style moody catalogue atmosphere.`,
-    black: `Scene: pure matte black infinity studio. Subtle radial gradient. High contrast — gold/silver pops against deep black. Luxury campaign look.`,
+    charcoal: `Scene: deep charcoal-to-midnight-blue gradient studio with soft radial glow behind product. Dark navy-black stone tabletop with subtle mineral texture — matte-to-satin, never wet, never mirror glass. Museum vignette, zero grain, zero clutter.`,
+    black: `Scene: near-black charcoal-to-midnight-blue cinematic gradient — NOT flat pure black. Soft atmospheric depth behind silhouette. Dark premium stone surface beneath product with controlled soft reflection. High-end jewellery campaign — product is the hero.`,
     white: `Scene: seamless pure white (#FFFFFF) infinity-cove. Bright even diffused lighting. Amazon/Flipkart jewellery listing standard. Soft contact shadow under base only.`,
-    blue: `Scene: deep navy velvet/suede backdrop with elegant folds, fading to blue-black at top. Aurra Studio blue campaign quality. No flowers or extra props.`,
+    blue: `Scene: deep navy / midnight blue studio gradient with subtle cool atmospheric separation. Dark stone or velvet surface. Regal luxury jewellery campaign — no visible room corners.`,
     red: `Scene: rich burgundy velvet studio with warm accent lighting. Romantic luxury jewellery campaign mood.`,
-    emerald: `Scene: dark emerald green velvet backdrop. Regal heritage jewellery campaign — deep greens, gold highlights.`,
+    emerald: `Scene: dark emerald-to-charcoal gradient studio. Regal heritage mood — deep greens in backdrop only; product colours stay accurate.`,
     cream: `Scene: warm ivory/champagne studio with soft gradient. Elegant bridal and heritage catalogue warmth.`,
 };
 
 const VIZ_SCENE_BLOCKS = {
-    studio: `Presentation: classic luxury pedestal/tabletop. Centered hero, soft contact shadow, eye-level catalogue angle.`,
+    studio: `Presentation: classic luxury pedestal/tabletop on dark premium stone. Centered hero, soft contact shadow, eye-level or slightly elevated catalogue angle. Adaptive to product — do NOT force glass dome if source has none.`,
     prop: `Presentation: product on minimal luxury display prop — velvet block, acrylic riser, or sculptural stand. Visible prop edge. NOT plain empty table.`,
-    hand_female: `Presentation: worn on elegant female hand — manicured, soft skin, cropped at wrist. Editorial QuickSell/Aurra wear shot. Product ON hand, never floating.`,
+    hand_female: `Presentation: worn on elegant female hand — manicured, soft skin, cropped at wrist. Editorial wear shot. Product ON hand, never floating.`,
     hand_male: `Presentation: worn on male hand — cropped at wrist. Strong editorial catalogue. Product ON hand, never on pedestal.`,
-    standing: `Presentation: standing upright on edge/balance point — bangles vertical, rings on band edge, idols on base. Slight 10–15° angle for depth. Identity unchanged.`,
-    sleeping: `Presentation: flat lay / sleeping pose on studio surface. Full design visible from above. Classic catalogue flat arrangement.`,
-    mixed_bangles: `Presentation: paired bangles — one standing inside circle of flat partner. Dual-angle classic kada catalogue layout.`,
+    standing: `Presentation: standing upright on edge/balance point — idols on existing base. Slight angle for depth. Identity unchanged.`,
+    sleeping: `Presentation: flat lay / sleeping pose on studio surface. Full design visible from above.`,
+    mixed_bangles: `Presentation: paired bangles — one standing inside circle of flat partner.`,
 };
 
 const COMBO_TUNING = {
+    'black+studio':
+        'Black museum studio + pedestal: near-black charcoal-midnight gradient, dark stone surface, large soft key + fill + rim. Silver cool highlights, gold warm highlights. Full product sharp — glass dome optical-clear if present in source.',
+    'charcoal+studio':
+        'Charcoal cinematic + studio: smoky blue-charcoal gradient, museum stone surface, soft diffused multi-source lighting. Aurra/reference-catalogue quality.',
+    'blue+studio':
+        'Navy studio + pedestal: midnight blue gradient backdrop, dark stone surface, cool cinematic separation light behind product silhouette.',
+    'black+standing':
+        'Black studio + standing: vertical hero on existing base, dramatic rim on metallic edges, deep readable shadows.',
+    'charcoal+standing':
+        'Charcoal + standing idol: museum gallery lighting, upright on preserved base, full sculpture sharp.',
     'white+hand_female':
         'White backdrop + hand shot: bright skin-friendly lighting, no grey cast on white, product metal must stay accurate against fair skin.',
     'white+hand_male':
@@ -73,13 +93,11 @@ const COMBO_TUNING = {
     'black+hand_female':
         'Black studio + hand: dramatic rim light on jewellery, deep black background, editorial fashion jewellery campaign.',
     'blue+standing':
-        'Navy velvet + standing pose: vertical hero with soft blue fill — Aurra idol/bangle campaign reference quality.',
+        'Navy velvet + standing pose: vertical hero with soft blue fill — premium idol/bangle campaign reference quality.',
     'emerald+prop':
         'Emerald velvet + prop: heritage regal mood — antique gold against deep green velvet folds.',
     'cream+sleeping':
         'Cream studio + flat lay: soft warm bridal catalogue — gentle shadows, no harsh contrast.',
-    'charcoal+studio':
-        'Charcoal cinematic + studio pedestal: default Aurra hero — moody gradient, centered product, premium smoke atmosphere.',
 };
 
 function comboKey(bg, viz) {
@@ -96,6 +114,67 @@ function combinationTuningBlock(bg, viz) {
     const vizBlock = VIZ_SCENE_BLOCKS[normKey(viz, 'studio')] || VIZ_SCENE_BLOCKS.studio;
     return `\n[SCENE COMBINATION TUNING]\n${bgBlock}\n${vizBlock}`;
 }
+
+/** Condensed runtime reinforcement for idol dark layouts — works with admin master prompts. */
+function idolMuseumDarkLuxuryRuntimeBlock({ backgroundPreset, visualization, renderQuality, profile } = {}) {
+    if (profile !== 'idol') return '';
+    const bg = normKey(backgroundPreset, 'charcoal');
+    if (bg === 'white') return '';
+
+    return `
+
+[RUNTIME — MUSEUM DARK LUXURY (PHOTOGRAPHY REPLACEMENT — HIGHEST PRIORITY)]
+PRESERVE THE PRODUCT. REPLACE THE PHOTOGRAPHY. The uploaded image determines WHAT the product is; this block determines HOW it is photographed.
+• Product identity lock: same silhouette, proportions, pose, carvings, engravings, metal finish, gemstones, enamel, base, and glass dome IF present in source — never invent ornaments or glass not in source.
+• Ignore source defects: blur, noise, compression, clutter, shop background, hands, harsh phone lighting, wrong white balance, lens distortion — reconstruct professionally.
+• Background: deep charcoal-to-midnight-blue gradient, soft radial glow behind product, NO visible room, NO furniture, NO props unless visualization requires.
+• Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER polished black mirror glass.
+• Glass logic: if source has dome/case — ultra-clear optical glass, subtle Fresnel edge highlights, sharp product inside; if source has NO dome — do NOT add one.
+• Base logic: preserve existing base/pedestal exactly; if none in source — simple premium stone surface only, no invented elaborate pedestal.
+• Lighting: large soft key above-forward, soft fill, subtle side/rim, restrained rear separation — silver cool highlights, gold warm highlights, NO blown white metal, NO harsh spotlight cone, NO floor hotspot ring.
+• Camera: 85–105mm product lens look, natural perspective, adaptive angle that best represents THIS object — full product tack-sharp (focus stacking if needed), background may soften slightly.
+• Composition: product 55–75% frame height, centered, premium catalogue hero, clean negative space — NO text, logo, watermark.
+• Final target: indistinguishable from a professional museum jewellery catalogue photograph — NOT an AI-filtered version of the phone photo.`;
+}
+
+const MUSEUM_IDOL_NEGATIVE_SUPPLEMENT = [
+    'redesigned product',
+    'different product',
+    'altered proportions',
+    'missing carvings',
+    'invented ornaments',
+    'plastic metal',
+    'fake silver',
+    'chrome appearance',
+    'soft product',
+    'out-of-focus product',
+    'harsh spotlight',
+    'blown highlights',
+    'busy background',
+    'white background when dark selected',
+    'visible room',
+    'cloudy glass',
+    'milky glass',
+    'plastic glass',
+    'mirror-like black surfaces',
+    'wet tabletop',
+    'polished black glass floor',
+    'tiny product',
+    'cropped product',
+    'cartoon',
+    'illustration',
+    'CGI appearance',
+    'AI artifacts',
+    'text',
+    'watermark',
+    'logo',
+    'hands in frame when studio selected',
+    'person',
+    'shop shelves',
+    'clutter',
+    'heavy fog',
+    'visible smoke',
+];
 
 function adaptNegativePrompt(negativePrompt, bg, viz, profile) {
     const lines = String(negativePrompt || '')
@@ -118,10 +197,18 @@ function adaptNegativePrompt(negativePrompt, bg, viz, profile) {
     add('text, watermark, logo, caption unless requested');
     add('deformed hands, extra fingers, mangled anatomy');
 
+    if (profile === 'idol') {
+        for (const line of MUSEUM_IDOL_NEGATIVE_SUPPLEMENT) {
+            add(line);
+        }
+    }
+
     if (normKey(bg, '') === 'white') {
         add('grey background, cream backdrop, dark vignette, muddy shadows on white');
     } else {
         add('pure white blown-out background when dark backdrop selected');
+        add('flat pure black background without gradient depth');
+        add('champagne fabric backdrop when black or charcoal studio selected');
     }
 
     const vizKey = normKey(viz, 'studio');
@@ -141,33 +228,46 @@ function adaptNegativePrompt(negativePrompt, bg, viz, profile) {
     if (profile === 'idol') {
         add('added drum, flute, arch, extra ornaments not in source');
         add('white rectangular glare bar on glass dome');
+        add('invented glass dome when source has none');
+        add('invented wooden pedestal when source has none');
     }
 
     return lines.join('\n');
 }
 
-function composeAdaptivePromptBlock(basePrompt, { backgroundPreset, visualization, profile, renderQuality } = {}) {
+function composeAdaptivePromptBlock(basePrompt, { backgroundPreset, visualization, profile, renderQuality, comprehensive } = {}) {
     const bg = normKey(backgroundPreset, 'charcoal');
     const viz = normKey(visualization, 'studio');
+    const isComprehensive = comprehensive ?? isComprehensiveMasterPrompt(basePrompt);
     const parts = [];
 
-    if (isWeakBasePrompt(basePrompt)) {
+    if (isComprehensive) {
+        parts.push(`\n[ADAPTIVE ENGINE — MASTER PROMPT ACTIVE]
+The master prompt above is primary authority. Runtime tuning below reinforces selected background (${bg}), visualization (${viz}), and render tier only — do not override product identity lock.`);
+    } else if (isWeakBasePrompt(basePrompt)) {
         parts.push(aurraGradeBaseEnhancement(profile));
+        parts.push(`\n[ADAPTIVE SCENE ENGINE — AUTO]
+Background preset: ${bg}. Visualization: ${viz}. Quality tier: ${renderQuality || '2k'}.
+The system has automatically tuned this generation for the selected style and pose.`);
+        parts.push(combinationTuningBlock(bg, viz));
+    } else {
+        parts.push(`\n[ADAPTIVE SCENE ENGINE — AUTO]
+Background preset: ${bg}. Visualization: ${viz}. Quality tier: ${renderQuality || '2k'}.
+Follow combination tuning below for the selected style and pose.`);
+        parts.push(combinationTuningBlock(bg, viz));
     }
 
-    parts.push(`\n[ADAPTIVE SCENE ENGINE — AUTO]
-Background preset: ${bg}. Visualization: ${viz}. Quality tier: ${renderQuality || '2k'}.
-The system has automatically tuned this generation for the selected style and pose. Follow combination tuning below even if earlier prompt lines conflict.`);
-
-    parts.push(combinationTuningBlock(bg, viz));
+    if (profile === 'idol' && bg !== 'white') {
+        parts.push(idolMuseumDarkLuxuryRuntimeBlock({ backgroundPreset: bg, visualization: viz, renderQuality, profile }));
+    }
 
     if (renderQuality === '4k') {
         parts.push(
-            '\n[4K ULTRA DETAIL]\nRender at maximum micro-detail — crisp engravings, individual stone facets, natural metal grain. Print-grade sharpness.',
+            '\n[4K ULTRA DETAIL]\nRender at maximum micro-detail — crisp engravings, individual stone facets, natural metal grain, optical glass refraction. Print-grade full-product sharpness.',
         );
     } else if (renderQuality === '2k') {
         parts.push(
-            '\n[2K STUDIO DETAIL]\nSharp catalogue resolution with cinematic lighting — suitable for website, ads, and WhatsApp catalogues.',
+            '\n[2K STUDIO DETAIL]\nSharp catalogue resolution with cinematic museum lighting — suitable for website, ads, and WhatsApp catalogues. Entire product must remain sharp.',
         );
     }
 
@@ -176,8 +276,11 @@ The system has automatically tuned this generation for the selected style and po
 
 module.exports = {
     isWeakBasePrompt,
+    isComprehensiveMasterPrompt,
     aurraGradeBaseEnhancement,
     composeAdaptivePromptBlock,
     adaptNegativePrompt,
     combinationTuningBlock,
+    idolMuseumDarkLuxuryRuntimeBlock,
+    MUSEUM_IDOL_NEGATIVE_SUPPLEMENT,
 };
