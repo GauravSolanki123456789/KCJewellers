@@ -348,14 +348,54 @@ function resolveOutputLongEdge(options = {}) {
 }
 
 /**
- * Find approximate product bounding box (idol + dome) on dark studio backgrounds.
+ * Find approximate product bounding box (idol + dome) — excludes backdrop via corner sampling.
  */
 async function detectSubjectBoundingBox(sharp, buffer, origW, origH) {
-    const sampleMax = 480;
+    const sampleMax = 512;
     const scale = Math.min(1, sampleMax / Math.max(origW, origH, 1));
     const sw = Math.max(1, Math.round(origW * scale));
     const sh = Math.max(1, Math.round(origH * scale));
     const { data } = await sharp(buffer).resize(sw, sh).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const channels = 3;
+
+    const cornerSamples = [
+        [0, 0],
+        [sw - 1, 0],
+        [0, sh - 1],
+        [sw - 1, sh - 1],
+        [Math.floor(sw / 2), 0],
+        [Math.floor(sw / 2), sh - 1],
+        [0, Math.floor(sh / 2)],
+        [sw - 1, Math.floor(sh / 2)],
+    ];
+    let bgR = 0;
+    let bgG = 0;
+    let bgB = 0;
+    for (const [cx, cy] of cornerSamples) {
+        const i = (cy * sw + cx) * channels;
+        bgR += data[i];
+        bgG += data[i + 1];
+        bgB += data[i + 2];
+    }
+    bgR /= cornerSamples.length;
+    bgG /= cornerSamples.length;
+    bgB /= cornerSamples.length;
+
+    const isBackgroundPixel = (r, g, b) => {
+        const dr = r - bgR;
+        const dg = g - bgG;
+        const db = b - bgB;
+        const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+        if (dist < 48) return true;
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        const maxC = Math.max(r, g, b);
+        const minC = Math.min(r, g, b);
+        const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+        if (lum < 38 && sat < 0.14) return true;
+        if (lum > 228 && sat < 0.1) return true;
+        return false;
+    };
+
     let minX = sw;
     let minY = sh;
     let maxX = 0;
@@ -363,36 +403,36 @@ async function detectSubjectBoundingBox(sharp, buffer, origW, origH) {
     let hits = 0;
     for (let y = 0; y < sh; y++) {
         for (let x = 0; x < sw; x++) {
-            const i = (y * sw + x) * 3;
+            const i = (y * sw + x) * channels;
             const r = data[i];
             const g = data[i + 1];
             const b = data[i + 2];
-            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-            const maxC = Math.max(r, g, b);
-            const minC = Math.min(r, g, b);
-            const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-            // Silver idol, glass highlights, wood base — skip flat dark backdrop
-            if (lum > 40 || maxC > 55 || sat > 0.1) {
-                hits += 1;
-                if (x < minX) minX = x;
-                if (y < minY) minY = y;
-                if (x > maxX) maxX = x;
-                if (y > maxY) maxY = y;
-            }
+            if (isBackgroundPixel(r, g, b)) continue;
+            hits += 1;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
         }
     }
     if (hits < 40 || maxX <= minX || maxY <= minY) return null;
 
     const bw = (maxX - minX + 1) / scale;
     const bh = (maxY - minY + 1) / scale;
-    const padX = bw * 0.05;
-    const padY = bh * 0.05;
+    const padX = bw * 0.04;
+    const padY = bh * 0.04;
     const left = Math.max(0, Math.floor(minX / scale - padX));
     const top = Math.max(0, Math.floor(minY / scale - padY));
     const width = Math.min(origW - left, Math.ceil(bw + padX * 2));
     const height = Math.min(origH - top, Math.ceil(bh + padY * 2));
     if (width < 32 || height < 32) return null;
     return { left, top, width, height };
+}
+
+async function measureSubjectFillRatio(sharp, buffer, w, h) {
+    const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
+    if (!bbox || !w || !h) return 0;
+    return Math.max(bbox.width / w, bbox.height / h);
 }
 
 /**
@@ -406,11 +446,8 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
 
         const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
         if (bbox) {
-            const fillW = bbox.width / w;
-            const fillH = bbox.height / h;
-            const fill = Math.max(fillW, fillH);
-            // AI often renders tiny product — crop to subject and zoom in aggressively
-            if (fill < 0.92) {
+            const fill = Math.max(bbox.width / w, bbox.height / h);
+            if (fill < 0.97) {
                 working = await sharp(buffer)
                     .extract({ left: bbox.left, top: bbox.top, width: bbox.width, height: bbox.height })
                     .toBuffer();
@@ -418,8 +455,7 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
                 ch = bbox.height;
             }
         } else {
-            // Fallback: center crop when margins are mostly uniform dark backdrop
-            const margin = Math.round(Math.min(w, h) * 0.08);
+            const margin = Math.round(Math.min(w, h) * 0.06);
             if (w > margin * 4 && h > margin * 4) {
                 working = await sharp(buffer)
                     .extract({
@@ -435,26 +471,52 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         }
 
         const trimmed = await sharp(working).trim({ threshold: 10 }).toBuffer({ resolveWithObject: true });
-        const tw = trimmed.info.width || cw;
-        const th = trimmed.info.height || ch;
-        if (tw < 32 || th < 32) return buffer;
+        let productBuf = trimmed.data;
+        let productW = trimmed.info.width || cw;
+        let productH = trimmed.info.height || ch;
+        if (productW < 32 || productH < 32) return buffer;
 
-        const targetFill = targetSize >= 4096 ? 0.96 : targetSize >= 2048 ? 0.94 : 0.9;
-        const long = Math.max(tw, th);
-        const canvas = Math.round(long / targetFill);
-        const padX = Math.max(0, Math.round((canvas - tw) / 2));
-        const padY = Math.max(0, Math.round((canvas - th) / 2));
+        let targetFill = targetSize >= 4096 ? 0.97 : targetSize >= 2048 ? 0.96 : 0.93;
+        let framed = productBuf;
 
-        let framed = await sharp(trimmed.data)
-            .extend({
-                top: padY,
-                bottom: padY,
-                left: padX,
-                right: padX,
-                background: { r: 18, g: 24, b: 34, alpha: 1 },
-            })
-            .resize(targetSize, targetSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
-            .toBuffer();
+        for (let pass = 0; pass < 2; pass += 1) {
+            const long = Math.max(productW, productH);
+            const canvas = Math.round(long / targetFill);
+            const padX = Math.max(0, Math.round((canvas - productW) / 2));
+            const padY = Math.max(0, Math.round((canvas - productH) / 2));
+
+            framed = await sharp(productBuf)
+                .extend({
+                    top: padY,
+                    bottom: padY,
+                    left: padX,
+                    right: padX,
+                    background: { r: 18, g: 24, b: 34, alpha: 1 },
+                })
+                .resize(targetSize, targetSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+                .toBuffer();
+
+            const fillAfter = await measureSubjectFillRatio(sharp, framed, targetSize, targetSize);
+            if (fillAfter >= 0.93 || pass === 1) break;
+
+            const bbox2 = await detectSubjectBoundingBox(sharp, framed, targetSize, targetSize);
+            if (!bbox2) break;
+            const fill2 = Math.max(bbox2.width / targetSize, bbox2.height / targetSize);
+            if (fill2 >= 0.93) break;
+
+            productBuf = await sharp(framed)
+                .extract({
+                    left: bbox2.left,
+                    top: bbox2.top,
+                    width: bbox2.width,
+                    height: bbox2.height,
+                })
+                .toBuffer();
+            const meta2 = await sharp(productBuf).metadata();
+            productW = meta2.width || bbox2.width;
+            productH = meta2.height || bbox2.height;
+            targetFill = Math.min(0.985, targetFill + 0.025);
+        }
 
         const fw = targetSize;
         const fh = targetSize;
@@ -970,7 +1032,8 @@ async function compositeProductCutoutOntoStudio(cutoutBuffer, options = {}) {
         const th = trimmed.info.height || 0;
         if (tw < 24 || th < 24) return null;
 
-        const targetFill = options.profile === 'kada' ? 0.84 : 0.78;
+        const targetFill =
+            options.profile === 'kada' ? 0.84 : options.profile === 'idol' ? 0.95 : 0.78;
         const maxDim = Math.round(size * targetFill);
         const scale = maxDim / Math.max(tw, th);
         const nw = Math.round(tw * scale);
@@ -1161,6 +1224,8 @@ module.exports = {
     JEWELRY_NEGATIVE_LINES,
     createLuxuryStudioBackground,
     compositeProductCutoutOntoStudio,
+    measureSubjectFillRatio,
+    detectSubjectBoundingBox,
     isSamePoseVisualization,
     requiresGenerativeVisualization,
     backgroundColorsForPreset,

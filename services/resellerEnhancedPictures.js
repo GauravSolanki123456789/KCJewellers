@@ -1040,6 +1040,16 @@ Surface: dark navy-black stone with subtle mineral texture — controlled soft r
 Hero framing: product including dome and base fills 90–96% of frame height — close-up catalogue hero readable without zooming.${idolGlassDomeSourcePurgeBlock()}${idolReferenceCatalogueAestheticBlock()}`;
 }
 
+function idolDarkFinalSupremacyBlock() {
+    return `
+
+[FINAL OVERRIDE — DARK LAYOUT MUSEUM HERO (SUPERSEDES ALL CONFLICTING TEXT ABOVE)]
+When Black Layout / dark studio is selected: background MUST be deep charcoal-to-midnight museum gradient with dark stone surface — NEVER white, NEVER cream infinity-cove, NEVER e-commerce white catalogue.
+Product (glass dome + base + idol) fills 90–96% of frame height — intimate close-up like reference luxury idol catalogues; readable on mobile WITHOUT zooming.
+COMPLETELY IGNORE and REPLACE shop flash, ceiling reflections, pink/magenta streaks, and vertical glare bars from the uploaded photo — regenerate clean optical glass with soft studio highlights only.
+Idol inside dome must be tack-sharp with crisp silver/gold micro-texture — sharper and clearer than the source phone photo.`;
+}
+
 function buildFullPrompt(
     promptText,
     negativePrompt,
@@ -1130,6 +1140,9 @@ Replace any shop/warehouse background entirely. Purge all source glass glare and
         main += jewelryStructuralIdentityBlock();
     }
     main += studioOptionsSupremacyBlock(generationOptions, profile);
+    if (isDarkIdol) {
+        main += idolDarkFinalSupremacyBlock();
+    }
     if (text) {
         main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
         neg = neg

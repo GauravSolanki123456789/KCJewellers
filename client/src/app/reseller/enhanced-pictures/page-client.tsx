@@ -4,21 +4,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft,
-  Check,
   Download,
   Loader2,
   Sparkles,
-  Package,
   Archive,
   Coins,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
-import { PROFILE_PATH, RESELLER_PRODUCTS_PATH } from '@/lib/routes'
+import { PROFILE_PATH } from '@/lib/routes'
 import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
+import EnhancedBarcodeSearchPanel from '@/components/reseller/EnhancedBarcodeSearchPanel'
+import { hintDisplayCode } from '@/lib/enhanced-barcode-search'
 import EnhancedStudioOptions, {
   renderQualityCreditCost,
   RENDER_QUALITY_OPTIONS,
@@ -366,6 +366,20 @@ export default function ResellerEnhancedPicturesPageClient() {
     if (resultUrl) return resultUrl
     return activeVariety?.sample_result_image_url || activeTemplate?.showcase?.sample_result_image_url || null
   }, [resultUrl, activeVariety, activeTemplate])
+
+  const applyBarcodeHint = useCallback(
+    (h: EnhancedBarcodeHint) => {
+      const code = hintDisplayCode(h)
+      setBarcodeStem(h.stem || code || '')
+      setLookupLabel(code || h.stem || null)
+      setShowMrpField(!!h.show_mrp_field)
+      if (h.mrp_rate_behind_box != null) setMrpRateBehindBox(String(h.mrp_rate_behind_box))
+      if (includeCanvasText && !canvasText.trim()) {
+        setCanvasText(String(h.barcode || h.web_product_sku || code || h.stem).toUpperCase())
+      }
+    },
+    [includeCanvasText, canvasText],
+  )
 
   useEffect(() => {
     const q = String(barcodeStem || '').trim()
@@ -1105,6 +1119,7 @@ export default function ResellerEnhancedPicturesPageClient() {
               sampleImageUrl={showcaseSampleUrl}
               resultImageUrl={showcaseResultUrl}
               compact
+              hideSystemDetails
             />
           </section>
         ) : null}
@@ -1187,92 +1202,18 @@ export default function ResellerEnhancedPicturesPageClient() {
                 </button>
               ))}
             </div>
-            <label className="block">
-              <span className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                Search product (SKU, barcode, or item code e.g. SFIDOL009-001)
-              </span>
-              <input
-                value={barcodeStem}
-                onChange={(e) => setBarcodeStem(e.target.value)}
-                placeholder="e.g. SFIDOL009-001 or ganesh-ganesh-sfidol008"
-                className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-3 font-mono text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
-              />
-            </label>
-            {lookupLabel ? (
-              <p className="mt-2 text-xs font-medium text-emerald-700">
-                Matched: {lookupLabel}
-              </p>
-            ) : null}
-            {showMrpField ? (
-              <label className="mt-3 block">
-                <span className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                  MRP rate (behind box) — ₹
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={mrpRateBehindBox}
-                  onChange={(e) => setMrpRateBehindBox(e.target.value)}
-                  placeholder="Enter MRP printed on box"
-                  className="mt-1.5 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
-                />
-                <span className="mt-1 block text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                  Your Excel batch includes this column but values were empty — enter here when attaching the photo.
-                </span>
-              </label>
-            ) : null}
-            {suggestedFilename ? (
-              <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                Will save / attach as{' '}
-                <code className="rounded bg-[var(--color-slate-900,#f7f4ef)] px-1.5 py-0.5 font-mono text-[11px]">
-                  {suggestedFilename}
-                </code>
-              </p>
-            ) : null}
-            {hints.length > 0 ? (
-              <div className="mt-3 max-h-40 overflow-y-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
-                {hints.slice(0, 40).map((h) => (
-                  <button
-                    key={h.id}
-                    type="button"
-                    onClick={() => {
-                      setBarcodeStem(h.stem || h.product_name || h.item_code || h.web_product_sku || '')
-                      setShowMrpField(!!h.show_mrp_field)
-                      if (h.mrp_rate_behind_box != null) setMrpRateBehindBox(String(h.mrp_rate_behind_box))
-                      if (!includeCanvasText) {
-                        /* keep optional */
-                      } else if (!canvasText.trim()) {
-                        setCanvasText(String(h.barcode || h.web_product_sku || h.product_name || h.stem).toUpperCase())
-                      }
-                    }}
-                    className="flex w-full items-center justify-between gap-2 border-b border-[var(--color-slate-700,#e8e4df)] px-3 py-2 text-left last:border-0 hover:bg-[var(--color-slate-900,#f7f4ef)]"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-mono text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                        {h.product_name || h.item_code || h.barcode || h.web_product_sku || h.stem}
-                      </span>
-                      <span className="block truncate text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                        {photoType === 'back' ? h.back_filename : h.front_filename}
-                      </span>
-                    </span>
-                    {(photoType === 'front' ? h.has_front : h.has_back) ? (
-                      <Check className="size-4 shrink-0 text-emerald-600" />
-                    ) : (
-                      <Package className="size-4 shrink-0 text-[var(--color-jewelry-black,#1a1814)]/25" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-                Tip: upload your Excel batch in{' '}
-                <Link href={RESELLER_PRODUCTS_PATH} className="font-medium text-[var(--kc-accent,#c41e3a)]">
-                  Upload products
-                </Link>{' '}
-                first so barcodes appear here.
-              </p>
-            )}
+            <EnhancedBarcodeSearchPanel
+              hints={hints}
+              barcodeStem={barcodeStem}
+              onBarcodeStemChange={setBarcodeStem}
+              photoType={photoType}
+              lookupLabel={lookupLabel}
+              showMrpField={showMrpField}
+              mrpRateBehindBox={mrpRateBehindBox}
+              onMrpChange={setMrpRateBehindBox}
+              suggestedFilename={suggestedFilename}
+              onSelectHint={applyBarcodeHint}
+            />
           </div>
         </section>
 

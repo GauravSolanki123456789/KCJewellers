@@ -11,6 +11,8 @@ type Props = {
   resultImageUrl?: string | null
   className?: string
   compact?: boolean
+  /** Reseller view — hide resolutions / workflow highlights */
+  hideSystemDetails?: boolean
 }
 
 export default function EnhancedTemplateShowcase({
@@ -19,6 +21,7 @@ export default function EnhancedTemplateShowcase({
   resultImageUrl,
   className,
   compact = false,
+  hideSystemDetails = false,
 }: Props) {
   const highlights = Array.isArray(data.workflow_highlights)
     ? data.workflow_highlights.filter(Boolean)
@@ -26,6 +29,7 @@ export default function EnhancedTemplateShowcase({
   const sample = sampleImageUrl || data.sample_source_image_url || null
   const result = resultImageUrl || data.sample_result_image_url || null
   const showImages = !!(sample || result)
+  const showMeta = !hideSystemDetails && (highlights.length > 0 || data.footer_note)
 
   return (
     <div
@@ -34,7 +38,18 @@ export default function EnhancedTemplateShowcase({
         className,
       )}
     >
-      <div className={cn('grid gap-0', compact ? 'grid-cols-1' : showImages ? 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]' : 'grid-cols-1')}>
+      <div
+        className={cn(
+          'grid gap-0',
+          compact
+            ? 'grid-cols-1'
+            : showImages
+              ? showMeta
+                ? 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]'
+                : 'grid-cols-1'
+              : 'grid-cols-1',
+        )}
+      >
         {showImages ? (
           <div className="border-b border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-950,#faf8f4)] p-4 lg:border-b-0 lg:border-r">
             {sample ? (
@@ -76,7 +91,10 @@ export default function EnhancedTemplateShowcase({
           </div>
         ) : null}
 
+        {showMeta ? (
         <div className="space-y-4 p-4 sm:p-5">
+          {!hideSystemDetails ? (
+          <>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-jewelry-black,#1a1814)]/45">
               System capabilities
@@ -122,6 +140,8 @@ export default function EnhancedTemplateShowcase({
               </ul>
             </div>
           ) : null}
+          </>
+          ) : null}
 
           {data.footer_note ? (
             <p className="border-t border-[var(--color-slate-700,#e8e4df)] pt-3 text-[11px] font-medium uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
@@ -129,6 +149,7 @@ export default function EnhancedTemplateShowcase({
             </p>
           ) : null}
         </div>
+        ) : null}
       </div>
     </div>
   )

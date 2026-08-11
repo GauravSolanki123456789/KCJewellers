@@ -24,6 +24,7 @@ const {
     isSamePoseVisualization,
     requiresGenerativeVisualization,
     jewelryStructuralIdentityBlock,
+    measureSubjectFillRatio,
 } = require('./enhancedImageProcessing');
 
 function cutoutPlacementBlock(options = 'charcoal') {
@@ -56,6 +57,7 @@ ONLY a very soft subtle contact shadow directly under the product base when a ba
 [CUTOUT COMPOSITE — STUDIO PLACEMENT]
 The attached image is an isolated product cutout on transparency — the product pixels are LOCKED; do NOT redraw, merge, or simplify the jewellery structure.
 Place it centered on ${bgNote}.
+Product fills 90–96% of frame height — close-up catalogue hero readable without zooming on mobile.
 Relight with soft diffused multi-source studio lighting — NOT a single harsh overhead spotlight.
 Preserve razor-sharp metal micro-texture, individual chain links, and natural curved glass highlights when present.
 Do NOT convert flexible chain bracelets into solid bangles. Do NOT paste shop shadows, floating edges, or white rectangular glare bars.${studioShadowAndSurfaceBlock()}`;
@@ -412,6 +414,52 @@ async function runFourStepStudioPipeline({
             }
         } catch (e) {
             console.warn('aurra polish pass skipped, keeping pass-1 output:', e.message);
+        }
+    }
+
+    if (
+        generated?.buffer?.length &&
+        profile === 'idol' &&
+        !whiteCatalog &&
+        isSamePoseVisualization(visualization) &&
+        token &&
+        wantsQualityPrep &&
+        process.env.ENHANCED_IDOL_COMPOSITE_POST !== '0'
+    ) {
+        try {
+            const sharp = require('sharp');
+            const meta = await sharp(generated.buffer).metadata();
+            const gw = meta.width || 0;
+            const gh = meta.height || 0;
+            const fill = gw && gh ? await measureSubjectFillRatio(sharp, generated.buffer, gw, gh) : 0;
+            const needsComposite = fill < 0.9;
+            if (needsComposite) {
+                const genPath = writeTempBuffer(generated.buffer, '.png');
+                tempPaths.push(genPath);
+                const genCutout = await extractBackground(genPath, token, rembgWaitMs);
+                if (genCutout.usedRembg) {
+                    tempPaths.push(genCutout.path);
+                    const cutoutBuf = fs.readFileSync(genCutout.path);
+                    const composite = await compositeProductCutoutOntoStudio(cutoutBuf, {
+                        backgroundPreset,
+                        visualization,
+                        renderQuality,
+                        profile,
+                        templateKey,
+                        fastMode,
+                    });
+                    if (composite?.buffer?.length) {
+                        generated = {
+                            ...generated,
+                            ...composite,
+                            model: generated.model || 'kc-idol-composite-post',
+                        };
+                        steps.composite_post = true;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('idol post-composite skipped:', e.message);
         }
     }
 
