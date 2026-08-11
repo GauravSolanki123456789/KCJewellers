@@ -232,8 +232,8 @@ Do NOT add drum, flute, arch, ornaments, or wooden pedestal not in Image 2. Do N
     return `[PASS 2 — STUDIO POLISH]
 Image 1 = draft studio render. Image 2 = original product photo (ABSOLUTE ground truth).
 Final product must match Image 2 exactly — same pose, accessories, colors, and proportions. Polish only backdrop, lighting, glass clarity, and sharpness.
-Enhance: metallic micro-texture, glass dome clarity, backdrop smoothness, cinematic depth.
-Fix: harsh overhead spotlight cone, glass glare bars, ghost reflections, muddy shadows, blur, plastic CGI look.
+Enhance: metallic micro-texture, glass dome clarity (purge shop glare from source — soft studio highlights only), backdrop smoothness, cinematic depth, close hero framing.
+Fix: harsh overhead spotlight cone, glass glare bars, copied shop reflections on dome, ghost reflections, muddy shadows, blur, plastic CGI look, tiny distant product.
 Do NOT add drum, flute, arch, or ornaments not in Image 2. Do NOT recolor or redesign.`;
 }
 
@@ -371,8 +371,6 @@ async function detectSubjectBoundingBox(sharp, buffer, origW, origH) {
             const maxC = Math.max(r, g, b);
             const minC = Math.min(r, g, b);
             const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-            // Skip flat white/grey AI backdrops — keep product pixels only
-            if (lum > 228 && sat < 0.1) continue;
             // Silver idol, glass highlights, wood base — skip flat dark backdrop
             if (lum > 40 || maxC > 55 || sat > 0.1) {
                 hits += 1;
@@ -410,22 +408,38 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         if (bbox) {
             const fillW = bbox.width / w;
             const fillH = bbox.height / h;
+            const fill = Math.max(fillW, fillH);
             // AI often renders tiny product — crop to subject and zoom in aggressively
-            if (fillW < 0.92 || fillH < 0.92) {
+            if (fill < 0.92) {
                 working = await sharp(buffer)
                     .extract({ left: bbox.left, top: bbox.top, width: bbox.width, height: bbox.height })
                     .toBuffer();
                 cw = bbox.width;
                 ch = bbox.height;
             }
+        } else {
+            // Fallback: center crop when margins are mostly uniform dark backdrop
+            const margin = Math.round(Math.min(w, h) * 0.08);
+            if (w > margin * 4 && h > margin * 4) {
+                working = await sharp(buffer)
+                    .extract({
+                        left: margin,
+                        top: margin,
+                        width: w - margin * 2,
+                        height: h - margin * 2,
+                    })
+                    .toBuffer();
+                cw = w - margin * 2;
+                ch = h - margin * 2;
+            }
         }
 
-        const trimmed = await sharp(working).trim({ threshold: 12 }).toBuffer({ resolveWithObject: true });
+        const trimmed = await sharp(working).trim({ threshold: 10 }).toBuffer({ resolveWithObject: true });
         const tw = trimmed.info.width || cw;
         const th = trimmed.info.height || ch;
         if (tw < 32 || th < 32) return buffer;
 
-        const targetFill = targetSize >= 4096 ? 0.96 : targetSize >= 2048 ? 0.95 : 0.92;
+        const targetFill = targetSize >= 4096 ? 0.96 : targetSize >= 2048 ? 0.94 : 0.9;
         const long = Math.max(tw, th);
         const canvas = Math.round(long / targetFill);
         const padX = Math.max(0, Math.round((canvas - tw) / 2));
@@ -485,60 +499,6 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
     }
 }
 
-/**
- * Replace flat white/grey AI backdrops with the selected dark studio gradient.
- */
-async function replaceBrightBackdropWithStudio(sharp, buffer, w, h, backgroundPreset = 'charcoal') {
-    if (!sharp || !buffer?.length || w < 32 || h < 32) return buffer;
-    if (isWhiteCatalogMode({ backgroundPreset })) return buffer;
-    try {
-        const { data, info } = await sharp(buffer).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-        const channels = info.channels || 3;
-        let brightSamples = 0;
-        let brightSum = 0;
-        const corners = [
-            [0, 0],
-            [w - 1, 0],
-            [0, h - 1],
-            [w - 1, h - 1],
-        ];
-        for (const [cx, cy] of corners) {
-            const i = (cy * w + cx) * channels;
-            const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-            brightSum += lum;
-            brightSamples += 1;
-        }
-        if (brightSamples && brightSum / brightSamples < 185) return buffer;
-
-        const bg = await createLuxuryStudioBackground(w, h, backgroundPreset);
-        if (!bg) return buffer;
-        const bgRaw = await sharp(bg).removeAlpha().raw().toBuffer();
-        const out = Buffer.from(data);
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
-                const i = (y * w + x) * channels;
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-                const maxC = Math.max(r, g, b);
-                const minC = Math.min(r, g, b);
-                const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-                if (lum > 188 && sat < 0.14) {
-                    const blend = Math.min(1, (lum - 188) / 52);
-                    out[i] = Math.round(r * (1 - blend) + bgRaw[i] * blend);
-                    out[i + 1] = Math.round(g * (1 - blend) + bgRaw[i + 1] * blend);
-                    out[i + 2] = Math.round(b * (1 - blend) + bgRaw[i + 2] * blend);
-                }
-            }
-        }
-        return sharp(out, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
-    } catch (e) {
-        console.warn('bright backdrop replacement skipped:', e.message);
-        return buffer;
-    }
-}
-
 async function postprocessStudioOutput(buffer, mimeType = 'image/png', options = {}) {
     const sharp = getSharp();
     if (!sharp || !buffer?.length) {
@@ -579,16 +539,6 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
             if (!fastMode || qualityTier !== 'standard') {
                 baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
             }
-            baseBuf = await replaceBrightBackdropWithStudio(
-                sharp,
-                baseBuf,
-                w,
-                h,
-                options.backgroundPreset || 'charcoal',
-            );
-            const correctedMeta = await sharp(baseBuf).metadata();
-            w = correctedMeta.width || w;
-            h = correctedMeta.height || h;
             baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h, targetLong);
             const heroMeta = await sharp(baseBuf).metadata();
             w = heroMeta.width || w;
@@ -636,14 +586,14 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
 
         let pipeline = sharp(baseBuf).sharpen({
             sigma:
-                qualityTier === '4k'
-                    ? profile === 'idol' && !whiteCatalog
-                        ? 0.74
-                        : 0.62
-                    : profile === 'idol' && !whiteCatalog
-                      ? qualityTier === '2k'
-                          ? 0.68
-                          : 0.58
+                profile === 'idol' && !whiteCatalog
+                    ? qualityTier === '4k'
+                        ? 0.72
+                        : qualityTier === '2k'
+                          ? 0.65
+                          : 0.55
+                    : qualityTier === '4k'
+                      ? 0.62
                       : whiteCatalog
                         ? fastMode
                           ? 0.5
@@ -651,8 +601,8 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
                         : fastMode
                           ? 0.45
                           : 0.55,
-            m1: qualityTier === '4k' ? 0.52 : profile === 'idol' && !whiteCatalog ? 0.48 : 0.45,
-            m2: qualityTier === '4k' ? 0.32 : profile === 'idol' && !whiteCatalog ? 0.3 : 0.28,
+            m1: qualityTier === '4k' ? 0.52 : 0.45,
+            m2: qualityTier === '4k' ? 0.32 : 0.28,
         });
 
         if (profile === 'kada') {
@@ -760,35 +710,39 @@ Crisp silver/gold micro-texture, natural metallic speculars, engraved detail sha
 Glass dome when present: clean natural refraction — NO pink/magenta stripes, NO white glare bars, NO ghost reflections.${woodBaseConditionalBlock()}${metalColorPreservationBlock()}${whiteCatalogShadowBlock()}`;
 }
 
+function idolGlassDomeSourcePurgeBlock() {
+    return `
+
+[GLASS DOME — SOURCE LIGHTING PURGE (CRITICAL)]
+The uploaded photo may have harsh shop lights, ceiling fluorescents, phone flash, pink/magenta streaks, vertical white glare bars, or muddy reflections on the glass cloche — COMPLETELY IGNORE and REPLACE all of these.
+Do NOT copy any reflection, shadow shape, or light streak from the source photo onto the output glass or backdrop.
+Regenerate the dome with optically clear crystal glass: soft curved softbox highlights only, subtle Fresnel edge catchlights, physically plausible refraction.
+The idol INSIDE the dome must be tack-sharp with crisp silver/gold micro-texture — sharper and clearer than the source phone photo.
+Never milky, cloudy, frosted, or plastic-looking glass. Never duplicate the shop environment visible through the dome.`;
+}
+
+function idolReferenceCatalogueAestheticBlock() {
+    return `
+
+[REFERENCE CATALOGUE AESTHETIC — MATCH PREMIUM MUSEUM JEWELLERY SHOTS]
+Artistic medium: ultra-photorealistic commercial product photography — NOT illustration, NOT CGI wax, NOT AI-filtered phone photo.
+Mood: serene, luxurious, divine, prestigious — dark low-key museum display.
+Color palette: deep charcoal, midnight navy, cool silver highlights, warm gold accents only where present in source; dark mahogany/black wood base; dark slate stone surface — NO flat grey, NO pure white backdrop when dark layout selected.
+Lighting: large soft key above-forward + gentle fill + subtle rim + soft radial halo glow behind dome; controlled speculars on metal; deep readable shadows; NO harsh overhead spotlight cone, NO bright floor ring, NO blown highlights.
+Texture: matte-to-satin dark stone surface with subtle mineral grain; polished wood base sheen; razor-sharp engraved metal grain; clean optical glass.
+Composition: eye-level centered hero — dome + base fills 90–96% of frame height; intimate close-up catalogue shot readable on mobile WITHOUT zooming; NOT distant, NOT tiny, NOT excessive empty space.
+Background: smoky charcoal-to-midnight-blue gradient with soft vignette and radial spotlight behind product — atmospheric depth like Aurra/reference luxury idol catalogues.`;
+}
+
 function idolCloseHeroCatalogBlock() {
     return `
 
 [CLOSE HERO FRAMING — CRITICAL (REFERENCE CATALOGUE MATCH)]
-The product assembly (glass dome + base + idol when present) must fill 90–96% of the frame HEIGHT — intimate close-up catalogue hero like premium Murugan/Lakshmi/Ganesha reference shots.
+The product assembly (glass dome + base + idol when present) must fill 90–96% of the frame HEIGHT — large close-up catalogue hero like premium reference shots.
 The customer must see fine carving detail WITHOUT zooming on a phone screen.
-Minimal margins: only 2–4% breathing room at top and bottom. NOT a tiny distant product floating in empty space.
-Camera feels closer than the source phone photo — professional 85–105mm product lens, eye-level, adaptive angle.
-Entire product tack-sharp from dome top to base bottom — focus-stacked commercial sharpness.`;
-}
-
-/** Reference aesthetic extracted from Aurra/museum emerald-idol catalogue shots (black layout). */
-function emeraldIdolReferenceAestheticBlock() {
-    return `
-
-[REFERENCE AESTHETIC — EMERALD IDOL / BLACK LAYOUT CATALOGUE (MATCH EXACTLY)]
-Artistic medium: ultra-premium commercial jewellery product photography — indistinguishable from high-end museum catalogue print ads. NOT CGI, NOT illustration, NOT an AI-filtered phone photo.
-
-Lighting: cinematic chiaroscuro studio — large soft key above and slightly forward, gentle fill, subtle rim on silver and glass edges, soft radial halo glow directly behind the glass dome. Controlled specular highlights on polished silver — crisp, never blown white. Deep readable shadows in carving recesses.
-
-Color palette: cool silver and pewter hero metal; deep charcoal-to-midnight-blue backdrop; dark navy-black stone surface with subtle mineral grain; dark mahogany or ebony wood base when present in source; preserve emerald/gold/enamel accents EXACTLY from source only — never invent colours.
-
-Texture: micro-engraving fidelity on metal grain; optical glass dome with soft vertical softbox reflections (never white rectangular glare bars); matte-to-satin dark slate tabletop with controlled soft reflection — never wet mirror floor.
-
-Composition: centered symmetrical hero; eye-level catalogue angle; product assembly fills 90–96% of frame HEIGHT — CLOSE to viewer, readable without zoom; NOT distant, NOT tiny, NOT excessive empty space.
-
-Mood: luxurious, reverent, museum display, premium heritage campaign — still, elegant, expensive.
-
-Depth: shallow depth of field — product tack-sharp front-to-back (focus-stacked look), backdrop falls away with atmospheric depth and soft vignette.`;
+Minimal margins: only 2–5% breathing room at top and bottom. NOT a tiny distant product floating in empty space.
+Camera is closer than the source phone photo — professional 90–105mm product lens, slight compression for hero presence.
+Entire product tack-sharp from dome top to base bottom — focus-stacking clarity on idol face, hands, and engravings.`;
 }
 
 function idolPremiumStudioBlock() {
@@ -799,7 +753,7 @@ Transform even a bad phone photo into world-class luxury museum product photogra
 Backdrop: deep charcoal-to-midnight-blue gradient with soft radial glow behind product — elegant atmospheric depth, zero grain, zero muddy flat grey, NO champagne fabric, NO draped cloth.
 Glass cloche/dome WHEN PRESENT IN SOURCE: ultra-clear optical glass with soft curved natural highlights; idol inside tack-sharp and identical to source — same pose, same accessories, same colours; NO vertical white glare bars, NO pink/magenta stripes, NO ghost duplicate on backdrop. If source has NO dome — do NOT add one.
 Lighting: large soft key above-forward + soft fill + subtle rim + restrained rear separation — NOT a harsh overhead spotlight cone, NOT bright circular floor hotspot.
-Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER mirror-black glass floor.${emeraldIdolReferenceAestheticBlock()}${idolCloseHeroCatalogBlock()}${studioShadowAndSurfaceBlock()}${woodBaseConditionalBlock()}`;
+Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER mirror-black glass floor.${idolGlassDomeSourcePurgeBlock()}${idolReferenceCatalogueAestheticBlock()}${idolCloseHeroCatalogBlock()}${studioShadowAndSurfaceBlock()}${woodBaseConditionalBlock()}`;
 }
 
 function profileStudioQualityBlock(profile, backgroundPreset, options = {}) {
@@ -1096,8 +1050,8 @@ Do NOT copy messy shop shadows onto the white backdrop — use only a soft conta
 [PIPELINE — SPATIAL LOCK]
 The attached photo is the EXACT product. Do NOT redraw, warp, melt, recolor, or alter silhouette, proportions, engravings, halo color, gemstones, glass dome, or wood base.
 Generate ONLY the studio environment, lighting, and reflections AROUND the locked product.
-If shot through glass: keep the real dome shape and natural refraction — never replace with fake white reflection bars or duplicated ghost images.
-Relight the scene; do NOT copy messy shop shadows, wall shadows, or spotlight rings from the source photo onto the new backdrop.${studioShadowAndSurfaceBlock()}`;
+If shot through glass: keep the real dome shape and natural refraction — never replace with fake white reflection bars, shop ceiling reflections, or duplicated ghost images from the source.
+Relight the scene completely; do NOT copy messy shop shadows, wall shadows, spotlight rings, or flash hotspots from the source photo onto the new backdrop or glass.${idolGlassDomeSourcePurgeBlock()}${studioShadowAndSurfaceBlock()}`;
 }
 
 const WHITE_CATALOG_NEGATIVE_LINES = [
@@ -1182,8 +1136,9 @@ module.exports = {
     woodBaseConditionalBlock,
     idolWhiteCatalogPromptBlock,
     idolPremiumStudioBlock,
-    emeraldIdolReferenceAestheticBlock,
-    replaceBrightBackdropWithStudio,
+    idolReferenceCatalogueAestheticBlock,
+    idolGlassDomeSourcePurgeBlock,
+    idolCloseHeroCatalogBlock,
     mergeSystemNegativePrompt,
     SYSTEM_STUDIO_NEGATIVE_LINES,
     WHITE_CATALOG_NEGATIVE_LINES,

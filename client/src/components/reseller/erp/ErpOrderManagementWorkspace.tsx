@@ -25,6 +25,8 @@ import {
   saveErpOrderDraft,
 } from '@/lib/erp-order-draft'
 import { BarcodeLookupField } from '@/components/reseller/erp/ResellerErpWorkspaces'
+import { ErpOrderLineCard } from '@/components/reseller/erp/ErpOrderLineCard'
+import { ErpOrderMediaControls } from '@/components/reseller/erp/ErpOrderMediaControls'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -64,6 +66,11 @@ const HISTORY_ACTION_LABEL: Record<string, string> = {
   completed: 'Completed',
   cancelled: 'Cancelled',
   note: 'Note',
+  line_handed_to: 'Item handed to karigar',
+  line_transferred: 'Item transferred',
+  line_returned: 'Item returned',
+  line_on_hold: 'Item on hold',
+  line_completed: 'Item completed',
 }
 
 const FILTER_TABS: { id: 'all' | ErpOrderJobStatus; label: string }[] = [
@@ -94,7 +101,12 @@ function HistoryTimeline({ events }: { events: ErpOrderJobHistoryEvent[] }) {
           <span className="absolute -left-[1.05rem] top-1.5 size-2 rounded-full bg-[var(--kc-accent,#c41e3a)]/70" />
           <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             {HISTORY_ACTION_LABEL[ev.action] || ev.action}
-            {ev.karigar_name ? (
+            {ev.line_name ? (
+              <span className="font-normal text-[var(--color-jewelry-black,#1a1814)]/70"> · {ev.line_name}</span>
+            ) : null}
+            {!ev.line_name && ev.karigar_name ? (
+              <span className="font-normal text-[var(--color-jewelry-black,#1a1814)]/70"> · {ev.karigar_name}</span>
+            ) : ev.line_name && ev.karigar_name ? (
               <span className="font-normal text-[var(--color-jewelry-black,#1a1814)]/70"> · {ev.karigar_name}</span>
             ) : null}
           </p>
@@ -148,29 +160,37 @@ function OrderJobCard({
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [karigarId, setKarigarId] = useState('')
+  const [transferKarigarId, setTransferKarigarId] = useState('')
   const [actionNotes, setActionNotes] = useState('')
   const [workDesc, setWorkDesc] = useState(job.work_description || '')
+  const [actionErr, setActionErr] = useState('')
+
+  const jobClosed = ['completed', 'cancelled'].includes(job.status)
+  const hasLines = (job.lines?.length ?? 0) > 0
+  const transferKarigars = karigars.filter((k) => k.id !== job.current_karigar_id)
 
   const runAction = async (path: string, body?: Record<string, unknown>) => {
     if (busy) return
     setBusy(true)
+    setActionErr('')
     try {
       await axios.patch(`/api/reseller/erp/order-jobs/${job.id}/${path}`, body || {})
       setActionNotes('')
       setKarigarId('')
+      setTransferKarigarId('')
       await onRefresh()
     } catch (e) {
-      alert(erpErr(e))
+      setActionErr(erpErr(e))
     } finally {
       setBusy(false)
     }
   }
 
-  const canHandTo = job.status === 'in_shop' || job.status === 'returned'
-  const canReturn = job.status === 'with_karigar'
-  const canTransfer = job.status === 'with_karigar'
-  const canComplete = job.status === 'in_shop' || job.status === 'returned'
-  const canCancel = !['completed', 'cancelled'].includes(job.status)
+  const canHandTo = !jobClosed && !hasLines && (job.status === 'in_shop' || job.status === 'returned')
+  const canReturn = !jobClosed && !hasLines && job.status === 'with_karigar'
+  const canTransfer = !jobClosed && !hasLines && job.status === 'with_karigar'
+  const canComplete = !jobClosed && job.status !== 'with_karigar'
+  const canCancel = !jobClosed
 
   const deleteOrder = async () => {
     if (busy) return
@@ -192,6 +212,8 @@ function OrderJobCard({
     }
   }
 
+  const orderMedia = job.order_media || { imageUrls: [], voiceNoteUrl: null }
+
   return (
     <li className={erpCardCls}>
       <button
@@ -208,6 +230,14 @@ function OrderJobCard({
             {job.customer_name || 'Walk-in'} · {formatErpInr(job.total_inr ?? 0)}
             {job.current_karigar_name ? ` · ${job.current_karigar_name}` : ''}
           </p>
+          {hasLines ? (
+            <p className="mt-0.5 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+              {job.lines!.length} item{job.lines!.length === 1 ? '' : 's'}
+              {job.lines!.filter((l) => l.lineStatus === 'with_karigar').length > 0
+                ? ` · ${job.lines!.filter((l) => l.lineStatus === 'with_karigar').length} with karigar`
+                : ''}
+            </p>
+          ) : null}
           {job.due_date ? (
             <p className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
               Due {formatErpDateDdMmYyyy(job.due_date)}
@@ -223,16 +253,31 @@ function OrderJobCard({
 
       {open ? (
         <div className="mt-4 space-y-4 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
-          {job.lines && job.lines.length > 0 ? (
-            <ul className="space-y-1.5">
-              {job.lines.map((line, i) => (
-                <li key={i} className="rounded-lg bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/75">
-                  <span className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{line.name}</span>
-                  {line.barcode || line.code ? ` · ${line.barcode || line.code}` : ''}
-                  {line.lineTotalInr != null ? ` · ${formatErpInr(line.lineTotalInr)}` : ''}
-                </li>
-              ))}
-            </ul>
+          <ErpOrderMediaControls
+            billId={job.bill_id}
+            imageUrls={orderMedia.imageUrls}
+            voiceNoteUrl={orderMedia.voiceNoteUrl}
+            onUpdated={onRefresh}
+          />
+
+          {hasLines ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                Products in this order
+              </p>
+              <ul className="space-y-2">
+                {job.lines!.map((line) => (
+                  <ErpOrderLineCard
+                    key={line.lineKey || line.name}
+                    billId={job.bill_id}
+                    line={line}
+                    karigars={karigars}
+                    onRefresh={onRefresh}
+                    jobClosed={jobClosed}
+                  />
+                ))}
+              </ul>
+            </div>
           ) : null}
 
           {job.notes ? (
@@ -243,18 +288,15 @@ function OrderJobCard({
 
           <HistoryTimeline events={job.history || []} />
 
-          {canHandTo || canReturn || canTransfer || canComplete || canCancel ? (
+          {(canHandTo || canReturn || canTransfer || canComplete || canCancel) && !hasLines ? (
             <div className="space-y-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
-                Actions
+                Order actions
               </p>
 
-              {(canHandTo || canTransfer) && karigars.length > 0 ? (
-                <KarigarSelect karigars={karigars} value={karigarId} onChange={setKarigarId} />
-              ) : null}
-
-              {canHandTo ? (
+              {canHandTo && karigars.length > 0 ? (
                 <>
+                  <KarigarSelect karigars={karigars} value={karigarId} onChange={setKarigarId} />
                   <input
                     className={erpInputCls}
                     placeholder="Work description (e.g. polish, setting)"
@@ -292,20 +334,35 @@ function OrderJobCard({
               ) : null}
 
               {canTransfer ? (
-                <button
-                  type="button"
-                  disabled={busy || !karigarId}
-                  className={`${erpBtnGhost} w-full border-amber-200 text-amber-900`}
-                  onClick={() =>
-                    void runAction('transfer', {
-                      karigar_id: Number(karigarId),
-                      notes: actionNotes || undefined,
-                    })
-                  }
-                >
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowRightLeft className="size-4" />}
-                  Transfer to another karigar
-                </button>
+                <>
+                  <KarigarSelect
+                    karigars={transferKarigars}
+                    value={transferKarigarId}
+                    onChange={setTransferKarigarId}
+                    placeholder="Select new karigar"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || !transferKarigarId}
+                    className={`${erpBtnGhost} w-full border-amber-200 text-amber-900`}
+                    onClick={() =>
+                      void runAction('transfer', {
+                        karigar_id: Number(transferKarigarId),
+                        notes: actionNotes || undefined,
+                      })
+                    }
+                  >
+                    {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowRightLeft className="size-4" />}
+                    Transfer to another karigar
+                  </button>
+                  {transferKarigars.length === 0 ? (
+                    <p className="text-xs text-amber-800">Add another karigar to transfer this order.</p>
+                  ) : !transferKarigarId ? (
+                    <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Select a different karigar above — the current one is not listed.
+                    </p>
+                  ) : null}
+                </>
               ) : null}
 
               {canComplete ? (
@@ -341,10 +398,45 @@ function OrderJobCard({
                 value={actionNotes}
                 onChange={(e) => setActionNotes(e.target.value)}
               />
+              {actionErr ? <p className="text-xs text-rose-700">{actionErr}</p> : null}
             </div>
           ) : null}
 
-          {karigars.length === 0 && (canHandTo || canTransfer) ? (
+          {hasLines && !jobClosed ? (
+            <div className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                Whole order
+              </p>
+              <button
+                type="button"
+                disabled={busy || job.status === 'with_karigar'}
+                className={`${erpBtnPrimary} w-full bg-emerald-700 hover:opacity-90`}
+                onClick={() => void runAction('complete', { notes: actionNotes || undefined })}
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                Mark entire order complete
+              </button>
+              {job.status === 'with_karigar' ? (
+                <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Return or complete individual items first while any are still with a karigar.
+                </p>
+              ) : null}
+              <button
+                type="button"
+                disabled={busy}
+                className={`${erpBtnGhost} w-full border-rose-200 text-rose-700`}
+                onClick={() => {
+                  if (!window.confirm('Cancel this order job?')) return
+                  void runAction('cancel', { notes: actionNotes || undefined })
+                }}
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+                Cancel order
+              </button>
+            </div>
+          ) : null}
+
+          {!hasLines && karigars.length === 0 && canHandTo ? (
             <p className="text-xs text-amber-800">Add at least one karigar in the Karigars tab to assign work.</p>
           ) : null}
 

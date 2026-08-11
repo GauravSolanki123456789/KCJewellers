@@ -50,7 +50,7 @@ PHOTOGRAPH THE SAME PRODUCT BETTER: replace shop clutter, plastic bags, hands, t
 Apply cinematic museum-grade studio lighting with large soft key light, gentle fill, subtle rim — controlled specular highlights on metal and optical glass.
 Micro-texture fidelity on metal grain, stone facets, and enamel — zero plastic AI smoothing.
 Deep charcoal-to-midnight luxury backdrop with premium dark stone surface unless white catalogue mode is selected.
-Hero framing: product fills 90–96% of frame height, centered, catalogue-ready for e-commerce and WhatsApp — intimate close hero like reference museum shots.`;
+Hero framing: product fills 90–96% of frame height, centered, catalogue-ready for e-commerce and WhatsApp — close hero like reference museum shots.`;
 }
 
 const BG_SCENE_BLOCKS = {
@@ -126,14 +126,14 @@ function idolMuseumDarkLuxuryRuntimeBlock({ backgroundPreset, visualization, ren
 [RUNTIME — MUSEUM DARK LUXURY (PHOTOGRAPHY REPLACEMENT — HIGHEST PRIORITY)]
 PRESERVE THE PRODUCT. REPLACE THE PHOTOGRAPHY. The uploaded image determines WHAT the product is; this block determines HOW it is photographed.
 • Product identity lock: same silhouette, proportions, pose, carvings, engravings, metal finish, gemstones, enamel, base, and glass dome IF present in source — never invent ornaments or glass not in source.
-• Ignore source defects: blur, noise, compression, clutter, shop background, hands, harsh phone lighting, wrong white balance, lens distortion — reconstruct professionally.
+• Ignore source defects: blur, noise, compression, clutter, shop background, hands, harsh phone lighting, wrong white balance, lens distortion, shop ceiling reflections on glass dome, flash hotspots — reconstruct professionally.
 • Background: deep charcoal-to-midnight-blue gradient, soft radial glow behind product, NO visible room, NO furniture, NO props unless visualization requires.
 • Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER polished black mirror glass.
-• Glass logic: if source has dome/case — ultra-clear optical glass, subtle Fresnel edge highlights, sharp product inside; if source has NO dome — do NOT add one.
+• Glass logic: if source has dome/case — ultra-clear optical glass, purge ALL shop glare/reflections from source, subtle Fresnel edge highlights, idol inside sharper than source; if source has NO dome — do NOT add one.
 • Base logic: preserve existing base/pedestal exactly; if none in source — simple premium stone surface only, no invented elaborate pedestal.
 • Lighting: large soft key above-forward, soft fill, subtle side/rim, restrained rear separation — silver cool highlights, gold warm highlights, NO blown white metal, NO harsh spotlight cone, NO floor hotspot ring.
-• Camera: 85–105mm product lens look, natural perspective, adaptive angle that best represents THIS object — full product tack-sharp (focus stacking if needed), background may soften slightly.
-• Composition: product 90–96% frame height, centered, premium close-up catalogue hero — minimal margins, NO tiny distant product, NO excessive empty space, NO text, logo, watermark.
+• Camera: 90–105mm product lens look, natural perspective, adaptive angle — full product tack-sharp (focus stacking if needed), background may soften slightly.
+• Composition: product 90–96% frame height, centered, premium close-up catalogue hero — minimal margins, NO tiny distant product, NO text, logo, watermark.
 • Final target: indistinguishable from a professional museum jewellery catalogue photograph — NOT an AI-filtered version of the phone photo.`;
 }
 
@@ -163,6 +163,9 @@ const MUSEUM_IDOL_NEGATIVE_SUPPLEMENT = [
     'distant product',
     'small product in frame',
     'excessive empty space',
+    'shop light reflection on glass',
+    'copied source glare on dome',
+    'flash hotspot on glass',
     'cropped product',
     'cartoon',
     'illustration',

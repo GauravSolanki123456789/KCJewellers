@@ -24,6 +24,8 @@ const {
     createBillAdvanceLedgerEntry,
 } = require('./resellerErpLedger');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
+const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
+const path = require('path');
 
 async function ensureResellerErpSchema(pool) {
     await pool.query(`
@@ -121,6 +123,9 @@ async function ensureResellerErpSchema(pool) {
         );
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_order_jobs_reseller
             ON reseller_erp_order_jobs (reseller_user_id, status, updated_at DESC);
+
+        ALTER TABLE reseller_erp_bills
+            ADD COLUMN IF NOT EXISTS order_media_json JSONB NOT NULL DEFAULT '{}'::jsonb;
     `);
     await ensureStockPiecesSchema(pool);
 }
@@ -316,6 +321,13 @@ function mapBill(row) {
         }
     }
     if (!Array.isArray(lines)) lines = [];
+    if (String(row.bill_type || '').toLowerCase() === 'order') {
+        lines = normalizeOrderLines(lines);
+    }
+    let orderMedia = null;
+    if (row.order_media_json != null) {
+        orderMedia = parseOrderMedia(row.order_media_json);
+    }
     let session = row.session_json;
     if (typeof session === 'string') {
         try {
@@ -341,6 +353,7 @@ function mapBill(row) {
         total_inr: row.total_inr != null ? Number(row.total_inr) : 0,
         status: row.status,
         lines,
+        order_media: orderMedia,
         notes: row.notes,
         bill_date: row.bill_date,
         session: session && typeof session === 'object' ? session : null,
@@ -367,6 +380,10 @@ function mapStock(row) {
 
 function registerResellerErpRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson } = deps;
+    const getPublicApiBaseUrl =
+        deps.getPublicApiBaseUrl ||
+        (() => process.env.PUBLIC_API_BASE_URL || process.env.BASE_URL || '');
+    const uploadsRoot = deps.uploadsRoot || path.join(__dirname, '..', 'public', 'uploads');
     const erpGate = requireResellerErp(query);
 
     ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
@@ -375,7 +392,15 @@ function registerResellerErpRoutes(app, deps) {
     registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
-    registerKarigarRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerKarigarRoutes(app, {
+        query,
+        pool,
+        checkAuth,
+        requireJson,
+        erpGate,
+        getPublicApiBaseUrl,
+        uploadsRoot,
+    });
 
     app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
         try {
@@ -685,7 +710,8 @@ function registerResellerErpRoutes(app, deps) {
             if (!allowed.includes(billType)) {
                 return res.status(400).json({ error: 'Invalid bill type' });
             }
-            const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
+            const linesRaw = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
+            const lines = billType === 'order' ? normalizeOrderLines(linesRaw) : linesRaw;
             let total = Number(req.body.total_inr);
             if (!Number.isFinite(total)) {
                 total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);

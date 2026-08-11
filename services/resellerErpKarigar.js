@@ -1,6 +1,4 @@
-/**
- * Reseller ERP — karigar (artisan) registry + order job tracking.
- */
+const { registerOrderLineRoutes, normalizeOrderLines, parseOrderMedia, parseLinesJson } = require('./resellerErpOrderMedia');
 
 const JOB_STATUSES = ['in_shop', 'with_karigar', 'returned', 'completed', 'cancelled'];
 
@@ -63,17 +61,8 @@ function mapOrderJob(row) {
         bill_status: row.bill_status ?? null,
         bill_date: row.bill_date ?? null,
         notes: row.bill_notes ?? row.notes ?? null,
-        lines: (() => {
-            let lines = row.lines_json;
-            if (typeof lines === 'string') {
-                try {
-                    lines = JSON.parse(lines);
-                } catch {
-                    lines = [];
-                }
-            }
-            return Array.isArray(lines) ? lines : [];
-        })(),
+        lines: parseLinesJson(row.lines_json),
+        order_media: parseOrderMedia(row.order_media_json),
         created_at: row.created_at ?? null,
         updated_at: row.updated_at ?? null,
     };
@@ -120,7 +109,7 @@ async function getOrderJobOrFail(query, resellerId, jobId) {
     const rows = await query(
         `SELECT j.*, k.name AS current_karigar_name,
                 b.bill_number, b.customer_name, b.total_inr, b.status AS bill_status,
-                b.bill_date, b.notes AS bill_notes, b.lines_json
+                b.bill_date, b.notes AS bill_notes, b.lines_json, b.order_media_json
          FROM reseller_erp_order_jobs j
          LEFT JOIN reseller_erp_karigars k ON k.id = j.current_karigar_id
          JOIN reseller_erp_bills b ON b.id = j.bill_id AND b.reseller_user_id = j.reseller_user_id
@@ -315,7 +304,7 @@ function registerKarigarRoutes(app, deps) {
             let sql = `
                 SELECT j.*, k.name AS current_karigar_name,
                        b.bill_number, b.customer_name, b.total_inr, b.status AS bill_status,
-                       b.bill_date, b.notes AS bill_notes, b.lines_json
+                       b.bill_date, b.notes AS bill_notes, b.lines_json, b.order_media_json
                 FROM reseller_erp_order_jobs j
                 JOIN reseller_erp_bills b ON b.id = j.bill_id AND b.reseller_user_id = j.reseller_user_id
                 LEFT JOIN reseller_erp_karigars k ON k.id = j.current_karigar_id
@@ -354,6 +343,28 @@ function registerKarigarRoutes(app, deps) {
             let finalRows = rows;
             if (missingBillIds.length) {
                 finalRows = await query(sql, params);
+            }
+
+            for (const row of finalRows) {
+                const normalized = parseLinesJson(row.lines_json);
+                let raw = row.lines_json;
+                if (typeof raw === 'string') {
+                    try {
+                        raw = JSON.parse(raw);
+                    } catch {
+                        raw = [];
+                    }
+                }
+                if (!Array.isArray(raw)) raw = [];
+                const needsLineKeys = raw.some((l) => !l || !l.lineKey);
+                if (needsLineKeys || JSON.stringify(normalized) !== JSON.stringify(raw)) {
+                    await query(
+                        `UPDATE reseller_erp_bills SET lines_json = $1::jsonb, updated_at = NOW()
+                         WHERE id = $2 AND reseller_user_id = $3`,
+                        [JSON.stringify(normalized), row.bill_id, req.user.id],
+                    );
+                    row.lines_json = normalized;
+                }
             }
 
             res.json({ jobs: finalRows.map(mapOrderJob) });
@@ -473,7 +484,7 @@ function registerKarigarRoutes(app, deps) {
         }
     });
 
-    app.patch('/api/reseller/erp/order-jobs/:id/transfer', checkAuth, erpGate, requireJson, async (req, res) => {
+    app.patch('/api/reseller/erp/order-jobs/:id/transfer', checkAuth, erpGate, async (req, res) => {
         try {
             const job = await getOrderJobOrFail(query, req.user.id, req.params.id);
             if (job.status !== 'with_karigar') {
@@ -584,6 +595,8 @@ function registerKarigarRoutes(app, deps) {
             res.status(e.status || 500).json({ error: e.message || 'Failed to cancel order job' });
         }
     });
+
+    registerOrderLineRoutes(app, deps);
 }
 
 module.exports = {

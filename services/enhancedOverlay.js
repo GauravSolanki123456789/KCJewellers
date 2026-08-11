@@ -453,7 +453,7 @@ Modest even margins on all sides for website grid display. Do NOT invent a woode
         return `
 
 [COMPOSITION — HERO FRAMING]
-Product including glass dome and base (when present) fills approximately 90–96% of frame HEIGHT — intimate close-up museum catalogue hero like premium Murugan/Lakshmi/Ganesha reference shots. Entire sculpture tack-sharp and clearly visible WITHOUT zooming. NOT a tiny distant product with excessive empty space. NOT extreme macro that crops the dome. Minimal breathing room (2–4%) at top and bottom only.`;
+Product including glass dome and base (when present) fills approximately 90–96% of frame HEIGHT — close-up museum catalogue hero like premium reference shots. Entire sculpture tack-sharp and clearly visible WITHOUT zooming. NOT a tiny distant product with excessive empty space. NOT extreme macro that crops the dome. Minimal breathing room (2–5%) at top and bottom only.`;
     }
     return `
 

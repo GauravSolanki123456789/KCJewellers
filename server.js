@@ -1673,7 +1673,7 @@ registerResellerRatesRoutes(app, { checkAuth, liveRateService, io });
 registerResellerLoginEmailRoutes(app, { isAdminStrict, requireJson });
 registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator, requireJson });
 ensureMcSlabColumns(pool).catch((e) => console.warn('mc slab columns:', e.message));
-registerResellerErpRoutes(app, { query, pool, checkAuth, requireJson });
+registerResellerErpRoutes(app, { query, pool, checkAuth, requireJson, getPublicApiBaseUrl });
 ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
 registerResellerDigiRoutes(app, {
     query,

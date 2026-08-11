@@ -64,6 +64,13 @@ export type ErpStockPiece = {
   sold_bill_id?: number | null
 }
 
+export type ErpOrderLineStatus = 'in_shop' | 'on_hold' | 'with_karigar' | 'returned' | 'completed'
+
+export type ErpOrderMedia = {
+  imageUrls: string[]
+  voiceNoteUrl?: string | null
+}
+
 export type ErpBillLine = {
   name: string
   code?: string
@@ -94,6 +101,14 @@ export type ErpBillLine = {
   invoice_item_name?: string | null
   /** HSN code for tax invoice */
   hsn_code?: string | null
+  /** Per-line karigar tracking (orders only) */
+  lineKey?: string
+  lineStatus?: ErpOrderLineStatus
+  karigarId?: number | null
+  karigarName?: string | null
+  workDescription?: string | null
+  imageUrls?: string[]
+  voiceNoteUrl?: string | null
 }
 
 export type ErpBill = {
@@ -107,6 +122,7 @@ export type ErpBill = {
   bill_date?: string | null
   notes?: string | null
   lines?: ErpBillLine[]
+  order_media?: ErpOrderMedia | null
   session?: import('@/lib/erp-bill-session').ErpBillSession | null
   compliance?: {
     einvoice?: {
@@ -154,6 +170,8 @@ export type ErpOrderJobHistoryEvent = {
   karigar_id?: number | null
   karigar_name?: string | null
   notes?: string | null
+  line_key?: string | null
+  line_name?: string | null
 }
 
 export type ErpOrderJobStatus = 'in_shop' | 'with_karigar' | 'returned' | 'completed' | 'cancelled'
@@ -174,6 +192,7 @@ export type ErpOrderJob = {
   bill_date?: string | null
   notes?: string | null
   lines?: ErpBillLine[]
+  order_media?: ErpOrderMedia | null
   created_at?: string | null
   updated_at?: string | null
 }
