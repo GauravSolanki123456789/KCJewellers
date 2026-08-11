@@ -4,6 +4,7 @@
 
 const { randomUUID } = require('crypto');
 const labelPrinter = require('../scripts/label-printer');
+const erpPrint = require('../scripts/erp-print-templates');
 
 function normalizeComPort(raw) {
     const t = String(raw || '').trim().toUpperCase();
@@ -939,22 +940,27 @@ function registerStockPieceRoutes(app, deps) {
                 }
             }
             const hw = settings.hardware || {};
+            const printFormats = settings.printFormats || {};
             const profile = resolvePrinterProfile(hw, req.body.printer_profile_id || null);
             const printerConfig = profileToPrinterConfig(profile);
+            const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
+            const prnTemplate = printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN;
 
             const results = [];
             for (const p of pieces) {
                 const itemData = buildLabelItemData(p, hw, profile);
-                if (profile?.labelFormat === 'prn') {
+                if (profile?.labelFormat === 'prn' && !printFormats.labelPrnTemplate && !erpPrint.DEFAULT_LABEL_PRN) {
                     results.push({
                         barcode: p.barcode,
                         piece_id: p.id,
                         printed: false,
-                        error: 'PRN templates are not wired yet — share your .prn file to connect.',
+                        error: 'PRN template missing — set it in Print formats.',
                     });
                     continue;
                 }
-                const tspl = labelPrinter.generateTSPLLabel(itemData);
+                const tspl = usePrn
+                    ? erpPrint.renderPrnLabel(prnTemplate, p, hw, profile)
+                    : labelPrinter.generateTSPLLabel(itemData);
                 if (printerConfig?.type === 'serial') {
                     results.push({
                         barcode: p.barcode,
@@ -1014,10 +1020,15 @@ function registerStockPieceRoutes(app, deps) {
                 }
             }
             const hw = settings.hardware || {};
+            const printFormats = settings.printFormats || {};
             const profile = resolvePrinterProfile(hw, req.body.printer_profile_id || null);
             const printerConfig = profileToPrinterConfig(profile);
             const itemData = buildTestLabelItemData(hw, profile);
-            const tspl = labelPrinter.generateTSPLLabel(itemData);
+            const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
+            const prnTemplate = printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN;
+            const tspl = usePrn
+                ? erpPrint.renderTemplate(prnTemplate, erpPrint.buildLabelTemplateVarsFromItemData(itemData))
+                : labelPrinter.generateTSPLLabel(itemData);
 
             if (req.body.send_to_printer && printerConfig?.type === 'network' && printerConfig.address) {
                 await labelPrinter.printLabel(itemData, printerConfig);

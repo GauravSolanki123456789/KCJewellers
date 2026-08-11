@@ -95,10 +95,23 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
             }
           : undefined,
         isDefault: true,
-        labelFormat: 'tspl',
+        labelFormat: 'prn',
+      })
+    } else {
+      profiles.push({
+        id: newProfileId(),
+        name: 'TSC barcode (TTP-244)',
+        connection: 'serial',
+        serial: { ...DEFAULT_SERIAL },
+        isDefault: true,
+        labelFormat: 'prn',
       })
     }
     hw.printerProfiles = profiles
+  }
+
+  if (!hw.billingPrinter?.address) {
+    hw.billingPrinter = { type: 'network', address: '192.168.0.198', port: 9100 }
   }
 
   if (!hw.scaleProfiles?.length) {

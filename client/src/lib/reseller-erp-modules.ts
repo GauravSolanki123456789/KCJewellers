@@ -8,6 +8,7 @@ import {
   Gem,
   Layers,
   BookMarked,
+  LayoutTemplate,
   Package,
   Percent,
   Printer,
@@ -34,6 +35,7 @@ export type ResellerErpModuleId =
   | 'ledger'
   | 'products'
   | 'hardware'
+  | 'print-formats'
   | 'stock'
   | 'rol'
   | 'digigold'
@@ -277,6 +279,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Printers',
     description: '',
     icon: Printer,
+    group: 'tools',
+    kind: 'workspace',
+  },
+  {
+    id: 'print-formats',
+    title: 'Print formats',
+    short: 'Templates',
+    description: 'Label PRN & bill receipt layout',
+    icon: LayoutTemplate,
     group: 'tools',
     kind: 'workspace',
   },

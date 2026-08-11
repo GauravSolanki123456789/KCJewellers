@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import axios from '@/lib/axios'
 import {
   CheckCircle2,
   Download,
@@ -56,6 +57,7 @@ export function ErpBillSavedModal({
 }: Props) {
   const [mobile, setMobile] = useState(defaultMobile)
   const [autoDownloaded, setAutoDownloaded] = useState(false)
+  const [thermalBusy, setThermalBusy] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -99,6 +101,24 @@ export function ErpBillSavedModal({
       handleDownload()
     }
   }, [pdfPayload, handleDownload])
+
+  const printThermalReceipt = useCallback(async () => {
+    if (!bill?.id) return
+    setThermalBusy(true)
+    try {
+      const res = await axios.post<{ message?: string }>('/api/reseller/erp/print/bill', {
+        bill_id: bill.id,
+      })
+      alert(res.data.message || 'Receipt sent to Epson printer.')
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        'Could not print on Epson — check Hardware → billing printer IP.'
+      alert(msg)
+    } finally {
+      setThermalBusy(false)
+    }
+  }, [bill?.id])
 
   const closeAndDone = () => {
     onOpenChange(false)
@@ -144,8 +164,19 @@ export function ErpBillSavedModal({
           </button>
           <button type="button" className={erpBtnGhost} onClick={handlePrint}>
             <Printer className="size-4" />
-            Print
+            Print PDF
           </button>
+          {variant === 'saved' ? (
+            <button
+              type="button"
+              className={erpBtnGhost}
+              disabled={thermalBusy}
+              onClick={() => void printThermalReceipt()}
+            >
+              <Receipt className="size-4" />
+              {thermalBusy ? 'Printing…' : 'Print on Epson'}
+            </button>
+          ) : null}
           <button type="button" className={`${erpBtnGhost} col-span-2`} onClick={() => void handleShare()}>
             <Share2 className="size-4" />
             Share PDF

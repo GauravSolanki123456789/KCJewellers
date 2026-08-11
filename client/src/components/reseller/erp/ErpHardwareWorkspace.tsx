@@ -227,8 +227,11 @@ export function ErpHardwareWorkspace() {
       <div className={erpCardCls}>
         <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
           Add one profile per PC / counter. Each workstation picks its printer &amp; scale in{' '}
-          <strong>Products</strong> — settings are saved for your shop, the active profile is saved
-          on this browser.
+          <strong>Products</strong>. Customize layouts in{' '}
+          <a href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
+            Print formats
+          </a>
+          .
         </p>
         <label className="mt-3 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
           Default company code on labels
@@ -468,8 +471,12 @@ export function ErpHardwareWorkspace() {
       <div className={erpCardCls}>
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <Wifi className="size-4 text-[var(--kc-accent,#c41e3a)]" />
-          Billing printer
+          Epson billing printer
         </div>
+        <p className="mb-3 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+          Receipt printer for sales bills — separate from TSC barcode labels. Default IP from Epson
+          self-test: 192.168.0.198
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
             Type
@@ -483,20 +490,37 @@ export function ErpHardwareWorkspace() {
                 }))
               }
             >
-              <option value="network">Network</option>
+              <option value="network">Network (Epson TM)</option>
               <option value="serial">Serial / COM</option>
             </select>
           </label>
           <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-            Address
+            IP address
             <input
               className={`${erpInputCls} mt-1 font-mono`}
-              placeholder="192.168.1.51"
+              placeholder="192.168.0.198"
               value={hw.billingPrinter?.address || ''}
               onChange={(e) =>
                 setHw((h) => ({
                   ...h,
                   billingPrinter: { ...h.billingPrinter, address: e.target.value },
+                }))
+              }
+            />
+          </label>
+          <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+            Port
+            <input
+              type="number"
+              className={`${erpInputCls} mt-1 font-mono`}
+              value={hw.billingPrinter?.port || 9100}
+              onChange={(e) =>
+                setHw((h) => ({
+                  ...h,
+                  billingPrinter: {
+                    ...h.billingPrinter,
+                    port: Number(e.target.value) || 9100,
+                  },
                 }))
               }
             />
