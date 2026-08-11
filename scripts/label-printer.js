@@ -241,11 +241,24 @@ async function sendToUSBPrinter(tsplCommands, printerPort) {
  * Print label for a single product
  * @param {Object} itemData - Product data
  * @param {Object} printerConfig - Printer configuration
- * @param {string} printerConfig.type - "network" or "usb"
- * @param {string} printerConfig.address - IP address (network) or port path (USB)
- * @param {number} printerConfig.port - Port number (network only, default: 9100)
  * @returns {Promise<boolean>} Success status
  */
+async function sendRawToPrinter(rawCommands, printerConfig) {
+    const payload = String(rawCommands || '');
+    if (!payload.trim()) throw new Error('Empty print data');
+    if (printerConfig.type === 'network') {
+        return await sendToNetworkPrinter(
+            payload,
+            printerConfig.address,
+            printerConfig.port || 9100,
+        );
+    }
+    if (printerConfig.type === 'serial' || printerConfig.type === 'usb') {
+        return await sendToUSBPrinter(payload, normalizePrinterPort(printerConfig.address));
+    }
+    throw new Error(`Unknown printer type: ${printerConfig.type}`);
+}
+
 async function printLabel(itemData, printerConfig) {
     try {
         // Generate TSPL commands
@@ -286,6 +299,7 @@ async function generateLabelPreview(itemData) {
 module.exports = {
     generateTSPLLabel,
     printLabel,
+    sendRawToPrinter,
     sendToNetworkPrinter,
     sendToUSBPrinter,
     generateLabelPreview

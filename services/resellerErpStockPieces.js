@@ -971,7 +971,7 @@ function registerStockPieceRoutes(app, deps) {
                     });
                 } else if (printerConfig?.type === 'network' && printerConfig.address) {
                     try {
-                        await labelPrinter.printLabel(itemData, printerConfig);
+                        await labelPrinter.sendRawToPrinter(tspl, printerConfig);
                         results.push({ barcode: p.barcode, piece_id: p.id, printed: true });
                     } catch (err) {
                         results.push({
@@ -1031,7 +1031,7 @@ function registerStockPieceRoutes(app, deps) {
                 : labelPrinter.generateTSPLLabel(itemData);
 
             if (req.body.send_to_printer && printerConfig?.type === 'network' && printerConfig.address) {
-                await labelPrinter.printLabel(itemData, printerConfig);
+                await labelPrinter.sendRawToPrinter(tspl, printerConfig);
                 return res.json({
                     printed: true,
                     message: `Test label sent to ${printerConfig.address}:${printerConfig.port || 9100}`,

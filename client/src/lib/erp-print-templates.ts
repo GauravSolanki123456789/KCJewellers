@@ -105,3 +105,32 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
 }
+
+/** Best-effort map from another software's sample PRN to our {{placeholders}}. */
+export function suggestPrnPlaceholders(raw: string): string {
+  let out = String(raw || '')
+  out = out.replace(
+    /TEXT 738,101,"ROMAN\.TTF",180,1,8,"[^"]*"/,
+    'TEXT 738,101,"ROMAN.TTF",180,1,8,"{{product_name}}"',
+  )
+  out = out.replace(
+    /TEXT 666,77,"ROMAN\.TTF",180,1,9,"[^"]*"/,
+    'TEXT 666,77,"ROMAN.TTF",180,1,9,"{{gross_weight}}"',
+  )
+  out = out.replace(
+    /TEXT 666,53,"ROMAN\.TTF",180,1,9,"[^"]*"/,
+    'TEXT 666,53,"ROMAN.TTF",180,1,9,"{{net_weight}}"',
+  )
+  out = out.replace(
+    /TEXT 530,101,"ROMAN\.TTF",180,1,9,"[^"]*"/,
+    'TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"',
+  )
+  out = out.replace(
+    /TEXT 530,61,"ROMAN\.TTF",180,1,9,"[^"]*"/,
+    'TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"',
+  )
+  out = out.replace(/QRCODE ([^\n]*),"[^"]+"/, 'QRCODE $1,"{{barcode}}"')
+  out = out.replace(/"PLT-\d+"/gi, '"{{barcode}}"')
+  out = out.replace(/"BMS\d*"/gi, '"{{company_code}}"')
+  return out
+}

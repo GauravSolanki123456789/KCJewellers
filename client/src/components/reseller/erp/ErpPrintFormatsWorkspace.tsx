@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import {
@@ -9,15 +10,18 @@ import {
   DEFAULT_LABEL_PRN,
   LABEL_TEMPLATE_VARS,
   migratePrintFormats,
+  suggestPrnPlaceholders,
   type ErpPrintFormatsSettings,
 } from '@/lib/erp-print-templates'
-import { FileText, Loader2, RotateCcw, Save, Tag } from 'lucide-react'
+import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { FileText, Loader2, RotateCcw, Save, Tag, Upload } from 'lucide-react'
 
 export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [tab, setTab] = useState<'label' | 'bill'>('label')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     void axios
@@ -39,13 +43,24 @@ export function ErpPrintFormatsWorkspace() {
     }
   }
 
+  const onUploadPrn = async (file: File) => {
+    const raw = await file.text()
+    const converted = suggestPrnPlaceholders(raw)
+    setPf((p) => ({ ...p, labelPrnTemplate: converted, labelUsePrn: true }))
+    setTab('label')
+  }
+
   return (
     <div className="space-y-4">
       <div className={erpCardCls}>
         <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
           Edit templates like Notepad — use <code className="rounded bg-black/5 px-1">{`{{variable}}`}</code>{' '}
-          placeholders. TSC barcode printer uses the label PRN (TSPL). Epson bill printer uses the receipt
-          template below.
+          placeholders. Your TSC TTP-244 uses the label PRN below. Epson TM receipt uses the bill template.
+          Printer IPs/COM ports are set in{' '}
+          <Link href={resellerErpModulePath('hardware')} className="font-semibold text-[var(--kc-accent,#c41e3a)]">
+            Hardware
+          </Link>
+          .
         </p>
         <div className="mt-3 flex gap-2">
           <button
@@ -78,18 +93,52 @@ export function ErpPrintFormatsWorkspace() {
       {tab === 'label' ? (
         <>
           <div className={erpCardCls}>
+            <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              How to use your .prn file
+            </p>
+            <ol className="list-decimal space-y-1 pl-4 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
+              <li>Upload your existing <strong>prnfile.prn</strong> below (or paste into the box).</li>
+              <li>
+                Replace fixed sample values with placeholders — e.g.{' '}
+                <code className="rounded bg-black/5 px-1">PLT-66626</code> →{' '}
+                <code className="rounded bg-black/5 px-1">{`{{barcode}}`}</code>,{' '}
+                <code className="rounded bg-black/5 px-1">BMS</code> →{' '}
+                <code className="rounded bg-black/5 px-1">{`{{company_code}}`}</code>.
+              </li>
+              <li>Keep SIZE, GAP, TEXT x,y and QRCODE lines — only change the quoted text inside.</li>
+              <li>Save print formats → Hardware → set TSC to PRN → Test print → Products → Generate barcodes.</li>
+            </ol>
+          </div>
+          <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                 TSC label PRN template
               </p>
-              <button
-                type="button"
-                className={erpBtnGhost}
-                onClick={() => setPf((p) => ({ ...p, labelPrnTemplate: DEFAULT_LABEL_PRN }))}
-              >
-                <RotateCcw className="size-4" />
-                Reset sample
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".prn,.txt,.tspl"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) void onUploadPrn(f)
+                    e.target.value = ''
+                  }}
+                />
+                <button type="button" className={erpBtnGhost} onClick={() => fileRef.current?.click()}>
+                  <Upload className="size-4" />
+                  Upload .prn
+                </button>
+                <button
+                  type="button"
+                  className={erpBtnGhost}
+                  onClick={() => setPf((p) => ({ ...p, labelPrnTemplate: DEFAULT_LABEL_PRN }))}
+                >
+                  <RotateCcw className="size-4" />
+                  Reset sample
+                </button>
+              </div>
             </div>
             <label className="mb-3 flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
               <input
@@ -97,7 +146,7 @@ export function ErpPrintFormatsWorkspace() {
                 checked={pf.labelUsePrn !== false}
                 onChange={(e) => setPf((p) => ({ ...p, labelUsePrn: e.target.checked }))}
               />
-              Use this PRN template for barcode labels (recommended for TTP-244)
+              Use this PRN template for barcode labels (TTP-244)
             </label>
             <textarea
               className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed`}
@@ -163,6 +212,11 @@ export function ErpPrintFormatsWorkspace() {
                 Reset sample
               </button>
             </div>
+            <p className="mb-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Plain-text receipt for Epson TM at{' '}
+              <code className="rounded bg-black/5 px-1">192.168.0.198:9100</code>. Edit like Notepad — after Save
+              bill, tap <strong>Print receipt (Epson)</strong>.
+            </p>
             <textarea
               className={`${erpInputCls} min-h-[280px] font-mono text-[11px] leading-relaxed`}
               value={pf.billTemplate || ''}

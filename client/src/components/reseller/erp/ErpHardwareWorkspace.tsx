@@ -331,7 +331,7 @@ export function ErpHardwareWorkspace() {
                     }
                   >
                     <option value="tspl">TSPL (TSC / thermal)</option>
-                    <option value="prn">PRN template (coming soon)</option>
+                    <option value="prn">PRN template (Print formats)</option>
                   </select>
                 </label>
               </div>
