@@ -16,10 +16,19 @@ export function normalizeBarcodeStem(raw: string): string {
     .replace(/_+/g, '-')
 }
 
-/** Parse emerald-idol QR / label text into a barcode stem (e.g. sfidol028-006). */
+/** Extract SFIDOL code from emerald-idol QR, label, or USB scanner payloads. */
 export function parseProductCodeFromScan(raw: string): string | null {
-  const t = String(raw || '').trim()
+  let t = String(raw || '').trim()
   if (!t) return null
+
+  // USB / Bluetooth scanners often append CR/LF or GS separators.
+  t = t.replace(/[\r\n\u0000-\u001f]+/g, ' ').trim()
+  // Tab- or space-delimited batch: "SFIDOL028-006  GANESH  78.00  4.82  TSKU-..."
+  const firstToken = t.split(/[\t ]+/).find(Boolean)
+  if (firstToken && /^SFIDOL/i.test(firstToken)) {
+    const fromToken = parseProductCodeFromScan(firstToken)
+    if (fromToken) return fromToken
+  }
 
   if (/^https?:\/\//i.test(t)) {
     try {

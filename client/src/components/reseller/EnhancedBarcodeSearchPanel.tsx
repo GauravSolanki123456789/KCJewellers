@@ -13,6 +13,8 @@ import {
   sortBarcodeHints,
 } from '@/lib/enhanced-barcode-search'
 
+const READER_ID = 'enhanced-barcode-qr-reader'
+
 type Props = {
   hints: EnhancedBarcodeHint[]
   barcodeStem: string
@@ -24,6 +26,25 @@ type Props = {
   onMrpChange: (value: string) => void
   suggestedFilename: string
   onSelectHint: (h: EnhancedBarcodeHint) => void
+}
+
+async function safeStopScanner(
+  scannerRef: React.MutableRefObject<{ stop: () => Promise<void> } | null>,
+  runningRef: React.MutableRefObject<boolean>,
+) {
+  const scanner = scannerRef.current
+  if (!scanner || !runningRef.current) {
+    scannerRef.current = null
+    runningRef.current = false
+    return
+  }
+  runningRef.current = false
+  scannerRef.current = null
+  try {
+    await scanner.stop()
+  } catch {
+    /* html5-qrcode throws if already stopped — ignore */
+  }
 }
 
 export default function EnhancedBarcodeSearchPanel({
@@ -41,6 +62,7 @@ export default function EnhancedBarcodeSearchPanel({
   const [scanOpen, setScanOpen] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const scannerRef = useRef<{ stop: () => Promise<void> } | null>(null)
+  const scannerRunningRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const sortedHints = useMemo(
@@ -59,39 +81,57 @@ export default function EnhancedBarcodeSearchPanel({
     [hints, barcodeStem],
   )
 
-  const applyScannedCode = useCallback(
-    (raw: string) => {
-      const parsed = parseProductCodeFromScan(raw)
-      if (!parsed) {
-        setScanError('Could not read a product code from this QR. Try again or type the code.')
-        return false
-      }
+  const applyParsedCode = useCallback(
+    (parsed: string) => {
       onBarcodeStemChange(parsed)
       const match = findBestHintMatch(hints, parsed)
       if (match) onSelectHint(match)
-      setScanError(null)
-      setScanOpen(false)
-      return true
     },
     [hints, onBarcodeStemChange, onSelectHint],
   )
 
+  const tryApplyScanPayload = useCallback(
+    (raw: string): boolean => {
+      const parsed = parseProductCodeFromScan(raw)
+      if (!parsed) return false
+      applyParsedCode(parsed)
+      return true
+    },
+    [applyParsedCode],
+  )
+
+  const closeScanner = useCallback(async () => {
+    await safeStopScanner(scannerRef, scannerRunningRef)
+    setScanOpen(false)
+    setScanError(null)
+  }, [])
+
+  const applyScannedCode = useCallback(
+    async (raw: string) => {
+      const parsed = parseProductCodeFromScan(raw)
+      if (!parsed) {
+        setScanError('Could not read a product code. Hold the QR closer or type the code.')
+        return
+      }
+      await safeStopScanner(scannerRef, scannerRunningRef)
+      applyParsedCode(parsed)
+      setScanError(null)
+      setScanOpen(false)
+    },
+    [applyParsedCode],
+  )
+
   useEffect(() => {
-    if (!scanOpen) {
-      void scannerRef.current?.stop().catch(() => {})
-      scannerRef.current = null
-      return
-    }
+    if (!scanOpen) return
 
     let cancelled = false
-    const readerId = 'enhanced-barcode-qr-reader'
 
     void (async () => {
       try {
         const { Html5Qrcode } = await import('html5-qrcode')
         if (cancelled) return
 
-        const scanner = new Html5Qrcode(readerId, { verbose: false })
+        const scanner = new Html5Qrcode(READER_ID, { verbose: false })
         scannerRef.current = scanner
 
         const cameras = await Html5Qrcode.getCameras()
@@ -102,23 +142,38 @@ export default function EnhancedBarcodeSearchPanel({
         }
 
         const backCam =
-          cameras.find((c) => /back|rear|environment/i.test(c.label))?.id || cameras[0].id
+          cameras.find((c) => /back|rear|environment/i.test(c.label))?.id || cameras[cameras.length - 1].id
 
         await scanner.start(
           backCam,
-          { fps: 10, qrbox: { width: 260, height: 260 }, aspectRatio: 1 },
+          {
+            fps: 12,
+            // Scan most of the frame — emerald idol QRs on box labels are small.
+            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+              const edge = Math.min(viewfinderWidth, viewfinderHeight)
+              const size = Math.floor(edge * 0.92)
+              return { width: size, height: size }
+            },
+            aspectRatio: 1,
+            disableFlip: false,
+          },
           (decoded) => {
-            if (applyScannedCode(decoded)) {
-              void scanner.stop().catch(() => {})
-            }
+            void applyScannedCode(decoded)
           },
           () => {
             /* ignore per-frame scan misses */
           },
         )
+        if (cancelled) {
+          await safeStopScanner(scannerRef, scannerRunningRef)
+          return
+        }
+        scannerRunningRef.current = true
         setScanError(null)
       } catch (e) {
         if (!cancelled) {
+          scannerRunningRef.current = false
+          scannerRef.current = null
           setScanError(
             e instanceof Error
               ? e.message
@@ -130,10 +185,46 @@ export default function EnhancedBarcodeSearchPanel({
 
     return () => {
       cancelled = true
-      void scannerRef.current?.stop().catch(() => {})
-      scannerRef.current = null
+      void safeStopScanner(scannerRef, scannerRunningRef)
     }
   }, [scanOpen, applyScannedCode])
+
+  const handleInputChange = useCallback(
+    (value: string) => {
+      const trimmed = value.trim()
+      if (trimmed.length >= 8) {
+        const parsed = parseProductCodeFromScan(trimmed)
+        if (parsed && compactPayload(trimmed) !== compactPayload(parsed)) {
+          applyParsedCode(parsed)
+          return
+        }
+      }
+      onBarcodeStemChange(value)
+    },
+    [applyParsedCode, onBarcodeStemChange],
+  )
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLInputElement>) => {
+      const text = e.clipboardData.getData('text')
+      if (tryApplyScanPayload(text)) {
+        e.preventDefault()
+      }
+    },
+    [tryApplyScanPayload],
+  )
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== 'Enter') return
+      const raw = (e.currentTarget.value || '').trim()
+      if (!raw) return
+      if (tryApplyScanPayload(raw)) {
+        e.preventDefault()
+      }
+    },
+    [tryApplyScanPayload],
+  )
 
   return (
     <>
@@ -145,7 +236,9 @@ export default function EnhancedBarcodeSearchPanel({
           <input
             ref={inputRef}
             value={barcodeStem}
-            onChange={(e) => onBarcodeStemChange(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
+            onPaste={handlePaste}
+            onKeyDown={handleKeyDown}
             placeholder="e.g. SFIDOL028-006 or sfidol028"
             autoComplete="off"
             autoCorrect="off"
@@ -166,7 +259,7 @@ export default function EnhancedBarcodeSearchPanel({
           </button>
         </div>
         <span className="mt-1 block text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-          Type to filter — best matches move to the top. Scan reads emerald idol box QR codes.
+          Type to filter — best matches move to the top. USB scanner or camera QR both work.
         </span>
       </label>
 
@@ -282,12 +375,12 @@ export default function EnhancedBarcodeSearchPanel({
                   Scan product QR
                 </p>
                 <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-                  Point at the QR on the emerald idol box label
+                  Fill the frame with the QR on the emerald idol box label
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setScanOpen(false)}
+                onClick={() => void closeScanner()}
                 className="flex size-10 items-center justify-center rounded-full border border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]"
                 aria-label="Close scanner"
               >
@@ -295,14 +388,14 @@ export default function EnhancedBarcodeSearchPanel({
               </button>
             </div>
             <div
-              id="enhanced-barcode-qr-reader"
-              className="overflow-hidden rounded-xl bg-[var(--color-jewelry-black,#1a1814)] [&_video]:rounded-xl"
+              id={READER_ID}
+              className="min-h-[280px] overflow-hidden rounded-xl bg-[var(--color-jewelry-black,#1a1814)] [&_video]:rounded-xl"
             />
             {scanError ? (
               <p className="mt-3 text-xs font-medium text-red-600">{scanError}</p>
             ) : (
               <p className="mt-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/50">
-                Code like SFIDOL028-006 will fill automatically when detected.
+                Hold steady — SFIDOL028-006 fills in automatically when detected.
               </p>
             )}
           </div>
@@ -310,4 +403,11 @@ export default function EnhancedBarcodeSearchPanel({
       ) : null}
     </>
   )
+}
+
+function compactPayload(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-./\\]+/g, '')
 }
