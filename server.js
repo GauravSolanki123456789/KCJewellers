@@ -1007,6 +1007,14 @@ async function findUserByStoredMobile(mobile_number) {
     if (stored.length === 10) {
         userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [`91${stored}`]);
         if (userRows.length) return userRows[0];
+        userRows = await query(
+            `SELECT * FROM users
+             WHERE mobile_number IS NOT NULL
+               AND RIGHT(REGEXP_REPLACE(mobile_number, '[^0-9]', '', 'g'), 10) = $1
+             LIMIT 1`,
+            [stored],
+        );
+        if (userRows.length) return userRows[0];
     }
     if (stored.startsWith('91') && stored.length === 12) {
         userRows = await query('SELECT * FROM users WHERE mobile_number = $1', [stored.slice(2)]);
@@ -1386,8 +1394,10 @@ app.post('/api/public/reseller-applications', globalLimiter, requireJson, async 
             return res.status(404).json({ error: 'Invalid or inactive invite code' });
         }
 
+        const mobileOwner = await findUserByStoredMobile(mobileDigits);
         const existingUsers = await query('SELECT * FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1', [emailRaw]);
         let userId;
+
         if (existingUsers.length > 0) {
             const u = existingUsers[0];
             const tierUp = String(u.customer_tier || '').toUpperCase();
@@ -1395,15 +1405,55 @@ app.post('/api/public/reseller-applications', globalLimiter, requireJson, async 
                 return res.status(409).json({ error: 'This email is already a reseller account' });
             }
             userId = u.id;
+            if (mobileOwner && mobileOwner.id !== userId) {
+                return res.status(409).json({
+                    error: 'This mobile number is already registered with another account. Sign in with that number or use a different mobile.',
+                });
+            }
+            const currentMobile = normalizeStoredMobile(u.mobile_number);
+            if (!currentMobile || currentMobile === mobileDigits) {
+                await query(
+                    `UPDATE users SET
+                        name = COALESCE(NULLIF($1, ''), name),
+                        mobile_number = COALESCE(mobile_number, $2),
+                        business_name = $3,
+                        referred_by_user_id = $4,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $5`,
+                    [contactName, mobileDigits, businessName, referrer.id, userId],
+                );
+            } else {
+                await query(
+                    `UPDATE users SET
+                        name = COALESCE(NULLIF($1, ''), name),
+                        business_name = $2,
+                        referred_by_user_id = $3,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $4`,
+                    [contactName, businessName, referrer.id, userId],
+                );
+            }
+        } else if (mobileOwner) {
+            const tierUp = String(mobileOwner.customer_tier || '').toUpperCase();
+            if (tierUp === 'RESELLER' || tierUp === 'ADMIN') {
+                return res.status(409).json({ error: 'This mobile number is already a reseller account' });
+            }
+            userId = mobileOwner.id;
+            const ownerEmail = String(mobileOwner.email || '').trim().toLowerCase();
+            if (ownerEmail && ownerEmail !== emailRaw) {
+                return res.status(409).json({
+                    error: 'This mobile is linked to another email. Sign in with that account or use a different mobile.',
+                });
+            }
             await query(
                 `UPDATE users SET
-                    name = COALESCE(NULLIF($1, ''), name),
-                    mobile_number = $2,
+                    email = COALESCE(NULLIF(email, ''), $1),
+                    name = COALESCE(NULLIF($2, ''), name),
                     business_name = $3,
                     referred_by_user_id = $4,
                     updated_at = CURRENT_TIMESTAMP
                  WHERE id = $5`,
-                [contactName, mobileDigits, businessName, referrer.id, userId],
+                [emailRaw, contactName, businessName, referrer.id, userId],
             );
         } else {
             const inserted = await query(
@@ -1457,7 +1507,21 @@ app.post('/api/public/reseller-applications', globalLimiter, requireJson, async 
         });
     } catch (error) {
         console.error('reseller-applications submit:', error);
-        res.status(500).json({ error: error.message });
+        const msg = String(error.message || error.detail || '');
+        const pgCode = error.code;
+        if (pgCode === '23505' || msg.includes('users_mobile_number_key')) {
+            return res.status(409).json({
+                error: 'This mobile number is already registered. Sign in with that number or use a different mobile.',
+            });
+        }
+        if (pgCode === '23505' || msg.includes('users_email') || msg.includes('email')) {
+            return res.status(409).json({
+                error: 'This email is already registered. Sign in with Google using this email.',
+            });
+        }
+        res.status(500).json({
+            error: 'Could not submit application. Please try again or contact KC Jewellers support.',
+        });
     }
 });
 

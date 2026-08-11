@@ -49,6 +49,38 @@ export function parseProductCodeFromScan(raw: string): string | null {
     }
   }
 
+  // Label text embedded in QR payload: "Code: SFIDOL028 - 006"
+  const codeLabel = t.match(/Code\s*:?\s*(SFIDOL[\s\-_0-9A-Z]+)/i)
+  if (codeLabel) {
+    const parsed = parseProductCodeFromScan(codeLabel[1])
+    if (parsed) return parsed
+  }
+
+  // Pipe / semicolon delimited payloads from some label printers
+  for (const part of t.split(/[|;]+/)) {
+    const p = part.trim()
+    if (/^SFIDOL/i.test(p)) {
+      const parsed = parseProductCodeFromScan(p)
+      if (parsed) return parsed
+    }
+  }
+
+  // JSON-ish payloads: {"code":"SFIDOL028-006"} or {"sku":"..."}
+  if (t.startsWith('{') && t.endsWith('}')) {
+    try {
+      const obj = JSON.parse(t) as Record<string, unknown>
+      for (const key of ['code', 'sku', 'barcode', 'item_code', 'itemCode', 'product_code']) {
+        const v = obj[key]
+        if (typeof v === 'string') {
+          const parsed = parseProductCodeFromScan(v)
+          if (parsed) return parsed
+        }
+      }
+    } catch {
+      /* not JSON */
+    }
+  }
+
   const sfidol = t.match(/SFIDOL[\s\-_]*(\d{2,4})[\s\-_]*([A-Z0-9]+)?/i)
   if (sfidol) {
     const suffix = sfidol[2] ? `-${sfidol[2].toUpperCase()}` : ''

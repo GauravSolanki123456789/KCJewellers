@@ -146,10 +146,17 @@ function JoinResellerForm() {
       setSuccess(true)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err: unknown) {
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
-          : null
+      let msg: string | null = null
+      if (err && typeof err === 'object' && 'response' in err) {
+        const data = (err as { response?: { data?: { error?: string }; status?: number } }).response
+        msg = data?.data?.error || null
+        if (!msg && data?.status === 409) {
+          msg = 'This mobile or email is already registered. Sign in first or use different details.'
+        }
+      }
+      if (msg?.includes('users_mobile_number_key')) {
+        msg = 'This mobile number is already registered. Sign in with that number or use a different mobile.'
+      }
       setSubmitError(msg || 'Could not submit application. Please try again.')
     } finally {
       setSubmitting(false)

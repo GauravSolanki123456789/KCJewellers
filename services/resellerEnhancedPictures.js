@@ -1212,13 +1212,13 @@ function buildGeminiUserParts({
         })}\n\n${renderQualityPromptBlock(generationOptions.renderQuality)}`;
     } else {
         fullPrompt = buildFullPrompt(promptText, negativePrompt, {
-            aspectRatio: aspect,
-            canvasText,
-            workflowHighlights,
+        aspectRatio: aspect,
+        canvasText,
+        workflowHighlights,
             profile,
             generationOptions,
             templateKey: generationOptions.templateKey,
-        });
+    });
     }
     const parts = [{ text: fullPrompt }];
     const attachImage = (filePath) => {

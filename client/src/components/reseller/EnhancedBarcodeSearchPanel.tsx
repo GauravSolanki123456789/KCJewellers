@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Check, Package, ScanLine, X } from 'lucide-react'
+import { Check, Loader2, Package, ScanLine, X } from 'lucide-react'
 import type { EnhancedBarcodeHint } from '@/lib/reseller-enhanced-pictures'
 import { RESELLER_PRODUCTS_PATH } from '@/lib/routes'
 import {
@@ -12,6 +12,7 @@ import {
   parseProductCodeFromScan,
   sortBarcodeHints,
 } from '@/lib/enhanced-barcode-search'
+import { startProductQrScanner } from '@/lib/enhanced-qr-scanner'
 
 const READER_ID = 'enhanced-barcode-qr-reader'
 
@@ -28,25 +29,6 @@ type Props = {
   onSelectHint: (h: EnhancedBarcodeHint) => void
 }
 
-async function safeStopScanner(
-  scannerRef: React.MutableRefObject<{ stop: () => Promise<void> } | null>,
-  runningRef: React.MutableRefObject<boolean>,
-) {
-  const scanner = scannerRef.current
-  if (!scanner || !runningRef.current) {
-    scannerRef.current = null
-    runningRef.current = false
-    return
-  }
-  runningRef.current = false
-  scannerRef.current = null
-  try {
-    await scanner.stop()
-  } catch {
-    /* html5-qrcode throws if already stopped — ignore */
-  }
-}
-
 export default function EnhancedBarcodeSearchPanel({
   hints,
   barcodeStem,
@@ -61,8 +43,9 @@ export default function EnhancedBarcodeSearchPanel({
 }: Props) {
   const [scanOpen, setScanOpen] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
-  const scannerRef = useRef<{ stop: () => Promise<void> } | null>(null)
-  const scannerRunningRef = useRef(false)
+  const [scanStatus, setScanStatus] = useState<string | null>(null)
+  const stopScanRef = useRef<(() => Promise<void>) | null>(null)
+  const handlingRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const sortedHints = useMemo(
@@ -101,24 +84,40 @@ export default function EnhancedBarcodeSearchPanel({
   )
 
   const closeScanner = useCallback(async () => {
-    await safeStopScanner(scannerRef, scannerRunningRef)
+    handlingRef.current = false
+    if (stopScanRef.current) {
+      await stopScanRef.current().catch(() => {})
+      stopScanRef.current = null
+    }
     setScanOpen(false)
     setScanError(null)
+    setScanStatus(null)
   }, [])
 
-  const applyScannedCode = useCallback(
+  const handleRawScan = useCallback(
     async (raw: string) => {
+      if (handlingRef.current) return
+      handlingRef.current = true
       const parsed = parseProductCodeFromScan(raw)
       if (!parsed) {
-        setScanError('Could not read a product code. Hold the QR closer or type the code.')
+        setScanError(
+          `QR read but no product code found. Raw: ${raw.slice(0, 60)}${raw.length > 60 ? '…' : ''}`,
+        )
+        setScanStatus(null)
+        handlingRef.current = false
         return
       }
-      await safeStopScanner(scannerRef, scannerRunningRef)
-      applyParsedCode(parsed)
+      setScanStatus(`Matched ${parsed.toUpperCase()}`)
       setScanError(null)
-      setScanOpen(false)
+      try {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40)
+      } catch {
+        /* ignore */
+      }
+      applyParsedCode(parsed)
+      await closeScanner()
     },
-    [applyParsedCode],
+    [applyParsedCode, closeScanner],
   )
 
   useEffect(() => {
@@ -128,52 +127,27 @@ export default function EnhancedBarcodeSearchPanel({
 
     void (async () => {
       try {
-        const { Html5Qrcode } = await import('html5-qrcode')
+        await new Promise((r) => setTimeout(r, 150))
         if (cancelled) return
 
-        const scanner = new Html5Qrcode(READER_ID, { verbose: false })
-        scannerRef.current = scanner
-
-        const cameras = await Html5Qrcode.getCameras()
-        if (cancelled) return
-        if (!cameras?.length) {
-          setScanError('No camera found. Allow camera access or type the code manually.')
-          return
-        }
-
-        const backCam =
-          cameras.find((c) => /back|rear|environment/i.test(c.label))?.id || cameras[cameras.length - 1].id
-
-        await scanner.start(
-          backCam,
-          {
-            fps: 12,
-            // Scan most of the frame — emerald idol QRs on box labels are small.
-            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-              const edge = Math.min(viewfinderWidth, viewfinderHeight)
-              const size = Math.floor(edge * 0.92)
-              return { width: size, height: size }
-            },
-            aspectRatio: 1,
-            disableFlip: false,
+        const stop = await startProductQrScanner(READER_ID, {
+          onDecode: (raw) => {
+            void handleRawScan(raw)
           },
-          (decoded) => {
-            void applyScannedCode(decoded)
+          onStatus: (s) => {
+            if (!cancelled) setScanStatus(s)
           },
-          () => {
-            /* ignore per-frame scan misses */
+          onError: (msg) => {
+            if (!cancelled) setScanError(msg)
           },
-        )
+        })
         if (cancelled) {
-          await safeStopScanner(scannerRef, scannerRunningRef)
+          await stop().catch(() => {})
           return
         }
-        scannerRunningRef.current = true
-        setScanError(null)
+        stopScanRef.current = stop
       } catch (e) {
         if (!cancelled) {
-          scannerRunningRef.current = false
-          scannerRef.current = null
           setScanError(
             e instanceof Error
               ? e.message
@@ -185,9 +159,11 @@ export default function EnhancedBarcodeSearchPanel({
 
     return () => {
       cancelled = true
-      void safeStopScanner(scannerRef, scannerRunningRef)
+      handlingRef.current = false
+      void stopScanRef.current?.().catch(() => {})
+      stopScanRef.current = null
     }
-  }, [scanOpen, applyScannedCode])
+  }, [scanOpen, handleRawScan])
 
   const handleInputChange = useCallback(
     (value: string) => {
@@ -249,6 +225,7 @@ export default function EnhancedBarcodeSearchPanel({
             type="button"
             onClick={() => {
               setScanError(null)
+              setScanStatus(null)
               setScanOpen(true)
             }}
             className="flex min-h-[48px] min-w-[48px] shrink-0 items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] text-[var(--color-jewelry-black,#1a1814)] transition hover:border-[var(--kc-accent,#c41e3a)] hover:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/20"
@@ -259,7 +236,7 @@ export default function EnhancedBarcodeSearchPanel({
           </button>
         </div>
         <span className="mt-1 block text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-          Type to filter — best matches move to the top. USB scanner or camera QR both work.
+          Type to filter — best matches move to the top. Tap scan and fill the frame with the box QR.
         </span>
       </label>
 
@@ -389,15 +366,23 @@ export default function EnhancedBarcodeSearchPanel({
             </div>
             <div
               id={READER_ID}
-              className="min-h-[280px] overflow-hidden rounded-xl bg-[var(--color-jewelry-black,#1a1814)] [&_video]:rounded-xl"
+              className="relative min-h-[min(62vh,420px)] overflow-hidden rounded-xl bg-black [&_video]:h-full [&_video]:w-full [&_video]:object-cover"
             />
+            {scanStatus ? (
+              <p className="mt-3 flex items-center gap-2 text-xs font-medium text-emerald-700">
+                {!scanError && !scanStatus.startsWith('Matched') ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : null}
+                {scanStatus}
+              </p>
+            ) : null}
             {scanError ? (
-              <p className="mt-3 text-xs font-medium text-red-600">{scanError}</p>
-            ) : (
+              <p className="mt-2 text-xs font-medium text-red-600">{scanError}</p>
+            ) : !scanStatus ? (
               <p className="mt-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/50">
                 Hold steady — SFIDOL028-006 fills in automatically when detected.
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       ) : null}
