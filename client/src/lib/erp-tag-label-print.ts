@@ -7,6 +7,7 @@ export type TagLabelPrintResult = {
   printed: boolean
   error?: string
   tspl?: string
+  clientPrint?: boolean
 }
 
 export type TagLabelPrintResponse = {

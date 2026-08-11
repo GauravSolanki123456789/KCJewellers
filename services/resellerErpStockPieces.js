@@ -5,6 +5,91 @@
 const { randomUUID } = require('crypto');
 const labelPrinter = require('../scripts/label-printer');
 
+function normalizeComPort(raw) {
+    const t = String(raw || '').trim().toUpperCase();
+    if (!t) return 'COM3';
+    if (/^COM\d+$/.test(t)) return t;
+    if (/^\d+$/.test(t)) return `COM${t}`;
+    return t;
+}
+
+function profileToPrinterConfig(profile) {
+    if (!profile) return null;
+    if (profile.connection === 'network' && profile.network?.host) {
+        return {
+            type: 'network',
+            address: String(profile.network.host).trim(),
+            port: Number(profile.network.port) || 9100,
+        };
+    }
+    if (profile.connection === 'serial' && profile.serial) {
+        return {
+            type: 'serial',
+            address: normalizeComPort(profile.serial.port),
+            serial: profile.serial,
+        };
+    }
+    return null;
+}
+
+function resolvePrinterProfile(hw, profileId) {
+    const profiles = Array.isArray(hw?.printerProfiles) ? hw.printerProfiles : [];
+    if (profileId) {
+        const hit = profiles.find((p) => p.id === profileId);
+        if (hit) return hit;
+    }
+    if (profiles.length) {
+        return profiles.find((p) => p.isDefault) || profiles[0];
+    }
+    const legacy = hw?.labelPrinter;
+    if (legacy?.address) {
+        const isNetwork = legacy.type === 'network' || /^\d+\.\d+\.\d+\.\d+/.test(String(legacy.address));
+        return {
+            id: 'legacy',
+            name: 'Legacy printer',
+            connection: isNetwork ? 'network' : 'serial',
+            network: isNetwork ? { host: legacy.address, port: legacy.port || 9100 } : undefined,
+            serial: !isNetwork
+                ? {
+                      port: normalizeComPort(legacy.address),
+                      baudRate: 9600,
+                      dataBits: 8,
+                      parity: 'none',
+                      stopBits: 1,
+                      ...(legacy.serial || {}),
+                  }
+                : undefined,
+        };
+    }
+    return null;
+}
+
+function buildLabelItemData(p, hw, profile) {
+    return {
+        barcodeNumber: p.barcode,
+        styleCode: p.product_name || p.item_code || '',
+        weight: p.avg_weight != null ? Number(p.avg_weight).toFixed(3) : '0.000',
+        grossWeight: p.gross_weight != null ? Number(p.gross_weight).toFixed(3) : '',
+        bags: p.bags || '',
+        pcs: p.pcs || 1,
+        companyCode: profile?.companyCode || hw.companyCode || 'KC925',
+        material: (p.metal_type || 'SILVER').toUpperCase(),
+    };
+}
+
+function buildTestLabelItemData(hw, profile) {
+    return {
+        barcodeNumber: 'TEST0001',
+        styleCode: 'TEST LABEL',
+        weight: '2.366',
+        grossWeight: '2.500',
+        bags: '',
+        pcs: 1,
+        companyCode: profile?.companyCode || hw.companyCode || 'KC925',
+        material: 'STERLING SILVER',
+    };
+}
+
 const EXCEL_ALIASES = {
     barcode: ['Barcode', 'barcode', 'BARCODE'],
     sku: ['SKU', 'sku'],
@@ -854,40 +939,102 @@ function registerStockPieceRoutes(app, deps) {
                 }
             }
             const hw = settings.hardware || {};
-            const printerConfig = hw.labelPrinter || null;
+            const profile = resolvePrinterProfile(hw, req.body.printer_profile_id || null);
+            const printerConfig = profileToPrinterConfig(profile);
 
             const results = [];
             for (const p of pieces) {
-                const itemData = {
-                    barcodeNumber: p.barcode,
-                    styleCode: p.product_name || p.item_code || '',
-                    weight: p.avg_weight != null ? Number(p.avg_weight).toFixed(3) : '0.000',
-                    grossWeight: p.gross_weight != null ? Number(p.gross_weight).toFixed(3) : '',
-                    bags: p.bags || '',
-                    pcs: p.pcs || 1,
-                    companyCode: hw.companyCode || 'KC925',
-                    material: (p.metal_type || 'SILVER').toUpperCase(),
-                };
-                if (printerConfig?.type && printerConfig?.address) {
+                const itemData = buildLabelItemData(p, hw, profile);
+                if (profile?.labelFormat === 'prn') {
+                    results.push({
+                        barcode: p.barcode,
+                        piece_id: p.id,
+                        printed: false,
+                        error: 'PRN templates are not wired yet — share your .prn file to connect.',
+                    });
+                    continue;
+                }
+                const tspl = labelPrinter.generateTSPLLabel(itemData);
+                if (printerConfig?.type === 'serial') {
+                    results.push({
+                        barcode: p.barcode,
+                        piece_id: p.id,
+                        printed: false,
+                        clientPrint: true,
+                        tspl,
+                    });
+                } else if (printerConfig?.type === 'network' && printerConfig.address) {
                     try {
                         await labelPrinter.printLabel(itemData, printerConfig);
                         results.push({ barcode: p.barcode, piece_id: p.id, printed: true });
                     } catch (err) {
-                        results.push({ barcode: p.barcode, piece_id: p.id, printed: false, error: err.message });
+                        results.push({
+                            barcode: p.barcode,
+                            piece_id: p.id,
+                            printed: false,
+                            error: err.message,
+                            tspl,
+                            clientPrint: true,
+                        });
                     }
                 } else {
                     results.push({
                         barcode: p.barcode,
                         piece_id: p.id,
                         printed: false,
-                        tspl: labelPrinter.generateTSPLLabel(itemData),
+                        tspl,
+                        clientPrint: !!tspl,
                     });
                 }
             }
-            res.json({ success: true, results, printerConfigured: !!printerConfig?.address });
+            res.json({
+                success: true,
+                results,
+                printerConfigured: !!printerConfig?.address,
+                printerProfile: profile ? { id: profile.id, name: profile.name, connection: profile.connection } : null,
+            });
         } catch (e) {
             console.error('erp print barcodes:', e);
             res.status(500).json({ error: e.message || 'Print failed' });
+        }
+    });
+
+    app.post('/api/reseller/erp/print/test-label', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const settingsRows = await query(
+                `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+                [req.user.id],
+            );
+            let settings = settingsRows[0]?.settings ?? {};
+            if (typeof settings === 'string') {
+                try {
+                    settings = JSON.parse(settings);
+                } catch {
+                    settings = {};
+                }
+            }
+            const hw = settings.hardware || {};
+            const profile = resolvePrinterProfile(hw, req.body.printer_profile_id || null);
+            const printerConfig = profileToPrinterConfig(profile);
+            const itemData = buildTestLabelItemData(hw, profile);
+            const tspl = labelPrinter.generateTSPLLabel(itemData);
+
+            if (req.body.send_to_printer && printerConfig?.type === 'network' && printerConfig.address) {
+                await labelPrinter.printLabel(itemData, printerConfig);
+                return res.json({
+                    printed: true,
+                    message: `Test label sent to ${printerConfig.address}:${printerConfig.port || 9100}`,
+                });
+            }
+
+            res.json({
+                tspl,
+                clientPrint: printerConfig?.type === 'serial',
+                printerProfile: profile ? { id: profile.id, name: profile.name } : null,
+            });
+        } catch (e) {
+            console.error('erp print test-label:', e);
+            res.status(500).json({ error: e.message || 'Test print failed' });
         }
     });
 

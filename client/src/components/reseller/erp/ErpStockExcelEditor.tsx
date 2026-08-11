@@ -12,6 +12,7 @@ import {
 } from '@/lib/reseller-erp-stock-editor'
 import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleBar'
 import { Check, Loader2, RotateCcw, Save, Trash2 } from 'lucide-react'
 
 const cellCls =
@@ -21,10 +22,12 @@ export function ErpStockExcelEditor({
   batchId,
   pieces,
   onSaved,
+  scaleProfileId,
 }: {
   batchId: string
   pieces: ErpStockPiece[]
   onSaved: (rows: ErpStockPiece[]) => void
+  scaleProfileId?: string | null
 }) {
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
   const [baseline, setBaseline] = useState<StockRowDraft[]>([])
@@ -161,8 +164,19 @@ export function ErpStockExcelEditor({
     }
   }
 
+  const applyScaleWeight = (grams: number) => {
+    const targetId = selected.size === 1 ? Array.from(selected)[0] : drafts.find((d) => d.status !== 'sold')?.id
+    if (!targetId) {
+      alert('Select one in-stock row (checkbox) to apply weight from the scale.')
+      return
+    }
+    setCell(targetId, 'avg_weight', grams.toFixed(3))
+    setMessage(`Weight ${grams.toFixed(3)} g applied — click Save edits.`)
+  }
+
   return (
     <div className="space-y-3">
+      <ErpWeighingScaleBar scaleProfileId={scaleProfileId ?? null} onApplyWeight={applyScaleWeight} />
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className={erpBtnPrimary} disabled={saving || dirtyCount === 0} onClick={() => void save()}>
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}

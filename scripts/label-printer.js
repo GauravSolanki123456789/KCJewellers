@@ -7,6 +7,14 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
+function normalizePrinterPort(raw) {
+    const t = String(raw || '').trim().toUpperCase();
+    if (!t) return 'COM3';
+    if (/^COM\d+$/.test(t)) return t;
+    if (/^\d+$/.test(t)) return `COM${t}`;
+    return raw;
+}
+
 /**
  * Generate TSPL command string for a product label
  * Matches exact layout from sample label:
@@ -250,8 +258,9 @@ async function printLabel(itemData, printerConfig) {
                 printerConfig.address,
                 printerConfig.port || 9100
             );
-        } else if (printerConfig.type === 'usb') {
-            return await sendToUSBPrinter(tsplCommands, printerConfig.address);
+        } else if (printerConfig.type === 'serial' || printerConfig.type === 'usb') {
+            const portPath = normalizePrinterPort(printerConfig.address);
+            return await sendToUSBPrinter(tsplCommands, portPath);
         } else {
             throw new Error(`Unknown printer type: ${printerConfig.type}`);
         }

@@ -3,10 +3,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
+import {
+  ErpWorkstationBar,
+  useErpWorkstationSelection,
+} from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
+import {
+  getPrinterProfileById,
+  migrateHardwareSettings,
+  type ErpHardwareSettings,
+} from '@/lib/erp-hardware'
+import {
+  closeSerialPort,
+  openSerialPort,
+  requestUserSerialPort,
+  sendTsplBatchOverSerial,
+  webSerialSupported,
+} from '@/lib/erp-serial-device'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { ArrowLeft, FileSpreadsheet, Loader2, Printer, Trash2, Upload } from 'lucide-react'
+
+type PrintResult = {
+  barcode: string
+  printed: boolean
+  clientPrint?: boolean
+  tspl?: string
+  error?: string
+}
 
 type Batch = {
   id: string
@@ -25,6 +49,15 @@ export function ErpProductsWorkspace() {
   const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [workstation, setWorkstation] = useErpWorkstationSelection()
+  const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
+
+  useEffect(() => {
+    void axios
+      .get<{ settings: { hardware?: ErpHardwareSettings } }>('/api/reseller/erp/settings')
+      .then((res) => setHw(migrateHardwareSettings(res.data.settings?.hardware)))
+      .catch(() => setHw(null))
+  }, [])
 
   const loadBatches = useCallback(async () => {
     const res = await axios.get<{ batches: Batch[] }>('/api/reseller/erp/stock-pieces/batches')
@@ -68,16 +101,51 @@ export function ErpProductsWorkspace() {
   const printBarcodes = async () => {
     if (!activeBatchId) return
     setPrinting(true)
+    setMsg(null)
     try {
-      const res = await axios.post<{ results: { barcode: string; printed: boolean }[]; printerConfigured: boolean }>(
-        '/api/reseller/erp/print/barcodes',
-        { batch_id: activeBatchId },
-      )
-      const ok = res.data.results.filter((r) => r.printed).length
-      if (!res.data.printerConfigured) {
-        alert(`TSPL generated for ${res.data.results.length} label(s). Connect a printer in Hardware to print directly.`)
+      const printerProfile = hw ? getPrinterProfileById(hw, workstation.printerProfileId) : null
+      const res = await axios.post<{
+        results: PrintResult[]
+        printerConfigured: boolean
+        printerProfile?: { name: string; connection: string } | null
+      }>('/api/reseller/erp/print/barcodes', {
+        batch_id: activeBatchId,
+        printer_profile_id: workstation.printerProfileId || printerProfile?.id,
+      })
+
+      const results = res.data.results || []
+      const clientTspl = results.filter((r) => r.clientPrint && r.tspl).map((r) => r.tspl as string)
+
+      if (clientTspl.length && printerProfile?.connection === 'serial') {
+        if (!webSerialSupported()) {
+          alert('Serial printer needs Chrome or Edge on this PC. Open Hardware → Test print to pick COM port.')
+          return
+        }
+        const port = await requestUserSerialPort()
+        const serial = printerProfile.serial || {
+          port: 'COM3',
+          baudRate: 9600,
+          dataBits: 8 as const,
+          parity: 'none' as const,
+          stopBits: 1 as const,
+        }
+        await openSerialPort(port, serial)
+        await sendTsplBatchOverSerial(port, clientTspl)
+        await closeSerialPort(port)
+        setMsg(`Printed ${clientTspl.length} label(s) on ${serial.port} @ ${serial.baudRate}.`)
+        return
+      }
+
+      const ok = results.filter((r) => r.printed).length
+      if (!res.data.printerConfigured && !clientTspl.length) {
+        alert(
+          `TSPL generated for ${results.length} label(s). Add a printer in Hardware (COM3 · 9600 or network IP).`,
+        )
+      } else if (ok) {
+        setMsg(`Printed ${ok} of ${results.length} label(s)${res.data.printerProfile ? ` · ${res.data.printerProfile.name}` : ''}.`)
       } else {
-        setMsg(`Printed ${ok} of ${res.data.results.length} label(s).`)
+        const err = results.find((r) => r.error)?.error
+        setMsg(err ? `Print issue: ${err}` : `Processed ${results.length} label(s).`)
       }
     } catch (e) {
       alert(erpErr(e))
@@ -108,6 +176,7 @@ export function ErpProductsWorkspace() {
   if (activeBatchId && activeBatch) {
     return (
       <div className="space-y-4">
+        <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -136,13 +205,20 @@ export function ErpProductsWorkspace() {
             Delete batch
           </button>
         </div>
-        <ErpStockExcelEditor batchId={activeBatchId} pieces={pieces} onSaved={setPieces} />
+        {msg ? <p className="text-xs font-medium text-emerald-700">{msg}</p> : null}
+        <ErpStockExcelEditor
+          batchId={activeBatchId}
+          pieces={pieces}
+          onSaved={setPieces}
+          scaleProfileId={workstation.scaleProfileId}
+        />
       </div>
     )
   }
 
   return (
     <div className="space-y-5">
+      <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
       <div className={erpCardCls}>
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <FileSpreadsheet className="size-4 text-[var(--kc-accent,#c41e3a)]" />
