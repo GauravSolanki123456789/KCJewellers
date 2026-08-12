@@ -377,6 +377,9 @@ function B2BAdminContent() {
           slab_r: resellerForm.slab_r,
           slab_w: resellerForm.slab_w,
           slab_f: resellerForm.slab_f,
+          gold_slab_r: resellerForm.gold_slab_r,
+          gold_slab_w: resellerForm.gold_slab_w,
+          gold_slab_f: resellerForm.gold_slab_f,
         }),
         reseller_catalog_max_products: Math.max(
           0,
@@ -1259,6 +1262,9 @@ function B2BAdminContent() {
                       slab_r: resellerForm.slab_r,
                       slab_w: resellerForm.slab_w,
                       slab_f: resellerForm.slab_f,
+                      gold_slab_r: resellerForm.gold_slab_r,
+                      gold_slab_w: resellerForm.gold_slab_w,
+                      gold_slab_f: resellerForm.gold_slab_f,
                     }}
                     onChange={(slabForm) =>
                       setResellerForm((f) => ({

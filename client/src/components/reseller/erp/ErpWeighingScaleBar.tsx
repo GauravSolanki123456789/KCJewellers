@@ -22,9 +22,16 @@ import { Link2, Scale, Unlink } from 'lucide-react'
 type Props = {
   scaleProfileId: string | null
   onApplyWeight?: (grams: number) => void
+  onLiveWeight?: (grams: number | null) => void
+  onConnectionChange?: (connected: boolean) => void
 }
 
-export function ErpWeighingScaleBar({ scaleProfileId, onApplyWeight }: Props) {
+export function ErpWeighingScaleBar({
+  scaleProfileId,
+  onApplyWeight,
+  onLiveWeight,
+  onConnectionChange,
+}: Props) {
   const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
   const [connected, setConnected] = useState(false)
   const [liveWeight, setLiveWeight] = useState<number | null>(null)
@@ -38,6 +45,14 @@ export function ErpWeighingScaleBar({ scaleProfileId, onApplyWeight }: Props) {
       .then((res) => setHw(migrateHardwareSettings(res.data.settings?.hardware)))
       .catch(() => setHw(null))
   }, [])
+
+  useEffect(() => {
+    onLiveWeight?.(liveWeight)
+  }, [liveWeight, onLiveWeight])
+
+  useEffect(() => {
+    onConnectionChange?.(connected)
+  }, [connected, onConnectionChange])
 
   const disconnect = useCallback(async () => {
     stopReadRef.current?.()
@@ -93,6 +108,9 @@ export function ErpWeighingScaleBar({ scaleProfileId, onApplyWeight }: Props) {
         <>
           <span className="font-mono text-lg font-bold tabular-nums text-emerald-700">
             {liveWeight != null ? `${liveWeight.toFixed(3)} g` : '—'}
+          </span>
+          <span className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
+            Click a weight cell → put item on scale → Enter to save &amp; next row
           </span>
           {onApplyWeight && liveWeight != null ? (
             <button type="button" className={erpBtnPrimary} onClick={() => onApplyWeight(liveWeight)}>

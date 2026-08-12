@@ -214,13 +214,11 @@ export function buildSharedCatalogSlabContext(
 ): SharedCatalogSlabContext | null {
   if (!payload?.pricingSlab || payload.pricingSlab === 'standard') return null
   const kind = payload.pricingSlab
-  const settings = tierSettingsForSlab(
-    parseResellerSlabSettings(payload.slabSettingsSnapshot),
-    kind,
-  )
+  const parsed = parseResellerSlabSettings(payload.slabSettingsSnapshot)
   return {
     kind,
-    settings,
+    settings: tierSettingsForSlab(parsed, kind),
+    allSettings: parsed,
     wholesaleGoldRatePerG: payload.wholesaleGoldRatePerG,
     wholesaleSilverRatePerG: payload.wholesaleSilverRatePerG,
   }

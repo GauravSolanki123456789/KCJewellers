@@ -24,8 +24,20 @@ export type StockEditableField =
   | 'attr_stone'
   | 'fixed_price'
   | 'gross_weight'
+  | 'chain_wt_only'
+  | 'pendant_wt_only'
+  | 'earring_wt_only'
   | 'bags'
   | 'bag_wt'
+
+/** Fields that accept live weight from the connected scale (Enter to commit & next row). */
+export const SCALE_CAPTURE_FIELDS: StockEditableField[] = [
+  'avg_weight',
+  'gross_weight',
+  'chain_wt_only',
+  'pendant_wt_only',
+  'earring_wt_only',
+]
 
 export type StockRowDraft = {
   id: number
@@ -38,13 +50,14 @@ export const STOCK_EDITOR_COLUMNS: {
   label: string
   shortLabel?: string
   type?: 'text' | 'number'
+  scaleCapture?: boolean
 }[] = [
   { key: 'barcode', label: 'Barcode', type: 'text' },
   { key: 'sku', label: 'SKU', type: 'text' },
   { key: 'style_code', label: 'StyleCode', shortLabel: 'Style', type: 'text' },
   { key: 'product_name', label: 'ProductName', shortLabel: 'Product', type: 'text' },
   { key: 'size', label: 'Size', type: 'text' },
-  { key: 'avg_weight', label: 'AvgWeight', shortLabel: 'Wt (g)', type: 'number' },
+  { key: 'avg_weight', label: 'AvgWeight', shortLabel: 'Wt (g)', type: 'number', scaleCapture: true },
   { key: 'purity', label: 'Purity', type: 'number' },
   { key: 'wastage_pct', label: 'Wastage(%)', shortLabel: 'Wast %', type: 'number' },
   { key: 'mc_rate', label: 'MCRate', shortLabel: 'MC', type: 'number' },
@@ -58,7 +71,10 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'attr_color', label: 'Attr:Color', type: 'text' },
   { key: 'attr_stone', label: 'Attr:Stone', type: 'text' },
   { key: 'fixed_price', label: 'FixedPrice', type: 'number' },
-  { key: 'gross_weight', label: 'Gross', shortLabel: 'Gross', type: 'number' },
+  { key: 'gross_weight', label: 'Gross', shortLabel: 'Gross', type: 'number', scaleCapture: true },
+  { key: 'chain_wt_only', label: 'ChainWtOnly', shortLabel: 'Chain', type: 'number', scaleCapture: true },
+  { key: 'pendant_wt_only', label: 'PendantWtOnly', shortLabel: 'Pendant', type: 'number', scaleCapture: true },
+  { key: 'earring_wt_only', label: 'EarringWtOnly', shortLabel: 'Earring', type: 'number', scaleCapture: true },
   { key: 'bags', label: 'Bags', type: 'text' },
   { key: 'bag_wt', label: 'BagWt', shortLabel: 'Bag Wt', type: 'number' },
 ]
@@ -93,6 +109,9 @@ export function pieceToRowDraft(p: ErpStockPiece): StockRowDraft {
       attr_stone: fieldToString(p.attr_stone),
       fixed_price: fieldToString(p.fixed_price),
       gross_weight: fieldToString(p.gross_weight),
+      chain_wt_only: fieldToString(p.chain_wt_only),
+      pendant_wt_only: fieldToString(p.pendant_wt_only),
+      earring_wt_only: fieldToString(p.earring_wt_only),
       bags: fieldToString(p.bags),
       bag_wt: fieldToString(p.bag_wt),
     },
@@ -127,6 +146,9 @@ export function rowDraftToApiPayload(d: StockRowDraft): Record<string, unknown> 
     attr_stone: v.attr_stone.trim() || null,
     fixed_price: num('fixed_price'),
     gross_weight: num('gross_weight'),
+    chain_wt_only: num('chain_wt_only'),
+    pendant_wt_only: num('pendant_wt_only'),
+    earring_wt_only: num('earring_wt_only'),
     bags: v.bags.trim() || null,
     bag_wt: num('bag_wt'),
   }
@@ -143,4 +165,20 @@ export function parseStockExcelRows(buffer: ArrayBuffer): Record<string, unknown
   const wb = XLSX.read(buffer, { type: 'array' })
   const sheet = wb.Sheets[wb.SheetNames[0]]
   return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null })
+}
+
+/** Map PRN {{variables}} to ERP product columns (Excel upload / editor). */
+export const LABEL_VAR_TO_ERP_COLUMN: Record<string, string> = {
+  barcode: 'Barcode',
+  sku: 'SKU',
+  style_code: 'StyleCode',
+  item_code: 'ItemCode',
+  product_name: 'ProductName',
+  avg_weight: 'Wt (g) / AvgWeight',
+  net_weight: 'Wt (g) / AvgWeight',
+  gross_weight: 'Gross (falls back to Wt (g) if empty)',
+  company_code: 'Hardware → company code (e.g. BMS925)',
+  metal_type: 'MetalType',
+  pcs: 'PCS',
+  bags: 'Bags',
 }

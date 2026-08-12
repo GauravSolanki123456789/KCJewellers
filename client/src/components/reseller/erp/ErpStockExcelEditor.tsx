@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   draftsEqual,
   pieceToRowDraft,
   rowDraftToApiPayload,
+  SCALE_CAPTURE_FIELDS,
   STOCK_EDITOR_COLUMNS,
   type StockEditableField,
   type StockRowDraft,
@@ -17,6 +18,15 @@ import { Check, Loader2, RotateCcw, Save, Trash2 } from 'lucide-react'
 
 const cellCls =
   'kc-batch-cell-input w-full min-w-0 rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none focus:border-[var(--kc-accent,#c41e3a)] focus:bg-white focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/15'
+
+const scaleCellCls =
+  'kc-batch-cell-input w-full min-w-0 rounded-lg border border-emerald-200/80 bg-emerald-50/40 px-1.5 py-1 text-xs font-semibold tabular-nums text-emerald-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20'
+
+type ScaleFocus = { rowId: number; field: StockEditableField }
+
+function cellKey(rowId: number, field: StockEditableField) {
+  return `${rowId}:${field}`
+}
 
 export function ErpStockExcelEditor({
   batchId,
@@ -37,6 +47,10 @@ export function ErpStockExcelEditor({
   const [deleting, setDeleting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [liveWeight, setLiveWeight] = useState<number | null>(null)
+  const [scaleConnected, setScaleConnected] = useState(false)
+  const [scaleFocus, setScaleFocus] = useState<ScaleFocus | null>(null)
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
 
   const productNames = useMemo(() => {
     const names = new Set<string>()
@@ -54,6 +68,7 @@ export function ErpStockExcelEditor({
     setSelected(new Set())
     setMessage(null)
     setError(null)
+    setScaleFocus(null)
   }, [pieces])
 
   const dirtyCount = useMemo(() => {
@@ -71,6 +86,45 @@ export function ErpStockExcelEditor({
     setMessage(null)
     setError(null)
   }, [])
+
+  const focusCell = useCallback((rowId: number, field: StockEditableField) => {
+    const el = inputRefs.current.get(cellKey(rowId, field))
+    el?.focus()
+    el?.select()
+    setScaleFocus({ rowId, field })
+  }, [])
+
+  const nextScaleRow = useCallback(
+    (fromRowId: number, field: StockEditableField): number | null => {
+      const idx = drafts.findIndex((d) => d.id === fromRowId)
+      if (idx < 0) return null
+      for (let i = idx + 1; i < drafts.length; i++) {
+        if (drafts[i].status !== 'sold') return drafts[i].id
+      }
+      return null
+    },
+    [drafts],
+  )
+
+  const commitScaleWeight = useCallback(
+    (rowId: number, field: StockEditableField) => {
+      if (liveWeight == null || !Number.isFinite(liveWeight)) {
+        setMessage('Waiting for stable weight from scale…')
+        return false
+      }
+      setCell(rowId, field, liveWeight.toFixed(3))
+      const nextId = nextScaleRow(rowId, field)
+      if (nextId != null) {
+        focusCell(nextId, field)
+        setMessage(`Saved ${liveWeight.toFixed(3)} g — next row ready. Press Save edits when done.`)
+      } else {
+        setScaleFocus(null)
+        setMessage(`Saved ${liveWeight.toFixed(3)} g — last row. Click Save edits.`)
+      }
+      return true
+    },
+    [focusCell, liveWeight, nextScaleRow, setCell],
+  )
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -165,18 +219,37 @@ export function ErpStockExcelEditor({
   }
 
   const applyScaleWeight = (grams: number) => {
-    const targetId = selected.size === 1 ? Array.from(selected)[0] : drafts.find((d) => d.status !== 'sold')?.id
+    const targetId =
+      scaleFocus?.rowId ??
+      (selected.size === 1 ? Array.from(selected)[0] : drafts.find((d) => d.status !== 'sold')?.id)
+    const field = scaleFocus?.field ?? 'avg_weight'
     if (!targetId) {
-      alert('Select one in-stock row (checkbox) to apply weight from the scale.')
+      alert('Click a weight cell (Wt, Gross, Chain, etc.) or select a row first.')
       return
     }
-    setCell(targetId, 'avg_weight', grams.toFixed(3))
+    setCell(targetId, field, grams.toFixed(3))
     setMessage(`Weight ${grams.toFixed(3)} g applied — click Save edits.`)
+  }
+
+  const displayCellValue = (row: StockRowDraft, field: StockEditableField) => {
+    const saved = row.values[field]
+    const isFocused =
+      scaleFocus?.rowId === row.id &&
+      scaleFocus.field === field &&
+      scaleConnected &&
+      SCALE_CAPTURE_FIELDS.includes(field)
+    if (isFocused && liveWeight != null) return liveWeight.toFixed(3)
+    return saved
   }
 
   return (
     <div className="space-y-3">
-      <ErpWeighingScaleBar scaleProfileId={scaleProfileId ?? null} onApplyWeight={applyScaleWeight} />
+      <ErpWeighingScaleBar
+        scaleProfileId={scaleProfileId ?? null}
+        onApplyWeight={applyScaleWeight}
+        onLiveWeight={setLiveWeight}
+        onConnectionChange={setScaleConnected}
+      />
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className={erpBtnPrimary} disabled={saving || dirtyCount === 0} onClick={() => void save()}>
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
@@ -284,18 +357,47 @@ export function ErpStockExcelEditor({
                     {idx + 1}
                   </td>
                   <td className="px-2 py-1 capitalize text-[var(--color-jewelry-black,#1a1814)]/55">{row.status.replace('_', ' ')}</td>
-                  {STOCK_EDITOR_COLUMNS.map((col) => (
-                    <td key={col.key} className="min-w-[72px] px-1 py-0.5">
-                      <input
-                        className={cellCls}
-                        type="text"
-                        inputMode={col.type === 'number' ? 'decimal' : 'text'}
-                        value={row.values[col.key]}
-                        readOnly={readOnly}
-                        onChange={(e) => setCell(row.id, col.key, e.target.value)}
-                      />
-                    </td>
-                  ))}
+                  {STOCK_EDITOR_COLUMNS.map((col) => {
+                    const isScaleField = !!col.scaleCapture
+                    const isFocused =
+                      scaleFocus?.rowId === row.id && scaleFocus.field === col.key && scaleConnected
+                    return (
+                      <td key={col.key} className="min-w-[72px] px-1 py-0.5">
+                        <input
+                          ref={(el) => {
+                            const k = cellKey(row.id, col.key)
+                            if (el) inputRefs.current.set(k, el)
+                            else inputRefs.current.delete(k)
+                          }}
+                          className={isScaleField && isFocused ? scaleCellCls : cellCls}
+                          type="text"
+                          inputMode={col.type === 'number' ? 'decimal' : 'text'}
+                          value={displayCellValue(row, col.key)}
+                          readOnly={readOnly}
+                          onFocus={() => {
+                            if (isScaleField && !readOnly) setScaleFocus({ rowId: row.id, field: col.key })
+                          }}
+                          onBlur={() => {
+                            if (scaleFocus?.rowId === row.id && scaleFocus.field === col.key) {
+                              setScaleFocus(null)
+                            }
+                          }}
+                          onChange={(e) => setCell(row.id, col.key, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (
+                              e.key === 'Enter' &&
+                              isScaleField &&
+                              !readOnly &&
+                              scaleConnected
+                            ) {
+                              e.preventDefault()
+                              commitScaleWeight(row.id, col.key)
+                            }
+                          }}
+                        />
+                      </td>
+                    )
+                  })}
                 </tr>
               )
             })}

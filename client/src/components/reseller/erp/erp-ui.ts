@@ -58,6 +58,9 @@ export type ErpStockPiece = {
   attr_stone?: string | null
   fixed_price?: number | null
   gross_weight?: number | null
+  chain_wt_only?: number | null
+  pendant_wt_only?: number | null
+  earring_wt_only?: number | null
   bags?: string | null
   bag_wt?: number | null
   status: string

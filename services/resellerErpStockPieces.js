@@ -66,11 +66,14 @@ function resolvePrinterProfile(hw, profileId) {
 }
 
 function buildLabelItemData(p, hw, profile) {
+    const net = p.avg_weight != null ? Number(p.avg_weight).toFixed(3) : '0.000';
+    const gross =
+        p.gross_weight != null ? Number(p.gross_weight).toFixed(3) : net;
     return {
         barcodeNumber: p.barcode,
         styleCode: p.product_name || p.item_code || '',
-        weight: p.avg_weight != null ? Number(p.avg_weight).toFixed(3) : '0.000',
-        grossWeight: p.gross_weight != null ? Number(p.gross_weight).toFixed(3) : '',
+        weight: net,
+        grossWeight: gross,
         bags: p.bags || '',
         pcs: p.pcs || 1,
         companyCode: profile?.companyCode || hw.companyCode || 'KC925',
@@ -97,7 +100,7 @@ const EXCEL_ALIASES = {
     style_code: ['StyleCode', 'style_code', 'Style'],
     product_name: ['ProductName', 'product_name', 'Name'],
     size: ['Size', 'size'],
-    avg_weight: ['AvgWeight', 'avg_weight', 'Weight', 'NetWeight'],
+    avg_weight: ['AvgWeight', 'avg_weight', 'Weight', 'NetWeight', 'Wt (g)', 'Wt(g)'],
     purity: ['Purity', 'purity'],
     wastage_pct: ['Wastage(%)', 'Wastage', 'wastage_pct'],
     mc_rate: ['MCRate', 'mc_rate', 'MC'],
@@ -114,6 +117,9 @@ const EXCEL_ALIASES = {
     gross_weight: ['Gross', 'GrossWeight', 'gross_weight', 'Gross Wt'],
     bags: ['Bags', 'bags'],
     bag_wt: ['BagWt', 'bag_wt', 'Bag Wt', 'BagWeight'],
+    chain_wt_only: ['ChainWtOnly', 'chain_wt_only', 'Chain Wt'],
+    pendant_wt_only: ['PendantWtOnly', 'pendant_wt_only', 'Pendant Wt'],
+    earring_wt_only: ['EarringWtOnly', 'earring_wt_only', 'Earring Wt'],
 };
 
 function pickRowVal(row, keys) {
@@ -121,6 +127,52 @@ function pickRowVal(row, keys) {
         if (row[k] != null && String(row[k]).trim() !== '') return row[k];
     }
     return null;
+}
+
+function componentWeightsFromPayload(payload) {
+    const p = payload && typeof payload === 'object' ? payload : {};
+    const num = (keys) => {
+        for (const k of keys) {
+            const v = p[k];
+            if (v != null && v !== '') {
+                const n = Number(v);
+                if (Number.isFinite(n)) return n;
+            }
+        }
+        return null;
+    };
+    return {
+        chain_wt_only: num(['chain_wt_only', 'ChainWtOnly']),
+        pendant_wt_only: num(['pendant_wt_only', 'PendantWtOnly']),
+        earring_wt_only: num(['earring_wt_only', 'EarringWtOnly']),
+    };
+}
+
+async function lookupCatalogImageUrl(query, keys) {
+    const name = keys?.product_name ? String(keys.product_name).trim().slice(0, 255) : null;
+    const sku = keys?.sku ? String(keys.sku).trim().slice(0, 128) : null;
+    const item = keys?.item_code ? String(keys.item_code).trim().slice(0, 128) : null;
+    if (!name && !sku && !item) return null;
+    const rows = await query(
+        `SELECT image_url FROM web_products wp
+         WHERE (wp.is_active IS NULL OR wp.is_active = true)
+           AND wp.image_url IS NOT NULL AND TRIM(wp.image_url) <> ''
+           AND (
+             ($1::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($1))
+             OR ($2::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2))
+             OR ($3::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($3))
+           )
+         ORDER BY
+           CASE
+             WHEN $1::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($1) THEN 0
+             WHEN $2::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2) THEN 1
+             ELSE 2
+           END,
+           wp.updated_at DESC NULLS LAST
+         LIMIT 1`,
+        [name, sku, item],
+    );
+    return rows[0]?.image_url || null;
 }
 
 function parseExcelRowToPiece(row) {
@@ -173,12 +225,24 @@ function parseExcelRowToPiece(row) {
             ? String(pickRowVal(row, EXCEL_ALIASES.bags)).trim().slice(0, 200)
             : null,
         bag_wt: num(EXCEL_ALIASES.bag_wt),
+        chain_wt_only: num(EXCEL_ALIASES.chain_wt_only),
+        pendant_wt_only: num(EXCEL_ALIASES.pendant_wt_only),
+        earring_wt_only: num(EXCEL_ALIASES.earring_wt_only),
         payload_json: row,
     };
 }
 
 function mapPiece(row) {
     if (!row) return row;
+    let payload = row.payload_json;
+    if (typeof payload === 'string') {
+        try {
+            payload = JSON.parse(payload);
+        } catch {
+            payload = {};
+        }
+    }
+    const comp = componentWeightsFromPayload(payload);
     return {
         id: row.id,
         batch_id: row.batch_id,
@@ -202,6 +266,18 @@ function mapPiece(row) {
         attr_stone: row.attr_stone,
         fixed_price: row.fixed_price != null ? Number(row.fixed_price) : null,
         gross_weight: row.gross_weight != null ? Number(row.gross_weight) : null,
+        chain_wt_only:
+            row.chain_wt_only != null
+                ? Number(row.chain_wt_only)
+                : comp.chain_wt_only,
+        pendant_wt_only:
+            row.pendant_wt_only != null
+                ? Number(row.pendant_wt_only)
+                : comp.pendant_wt_only,
+        earring_wt_only:
+            row.earring_wt_only != null
+                ? Number(row.earring_wt_only)
+                : comp.earring_wt_only,
         bags: row.bags,
         bag_wt: row.bag_wt != null ? Number(row.bag_wt) : null,
         status: row.status,
@@ -553,6 +629,18 @@ function registerStockPieceRoutes(app, deps) {
             const itemCodes = new Set();
 
             for (const p of pieces) {
+                if (!p.image_url) {
+                    try {
+                        const url = await lookupCatalogImageUrl(query, {
+                            product_name: p.product_name,
+                            sku: p.sku,
+                            item_code: p.item_code,
+                        });
+                        if (url) p.image_url = url;
+                    } catch {
+                        /* catalogue lookup is best-effort */
+                    }
+                }
                 const existing = await query(
                     `SELECT id FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND barcode = $2`,
@@ -594,7 +682,12 @@ function registerStockPieceRoutes(app, deps) {
                             p.gross_weight,
                             p.bags,
                             p.bag_wt,
-                            JSON.stringify(p.payload_json || {}),
+                            JSON.stringify({
+                                ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
+                                chain_wt_only: p.chain_wt_only,
+                                pendant_wt_only: p.pendant_wt_only,
+                                earring_wt_only: p.earring_wt_only,
+                            }),
                             existing[0].id,
                         ],
                     );
@@ -632,7 +725,12 @@ function registerStockPieceRoutes(app, deps) {
                             p.gross_weight,
                             p.bags,
                             p.bag_wt,
-                            JSON.stringify(p.payload_json || {}),
+                            JSON.stringify({
+                                ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
+                                chain_wt_only: p.chain_wt_only,
+                                pendant_wt_only: p.pendant_wt_only,
+                                earring_wt_only: p.earring_wt_only,
+                            }),
                         ],
                     );
                     inserted++;
@@ -678,8 +776,9 @@ function registerStockPieceRoutes(app, deps) {
                         metal_type = $14, item_code = $15, image_url = $16,
                         attr_color = $17, attr_stone = $18, fixed_price = $19,
                         gross_weight = $20, bags = $21, bag_wt = $22,
+                        payload_json = COALESCE(payload_json, '{}'::jsonb) || $23::jsonb,
                         updated_at = NOW()
-                     WHERE id = $23 AND batch_id = $24::uuid AND reseller_user_id = $25
+                     WHERE id = $24 AND batch_id = $25::uuid AND reseller_user_id = $26
                        AND status <> 'sold'`,
                     [
                         r.barcode ? String(r.barcode).trim().slice(0, 128) : null,
@@ -704,6 +803,11 @@ function registerStockPieceRoutes(app, deps) {
                         r.gross_weight != null ? Number(r.gross_weight) : null,
                         r.bags ?? null,
                         r.bag_wt != null ? Number(r.bag_wt) : null,
+                        JSON.stringify({
+                            chain_wt_only: r.chain_wt_only != null ? Number(r.chain_wt_only) : null,
+                            pendant_wt_only: r.pendant_wt_only != null ? Number(r.pendant_wt_only) : null,
+                            earring_wt_only: r.earring_wt_only != null ? Number(r.earring_wt_only) : null,
+                        }),
                         id,
                         batchId,
                         req.user.id,

@@ -63,6 +63,11 @@ sudo journalctl --vacuum-time=2d
 sudo apt-get autoremove -y
 sudo apt-get clean
 
+DELETE FROM reseller_erp_stock_pieces
+WHERE reseller_user_id = 11
+  AND status = 'sold';
+
+
 ## ?? License
 Proprietary - Gaurav Softwares
 ---

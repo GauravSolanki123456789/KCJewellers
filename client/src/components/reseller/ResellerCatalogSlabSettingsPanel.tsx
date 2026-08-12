@@ -2,12 +2,18 @@
 
 import type { ResellerSlabFormState, SlabTierForm } from '@/lib/reseller-catalog-slab-form'
 
-type SlabKey = 'slab_r' | 'slab_w' | 'slab_f'
+type SlabKey = 'slab_r' | 'slab_w' | 'slab_f' | 'gold_slab_r' | 'gold_slab_w' | 'gold_slab_f'
 
-const SLAB_BLOCKS: { key: SlabKey; label: string; showSilverOffset: boolean; showWastage: boolean }[] = [
+const SILVER_BLOCKS: { key: SlabKey; label: string; showSilverOffset: boolean; showWastage: boolean }[] = [
   { key: 'slab_r', label: 'Slab R (Retail)', showSilverOffset: true, showWastage: false },
   { key: 'slab_w', label: 'Slab W (Wholesale MC)', showSilverOffset: false, showWastage: false },
   { key: 'slab_f', label: 'Slab F (Wholesale + wastage)', showSilverOffset: false, showWastage: true },
+]
+
+const GOLD_BLOCKS: { key: SlabKey; label: string; showGoldOffset: boolean; showWastage: boolean }[] = [
+  { key: 'gold_slab_r', label: 'Gold Slab R (Retail)', showGoldOffset: true, showWastage: false },
+  { key: 'gold_slab_w', label: 'Gold Slab W (Wholesale MC)', showGoldOffset: false, showWastage: false },
+  { key: 'gold_slab_f', label: 'Gold Slab F (Wholesale + wastage)', showGoldOffset: false, showWastage: true },
 ]
 
 type Props = {
@@ -15,6 +21,8 @@ type Props = {
   onChange: (next: ResellerSlabFormState) => void
   variant?: 'admin' | 'light'
   disabled?: boolean
+  /** When set, show only silver/gift or gold slab blocks. */
+  metalScope?: 'silver' | 'gold' | 'all'
 }
 
 function fieldClass(variant: 'admin' | 'light') {
@@ -41,6 +49,12 @@ function titleClass(variant: 'admin' | 'light') {
     : 'mb-3 text-xs font-bold uppercase tracking-wide text-[var(--kc-accent,#c41e3a)]'
 }
 
+function sectionTitleClass(variant: 'admin' | 'light') {
+  return variant === 'admin'
+    ? 'mb-3 text-sm font-semibold text-slate-200'
+    : 'mb-2 text-sm font-bold text-[var(--color-jewelry-black,#1a1814)]'
+}
+
 function updateTier(
   form: ResellerSlabFormState,
   key: SlabKey,
@@ -49,98 +63,166 @@ function updateTier(
   return { ...form, [key]: { ...form[key], ...patch } }
 }
 
+function TierGrid({
+  form,
+  onChange,
+  blockKey,
+  label,
+  variant,
+  disabled,
+  rateOffsetKey,
+  showRateOffset,
+  showWastage,
+}: {
+  form: ResellerSlabFormState
+  onChange: (next: ResellerSlabFormState) => void
+  blockKey: SlabKey
+  label: string
+  variant: 'admin' | 'light'
+  disabled?: boolean
+  rateOffsetKey: 'silver_rate_offset_per_g' | 'gold_rate_offset_per_g'
+  showRateOffset: boolean
+  showWastage: boolean
+}) {
+  const rateLabel = rateOffsetKey === 'gold_rate_offset_per_g' ? 'Gold −₹/g' : 'Silver −₹/g'
+  return (
+    <div className={blockClass(variant)}>
+      <p className={titleClass(variant)}>{label}</p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <label className="block">
+          <span className={labelClass(variant)}>MC disc %</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={0.5}
+            disabled={disabled}
+            value={form[blockKey].mc_discount_pct}
+            onChange={(e) => onChange(updateTier(form, blockKey, { mc_discount_pct: e.target.value }))}
+            className={fieldClass(variant)}
+          />
+        </label>
+        {showRateOffset ? (
+          <label className="block">
+            <span className={labelClass(variant)}>{rateLabel}</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              disabled={disabled}
+              value={form[blockKey][rateOffsetKey]}
+              onChange={(e) => onChange(updateTier(form, blockKey, { [rateOffsetKey]: e.target.value }))}
+              className={fieldClass(variant)}
+            />
+          </label>
+        ) : showWastage ? (
+          <label className="block">
+            <span className={labelClass(variant)}>Wastage −pts</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              disabled={disabled}
+              value={form[blockKey].wastage_discount_pct}
+              onChange={(e) =>
+                onChange(updateTier(form, blockKey, { wastage_discount_pct: e.target.value }))
+              }
+              className={fieldClass(variant)}
+            />
+          </label>
+        ) : (
+          <div className="hidden sm:block" aria-hidden />
+        )}
+        <label className="block">
+          <span className={labelClass(variant)}>Gift / MRP disc %</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={0.5}
+            disabled={disabled}
+            value={form[blockKey].gift_discount_pct}
+            onChange={(e) => onChange(updateTier(form, blockKey, { gift_discount_pct: e.target.value }))}
+            className={fieldClass(variant)}
+          />
+        </label>
+        <label className="col-span-2 block sm:col-span-1">
+          <span className={labelClass(variant)}>Margin %</span>
+          <input
+            type="number"
+            min={0}
+            max={1000}
+            step={0.5}
+            disabled={disabled}
+            value={form[blockKey].margin_pct}
+            onChange={(e) => onChange(updateTier(form, blockKey, { margin_pct: e.target.value }))}
+            className={fieldClass(variant)}
+            placeholder="0"
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
 export function ResellerCatalogSlabSettingsPanel({
   form,
   onChange,
   variant = 'light',
   disabled = false,
+  metalScope = 'all',
 }: Props) {
+  const showSilver = metalScope === 'all' || metalScope === 'silver'
+  const showGold = metalScope === 'all' || metalScope === 'gold'
+
   return (
     <div className="space-y-1">
-      {SLAB_BLOCKS.map(({ key, label, showSilverOffset, showWastage }) => (
-        <div key={key} className={blockClass(variant)}>
-          <p className={titleClass(variant)}>{label}</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            <label className="block">
-              <span className={labelClass(variant)}>MC disc %</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.5}
-                disabled={disabled}
-                value={form[key].mc_discount_pct}
-                onChange={(e) => onChange(updateTier(form, key, { mc_discount_pct: e.target.value }))}
-                className={fieldClass(variant)}
-              />
-            </label>
-            {showSilverOffset ? (
-              <label className="block">
-                <span className={labelClass(variant)}>Silver −₹/g</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  disabled={disabled}
-                  value={form[key].silver_rate_offset_per_g}
-                  onChange={(e) =>
-                    onChange(updateTier(form, key, { silver_rate_offset_per_g: e.target.value }))
-                  }
-                  className={fieldClass(variant)}
-                />
-              </label>
-            ) : showWastage ? (
-              <label className="block">
-                <span className={labelClass(variant)}>Wastage −pts</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.5}
-                  disabled={disabled}
-                  value={form[key].wastage_discount_pct}
-                  onChange={(e) =>
-                    onChange(updateTier(form, key, { wastage_discount_pct: e.target.value }))
-                  }
-                  className={fieldClass(variant)}
-                />
-              </label>
-            ) : (
-              <div className="hidden sm:block" aria-hidden />
-            )}
-            <label className="block">
-              <span className={labelClass(variant)}>Gift / MRP disc %</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.5}
-                disabled={disabled}
-                value={form[key].gift_discount_pct}
-                onChange={(e) => onChange(updateTier(form, key, { gift_discount_pct: e.target.value }))}
-                className={fieldClass(variant)}
-              />
-            </label>
-            <label className="block col-span-2 sm:col-span-1">
-              <span className={labelClass(variant)}>Margin %</span>
-              <input
-                type="number"
-                min={0}
-                max={1000}
-                step={0.5}
-                disabled={disabled}
-                value={form[key].margin_pct}
-                onChange={(e) => onChange(updateTier(form, key, { margin_pct: e.target.value }))}
-                className={fieldClass(variant)}
-                placeholder="0"
-              />
-            </label>
-          </div>
+      {showSilver ? (
+        <div>
+          {metalScope === 'all' ? (
+            <p className={sectionTitleClass(variant)}>Silver &amp; gift items</p>
+          ) : null}
+          {SILVER_BLOCKS.map(({ key, label, showSilverOffset, showWastage }) => (
+            <TierGrid
+              key={key}
+              form={form}
+              onChange={onChange}
+              blockKey={key}
+              label={label}
+              variant={variant}
+              disabled={disabled}
+              rateOffsetKey="silver_rate_offset_per_g"
+              showRateOffset={showSilverOffset}
+              showWastage={showWastage}
+            />
+          ))}
         </div>
-      ))}
+      ) : null}
+      {showGold ? (
+        <div className={showSilver && metalScope === 'all' ? 'mt-6 border-t border-[var(--color-slate-700,#e8e4df)] pt-5' : ''}>
+          {metalScope === 'all' ? (
+            <p className={sectionTitleClass(variant)}>Gold products</p>
+          ) : null}
+          {GOLD_BLOCKS.map(({ key, label, showGoldOffset, showWastage }) => (
+            <TierGrid
+              key={key}
+              form={form}
+              onChange={onChange}
+              blockKey={key}
+              label={label}
+              variant={variant}
+              disabled={disabled}
+              rateOffsetKey="gold_rate_offset_per_g"
+              showRateOffset={showGoldOffset}
+              showWastage={showWastage}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
 
 export const RESELLER_CATALOG_SLAB_HELP =
-  'Defaults for Slab R / W / F when you create WhatsApp catalogue links and on your custom-domain storefront (Slab R margin). MC and gift discounts are percentages; Slab R silver offset is ₹ subtracted from today\'s 999 silver ₹/g. Margin % adds to the final price — use when discounts are 0.'
+  'Defaults for Slab R / W / F when you create WhatsApp catalogue links, on your storefront, and in Jewellery ERP billing. Silver & gift items use the first block; gold jewellery uses the gold block. MC and gift discounts are percentages; Slab R offsets subtract ₹/g from today\'s live rate. Margin % adds to the final price — use when discounts are 0.'

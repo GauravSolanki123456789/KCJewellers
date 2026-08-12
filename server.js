@@ -7040,22 +7040,20 @@ function parseResellerSlabSettingsServer(raw) {
         const row = {
             mc_discount_pct: clampSlabPct(t.mc_discount_pct),
             silver_rate_offset_per_g: Math.max(0, Number(t.silver_rate_offset_per_g) || 0),
+            gold_rate_offset_per_g: Math.max(0, Number(t.gold_rate_offset_per_g) || 0),
             wastage_discount_pct: clampSlabPct(t.wastage_discount_pct),
             gift_discount_pct: clampSlabPct(t.gift_discount_pct),
             margin_pct: Math.max(0, Math.min(1000, Number(t.margin_pct) || 0)),
         };
-        const hasAny =
-            row.mc_discount_pct > 0 ||
-            row.silver_rate_offset_per_g > 0 ||
-            row.wastage_discount_pct > 0 ||
-            row.gift_discount_pct > 0 ||
-            row.margin_pct > 0;
-        return hasAny ? row : row;
+        return row;
     };
     return {
         slab_r: tier('slab_r'),
         slab_w: tier('slab_w'),
         slab_f: tier('slab_f'),
+        gold_slab_r: tier('gold_slab_r'),
+        gold_slab_w: tier('gold_slab_w'),
+        gold_slab_f: tier('gold_slab_f'),
     };
 }
 

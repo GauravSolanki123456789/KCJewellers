@@ -154,8 +154,13 @@ export function ErpPrintFormatsWorkspace() {
               onChange={(e) => setPf((p) => ({ ...p, labelPrnTemplate: e.target.value }))}
               spellCheck={false}
             />
-            <p className="mt-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-              Variables: {LABEL_TEMPLATE_VARS.map((v) => `{{${v}}}`).join(', ')}
+            <p className="mt-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/45">
+              Variables: {LABEL_TEMPLATE_VARS.map((v) => `{{${v}}}`).join(', ')}. These map to ERP
+              product columns — e.g. <code className="rounded bg-black/5 px-1">{`{{barcode}}`}</code>{' '}
+              = Barcode, <code className="rounded bg-black/5 px-1">{`{{net_weight}}`}</code> /{' '}
+              <code className="rounded bg-black/5 px-1">{`{{avg_weight}}`}</code> = Wt (g). If Gross
+              is empty, <code className="rounded bg-black/5 px-1">{`{{gross_weight}}`}</code> uses Wt (g)
+              automatically.
             </p>
           </div>
         </>

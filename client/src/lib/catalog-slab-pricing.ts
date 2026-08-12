@@ -27,6 +27,8 @@ export type ResellerSlabTierSettings = {
   mc_discount_pct?: number
   /** SLABR — subtract from live 999 silver ₹/g (e.g. 5 → rate 240 when live is 245). */
   silver_rate_offset_per_g?: number
+  /** SLABR gold — subtract from live gold ₹/g for gold jewellery. */
+  gold_rate_offset_per_g?: number
   /** SLABF — reduce wastage percentage points (e.g. 10% wastage − 2 → 8%). */
   wastage_discount_pct?: number
   /** Gift / fixed-price items — % off final MRP (no MC/wastage). */
@@ -39,11 +41,17 @@ export type ResellerSlabSettings = {
   slab_r?: ResellerSlabTierSettings
   slab_w?: ResellerSlabTierSettings
   slab_f?: ResellerSlabTierSettings
+  /** Separate slab defaults for gold metal type (ERP billing + shared catalog). */
+  gold_slab_r?: ResellerSlabTierSettings
+  gold_slab_w?: ResellerSlabTierSettings
+  gold_slab_f?: ResellerSlabTierSettings
 }
 
 export type SharedCatalogSlabContext = {
   kind: CatalogSlabKind
   settings: ResellerSlabTierSettings
+  /** When set, tier settings are resolved per item metal (gold vs silver/gift). */
+  allSettings?: ResellerSlabSettings | null
   /** User-entered wholesale ₹/g (SLABW / SLABF) — fine metal rate before purity factor. */
   wholesaleGoldRatePerG?: number | null
   wholesaleSilverRatePerG?: number | null
@@ -102,6 +110,7 @@ export function parseResellerSlabSettings(raw: unknown): ResellerSlabSettings {
     return {
       mc_discount_pct: clampPct(row.mc_discount_pct, 0, 100),
       silver_rate_offset_per_g: Math.max(0, Number(row.silver_rate_offset_per_g) || 0),
+      gold_rate_offset_per_g: Math.max(0, Number(row.gold_rate_offset_per_g) || 0),
       wastage_discount_pct: clampPct(row.wastage_discount_pct, 0, 100),
       gift_discount_pct: clampPct(row.gift_discount_pct, 0, 100),
       margin_pct: clampMarginPct(row.margin_pct),
@@ -111,16 +120,25 @@ export function parseResellerSlabSettings(raw: unknown): ResellerSlabSettings {
     slab_r: tier('slab_r'),
     slab_w: tier('slab_w'),
     slab_f: tier('slab_f'),
+    gold_slab_r: tier('gold_slab_r'),
+    gold_slab_w: tier('gold_slab_w'),
+    gold_slab_f: tier('gold_slab_f'),
   }
+}
+
+function isGoldMetalType(metalType: string | null | undefined): boolean {
+  return String(metalType || '').toLowerCase().startsWith('gold')
 }
 
 export function tierSettingsForSlab(
   settings: ResellerSlabSettings,
   kind: CatalogSlabKind,
+  metalType?: string | null,
 ): ResellerSlabTierSettings {
-  if (kind === 'slab_r') return settings.slab_r ?? {}
-  if (kind === 'slab_w') return settings.slab_w ?? {}
-  if (kind === 'slab_f') return settings.slab_f ?? {}
+  const gold = isGoldMetalType(metalType)
+  if (kind === 'slab_r') return (gold ? settings.gold_slab_r : settings.slab_r) ?? {}
+  if (kind === 'slab_w') return (gold ? settings.gold_slab_w : settings.slab_w) ?? {}
+  if (kind === 'slab_f') return (gold ? settings.gold_slab_f : settings.slab_f) ?? {}
   return {}
 }
 
@@ -206,10 +224,14 @@ export function formatSlabDiscountLines(
     }
   }
   if (slab.kind === 'slab_r') {
-    const offset = Math.max(0, Number(s.silver_rate_offset_per_g) || 0)
     const metal = String(item.metal_type || '').toLowerCase()
-    if (offset > 0 && metal.startsWith('silver')) {
-      lines.push(`Silver rate −₹${offset}/g vs today`)
+    const silverOffset = Math.max(0, Number(s.silver_rate_offset_per_g) || 0)
+    const goldOffset = Math.max(0, Number(s.gold_rate_offset_per_g) || 0)
+    if (silverOffset > 0 && metal.startsWith('silver')) {
+      lines.push(`Silver rate −₹${silverOffset}/g vs today`)
+    }
+    if (goldOffset > 0 && metal.startsWith('gold')) {
+      lines.push(`Gold rate −₹${goldOffset}/g vs today`)
     }
   }
   if (slab.kind === 'slab_w' || slab.kind === 'slab_f') {
@@ -267,6 +289,12 @@ function resolveFineMetalRatePerG(
     return Math.max(0, live - offset)
   }
 
+  if (slab.kind === 'slab_r' && metal.startsWith('gold')) {
+    const live = goldRateForItem(rates, item)
+    const offset = Math.max(0, Number(slab.settings.gold_rate_offset_per_g) || 0)
+    return Math.max(0, live - offset)
+  }
+
   if (slab.kind === 'slab_w' || slab.kind === 'slab_f') {
     if (isSilver) {
       const wr = Number(slab.wholesaleSilverRatePerG)
@@ -297,7 +325,10 @@ export function calculateBreakdownWithSlab(
     return calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
   }
 
-  const settings = slab.settings ?? {}
+  const settings = slab.allSettings
+    ? tierSettingsForSlab(slab.allSettings, kind, item.metal_type)
+    : (slab.settings ?? {})
+  const effectiveSlab: SharedCatalogSlabContext = { ...slab, settings }
   const mcDisc = clampPct(settings.mc_discount_pct, 0, 100)
   const giftDisc = clampPct(settings.gift_discount_pct, 0, 100)
   const finish = (b: PriceBreakdown) => applySlabMarginToBreakdown(b, settings.margin_pct)
@@ -330,7 +361,7 @@ export function calculateBreakdownWithSlab(
       ? billableWithSlabWastage(item, wastageDisc)
       : metalBillableWeight(item)
 
-  const fineRate = resolveFineMetalRatePerG(item, rates, slab)
+  const fineRate = resolveFineMetalRatePerG(item, rates, effectiveSlab)
   if (fineRate <= 0 || netWt <= 0 || billWt <= 0) {
     return calculateBreakdown(item, rates, gst, wholesale ?? undefined, pricingOptions)
   }
