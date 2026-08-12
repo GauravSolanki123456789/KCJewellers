@@ -94,7 +94,7 @@ Background: deep charcoal-to-midnight-blue gradient with soft radial glow. Dark 
 Lighting: large soft key + fill + subtle rim — controlled silver/gold highlights, deep readable shadows, NO harsh spotlight cone.
 Glass: if present in source — ultra-clear optical glass, professionally relit; purge all shop glare/reflections from source; if absent — do NOT add.
 Camera: 90–105mm product lens look, adaptive professional angle, FULL product tack-sharp — idol inside dome sharper than source.
-Composition: product 90–96% frame height, centered close-up catalogue hero — readable without zooming. No text, logo, or watermark.`;
+Composition: product 93–98% frame height, centered close-up catalogue hero — readable without zooming. No text, logo, or watermark.`;
 
 const DEFAULT_IDOLS_NEGATIVE = `redesigned product
 different product
@@ -1037,7 +1037,7 @@ Glass cloche must stay optically clear IF present in source; idol inside tack-sh
 Do NOT add drum/mridangam/flute, golden arch, wooden pedestal, or ornaments that are not in the source photo.
 Backdrop: deep charcoal-to-midnight-blue gradient with soft radial glow — NEVER champagne fabric, NEVER draped cloth, NEVER flat muddy grey, NEVER blown-out white hotspots, NEVER e-commerce white catalogue.
 Surface: dark navy-black stone with subtle mineral texture — controlled soft reflection, NEVER wet mirror glass.
-Hero framing: product including dome and base fills 90–96% of frame height — close-up catalogue hero readable without zooming.${idolGlassDomeSourcePurgeBlock()}${idolReferenceCatalogueAestheticBlock()}`;
+Hero framing: product including dome and base fills 93–98% of frame height — close-up catalogue hero readable without zooming.${idolGlassDomeSourcePurgeBlock()}${idolReferenceCatalogueAestheticBlock()}`;
 }
 
 function idolDarkFinalSupremacyBlock() {
@@ -1045,7 +1045,7 @@ function idolDarkFinalSupremacyBlock() {
 
 [FINAL OVERRIDE — DARK LAYOUT MUSEUM HERO (SUPERSEDES ALL CONFLICTING TEXT ABOVE)]
 When Black Layout / dark studio is selected: background MUST be deep charcoal-to-midnight museum gradient with dark stone surface — NEVER white, NEVER cream infinity-cove, NEVER e-commerce white catalogue.
-Product (glass dome + base + idol) fills 90–96% of frame height — intimate close-up like reference luxury idol catalogues; readable on mobile WITHOUT zooming.
+Product (glass dome + base + idol) fills 93–98% of frame height — intimate close-up like reference luxury idol catalogues; readable on mobile WITHOUT zooming.
 COMPLETELY IGNORE and REPLACE shop flash, ceiling reflections, pink/magenta streaks, and vertical glare bars from the uploaded photo — regenerate clean optical glass with soft studio highlights only.
 Idol inside dome must be tack-sharp with crisp silver/gold micro-texture — sharper and clearer than the source phone photo.`;
 }
@@ -1117,7 +1117,7 @@ Soft contact shadow under the product base only when a base exists — no cast s
             main += `\n\nOUTPUT QUALITY (CRITICAL — MUSEUM STUDIO GRADE):
 Ultra-photorealistic luxury jewellery / idol catalogue. Crisp micro-textures on metal and engravings, natural curved glass highlights (never white rectangular glare bars), large soft diffused studio lighting (never harsh overhead spotlight or bright floor ring).
 Deep charcoal-to-midnight-blue cinematic backdrop with dark stone surface — smooth gradient, soft radial glow behind product, zero film grain. Full product tack-sharp. Zero blur, zero compression artifacts, no AI smoothing or plastic look.
-Hero framing: product including dome fills 90–96% of frame height — close-up catalogue hero like reference museum shots, readable without zooming.
+Hero framing: product including dome fills 93–98% of frame height — close-up catalogue hero like reference museum shots, readable without zooming.
 Replace any shop/warehouse background entirely. Purge all source glass glare and shop lighting from output. Preserve exact product colours from source. Bad phone input must NOT reduce output quality.`;
         }
     }
@@ -1186,7 +1186,7 @@ function sourceLockPromptForProfile(profile, backgroundPreset, options = {}) {
         return '\n\nSOURCE PRODUCT (CRITICAL — WHITE CATALOGUE LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic, or poor lighting. Preserve 100% identity — same shape, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and display base (wood, black, metal, or none — exactly as in source). Do NOT add a wooden pedestal if the source has none. Do NOT convert a black/metal base to wood. Transform ONLY the environment into a pure white (#FFFFFF) seamless e-commerce catalogue shot with professional relighting. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product fills 78–88% of frame height — large close hero like premium jewellery listing references. Match metal and halo colors exactly as in the source. Replace ALL shop/warehouse/table backgrounds with clean white infinity-cove. Bright even diffused studio lighting — NOT harsh overhead spotlight. Glass dome: soft curved highlights only — NO white rectangular glare bars. ONLY a soft contact shadow under the base when a base exists — NO cast shadow on white backdrop.';
     }
     if (profile === 'idol') {
-        return '\n\nSOURCE PRODUCT (CRITICAL — STUDIO IDENTITY LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic wrap, harsh flash, or ugly reflections on the glass dome. Preserve 100% identity — same shape, pose, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Do NOT add drum/mridangam/flute, golden arch, extra ornaments, or accessories not visible in the source. Do NOT change dhoti/garment color. Transform ONLY lighting, backdrop, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 90–96% of frame height — large close-up catalogue hero readable without zooming. Match metal and halo colors exactly as in the source. Replace shop/warehouse backgrounds with deep charcoal-to-midnight-blue gradient studio with soft radial glow — NEVER champagne fabric, NEVER draped cloth, NEVER flat muddy grey, NEVER white e-commerce catalogue. IGNORE and REPLACE all shop light streaks, ceiling reflections, and flash hotspots on the glass dome from the source — regenerate clean optical glass with soft studio highlights only. Soft diffused multi-light relighting — NOT harsh overhead spotlight cone or bright floor ring. Glass dome: soft curved highlights only — idol inside must stay tack-sharp — NO white rectangular glare bars, NO copied source reflections. ONLY soft contact shadow under the base — NO cast shadow on backdrop wall.';
+        return '\n\nSOURCE PRODUCT (CRITICAL — STUDIO IDENTITY LOCK):\nThe attached photo is the exact product — even if it is a bad phone shot with shop clutter, plastic wrap, harsh flash, or ugly reflections on the glass dome. Preserve 100% identity — same shape, pose, proportions, engravings, stone settings, metal finish, halo color, gemstone colors, glass dome, and wood base. Do NOT add drum/mridangam/flute, golden arch, extra ornaments, or accessories not visible in the source. Do NOT change dhoti/garment color. Transform ONLY lighting, backdrop, and catalogue presentation. Do NOT redesign, recolor, saturate differently, or alter the product. HERO FRAMING: product including dome fills 93–98% of frame height — large close-up catalogue hero readable without zooming. Match metal and halo colors exactly as in the source. Replace shop/warehouse backgrounds with deep charcoal-to-midnight-blue gradient studio with soft radial glow — NEVER champagne fabric, NEVER draped cloth, NEVER flat muddy grey, NEVER white e-commerce catalogue. IGNORE and REPLACE all shop light streaks, ceiling reflections, and flash hotspots on the glass dome from the source — regenerate clean optical glass with soft studio highlights only. Soft diffused multi-light relighting — NOT harsh overhead spotlight cone or bright floor ring. Glass dome: soft curved highlights only — idol inside must stay tack-sharp — NO white rectangular glare bars, NO copied source reflections. ONLY soft contact shadow under the base — NO cast shadow on backdrop wall.';
     }
     return '\n\nSOURCE PRODUCT (CRITICAL):\nThe attached photo is the exact product. Preserve identity, colors, and proportions. Only improve studio lighting and background quality.';
 }
@@ -1212,13 +1212,13 @@ function buildGeminiUserParts({
         })}\n\n${renderQualityPromptBlock(generationOptions.renderQuality)}`;
     } else {
         fullPrompt = buildFullPrompt(promptText, negativePrompt, {
-        aspectRatio: aspect,
-        canvasText,
-        workflowHighlights,
+            aspectRatio: aspect,
+            canvasText,
+            workflowHighlights,
             profile,
             generationOptions,
             templateKey: generationOptions.templateKey,
-    });
+        });
     }
     const parts = [{ text: fullPrompt }];
     const attachImage = (filePath) => {
@@ -1241,6 +1241,10 @@ function buildGeminiUserParts({
             templateKey: generationOptions.templateKey,
             promptText,
         });
+        const bg = String(generationOptions.backgroundPreset || 'charcoal').toLowerCase();
+        if (profile === 'idol' && bg !== 'white') {
+            parts[0].text += idolDarkFinalSupremacyBlock();
+        }
         attachImage(sourceImagePath);
     }
     return { parts, aspect };

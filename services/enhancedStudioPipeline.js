@@ -57,7 +57,7 @@ ONLY a very soft subtle contact shadow directly under the product base when a ba
 [CUTOUT COMPOSITE — STUDIO PLACEMENT]
 The attached image is an isolated product cutout on transparency — the product pixels are LOCKED; do NOT redraw, merge, or simplify the jewellery structure.
 Place it centered on ${bgNote}.
-Product fills 90–96% of frame height — close-up catalogue hero readable without zooming on mobile.
+Product fills 93–98% of frame height — close-up catalogue hero readable without zooming on mobile.
 Relight with soft diffused multi-source studio lighting — NOT a single harsh overhead spotlight.
 Preserve razor-sharp metal micro-texture, individual chain links, and natural curved glass highlights when present.
 Do NOT convert flexible chain bracelets into solid bangles. Do NOT paste shop shadows, floating edges, or white rectangular glare bars.${studioShadowAndSurfaceBlock()}`;
@@ -325,8 +325,13 @@ async function runFourStepStudioPipeline({
 
     let rembgSourcePath = sourceImagePath;
     let preprocessedTemp = null;
-    if (geminiPath && (wantsQualityPrep || (profile === 'idol' && whiteCatalog))) {
-        const pre = await preprocessSourceForGemini(sourceImagePath, { renderQuality: qualityTier });
+    if (geminiPath && (wantsQualityPrep || profile === 'idol')) {
+        const pre = await preprocessSourceForGemini(sourceImagePath, {
+            renderQuality: qualityTier,
+            profile,
+            backgroundPreset,
+            templateKey,
+        });
         if (pre.preprocessed) {
             rembgSourcePath = pre.path;
             preprocessedTemp = pre.path;
@@ -343,7 +348,12 @@ async function runFourStepStudioPipeline({
 
     let generateSourcePath = cutout.usedRembg ? cutout.path : rembgSourcePath;
     if (geminiPath && !cutout.usedRembg && !preprocessedTemp) {
-        const pre = await preprocessSourceForGemini(sourceImagePath, { renderQuality: qualityTier });
+        const pre = await preprocessSourceForGemini(sourceImagePath, {
+            renderQuality: qualityTier,
+            profile,
+            backgroundPreset,
+            templateKey,
+        });
         if (pre.preprocessed) {
             generateSourcePath = pre.path;
             preprocessedTemp = pre.path;

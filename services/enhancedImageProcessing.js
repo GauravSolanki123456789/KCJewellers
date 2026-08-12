@@ -39,6 +39,12 @@ async function preprocessSourceForGemini(sourceImagePath, options = {}) {
     }
     try {
         const rq = String(options.renderQuality || '2k').toLowerCase();
+        const profile = String(options.profile || 'generic').toLowerCase();
+        const whiteCatalog = isWhiteCatalogMode({
+            backgroundPreset: options.backgroundPreset,
+            templateKey: options.templateKey,
+        });
+        const idolDarkPrep = profile === 'idol' && !whiteCatalog;
         let target = 1536;
         if (rq === '4k') target = 2560;
         else if (rq === '2k') target = 2048;
@@ -50,7 +56,6 @@ async function preprocessSourceForGemini(sourceImagePath, options = {}) {
         const longEdge = Math.max(w, h);
         let pipeline = sharp(sourceImagePath).rotate();
 
-        // Upscale phone photos so Gemini sees fine engravings, glass dome detail, and gemstone color.
         if (longEdge > 0 && longEdge < target) {
             pipeline =
                 w >= h
@@ -59,9 +64,16 @@ async function preprocessSourceForGemini(sourceImagePath, options = {}) {
         }
 
         const sharpenSigma = rq === '4k' ? 0.42 : rq === '2k' ? 0.38 : 0.32;
-        const buf = await pipeline
+        pipeline = pipeline
             .normalize()
-            .sharpen({ sigma: sharpenSigma, m1: 0.45, m2: 0.24 })
+            .sharpen({ sigma: sharpenSigma, m1: 0.45, m2: 0.24 });
+
+        // Tame blown shop-light glare on glass dome before Gemini — reduces copied streaks in output.
+        if (idolDarkPrep) {
+            pipeline = pipeline.modulate({ brightness: 0.94, saturation: 1.04 }).gamma(1.04);
+        }
+
+        const buf = await pipeline
             .jpeg({ quality: rq === '4k' ? 98 : 96, mozjpeg: true, chromaSubsampling: '4:4:4' })
             .toBuffer();
 
@@ -348,6 +360,48 @@ function resolveOutputLongEdge(options = {}) {
 }
 
 /**
+ * Soften harsh vertical/white glare streaks on glass dome (shop lighting copied by AI).
+ */
+async function softenIdolDomeGlare(sharp, buffer, w, h) {
+    try {
+        const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const ch = info.channels || 4;
+        const cx0 = Math.floor(w * 0.26);
+        const cx1 = Math.ceil(w * 0.74);
+        const cy0 = Math.floor(h * 0.06);
+        const cy1 = Math.ceil(h * 0.9);
+
+        for (let y = cy0; y < cy1; y += 1) {
+            const yWeight = y < h * 0.55 ? 1 : 0.55;
+            for (let x = cx0; x < cx1; x += 1) {
+                const i = (y * w + x) * ch;
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                const maxC = Math.max(r, g, b);
+                const minC = Math.min(r, g, b);
+                const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+                const isGlare = (lum > 215 && sat < 0.14) || (lum > 238 && y < h * 0.58);
+                if (!isGlare) continue;
+                const pull = Math.min(0.72, ((lum - 200) / 60) * yWeight);
+                data[i] = Math.round(r - (r - 188) * pull);
+                data[i + 1] = Math.round(g - (g - 188) * pull);
+                data[i + 2] = Math.round(b - (b - 192) * pull);
+            }
+        }
+
+        return sharp(Buffer.from(data), { raw: { width: w, height: h, channels: ch } })
+            .removeAlpha()
+            .png()
+            .toBuffer();
+    } catch (e) {
+        console.warn('idol dome glare soften skipped:', e.message);
+        return buffer;
+    }
+}
+
+/**
  * Find approximate product bounding box (idol + dome) — excludes backdrop via corner sampling.
  */
 async function detectSubjectBoundingBox(sharp, buffer, origW, origH) {
@@ -447,7 +501,7 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
         if (bbox) {
             const fill = Math.max(bbox.width / w, bbox.height / h);
-            if (fill < 0.97) {
+            if (fill < 0.995) {
                 working = await sharp(buffer)
                     .extract({ left: bbox.left, top: bbox.top, width: bbox.width, height: bbox.height })
                     .toBuffer();
@@ -476,10 +530,10 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         let productH = trimmed.info.height || ch;
         if (productW < 32 || productH < 32) return buffer;
 
-        let targetFill = targetSize >= 4096 ? 0.97 : targetSize >= 2048 ? 0.96 : 0.93;
+        let targetFill = targetSize >= 4096 ? 0.985 : targetSize >= 2048 ? 0.98 : 0.95;
         let framed = productBuf;
 
-        for (let pass = 0; pass < 2; pass += 1) {
+        for (let pass = 0; pass < 3; pass += 1) {
             const long = Math.max(productW, productH);
             const canvas = Math.round(long / targetFill);
             const padX = Math.max(0, Math.round((canvas - productW) / 2));
@@ -497,12 +551,12 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
                 .toBuffer();
 
             const fillAfter = await measureSubjectFillRatio(sharp, framed, targetSize, targetSize);
-            if (fillAfter >= 0.93 || pass === 1) break;
+            if (fillAfter >= 0.965 || pass === 2) break;
 
             const bbox2 = await detectSubjectBoundingBox(sharp, framed, targetSize, targetSize);
             if (!bbox2) break;
             const fill2 = Math.max(bbox2.width / targetSize, bbox2.height / targetSize);
-            if (fill2 >= 0.93) break;
+            if (fill2 >= 0.965) break;
 
             productBuf = await sharp(framed)
                 .extract({
@@ -515,11 +569,16 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
             const meta2 = await sharp(productBuf).metadata();
             productW = meta2.width || bbox2.width;
             productH = meta2.height || bbox2.height;
-            targetFill = Math.min(0.985, targetFill + 0.025);
+            targetFill = Math.min(0.992, targetFill + 0.018);
         }
 
         const fw = targetSize;
         const fh = targetSize;
+
+        framed = await softenIdolDomeGlare(sharp, framed, fw, fh);
+        framed = await sharp(framed)
+            .sharpen({ sigma: 0.34, m1: 0.48, m2: 0.22 })
+            .toBuffer();
 
         // Radial spotlight glow behind product (reference catalogue look)
         const glowSvg = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
@@ -792,7 +851,7 @@ Mood: serene, luxurious, divine, prestigious — dark low-key museum display.
 Color palette: deep charcoal, midnight navy, cool silver highlights, warm gold accents only where present in source; dark mahogany/black wood base; dark slate stone surface — NO flat grey, NO pure white backdrop when dark layout selected.
 Lighting: large soft key above-forward + gentle fill + subtle rim + soft radial halo glow behind dome; controlled speculars on metal; deep readable shadows; NO harsh overhead spotlight cone, NO bright floor ring, NO blown highlights.
 Texture: matte-to-satin dark stone surface with subtle mineral grain; polished wood base sheen; razor-sharp engraved metal grain; clean optical glass.
-Composition: eye-level centered hero — dome + base fills 90–96% of frame height; intimate close-up catalogue shot readable on mobile WITHOUT zooming; NOT distant, NOT tiny, NOT excessive empty space.
+Composition: eye-level centered hero — dome + base fills 93–98% of frame height; intimate close-up catalogue shot readable on mobile WITHOUT zooming; NOT distant, NOT tiny, NOT excessive empty space.
 Background: smoky charcoal-to-midnight-blue gradient with soft vignette and radial spotlight behind product — atmospheric depth like Aurra/reference luxury idol catalogues.`;
 }
 
@@ -800,9 +859,9 @@ function idolCloseHeroCatalogBlock() {
     return `
 
 [CLOSE HERO FRAMING — CRITICAL (REFERENCE CATALOGUE MATCH)]
-The product assembly (glass dome + base + idol when present) must fill 90–96% of the frame HEIGHT — large close-up catalogue hero like premium reference shots.
+The product assembly (glass dome + base + idol when present) must fill 93–98% of the frame HEIGHT — large close-up catalogue hero like premium reference shots.
 The customer must see fine carving detail WITHOUT zooming on a phone screen.
-Minimal margins: only 2–5% breathing room at top and bottom. NOT a tiny distant product floating in empty space.
+Minimal margins: only 1–4% breathing room at top and bottom. NOT a tiny distant product floating in empty space.
 Camera is closer than the source phone photo — professional 90–105mm product lens, slight compression for hero presence.
 Entire product tack-sharp from dome top to base bottom — focus-stacking clarity on idol face, hands, and engravings.`;
 }
@@ -1092,7 +1151,7 @@ Match premium jewellery catalogue output (Aurra Studio grade):
 • Smoky blue-charcoal cinematic backdrop — smooth atmospheric gradient, soft edge vignette; replace cluttered shop backgrounds entirely; NO film grain or mottled noise on walls.
 • Glass dome: soft curved natural highlights following dome curvature; physically plausible refraction; NO white rectangular glare bars or fake stripe reflections.
 • Product must feel naturally integrated in the studio — not pasted onto the background.
-• Hero catalogue framing — product fills 90–96% of frame height (idols) or 75–85% width (kadas); clearly readable without zooming; not tiny with excessive empty space.
+• Hero catalogue framing — product fills 93–98% of frame height (idols) or 75–85% width (kadas); clearly readable without zooming; not tiny with excessive empty space.
 • 4K hyper-realistic commercial product render — editorial luxury, museum display feel.
 • Centered composition, elegant negative space, square catalogue crop.${studioShadowAndSurfaceBlock()}`;
 }

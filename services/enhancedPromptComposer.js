@@ -50,7 +50,7 @@ PHOTOGRAPH THE SAME PRODUCT BETTER: replace shop clutter, plastic bags, hands, t
 Apply cinematic museum-grade studio lighting with large soft key light, gentle fill, subtle rim — controlled specular highlights on metal and optical glass.
 Micro-texture fidelity on metal grain, stone facets, and enamel — zero plastic AI smoothing.
 Deep charcoal-to-midnight luxury backdrop with premium dark stone surface unless white catalogue mode is selected.
-Hero framing: product fills 90–96% of frame height, centered, catalogue-ready for e-commerce and WhatsApp — close hero like reference museum shots.`;
+Hero framing: product fills 93–98% of frame height, centered, catalogue-ready for e-commerce and WhatsApp — close hero like reference museum shots.`;
 }
 
 const BG_SCENE_BLOCKS = {
@@ -133,7 +133,7 @@ PRESERVE THE PRODUCT. REPLACE THE PHOTOGRAPHY. The uploaded image determines WHA
 • Base logic: preserve existing base/pedestal exactly; if none in source — simple premium stone surface only, no invented elaborate pedestal.
 • Lighting: large soft key above-forward, soft fill, subtle side/rim, restrained rear separation — silver cool highlights, gold warm highlights, NO blown white metal, NO harsh spotlight cone, NO floor hotspot ring.
 • Camera: 90–105mm product lens look, natural perspective, adaptive angle — full product tack-sharp (focus stacking if needed), background may soften slightly.
-• Composition: product 90–96% frame height, centered, premium close-up catalogue hero — minimal margins, NO tiny distant product, NO text, logo, watermark.
+• Composition: product 93–98% frame height, centered, premium close-up catalogue hero — minimal margins, NO tiny distant product, NO text, logo, watermark.
 • Final target: indistinguishable from a professional museum jewellery catalogue photograph — NOT an AI-filtered version of the phone photo.`;
 }
 
