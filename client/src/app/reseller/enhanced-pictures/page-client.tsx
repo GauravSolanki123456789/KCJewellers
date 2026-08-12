@@ -145,6 +145,7 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [jobsRefreshing, setJobsRefreshing] = useState(false)
   const [actionJobId, setActionJobId] = useState<number | null>(null)
   const pollGenerationRef = useRef(0)
+  const canvasTextTouchedRef = useRef(false)
 
   useEffect(() => {
     if (phase !== 'preparing' && phase !== 'batch') {
@@ -398,23 +399,17 @@ export default function ResellerEnhancedPicturesPageClient() {
       setLookupLabel(code || h.stem || null)
       setShowMrpField(!!h.show_mrp_field)
       if (h.mrp_rate_behind_box != null) setMrpRateBehindBox(String(h.mrp_rate_behind_box))
-      if (includeCanvasText) {
-        setCanvasText(code || h.stem?.toUpperCase() || '')
+      if (includeCanvasText && !canvasTextTouchedRef.current && code) {
+        setCanvasText(code)
       }
     },
     [includeCanvasText],
   )
 
   useEffect(() => {
-    if (!includeCanvasText) return
+    if (!includeCanvasText || canvasTextTouchedRef.current) return
     const label = canvasLabelFromStem(barcodeStem, hints)
-    if (!label) return
-    setCanvasText((prev) => {
-      if (!prev.trim()) return label
-      const prevNorm = prev.trim().toUpperCase()
-      if (prevNorm.endsWith('-POLISHED') || prevNorm.includes('GANESH-SFIDOL')) return label
-      return prev
-    })
+    if (label) setCanvasText(label)
   }, [includeCanvasText, barcodeStem, hints])
 
   useEffect(() => {
@@ -440,8 +435,12 @@ export default function ResellerEnhancedPicturesPageClient() {
           } else if (!p.show_mrp_field) {
             setMrpRateBehindBox('')
           }
-          if (p.stem && !barcodeStem.includes('-')) {
-            /* keep user stem if they typed item code like SFIDOL009-001 */
+          const skuLabel = canvasLabelFromStem(
+            p.web_product_sku || p.item_code || p.stem || q,
+            hints,
+          )
+          if (includeCanvasText && !canvasTextTouchedRef.current && skuLabel) {
+            setCanvasText(skuLabel)
           }
         })
         .catch(() => {
@@ -450,7 +449,7 @@ export default function ResellerEnhancedPicturesPageClient() {
         })
     }, 400)
     return () => window.clearTimeout(t)
-  }, [barcodeStem])
+  }, [barcodeStem, includeCanvasText, hints])
 
   const onPick = (file: File | null) => {
     if (sourcePreview?.startsWith('blob:')) URL.revokeObjectURL(sourcePreview)
@@ -1199,6 +1198,7 @@ export default function ResellerEnhancedPicturesPageClient() {
                 const on = e.target.checked
                 setIncludeCanvasText(on)
                 if (on) {
+                  canvasTextTouchedRef.current = false
                   const label = canvasLabelFromStem(barcodeStem, hints)
                   if (label) setCanvasText(label)
                 }
@@ -1210,15 +1210,18 @@ export default function ResellerEnhancedPicturesPageClient() {
                 Add text bottom of the visual canvas
               </span>
               <span className="mt-0.5 block text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                Optional — e.g. GANESH-SFIDOL001 under the photo
+                Auto-fills from matched SKU (e.g. SFIDOL917-001) — edit if needed
               </span>
             </span>
           </label>
           {includeCanvasText ? (
             <input
               value={canvasText}
-              onChange={(e) => setCanvasText(e.target.value)}
-              placeholder="e.g. GANESH-SFIDOL001"
+              onChange={(e) => {
+                canvasTextTouchedRef.current = true
+                setCanvasText(e.target.value)
+              }}
+              placeholder="e.g. SFIDOL917-001"
               className="mt-3 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] px-3 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
             />
           ) : null}

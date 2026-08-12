@@ -162,13 +162,19 @@ export function sanitizeCanvasLabel(raw: string): string {
 
   const sfidol = t.match(/SFIDOL[\s\-_0-9A-Z]+/i)
   if (sfidol) {
-    return sfidol[0].toUpperCase().replace(/[\s_]+/g, '-').replace(/--+/g, '-')
+    return sfidol[0]
+      .toUpperCase()
+      .replace(/[\s_]+/g, '-')
+      .replace(/--+/g, '-')
+      .replace(/-POLISHED/gi, '')
+      .replace(/-ANTIQUE/gi, '')
+      .replace(/-MATTE/gi, '')
   }
 
   t = t.toUpperCase()
-  t = t.replace(/-POLISHED$/i, '')
-  t = t.replace(/-ANTIQUE$/i, '')
-  t = t.replace(/-MATTE$/i, '')
+  t = t.replace(/-POLISHED/gi, '')
+  t = t.replace(/-ANTIQUE/gi, '')
+  t = t.replace(/-MATTE/gi, '')
   return t
 }
 

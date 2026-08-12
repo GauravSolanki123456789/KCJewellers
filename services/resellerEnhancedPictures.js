@@ -950,13 +950,19 @@ function sanitizeCanvasLabel(raw) {
     if (!t) return '';
     const sfidol = t.match(/SFIDOL[\s\-_0-9A-Z]+/i);
     if (sfidol) {
-        return sfidol[0].toUpperCase().replace(/[\s_]+/g, '-').replace(/--+/g, '-');
+        return sfidol[0]
+            .toUpperCase()
+            .replace(/[\s_]+/g, '-')
+            .replace(/--+/g, '-')
+            .replace(/-POLISHED/gi, '')
+            .replace(/-ANTIQUE/gi, '')
+            .replace(/-MATTE/gi, '');
     }
     t = t.toUpperCase();
     return t
-        .replace(/-POLISHED$/i, '')
-        .replace(/-ANTIQUE$/i, '')
-        .replace(/-MATTE$/i, '');
+        .replace(/-POLISHED/gi, '')
+        .replace(/-ANTIQUE/gi, '')
+        .replace(/-MATTE/gi, '');
 }
 
 function parseGenerationOptions(body = {}) {
@@ -1158,7 +1164,11 @@ Replace any shop/warehouse background entirely. Purge all source glass glare and
         main += idolDarkFinalSupremacyBlock();
     }
     if (text) {
-        main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
+        main += `\n\nBOTTOM CANVAS TEXT (REQUIRED — LITERAL STRING ONLY):
+Render ONLY this exact text at the bottom of the image — character-for-character, no extra words, no suffixes, no prefixes:
+"${text}"
+Do NOT append words like POLISHED, ANTIQUE, MATTE, or product descriptions. Do not add any other text, logo, watermark, or labels.`;
+        neg = `${neg}\ncanvas text suffix POLISHED\nextra words on canvas label\nmodified SKU text`;
         neg = neg
             .split(/\r?\n/)
             .filter((line) => !/^no\s+text$/i.test(String(line).trim()))
