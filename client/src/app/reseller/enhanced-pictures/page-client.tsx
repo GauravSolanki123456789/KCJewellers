@@ -18,13 +18,13 @@ import { PhotoImportControls } from '@/components/reseller/PhotoImportControls'
 import { CanvasAspectPicker } from '@/components/reseller/CanvasAspectPicker'
 import EnhancedTemplateShowcase from '@/components/reseller/EnhancedTemplateShowcase'
 import EnhancedBarcodeSearchPanel from '@/components/reseller/EnhancedBarcodeSearchPanel'
-import { hintDisplayCode } from '@/lib/enhanced-barcode-search'
+import { canvasLabelFromHint, canvasLabelFromStem } from '@/lib/enhanced-barcode-search'
 import EnhancedStudioOptions, {
   renderQualityCreditCost,
   RENDER_QUALITY_OPTIONS,
   type StudioGenerationOptions,
 } from '@/components/reseller/EnhancedStudioOptions'
-import { defaultBackgroundForTemplate } from '@/lib/enhanced-studio-defaults'
+import { defaultBackgroundForTemplate, normalizeBackgroundPreset } from '@/lib/enhanced-studio-defaults'
 import { EnhancedRecentJobsPanel } from '@/components/reseller/EnhancedRecentJobsPanel'
 import {
   attachEnhancedPicture,
@@ -246,9 +246,10 @@ export default function ResellerEnhancedPicturesPageClient() {
         const os = { ...DEFAULT_OVERLAY_SETTINGS, ...data.overlay_settings }
         setOverlaySettings(os)
         const sp = os.studio_prefs
+        const restoredBg = normalizeBackgroundPreset(sp?.backgroundPreset)
         setGenerationOptions((g) => ({
           ...g,
-          backgroundPreset: sp?.backgroundPreset || g.backgroundPreset,
+          backgroundPreset: restoredBg || g.backgroundPreset,
           visualization: sp?.visualization || g.visualization,
           renderQuality: sp?.renderQuality || g.renderQuality,
           applyWatermark: sp?.apply_watermark ?? os.watermark_enabled ?? g.applyWatermark,
@@ -336,14 +337,37 @@ export default function ResellerEnhancedPicturesPageClient() {
   }, [sourcePreview, activeVariety, activeTemplate])
 
   const prevTemplateKeyRef = useRef<string | null>(null)
+  const prevVarietyKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!activeTemplate?.key) return
-    if (prevTemplateKeyRef.current === activeTemplate.key) return
+    const currentVariety = activeVariety?.variety_key || varietyKey || ''
+    const expectedBg = defaultBackgroundForTemplate(
+      activeTemplate.key,
+      activeTemplate.label,
+      activeVariety?.variety_key || varietyKey || undefined,
+      activeVariety?.variety_label,
+    )
+
+    if (prevTemplateKeyRef.current === null) {
+      prevTemplateKeyRef.current = activeTemplate.key
+      prevVarietyKeyRef.current = currentVariety
+      setGenerationOptions((g) => {
+        if (expectedBg === 'blue' && g.backgroundPreset === 'black') {
+          return { ...g, backgroundPreset: 'blue' }
+        }
+        return g
+      })
+      return
+    }
+
+    const tplChanged = prevTemplateKeyRef.current !== activeTemplate.key
+    const varietyChanged = prevVarietyKeyRef.current !== currentVariety
+    if (!tplChanged && !varietyChanged) return
     prevTemplateKeyRef.current = activeTemplate.key
-    const bg = defaultBackgroundForTemplate(activeTemplate.key, activeTemplate.label)
-    setGenerationOptions((g) => ({ ...g, backgroundPreset: bg }))
-  }, [activeTemplate?.key, activeTemplate?.label])
+    prevVarietyKeyRef.current = currentVariety
+    setGenerationOptions((g) => ({ ...g, backgroundPreset: expectedBg }))
+  }, [activeTemplate?.key, activeTemplate?.label, activeVariety?.variety_key, activeVariety?.variety_label, varietyKey])
 
   const previewOverlayLines = useMemo(() => {
     const lines = overlaySettings.info_text_lines || []
@@ -369,17 +393,29 @@ export default function ResellerEnhancedPicturesPageClient() {
 
   const applyBarcodeHint = useCallback(
     (h: EnhancedBarcodeHint) => {
-      const code = hintDisplayCode(h)
+      const code = canvasLabelFromHint(h)
       setBarcodeStem(h.stem || code || '')
       setLookupLabel(code || h.stem || null)
       setShowMrpField(!!h.show_mrp_field)
       if (h.mrp_rate_behind_box != null) setMrpRateBehindBox(String(h.mrp_rate_behind_box))
-      if (includeCanvasText && !canvasText.trim()) {
-        setCanvasText(String(h.barcode || h.web_product_sku || code || h.stem).toUpperCase())
+      if (includeCanvasText) {
+        setCanvasText(code || h.stem?.toUpperCase() || '')
       }
     },
-    [includeCanvasText, canvasText],
+    [includeCanvasText],
   )
+
+  useEffect(() => {
+    if (!includeCanvasText) return
+    const label = canvasLabelFromStem(barcodeStem, hints)
+    if (!label) return
+    setCanvasText((prev) => {
+      if (!prev.trim()) return label
+      const prevNorm = prev.trim().toUpperCase()
+      if (prevNorm.endsWith('-POLISHED') || prevNorm.includes('GANESH-SFIDOL')) return label
+      return prev
+    })
+  }, [includeCanvasText, barcodeStem, hints])
 
   useEffect(() => {
     const q = String(barcodeStem || '').trim()
@@ -1159,7 +1195,14 @@ export default function ResellerEnhancedPicturesPageClient() {
             <input
               type="checkbox"
               checked={includeCanvasText}
-              onChange={(e) => setIncludeCanvasText(e.target.checked)}
+              onChange={(e) => {
+                const on = e.target.checked
+                setIncludeCanvasText(on)
+                if (on) {
+                  const label = canvasLabelFromStem(barcodeStem, hints)
+                  if (label) setCanvasText(label)
+                }
+              }}
               className="mt-1 size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
             />
             <span>

@@ -366,14 +366,18 @@ async function softenIdolDomeGlare(sharp, buffer, w, h) {
     try {
         const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
         const ch = info.channels || 4;
-        const cx0 = Math.floor(w * 0.26);
-        const cx1 = Math.ceil(w * 0.74);
-        const cy0 = Math.floor(h * 0.06);
-        const cy1 = Math.ceil(h * 0.9);
+        const cx0 = Math.floor(w * 0.2);
+        const cx1 = Math.ceil(w * 0.8);
+        const cy0 = Math.floor(h * 0.04);
+        const cy1 = Math.ceil(h * 0.92);
 
         for (let y = cy0; y < cy1; y += 1) {
-            const yWeight = y < h * 0.55 ? 1 : 0.55;
+            const yNorm = y / h;
+            const yWeight = yNorm < 0.62 ? 1 : 0.65;
+            const topBoost = yNorm < 0.35 ? 1.25 : 1;
             for (let x = cx0; x < cx1; x += 1) {
+                const xNorm = Math.abs(x / w - 0.5);
+                const edgeWeight = xNorm > 0.22 && xNorm < 0.42 ? 1.15 : 1;
                 const i = (y * w + x) * ch;
                 const r = data[i];
                 const g = data[i + 1];
@@ -382,12 +386,16 @@ async function softenIdolDomeGlare(sharp, buffer, w, h) {
                 const maxC = Math.max(r, g, b);
                 const minC = Math.min(r, g, b);
                 const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-                const isGlare = (lum > 215 && sat < 0.14) || (lum > 238 && y < h * 0.58);
+                const isGlare =
+                    lum > 140 &&
+                    ((lum > 200 && sat < 0.16) ||
+                        (lum > 228 && y < h * 0.62) ||
+                        (lum > 190 && sat < 0.08 && y < h * 0.45));
                 if (!isGlare) continue;
-                const pull = Math.min(0.72, ((lum - 200) / 60) * yWeight);
-                data[i] = Math.round(r - (r - 188) * pull);
-                data[i + 1] = Math.round(g - (g - 188) * pull);
-                data[i + 2] = Math.round(b - (b - 192) * pull);
+                const pull = Math.min(0.82, ((lum - 185) / 55) * yWeight * topBoost * edgeWeight);
+                data[i] = Math.round(r - (r - 175) * pull);
+                data[i + 1] = Math.round(g - (g - 175) * pull);
+                data[i + 2] = Math.round(b - (b - 180) * pull);
             }
         }
 
@@ -397,6 +405,25 @@ async function softenIdolDomeGlare(sharp, buffer, w, h) {
             .toBuffer();
     } catch (e) {
         console.warn('idol dome glare soften skipped:', e.message);
+        return buffer;
+    }
+}
+
+/**
+ * Lift subject clarity — fixes dull AI relighting on silver idols.
+ */
+async function boostIdolSubjectClarity(sharp, buffer, w, h) {
+    try {
+        const meta = await sharp(buffer).metadata();
+        const mw = meta.width || w;
+        const mh = meta.height || h;
+        return sharp(buffer)
+            .modulate({ brightness: 1.045, saturation: 1.07 })
+            .sharpen({ sigma: 0.32, m1: 0.45, m2: 0.2 })
+            .resize(mw, mh, { fit: 'fill' })
+            .toBuffer();
+    } catch (e) {
+        console.warn('idol clarity boost skipped:', e.message);
         return buffer;
     }
 }
@@ -480,6 +507,8 @@ async function detectSubjectBoundingBox(sharp, buffer, origW, origH) {
     const width = Math.min(origW - left, Math.ceil(bw + padX * 2));
     const height = Math.min(origH - top, Math.ceil(bh + padY * 2));
     if (width < 32 || height < 32) return null;
+    const aspect = width / height;
+    if (aspect > 6 || aspect < 1 / 6) return null;
     return { left, top, width, height };
 }
 
@@ -530,7 +559,7 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         let productH = trimmed.info.height || ch;
         if (productW < 32 || productH < 32) return buffer;
 
-        let targetFill = targetSize >= 4096 ? 0.985 : targetSize >= 2048 ? 0.98 : 0.95;
+        let targetFill = targetSize >= 4096 ? 0.992 : targetSize >= 2048 ? 0.99 : 0.97;
         let framed = productBuf;
 
         for (let pass = 0; pass < 3; pass += 1) {
@@ -551,12 +580,12 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
                 .toBuffer();
 
             const fillAfter = await measureSubjectFillRatio(sharp, framed, targetSize, targetSize);
-            if (fillAfter >= 0.965 || pass === 2) break;
+            if (fillAfter >= 0.975 || pass === 2) break;
 
             const bbox2 = await detectSubjectBoundingBox(sharp, framed, targetSize, targetSize);
             if (!bbox2) break;
             const fill2 = Math.max(bbox2.width / targetSize, bbox2.height / targetSize);
-            if (fill2 >= 0.965) break;
+            if (fill2 >= 0.975) break;
 
             productBuf = await sharp(framed)
                 .extract({
@@ -569,15 +598,16 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
             const meta2 = await sharp(productBuf).metadata();
             productW = meta2.width || bbox2.width;
             productH = meta2.height || bbox2.height;
-            targetFill = Math.min(0.992, targetFill + 0.018);
+            targetFill = Math.min(0.995, targetFill + 0.02);
         }
 
         const fw = targetSize;
         const fh = targetSize;
 
         framed = await softenIdolDomeGlare(sharp, framed, fw, fh);
+        framed = await boostIdolSubjectClarity(sharp, framed, fw, fh);
         framed = await sharp(framed)
-            .sharpen({ sigma: 0.34, m1: 0.48, m2: 0.22 })
+            .sharpen({ sigma: 0.38, m1: 0.52, m2: 0.24 })
             .toBuffer();
 
         // Radial spotlight glow behind product (reference catalogue look)
@@ -613,6 +643,12 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         framed = await sharp(framed)
             .composite([{ input: Buffer.from(glassMask), blend: 'soft-light' }])
             .toBuffer();
+
+        const finalFill = await measureSubjectFillRatio(sharp, framed, fw, fh);
+        if (finalFill < 0.12) {
+            console.warn('idol hero framing rejected — subject too small, keeping original');
+            return buffer;
+        }
         return framed;
     } catch (e) {
         console.warn('idol hero framing skipped:', e.message);
@@ -657,10 +693,11 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
             w = heroMeta.width || w;
             h = heroMeta.height || h;
         } else if (profile === 'idol') {
-            if (!fastMode || qualityTier !== 'standard') {
-                baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
+            const initialFill = w && h ? await measureSubjectFillRatio(sharp, baseBuf, w, h) : 0;
+            // joinChannel mask composite corrupts uniform navy studio outputs — skip for idols
+            if (initialFill < 0.88) {
+                baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h, targetLong);
             }
-            baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h, targetLong);
             const heroMeta = await sharp(baseBuf).metadata();
             w = heroMeta.width || w;
             h = heroMeta.height || h;
@@ -732,7 +769,7 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
             pipeline = pipeline.modulate({ saturation: 1.04, brightness: 1.015 });
         } else {
             pipeline = pipeline
-                .modulate({ saturation: 1.03, brightness: 1.008 })
+                .modulate({ saturation: 1.05, brightness: 1.025 })
                 .recomb([
                     [0.985, 0, 0.015],
                     [0, 0.99, 0.01],
@@ -979,6 +1016,8 @@ async function composeFeatureMacroInset(outputBuffer, sourceImagePath, profile =
 
 function shouldUseRembgForProfile(profile) {
     if (process.env.ENHANCED_SKIP_REMBG === '1') return false;
+    // Idols: skip Replicate rembg by default — saves ~30–90s; Gemini relights in one pass.
+    if (profile === 'idol' && process.env.ENHANCED_IDOL_REMBG !== '1') return false;
     return true;
 }
 
@@ -1092,7 +1131,7 @@ async function compositeProductCutoutOntoStudio(cutoutBuffer, options = {}) {
         if (tw < 24 || th < 24) return null;
 
         const targetFill =
-            options.profile === 'kada' ? 0.84 : options.profile === 'idol' ? 0.95 : 0.78;
+            options.profile === 'kada' ? 0.84 : options.profile === 'idol' ? 0.97 : 0.78;
         const maxDim = Math.round(size * targetFill);
         const scale = maxDim / Math.max(tw, th);
         const nw = Math.round(tw * scale);

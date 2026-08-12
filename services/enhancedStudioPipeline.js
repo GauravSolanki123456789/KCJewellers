@@ -402,6 +402,10 @@ async function runFourStepStudioPipeline({
     ];
 
     if (generated?.buffer?.length && wantsQualityPrep && geminiPath) {
+        const skipPolish =
+            process.env.ENHANCED_SKIP_POLISH === '1' ||
+            (profile === 'idol' && process.env.ENHANCED_IDOL_POLISH !== '1');
+        if (!skipPolish) {
         const draftPath = writeTempBuffer(generated.buffer, '.png');
         tempPaths.push(draftPath);
         try {
@@ -425,6 +429,7 @@ async function runFourStepStudioPipeline({
         } catch (e) {
             console.warn('aurra polish pass skipped, keeping pass-1 output:', e.message);
         }
+        }
     }
 
     if (
@@ -434,7 +439,7 @@ async function runFourStepStudioPipeline({
         isSamePoseVisualization(visualization) &&
         token &&
         wantsQualityPrep &&
-        process.env.ENHANCED_IDOL_COMPOSITE_POST !== '0'
+        process.env.ENHANCED_IDOL_COMPOSITE_POST === '1'
     ) {
         try {
             const sharp = require('sharp');
@@ -442,7 +447,7 @@ async function runFourStepStudioPipeline({
             const gw = meta.width || 0;
             const gh = meta.height || 0;
             const fill = gw && gh ? await measureSubjectFillRatio(sharp, generated.buffer, gw, gh) : 0;
-            const needsComposite = fill < 0.9;
+            const needsComposite = fill < 0.96;
             if (needsComposite) {
                 const genPath = writeTempBuffer(generated.buffer, '.png');
                 tempPaths.push(genPath);
@@ -476,7 +481,7 @@ async function runFourStepStudioPipeline({
     if (generated?.buffer?.length) {
         let upscaleTemp = null;
         let upscaledFile = null;
-        if (token && !fastMode) {
+        if (token && !fastMode && profile !== 'idol') {
             upscaleTemp = writeTempBuffer(generated.buffer, '.png');
             tempPaths.push(upscaleTemp);
             const up = await upscaleImage(upscaleTemp, token);

@@ -42,9 +42,9 @@ function normalizeStudioPrefs(raw, base) {
     const b = base.studio_prefs || {};
     const rq = String(sp.renderQuality || sp.render_quality || b.renderQuality || '2k').toLowerCase();
     return {
-        backgroundPreset: String(sp.backgroundPreset || sp.background_preset || b.backgroundPreset || 'charcoal')
-            .trim()
-            .toLowerCase(),
+        backgroundPreset: normalizeBackgroundPreset(
+            sp.backgroundPreset || sp.background_preset || b.backgroundPreset || 'charcoal',
+        ),
         visualization: String(sp.visualization || b.visualization || 'studio').trim().toLowerCase(),
         renderQuality: rq === '4k' ? '4k' : rq === 'standard' ? 'standard' : '2k',
         apply_watermark: sp.apply_watermark != null ? !!sp.apply_watermark : !!b.apply_watermark,
@@ -461,15 +461,23 @@ Product including glass dome and base (when present) fills approximately 93–98
 Product fills 70–80% of the frame — clear hero shot readable without zoom.`;
 }
 
-function defaultBackgroundForTemplate(templateKey, templateLabel) {
-    const combined = `${templateKey || ''} ${templateLabel || ''}`.toLowerCase();
+function defaultBackgroundForTemplate(templateKey, templateLabel, varietyKey, varietyLabel) {
+    const combined = `${templateKey || ''} ${templateLabel || ''} ${varietyKey || ''} ${varietyLabel || ''}`.toLowerCase();
     if (/\bwhite\b/.test(combined) || combined.includes('white-layout')) return 'white';
     if (/\bblue\b/.test(combined) || /\bnavy\b/.test(combined)) return 'blue';
-    if (/\bblack\b/.test(combined)) return 'black';
+    if (/\bblack\b/.test(combined) || combined.includes('black-layout') || combined.includes('black_layout')) {
+        return 'blue';
+    }
     if (/\bemerald\b/.test(combined)) return 'emerald';
     if (/\bcream\b/.test(combined) || /\bivory\b/.test(combined)) return 'cream';
     if (/\bred\b/.test(combined) || /\bburgundy\b/.test(combined)) return 'red';
     return 'charcoal';
+}
+
+function normalizeBackgroundPreset(raw) {
+    const bg = String(raw || 'charcoal').trim().toLowerCase();
+    if (bg === 'navy') return 'blue';
+    return bg;
 }
 
 module.exports = {
@@ -485,4 +493,5 @@ module.exports = {
     visualizationOverrideBlock,
     studioOptionsSupremacyBlock,
     defaultBackgroundForTemplate,
+    normalizeBackgroundPreset,
 };

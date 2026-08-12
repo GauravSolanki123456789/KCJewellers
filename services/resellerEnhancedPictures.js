@@ -52,6 +52,7 @@ const {
     studioOptionsSupremacyBlock,
     BACKGROUND_PRESETS,
     VISUALIZATION_PRESETS,
+    normalizeBackgroundPreset,
 } = require('./enhancedOverlay');
 const { composeAdaptivePromptBlock, adaptNegativePrompt } = require('./enhancedPromptComposer');
 
@@ -944,10 +945,23 @@ function creditCostForRenderQuality(renderQuality) {
     return resolveRenderQuality(renderQuality) === '4k' ? 2 : 1;
 }
 
+function sanitizeCanvasLabel(raw) {
+    let t = String(raw || '').trim();
+    if (!t) return '';
+    const sfidol = t.match(/SFIDOL[\s\-_0-9A-Z]+/i);
+    if (sfidol) {
+        return sfidol[0].toUpperCase().replace(/[\s_]+/g, '-').replace(/--+/g, '-');
+    }
+    t = t.toUpperCase();
+    return t
+        .replace(/-POLISHED$/i, '')
+        .replace(/-ANTIQUE$/i, '')
+        .replace(/-MATTE$/i, '');
+}
+
 function parseGenerationOptions(body = {}) {
-    const bg = String(body.background_preset || body.background || 'charcoal')
-        .trim()
-        .toLowerCase();
+    const bgRaw = normalizeBackgroundPreset(body.background_preset || body.background || 'charcoal');
+    const bg = bgRaw;
     const viz = String(body.visualization || body.visualization_preset || 'studio')
         .trim()
         .toLowerCase();
@@ -1079,7 +1093,7 @@ function buildFullPrompt(
         profile,
     });
     const aspect = normalizeAspectRatio(aspectRatio);
-    const text = String(canvasText || '').trim().slice(0, 120);
+    const text = sanitizeCanvasLabel(String(canvasText || '').trim()).slice(0, 120);
     let highlights = Array.isArray(workflowHighlights)
         ? workflowHighlights.map((x) => String(x).trim()).filter(Boolean)
         : [];
@@ -2271,7 +2285,10 @@ async function generateStudioImage({
     const pipelineOn =
         usePipeline !== false && aiConfig?.studio_pipeline_enabled !== false;
     let identityBrief = null;
-    if (pipelineOn && sourceImagePath && fs.existsSync(sourceImagePath)) {
+    const skipVlm =
+        process.env.ENHANCED_SKIP_VLM_ANALYSIS === '1' ||
+        (profile === 'idol' && process.env.ENHANCED_IDOL_VLM !== '1');
+    if (pipelineOn && sourceImagePath && fs.existsSync(sourceImagePath) && !skipVlm) {
         identityBrief = await analyzeProductIdentityWithGemini(sourceImagePath, aiConfig);
     }
     return runFourStepStudioPipeline({
@@ -3318,7 +3335,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                     .toLowerCase()
                     .slice(0, 64) || null;
                 const aspectRatio = normalizeAspectRatio(req.body.aspect_ratio);
-                const canvasText = String(req.body.canvas_text || '').trim().slice(0, 120);
+                const canvasText = sanitizeCanvasLabel(String(req.body.canvas_text || '').trim()).slice(0, 120);
                 const saveAsNew = String(req.body.save_as_new || '') === '1' || req.body.save_as_new === true;
 
                 if (promptId) {
@@ -4128,7 +4145,7 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                 : 'front';
             let barcodeStem = normalizeStem(req.body.barcode_stem || req.body.barcode || '');
             const aspectRatio = normalizeAspectRatio(req.body.aspect_ratio);
-            const canvasText = String(req.body.canvas_text || '').trim().slice(0, 120);
+            const canvasText = sanitizeCanvasLabel(String(req.body.canvas_text || '').trim()).slice(0, 120);
             const varietyKey = String(req.body.variety_key || '')
                 .trim()
                 .toLowerCase()

@@ -156,12 +156,51 @@ export function sortBarcodeHints(hints: EnhancedBarcodeHint[], query: string): E
     .map(({ h }) => h)
 }
 
+export function sanitizeCanvasLabel(raw: string): string {
+  let t = String(raw || '').trim()
+  if (!t) return ''
+
+  const sfidol = t.match(/SFIDOL[\s\-_0-9A-Z]+/i)
+  if (sfidol) {
+    return sfidol[0].toUpperCase().replace(/[\s_]+/g, '-').replace(/--+/g, '-')
+  }
+
+  t = t.toUpperCase()
+  t = t.replace(/-POLISHED$/i, '')
+  t = t.replace(/-ANTIQUE$/i, '')
+  t = t.replace(/-MATTE$/i, '')
+  return t
+}
+
+/** Clean SKU/code for bottom canvas text — never filename suffixes like -POLISHED. */
+export function canvasLabelFromHint(h: EnhancedBarcodeHint): string {
+  const sku = String(h.web_product_sku || h.item_code || '').trim()
+  if (/^SFIDOL/i.test(sku)) return sanitizeCanvasLabel(sku)
+  const fromBarcode = sanitizeCanvasLabel(h.barcode || '')
+  if (/^SFIDOL/i.test(fromBarcode)) return fromBarcode
+  const stem = sanitizeCanvasLabel(h.stem || '')
+  if (/^SFIDOL/i.test(stem)) return stem
+  return sanitizeCanvasLabel(hintDisplayCode(h))
+}
+
+export function canvasLabelFromStem(stem: string, hints: EnhancedBarcodeHint[] = []): string {
+  const normalized = normalizeBarcodeStem(stem)
+  if (!normalized) return ''
+  const match = findBestHintMatch(hints, normalized) || findBestHintMatch(hints, stem)
+  if (match) return canvasLabelFromHint(match)
+  return sanitizeCanvasLabel(normalized)
+}
+
 export function hintDisplayCode(h: EnhancedBarcodeHint): string {
+  const sku = String(h.web_product_sku || h.item_code || '').trim()
+  if (/^SFIDOL/i.test(sku)) return sku.toUpperCase()
+  const barcode = sanitizeCanvasLabel(h.barcode || '')
+  if (/^SFIDOL/i.test(barcode)) return barcode
   return (
     h.item_code ||
-    h.barcode ||
     h.web_product_sku ||
-    h.stem ||
+    sanitizeCanvasLabel(h.barcode || '') ||
+    sanitizeCanvasLabel(h.stem || '') ||
     h.product_name ||
     ''
   )
