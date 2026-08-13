@@ -129,7 +129,7 @@ PRESERVE THE PRODUCT. REPLACE THE PHOTOGRAPHY. The uploaded image determines WHA
 • Ignore source defects: blur, noise, compression, clutter, shop background, hands, harsh phone lighting, wrong white balance, lens distortion, shop ceiling reflections on glass dome, flash hotspots — reconstruct professionally.
 • Background: deep charcoal-to-midnight-blue gradient, soft radial glow behind product, NO visible room, NO furniture, NO props unless visualization requires.
 • Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER polished black mirror glass.
-• Glass logic: if source has dome/case — ultra-clear optical glass, purge ALL shop glare/reflections from source, subtle Fresnel edge highlights, idol inside sharper than source; if source has NO dome — do NOT add one.
+• Glass logic: if source has dome/case — ultra-clear optical glass, purge ALL shop glare/reflections from source, soft curved softbox side highlights only (like reference Murugan/Lakshmi shots), NO apex hotspot on dome top, NO ghost duplicate/shadow of idol on interior back of dome glass, idol inside sharper than source; if source has NO dome — do NOT add one.
 • Base logic: preserve existing base/pedestal exactly; if none in source — simple premium stone surface only, no invented elaborate pedestal.
 • Lighting: large soft key above-forward, soft fill, subtle side/rim, restrained rear separation — silver cool highlights, gold warm highlights, NO blown white metal, NO harsh spotlight cone, NO floor hotspot ring.
 • Camera: 90–105mm product lens look, natural perspective, adaptive angle — full product tack-sharp (focus stacking if needed), background may soften slightly.
@@ -166,6 +166,12 @@ const MUSEUM_IDOL_NEGATIVE_SUPPLEMENT = [
     'shop light reflection on glass',
     'copied source glare on dome',
     'flash hotspot on glass',
+    'ghost duplicate on interior dome glass',
+    'idol shadow on back of glass cloche',
+    'bright circular hotspot on dome apex',
+    'overhead point light on dome top',
+    'soft blurry idol inside dome',
+    'waxy or melted metal texture',
     'cropped product',
     'cartoon',
     'illustration',
@@ -234,6 +240,10 @@ function adaptNegativePrompt(negativePrompt, bg, viz, profile) {
     if (profile === 'idol') {
         add('added drum, flute, arch, extra ornaments not in source');
         add('white rectangular glare bar on glass dome');
+        add('ghost duplicate of idol on interior dome glass');
+        add('idol shadow silhouette on back of glass cloche');
+        add('bright circular hotspot at apex of glass dome');
+        add('overhead point-light reflection on dome top');
         add('invented glass dome when source has none');
         add('invented wooden pedestal when source has none');
     }

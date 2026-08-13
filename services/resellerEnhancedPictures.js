@@ -1068,9 +1068,9 @@ function idolDarkFinalSupremacyBlock() {
 [FINAL OVERRIDE — DARK LAYOUT MUSEUM HERO (SUPERSEDES ALL CONFLICTING TEXT ABOVE)]
 When Black Layout / dark studio is selected: background MUST be deep charcoal-to-midnight museum gradient with dark stone surface — NEVER white, NEVER cream infinity-cove, NEVER e-commerce white catalogue.
 Product (glass dome + base + idol) fills 93–98% of frame height — intimate close-up like reference luxury idol catalogues; readable on mobile WITHOUT zooming.
-COMPLETELY IGNORE and REPLACE shop flash, ceiling reflections, pink/magenta streaks, and vertical glare bars from the uploaded photo — regenerate clean optical glass with soft studio highlights only.
+COMPLETELY IGNORE and REPLACE shop flash, ceiling reflections, pink/magenta streaks, vertical glare bars, apex dome hotspots, and idol ghost shadows on interior dome glass from the uploaded photo — regenerate clean optical glass with soft diffused studio side highlights only (like reference Murugan/Lakshmi/Ganesha catalogue shots).
 Do NOT add gold plating, red/blue/purple enamel, colored garments, or tilak unless clearly visible in the uploaded source photo.
-Idol inside dome must be tack-sharp with crisp silver/gold micro-texture — sharper and clearer than the source phone photo.`;
+Idol inside dome must be tack-sharp with crisp silver/gold micro-texture — sharper and clearer than the source phone photo; fine engravings readable on mobile without zooming.`;
 }
 
 function buildFullPrompt(
