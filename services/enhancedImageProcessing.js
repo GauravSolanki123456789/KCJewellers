@@ -73,20 +73,21 @@ async function preprocessSourceForGemini(sourceImagePath, options = {}) {
             pipeline = pipeline.modulate({ brightness: 0.94, saturation: 1.04 }).gamma(1.04);
         }
 
-        let buf = await pipeline
+        const buf = await pipeline
             .jpeg({ quality: rq === '4k' ? 98 : 96, mozjpeg: true, chromaSubsampling: '4:4:4' })
             .toBuffer();
 
-        if (idolDarkPrep && buf?.length) {
-            const meta2 = await sharp(buf).metadata();
-            const pw = meta2.width || 0;
-            const ph = meta2.height || 0;
-            if (pw > 32 && ph > 32) {
-                buf = await softenIdolDomeGlare(sharp, buf, pw, ph);
+        let outBuf = buf;
+        if (idolDarkPrep) {
+            const metaAfter = await sharp(outBuf).metadata();
+            const pw = metaAfter.width || w;
+            const ph = metaAfter.height || h;
+            if (pw > 0 && ph > 0) {
+                outBuf = await softenIdolDomeGlare(sharp, outBuf, pw, ph);
             }
         }
 
-        const outPath = writeTempBuffer(buf, '.jpg');
+        const outPath = writeTempBuffer(outBuf, '.jpg');
         return { path: outPath, preprocessed: true };
     } catch (e) {
         console.warn('enhanced preprocess skipped:', e.message);
@@ -396,15 +397,15 @@ async function softenIdolDomeGlare(sharp, buffer, w, h) {
                 const minC = Math.min(r, g, b);
                 const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
                 const isGlare =
-                    lum > 125 &&
-                    ((lum > 185 && sat < 0.2) ||
-                        (lum > 210 && y < h * 0.7) ||
-                        (lum > 165 && sat < 0.1 && y < h * 0.55));
+                    lum > 128 &&
+                    ((lum > 195 && sat < 0.18) ||
+                        (lum > 215 && y < h * 0.68) ||
+                        (lum > 175 && sat < 0.1 && y < h * 0.52));
                 if (!isGlare) continue;
                 const pull = Math.min(0.9, ((lum - 165) / 50) * yWeight * topBoost * edgeWeight);
-                data[i] = Math.round(r - (r - 175) * pull);
-                data[i + 1] = Math.round(g - (g - 175) * pull);
-                data[i + 2] = Math.round(b - (b - 180) * pull);
+                data[i] = Math.round(r - (r - 168) * pull);
+                data[i + 1] = Math.round(g - (g - 168) * pull);
+                data[i + 2] = Math.round(b - (b - 172) * pull);
             }
         }
 
@@ -423,18 +424,51 @@ async function softenIdolDomeGlare(sharp, buffer, w, h) {
  */
 async function boostIdolSubjectClarity(sharp, buffer, w, h) {
     try {
-        const meta = await sharp(buffer).metadata();
-        const mw = meta.width || w;
-        const mh = meta.height || h;
         return sharp(buffer)
-            .modulate({ brightness: 1.065, saturation: 1.08 })
+            .modulate({ brightness: 1.065, saturation: 1.06 })
             .linear(1.06, -8)
-            .sharpen({ sigma: 0.38, m1: 0.5, m2: 0.22 })
-            .resize(mw, mh, { fit: 'fill' })
+            .sharpen({ sigma: 0.36, m1: 0.48, m2: 0.22 })
             .toBuffer();
     } catch (e) {
         console.warn('idol clarity boost skipped:', e.message);
         return buffer;
+    }
+}
+
+/**
+ * Detect horizontal banding / stripe corruption from bad crop+resize passes.
+ */
+async function isCorruptedStudioOutput(sharp, buffer, w, h) {
+    try {
+        const sw = Math.min(256, w || 256);
+        const sh = Math.min(256, h || 256);
+        const { data, info } = await sharp(buffer)
+            .resize(sw, sh, { fit: 'fill' })
+            .greyscale()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+        const width = info.width || sw;
+        const height = info.height || sh;
+        if (width < 32 || height < 32) return true;
+
+        let horizontalRuns = 0;
+        for (let y = 1; y < height; y += 1) {
+            let similar = 0;
+            for (let x = 0; x < width; x += 2) {
+                const i = y * width + x;
+                const p = (y - 1) * width + x;
+                if (Math.abs(data[i] - data[p]) <= 2) similar += 1;
+            }
+            if (similar > width * 0.45) horizontalRuns += 1;
+        }
+        if (horizontalRuns > height * 0.55) return true;
+
+        const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
+        if (!bbox) return false;
+        const aspect = bbox.width / Math.max(1, bbox.height);
+        return aspect > 3.2 || aspect < 1 / 3.2;
+    } catch {
+        return false;
     }
 }
 
@@ -540,7 +574,7 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
         if (bbox) {
             const fill = Math.max(bbox.width / w, bbox.height / h);
-            if (fill < 0.92) {
+            if (fill < 0.995) {
                 working = await sharp(buffer)
                     .extract({ left: bbox.left, top: bbox.top, width: bbox.width, height: bbox.height })
                     .toBuffer();
@@ -548,17 +582,18 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
                 ch = bbox.height;
             }
         } else {
-            const cropFrac = 0.78;
-            const cropW = Math.round(w * cropFrac);
-            const cropH = Math.round(h * cropFrac);
-            const left = Math.max(0, Math.round((w - cropW) / 2));
-            const top = Math.max(0, Math.round((h - cropH) / 2));
-            if (w > cropW + 8 && h > cropH + 8) {
+            const margin = Math.round(Math.min(w, h) * 0.06);
+            if (w > margin * 4 && h > margin * 4) {
                 working = await sharp(buffer)
-                    .extract({ left, top, width: cropW, height: cropH })
+                    .extract({
+                        left: margin,
+                        top: margin,
+                        width: w - margin * 2,
+                        height: h - margin * 2,
+                    })
                     .toBuffer();
-                cw = cropW;
-                ch = cropH;
+                cw = w - margin * 2;
+                ch = h - margin * 2;
             }
         }
 
@@ -566,9 +601,11 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
         let productBuf = trimmed.data;
         let productW = trimmed.info.width || cw;
         let productH = trimmed.info.height || ch;
-        if (productW < 32 || productH < 32) return buffer;
+        if (productW < 48 || productH < 48) return buffer;
+        const productAspect = productW / Math.max(1, productH);
+        if (productAspect > 3.5 || productAspect < 1 / 3.5) return buffer;
 
-        let targetFill = targetSize >= 4096 ? 0.996 : targetSize >= 2048 ? 0.994 : 0.985;
+        let targetFill = targetSize >= 4096 ? 0.995 : targetSize >= 2048 ? 0.993 : 0.985;
         let framed = productBuf;
 
         for (let pass = 0; pass < 3; pass += 1) {
@@ -589,12 +626,12 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
                 .toBuffer();
 
             const fillAfter = await measureSubjectFillRatio(sharp, framed, targetSize, targetSize);
-            if (fillAfter >= 0.985 || pass === 2) break;
+            if (fillAfter >= 0.975 || pass === 2) break;
 
             const bbox2 = await detectSubjectBoundingBox(sharp, framed, targetSize, targetSize);
             if (!bbox2) break;
             const fill2 = Math.max(bbox2.width / targetSize, bbox2.height / targetSize);
-            if (fill2 >= 0.985) break;
+            if (fill2 >= 0.975) break;
 
             productBuf = await sharp(framed)
                 .extract({
@@ -607,7 +644,7 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
             const meta2 = await sharp(productBuf).metadata();
             productW = meta2.width || bbox2.width;
             productH = meta2.height || bbox2.height;
-            targetFill = Math.min(0.998, targetFill + 0.025);
+            targetFill = Math.min(0.995, targetFill + 0.02);
         }
 
         const fw = targetSize;
@@ -702,16 +739,21 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
             w = heroMeta.width || w;
             h = heroMeta.height || h;
         } else if (profile === 'idol') {
-            const initialFill = w && h ? await measureSubjectFillRatio(sharp, baseBuf, w, h) : 0;
-            if (initialFill < 0.975) {
-                baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h, targetLong);
-            } else {
-                baseBuf = await softenIdolDomeGlare(sharp, baseBuf, w, h);
-                baseBuf = await boostIdolSubjectClarity(sharp, baseBuf, w, h);
-            }
+            const preFraming = baseBuf;
+            const preW = w;
+            const preH = h;
+            baseBuf = await applyIdolHeroFraming(sharp, baseBuf, w, h, targetLong);
             const heroMeta = await sharp(baseBuf).metadata();
             w = heroMeta.width || w;
             h = heroMeta.height || h;
+            if (await isCorruptedStudioOutput(sharp, baseBuf, w, h)) {
+                console.warn('idol postprocess: hero framing corrupt — keeping Gemini output');
+                baseBuf = preFraming;
+                w = preW;
+                h = preH;
+                baseBuf = await softenIdolDomeGlare(sharp, baseBuf, w, h);
+                baseBuf = await boostIdolSubjectClarity(sharp, baseBuf, w, h);
+            }
         } else if (profile !== 'kada' && !fastMode) {
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
         }

@@ -156,26 +156,28 @@ export function sortBarcodeHints(hints: EnhancedBarcodeHint[], query: string): E
     .map(({ h }) => h)
 }
 
+const CANVAS_LABEL_SUFFIX_RE = /-(POLISHED|ANTIQUE|MATTE|SECONDARY|BOX|FRONT|BACK)$/i
+
+function normalizeSfidolCode(raw: string): string {
+  return String(raw || '')
+    .toUpperCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/--+/g, '-')
+    .replace(CANVAS_LABEL_SUFFIX_RE, '')
+}
+
 export function sanitizeCanvasLabel(raw: string): string {
-  let t = String(raw || '').trim()
+  const t = String(raw || '').trim()
   if (!t) return ''
 
   const sfidol = t.match(/SFIDOL[\s\-_0-9A-Z]+/i)
-  if (sfidol) {
-    return sfidol[0]
-      .toUpperCase()
-      .replace(/[\s_]+/g, '-')
-      .replace(/--+/g, '-')
-      .replace(/-POLISHED/gi, '')
-      .replace(/-ANTIQUE/gi, '')
-      .replace(/-MATTE/gi, '')
-  }
+  if (sfidol) return normalizeSfidolCode(sfidol[0])
 
-  t = t.toUpperCase()
-  t = t.replace(/-POLISHED/gi, '')
-  t = t.replace(/-ANTIQUE/gi, '')
-  t = t.replace(/-MATTE/gi, '')
-  return t
+  let upper = t.toUpperCase()
+  upper = upper.replace(CANVAS_LABEL_SUFFIX_RE, '')
+  const embedded = upper.match(/SFIDOL[\d\-A-Z]+/)
+  if (embedded) return normalizeSfidolCode(embedded[0])
+  return upper
 }
 
 /** Clean SKU/code for bottom canvas text — never filename suffixes like -POLISHED. */

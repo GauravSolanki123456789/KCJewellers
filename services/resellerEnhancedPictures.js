@@ -945,24 +945,26 @@ function creditCostForRenderQuality(renderQuality) {
     return resolveRenderQuality(renderQuality) === '4k' ? 2 : 1;
 }
 
+const CANVAS_LABEL_SUFFIX_RE = /-(POLISHED|ANTIQUE|MATTE|SECONDARY|BOX|FRONT|BACK)$/i;
+
+function normalizeSfidolCode(raw) {
+    return String(raw || '')
+        .toUpperCase()
+        .replace(/[\s_]+/g, '-')
+        .replace(/--+/g, '-')
+        .replace(CANVAS_LABEL_SUFFIX_RE, '');
+}
+
 function sanitizeCanvasLabel(raw) {
-    let t = String(raw || '').trim();
+    const t = String(raw || '').trim();
     if (!t) return '';
     const sfidol = t.match(/SFIDOL[\s\-_0-9A-Z]+/i);
-    if (sfidol) {
-        return sfidol[0]
-            .toUpperCase()
-            .replace(/[\s_]+/g, '-')
-            .replace(/--+/g, '-')
-            .replace(/-POLISHED/gi, '')
-            .replace(/-ANTIQUE/gi, '')
-            .replace(/-MATTE/gi, '');
-    }
-    t = t.toUpperCase();
-    return t
-        .replace(/-POLISHED/gi, '')
-        .replace(/-ANTIQUE/gi, '')
-        .replace(/-MATTE/gi, '');
+    if (sfidol) return normalizeSfidolCode(sfidol[0]);
+    let upper = t.toUpperCase();
+    upper = upper.replace(CANVAS_LABEL_SUFFIX_RE, '');
+    const embedded = upper.match(/SFIDOL[\d\-A-Z]+/);
+    if (embedded) return normalizeSfidolCode(embedded[0]);
+    return upper;
 }
 
 function parseGenerationOptions(body = {}) {
@@ -1067,6 +1069,7 @@ function idolDarkFinalSupremacyBlock() {
 When Black Layout / dark studio is selected: background MUST be deep charcoal-to-midnight museum gradient with dark stone surface — NEVER white, NEVER cream infinity-cove, NEVER e-commerce white catalogue.
 Product (glass dome + base + idol) fills 93–98% of frame height — intimate close-up like reference luxury idol catalogues; readable on mobile WITHOUT zooming.
 COMPLETELY IGNORE and REPLACE shop flash, ceiling reflections, pink/magenta streaks, and vertical glare bars from the uploaded photo — regenerate clean optical glass with soft studio highlights only.
+Do NOT add gold plating, red/blue/purple enamel, colored garments, or tilak unless clearly visible in the uploaded source photo.
 Idol inside dome must be tack-sharp with crisp silver/gold micro-texture — sharper and clearer than the source phone photo.`;
 }
 
@@ -1164,11 +1167,7 @@ Replace any shop/warehouse background entirely. Purge all source glass glare and
         main += idolDarkFinalSupremacyBlock();
     }
     if (text) {
-        main += `\n\nBOTTOM CANVAS TEXT (REQUIRED — LITERAL STRING ONLY):
-Render ONLY this exact text at the bottom of the image — character-for-character, no extra words, no suffixes, no prefixes:
-"${text}"
-Do NOT append words like POLISHED, ANTIQUE, MATTE, or product descriptions. Do not add any other text, logo, watermark, or labels.`;
-        neg = `${neg}\ncanvas text suffix POLISHED\nextra words on canvas label\nmodified SKU text`;
+        main += `\n\nBOTTOM CANVAS TEXT (REQUIRED):\nAt the bottom of the visual canvas, render this exact text centered on a clean dark band or elegant margin:\n"${text}"\nUse clear white or soft-gold sans-serif lettering, readable catalogue style. Do not add any other text, logo, watermark, or labels.`;
         neg = neg
             .split(/\r?\n/)
             .filter((line) => !/^no\s+text$/i.test(String(line).trim()))
