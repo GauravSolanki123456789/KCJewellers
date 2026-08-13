@@ -1,4 +1,6 @@
-import type { ErpSerialSettings } from '@/lib/erp-hardware'
+import type { ErpHardwareSettings, ErpPrinterProfile, ErpSerialSettings } from '@/lib/erp-hardware'
+import { DEFAULT_SERIAL, getPrinterProfileById } from '@/lib/erp-hardware'
+import { normalizePrnTemplate } from '@/lib/erp-print-templates'
 
 export type SerialPortLike = {
   open: (opts: {
@@ -43,11 +45,17 @@ export async function closeSerialPort(port: SerialPortLike | null) {
   }
 }
 
+/** TSC TTP-244 expects CRLF-separated TSPL commands. */
+export function formatTsplForSerial(tspl: string): string {
+  const body = normalizePrnTemplate(tspl)
+  return `${body.split('\n').join('\r\n')}\r\n`
+}
+
 export async function sendTsplOverSerial(port: SerialPortLike, tspl: string) {
   if (!port.writable) throw new Error('Serial port is not open for writing')
   const writer = port.writable.getWriter()
   try {
-    await writer.write(new TextEncoder().encode(tspl))
+    await writer.write(new TextEncoder().encode(formatTsplForSerial(tspl)))
   } finally {
     writer.releaseLock()
   }
@@ -60,6 +68,55 @@ export async function sendTsplBatchOverSerial(port: SerialPortLike, tsplList: st
       await new Promise((r) => setTimeout(r, gapMs))
     }
   }
+}
+
+export type PrintLabelResult = {
+  barcode: string
+  clientPrint?: boolean
+  tspl?: string
+  error?: string
+}
+
+/** Open Web Serial and print TSC labels from API results (Generate barcodes / tag split). */
+export async function printClientTsplLabels(
+  results: PrintLabelResult[],
+  hw: ErpHardwareSettings | null,
+  printerProfileId: string | null | undefined,
+  apiProfile?: { connection?: string; serial?: ErpSerialSettings } | null,
+): Promise<number> {
+  const clientTspl = results.filter((r) => r.clientPrint && r.tspl).map((r) => r.tspl as string)
+  if (!clientTspl.length) return 0
+
+  if (!webSerialSupported()) {
+    throw new Error('Serial printer needs Chrome or Edge on this PC. Use Hardware → Test print to pick the USB port.')
+  }
+
+  const profile = hw ? getPrinterProfileById(hw, printerProfileId) : null
+  const isSerial =
+    apiProfile?.connection === 'serial' || profile?.connection === 'serial' || results.some((r) => r.clientPrint)
+
+  if (!isSerial) {
+    throw new Error('Printer is not configured for serial/COM output. Check Hardware → Label printer → Serial.')
+  }
+
+  const serial = apiProfile?.serial || profile?.serial || DEFAULT_SERIAL
+  const port = await requestUserSerialPort()
+  try {
+    await openSerialPort(port, serial)
+    await sendTsplBatchOverSerial(port, clientTspl)
+  } finally {
+    await closeSerialPort(port)
+  }
+  return clientTspl.length
+}
+
+export function resolvePrinterSerialSettings(
+  hw: ErpHardwareSettings | null,
+  printerProfileId: string | null | undefined,
+  apiProfile?: { serial?: ErpSerialSettings } | null,
+): ErpSerialSettings {
+  const profile = hw ? getPrinterProfileById(hw, printerProfileId) : null
+  return apiProfile?.serial || profile?.serial || DEFAULT_SERIAL
 }
 
 /** Parse Essae / generic scale stream — picks last stable decimal weight (e.g. 2.366). */

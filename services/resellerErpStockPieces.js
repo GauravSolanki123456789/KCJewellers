@@ -1048,7 +1048,9 @@ function registerStockPieceRoutes(app, deps) {
             const profile = resolvePrinterProfile(hw, req.body.printer_profile_id || null);
             const printerConfig = profileToPrinterConfig(profile);
             const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
-            const prnTemplate = printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN;
+            const prnTemplate = erpPrint.normalizePrnTemplate(
+                printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN,
+            );
 
             const results = [];
             for (const p of pieces) {
@@ -1097,11 +1099,20 @@ function registerStockPieceRoutes(app, deps) {
                     });
                 }
             }
+            const clientPrintRequired = results.some((r) => r.clientPrint);
             res.json({
                 success: true,
                 results,
                 printerConfigured: !!printerConfig?.address,
-                printerProfile: profile ? { id: profile.id, name: profile.name, connection: profile.connection } : null,
+                clientPrintRequired,
+                printerProfile: profile
+                    ? {
+                          id: profile.id,
+                          name: profile.name,
+                          connection: profile.connection,
+                          serial: profile.serial || null,
+                      }
+                    : null,
             });
         } catch (e) {
             console.error('erp print barcodes:', e);
@@ -1129,7 +1140,9 @@ function registerStockPieceRoutes(app, deps) {
             const printerConfig = profileToPrinterConfig(profile);
             const itemData = buildTestLabelItemData(hw, profile);
             const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
-            const prnTemplate = printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN;
+            const prnTemplate = erpPrint.normalizePrnTemplate(
+                printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN,
+            );
             const tspl = usePrn
                 ? erpPrint.renderTemplate(prnTemplate, erpPrint.buildLabelTemplateVarsFromItemData(itemData))
                 : labelPrinter.generateTSPLLabel(itemData);
@@ -1143,9 +1156,16 @@ function registerStockPieceRoutes(app, deps) {
             }
 
             res.json({
-                tspl,
+                tspl: erpPrint.formatTsplLineEndings(tspl),
                 clientPrint: printerConfig?.type === 'serial',
-                printerProfile: profile ? { id: profile.id, name: profile.name } : null,
+                printerProfile: profile
+                    ? {
+                          id: profile.id,
+                          name: profile.name,
+                          connection: profile.connection,
+                          serial: profile.serial || null,
+                      }
+                    : null,
             });
         } catch (e) {
             console.error('erp print test-label:', e);

@@ -10,6 +10,10 @@
    'canvas_text',
    'description',
    'body',
+   'labelPrnTemplate',
+   'billTemplate',
+   'label_prn_template',
+   'bill_template',
  ]);
 
  function maxLenForKey(key) {

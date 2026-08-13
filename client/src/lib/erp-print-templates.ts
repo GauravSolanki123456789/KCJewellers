@@ -99,16 +99,72 @@ export type ErpPrintFormatsSettings = {
 
 export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefined): ErpPrintFormatsSettings {
   const pf: ErpPrintFormatsSettings = { ...(raw || {}) }
-  if (!pf.labelPrnTemplate?.trim()) pf.labelPrnTemplate = DEFAULT_LABEL_PRN
+  pf.labelPrnTemplate = normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN)
   if (!pf.billTemplate?.trim()) pf.billTemplate = DEFAULT_BILL_TEMPLATE
   if (pf.labelUsePrn == null) pf.labelUsePrn = true
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
 }
 
+/** Restore TSPL line breaks when server sanitize collapsed multi-line PRN. */
+export function normalizePrnTemplate(raw: string | null | undefined): string {
+  let s = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+  if (!s) return DEFAULT_LABEL_PRN
+
+  const lineCount = s.split('\n').filter((l) => l.trim()).length
+  if (lineCount >= 8 && !/mmGAP|ONCLS|OFFSET CUTTER|PEEL OFFSET/i.test(s)) {
+    return s
+  }
+
+  s = s.replace(/SET PEEL OFFSET/gi, 'SET PEEL OFF\nSET')
+  s = s.replace(/SET CUTTER OFFSET/gi, 'SET CUTTER OFF\nSET')
+  s = s.replace(/SET PARTIAL_CUTTER OFFSET/gi, 'SET PARTIAL_CUTTER OFF\nSET')
+  s = s.replace(/TEAR ON\s*CLS/gi, 'SET TEAR ON\nCLS')
+  s = s.replace(/(\d)\s*mm\s*([A-Z])/gi, '$1 mm\n$2')
+  s = s.replace(/0,0\s*([A-Z])/g, '0,0\n$1')
+  s = s.replace(/ON\s*CLS/gi, 'ON\nCLS')
+  s = s.replace(/CLS\s*CODEPAGE/gi, 'CLS\nCODEPAGE')
+  s = s.replace(/1252\s*TEXT/gi, '1252\nTEXT')
+  s = s.replace(/"\s*TEXT/gi, '"\nTEXT')
+  s = s.replace(/"\s*QRCODE/gi, '"\nQRCODE')
+
+  const cmds = [
+    'SIZE',
+    'GAP',
+    'DIRECTION',
+    'REFERENCE',
+    'OFFSET',
+    'SET PEEL OFF',
+    'SET CUTTER OFF',
+    'SET PARTIAL_CUTTER OFF',
+    'SET TEAR ON',
+    'CLS',
+    'CODEPAGE',
+    'TEXT',
+    'QRCODE',
+    'BARCODE',
+    'PRINT',
+  ]
+  for (const cmd of cmds) {
+    const esc = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+')
+    s = s.replace(new RegExp(`(?<!\\n)(${esc})`, 'gi'), '\n$1')
+  }
+
+  return s
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+export function isPrnTemplateLikelyCorrupted(raw: string | null | undefined): boolean {
+  const s = String(raw || '')
+  return /mmGAP|ONCLS|PEEL OFFSET|CUTTER OFFSET|1252TEXT/i.test(s) || (s.length > 80 && !s.includes('\n'))
+}
+
 /** Best-effort map from another software's sample PRN to our {{placeholders}}. */
 export function suggestPrnPlaceholders(raw: string): string {
-  let out = String(raw || '')
+  let out = normalizePrnTemplate(raw)
   out = out.replace(
     /TEXT 738,101,"ROMAN\.TTF",180,1,8,"[^"]*"/,
     'TEXT 738,101,"ROMAN.TTF",180,1,8,"{{product_name}}"',
@@ -132,5 +188,5 @@ export function suggestPrnPlaceholders(raw: string): string {
   out = out.replace(/QRCODE ([^\n]*),"[^"]+"/, 'QRCODE $1,"{{barcode}}"')
   out = out.replace(/"PLT-\d+"/gi, '"{{barcode}}"')
   out = out.replace(/"BMS\d*"/gi, '"{{company_code}}"')
-  return out
+  return normalizePrnTemplate(out)
 }

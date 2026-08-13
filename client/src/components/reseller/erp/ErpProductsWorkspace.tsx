@@ -11,13 +11,12 @@ import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, type ErpStockPiece } fr
 import {
   getPrinterProfileById,
   migrateHardwareSettings,
+  normalizeComPort,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
 import {
-  closeSerialPort,
-  openSerialPort,
-  requestUserSerialPort,
-  sendTsplBatchOverSerial,
+  printClientTsplLabels,
+  resolvePrinterSerialSettings,
   webSerialSupported,
 } from '@/lib/erp-serial-device'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
@@ -30,6 +29,19 @@ type PrintResult = {
   clientPrint?: boolean
   tspl?: string
   error?: string
+}
+
+type PrintApiProfile = {
+  id?: string
+  name: string
+  connection: string
+  serial?: {
+    port: string
+    baudRate: number
+    dataBits: 7 | 8
+    parity: 'none' | 'even' | 'odd'
+    stopBits: 1 | 2
+  }
 }
 
 type Batch = {
@@ -103,49 +115,66 @@ export function ErpProductsWorkspace() {
     setPrinting(true)
     setMsg(null)
     try {
-      const printerProfile = hw ? getPrinterProfileById(hw, workstation.printerProfileId) : null
+      let hardware = hw
+      if (!hardware) {
+        const settingsRes = await axios.get<{ settings: { hardware?: ErpHardwareSettings } }>(
+          '/api/reseller/erp/settings',
+        )
+        hardware = migrateHardwareSettings(settingsRes.data.settings?.hardware)
+        setHw(hardware)
+      }
+
+      const printerProfile = getPrinterProfileById(hardware, workstation.printerProfileId)
       const res = await axios.post<{
         results: PrintResult[]
         printerConfigured: boolean
-        printerProfile?: { name: string; connection: string } | null
+        clientPrintRequired?: boolean
+        printerProfile?: PrintApiProfile | null
       }>('/api/reseller/erp/print/barcodes', {
         batch_id: activeBatchId,
         printer_profile_id: workstation.printerProfileId || printerProfile?.id,
       })
 
       const results = res.data.results || []
-      const clientTspl = results.filter((r) => r.clientPrint && r.tspl).map((r) => r.tspl as string)
+      const clientTspl = results.filter((r) => r.clientPrint && r.tspl)
 
-      if (clientTspl.length && printerProfile?.connection === 'serial') {
+      if (clientTspl.length > 0 || res.data.clientPrintRequired) {
         if (!webSerialSupported()) {
-          alert('Serial printer needs Chrome or Edge on this PC. Open Hardware → Test print to pick COM port.')
+          alert('Serial printer needs Chrome or Edge on this PC. Open Hardware → Test print to pick the USB/COM port.')
           return
         }
-        const port = await requestUserSerialPort()
-        const serial = printerProfile.serial || {
-          port: 'COM3',
-          baudRate: 9600,
-          dataBits: 8 as const,
-          parity: 'none' as const,
-          stopBits: 1 as const,
+        if (
+          !confirm(
+            'Chrome will ask you to pick the TSC label printer USB port.\n\nIf the weighing scale is connected to the same USB adapter, disconnect the scale first, then pick the printer device.',
+          )
+        ) {
+          return
         }
-        await openSerialPort(port, serial)
-        await sendTsplBatchOverSerial(port, clientTspl)
-        await closeSerialPort(port)
-        setMsg(`Printed ${clientTspl.length} label(s) on ${serial.port} @ ${serial.baudRate}.`)
+        const count = await printClientTsplLabels(
+          results,
+          hardware,
+          workstation.printerProfileId,
+          res.data.printerProfile,
+        )
+        const serial = resolvePrinterSerialSettings(hardware, workstation.printerProfileId, res.data.printerProfile)
+        setMsg(
+          `Printed ${count} label(s) on ${normalizeComPort(serial.port)} @ ${serial.baudRate} · ${res.data.printerProfile?.name || printerProfile?.name || 'TSC printer'}.`,
+        )
         return
       }
 
       const ok = results.filter((r) => r.printed).length
       if (!res.data.printerConfigured && !clientTspl.length) {
         alert(
-          `TSPL generated for ${results.length} label(s). Add a printer in Hardware (COM3 · 9600 or network IP).`,
+          `TSPL generated for ${results.length} label(s). Add a printer in Hardware (Serial/COM3 · 9600 or network IP), save, then try again.`,
         )
       } else if (ok) {
-        setMsg(`Printed ${ok} of ${results.length} label(s)${res.data.printerProfile ? ` · ${res.data.printerProfile.name}` : ''}.`)
+        setMsg(
+          `Printed ${ok} of ${results.length} label(s)${res.data.printerProfile ? ` · ${res.data.printerProfile.name}` : ''}.`,
+        )
       } else {
         const err = results.find((r) => r.error)?.error
-        setMsg(err ? `Print issue: ${err}` : `Processed ${results.length} label(s).`)
+        setMsg(err ? `Print issue: ${err}` : `Processed ${results.length} label(s) — no labels sent to printer.`)
       }
     } catch (e) {
       alert(erpErr(e))

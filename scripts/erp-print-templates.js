@@ -62,8 +62,65 @@ function tsplSafe(value) {
         .trim();
 }
 
+/** Restore TSPL line breaks when sanitize middleware collapsed multi-line PRN (OFF+SET → OFFSET bug). */
+function normalizePrnTemplate(raw) {
+    let s = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    if (!s) return DEFAULT_LABEL_PRN;
+
+    const lineCount = s.split('\n').filter((l) => l.trim()).length;
+    if (lineCount >= 8 && !/mmGAP|ONCLS|OFFSET CUTTER|PEEL OFFSET/i.test(s)) {
+        return s;
+    }
+
+    s = s.replace(/SET PEEL OFFSET/gi, 'SET PEEL OFF\nSET');
+    s = s.replace(/SET CUTTER OFFSET/gi, 'SET CUTTER OFF\nSET');
+    s = s.replace(/SET PARTIAL_CUTTER OFFSET/gi, 'SET PARTIAL_CUTTER OFF\nSET');
+    s = s.replace(/TEAR ON\s*CLS/gi, 'SET TEAR ON\nCLS');
+    s = s.replace(/(\d)\s*mm\s*([A-Z])/gi, '$1 mm\n$2');
+    s = s.replace(/0,0\s*([A-Z])/g, '0,0\n$1');
+    s = s.replace(/ON\s*CLS/gi, 'ON\nCLS');
+    s = s.replace(/CLS\s*CODEPAGE/gi, 'CLS\nCODEPAGE');
+    s = s.replace(/1252\s*TEXT/gi, '1252\nTEXT');
+    s = s.replace(/"\s*TEXT/gi, '"\nTEXT');
+    s = s.replace(/"\s*QRCODE/gi, '"\nQRCODE');
+    s = s.replace(/"\s*""\s*TEXT/gi, '""\nTEXT');
+
+    const cmds = [
+        'SIZE',
+        'GAP',
+        'DIRECTION',
+        'REFERENCE',
+        'OFFSET',
+        'SET PEEL OFF',
+        'SET CUTTER OFF',
+        'SET PARTIAL_CUTTER OFF',
+        'SET TEAR ON',
+        'CLS',
+        'CODEPAGE',
+        'TEXT',
+        'QRCODE',
+        'BARCODE',
+        'PRINT',
+    ];
+    for (const cmd of cmds) {
+        const esc = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
+        s = s.replace(new RegExp(`(?<!\\n)(${esc})`, 'gi'), '\n$1');
+    }
+
+    return s
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .join('\n');
+}
+
+function formatTsplLineEndings(tspl) {
+    const body = normalizePrnTemplate(tspl);
+    return `${body.split('\n').join('\r\n')}\r\n`;
+}
+
 function renderTemplate(template, vars) {
-    let out = String(template || '');
+    let out = normalizePrnTemplate(String(template || ''));
     const entries = Object.entries(vars || {});
     for (const [key, val] of entries) {
         const replacement = key === 'lines_table' ? String(val ?? '') : tsplSafe(val);
@@ -210,6 +267,8 @@ function shouldUsePrnTemplate(profile, printFormats) {
 module.exports = {
     DEFAULT_LABEL_PRN,
     DEFAULT_BILL_TEMPLATE,
+    normalizePrnTemplate,
+    formatTsplLineEndings,
     renderTemplate,
     renderPrnLabel,
     buildLabelTemplateVars,

@@ -8,8 +8,10 @@ import {
   BILL_TEMPLATE_VARS,
   DEFAULT_BILL_TEMPLATE,
   DEFAULT_LABEL_PRN,
+  isPrnTemplateLikelyCorrupted,
   LABEL_TEMPLATE_VARS,
   migratePrintFormats,
+  normalizePrnTemplate,
   suggestPrnPlaceholders,
   type ErpPrintFormatsSettings,
 } from '@/lib/erp-print-templates'
@@ -34,7 +36,13 @@ export function ErpPrintFormatsWorkspace() {
     setBusy(true)
     setSaved(false)
     try {
-      await axios.put('/api/reseller/erp/settings', { settings: { printFormats: pf } })
+      const payload = migratePrintFormats({
+        ...pf,
+        labelPrnTemplate: normalizePrnTemplate(pf.labelPrnTemplate),
+        billTemplate: pf.billTemplate,
+      })
+      await axios.put('/api/reseller/erp/settings', { settings: { printFormats: payload } })
+      setPf(payload)
       setSaved(true)
     } catch {
       alert('Could not save print formats')
@@ -148,6 +156,24 @@ export function ErpPrintFormatsWorkspace() {
               />
               Use this PRN template for barcode labels (TTP-244)
             </label>
+            {isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+                Line breaks in this PRN look corrupted (commands glued together). TSC needs one command per line.
+                <button
+                  type="button"
+                  className="ml-2 font-semibold text-[var(--kc-accent,#c41e3a)] underline"
+                  onClick={() =>
+                    setPf((p) => ({
+                      ...p,
+                      labelPrnTemplate: normalizePrnTemplate(p.labelPrnTemplate || DEFAULT_LABEL_PRN),
+                    }))
+                  }
+                >
+                  Fix line breaks
+                </button>
+                then Save print formats.
+              </div>
+            ) : null}
             <textarea
               className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed`}
               value={pf.labelPrnTemplate || ''}
