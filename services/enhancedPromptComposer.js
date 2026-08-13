@@ -131,7 +131,7 @@ PRESERVE THE PRODUCT. REPLACE THE PHOTOGRAPHY. The uploaded image determines WHA
 • Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER polished black mirror glass.
 • Glass logic: if source has dome/case — ultra-clear optical glass, purge ALL shop glare/reflections from source, soft curved softbox side highlights only (like reference Murugan/Lakshmi shots), NO apex hotspot on dome top, NO ghost duplicate/shadow of idol on interior back of dome glass, idol inside sharper than source; if source has NO dome — do NOT add one.
 • Base logic: preserve existing base/pedestal exactly; if none in source — simple premium stone surface only, no invented elaborate pedestal.
-• Lighting: large soft key above-forward, soft fill, subtle side/rim, restrained rear separation — silver cool highlights, gold warm highlights, NO blown white metal, NO harsh spotlight cone, NO floor hotspot ring.
+• Lighting: large soft key 40–50° above-forward (camera-left), soft camera-right fill, faint rear rim — polished luminous silver with smooth specular gradients on crown/shoulders; gold warm only where in source; NO flat top-down overhead, NO blown white metal, NO muddy gray underexposed idol, NO harsh spotlight cone, NO floor hotspot ring.
 • Camera: 90–105mm product lens look, natural perspective, adaptive angle — full product tack-sharp (focus stacking if needed), background may soften slightly.
 • Composition: product 93–98% frame height, centered, premium close-up catalogue hero — minimal margins, NO tiny distant product, NO text, logo, watermark.
 • Final target: indistinguishable from a professional museum jewellery catalogue photograph — NOT an AI-filtered version of the phone photo.`;
@@ -172,6 +172,11 @@ const MUSEUM_IDOL_NEGATIVE_SUPPLEMENT = [
     'overhead point light on dome top',
     'soft blurry idol inside dome',
     'waxy or melted metal texture',
+    'muddy gray silver',
+    'underexposed idol',
+    'grainy noisy metal',
+    'flat top-down lighting',
+    'dull flat metal',
     'cropped product',
     'cartoon',
     'illustration',

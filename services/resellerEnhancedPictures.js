@@ -1070,7 +1070,8 @@ When Black Layout / dark studio is selected: background MUST be deep charcoal-to
 Product (glass dome + base + idol) fills 93–98% of frame height — intimate close-up like reference luxury idol catalogues; readable on mobile WITHOUT zooming.
 COMPLETELY IGNORE and REPLACE shop flash, ceiling reflections, pink/magenta streaks, vertical glare bars, apex dome hotspots, and idol ghost shadows on interior dome glass from the uploaded photo — regenerate clean optical glass with soft diffused studio side highlights only (like reference Murugan/Lakshmi/Ganesha catalogue shots).
 Do NOT add gold plating, red/blue/purple enamel, colored garments, or tilak unless clearly visible in the uploaded source photo.
-Idol inside dome must be tack-sharp with crisp silver/gold micro-texture — sharper and clearer than the source phone photo; fine engravings readable on mobile without zooming.`;
+Idol inside dome must be tack-sharp with crisp polished silver/gold micro-texture — luminous, smooth, well-exposed like reference Murugan/Lakshmi/Ganesha catalogue shots; sharper and clearer than the source phone photo; fine engravings readable on mobile without zooming.
+Idol lighting: soft key from above-forward (NOT flat overhead), bright smooth silver highlights on face and crown, deep readable engraving shadows — NOT muddy gray, NOT underexposed, NOT waxy CGI.`;
 }
 
 function buildFullPrompt(

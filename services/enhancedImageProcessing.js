@@ -368,6 +368,10 @@ function resolveOutputLongEdge(options = {}) {
  * Soften harsh vertical/white glare streaks on glass dome (shop lighting copied by AI).
  * Always reads dimensions from the buffer — never trust caller width/height (stride mismatch corrupts output).
  */
+/**
+ * Remove dome apex hotspots, vertical glare, and idol ghost silhouettes on interior glass.
+ * Ghost removal uses center-vs-side luminance comparison (duplicate silhouette is darker than side glass).
+ */
 async function softenIdolDomeGlare(sharp, buffer) {
     try {
         const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -377,20 +381,41 @@ async function softenIdolDomeGlare(sharp, buffer) {
         if (w < 8 || h < 8 || !data?.length) return buffer;
 
         const scale = Math.min(w, h);
-        const cx0 = Math.floor(w * 0.18);
-        const cx1 = Math.ceil(w * 0.82);
+        const cx0 = Math.floor(w * 0.16);
+        const cx1 = Math.ceil(w * 0.84);
         const cy0 = Math.floor(h * 0.03);
         const cy1 = Math.ceil(h * 0.92);
-        const glassTone = { r: 26, g: 32, b: 42 };
-        const ghostTone = { r: 18, g: 24, b: 34 };
+        const glassTone = { r: 28, g: 34, b: 44 };
+        const ghostTone = { r: 32, g: 38, b: 50 };
+        const atmosTone = { r: 36, g: 42, b: 54 };
+
+        const rowSideLum = new Float32Array(h);
+        for (let y = cy0; y < cy1; y += 1) {
+            let sum = 0;
+            let count = 0;
+            const bands = [
+                [cx0, cx0 + Math.max(2, Math.floor(w * 0.06))],
+                [cx1 - Math.max(2, Math.floor(w * 0.06)), cx1],
+            ];
+            for (const [xStart, xEnd] of bands) {
+                for (let x = xStart; x < xEnd; x += 1) {
+                    const i = (y * w + x) * ch;
+                    if (i + 2 >= data.length) continue;
+                    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                    count += 1;
+                }
+            }
+            rowSideLum[y] = count > 0 ? sum / count : 0;
+        }
 
         for (let y = cy0; y < cy1; y += 1) {
             const yNorm = y / h;
             const yWeight = yNorm < 0.62 ? 1 : 0.65;
-            const topBoost = yNorm < 0.35 ? 1.2 : 1;
+            const topBoost = yNorm < 0.35 ? 1.25 : 1;
+            const sideRef = rowSideLum[y] || 0;
             for (let x = cx0; x < cx1; x += 1) {
                 const xNorm = Math.abs(x / w - 0.5);
-                const edgeWeight = xNorm > 0.22 && xNorm < 0.42 ? 1.1 : 1;
+                const edgeWeight = xNorm > 0.2 && xNorm < 0.44 ? 1.12 : 1;
                 const i = (y * w + x) * ch;
                 if (i + 2 >= data.length) continue;
                 let r = data[i];
@@ -401,38 +426,52 @@ async function softenIdolDomeGlare(sharp, buffer) {
                 const minC = Math.min(r, g, b);
                 const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
 
-                // Top apex hotspot — small bright circle at dome peak (reference shots use soft diffused highlights, not point light)
                 const apexDx = ((x - w * 0.5) / scale) * 1.05;
                 const apexDy = ((y - h * 0.065) / scale) * 1.35;
                 const apexDist = Math.sqrt(apexDx * apexDx + apexDy * apexDy);
-                if (yNorm < 0.24 && apexDist < 0.17 && lum > 88 && sat < 0.24) {
-                    const pull = Math.min(0.96, ((lum - 80) / 130) * (1 - apexDist / 0.17) * 1.15);
+                if (yNorm < 0.26 && apexDist < 0.19 && lum > 82 && sat < 0.26) {
+                    const pull = Math.min(0.98, ((lum - 75) / 125) * (1 - apexDist / 0.19) * 1.2);
                     r = Math.round(r - (r - glassTone.r) * pull);
                     g = Math.round(g - (g - glassTone.g) * pull);
                     b = Math.round(b - (b - glassTone.b) * pull);
                 }
 
-                // Ghost duplicate / shadow of idol on interior back of glass dome
-                const inGhostZone = yNorm > 0.1 && yNorm < 0.6 && xNorm < 0.3;
-                if (inGhostZone && lum > 42 && lum < 152 && sat < 0.26 && maxC - minC < 62) {
-                    const centerWeight = 1 - xNorm / 0.3;
-                    const verticalWeight = yNorm < 0.38 ? 1.05 : 0.82;
-                    const ghostPull = Math.min(
-                        0.82,
-                        centerWeight * verticalWeight * (0.35 + (152 - lum) / 140),
-                    );
-                    r = Math.round(r - (r - ghostTone.r) * ghostPull);
-                    g = Math.round(g - (g - ghostTone.g) * ghostPull);
-                    b = Math.round(b - (b - ghostTone.b) * ghostPull);
+                const inGhostZone = yNorm > 0.08 && yNorm < 0.72 && xNorm < 0.38;
+                if (inGhostZone) {
+                    const centerWeight = 1 - xNorm / 0.38;
+                    const verticalWeight = yNorm < 0.42 ? 1.1 : 0.88;
+                    let ghostPull = 0;
+
+                    if (sideRef > 0 && lum < sideRef - 8 && lum > 22 && sat < 0.34) {
+                        ghostPull = Math.min(
+                            0.96,
+                            centerWeight * verticalWeight * ((sideRef - lum) / 70 + 0.25),
+                        );
+                    } else if (lum > 35 && lum < 168 && sat < 0.3 && maxC - minC < 68) {
+                        ghostPull = Math.min(
+                            0.94,
+                            centerWeight * verticalWeight * (0.4 + (168 - lum) / 130),
+                        );
+                    }
+
+                    if (ghostPull > 0.05) {
+                        const target =
+                            lum < 70
+                                ? atmosTone
+                                : ghostTone;
+                        r = Math.round(r - (r - target.r) * ghostPull);
+                        g = Math.round(g - (g - target.g) * ghostPull);
+                        b = Math.round(b - (b - target.b) * ghostPull);
+                    }
                 }
 
                 const isGlare =
-                    lum > 132 &&
-                    ((lum > 198 && sat < 0.18) ||
-                        (lum > 218 && y < h * 0.68) ||
-                        (lum > 178 && sat < 0.1 && y < h * 0.52));
+                    lum > 128 &&
+                    ((lum > 195 && sat < 0.2) ||
+                        (lum > 215 && y < h * 0.7) ||
+                        (lum > 172 && sat < 0.12 && y < h * 0.54));
                 if (isGlare) {
-                    const pull = Math.min(0.85, ((lum - 168) / 48) * yWeight * topBoost * edgeWeight);
+                    const pull = Math.min(0.88, ((lum - 165) / 50) * yWeight * topBoost * edgeWeight);
                     r = Math.round(r - (r - 168) * pull);
                     g = Math.round(g - (g - 168) * pull);
                     b = Math.round(b - (b - 172) * pull);
@@ -456,7 +495,6 @@ async function softenIdolDomeGlare(sharp, buffer) {
 
 /**
  * Center-weighted idol clarity — sharpens dome + idol core without harsh background halos.
- * Uses raw pixel radial blend (safe — no joinChannel mask that corrupts uniform studio outputs).
  */
 async function boostIdolSubjectClarity(sharp, buffer, w, h) {
     try {
@@ -466,9 +504,9 @@ async function boostIdolSubjectClarity(sharp, buffer, w, h) {
         if (iw < 8 || ih < 8) return buffer;
 
         const enhancedBuf = await sharp(buffer)
-            .modulate({ brightness: 1.075, saturation: 1.1 })
-            .linear(1.1, -12)
-            .sharpen({ sigma: 0.58, m1: 0.62, m2: 0.3 })
+            .modulate({ brightness: 1.09, saturation: 1.12 })
+            .linear(1.14, -14)
+            .sharpen({ sigma: 0.68, m1: 0.68, m2: 0.34 })
             .toBuffer();
 
         const orig = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -483,13 +521,14 @@ async function boostIdolSubjectClarity(sharp, buffer, w, h) {
             const yn = y / height;
             for (let x = 0; x < width; x += 1) {
                 const xn = x / width;
-                const dx = (xn - 0.5) * 1.12;
-                const dy = (yn - 0.44) * 1.06;
+                const dx = (xn - 0.5) * 1.08;
+                const dy = (yn - 0.5) * 1.02;
                 const dist = Math.sqrt(dx * dx + dy * dy);
-                let blend = 0.1;
-                if (dist < 0.26) blend = 0.9;
-                else if (dist < 0.4) blend = 0.68;
-                else if (dist < 0.56) blend = 0.32;
+                let blend = 0.08;
+                if (dist < 0.24) blend = 0.94;
+                else if (dist < 0.38) blend = 0.76;
+                else if (dist < 0.54) blend = 0.36;
+                if (yn > 0.34 && yn < 0.82 && dist < 0.4) blend = Math.min(0.98, blend + 0.12);
 
                 const i = (y * width + x) * ch;
                 if (i + 2 >= data.length) continue;
@@ -507,6 +546,81 @@ async function boostIdolSubjectClarity(sharp, buffer, w, h) {
         console.warn('idol clarity boost skipped:', e.message);
         return buffer;
     }
+}
+
+/**
+ * Reference-match silver polish — luminous smooth metal, brighter idol, crisp engraving contrast.
+ */
+async function polishIdolSilverMetal(sharp, buffer, w, h) {
+    try {
+        const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const width = info.width || w || 0;
+        const height = info.height || h || 0;
+        const ch = info.channels || 4;
+        if (width < 8 || height < 8 || !data?.length) return buffer;
+
+        for (let y = 0; y < height; y += 1) {
+            const yn = y / height;
+            for (let x = 0; x < width; x += 1) {
+                const xn = x / width;
+                const dx = (xn - 0.5) * 1.08;
+                const dy = (yn - 0.52) * 1.04;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > 0.44) continue;
+
+                let zoneBlend = dist < 0.2 ? 1 : (0.44 - dist) / 0.24;
+                if (yn < 0.32 || yn > 0.86) zoneBlend *= 0.55;
+
+                const i = (y * width + x) * ch;
+                if (i + 2 >= data.length) continue;
+                let r = data[i];
+                let g = data[i + 1];
+                let b = data[i + 2];
+                const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                const maxC = Math.max(r, g, b);
+                const minC = Math.min(r, g, b);
+                const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+
+                const isMetal = sat < 0.45 && lum > 58 && lum < 248;
+                const isHighlight = lum > 175 && sat < 0.28;
+                if (!isMetal && !isHighlight) continue;
+
+                const bright = isHighlight ? 1.05 : 1.11;
+                const lift = (isHighlight ? 6 : 16) * zoneBlend;
+                r = Math.min(255, Math.round(r * (1 + (bright - 1) * zoneBlend) + lift));
+                g = Math.min(255, Math.round(g * (1 + (bright - 1) * zoneBlend) + lift * 0.98));
+                b = Math.min(255, Math.round(b * (1 + (bright - 1) * zoneBlend * 0.85) + lift * 0.88));
+
+                if (isMetal && lum > 85 && lum < 210) {
+                    const contrast = 1 + 0.1 * zoneBlend;
+                    r = Math.min(255, Math.max(0, Math.round((r - 128) * contrast + 128)));
+                    g = Math.min(255, Math.max(0, Math.round((g - 128) * contrast + 128)));
+                    b = Math.min(255, Math.max(0, Math.round((b - 128) * contrast + 128)));
+                }
+
+                data[i] = r;
+                data[i + 1] = g;
+                data[i + 2] = b;
+            }
+        }
+
+        return sharp(Buffer.from(data), { raw: { width, height, channels: ch } })
+            .removeAlpha()
+            .png()
+            .toBuffer();
+    } catch (e) {
+        console.warn('idol silver polish skipped:', e.message);
+        return buffer;
+    }
+}
+
+/** Run idol quality post-pass chain — glare purge, clarity, silver polish. */
+async function applyIdolQualityPasses(sharp, buffer, w, h) {
+    let out = await softenIdolDomeGlare(sharp, buffer);
+    out = await boostIdolSubjectClarity(sharp, out, w, h);
+    out = await polishIdolSilverMetal(sharp, out, w, h);
+    out = await softenIdolDomeGlare(sharp, out);
+    return out;
 }
 
 /**
@@ -718,8 +832,7 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
             })
             .toBuffer();
 
-        framed = await softenIdolDomeGlare(sharp, framed);
-        framed = await boostIdolSubjectClarity(sharp, framed);
+        framed = await applyIdolQualityPasses(sharp, framed, targetSize, targetSize);
         framed = await sharp(framed)
             .sharpen({ sigma: 0.34, m1: 0.48, m2: 0.22 })
             .toBuffer();
@@ -811,8 +924,7 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
                 baseBuf = preFraming;
                 w = preW;
                 h = preH;
-                baseBuf = await softenIdolDomeGlare(sharp, baseBuf);
-                baseBuf = await boostIdolSubjectClarity(sharp, baseBuf);
+                baseBuf = await applyIdolQualityPasses(sharp, baseBuf, preW, preH);
             }
         } else if (profile !== 'kada' && !fastMode) {
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
@@ -893,8 +1005,7 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
         let out = await pipeline.composite(composites).png({ compressionLevel: 6, quality: 100, effort: 7 }).toBuffer();
 
         if (profile === 'idol' && !whiteCatalog) {
-            out = await softenIdolDomeGlare(sharp, out);
-            out = await boostIdolSubjectClarity(sharp, out, w, h);
+            out = await applyIdolQualityPasses(sharp, out, w, h);
         }
 
         if (profile === 'idol' && (await isCorruptedStudioOutput(sharp, out, w, h))) {
@@ -1004,14 +1115,29 @@ The idol INSIDE the dome must be tack-sharp with crisp silver/gold micro-texture
 Never milky, cloudy, frosted, or plastic-looking glass. Never duplicate the shop environment visible through the dome.`;
 }
 
+function idolReferenceLightingBlock() {
+    return `
+
+[REFERENCE LIGHTING — MATCH MURUGAN / LAKSHMI / GANESHA CATALOGUE SHOTS]
+Light direction (CRITICAL — study reference luxury idol catalogues):
+• Primary soft key: large diffused softbox 40–50° above camera, slightly camera-left — illuminates idol face, crown, chest with bright smooth silver specular gradients. NOT flat top-down overhead. NOT a single ceiling spotlight.
+• Fill light: soft camera-right fill at ~30–40% intensity — opens shadow side of idol without flattening sculptural form.
+• Rim/separation: faint rear-left edge light — separates idol silhouette from dark atmospheric depth inside dome.
+• Backdrop glow: soft radial halo behind the dome on the wall only — NOT a light shining through the idol from behind.
+Idol metal rendering (CRITICAL):
+• Polished sterling silver: smooth luminous continuous highlights on curved surfaces, mirror-finish specular on crown and shoulders, deep but readable engraving shadows — like reference Murugan/Lakshmi shots.
+• Idol brightness: well-exposed and luminous — NOT muddy gray, NOT underexposed, NOT dull flat metal.
+• Silver smoothness: clean tonal gradients on rounded limbs and trunk — NOT grainy, NOT noisy, NOT waxy CGI, NOT melted plastic.
+• Preserve source enamel/gem colors exactly — do NOT invent purple, green, or gold accents not visible in the uploaded photo.`;
+}
+
 function idolReferenceCatalogueAestheticBlock() {
     return `
 
 [REFERENCE CATALOGUE AESTHETIC — MATCH PREMIUM MUSEUM JEWELLERY SHOTS]
 Artistic medium: ultra-photorealistic commercial product photography — NOT illustration, NOT CGI wax, NOT AI-filtered phone photo.
 Mood: serene, luxurious, divine, prestigious — dark low-key museum display.
-Color palette: deep charcoal, midnight navy, cool silver highlights, warm gold accents only where present in source; dark mahogany/black wood base; dark slate stone surface — NO flat grey, NO pure white backdrop when dark layout selected.
-Lighting: large soft key above-forward + gentle fill + subtle rim + soft radial halo glow behind dome; controlled speculars on metal; deep readable shadows; NO harsh overhead spotlight cone, NO bright floor ring, NO blown highlights, NO apex hotspot on dome top, NO idol ghost on interior dome glass.
+Color palette: deep charcoal, midnight navy, cool silver highlights, warm gold accents only where present in source; dark mahogany/black wood base; dark slate stone surface — NO flat grey, NO pure white backdrop when dark layout selected.${idolReferenceLightingBlock()}
 Texture: matte-to-satin dark stone surface with subtle mineral grain; polished wood base sheen; razor-sharp engraved metal grain with visible micro-engraving; clean optical glass with soft side highlights only.
 Composition: eye-level centered hero — dome + base fills 93–98% of frame height; intimate close-up catalogue shot readable on mobile WITHOUT zooming; NOT distant, NOT tiny, NOT excessive empty space.
 Background: smoky charcoal-to-midnight-blue gradient with soft vignette and radial spotlight behind product — atmospheric depth like Aurra/reference luxury idol catalogues.`;
@@ -1386,6 +1512,10 @@ const SYSTEM_STUDIO_NEGATIVE_LINES = [
     'No bright circular hotspot at apex of glass dome',
     'No overhead point-light reflection on dome top',
     'No gray mirror-image of idol behind idol inside dome',
+    'No muddy gray underexposed silver metal',
+    'No grainy or noisy silver texture',
+    'No waxy CGI or plastic silver appearance',
+    'No flat top-down overhead lighting on idol',
     'No shadow silhouette of glass dome on background wall',
     'No tiny distant product with excessive empty headroom',
     'No harsh single overhead spotlight',
@@ -1428,6 +1558,7 @@ module.exports = {
     idolWhiteCatalogPromptBlock,
     idolPremiumStudioBlock,
     idolReferenceCatalogueAestheticBlock,
+    idolReferenceLightingBlock,
     idolGlassDomeSourcePurgeBlock,
     idolCloseHeroCatalogBlock,
     mergeSystemNegativePrompt,
