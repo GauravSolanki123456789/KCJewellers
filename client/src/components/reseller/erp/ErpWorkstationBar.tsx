@@ -38,7 +38,7 @@ export function ErpWorkstationBar({ value, onChange }: Props) {
         <Link href="/reseller/erp/hardware" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
           Set up Hardware
         </Link>{' '}
-        first (COM3 · 9600 or network IP).
+        first (USB · TSC or COM3 · 9600).
       </div>
     )
   }

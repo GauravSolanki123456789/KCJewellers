@@ -11,9 +11,11 @@ export type ErpSerialSettings = {
 export type ErpPrinterProfile = {
   id: string
   name: string
-  connection: 'network' | 'serial'
+  connection: 'network' | 'serial' | 'usb'
   network?: { host: string; port: number }
   serial?: ErpSerialSettings
+  /** Windows USB spooler printer name (USB001) — e.g. TSC TTP-244 Pro */
+  windowsPrinter?: { name: string; portHint?: string }
   companyCode?: string
   /** TSPL (default) or PRN template when you upload formats later */
   labelFormat?: 'tspl' | 'prn'
@@ -50,6 +52,11 @@ export const DEFAULT_SERIAL: ErpSerialSettings = {
   dataBits: 8,
   parity: 'none',
   stopBits: 1,
+}
+
+export const DEFAULT_WINDOWS_USB_PRINTER = {
+  name: 'TSC TTP-244 Pro',
+  portHint: 'USB001',
 }
 
 export const ERP_WORKSTATION_STORAGE_KEY = 'kc-erp-workstation-v1'
@@ -101,8 +108,8 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
       profiles.push({
         id: newProfileId(),
         name: 'TSC barcode (TTP-244)',
-        connection: 'serial',
-        serial: { ...DEFAULT_SERIAL, port: 'COM1' },
+        connection: 'usb',
+        windowsPrinter: { ...DEFAULT_WINDOWS_USB_PRINTER },
         isDefault: true,
         labelFormat: 'prn',
       })
@@ -181,10 +188,14 @@ export function printerProfileSummary(p: ErpPrinterProfile): string {
   if (p.connection === 'network') {
     return `${p.network?.host || '—'}:${p.network?.port || 9100}`
   }
+  if (p.connection === 'usb') {
+    const hint = p.windowsPrinter?.portHint ? ` · ${p.windowsPrinter.portHint}` : ''
+    return `USB · ${p.windowsPrinter?.name || DEFAULT_WINDOWS_USB_PRINTER.name}${hint}`
+  }
   if (p.serial) return serialSettingsLabel(p.serial)
   return 'Serial — not configured'
 }
 
 export function isClientSidePrinter(p: ErpPrinterProfile | null): boolean {
-  return p?.connection === 'serial'
+  return p?.connection === 'serial' || p?.connection === 'usb'
 }

@@ -21,6 +21,7 @@ import {
   resolvePrinterSerialSettings,
   webSerialSupported,
 } from '@/lib/erp-serial-device'
+import { checkLocalPrintAgent } from '@/lib/erp-local-print'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { ArrowLeft, FileSpreadsheet, Loader2, Printer, Trash2, Upload } from 'lucide-react'
@@ -44,6 +45,7 @@ type PrintApiProfile = {
     parity: 'none' | 'even' | 'odd'
     stopBits: 1 | 2
   }
+  windowsPrinter?: { name?: string; portHint?: string }
 }
 
 type Batch = {
@@ -144,15 +146,24 @@ export function ErpProductsWorkspace() {
       const clientTspl = results.filter((r) => r.clientPrint && r.tspl)
 
       if (clientTspl.length > 0 || res.data.clientPrintRequired) {
-        if (!webSerialSupported()) {
-          setMsgTone('err')
-          setMsg('Use Chrome or Edge on this PC. Connect the label printer below first.')
-          return
-        }
-        if (!isLabelPrinterConnected()) {
-          setMsgTone('err')
-          setMsg('Connect the label printer below, then tap Generate barcodes again.')
-          return
+        const conn = res.data.printerProfile?.connection || printerProfile?.connection
+        if (conn === 'usb') {
+          if (!(await checkLocalPrintAgent())) {
+            setMsgTone('err')
+            setMsg('Start start-erp-print-agent.bat on this PC (see Label printer bar), then try again.')
+            return
+          }
+        } else {
+          if (!webSerialSupported()) {
+            setMsgTone('err')
+            setMsg('Use Chrome or Edge on this PC. Connect the label printer below first.')
+            return
+          }
+          if (!isLabelPrinterConnected()) {
+            setMsgTone('err')
+            setMsg('Connect the label printer below, then tap Generate barcodes again.')
+            return
+          }
         }
         const count = await printClientTsplLabels(
           results,
@@ -160,11 +171,19 @@ export function ErpProductsWorkspace() {
           workstation.printerProfileId,
           res.data.printerProfile,
         )
-        const serial = resolvePrinterSerialSettings(hardware, workstation.printerProfileId, res.data.printerProfile)
         setMsgTone('ok')
-        setMsg(
-          `Printed ${count} label(s) · ${normalizeComPort(serial.port)} @ ${serial.baudRate} · ${res.data.printerProfile?.name || printerProfile?.name || 'TSC printer'}.`,
-        )
+        const serial = resolvePrinterSerialSettings(hardware, workstation.printerProfileId, res.data.printerProfile)
+        if (conn === 'usb') {
+          const winName =
+            res.data.printerProfile?.windowsPrinter?.name ||
+            printerProfile?.windowsPrinter?.name ||
+            'TSC TTP-244 Pro'
+          setMsg(`Printed ${count} label(s) · USB · ${winName}.`)
+        } else {
+          setMsg(
+            `Printed ${count} label(s) · ${normalizeComPort(serial.port)} @ ${serial.baudRate} · ${res.data.printerProfile?.name || printerProfile?.name || 'TSC printer'}.`,
+          )
+        }
         return
       }
 

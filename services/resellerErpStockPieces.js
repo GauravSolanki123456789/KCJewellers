@@ -30,6 +30,13 @@ function profileToPrinterConfig(profile) {
             serial: profile.serial,
         };
     }
+    if (profile.connection === 'usb') {
+        return {
+            type: 'usb',
+            address: String(profile.windowsPrinter?.name || 'TSC TTP-244 Pro').trim(),
+            windowsPrinter: profile.windowsPrinter || { name: 'TSC TTP-244 Pro', portHint: 'USB001' },
+        };
+    }
     return null;
 }
 
@@ -1073,6 +1080,16 @@ function registerStockPieceRoutes(app, deps) {
                         piece_id: p.id,
                         printed: false,
                         clientPrint: true,
+                        clientPrintMode: 'serial',
+                        tspl,
+                    });
+                } else if (printerConfig?.type === 'usb') {
+                    results.push({
+                        barcode: p.barcode,
+                        piece_id: p.id,
+                        printed: false,
+                        clientPrint: true,
+                        clientPrintMode: 'usb',
                         tspl,
                     });
                 } else if (printerConfig?.type === 'network' && printerConfig.address) {
@@ -1111,6 +1128,7 @@ function registerStockPieceRoutes(app, deps) {
                           name: profile.name,
                           connection: profile.connection,
                           serial: profile.serial || null,
+                          windowsPrinter: profile.windowsPrinter || null,
                       }
                     : null,
             });
@@ -1157,13 +1175,15 @@ function registerStockPieceRoutes(app, deps) {
 
             res.json({
                 tspl: erpPrint.formatTsplLineEndings(tspl),
-                clientPrint: printerConfig?.type === 'serial',
+                clientPrint: printerConfig?.type === 'serial' || printerConfig?.type === 'usb',
+                clientPrintMode: printerConfig?.type === 'usb' ? 'usb' : printerConfig?.type === 'serial' ? 'serial' : null,
                 printerProfile: profile
                     ? {
                           id: profile.id,
                           name: profile.name,
                           connection: profile.connection,
                           serial: profile.serial || null,
+                          windowsPrinter: profile.windowsPrinter || null,
                       }
                     : null,
             });

@@ -1,6 +1,7 @@
 import type { ErpHardwareSettings, ErpSerialSettings } from '@/lib/erp-hardware'
 import { DEFAULT_SERIAL, getPrinterProfileById } from '@/lib/erp-hardware'
 import { normalizePrnTemplate } from '@/lib/erp-print-templates'
+import { printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
 
 export type SerialPortLike = {
   open: (opts: {
@@ -136,39 +137,50 @@ export async function sendTsplBatchOverSerial(port: SerialPortLike, tsplList: st
 export type PrintLabelResult = {
   barcode: string
   clientPrint?: boolean
+  clientPrintMode?: 'serial' | 'usb'
   tspl?: string
   error?: string
 }
 
-/** Print TSC labels — uses connected printer port when available. */
+/** Print TSC labels — USB (Windows agent) or serial (Web Serial). */
 export async function printClientTsplLabels(
   results: PrintLabelResult[],
   hw: ErpHardwareSettings | null,
   printerProfileId: string | null | undefined,
-  apiProfile?: { connection?: string; serial?: ErpSerialSettings } | null,
+  apiProfile?: {
+    connection?: string
+    serial?: ErpSerialSettings
+    windowsPrinter?: { name?: string }
+  } | null,
 ): Promise<number> {
   const clientTspl = results.filter((r) => r.clientPrint && r.tspl).map((r) => r.tspl as string)
   if (!clientTspl.length) return 0
+
+  const profile = hw ? getPrinterProfileById(hw, printerProfileId) : null
+  const mode =
+    apiProfile?.connection === 'usb' || results.some((r) => r.clientPrintMode === 'usb')
+      ? 'usb'
+      : apiProfile?.connection === 'serial' || profile?.connection === 'serial' || results.some((r) => r.clientPrint)
+        ? 'serial'
+        : null
+
+  if (mode === 'usb') {
+    const printerName = resolveWindowsPrinterName(hw, printerProfileId, apiProfile)
+    return printViaLocalAgent(clientTspl, printerName)
+  }
 
   if (!webSerialSupported()) {
     throw new Error('Serial printer needs Chrome or Edge on this PC.')
   }
 
-  const profile = hw ? getPrinterProfileById(hw, printerProfileId) : null
-  const isSerial =
-    apiProfile?.connection === 'serial' || profile?.connection === 'serial' || results.some((r) => r.clientPrint)
-
-  if (!isSerial) {
-    throw new Error('Printer is not configured for serial/COM output. Check Hardware → Label printer → Serial.')
+  if (mode !== 'serial') {
+    throw new Error('Printer connection not configured. Check Hardware settings.')
   }
 
   const serial = apiProfile?.serial || profile?.serial || DEFAULT_SERIAL
   let port = labelPrinterPort
-  let closeAfter = false
-
   if (!port || !labelPrinterPortOpen) {
     port = await connectLabelPrinter(serial, false)
-    closeAfter = false
   } else {
     await openSerialPort(port, serial)
   }
@@ -177,9 +189,7 @@ export async function printClientTsplLabels(
     await sendTsplBatchOverSerial(port, clientTspl)
     return clientTspl.length
   } finally {
-    if (closeAfter) {
-      await disconnectLabelPrinter()
-    }
+    /* keep serial port open for next labels */
   }
 }
 

@@ -19,6 +19,7 @@ import {
   sendTsplOverSerial,
   webSerialSupported,
 } from '@/lib/erp-serial-device'
+import { checkLocalPrintAgent, printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
 import { Loader2, Plus, Printer, Save, Scale, Trash2, Wifi } from 'lucide-react'
 
 function SerialFields({
@@ -135,9 +136,9 @@ export function ErpHardwareWorkspace() {
     const p: ErpPrinterProfile = {
       id: newProfileId(),
       name: `Printer ${(hw.printerProfiles?.length || 0) + 1}`,
-      connection: 'serial',
-      serial: { ...DEFAULT_SERIAL },
-      labelFormat: 'tspl',
+      connection: 'usb',
+      windowsPrinter: { name: 'TSC TTP-244 Pro', portHint: 'USB001' },
+      labelFormat: 'prn',
       isDefault: !(hw.printerProfiles?.length || 0),
     }
     setHw((h) => ({ ...h, printerProfiles: [...(h.printerProfiles || []), p] }))
@@ -188,6 +189,25 @@ export function ErpHardwareWorkspace() {
     setTestingId(profile.id)
     setTestMsg(null)
     try {
+      if (profile.connection === 'usb') {
+        if (!(await checkLocalPrintAgent())) {
+          setTestMsg('Start scripts/start-erp-print-agent.bat on this PC first, then try Test print again.')
+          return
+        }
+        const res = await axios.post<{ tspl?: string; error?: string }>(
+          '/api/reseller/erp/print/test-label',
+          { printer_profile_id: profile.id },
+        )
+        if (!res.data.tspl) throw new Error(res.data.error || 'No test label generated')
+        const printerName = resolveWindowsPrinterName(null, profile.id, {
+          connection: 'usb',
+          windowsPrinter: profile.windowsPrinter,
+        })
+        await printViaLocalAgent([res.data.tspl], printerName)
+        setTestMsg(`Test label sent · USB · ${printerName}.`)
+        return
+      }
+
       if (profile.connection === 'serial') {
         if (!webSerialSupported()) {
           setTestMsg('Use Chrome or Edge on this PC, then pick the COM port when prompted.')
@@ -299,7 +319,7 @@ export function ErpHardwareWorkspace() {
                     className={`${erpInputCls} mt-1`}
                     value={p.connection}
                     onChange={(e) => {
-                      const connection = e.target.value as 'network' | 'serial'
+                      const connection = e.target.value as 'network' | 'serial' | 'usb'
                       updatePrinter(p.id, {
                         connection,
                         network:
@@ -310,11 +330,16 @@ export function ErpHardwareWorkspace() {
                           connection === 'serial'
                             ? p.serial || { ...DEFAULT_SERIAL }
                             : p.serial,
+                        windowsPrinter:
+                          connection === 'usb'
+                            ? p.windowsPrinter || { name: 'TSC TTP-244 Pro', portHint: 'USB001' }
+                            : p.windowsPrinter,
                       })
                     }}
                   >
+                    <option value="usb">USB (Windows · USB001)</option>
                     <option value="network">Network (TCP 9100)</option>
-                    <option value="serial">Serial / COM (USB)</option>
+                    <option value="serial">Serial / COM</option>
                   </select>
                 </label>
                 <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
@@ -361,6 +386,46 @@ export function ErpHardwareWorkspace() {
                     />
                   </label>
                 </div>
+              ) : p.connection === 'usb' ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                    Windows printer name
+                    <input
+                      className={`${erpInputCls} mt-1 font-mono`}
+                      placeholder="TSC TTP-244 Pro"
+                      value={p.windowsPrinter?.name || ''}
+                      onChange={(e) =>
+                        updatePrinter(p.id, {
+                          windowsPrinter: {
+                            name: e.target.value,
+                            portHint: p.windowsPrinter?.portHint || 'USB001',
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                    Windows port (reference)
+                    <input
+                      className={`${erpInputCls} mt-1 font-mono`}
+                      placeholder="USB001"
+                      value={p.windowsPrinter?.portHint || ''}
+                      onChange={(e) =>
+                        updatePrinter(p.id, {
+                          windowsPrinter: {
+                            name: p.windowsPrinter?.name || 'TSC TTP-244 Pro',
+                            portHint: e.target.value,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <p className="sm:col-span-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
+                    USB labels print via the local print service on this PC (not COM). Run{' '}
+                    <code className="rounded bg-black/5 px-1">start-erp-print-agent.bat</code> once per session.
+                    In Windows Printers → Ports, select <strong>USB001</strong> — not Print to File.
+                  </p>
+                </div>
               ) : (
                 <div className="mt-3">
                   <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
@@ -370,9 +435,6 @@ export function ErpHardwareWorkspace() {
                     value={p.serial || DEFAULT_SERIAL}
                     onChange={(serial) => updatePrinter(p.id, { serial })}
                   />
-                  <p className="mt-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                    Serial printers print from this PC via Chrome — pick the COM port on Test print.
-                  </p>
                 </div>
               )}
 

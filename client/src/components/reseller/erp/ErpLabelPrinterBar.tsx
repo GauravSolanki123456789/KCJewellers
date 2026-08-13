@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import axios from '@/lib/axios'
 import {
+  DEFAULT_WINDOWS_USB_PRINTER,
   getPrinterProfileById,
   loadWorkstationSelection,
   migrateHardwareSettings,
@@ -10,15 +11,15 @@ import {
   serialSettingsLabel,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
+import { checkLocalPrintAgent } from '@/lib/erp-local-print'
 import {
   connectLabelPrinter,
   disconnectLabelPrinter,
-  getLabelPrinterPort,
   isLabelPrinterConnected,
   webSerialSupported,
 } from '@/lib/erp-serial-device'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls } from '@/components/reseller/erp/erp-ui'
-import { Link2, Printer, Unlink } from 'lucide-react'
+import { Link2, Printer, RefreshCw, Unlink } from 'lucide-react'
 
 type Props = {
   printerProfileId: string | null
@@ -32,6 +33,15 @@ export function ErpLabelPrinterBar({ printerProfileId, onConnectionChange }: Pro
   const [error, setError] = useState<string | null>(null)
   const [statusLine, setStatusLine] = useState<string | null>(null)
 
+  const profile = getPrinterProfileById(hw || {}, printerProfileId)
+  const isUsb = profile?.connection === 'usb'
+
+  const refreshUsbAgent = useCallback(async () => {
+    const ok = await checkLocalPrintAgent()
+    setConnected(ok)
+    if (ok) setError(null)
+  }, [])
+
   useEffect(() => {
     void axios
       .get<{ settings: { hardware?: ErpHardwareSettings } }>('/api/reseller/erp/settings')
@@ -40,66 +50,71 @@ export function ErpLabelPrinterBar({ printerProfileId, onConnectionChange }: Pro
   }, [])
 
   useEffect(() => {
+    if (isUsb) {
+      void refreshUsbAgent()
+      const t = setInterval(() => void refreshUsbAgent(), 4000)
+      return () => clearInterval(t)
+    }
     setConnected(isLabelPrinterConnected())
-  }, [])
+    return undefined
+  }, [isUsb, refreshUsbAgent])
 
   useEffect(() => {
     onConnectionChange?.(connected)
   }, [connected, onConnectionChange])
 
-  const refreshStatus = useCallback((profileId: string | null) => {
-    const sel = loadWorkstationSelection()
-    const profile = getPrinterProfileById(hw || {}, profileId || sel.printerProfileId)
-    if (profile?.connection === 'serial' && profile.serial) {
-      setStatusLine(`${normalizeComPort(profile.serial.port)} · ${serialSettingsLabel(profile.serial)}`)
-    } else if (profile?.connection === 'network') {
-      setStatusLine(`${profile.network?.host || '—'}:${profile.network?.port || 9100}`)
+  useEffect(() => {
+    const p = getPrinterProfileById(hw || {}, printerProfileId)
+    if (p?.connection === 'usb') {
+      const name = p.windowsPrinter?.name || DEFAULT_WINDOWS_USB_PRINTER.name
+      const hint = p.windowsPrinter?.portHint || DEFAULT_WINDOWS_USB_PRINTER.portHint
+      setStatusLine(`${name} · ${hint}`)
+    } else if (p?.connection === 'serial' && p.serial) {
+      setStatusLine(`${normalizeComPort(p.serial.port)} · ${serialSettingsLabel(p.serial)}`)
+    } else if (p?.connection === 'network') {
+      setStatusLine(`${p.network?.host || '—'}:${p.network?.port || 9100}`)
     } else {
       setStatusLine(null)
     }
-  }, [hw])
+  }, [hw, printerProfileId])
 
-  useEffect(() => {
-    refreshStatus(printerProfileId)
-  }, [printerProfileId, refreshStatus])
-
-  const disconnect = useCallback(async () => {
+  const disconnectSerial = useCallback(async () => {
     await disconnectLabelPrinter()
     setConnected(false)
     setError(null)
   }, [])
 
   useEffect(() => {
-    return () => {
-      void disconnectLabelPrinter()
+    if (!isUsb) {
+      return () => {
+        void disconnectLabelPrinter()
+      }
     }
-  }, [])
+    return undefined
+  }, [isUsb])
 
-  const connect = async (pickNew = false) => {
+  const connectSerial = async (pickNew = false) => {
     setError(null)
     setBusy(true)
     if (!webSerialSupported()) {
-      setError('Use Chrome or Edge on this PC for the TSC label printer.')
+      setError('Use Chrome or Edge on this PC for serial/COM printing.')
       setBusy(false)
       return
     }
     const sel = loadWorkstationSelection()
-    const profile = getPrinterProfileById(hw || {}, printerProfileId || sel.printerProfileId)
-    if (!profile) {
-      setError('Add a TSC printer in Hardware settings first.')
-      setBusy(false)
-      return
-    }
-    if (profile.connection !== 'serial') {
-      setError('Network printer — no USB connection needed here.')
+    const p = getPrinterProfileById(hw || {}, printerProfileId || sel.printerProfileId)
+    if (!p || p.connection !== 'serial') {
+      setError('Set label printer to Serial/COM in Hardware, or use USB (Windows) mode.')
       setBusy(false)
       return
     }
     try {
-      if (pickNew) await disconnect()
-      await connectLabelPrinter(profile.serial || { port: 'COM1', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 }, pickNew)
+      if (pickNew) await disconnectSerial()
+      await connectLabelPrinter(
+        p.serial || { port: 'COM1', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
+        pickNew,
+      )
       setConnected(true)
-      refreshStatus(printerProfileId)
     } catch (e) {
       setConnected(false)
       setError(e instanceof Error ? e.message : 'Could not connect to label printer')
@@ -108,44 +123,80 @@ export function ErpLabelPrinterBar({ printerProfileId, onConnectionChange }: Pro
     }
   }
 
-  const profile = getPrinterProfileById(hw || {}, printerProfileId)
   if (!hw?.printerProfiles?.length || profile?.connection === 'network') return null
+
+  if (isUsb) {
+    return (
+      <div className={`${erpCardCls} flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center`}>
+        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+          <Printer className="size-4 text-[var(--kc-accent,#c41e3a)]" />
+          Label printer (USB)
+        </div>
+        {connected ? (
+          <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+            Print service ready{statusLine ? ` · ${statusLine}` : ''}
+          </span>
+        ) : (
+          <span className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+            Start print service on this PC
+          </span>
+        )}
+        <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => void refreshUsbAgent()}>
+          <RefreshCw className={`size-4 ${busy ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+        {error ? <span className="w-full text-xs text-red-600">{error}</span> : null}
+        {!connected ? (
+          <div className="w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2.5 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/70">
+            <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">One-time setup on this PC:</p>
+            <ol className="mt-1.5 list-decimal space-y-1 pl-4">
+              <li>
+                Open folder <code className="rounded bg-black/5 px-1">KCJewellers/scripts</code>
+              </li>
+              <li>
+                Double-click <strong>start-erp-print-agent.bat</strong> — keep that window open
+              </li>
+              <li>
+                In Windows Printers, your TSC should show port <strong>USB001</strong> (not Print to File)
+              </li>
+              <li>Tap Refresh above, then Generate barcodes</li>
+            </ol>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <div className={`${erpCardCls} flex flex-wrap items-center gap-3`}>
       <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
         <Printer className="size-4 text-[var(--kc-accent,#c41e3a)]" />
-        Label printer
+        Label printer (COM)
       </div>
       {connected ? (
         <>
           <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
             Connected{statusLine ? ` · ${statusLine}` : ''}
           </span>
-          <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => void connect(true)}>
-            Change USB device
+          <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => void connectSerial(true)}>
+            Change device
           </button>
-          <button type="button" className={erpBtnGhost} onClick={() => void disconnect()}>
+          <button type="button" className={erpBtnGhost} onClick={() => void disconnectSerial()}>
             <Unlink className="size-4" />
             Disconnect
           </button>
         </>
       ) : (
-        <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void connect(false)}>
+        <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void connectSerial(false)}>
           <Link2 className="size-4" />
           {busy ? 'Connecting…' : 'Connect label printer'}
         </button>
       )}
       {error ? <span className="w-full text-xs text-red-600">{error}</span> : null}
-      {!connected && !error ? (
-        <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          Pick the TSC TTP-244 USB cable when Chrome asks — use a different USB port than the weighing scale.
-        </span>
-      ) : null}
     </div>
   )
 }
 
 export function useLabelPrinterReady(): boolean {
-  return isLabelPrinterConnected() || getLabelPrinterPort() != null
+  return isLabelPrinterConnected()
 }

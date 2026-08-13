@@ -21,7 +21,8 @@
     "backup-cloud": "node scripts/cloud-backup.js",
     "restore-db": "node scripts/restore-database.js",
     "sync-db": "node scripts/sync-database.js",
-    "update": "bash update.sh"
+    "update": "bash update.sh",
+    "erp-print-agent": "node scripts/erp-local-print-agent.js"
   },
   "dependencies": {
     "archiver": "^5.3.2",
