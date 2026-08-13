@@ -151,16 +151,18 @@ export function ErpLabelPrinterBar({ printerProfileId, onConnectionChange }: Pro
             <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Start print service on this PC (once per day):</p>
             <ol className="mt-1.5 list-decimal space-y-1 pl-4">
               <li>
-                Double-click <strong>KC-ERP-Label-Print-Service.bat</strong> on the Desktop (or in{' '}
-                <code className="rounded bg-black/5 px-1">KCJewellers/scripts</code>)
+                Copy the whole folder{' '}
+                <code className="rounded bg-black/5 px-1">erp-print-service</code> to the Desktop (all 3
+                files together — not just the .bat)
               </li>
               <li>
-                A black window should say <strong>Listening on http://127.0.0.1:17888/</strong> — leave it open
+                Double-click <strong>START-KC-Label-Print.bat</strong> — window must show{' '}
+                <strong>Listening on http://127.0.0.1:17888/</strong>
               </li>
               <li>
-                No Node.js needed — Windows PowerShell only. Printer port must be <strong>USB001</strong> in Windows
+                No Node.js or Python needed. Printer port in Windows must be <strong>USB001</strong>
               </li>
-              <li>Tap Refresh above until it shows Print service ready, then Generate barcodes</li>
+              <li>Tap Refresh until green, then Generate barcodes</li>
             </ol>
           </div>
         ) : null}

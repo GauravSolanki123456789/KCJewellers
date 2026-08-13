@@ -150,7 +150,7 @@ export function ErpProductsWorkspace() {
         if (conn === 'usb') {
           if (!(await checkLocalPrintAgent())) {
             setMsgTone('err')
-            setMsg('Start KC-ERP-Label-Print-Service.bat on this PC (see Label printer bar), then try again.')
+            setMsg('Copy erp-print-service folder to Desktop, run START-KC-Label-Print.bat, then try again.')
             return
           }
         } else {

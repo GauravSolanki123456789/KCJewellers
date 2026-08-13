@@ -191,7 +191,7 @@ export function ErpHardwareWorkspace() {
     try {
       if (profile.connection === 'usb') {
         if (!(await checkLocalPrintAgent())) {
-          setTestMsg('Start scripts/start-erp-print-agent.bat on this PC first, then try Test print again.')
+          setTestMsg('Copy erp-print-service folder to Desktop, run START-KC-Label-Print.bat, then try Test print again.')
           return
         }
         const res = await axios.post<{ tspl?: string; error?: string }>(
@@ -421,8 +421,9 @@ export function ErpHardwareWorkspace() {
                     />
                   </label>
                   <p className="sm:col-span-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
-                    USB labels print via the local print service on this PC (not COM). Run{' '}
-                    <code className="rounded bg-black/5 px-1">start-erp-print-agent.bat</code> once per session.
+                    USB labels print via the local print service on this PC (not COM). Copy folder{' '}
+                    <code className="rounded bg-black/5 px-1">erp-print-service</code> to Desktop and run{' '}
+                    <code className="rounded bg-black/5 px-1">START-KC-Label-Print.bat</code> once per session.
                     In Windows Printers → Ports, select <strong>USB001</strong> — not Print to File.
                   </p>
                 </div>
