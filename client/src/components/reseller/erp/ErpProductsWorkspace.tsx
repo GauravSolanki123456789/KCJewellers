@@ -7,6 +7,7 @@ import {
   ErpWorkstationBar,
   useErpWorkstationSelection,
 } from '@/components/reseller/erp/ErpWorkstationBar'
+import { ErpLabelPrinterBar } from '@/components/reseller/erp/ErpLabelPrinterBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import {
   getPrinterProfileById,
@@ -15,6 +16,7 @@ import {
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
 import {
+  isLabelPrinterConnected,
   printClientTsplLabels,
   resolvePrinterSerialSettings,
   webSerialSupported,
@@ -60,6 +62,7 @@ export function ErpProductsWorkspace() {
   const [printing, setPrinting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [msgTone, setMsgTone] = useState<'ok' | 'err'>('ok')
   const fileRef = useRef<HTMLInputElement>(null)
   const [workstation, setWorkstation] = useErpWorkstationSelection()
   const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
@@ -99,11 +102,13 @@ export function ErpProductsWorkspace() {
         '/api/reseller/erp/stock-pieces/bulk',
         { rows, batch_label: `Stock ${file.name.replace(/\.[^.]+$/, '')}` },
       )
+      setMsgTone('ok')
       setMsg(`Uploaded ${res.data.total} piece(s) — ${res.data.inserted} new, ${res.data.updated} updated.`)
       await loadBatches()
       await loadBatch(res.data.batch_id)
     } catch (e) {
-      alert(erpErr(e))
+      setMsgTone('err')
+      setMsg(erpErr(e))
     } finally {
       setBusy(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -140,14 +145,13 @@ export function ErpProductsWorkspace() {
 
       if (clientTspl.length > 0 || res.data.clientPrintRequired) {
         if (!webSerialSupported()) {
-          alert('Serial printer needs Chrome or Edge on this PC. Open Hardware → Test print to pick the USB/COM port.')
+          setMsgTone('err')
+          setMsg('Use Chrome or Edge on this PC. Connect the label printer below first.')
           return
         }
-        if (
-          !confirm(
-            'Chrome will ask you to pick the TSC label printer USB port.\n\nIf the weighing scale is connected to the same USB adapter, disconnect the scale first, then pick the printer device.',
-          )
-        ) {
+        if (!isLabelPrinterConnected()) {
+          setMsgTone('err')
+          setMsg('Connect the label printer below, then tap Generate barcodes again.')
           return
         }
         const count = await printClientTsplLabels(
@@ -157,27 +161,30 @@ export function ErpProductsWorkspace() {
           res.data.printerProfile,
         )
         const serial = resolvePrinterSerialSettings(hardware, workstation.printerProfileId, res.data.printerProfile)
+        setMsgTone('ok')
         setMsg(
-          `Printed ${count} label(s) on ${normalizeComPort(serial.port)} @ ${serial.baudRate} · ${res.data.printerProfile?.name || printerProfile?.name || 'TSC printer'}.`,
+          `Printed ${count} label(s) · ${normalizeComPort(serial.port)} @ ${serial.baudRate} · ${res.data.printerProfile?.name || printerProfile?.name || 'TSC printer'}.`,
         )
         return
       }
 
       const ok = results.filter((r) => r.printed).length
       if (!res.data.printerConfigured && !clientTspl.length) {
-        alert(
-          `TSPL generated for ${results.length} label(s). Add a printer in Hardware (Serial/COM3 · 9600 or network IP), save, then try again.`,
-        )
+        setMsgTone('err')
+        setMsg('Add a printer in Hardware, save, connect it below, then try again.')
       } else if (ok) {
+        setMsgTone('ok')
         setMsg(
           `Printed ${ok} of ${results.length} label(s)${res.data.printerProfile ? ` · ${res.data.printerProfile.name}` : ''}.`,
         )
       } else {
         const err = results.find((r) => r.error)?.error
-        setMsg(err ? `Print issue: ${err}` : `Processed ${results.length} label(s) — no labels sent to printer.`)
+        setMsgTone('err')
+        setMsg(err ? `Print issue: ${err}` : `No labels sent to printer (${results.length} prepared).`)
       }
     } catch (e) {
-      alert(erpErr(e))
+      setMsgTone('err')
+      setMsg(erpErr(e))
     } finally {
       setPrinting(false)
     }
@@ -206,6 +213,7 @@ export function ErpProductsWorkspace() {
     return (
       <div className="space-y-4">
         <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
+        <ErpLabelPrinterBar printerProfileId={workstation.printerProfileId} />
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -234,7 +242,9 @@ export function ErpProductsWorkspace() {
             Delete batch
           </button>
         </div>
-        {msg ? <p className="text-xs font-medium text-emerald-700">{msg}</p> : null}
+        {msg ? (
+          <p className={`text-xs font-medium ${msgTone === 'err' ? 'text-red-600' : 'text-emerald-700'}`}>{msg}</p>
+        ) : null}
         <ErpStockExcelEditor
           batchId={activeBatchId}
           pieces={pieces}
@@ -253,9 +263,6 @@ export function ErpProductsWorkspace() {
           <FileSpreadsheet className="size-4 text-[var(--kc-accent,#c41e3a)]" />
           Upload stock Excel
         </div>
-        <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          Upload individual barcoded pieces (e.g. TORTOISESHRICHAKRAM-102). This is separate from catalogue Excel batches — it updates ERP stock only.
-        </p>
         <label className="flex min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-4 py-6 transition hover:border-[var(--kc-accent,#c41e3a)]/40">
           <input
             ref={fileRef}
@@ -277,7 +284,9 @@ export function ErpProductsWorkspace() {
             </>
           )}
         </label>
-        {msg ? <p className="mt-2 text-xs font-medium text-emerald-600">{msg}</p> : null}
+        {msg ? (
+          <p className={`mt-2 text-xs font-medium ${msgTone === 'err' ? 'text-red-600' : 'text-emerald-600'}`}>{msg}</p>
+        ) : null}
       </div>
 
       <ul className="space-y-2">

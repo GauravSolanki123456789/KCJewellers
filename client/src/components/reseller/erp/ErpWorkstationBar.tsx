@@ -7,14 +7,13 @@ import {
   getScaleProfileById,
   loadWorkstationSelection,
   migrateHardwareSettings,
-  normalizeComPort,
   printerProfileSummary,
   saveWorkstationSelection,
   type ErpHardwareSettings,
   type ErpWorkstationSelection,
 } from '@/lib/erp-hardware'
 import { erpBtnGhost, erpCardCls } from '@/components/reseller/erp/erp-ui'
-import { Monitor, Printer, Scale } from 'lucide-react'
+import { Monitor } from 'lucide-react'
 import Link from 'next/link'
 
 type Props = {
@@ -47,10 +46,6 @@ export function ErpWorkstationBar({ value, onChange }: Props) {
   const printer =
     getPrinterProfileById(hw, value.printerProfileId) || hw.printerProfiles[0]
   const scale = getScaleProfileById(hw, value.scaleProfileId)
-  const printerCom =
-    printer?.connection === 'serial' ? normalizeComPort(printer.serial?.port || 'COM3') : null
-  const scaleCom = scale ? normalizeComPort(scale.serial.port) : null
-  const sameComHint = printerCom && scaleCom && printerCom === scaleCom
 
   return (
     <div className={`${erpCardCls} flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end`}>
@@ -94,24 +89,6 @@ export function ErpWorkstationBar({ value, onChange }: Props) {
           ))}
         </select>
       </label>
-      {sameComHint ? (
-        <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
-          Printer and scale are both set to <strong>{printerCom}</strong>. Only one USB serial device can be active at
-          a time — disconnect the scale before Generate barcodes, then pick the TSC printer in Chrome&apos;s port dialog.
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-3 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
-        <span className="inline-flex items-center gap-1">
-          <Printer className="size-3" />
-          {printer?.connection === 'serial' ? 'Prints via this PC (COM)' : 'Prints via network'}
-        </span>
-        {scale ? (
-          <span className="inline-flex items-center gap-1">
-            <Scale className="size-3" />
-            Scale: connect in editor below
-          </span>
-        ) : null}
-      </div>
     </div>
   )
 }

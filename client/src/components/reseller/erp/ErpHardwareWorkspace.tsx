@@ -15,9 +15,7 @@ import {
 import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { erpErr } from '@/components/reseller/erp/erp-ui'
 import {
-  closeSerialPort,
-  openSerialPort,
-  requestUserSerialPort,
+  connectLabelPrinter,
   sendTsplOverSerial,
   webSerialSupported,
 } from '@/lib/erp-serial-device'
@@ -195,17 +193,15 @@ export function ErpHardwareWorkspace() {
           setTestMsg('Use Chrome or Edge on this PC, then pick the COM port when prompted.')
           return
         }
-        const port = await requestUserSerialPort()
         const serial = profile.serial || DEFAULT_SERIAL
-        await openSerialPort(port, serial)
+        const port = await connectLabelPrinter(serial, true)
         const res = await axios.post<{ tspl?: string; error?: string }>(
           '/api/reseller/erp/print/test-label',
           { printer_profile_id: profile.id },
         )
         if (!res.data.tspl) throw new Error(res.data.error || 'No test label generated')
         await sendTsplOverSerial(port, res.data.tspl)
-        await closeSerialPort(port)
-        setTestMsg(`Test label sent on ${normalizeComPort(serial.port)} (${serial.baudRate} 8-N-1).`)
+        setTestMsg(`Test label sent · ${normalizeComPort(serial.port)} · ${serial.baudRate} 8-N-1.`)
         return
       }
 

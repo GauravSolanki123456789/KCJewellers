@@ -102,7 +102,7 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
         id: newProfileId(),
         name: 'TSC barcode (TTP-244)',
         connection: 'serial',
-        serial: { ...DEFAULT_SERIAL },
+        serial: { ...DEFAULT_SERIAL, port: 'COM1' },
         isDefault: true,
         labelFormat: 'prn',
       })

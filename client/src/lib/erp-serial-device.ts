@@ -1,4 +1,4 @@
-import type { ErpHardwareSettings, ErpPrinterProfile, ErpSerialSettings } from '@/lib/erp-hardware'
+import type { ErpHardwareSettings, ErpSerialSettings } from '@/lib/erp-hardware'
 import { DEFAULT_SERIAL, getPrinterProfileById } from '@/lib/erp-hardware'
 import { normalizePrnTemplate } from '@/lib/erp-print-templates'
 
@@ -14,26 +14,57 @@ export type SerialPortLike = {
   writable: WritableStream<Uint8Array> | null
 }
 
+let labelPrinterPort: SerialPortLike | null = null
+let labelPrinterPortOpen = false
+
 export function webSerialSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serial' in navigator
+}
+
+function navSerial() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (navigator as any).serial as {
+    requestPort: () => Promise<SerialPortLike>
+    getPorts: () => Promise<SerialPortLike[]>
+  }
 }
 
 export async function requestUserSerialPort(): Promise<SerialPortLike> {
   if (!webSerialSupported()) {
     throw new Error('Web Serial is not supported in this browser. Use Chrome or Edge on this PC.')
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const nav = navigator as any
-  return (await nav.serial.requestPort()) as SerialPortLike
+  return navSerial().requestPort()
+}
+
+export async function getGrantedSerialPorts(): Promise<SerialPortLike[]> {
+  if (!webSerialSupported()) return []
+  try {
+    return (await navSerial().getPorts()) || []
+  } catch {
+    return []
+  }
+}
+
+export function getLabelPrinterPort(): SerialPortLike | null {
+  return labelPrinterPort
+}
+
+export function isLabelPrinterConnected(): boolean {
+  return labelPrinterPortOpen && labelPrinterPort != null
 }
 
 export async function openSerialPort(port: SerialPortLike, settings: ErpSerialSettings) {
-  await port.open({
-    baudRate: settings.baudRate,
-    dataBits: settings.dataBits,
-    parity: settings.parity,
-    stopBits: settings.stopBits,
-  })
+  try {
+    await port.open({
+      baudRate: settings.baudRate,
+      dataBits: settings.dataBits,
+      parity: settings.parity,
+      stopBits: settings.stopBits,
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'InvalidStateError') return
+    throw e
+  }
 }
 
 export async function closeSerialPort(port: SerialPortLike | null) {
@@ -43,6 +74,37 @@ export async function closeSerialPort(port: SerialPortLike | null) {
   } catch {
     /* already closed */
   }
+}
+
+/** Connect TSC label printer — caches USB device so scale can stay on a different COM port. */
+export async function connectLabelPrinter(serial: ErpSerialSettings, pickNew = false): Promise<SerialPortLike> {
+  if (!webSerialSupported()) {
+    throw new Error('Web Serial is not supported. Use Chrome or Edge on this PC.')
+  }
+
+  if (labelPrinterPort && !pickNew) {
+    await openSerialPort(labelPrinterPort, serial)
+    labelPrinterPortOpen = true
+    return labelPrinterPort
+  }
+
+  if (labelPrinterPort && pickNew) {
+    await disconnectLabelPrinter()
+  }
+
+  const port = await requestUserSerialPort()
+  await openSerialPort(port, serial)
+  labelPrinterPort = port
+  labelPrinterPortOpen = true
+  return port
+}
+
+export async function disconnectLabelPrinter() {
+  if (labelPrinterPort) {
+    await closeSerialPort(labelPrinterPort)
+  }
+  labelPrinterPort = null
+  labelPrinterPortOpen = false
 }
 
 /** TSC TTP-244 expects CRLF-separated TSPL commands. */
@@ -56,12 +118,13 @@ export async function sendTsplOverSerial(port: SerialPortLike, tspl: string) {
   const writer = port.writable.getWriter()
   try {
     await writer.write(new TextEncoder().encode(formatTsplForSerial(tspl)))
+    await writer.ready
   } finally {
     writer.releaseLock()
   }
 }
 
-export async function sendTsplBatchOverSerial(port: SerialPortLike, tsplList: string[], gapMs = 350) {
+export async function sendTsplBatchOverSerial(port: SerialPortLike, tsplList: string[], gapMs = 450) {
   for (let i = 0; i < tsplList.length; i += 1) {
     await sendTsplOverSerial(port, tsplList[i])
     if (i < tsplList.length - 1 && gapMs > 0) {
@@ -77,7 +140,7 @@ export type PrintLabelResult = {
   error?: string
 }
 
-/** Open Web Serial and print TSC labels from API results (Generate barcodes / tag split). */
+/** Print TSC labels — uses connected printer port when available. */
 export async function printClientTsplLabels(
   results: PrintLabelResult[],
   hw: ErpHardwareSettings | null,
@@ -88,7 +151,7 @@ export async function printClientTsplLabels(
   if (!clientTspl.length) return 0
 
   if (!webSerialSupported()) {
-    throw new Error('Serial printer needs Chrome or Edge on this PC. Use Hardware → Test print to pick the USB port.')
+    throw new Error('Serial printer needs Chrome or Edge on this PC.')
   }
 
   const profile = hw ? getPrinterProfileById(hw, printerProfileId) : null
@@ -100,14 +163,24 @@ export async function printClientTsplLabels(
   }
 
   const serial = apiProfile?.serial || profile?.serial || DEFAULT_SERIAL
-  const port = await requestUserSerialPort()
-  try {
+  let port = labelPrinterPort
+  let closeAfter = false
+
+  if (!port || !labelPrinterPortOpen) {
+    port = await connectLabelPrinter(serial, false)
+    closeAfter = false
+  } else {
     await openSerialPort(port, serial)
-    await sendTsplBatchOverSerial(port, clientTspl)
-  } finally {
-    await closeSerialPort(port)
   }
-  return clientTspl.length
+
+  try {
+    await sendTsplBatchOverSerial(port, clientTspl)
+    return clientTspl.length
+  } finally {
+    if (closeAfter) {
+      await disconnectLabelPrinter()
+    }
+  }
 }
 
 export function resolvePrinterSerialSettings(

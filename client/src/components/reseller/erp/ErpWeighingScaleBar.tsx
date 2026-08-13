@@ -125,15 +125,10 @@ export function ErpWeighingScaleBar({
       ) : (
         <button type="button" className={erpBtnPrimary} onClick={() => void connect()}>
           <Link2 className="size-4" />
-          Connect scale (pick COM port)
+          Connect scale
         </button>
       )}
       {error ? <span className="text-xs text-red-600">{error}</span> : null}
-      {!connected ? (
-        <span className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-          Essae-style stream · 9600 8-N-1 · same as HyperTerminal
-        </span>
-      ) : null}
     </div>
   )
 }
