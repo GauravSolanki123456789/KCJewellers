@@ -7,46 +7,15 @@ import {
   ErpWorkstationBar,
   useErpWorkstationSelection,
 } from '@/components/reseller/erp/ErpWorkstationBar'
-import { ErpLabelPrinterBar } from '@/components/reseller/erp/ErpLabelPrinterBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import {
-  getPrinterProfileById,
   migrateHardwareSettings,
-  normalizeComPort,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
-import {
-  isLabelPrinterConnected,
-  printClientTsplLabels,
-  resolvePrinterSerialSettings,
-  webSerialSupported,
-} from '@/lib/erp-serial-device'
-import { checkLocalPrintAgent } from '@/lib/erp-local-print'
+import { printStockLabels } from '@/lib/erp-print-labels'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { ArrowLeft, FileSpreadsheet, Loader2, Printer, Trash2, Upload } from 'lucide-react'
-
-type PrintResult = {
-  barcode: string
-  printed: boolean
-  clientPrint?: boolean
-  tspl?: string
-  error?: string
-}
-
-type PrintApiProfile = {
-  id?: string
-  name: string
-  connection: string
-  serial?: {
-    port: string
-    baudRate: number
-    dataBits: 7 | 8
-    parity: 'none' | 'even' | 'odd'
-    stopBits: 1 | 2
-  }
-  windowsPrinter?: { name?: string; portHint?: string }
-}
 
 type Batch = {
   id: string
@@ -122,85 +91,13 @@ export function ErpProductsWorkspace() {
     setPrinting(true)
     setMsg(null)
     try {
-      let hardware = hw
-      if (!hardware) {
-        const settingsRes = await axios.get<{ settings: { hardware?: ErpHardwareSettings } }>(
-          '/api/reseller/erp/settings',
-        )
-        hardware = migrateHardwareSettings(settingsRes.data.settings?.hardware)
-        setHw(hardware)
-      }
-
-      const printerProfile = getPrinterProfileById(hardware, workstation.printerProfileId)
-      const res = await axios.post<{
-        results: PrintResult[]
-        printerConfigured: boolean
-        clientPrintRequired?: boolean
-        printerProfile?: PrintApiProfile | null
-      }>('/api/reseller/erp/print/barcodes', {
-        batch_id: activeBatchId,
-        printer_profile_id: workstation.printerProfileId || printerProfile?.id,
+      const result = await printStockLabels({
+        batchId: activeBatchId,
+        printerProfileId: workstation.printerProfileId,
+        hardware: hw,
       })
-
-      const results = res.data.results || []
-      const clientTspl = results.filter((r) => r.clientPrint && r.tspl)
-
-      if (clientTspl.length > 0 || res.data.clientPrintRequired) {
-        const conn = res.data.printerProfile?.connection || printerProfile?.connection
-        if (conn === 'usb') {
-          if (!(await checkLocalPrintAgent())) {
-            setMsgTone('err')
-            setMsg('Copy erp-print-service folder to Desktop, run START-KC-Label-Print.bat, then try again.')
-            return
-          }
-        } else {
-          if (!webSerialSupported()) {
-            setMsgTone('err')
-            setMsg('Use Chrome or Edge on this PC. Connect the label printer below first.')
-            return
-          }
-          if (!isLabelPrinterConnected()) {
-            setMsgTone('err')
-            setMsg('Connect the label printer below, then tap Generate barcodes again.')
-            return
-          }
-        }
-        const count = await printClientTsplLabels(
-          results,
-          hardware,
-          workstation.printerProfileId,
-          res.data.printerProfile,
-        )
-        setMsgTone('ok')
-        const serial = resolvePrinterSerialSettings(hardware, workstation.printerProfileId, res.data.printerProfile)
-        if (conn === 'usb') {
-          const winName =
-            res.data.printerProfile?.windowsPrinter?.name ||
-            printerProfile?.windowsPrinter?.name ||
-            'TSC TTP-244 Pro'
-          setMsg(`Printed ${count} label(s) · USB · ${winName}.`)
-        } else {
-          setMsg(
-            `Printed ${count} label(s) · ${normalizeComPort(serial.port)} @ ${serial.baudRate} · ${res.data.printerProfile?.name || printerProfile?.name || 'TSC printer'}.`,
-          )
-        }
-        return
-      }
-
-      const ok = results.filter((r) => r.printed).length
-      if (!res.data.printerConfigured && !clientTspl.length) {
-        setMsgTone('err')
-        setMsg('Add a printer in Hardware, save, connect it below, then try again.')
-      } else if (ok) {
-        setMsgTone('ok')
-        setMsg(
-          `Printed ${ok} of ${results.length} label(s)${res.data.printerProfile ? ` · ${res.data.printerProfile.name}` : ''}.`,
-        )
-      } else {
-        const err = results.find((r) => r.error)?.error
-        setMsgTone('err')
-        setMsg(err ? `Print issue: ${err}` : `No labels sent to printer (${results.length} prepared).`)
-      }
+      setMsgTone(result.ok ? 'ok' : 'err')
+      setMsg(result.message)
     } catch (e) {
       setMsgTone('err')
       setMsg(erpErr(e))
@@ -232,7 +129,6 @@ export function ErpProductsWorkspace() {
     return (
       <div className="space-y-4">
         <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
-        <ErpLabelPrinterBar printerProfileId={workstation.printerProfileId} />
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -269,6 +165,7 @@ export function ErpProductsWorkspace() {
           pieces={pieces}
           onSaved={setPieces}
           scaleProfileId={workstation.scaleProfileId}
+          printerProfileId={workstation.printerProfileId}
         />
       </div>
     )

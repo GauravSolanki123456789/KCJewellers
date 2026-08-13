@@ -1059,9 +1059,33 @@ function registerStockPieceRoutes(app, deps) {
                 printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN,
             );
 
+            const rawOverrides = req.body.piece_overrides && typeof req.body.piece_overrides === 'object'
+                ? req.body.piece_overrides
+                : {};
+            function mergePieceOverrides(p) {
+                const ov = rawOverrides[p.id] || rawOverrides[String(p.id)] || null;
+                if (!ov || typeof ov !== 'object') return p;
+                const merged = { ...p };
+                const numFields = [
+                    'avg_weight',
+                    'gross_weight',
+                    'chain_wt_only',
+                    'pendant_wt_only',
+                    'earring_wt_only',
+                ];
+                for (const key of numFields) {
+                    if (ov[key] != null && ov[key] !== '') {
+                        const n = Number(ov[key]);
+                        if (Number.isFinite(n)) merged[key] = n;
+                    }
+                }
+                return merged;
+            }
+
             const results = [];
             for (const p of pieces) {
-                const itemData = buildLabelItemData(p, hw, profile);
+                const piece = mergePieceOverrides(p);
+                const itemData = buildLabelItemData(piece, hw, profile);
                 if (profile?.labelFormat === 'prn' && !printFormats.labelPrnTemplate && !erpPrint.DEFAULT_LABEL_PRN) {
                     results.push({
                         barcode: p.barcode,
@@ -1072,7 +1096,7 @@ function registerStockPieceRoutes(app, deps) {
                     continue;
                 }
                 const tspl = usePrn
-                    ? erpPrint.renderPrnLabel(prnTemplate, p, hw, profile)
+                    ? erpPrint.renderPrnLabel(prnTemplate, piece, hw, profile)
                     : labelPrinter.generateTSPLLabel(itemData);
                 if (printerConfig?.type === 'serial') {
                     results.push({

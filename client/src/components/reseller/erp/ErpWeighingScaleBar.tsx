@@ -110,7 +110,7 @@ export function ErpWeighingScaleBar({
             {liveWeight != null ? `${liveWeight.toFixed(3)} g` : '—'}
           </span>
           <span className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
-            Click a weight cell → put item on scale → Enter to save &amp; next row
+            Weight cell → scale → Enter next row · F1 print label &amp; next row
           </span>
           {onApplyWeight && liveWeight != null ? (
             <button type="button" className={erpBtnPrimary} onClick={() => onApplyWeight(liveWeight)}>

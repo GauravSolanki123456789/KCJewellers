@@ -14,6 +14,7 @@ import {
 import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleBar'
+import { printStockLabels, type PrintLabelPieceOverride } from '@/lib/erp-print-labels'
 import { Check, Loader2, RotateCcw, Save, Trash2 } from 'lucide-react'
 
 const cellCls =
@@ -28,16 +29,47 @@ function cellKey(rowId: number, field: StockEditableField) {
   return `${rowId}:${field}`
 }
 
+function effectiveWeightValue(
+  row: StockRowDraft,
+  field: StockEditableField,
+  scaleFocus: ScaleFocus | null,
+  scaleConnected: boolean,
+  liveWeight: number | null,
+): string {
+  const isFocused =
+    scaleFocus?.rowId === row.id &&
+    scaleFocus.field === field &&
+    scaleConnected &&
+    SCALE_CAPTURE_FIELDS.includes(field)
+  if (isFocused && liveWeight != null && Number.isFinite(liveWeight)) {
+    return liveWeight.toFixed(3)
+  }
+  return row.values[field]?.trim() || ''
+}
+
+function overrideForWeightField(
+  field: StockEditableField,
+  weight: number,
+): PrintLabelPieceOverride {
+  if (field === 'gross_weight') return { gross_weight: weight, avg_weight: weight }
+  if (field === 'chain_wt_only') return { chain_wt_only: weight, avg_weight: weight }
+  if (field === 'pendant_wt_only') return { pendant_wt_only: weight, avg_weight: weight }
+  if (field === 'earring_wt_only') return { earring_wt_only: weight, avg_weight: weight }
+  return { avg_weight: weight }
+}
+
 export function ErpStockExcelEditor({
   batchId,
   pieces,
   onSaved,
   scaleProfileId,
+  printerProfileId,
 }: {
   batchId: string
   pieces: ErpStockPiece[]
   onSaved: (rows: ErpStockPiece[]) => void
   scaleProfileId?: string | null
+  printerProfileId?: string | null
 }) {
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
   const [baseline, setBaseline] = useState<StockRowDraft[]>([])
@@ -50,6 +82,7 @@ export function ErpStockExcelEditor({
   const [liveWeight, setLiveWeight] = useState<number | null>(null)
   const [scaleConnected, setScaleConnected] = useState(false)
   const [scaleFocus, setScaleFocus] = useState<ScaleFocus | null>(null)
+  const [printingLabel, setPrintingLabel] = useState(false)
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
 
   const productNames = useMemo(() => {
@@ -116,14 +149,96 @@ export function ErpStockExcelEditor({
       const nextId = nextScaleRow(rowId, field)
       if (nextId != null) {
         focusCell(nextId, field)
-        setMessage(`Saved ${liveWeight.toFixed(3)} g — next row ready. Press Save edits when done.`)
+        setMessage(`Saved ${liveWeight.toFixed(3)} g — next row ready. Press F1 to print label.`)
       } else {
         setScaleFocus(null)
-        setMessage(`Saved ${liveWeight.toFixed(3)} g — last row. Click Save edits.`)
+        setMessage(`Saved ${liveWeight.toFixed(3)} g — last row. Press F1 to print or Save edits.`)
       }
       return true
     },
     [focusCell, liveWeight, nextScaleRow, setCell],
+  )
+
+  const persistRowWeight = useCallback(
+    async (rowId: number, field: StockEditableField, weightText: string) => {
+      const row = drafts.find((d) => d.id === rowId)
+      if (!row) return
+      const payload = rowDraftToApiPayload({
+        ...row,
+        values: { ...row.values, [field]: weightText },
+      })
+      try {
+        const res = await axios.put<{ pieces: ErpStockPiece[] }>(
+          `/api/reseller/erp/stock-pieces/batches/${batchId}/rows`,
+          { rows: [payload] },
+        )
+        const updated = res.data.pieces || []
+        if (updated.length) {
+          onSaved(updated)
+        }
+      } catch {
+        /* weight stays in draft until Save edits */
+      }
+    },
+    [batchId, drafts, onSaved],
+  )
+
+  const printLabelAndNext = useCallback(
+    async (rowId: number, field: StockEditableField) => {
+      if (printingLabel) return
+      const row = drafts.find((d) => d.id === rowId)
+      if (!row || row.status === 'sold') return
+
+      const weightStr = effectiveWeightValue(row, field, scaleFocus, scaleConnected, liveWeight)
+      const weight = Number(weightStr)
+      if (!weightStr || !Number.isFinite(weight) || weight <= 0) {
+        setError('Enter weight first (scale or type manually), then press F1.')
+        return
+      }
+
+      const weightText = weight.toFixed(3)
+      setCell(rowId, field, weightText)
+      setPrintingLabel(true)
+      setError(null)
+      try {
+        const result = await printStockLabels({
+          pieceIds: [rowId],
+          pieceOverrides: { [rowId]: overrideForWeightField(field, weight) },
+          printerProfileId: printerProfileId ?? null,
+        })
+        if (!result.ok) {
+          setError(result.message)
+          return
+        }
+
+        void persistRowWeight(rowId, field, weightText)
+
+        const nextId = nextScaleRow(rowId, field)
+        if (nextId != null) {
+          focusCell(nextId, field)
+          setMessage(`${result.message} — next row.`)
+        } else {
+          setScaleFocus(null)
+          setMessage(`${result.message} — last row.`)
+        }
+      } catch (e) {
+        setError(erpErr(e))
+      } finally {
+        setPrintingLabel(false)
+      }
+    },
+    [
+      drafts,
+      focusCell,
+      liveWeight,
+      nextScaleRow,
+      persistRowWeight,
+      printerProfileId,
+      printingLabel,
+      scaleConnected,
+      scaleFocus,
+      setCell,
+    ],
   )
 
   const toggleSelect = (id: number) => {
@@ -279,6 +394,12 @@ export function ErpStockExcelEditor({
             {message}
           </span>
         ) : null}
+        {printingLabel ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/55">
+            <Loader2 className="size-3.5 animate-spin" />
+            Printing label…
+          </span>
+        ) : null}
         {error ? <span className="text-xs font-medium text-rose-600">{error}</span> : null}
       </div>
 
@@ -384,6 +505,11 @@ export function ErpStockExcelEditor({
                           }}
                           onChange={(e) => setCell(row.id, col.key, e.target.value)}
                           onKeyDown={(e) => {
+                            if (e.key === 'F1' && isScaleField && !readOnly) {
+                              e.preventDefault()
+                              void printLabelAndNext(row.id, col.key)
+                              return
+                            }
                             if (
                               e.key === 'Enter' &&
                               isScaleField &&
