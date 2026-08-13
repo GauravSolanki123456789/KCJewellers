@@ -148,18 +148,19 @@ export function ErpLabelPrinterBar({ printerProfileId, onConnectionChange }: Pro
         {error ? <span className="w-full text-xs text-red-600">{error}</span> : null}
         {!connected ? (
           <div className="w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2.5 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/70">
-            <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">One-time setup on this PC:</p>
+            <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Start print service on this PC (once per day):</p>
             <ol className="mt-1.5 list-decimal space-y-1 pl-4">
               <li>
-                Open folder <code className="rounded bg-black/5 px-1">KCJewellers/scripts</code>
+                Double-click <strong>KC-ERP-Label-Print-Service.bat</strong> on the Desktop (or in{' '}
+                <code className="rounded bg-black/5 px-1">KCJewellers/scripts</code>)
               </li>
               <li>
-                Double-click <strong>start-erp-print-agent.bat</strong> — keep that window open
+                A black window should say <strong>Listening on http://127.0.0.1:17888/</strong> — leave it open
               </li>
               <li>
-                In Windows Printers, your TSC should show port <strong>USB001</strong> (not Print to File)
+                No Node.js needed — Windows PowerShell only. Printer port must be <strong>USB001</strong> in Windows
               </li>
-              <li>Tap Refresh above, then Generate barcodes</li>
+              <li>Tap Refresh above until it shows Print service ready, then Generate barcodes</li>
             </ol>
           </div>
         ) : null}
