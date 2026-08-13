@@ -79,12 +79,7 @@ async function preprocessSourceForGemini(sourceImagePath, options = {}) {
 
         let outBuf = buf;
         if (idolDarkPrep) {
-            const metaAfter = await sharp(outBuf).metadata();
-            const pw = metaAfter.width || w;
-            const ph = metaAfter.height || h;
-            if (pw > 0 && ph > 0) {
-                outBuf = await softenIdolDomeGlare(sharp, outBuf, pw, ph);
-            }
+            outBuf = await softenIdolDomeGlare(sharp, outBuf);
         }
 
         const outPath = writeTempBuffer(outBuf, '.jpg');
@@ -371,11 +366,16 @@ function resolveOutputLongEdge(options = {}) {
 
 /**
  * Soften harsh vertical/white glare streaks on glass dome (shop lighting copied by AI).
+ * Always reads dimensions from the buffer — never trust caller width/height (stride mismatch corrupts output).
  */
-async function softenIdolDomeGlare(sharp, buffer, w, h) {
+async function softenIdolDomeGlare(sharp, buffer) {
     try {
         const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const w = info.width || 0;
+        const h = info.height || 0;
         const ch = info.channels || 4;
+        if (w < 8 || h < 8 || !data?.length) return buffer;
+
         const cx0 = Math.floor(w * 0.2);
         const cx1 = Math.ceil(w * 0.8);
         const cy0 = Math.floor(h * 0.04);
@@ -384,11 +384,12 @@ async function softenIdolDomeGlare(sharp, buffer, w, h) {
         for (let y = cy0; y < cy1; y += 1) {
             const yNorm = y / h;
             const yWeight = yNorm < 0.62 ? 1 : 0.65;
-            const topBoost = yNorm < 0.35 ? 1.25 : 1;
+            const topBoost = yNorm < 0.35 ? 1.15 : 1;
             for (let x = cx0; x < cx1; x += 1) {
                 const xNorm = Math.abs(x / w - 0.5);
-                const edgeWeight = xNorm > 0.22 && xNorm < 0.42 ? 1.15 : 1;
+                const edgeWeight = xNorm > 0.22 && xNorm < 0.42 ? 1.1 : 1;
                 const i = (y * w + x) * ch;
+                if (i + 2 >= data.length) continue;
                 const r = data[i];
                 const g = data[i + 1];
                 const b = data[i + 2];
@@ -397,12 +398,12 @@ async function softenIdolDomeGlare(sharp, buffer, w, h) {
                 const minC = Math.min(r, g, b);
                 const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
                 const isGlare =
-                    lum > 128 &&
-                    ((lum > 195 && sat < 0.18) ||
-                        (lum > 215 && y < h * 0.68) ||
-                        (lum > 175 && sat < 0.1 && y < h * 0.52));
+                    lum > 132 &&
+                    ((lum > 198 && sat < 0.18) ||
+                        (lum > 218 && y < h * 0.68) ||
+                        (lum > 178 && sat < 0.1 && y < h * 0.52));
                 if (!isGlare) continue;
-                const pull = Math.min(0.9, ((lum - 165) / 50) * yWeight * topBoost * edgeWeight);
+                const pull = Math.min(0.85, ((lum - 168) / 48) * yWeight * topBoost * edgeWeight);
                 data[i] = Math.round(r - (r - 168) * pull);
                 data[i + 1] = Math.round(g - (g - 168) * pull);
                 data[i + 2] = Math.round(b - (b - 172) * pull);
@@ -436,12 +437,17 @@ async function boostIdolSubjectClarity(sharp, buffer, w, h) {
 }
 
 /**
- * Detect horizontal banding / stripe corruption from bad crop+resize passes.
+ * Detect horizontal banding / stripe corruption from bad crop+resize or raw stride bugs.
  */
 async function isCorruptedStudioOutput(sharp, buffer, w, h) {
     try {
-        const sw = Math.min(256, w || 256);
-        const sh = Math.min(256, h || 256);
+        const meta = await sharp(buffer).metadata();
+        const iw = meta.width || w || 0;
+        const ih = meta.height || h || 0;
+        if (iw < 32 || ih < 32) return true;
+
+        const sw = Math.min(256, iw);
+        const sh = Math.min(256, ih);
         const { data, info } = await sharp(buffer)
             .resize(sw, sh, { fit: 'fill' })
             .greyscale()
@@ -452,21 +458,29 @@ async function isCorruptedStudioOutput(sharp, buffer, w, h) {
         if (width < 32 || height < 32) return true;
 
         let horizontalRuns = 0;
-        for (let y = 1; y < height; y += 1) {
+        let lowVarianceRows = 0;
+        for (let y = 0; y < height; y += 1) {
             let similar = 0;
-            for (let x = 0; x < width; x += 2) {
-                const i = y * width + x;
-                const p = (y - 1) * width + x;
-                if (Math.abs(data[i] - data[p]) <= 2) similar += 1;
+            let sum = 0;
+            let sumSq = 0;
+            for (let x = 0; x < width; x += 1) {
+                const v = data[y * width + x];
+                sum += v;
+                sumSq += v * v;
+                if (y > 0 && Math.abs(v - data[(y - 1) * width + x]) <= 3) similar += 1;
             }
-            if (similar > width * 0.45) horizontalRuns += 1;
+            if (y > 0 && similar > width * 0.42) horizontalRuns += 1;
+            const mean = sum / width;
+            const variance = sumSq / width - mean * mean;
+            if (variance < 28) lowVarianceRows += 1;
         }
-        if (horizontalRuns > height * 0.55) return true;
+        if (horizontalRuns > height * 0.45) return true;
+        if (lowVarianceRows > height * 0.72) return true;
 
-        const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
+        const bbox = await detectSubjectBoundingBox(sharp, buffer, iw, ih);
         if (!bbox) return false;
         const aspect = bbox.width / Math.max(1, bbox.height);
-        return aspect > 3.2 || aspect < 1 / 3.2;
+        return aspect > 2.8 || aspect < 1 / 2.8;
     } catch {
         return false;
     }
@@ -563,110 +577,92 @@ async function measureSubjectFillRatio(sharp, buffer, w, h) {
 }
 
 /**
- * Dark cinematic hero framing — auto-zoom subject + luxury backdrop pad.
+ * Dark cinematic hero framing — safe single-pass zoom (no multi-crop that causes stripe corruption).
  */
 async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
     try {
-        let working = buffer;
-        let cw = w;
-        let ch = h;
+        const meta = await sharp(buffer).metadata();
+        const iw = meta.width || w || 0;
+        const ih = meta.height || h || 0;
+        if (iw < 48 || ih < 48) return buffer;
 
-        const bbox = await detectSubjectBoundingBox(sharp, buffer, w, h);
+        let productBuf = buffer;
+        let pw = iw;
+        let ph = ih;
+
+        const bbox = await detectSubjectBoundingBox(sharp, buffer, iw, ih);
         if (bbox) {
-            const fill = Math.max(bbox.width / w, bbox.height / h);
-            if (fill < 0.995) {
-                working = await sharp(buffer)
-                    .extract({ left: bbox.left, top: bbox.top, width: bbox.width, height: bbox.height })
-                    .toBuffer();
-                cw = bbox.width;
-                ch = bbox.height;
-            }
-        } else {
-            const margin = Math.round(Math.min(w, h) * 0.06);
-            if (w > margin * 4 && h > margin * 4) {
-                working = await sharp(buffer)
+            const fill = Math.max(bbox.width / iw, bbox.height / ih);
+            const aspect = bbox.width / Math.max(1, bbox.height);
+            if (
+                fill < 0.9 &&
+                bbox.width >= 64 &&
+                bbox.height >= 64 &&
+                aspect <= 2.4 &&
+                aspect >= 1 / 2.4
+            ) {
+                productBuf = await sharp(buffer)
                     .extract({
-                        left: margin,
-                        top: margin,
-                        width: w - margin * 2,
-                        height: h - margin * 2,
+                        left: bbox.left,
+                        top: bbox.top,
+                        width: bbox.width,
+                        height: bbox.height,
                     })
                     .toBuffer();
-                cw = w - margin * 2;
-                ch = h - margin * 2;
+                const cropMeta = await sharp(productBuf).metadata();
+                pw = cropMeta.width || bbox.width;
+                ph = cropMeta.height || bbox.height;
             }
         }
 
-        const trimmed = await sharp(working).trim({ threshold: 10 }).toBuffer({ resolveWithObject: true });
-        let productBuf = trimmed.data;
-        let productW = trimmed.info.width || cw;
-        let productH = trimmed.info.height || ch;
-        if (productW < 48 || productH < 48) return buffer;
-        const productAspect = productW / Math.max(1, productH);
-        if (productAspect > 3.5 || productAspect < 1 / 3.5) return buffer;
+        const trimmed = await sharp(productBuf).trim({ threshold: 10 }).toBuffer({ resolveWithObject: true });
+        productBuf = trimmed.data;
+        pw = trimmed.info.width || pw;
+        ph = trimmed.info.height || ph;
+        if (pw < 48 || ph < 48) return buffer;
+        const productAspect = pw / Math.max(1, ph);
+        if (productAspect > 2.6 || productAspect < 1 / 2.6) return buffer;
 
-        let targetFill = targetSize >= 4096 ? 0.995 : targetSize >= 2048 ? 0.993 : 0.985;
-        let framed = productBuf;
+        const targetFill = targetSize >= 4096 ? 0.92 : targetSize >= 2048 ? 0.9 : 0.86;
+        const long = Math.max(pw, ph);
+        const canvas = Math.max(long, Math.round(long / targetFill));
+        const padX = Math.max(0, Math.round((canvas - pw) / 2));
+        const padY = Math.max(0, Math.round((canvas - ph) / 2));
+        const padBg = { r: 18, g: 24, b: 34, alpha: 1 };
 
-        for (let pass = 0; pass < 3; pass += 1) {
-            const long = Math.max(productW, productH);
-            const canvas = Math.round(long / targetFill);
-            const padX = Math.max(0, Math.round((canvas - productW) / 2));
-            const padY = Math.max(0, Math.round((canvas - productH) / 2));
+        let framed = await sharp(productBuf)
+            .extend({
+                top: padY,
+                bottom: padY,
+                left: padX,
+                right: padX,
+                background: padBg,
+            })
+            .resize(targetSize, targetSize, {
+                fit: 'contain',
+                background: padBg,
+                kernel: sharp.kernel.lanczos3,
+            })
+            .toBuffer();
 
-            framed = await sharp(productBuf)
-                .extend({
-                    top: padY,
-                    bottom: padY,
-                    left: padX,
-                    right: padX,
-                    background: { r: 18, g: 24, b: 34, alpha: 1 },
-                })
-                .resize(targetSize, targetSize, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
-                .toBuffer();
-
-            const fillAfter = await measureSubjectFillRatio(sharp, framed, targetSize, targetSize);
-            if (fillAfter >= 0.975 || pass === 2) break;
-
-            const bbox2 = await detectSubjectBoundingBox(sharp, framed, targetSize, targetSize);
-            if (!bbox2) break;
-            const fill2 = Math.max(bbox2.width / targetSize, bbox2.height / targetSize);
-            if (fill2 >= 0.975) break;
-
-            productBuf = await sharp(framed)
-                .extract({
-                    left: bbox2.left,
-                    top: bbox2.top,
-                    width: bbox2.width,
-                    height: bbox2.height,
-                })
-                .toBuffer();
-            const meta2 = await sharp(productBuf).metadata();
-            productW = meta2.width || bbox2.width;
-            productH = meta2.height || bbox2.height;
-            targetFill = Math.min(0.995, targetFill + 0.02);
-        }
+        framed = await softenIdolDomeGlare(sharp, framed);
+        framed = await boostIdolSubjectClarity(sharp, framed);
+        framed = await sharp(framed)
+            .sharpen({ sigma: 0.34, m1: 0.48, m2: 0.22 })
+            .toBuffer();
 
         const fw = targetSize;
         const fh = targetSize;
-
-        framed = await softenIdolDomeGlare(sharp, framed, fw, fh);
-        framed = await boostIdolSubjectClarity(sharp, framed, fw, fh);
-        framed = await sharp(framed)
-            .sharpen({ sigma: 0.38, m1: 0.52, m2: 0.24 })
-            .toBuffer();
-
-        // Radial spotlight glow behind product (reference catalogue look)
         const glowSvg = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="glow" cx="50%" cy="44%" r="52%">
-      <stop offset="0%" stop-color="#3a4a62" stop-opacity="0.55"/>
-      <stop offset="45%" stop-color="#1e2838" stop-opacity="0.28"/>
+      <stop offset="0%" stop-color="#3a4a62" stop-opacity="0.45"/>
+      <stop offset="45%" stop-color="#1e2838" stop-opacity="0.22"/>
       <stop offset="100%" stop-color="#0a0e14" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="vig" cx="50%" cy="42%" r="78%">
       <stop offset="55%" stop-color="#000" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#000" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.28"/>
     </radialGradient>
   </defs>
   <rect width="100%" height="100%" fill="url(#glow)"/>
@@ -676,22 +672,13 @@ async function applyIdolHeroFraming(sharp, buffer, w, h, targetSize = 2048) {
             .composite([{ input: Buffer.from(glowSvg), blend: 'screen' }])
             .toBuffer();
 
-        const glassMask = `<svg width="${fw}" height="${fh}" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <radialGradient id="g" cx="50%" cy="48%" r="46%">
-      <stop offset="0%" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="72%" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#fff" stop-opacity="0.14"/>
-    </radialGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="url(#g)"/>
-</svg>`;
-        framed = await sharp(framed)
-            .composite([{ input: Buffer.from(glassMask), blend: 'soft-light' }])
-            .toBuffer();
+        if (await isCorruptedStudioOutput(sharp, framed, fw, fh)) {
+            console.warn('idol hero framing rejected — corrupt output, keeping Gemini original');
+            return buffer;
+        }
 
         const finalFill = await measureSubjectFillRatio(sharp, framed, fw, fh);
-        if (finalFill < 0.12) {
+        if (finalFill < 0.15) {
             console.warn('idol hero framing rejected — subject too small, keeping original');
             return buffer;
         }
@@ -751,8 +738,8 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
                 baseBuf = preFraming;
                 w = preW;
                 h = preH;
-                baseBuf = await softenIdolDomeGlare(sharp, baseBuf, w, h);
-                baseBuf = await boostIdolSubjectClarity(sharp, baseBuf, w, h);
+                baseBuf = await softenIdolDomeGlare(sharp, baseBuf);
+                baseBuf = await boostIdolSubjectClarity(sharp, baseBuf);
             }
         } else if (profile !== 'kada' && !fastMode) {
             baseBuf = await smoothBackdropKeepProductSharp(sharp, baseBuf, w, h);
@@ -831,6 +818,11 @@ async function postprocessStudioOutput(buffer, mimeType = 'image/png', options =
         }
 
         const out = await pipeline.composite(composites).png({ compressionLevel: 6, quality: 100, effort: 7 }).toBuffer();
+
+        if (profile === 'idol' && (await isCorruptedStudioOutput(sharp, out, w, h))) {
+            console.warn('idol postprocess: final output corrupt — returning pre-postprocess buffer');
+            return { buffer, mimeType };
+        }
 
         return { buffer: out, mimeType: 'image/png' };
     } catch (e) {

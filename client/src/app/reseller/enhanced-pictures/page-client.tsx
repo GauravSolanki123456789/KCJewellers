@@ -1166,7 +1166,7 @@ export default function ResellerEnhancedPicturesPageClient() {
             onOverlayChange={setOverlaySettings}
             generationOptions={generationOptions}
             onGenerationChange={setGenerationOptions}
-            previewImageUrl={showcaseResultUrl || sourcePreview}
+            previewImageUrl={resultUrl || sourcePreview || showcaseResultUrl}
             previewLines={previewOverlayLines}
             onStatus={setAttachMsg}
           />

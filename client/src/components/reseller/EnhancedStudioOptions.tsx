@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { ImagePlus, Sparkles, Type, Upload, Box, Landmark, Hand, MoveVertical, Minus, CircleDot } from 'lucide-react'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
 import { useSaveFeedback } from '@/hooks/useSaveFeedback'
@@ -147,7 +147,12 @@ export default function EnhancedStudioOptions({
   autoPersist = true,
   adminPersistUserId,
 }: Props) {
+  const [previewBroken, setPreviewBroken] = useState(false)
   const saveFb = useSaveFeedback()
+
+  useEffect(() => {
+    setPreviewBroken(false)
+  }, [previewImageUrl])
   const [uploading, setUploading] = useState(false)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -536,13 +541,20 @@ export default function EnhancedStudioOptions({
           className="relative mx-auto aspect-square max-w-sm overflow-hidden rounded-xl"
           style={backgroundPreviewStyle(generationOptions.backgroundPreset)}
         >
-          {previewImageUrl ? (
+          {previewImageUrl && !previewBroken ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={previewImageUrl}
               alt="Preview"
               className="size-full object-contain p-2"
+              onError={() => setPreviewBroken(true)}
             />
+          ) : previewImageUrl && previewBroken ? (
+            <div className="flex size-full flex-col items-center justify-center gap-2 p-4 text-center">
+              <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Preview unavailable — generate a fresh studio shot below
+              </p>
+            </div>
           ) : (
             <div className="flex size-full flex-col items-center justify-center gap-2 p-4 text-center">
               {(() => {
