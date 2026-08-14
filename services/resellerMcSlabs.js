@@ -165,13 +165,30 @@ function productWeightGm(product) {
     return parsed != null && parsed > 0 ? parsed : null;
 }
 
+function normCatalogKey(raw) {
+    return String(raw || '')
+        .trim()
+        .toUpperCase()
+        .replace(/-/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/[^A-Z0-9 /_]/g, '');
+}
+
+function isSkuWildcard(rowSku) {
+    const t = normKey(rowSku);
+    return !t || t === 'ALL' || t === '*' || t === 'ANY' || t === 'ALL SKUS' || t === 'ALL SKU';
+}
+
 function skuMatches(rowSku, product) {
+    if (isSkuWildcard(rowSku)) return true;
     const target = normKey(rowSku);
     if (!target) return false;
     const candidates = [
         product?.subcategory_name,
         product?.subcategory_slug,
         product?.sku,
+        product?.design_group,
+        product?.barcode,
     ]
         .map((x) => normKey(x))
         .filter(Boolean);
@@ -183,10 +200,30 @@ function skuMatches(rowSku, product) {
 }
 
 function styleMatches(rowStyle, product) {
-    const target = normKey(rowStyle);
+    const target = normCatalogKey(rowStyle);
     if (!target) return false;
-    const style = normKey(product?.style_name || product?.style_code);
-    return style === target || style.includes(target) || target.includes(style);
+    const styleSlug = String(rowStyle || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '-');
+    const subSlug = String(product?.subcategory_slug || '').trim().toLowerCase();
+    if (styleSlug && subSlug && subSlug.includes(styleSlug)) return true;
+
+    const candidates = [
+        product?.style_name,
+        product?.style_code,
+        product?.subcategory_name,
+        product?.subcategory_slug,
+        product?.category_name,
+        product?.design_group,
+    ]
+        .map((x) => normCatalogKey(x))
+        .filter(Boolean);
+    for (const c of candidates) {
+        if (c === target) return true;
+        if (c.includes(target) || target.includes(c)) return true;
+    }
+    return false;
 }
 
 function metalMatches(rowMetal, product) {
@@ -206,6 +243,9 @@ function lookupUploadedMcRate(rows, product, slabKey) {
     const weight = productWeightGm(product);
     if (weight == null) return null;
 
+    let best = null;
+    let bestScore = -1;
+
     for (const row of rows) {
         if (!styleMatches(row.styleCode, product)) continue;
         if (!skuMatches(row.sku, product)) continue;
@@ -213,13 +253,22 @@ function lookupUploadedMcRate(rows, product, slabKey) {
         if (weight < row.wtFrom || weight > row.wtTo) continue;
         const mc = row.rates?.[key];
         if (mc == null) continue;
-        return {
-            mc,
-            mcType: row.mcType || 'MC/GM',
-            slabKey: key,
-        };
+
+        let score = 0;
+        if (!isSkuWildcard(row.sku)) score += 100;
+        const span = Math.max(0.001, row.wtTo - row.wtFrom);
+        score += Math.max(0, 50 - Math.min(span, 50));
+
+        if (score > bestScore) {
+            bestScore = score;
+            best = {
+                mc,
+                mcType: row.mcType || 'MC/GM',
+                slabKey: key,
+            };
+        }
     }
-    return null;
+    return best;
 }
 
 function slabOptionsFromRows(rows) {

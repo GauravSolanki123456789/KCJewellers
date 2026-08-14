@@ -50,20 +50,54 @@ function parseWeightGm(product: SharedCatalogPublicProduct | null | undefined): 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+function normCatalogKey(raw: string | null | undefined): string {
+  return String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+}
+
+function isSkuWildcard(rowSku: string): boolean {
+  const t = normKey(rowSku)
+  return !t || t === 'ALL' || t === '*' || t === 'ANY' || t === 'ALL SKUS' || t === 'ALL SKU'
+}
+
 function skuMatches(rowSku: string, product: SharedCatalogPublicProduct): boolean {
+  if (isSkuWildcard(rowSku)) return true
   const target = normKey(rowSku)
   if (!target) return false
-  const candidates = [product.subcategory_name, product.subcategory_slug, product.sku]
+  const candidates = [
+    product.subcategory_name,
+    product.subcategory_slug,
+    product.sku,
+    product.design_group,
+    product.barcode,
+  ]
     .map((x) => normKey(String(x ?? '')))
     .filter(Boolean)
   return candidates.some((c) => c === target || c.includes(target) || target.includes(c))
 }
 
 function styleMatches(rowStyle: string, product: SharedCatalogPublicProduct): boolean {
-  const target = normKey(rowStyle)
+  const target = normCatalogKey(rowStyle)
   if (!target) return false
-  const style = normKey(String(product.style_name || ''))
-  return style === target || style.includes(target) || target.includes(style)
+  const styleSlug = String(rowStyle || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+  const subSlug = String(product.subcategory_slug || '').trim().toLowerCase()
+  if (styleSlug && subSlug && subSlug.includes(styleSlug)) return true
+
+  const candidates = [
+    product.style_name,
+    product.subcategory_name,
+    product.subcategory_slug,
+    product.design_group,
+  ]
+    .map((x) => normCatalogKey(String(x ?? '')))
+    .filter(Boolean)
+  return candidates.some((c) => c === target || c.includes(target) || target.includes(c))
 }
 
 function metalMatches(rowMetal: string | null | undefined, product: SharedCatalogPublicProduct): boolean {
@@ -85,6 +119,9 @@ export function lookupUploadedMcRate(
   const weight = parseWeightGm(product)
   if (weight == null) return null
 
+  let best: UploadedMcLookup | null = null
+  let bestScore = -1
+
   for (const row of rows) {
     if (!styleMatches(row.styleCode, product)) continue
     if (!skuMatches(row.sku, product)) continue
@@ -92,13 +129,22 @@ export function lookupUploadedMcRate(
     if (weight < row.wtFrom || weight > row.wtTo) continue
     const mc = row.rates?.[key]
     if (mc == null || !Number.isFinite(Number(mc))) continue
-    return {
-      mc: Number(mc),
-      mcType: row.mcType || 'MC/GM',
-      slabKey: key,
+
+    let score = 0
+    if (!isSkuWildcard(row.sku)) score += 100
+    const span = Math.max(0.001, row.wtTo - row.wtFrom)
+    score += Math.max(0, 50 - Math.min(span, 50))
+
+    if (score > bestScore) {
+      bestScore = score
+      best = {
+        mc: Number(mc),
+        mcType: row.mcType || 'MC/GM',
+        slabKey: key,
+      }
     }
   }
-  return null
+  return best
 }
 
 export function slabOptionsFromUploadedRows(rows: UploadedMcSlabRow[]): UploadedMcSlabOption[] {

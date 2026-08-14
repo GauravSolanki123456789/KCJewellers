@@ -1,11 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import {
-  BILL_TEMPLATE_VARS,
   DEFAULT_BILL_TEMPLATE,
   DEFAULT_LABEL_PRN,
   DEFAULT_LABEL_PRN_GOLD,
@@ -15,17 +13,16 @@ import {
   isPrnTemplateLikelyCorrupted,
   LABEL_RULE_FIELD_KEYS,
   LABEL_RULE_FIELD_LABELS,
-  LABEL_TEMPLATE_VARS,
   migratePrintFormats,
   newRuleId,
   normalizePrnTemplate,
+  preserveBillTemplate,
   preservePrnTemplate,
   suggestPrnPlaceholders,
   type ErpPrintFormatsSettings,
   type LabelPrnRule,
   type LabelRuleFieldKey,
 } from '@/lib/erp-print-templates'
-import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ChevronDown, ChevronUp, FileText, Loader2, Plus, RotateCcw, Save, Tag, Trash2, Upload, Wand2 } from 'lucide-react'
 
 export function ErpPrintFormatsWorkspace() {
@@ -56,7 +53,7 @@ export function ErpPrintFormatsWorkspace() {
           ...rule,
           template: preservePrnTemplate(rule.template),
         })),
-        billTemplate: preservePrnTemplate(pf.billTemplate),
+        billTemplate: preserveBillTemplate(pf.billTemplate),
       })
       await axios.put('/api/reseller/erp/settings', { settings: { printFormats: payload } })
       setPf(payload)
@@ -167,16 +164,7 @@ export function ErpPrintFormatsWorkspace() {
   return (
     <div className="space-y-4">
       <div className={erpCardCls}>
-        <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-          Edit templates like Notepad — use <code className="rounded bg-black/5 px-1">{`{{variable}}`}</code>{' '}
-          placeholders. Your TSC TTP-244 uses the label PRN below. Epson TM receipt uses the bill template.
-          Printer IPs/COM ports are set in{' '}
-          <Link href={resellerErpModulePath('hardware')} className="font-semibold text-[var(--kc-accent,#c41e3a)]">
-            Hardware
-          </Link>
-          .
-        </p>
-        <div className="mt-3 flex gap-2">
+        <div className="flex gap-2">
           <button
             type="button"
             className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
@@ -206,23 +194,6 @@ export function ErpPrintFormatsWorkspace() {
 
       {tab === 'label' ? (
         <>
-          <div className={erpCardCls}>
-            <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-              How to use your .prn file
-            </p>
-            <ol className="list-decimal space-y-1 pl-4 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-              <li>Upload your existing <strong>prnfile.prn</strong> below (or paste into the box).</li>
-              <li>
-                Replace fixed sample values with placeholders — e.g.{' '}
-                <code className="rounded bg-black/5 px-1">PLT-66626</code> →{' '}
-                <code className="rounded bg-black/5 px-1">{`{{barcode}}`}</code>,{' '}
-                <code className="rounded bg-black/5 px-1">BMS</code> →{' '}
-                <code className="rounded bg-black/5 px-1">{`{{company_code}}`}</code>.
-              </li>
-              <li>Keep SIZE, GAP, TEXT x,y and QRCODE lines — only change the quoted text inside.</li>
-              <li>Save print formats → enable smart rules (optional) → Hardware → set TSC to PRN → Products → Generate barcodes or F1 per row.</li>
-            </ol>
-          </div>
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
@@ -281,35 +252,18 @@ export function ErpPrintFormatsWorkspace() {
               </div>
             ) : null}
             <textarea
-              className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed`}
+              className={`${erpInputCls} min-h-[320px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
               value={pf.labelPrnTemplate || ''}
               onChange={(e) => setPf((p) => ({ ...p, labelPrnTemplate: e.target.value }))}
               spellCheck={false}
             />
-            <p className="mt-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/45">
-              Variables: {LABEL_TEMPLATE_VARS.map((v) => `{{${v}}}`).join(', ')}. These map to ERP
-              product columns — e.g. <code className="rounded bg-black/5 px-1">{`{{barcode}}`}</code>{' '}
-              = Barcode, <code className="rounded bg-black/5 px-1">{`{{net_weight}}`}</code> /{' '}
-              <code className="rounded bg-black/5 px-1">{`{{avg_weight}}`}</code> = Wt (g). Add wastage &amp;
-              MC lines like{' '}
-              <code className="rounded bg-black/5 px-1">V.A : {`{{wastage_pct}}`}</code> and{' '}
-              <code className="rounded bg-black/5 px-1">MC: {`{{mc_rate}}`}</code>. Blank lines at the top are kept
-              when you save.
-            </p>
           </div>
 
           <div className={erpCardCls}>
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  Smart label rules
-                </p>
-                <p className="mt-1 max-w-xl text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-                  Pick the PRN automatically by metal type and which Excel columns have values (gross, bag weight,
-                  stone charges, etc.). Higher priority rules are checked first. If no rule matches, the default
-                  template above is used.
-                </p>
-              </div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Smart label rules
+              </p>
               <div className="flex flex-wrap gap-2">
                 {!pf.labelPrnRules?.length ? (
                   <button type="button" className={erpBtnPrimary} onClick={enableSmartRules}>
@@ -352,12 +306,7 @@ export function ErpPrintFormatsWorkspace() {
               }}
             />
 
-            {!pf.labelPrnRules?.length ? (
-              <p className="rounded-xl border border-dashed border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-4 py-6 text-center text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-                Tap <strong className="text-[var(--color-jewelry-black,#1a1814)]">Enable smart rules</strong> to
-                add Gold, Silver, and Silver-with-extras templates — then edit each PRN here.
-              </p>
-            ) : (
+            {!pf.labelPrnRules?.length ? null : (
               <div className="space-y-3">
                 {[...(pf.labelPrnRules || [])]
                   .sort((a, b) => b.priority - a.priority)
@@ -610,21 +559,12 @@ export function ErpPrintFormatsWorkspace() {
                 Reset sample
               </button>
             </div>
-            <p className="mb-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Plain-text receipt for Epson TM at{' '}
-              <code className="rounded bg-black/5 px-1">192.168.0.198:9100</code>. Edit like Notepad — after Save
-              bill, tap <strong>Print receipt (Epson)</strong>.
-            </p>
             <textarea
-              className={`${erpInputCls} min-h-[280px] font-mono text-[11px] leading-relaxed`}
+              className={`${erpInputCls} min-h-[280px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
               value={pf.billTemplate || ''}
               onChange={(e) => setPf((p) => ({ ...p, billTemplate: e.target.value }))}
               spellCheck={false}
             />
-            <p className="mt-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-              Variables: {BILL_TEMPLATE_VARS.map((v) => `{{${v}}}`).join(', ')} —{' '}
-              <code className="rounded bg-black/5 px-1">{`{{lines_table}}`}</code> expands each scanned line.
-            </p>
           </div>
         </>
       )}

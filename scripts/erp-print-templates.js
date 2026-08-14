@@ -333,8 +333,16 @@ function formatTsplLineEndings(tspl) {
     return `${body.split('\n').join('\r\n')}\r\n`;
 }
 
-function renderTemplate(template, vars) {
-    let out = normalizePrnTemplate(String(template || ''));
+function preserveMultilineTemplate(raw) {
+    if (raw == null) return '';
+    return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function renderTemplate(template, vars, opts) {
+    const plainText = opts && opts.plainText;
+    let out = plainText
+        ? preserveMultilineTemplate(template)
+        : normalizePrnTemplate(String(template || ''));
     const entries = Object.entries(vars || {});
     for (const [key, val] of entries) {
         const replacement = key === 'lines_table' ? String(val ?? '') : tsplSafe(val);
@@ -489,7 +497,7 @@ function textToEscPos(text) {
 
 function renderBillEscPos(template, bill, printFormats, rates) {
     const vars = buildBillTemplateVars(bill, printFormats, rates);
-    const body = renderTemplate(template || DEFAULT_BILL_TEMPLATE, vars);
+    const body = renderTemplate(template || DEFAULT_BILL_TEMPLATE, vars, { plainText: true });
     return textToEscPos(body);
 }
 

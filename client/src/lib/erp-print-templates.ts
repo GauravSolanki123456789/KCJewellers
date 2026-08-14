@@ -252,20 +252,28 @@ export function migrateLabelPrnRules(pf: ErpPrintFormatsSettings | null | undefi
     .sort((a, b) => (b.priority || 0) - (a.priority || 0))
 }
 
+export function preservePrnTemplate(raw: string | null | undefined): string {
+  if (raw == null) return ''
+  return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
+/** Preserve Epson receipt line breaks and blank lines — never run PRN repair logic. */
+export function preserveBillTemplate(raw: string | null | undefined): string {
+  return preservePrnTemplate(raw)
+}
+
 export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefined): ErpPrintFormatsSettings {
   const pf: ErpPrintFormatsSettings = { ...(raw || {}) }
   pf.labelPrnTemplate = normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN)
   pf.labelPrnRules = migrateLabelPrnRules(pf)
-  if (!pf.billTemplate?.trim()) pf.billTemplate = DEFAULT_BILL_TEMPLATE
+  if (pf.billTemplate?.trim()) {
+    pf.billTemplate = preserveBillTemplate(pf.billTemplate)
+  } else {
+    pf.billTemplate = DEFAULT_BILL_TEMPLATE
+  }
   if (pf.labelUsePrn == null) pf.labelUsePrn = true
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
-}
-
-/** Normalize line endings only — keeps leading blank lines and empty TEXT rows. */
-export function preservePrnTemplate(raw: string | null | undefined): string {
-  if (raw == null) return ''
-  return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
 function repairCorruptedPrnTemplate(raw: string): string {
