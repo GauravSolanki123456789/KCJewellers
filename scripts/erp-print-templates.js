@@ -2,7 +2,7 @@
  * ERP print templates — TSC PRN labels & Epson receipt bills.
  */
 
-const DEFAULT_LABEL_PRN = `
+const DEFAULT_LABEL_PRN_SILVER = `
 SIZE 92.5 mm, 15 mm
 GAP 3 mm, 0 mm
 DIRECTION 0,0
@@ -26,6 +26,211 @@ TEXT 738,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
 `.trim();
+
+const DEFAULT_LABEL_PRN_GOLD = `
+SIZE 92.5 mm, 15 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 720,101,"ROMAN.TTF",180,1,8,"{{product_name}}"
+TEXT 720,77,"ROMAN.TTF",180,1,8,"NWT:"
+TEXT 648,77,"ROMAN.TTF",180,1,9,"{{net_weight}}"
+TEXT 720,53,"ROMAN.TTF",180,1,8,"GWT:"
+TEXT 648,53,"ROMAN.TTF",180,1,9,"{{gross_weight}}"
+TEXT 720,29,"ROMAN.TTF",180,1,8,"MC:"
+TEXT 648,29,"ROMAN.TTF",180,1,9,"{{mc_rate}}"
+TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
+TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
+TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 720,21,"ROMAN.TTF",180,1,8,""
+QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+PRINT 1,1
+`.trim();
+
+const DEFAULT_LABEL_PRN_SILVER_EXTRAS = `
+SIZE 92.5 mm, 15 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 738,101,"ROMAN.TTF",180,1,8,"{{product_name}}"
+TEXT 738,77,"ROMAN.TTF",180,1,8,"GWT:"
+TEXT 666,77,"ROMAN.TTF",180,1,9,"{{gross_weight}}"
+TEXT 738,53,"ROMAN.TTF",180,1,8,"NWT:"
+TEXT 666,53,"ROMAN.TTF",180,1,9,"{{net_weight}}"
+TEXT 738,29,"ROMAN.TTF",180,1,8,"V.A:"
+TEXT 666,29,"ROMAN.TTF",180,1,9,"{{wastage_pct}}"
+TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
+TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
+TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 738,21,"ROMAN.TTF",180,1,8,""
+QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+PRINT 1,1
+`.trim();
+
+/** Legacy alias — silver standard layout. */
+const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER;
+
+const LABEL_RULE_FIELD_KEYS = [
+    'gross_weight',
+    'bag_wt',
+    'stone_charges',
+    'wastage_pct',
+    'mc_rate',
+    'bags',
+    'box_charges',
+];
+
+function newRuleId() {
+    return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function buildDefaultLabelPrnRules(fallbackTemplate) {
+    const silverFallback = normalizePrnTemplate(fallbackTemplate || DEFAULT_LABEL_PRN_SILVER);
+    return [
+        {
+            id: 'silver-extras',
+            name: 'Silver · gross / bag / stone',
+            enabled: true,
+            priority: 30,
+            metalTypes: ['SILVER'],
+            requireAny: ['gross_weight', 'bag_wt', 'stone_charges'],
+            requireAll: [],
+            requireNone: [],
+            template: DEFAULT_LABEL_PRN_SILVER_EXTRAS,
+        },
+        {
+            id: 'gold',
+            name: 'Gold',
+            enabled: true,
+            priority: 20,
+            metalTypes: ['GOLD'],
+            requireAny: [],
+            requireAll: [],
+            requireNone: [],
+            template: DEFAULT_LABEL_PRN_GOLD,
+        },
+        {
+            id: 'silver-standard',
+            name: 'Silver · standard',
+            enabled: true,
+            priority: 10,
+            metalTypes: ['SILVER'],
+            requireAny: [],
+            requireAll: [],
+            requireNone: [],
+            template: silverFallback,
+        },
+    ];
+}
+
+function normalizeMetalType(raw) {
+    return String(raw || '')
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, ' ');
+}
+
+function metalTypeMatches(piece, metalTypes) {
+    if (!Array.isArray(metalTypes) || !metalTypes.length) return true;
+    const m = normalizeMetalType(piece?.metal_type);
+    if (!m) return false;
+    return metalTypes.some((t) => {
+        const T = normalizeMetalType(t);
+        if (!T) return false;
+        if (m === T) return true;
+        if (m.includes(T) || T.includes(m)) return true;
+        if (T === 'GOLD' && m.includes('GOLD')) return true;
+        if (T === 'SILVER' && m.includes('SILVER')) return true;
+        return false;
+    });
+}
+
+function pieceFieldHasValue(piece, field) {
+    if (!piece || !field) return false;
+    const v = piece[field];
+    if (v == null || v === '') return false;
+    if (typeof v === 'number') return Number.isFinite(v) && v !== 0;
+    const s = String(v).trim();
+    if (!s) return false;
+    const n = Number(s);
+    if (Number.isFinite(n) && n === 0) return false;
+    return true;
+}
+
+function ruleMatchesPiece(piece, rule) {
+    if (!rule || rule.enabled === false) return false;
+    if (!metalTypeMatches(piece, rule.metalTypes)) return false;
+    for (const f of rule.requireAll || []) {
+        if (!pieceFieldHasValue(piece, f)) return false;
+    }
+    const any = rule.requireAny || [];
+    if (any.length && !any.some((f) => pieceFieldHasValue(piece, f))) return false;
+    for (const f of rule.requireNone || []) {
+        if (pieceFieldHasValue(piece, f)) return false;
+    }
+    return true;
+}
+
+function migrateLabelPrnRules(printFormats) {
+    const pf = printFormats || {};
+    const raw = pf.labelPrnRules;
+    if (!Array.isArray(raw) || !raw.length) return [];
+    return raw
+        .map((rule) => ({
+            id: String(rule.id || newRuleId()),
+            name: String(rule.name || 'Label rule').trim() || 'Label rule',
+            enabled: rule.enabled !== false,
+            priority: Number(rule.priority) || 0,
+            metalTypes: Array.isArray(rule.metalTypes)
+                ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
+                : [],
+            requireAny: Array.isArray(rule.requireAny)
+                ? rule.requireAny.map((f) => String(f).trim()).filter(Boolean)
+                : [],
+            requireAll: Array.isArray(rule.requireAll)
+                ? rule.requireAll.map((f) => String(f).trim()).filter(Boolean)
+                : [],
+            requireNone: Array.isArray(rule.requireNone)
+                ? rule.requireNone.map((f) => String(f).trim()).filter(Boolean)
+                : [],
+            template: normalizePrnTemplate(rule.template || pf.labelPrnTemplate || DEFAULT_LABEL_PRN),
+        }))
+        .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+}
+
+function resolveLabelPrnTemplate(piece, printFormats) {
+    const pf = printFormats || {};
+    const rules = migrateLabelPrnRules(pf);
+    for (const rule of rules) {
+        if (ruleMatchesPiece(piece, rule)) {
+            return {
+                template: normalizePrnTemplate(rule.template || pf.labelPrnTemplate || DEFAULT_LABEL_PRN),
+                ruleId: rule.id,
+                ruleName: rule.name,
+            };
+        }
+    }
+    return {
+        template: normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN),
+        ruleId: null,
+        ruleName: 'Default',
+    };
+}
 
 const DEFAULT_BILL_TEMPLATE = `
 ================================
@@ -150,6 +355,12 @@ function formatWastage(piece) {
     return n.toFixed(2);
 }
 
+function formatOptionalNumber(piece, field, decimals = 2) {
+    const n = Number(piece?.[field]);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n.toFixed(decimals);
+}
+
 function buildLabelTemplateVars(piece, hw, profile) {
     const companyCode = profile?.companyCode || hw?.companyCode || 'BMS925';
     const net =
@@ -174,6 +385,14 @@ function buildLabelTemplateVars(piece, hw, profile) {
         metal_type: String(piece.metal_type || 'SILVER').toUpperCase(),
         pcs: String(piece.pcs || 1),
         bags: String(piece.bags || '').trim(),
+        bag_wt: piece.bag_wt != null && Number.isFinite(Number(piece.bag_wt))
+            ? Number(piece.bag_wt).toFixed(3)
+            : '',
+        stone_charges: formatOptionalNumber(piece, 'stone_charges', 2),
+        box_charges: formatOptionalNumber(piece, 'box_charges', 2),
+        purity: piece.purity != null && String(piece.purity).trim() !== ''
+            ? String(piece.purity).trim()
+            : '',
     };
 }
 
@@ -200,6 +419,12 @@ function buildLabelTemplateVarsFromItemData(itemData) {
 function renderPrnLabel(template, piece, hw, profile) {
     const vars = buildLabelTemplateVars(piece, hw, profile);
     return renderTemplate(template || DEFAULT_LABEL_PRN, vars);
+}
+
+function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
+    const resolved = resolveLabelPrnTemplate(piece, printFormats);
+    const tspl = renderPrnLabel(resolved.template, piece, hw, profile);
+    return { tspl, ...resolved };
 }
 
 function buildLinesTable(lines, lineWidth = 32) {
@@ -293,11 +518,22 @@ function shouldUsePrnTemplate(profile, printFormats) {
 
 module.exports = {
     DEFAULT_LABEL_PRN,
+    DEFAULT_LABEL_PRN_GOLD,
+    DEFAULT_LABEL_PRN_SILVER,
+    DEFAULT_LABEL_PRN_SILVER_EXTRAS,
     DEFAULT_BILL_TEMPLATE,
+    LABEL_RULE_FIELD_KEYS,
     normalizePrnTemplate,
     formatTsplLineEndings,
     renderTemplate,
     renderPrnLabel,
+    renderPrnLabelForPiece,
+    resolveLabelPrnTemplate,
+    migrateLabelPrnRules,
+    buildDefaultLabelPrnRules,
+    ruleMatchesPiece,
+    pieceFieldHasValue,
+    newRuleId,
     buildLabelTemplateVars,
     buildLabelTemplateVarsFromItemData,
     buildBillTemplateVars,

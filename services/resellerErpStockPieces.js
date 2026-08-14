@@ -1055,38 +1055,57 @@ function registerStockPieceRoutes(app, deps) {
             const profile = resolvePrinterProfile(hw, req.body.printer_profile_id || null);
             const printerConfig = profileToPrinterConfig(profile);
             const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
-            const prnTemplate = erpPrint.normalizePrnTemplate(
-                printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN,
-            );
 
             const rawOverrides = req.body.piece_overrides && typeof req.body.piece_overrides === 'object'
                 ? req.body.piece_overrides
                 : {};
+            const PIECE_OVERRIDE_FIELDS = [
+                'avg_weight',
+                'gross_weight',
+                'chain_wt_only',
+                'pendant_wt_only',
+                'earring_wt_only',
+                'bag_wt',
+                'stone_charges',
+                'box_charges',
+                'wastage_pct',
+                'mc_rate',
+                'mc_type',
+                'metal_type',
+                'bags',
+                'purity',
+                'product_name',
+                'item_code',
+                'style_code',
+                'sku',
+                'barcode',
+            ];
             function mergePieceOverrides(p) {
                 const ov = rawOverrides[p.id] || rawOverrides[String(p.id)] || null;
                 if (!ov || typeof ov !== 'object') return p;
                 const merged = { ...p };
-                const numFields = [
-                    'avg_weight',
-                    'gross_weight',
-                    'chain_wt_only',
-                    'pendant_wt_only',
-                    'earring_wt_only',
-                ];
-                for (const key of numFields) {
-                    if (ov[key] != null && ov[key] !== '') {
-                        const n = Number(ov[key]);
-                        if (Number.isFinite(n)) merged[key] = n;
+                for (const key of PIECE_OVERRIDE_FIELDS) {
+                    if (ov[key] == null || ov[key] === '') continue;
+                    if (['mc_type', 'metal_type', 'bags', 'product_name', 'item_code', 'style_code', 'sku', 'barcode'].includes(key)) {
+                        merged[key] = String(ov[key]).trim();
+                        continue;
                     }
+                    const n = Number(ov[key]);
+                    if (Number.isFinite(n)) merged[key] = n;
                 }
                 return merged;
             }
+
+            const hasPrnSource =
+                printFormats.labelPrnTemplate ||
+                (Array.isArray(printFormats.labelPrnRules) && printFormats.labelPrnRules.length) ||
+                erpPrint.DEFAULT_LABEL_PRN;
 
             const results = [];
             for (const p of pieces) {
                 const piece = mergePieceOverrides(p);
                 const itemData = buildLabelItemData(piece, hw, profile);
-                if (profile?.labelFormat === 'prn' && !printFormats.labelPrnTemplate && !erpPrint.DEFAULT_LABEL_PRN) {
+                if (profile?.labelFormat === 'prn' && !hasPrnSource) {
                     results.push({
                         barcode: p.barcode,
                         piece_id: p.id,
@@ -1095,9 +1114,15 @@ function registerStockPieceRoutes(app, deps) {
                     });
                     continue;
                 }
-                const tspl = usePrn
-                    ? erpPrint.renderPrnLabel(prnTemplate, piece, hw, profile)
-                    : labelPrinter.generateTSPLLabel(itemData);
+                let tspl;
+                let labelRuleName = null;
+                if (usePrn) {
+                    const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, printFormats);
+                    tspl = rendered.tspl;
+                    labelRuleName = rendered.ruleName;
+                } else {
+                    tspl = labelPrinter.generateTSPLLabel(itemData);
+                }
                 if (printerConfig?.type === 'serial') {
                     results.push({
                         barcode: p.barcode,
@@ -1106,6 +1131,7 @@ function registerStockPieceRoutes(app, deps) {
                         clientPrint: true,
                         clientPrintMode: 'serial',
                         tspl,
+                        labelRuleName,
                     });
                 } else if (printerConfig?.type === 'usb') {
                     results.push({
@@ -1115,11 +1141,12 @@ function registerStockPieceRoutes(app, deps) {
                         clientPrint: true,
                         clientPrintMode: 'usb',
                         tspl,
+                        labelRuleName,
                     });
                 } else if (printerConfig?.type === 'network' && printerConfig.address) {
                     try {
                         await labelPrinter.sendRawToPrinter(tspl, printerConfig);
-                        results.push({ barcode: p.barcode, piece_id: p.id, printed: true });
+                        results.push({ barcode: p.barcode, piece_id: p.id, printed: true, labelRuleName });
                     } catch (err) {
                         results.push({
                             barcode: p.barcode,
@@ -1128,6 +1155,7 @@ function registerStockPieceRoutes(app, deps) {
                             error: err.message,
                             tspl,
                             clientPrint: true,
+                            labelRuleName,
                         });
                     }
                 } else {
@@ -1137,6 +1165,7 @@ function registerStockPieceRoutes(app, deps) {
                         printed: false,
                         tspl,
                         clientPrint: !!tspl,
+                        labelRuleName,
                     });
                 }
             }

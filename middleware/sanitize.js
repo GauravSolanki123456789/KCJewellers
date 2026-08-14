@@ -14,6 +14,7 @@
    'billTemplate',
    'label_prn_template',
    'bill_template',
+   'template',
  ]);
 
  function maxLenForKey(key) {

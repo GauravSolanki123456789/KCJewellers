@@ -15,7 +15,7 @@ import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleBar'
 import { printStockLabels, type PrintLabelPieceOverride } from '@/lib/erp-print-labels'
-import { Check, Loader2, RotateCcw, Save, Trash2 } from 'lucide-react'
+import { Check, Loader2, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
 
 const cellCls =
   'kc-batch-cell-input w-full min-w-0 rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none focus:border-[var(--kc-accent,#c41e3a)] focus:bg-white focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/15'
@@ -56,6 +56,41 @@ function overrideForWeightField(
   if (field === 'pendant_wt_only') return { pendant_wt_only: weight, avg_weight: weight }
   if (field === 'earring_wt_only') return { earring_wt_only: weight, avg_weight: weight }
   return { avg_weight: weight }
+}
+
+function parseDraftNumber(raw: string | undefined): number | undefined {
+  const v = raw?.trim()
+  if (!v) return undefined
+  const n = Number(v)
+  return Number.isFinite(n) ? n : undefined
+}
+
+/** Merge unsaved row values so smart PRN rules see gross, bag wt, stone charges, etc. */
+function draftToPrintOverride(
+  row: StockRowDraft,
+  field: StockEditableField,
+  weight: number,
+): PrintLabelPieceOverride {
+  const base = overrideForWeightField(field, weight)
+  const ov: PrintLabelPieceOverride = { ...base }
+  const gross = parseDraftNumber(row.values.gross_weight)
+  if (gross != null) ov.gross_weight = gross
+  const bagWt = parseDraftNumber(row.values.bag_wt)
+  if (bagWt != null) ov.bag_wt = bagWt
+  const stone = parseDraftNumber(row.values.stone_charges)
+  if (stone != null) ov.stone_charges = stone
+  const box = parseDraftNumber(row.values.box_charges)
+  if (box != null) ov.box_charges = box
+  const wastage = parseDraftNumber(row.values.wastage_pct)
+  if (wastage != null) ov.wastage_pct = wastage
+  const mc = parseDraftNumber(row.values.mc_rate)
+  if (mc != null) ov.mc_rate = mc
+  if (row.values.mc_type?.trim()) ov.mc_type = row.values.mc_type.trim()
+  if (row.values.metal_type?.trim()) ov.metal_type = row.values.metal_type.trim()
+  if (row.values.bags?.trim()) ov.bags = row.values.bags.trim()
+  const purity = parseDraftNumber(row.values.purity)
+  if (purity != null) ov.purity = purity
+  return ov
 }
 
 export function ErpStockExcelEditor({
@@ -203,7 +238,7 @@ export function ErpStockExcelEditor({
       try {
         const result = await printStockLabels({
           pieceIds: [rowId],
-          pieceOverrides: { [rowId]: overrideForWeightField(field, weight) },
+          pieceOverrides: { [rowId]: draftToPrintOverride(row, field, weight) },
           printerProfileId: printerProfileId ?? null,
         })
         if (!result.ok) {
@@ -290,14 +325,19 @@ export function ErpStockExcelEditor({
 
   const deleteSelected = async () => {
     if (!selected.size || deleting) return
-    if (!confirm(`Remove ${selected.size} piece(s) from this batch?`)) return
+    if (
+      !confirm(
+        `Delete ${selected.size} tag(s) and remove those pieces from stock? This cannot be undone.`,
+      )
+    )
+      return
     setDeleting(true)
     try {
       await axios.delete('/api/reseller/erp/stock-pieces', {
         data: { ids: Array.from(selected), batch_id: batchId },
       })
       await refreshPieces()
-      setMessage(`Removed ${selected.size} piece(s).`)
+      setMessage(`Deleted ${selected.size} tag(s) from stock.`)
     } catch (e) {
       alert(erpErr(e))
     } finally {
@@ -328,6 +368,35 @@ export function ErpStockExcelEditor({
       setMessage(`Removed ${count} piece(s) of ${name}.`)
     } catch (e) {
       alert(erpErr(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const deleteTag = async (row: StockRowDraft) => {
+    if (row.status === 'sold' || deleting) return
+    const tag = row.values.barcode?.trim() || `#${row.id}`
+    if (
+      !confirm(
+        `Delete tag "${tag}" and remove this piece from stock? Use this when the label was printed by mistake or the item was sold manually.`,
+      )
+    )
+      return
+    setDeleting(true)
+    setError(null)
+    try {
+      await axios.delete('/api/reseller/erp/stock-pieces', {
+        data: { ids: [row.id], batch_id: batchId },
+      })
+      await refreshPieces()
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.delete(row.id)
+        return next
+      })
+      setMessage(`Deleted tag ${tag} from stock.`)
+    } catch (e) {
+      setError(erpErr(e))
     } finally {
       setDeleting(false)
     }
@@ -386,7 +455,7 @@ export function ErpStockExcelEditor({
           onClick={() => void deleteSelected()}
         >
           {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-          Delete selected {selected.size > 0 ? `(${selected.size})` : ''}
+          Delete selected tags {selected.size > 0 ? `(${selected.size})` : ''}
         </button>
         {message ? (
           <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
@@ -453,6 +522,9 @@ export function ErpStockExcelEditor({
                   {col.shortLabel || col.label}
                 </th>
               ))}
+              <th className="sticky right-0 z-10 whitespace-nowrap bg-[var(--color-slate-900,#faf8f4)] px-2 py-2 font-semibold text-[var(--color-jewelry-black,#1a1814)]/55">
+                Tag
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -524,6 +596,20 @@ export function ErpStockExcelEditor({
                       </td>
                     )
                   })}
+                  <td className="sticky right-0 z-10 bg-white px-1 py-0.5">
+                    {!readOnly ? (
+                      <button
+                        type="button"
+                        title="Delete tag & remove from stock"
+                        className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 disabled:opacity-40"
+                        disabled={deleting}
+                        onClick={() => void deleteTag(row)}
+                      >
+                        <Tag className="size-3.5" />
+                        <Trash2 className="size-3" />
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
               )
             })}

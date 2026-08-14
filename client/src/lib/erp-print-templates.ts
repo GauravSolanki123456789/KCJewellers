@@ -1,6 +1,6 @@
 /** Client-side print template defaults & variable help (mirrors scripts/erp-print-templates.js). */
 
-export const DEFAULT_LABEL_PRN = `
+export const DEFAULT_LABEL_PRN_SILVER = `
 SIZE 92.5 mm, 15 mm
 GAP 3 mm, 0 mm
 DIRECTION 0,0
@@ -19,9 +19,69 @@ TEXT 738,53,"ROMAN.TTF",180,1,8,"NWT:"
 TEXT 666,53,"ROMAN.TTF",180,1,9,"{{net_weight}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
+TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 738,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
 `.trim()
+
+export const DEFAULT_LABEL_PRN_GOLD = `
+SIZE 92.5 mm, 15 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 720,101,"ROMAN.TTF",180,1,8,"{{product_name}}"
+TEXT 720,77,"ROMAN.TTF",180,1,8,"NWT:"
+TEXT 648,77,"ROMAN.TTF",180,1,9,"{{net_weight}}"
+TEXT 720,53,"ROMAN.TTF",180,1,8,"GWT:"
+TEXT 648,53,"ROMAN.TTF",180,1,9,"{{gross_weight}}"
+TEXT 720,29,"ROMAN.TTF",180,1,8,"MC:"
+TEXT 648,29,"ROMAN.TTF",180,1,9,"{{mc_rate}}"
+TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
+TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
+TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 720,21,"ROMAN.TTF",180,1,8,""
+QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+PRINT 1,1
+`.trim()
+
+export const DEFAULT_LABEL_PRN_SILVER_EXTRAS = `
+SIZE 92.5 mm, 15 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 738,101,"ROMAN.TTF",180,1,8,"{{product_name}}"
+TEXT 738,77,"ROMAN.TTF",180,1,8,"GWT:"
+TEXT 666,77,"ROMAN.TTF",180,1,9,"{{gross_weight}}"
+TEXT 738,53,"ROMAN.TTF",180,1,8,"NWT:"
+TEXT 666,53,"ROMAN.TTF",180,1,9,"{{net_weight}}"
+TEXT 738,29,"ROMAN.TTF",180,1,8,"V.A:"
+TEXT 666,29,"ROMAN.TTF",180,1,9,"{{wastage_pct}}"
+TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
+TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
+TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 738,21,"ROMAN.TTF",180,1,8,""
+QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+PRINT 1,1
+`.trim()
+
+/** Legacy alias — silver standard layout. */
+export const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER
 
 export const DEFAULT_BILL_TEMPLATE = `
 ================================
@@ -67,7 +127,35 @@ export const LABEL_TEMPLATE_VARS = [
   'metal_type',
   'pcs',
   'bags',
+  'bag_wt',
+  'stone_charges',
+  'box_charges',
+  'purity',
 ] as const
+
+export const LABEL_RULE_FIELD_KEYS = [
+  'gross_weight',
+  'bag_wt',
+  'stone_charges',
+  'wastage_pct',
+  'mc_rate',
+  'bags',
+  'box_charges',
+] as const
+
+export type LabelRuleFieldKey = (typeof LABEL_RULE_FIELD_KEYS)[number]
+
+export type LabelPrnRule = {
+  id: string
+  name: string
+  enabled?: boolean
+  priority: number
+  metalTypes: string[]
+  requireAny?: LabelRuleFieldKey[]
+  requireAll?: LabelRuleFieldKey[]
+  requireNone?: LabelRuleFieldKey[]
+  template: string
+}
 
 export const BILL_TEMPLATE_VARS = [
   'shop_name',
@@ -92,6 +180,7 @@ export const BILL_TEMPLATE_VARS = [
 
 export type ErpPrintFormatsSettings = {
   labelPrnTemplate?: string
+  labelPrnRules?: LabelPrnRule[]
   labelUsePrn?: boolean
   billTemplate?: string
   shopName?: string
@@ -100,9 +189,73 @@ export type ErpPrintFormatsSettings = {
   shopGstin?: string
 }
 
+export function newRuleId(): string {
+  return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+export function buildDefaultLabelPrnRules(fallbackTemplate?: string): LabelPrnRule[] {
+  const silverFallback = normalizePrnTemplate(fallbackTemplate || DEFAULT_LABEL_PRN_SILVER)
+  return [
+    {
+      id: 'silver-extras',
+      name: 'Silver · gross / bag / stone',
+      enabled: true,
+      priority: 30,
+      metalTypes: ['SILVER'],
+      requireAny: ['gross_weight', 'bag_wt', 'stone_charges'],
+      requireAll: [],
+      requireNone: [],
+      template: DEFAULT_LABEL_PRN_SILVER_EXTRAS,
+    },
+    {
+      id: 'gold',
+      name: 'Gold',
+      enabled: true,
+      priority: 20,
+      metalTypes: ['GOLD'],
+      requireAny: [],
+      requireAll: [],
+      requireNone: [],
+      template: DEFAULT_LABEL_PRN_GOLD,
+    },
+    {
+      id: 'silver-standard',
+      name: 'Silver · standard',
+      enabled: true,
+      priority: 10,
+      metalTypes: ['SILVER'],
+      requireAny: [],
+      requireAll: [],
+      requireNone: [],
+      template: silverFallback,
+    },
+  ]
+}
+
+export function migrateLabelPrnRules(pf: ErpPrintFormatsSettings | null | undefined): LabelPrnRule[] {
+  const raw = pf?.labelPrnRules
+  if (!Array.isArray(raw) || !raw.length) return []
+  return raw
+    .map((rule) => ({
+      id: String(rule.id || newRuleId()),
+      name: String(rule.name || 'Label rule').trim() || 'Label rule',
+      enabled: rule.enabled !== false,
+      priority: Number(rule.priority) || 0,
+      metalTypes: Array.isArray(rule.metalTypes)
+        ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
+        : [],
+      requireAny: (rule.requireAny || []) as LabelRuleFieldKey[],
+      requireAll: (rule.requireAll || []) as LabelRuleFieldKey[],
+      requireNone: (rule.requireNone || []) as LabelRuleFieldKey[],
+      template: normalizePrnTemplate(rule.template || pf?.labelPrnTemplate || DEFAULT_LABEL_PRN),
+    }))
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+}
+
 export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefined): ErpPrintFormatsSettings {
   const pf: ErpPrintFormatsSettings = { ...(raw || {}) }
   pf.labelPrnTemplate = normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN)
+  pf.labelPrnRules = migrateLabelPrnRules(pf)
   if (!pf.billTemplate?.trim()) pf.billTemplate = DEFAULT_BILL_TEMPLATE
   if (pf.labelUsePrn == null) pf.labelUsePrn = true
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
@@ -173,6 +326,16 @@ export function normalizePrnTemplate(raw: string | null | undefined): string {
 export function isPrnTemplateLikelyCorrupted(raw: string | null | undefined): boolean {
   const s = String(raw || '')
   return /mmGAP|ONCLS|PEEL OFFSET|CUTTER OFFSET|1252TEXT/i.test(s) || (s.length > 80 && !s.includes('\n'))
+}
+
+export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {
+  gross_weight: 'Gross weight',
+  bag_wt: 'Bag weight',
+  stone_charges: 'Stone charges',
+  wastage_pct: 'Wastage %',
+  mc_rate: 'MC rate',
+  bags: 'Bags count',
+  box_charges: 'Box charges',
 }
 
 /** Best-effort map from another software's sample PRN to our {{placeholders}}. */

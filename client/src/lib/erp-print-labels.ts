@@ -19,6 +19,15 @@ export type PrintLabelPieceOverride = {
   chain_wt_only?: number | string | null
   pendant_wt_only?: number | string | null
   earring_wt_only?: number | string | null
+  bag_wt?: number | string | null
+  stone_charges?: number | string | null
+  box_charges?: number | string | null
+  wastage_pct?: number | string | null
+  mc_rate?: number | string | null
+  mc_type?: string | null
+  metal_type?: string | null
+  bags?: string | null
+  purity?: number | string | null
 }
 
 type PrintResult = {

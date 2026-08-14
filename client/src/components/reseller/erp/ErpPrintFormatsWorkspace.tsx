@@ -8,23 +8,35 @@ import {
   BILL_TEMPLATE_VARS,
   DEFAULT_BILL_TEMPLATE,
   DEFAULT_LABEL_PRN,
+  DEFAULT_LABEL_PRN_GOLD,
+  DEFAULT_LABEL_PRN_SILVER,
+  DEFAULT_LABEL_PRN_SILVER_EXTRAS,
+  buildDefaultLabelPrnRules,
   isPrnTemplateLikelyCorrupted,
+  LABEL_RULE_FIELD_KEYS,
+  LABEL_RULE_FIELD_LABELS,
   LABEL_TEMPLATE_VARS,
   migratePrintFormats,
+  newRuleId,
   normalizePrnTemplate,
   preservePrnTemplate,
   suggestPrnPlaceholders,
   type ErpPrintFormatsSettings,
+  type LabelPrnRule,
+  type LabelRuleFieldKey,
 } from '@/lib/erp-print-templates'
 import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { FileText, Loader2, RotateCcw, Save, Tag, Upload } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileText, Loader2, Plus, RotateCcw, Save, Tag, Trash2, Upload, Wand2 } from 'lucide-react'
 
 export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [tab, setTab] = useState<'label' | 'bill'>('label')
+  const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const ruleFileRef = useRef<HTMLInputElement>(null)
+  const [ruleUploadTargetId, setRuleUploadTargetId] = useState<string | null>(null)
 
   useEffect(() => {
     void axios
@@ -40,6 +52,10 @@ export function ErpPrintFormatsWorkspace() {
       const payload = migratePrintFormats({
         ...pf,
         labelPrnTemplate: preservePrnTemplate(pf.labelPrnTemplate),
+        labelPrnRules: (pf.labelPrnRules || []).map((rule) => ({
+          ...rule,
+          template: preservePrnTemplate(rule.template),
+        })),
         billTemplate: preservePrnTemplate(pf.billTemplate),
       })
       await axios.put('/api/reseller/erp/settings', { settings: { printFormats: payload } })
@@ -50,6 +66,95 @@ export function ErpPrintFormatsWorkspace() {
     } finally {
       setBusy(false)
     }
+  }
+
+  const updateRule = (id: string, patch: Partial<LabelPrnRule>) => {
+    setPf((p) => ({
+      ...p,
+      labelPrnRules: (p.labelPrnRules || []).map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    }))
+  }
+
+  const removeRule = (id: string) => {
+    setPf((p) => ({
+      ...p,
+      labelPrnRules: (p.labelPrnRules || []).filter((r) => r.id !== id),
+    }))
+  }
+
+  const addRule = (preset?: 'gold' | 'silver' | 'silver-extras' | 'blank') => {
+    const templates: Record<string, string> = {
+      gold: DEFAULT_LABEL_PRN_GOLD,
+      silver: DEFAULT_LABEL_PRN_SILVER,
+      'silver-extras': DEFAULT_LABEL_PRN_SILVER_EXTRAS,
+      blank: DEFAULT_LABEL_PRN,
+    }
+    const names: Record<string, string> = {
+      gold: 'Gold',
+      silver: 'Silver · standard',
+      'silver-extras': 'Silver · gross / bag / stone',
+      blank: 'Custom rule',
+    }
+    const presets: Partial<LabelPrnRule> =
+      preset === 'gold'
+        ? { metalTypes: ['GOLD'], priority: 20 }
+        : preset === 'silver'
+          ? { metalTypes: ['SILVER'], priority: 10 }
+          : preset === 'silver-extras'
+            ? {
+                metalTypes: ['SILVER'],
+                priority: 30,
+                requireAny: ['gross_weight', 'bag_wt', 'stone_charges'],
+              }
+            : { metalTypes: [], priority: 0 }
+    const id = newRuleId()
+    const rule: LabelPrnRule = {
+      id,
+      name: names[preset || 'blank'] || 'Custom rule',
+      enabled: true,
+      priority: presets.priority ?? 0,
+      metalTypes: presets.metalTypes || [],
+      requireAny: presets.requireAny || [],
+      requireAll: presets.requireAll || [],
+      requireNone: presets.requireNone || [],
+      template: templates[preset || 'blank'] || DEFAULT_LABEL_PRN,
+    }
+    setPf((p) => ({
+      ...p,
+      labelPrnRules: [...(p.labelPrnRules || []), rule].sort((a, b) => b.priority - a.priority),
+    }))
+    setExpandedRuleId(id)
+  }
+
+  const enableSmartRules = () => {
+    if ((pf.labelPrnRules || []).length) return
+    setPf((p) => ({
+      ...p,
+      labelPrnRules: buildDefaultLabelPrnRules(p.labelPrnTemplate),
+    }))
+    setExpandedRuleId('gold')
+  }
+
+  const toggleRuleField = (
+    id: string,
+    listKey: 'requireAny' | 'requireAll' | 'requireNone',
+    field: LabelRuleFieldKey,
+  ) => {
+    setPf((p) => ({
+      ...p,
+      labelPrnRules: (p.labelPrnRules || []).map((r) => {
+        if (r.id !== id) return r
+        const current = new Set(r[listKey] || [])
+        if (current.has(field)) current.delete(field)
+        else current.add(field)
+        return { ...r, [listKey]: Array.from(current) as LabelRuleFieldKey[] }
+      }),
+    }))
+  }
+
+  const onUploadRulePrn = async (file: File, ruleId: string) => {
+    const raw = await file.text()
+    updateRule(ruleId, { template: suggestPrnPlaceholders(raw) })
   }
 
   const onUploadPrn = async (file: File) => {
@@ -115,7 +220,7 @@ export function ErpPrintFormatsWorkspace() {
                 <code className="rounded bg-black/5 px-1">{`{{company_code}}`}</code>.
               </li>
               <li>Keep SIZE, GAP, TEXT x,y and QRCODE lines — only change the quoted text inside.</li>
-              <li>Save print formats → Hardware → set TSC to PRN → Test print → Products → Generate barcodes.</li>
+              <li>Save print formats → enable smart rules (optional) → Hardware → set TSC to PRN → Products → Generate barcodes or F1 per row.</li>
             </ol>
           </div>
           <div className={erpCardCls}>
@@ -191,6 +296,265 @@ export function ErpPrintFormatsWorkspace() {
               <code className="rounded bg-black/5 px-1">MC: {`{{mc_rate}}`}</code>. Blank lines at the top are kept
               when you save.
             </p>
+          </div>
+
+          <div className={erpCardCls}>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Smart label rules
+                </p>
+                <p className="mt-1 max-w-xl text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Pick the PRN automatically by metal type and which Excel columns have values (gross, bag weight,
+                  stone charges, etc.). Higher priority rules are checked first. If no rule matches, the default
+                  template above is used.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {!pf.labelPrnRules?.length ? (
+                  <button type="button" className={erpBtnPrimary} onClick={enableSmartRules}>
+                    <Wand2 className="size-4" />
+                    Enable smart rules
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" className={erpBtnGhost} onClick={() => addRule('gold')}>
+                      <Plus className="size-4" />
+                      Gold
+                    </button>
+                    <button type="button" className={erpBtnGhost} onClick={() => addRule('silver')}>
+                      <Plus className="size-4" />
+                      Silver
+                    </button>
+                    <button type="button" className={erpBtnGhost} onClick={() => addRule('silver-extras')}>
+                      <Plus className="size-4" />
+                      Silver extras
+                    </button>
+                    <button type="button" className={erpBtnGhost} onClick={() => addRule('blank')}>
+                      <Plus className="size-4" />
+                      Custom
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <input
+              ref={ruleFileRef}
+              type="file"
+              accept=".prn,.txt,.tspl"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f && ruleUploadTargetId) void onUploadRulePrn(f, ruleUploadTargetId)
+                e.target.value = ''
+                setRuleUploadTargetId(null)
+              }}
+            />
+
+            {!pf.labelPrnRules?.length ? (
+              <p className="rounded-xl border border-dashed border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-4 py-6 text-center text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+                Tap <strong className="text-[var(--color-jewelry-black,#1a1814)]">Enable smart rules</strong> to
+                add Gold, Silver, and Silver-with-extras templates — then edit each PRN here.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {[...(pf.labelPrnRules || [])]
+                  .sort((a, b) => b.priority - a.priority)
+                  .map((rule) => {
+                    const open = expandedRuleId === rule.id
+                    return (
+                      <div
+                        key={rule.id}
+                        className="overflow-hidden rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white"
+                      >
+                        <button
+                          type="button"
+                          className="flex w-full min-h-[48px] items-center gap-2 px-3 py-2 text-left sm:px-4"
+                          onClick={() => setExpandedRuleId(open ? null : rule.id)}
+                        >
+                          <span
+                            className={`inline-flex size-2 shrink-0 rounded-full ${rule.enabled !== false ? 'bg-emerald-500' : 'bg-[var(--color-slate-700,#e8e4df)]'}`}
+                            aria-hidden
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                              {rule.name}
+                            </span>
+                            <span className="block truncate text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                              Priority {rule.priority}
+                              {rule.metalTypes?.length ? ` · ${rule.metalTypes.join(', ')}` : ' · any metal'}
+                              {rule.requireAny?.length ? ` · needs ${rule.requireAny.join(' or ')}` : ''}
+                            </span>
+                          </span>
+                          {open ? (
+                            <ChevronUp className="size-4 shrink-0 text-[var(--color-jewelry-black,#1a1814)]/40" />
+                          ) : (
+                            <ChevronDown className="size-4 shrink-0 text-[var(--color-jewelry-black,#1a1814)]/40" />
+                          )}
+                        </button>
+
+                        {open ? (
+                          <div className="space-y-3 border-t border-[var(--color-slate-700,#e8e4df)] px-3 py-3 sm:px-4">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                                Rule name
+                                <input
+                                  className={`${erpInputCls} mt-1`}
+                                  value={rule.name}
+                                  onChange={(e) => updateRule(rule.id, { name: e.target.value })}
+                                />
+                              </label>
+                              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                                Priority (higher = first)
+                                <input
+                                  className={`${erpInputCls} mt-1 tabular-nums`}
+                                  type="number"
+                                  value={rule.priority}
+                                  onChange={(e) =>
+                                    updateRule(rule.id, { priority: Number(e.target.value) || 0 })
+                                  }
+                                />
+                              </label>
+                              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
+                                Metal types (comma-separated, e.g. GOLD, SILVER)
+                                <input
+                                  className={`${erpInputCls} mt-1`}
+                                  value={(rule.metalTypes || []).join(', ')}
+                                  onChange={(e) =>
+                                    updateRule(rule.id, {
+                                      metalTypes: e.target.value
+                                        .split(',')
+                                        .map((s) => s.trim())
+                                        .filter(Boolean),
+                                    })
+                                  }
+                                  placeholder="Leave empty for any metal"
+                                />
+                              </label>
+                            </div>
+
+                            <label className="flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
+                              <input
+                                type="checkbox"
+                                checked={rule.enabled !== false}
+                                onChange={(e) => updateRule(rule.id, { enabled: e.target.checked })}
+                              />
+                              Rule active
+                            </label>
+
+                            <div>
+                              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                                Match when any of these columns have a value
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {LABEL_RULE_FIELD_KEYS.map((field) => {
+                                  const on = (rule.requireAny || []).includes(field)
+                                  return (
+                                    <button
+                                      key={field}
+                                      type="button"
+                                      className={`min-h-[36px] rounded-lg px-2.5 text-[11px] font-medium ${
+                                        on
+                                          ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                                          : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]/70'
+                                      }`}
+                                      onClick={() => toggleRuleField(rule.id, 'requireAny', field)}
+                                    >
+                                      {LABEL_RULE_FIELD_LABELS[field]}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                                Must all be filled
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {LABEL_RULE_FIELD_KEYS.map((field) => {
+                                  const on = (rule.requireAll || []).includes(field)
+                                  return (
+                                    <button
+                                      key={field}
+                                      type="button"
+                                      className={`min-h-[36px] rounded-lg px-2.5 text-[11px] font-medium ${
+                                        on
+                                          ? 'bg-emerald-600 text-white'
+                                          : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]/70'
+                                      }`}
+                                      onClick={() => toggleRuleField(rule.id, 'requireAll', field)}
+                                    >
+                                      {LABEL_RULE_FIELD_LABELS[field]}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                                Must be empty
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {LABEL_RULE_FIELD_KEYS.map((field) => {
+                                  const on = (rule.requireNone || []).includes(field)
+                                  return (
+                                    <button
+                                      key={field}
+                                      type="button"
+                                      className={`min-h-[36px] rounded-lg px-2.5 text-[11px] font-medium ${
+                                        on
+                                          ? 'bg-amber-600 text-white'
+                                          : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]/70'
+                                      }`}
+                                      onClick={() => toggleRuleField(rule.id, 'requireNone', field)}
+                                    >
+                                      {LABEL_RULE_FIELD_LABELS[field]}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className={erpBtnGhost}
+                                onClick={() => {
+                                  setRuleUploadTargetId(rule.id)
+                                  ruleFileRef.current?.click()
+                                }}
+                              >
+                                <Upload className="size-4" />
+                                Upload .prn
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700"
+                                onClick={() => {
+                                  if (confirm(`Remove rule "${rule.name}"?`)) removeRule(rule.id)
+                                }}
+                              >
+                                <Trash2 className="size-4" />
+                                Remove rule
+                              </button>
+                            </div>
+
+                            <textarea
+                              className={`${erpInputCls} min-h-[240px] font-mono text-[11px] leading-relaxed`}
+                              value={rule.template || ''}
+                              onChange={(e) => updateRule(rule.id, { template: e.target.value })}
+                              spellCheck={false}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
           </div>
         </>
       ) : (
