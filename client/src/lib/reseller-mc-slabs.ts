@@ -154,6 +154,42 @@ export function slabOptionsFromUploadedRows(rows: UploadedMcSlabRow[]): Uploaded
     .map((key) => ({ key, label: UPLOADED_MC_SLAB_LABELS[key] || key }))
 }
 
+function rowIdentityKey(row: UploadedMcSlabRow): string {
+  const sku = normKey(row.sku)
+  const style = normKey(row.styleCode)
+  const from = Number(row.wtFrom)
+  const to = Number(row.wtTo)
+  return `${sku}|${style}|${from}|${to}`
+}
+
+/** Append incoming slab rows; same SKU + style + weight range replaces that row. */
+export function mergeMcSlabRows(
+  existing: UploadedMcSlabRow[],
+  incoming: UploadedMcSlabRow[],
+): { rows: UploadedMcSlabRow[]; added: number; updated: number } {
+  const map = new Map<string, UploadedMcSlabRow>()
+  for (const row of existing) {
+    map.set(rowIdentityKey(row), { ...row, rates: { ...row.rates } })
+  }
+  let added = 0
+  let updated = 0
+  for (const row of incoming) {
+    const key = rowIdentityKey(row)
+    const next = {
+      ...row,
+      sku: row.sku.trim(),
+      styleCode: row.styleCode.trim(),
+      mcType: row.mcType.trim() || 'MC/GM',
+      metalType: row.metalType?.trim() || null,
+      rates: { ...row.rates },
+    }
+    if (map.has(key)) updated++
+    else added++
+    map.set(key, next)
+  }
+  return { rows: Array.from(map.values()), added, updated }
+}
+
 /** Parse Excel sheet rows (header + data) into validated slab rows — client-side before PUT. */
 export function parseMcSlabSheetRows(sheetRows: unknown[][]): {
   rows: UploadedMcSlabRow[]

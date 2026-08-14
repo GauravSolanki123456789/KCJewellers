@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import {
+  mergeMcSlabRows,
   parseMcSlabSheetRows,
   slabOptionsFromUploadedRows,
   type UploadedMcSlabOption,
@@ -119,7 +120,16 @@ export function ResellerMcSlabsPanel() {
     setSaving(true)
     try {
       const parsedRows = await parseExcelFile(file)
-      await persistRows(parsedRows, `Saved ${parsedRows.length} slab rule${parsedRows.length === 1 ? '' : 's'}.`)
+      const baseRows = draftRows.length ? draftRows : rows
+      const { rows: mergedRows, added, updated } = mergeMcSlabRows(baseRows, parsedRows)
+      const parts: string[] = []
+      if (added) parts.push(`${added} new`)
+      if (updated) parts.push(`${updated} updated`)
+      const detail = parts.length ? ` (${parts.join(', ')})` : ''
+      await persistRows(
+        mergedRows,
+        `Saved ${mergedRows.length} slab rule${mergedRows.length === 1 ? '' : 's'}${detail}.`,
+      )
     } catch (e: unknown) {
       const msg =
         e && typeof e === 'object' && 'response' in e
@@ -301,7 +311,9 @@ export function ResellerMcSlabsPanel() {
         </div>
 
         <p className="kc-upload-hint mt-3 text-[11px]">
-          Required columns: SKU, StyleCode, WT_FROM, WT_TO, slab columns, MCType, MetalType.
+          Required columns: SKU, StyleCode, WT_FROM, WT_TO, slab columns, MCType, MetalType. New uploads are{' '}
+          <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/75">added</strong> to existing
+          rules — use Clear all only when you want to start over.
         </p>
 
         {message ? (
@@ -322,6 +334,12 @@ export function ResellerMcSlabsPanel() {
             </h3>
             <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
               Last upload: {formatWhen(uploadedAt)}
+              {draftRows.length > 0 ? (
+                <span className="text-[var(--color-jewelry-black,#1a1814)]/65">
+                  {' '}
+                  · {draftRows.length} rule{draftRows.length === 1 ? '' : 's'}
+                </span>
+              ) : null}
             </p>
           </div>
           {dirty ? (
