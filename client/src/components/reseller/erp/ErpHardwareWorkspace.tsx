@@ -421,10 +421,11 @@ export function ErpHardwareWorkspace() {
                     />
                   </label>
                   <p className="sm:col-span-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
-                    USB labels print via the local print service on this PC (not COM). Copy folder{' '}
+USB labels print via the local print service on this PC (not COM). Copy folder{' '}
                     <code className="rounded bg-black/5 px-1">erp-print-service</code> to Desktop and run{' '}
-                    <code className="rounded bg-black/5 px-1">START-KC-Label-Print.bat</code> once per session.
-                    In Windows Printers → Ports, select <strong>USB001</strong> — not Print to File.
+                    <code className="rounded bg-black/5 px-1">START-KC-Label-Print.bat</code>.
+                    The TSC must appear as its own printer in Windows Settings — run{' '}
+                    <code className="rounded bg-black/5 px-1">CHECK-TSC-Printer.bat</code> if print fails.
                   </p>
                 </div>
               ) : (

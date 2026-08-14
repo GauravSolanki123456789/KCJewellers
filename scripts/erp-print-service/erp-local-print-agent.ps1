@@ -38,14 +38,48 @@ function Read-RequestBody($Request) {
     }
 }
 
+function Get-InstalledPrinterNames {
+    try {
+        return @(Get-Printer | Select-Object -ExpandProperty Name)
+    } catch {
+        return @()
+    }
+}
+
+function Resolve-TscPrinterName([string]$Requested) {
+    $names = Get-InstalledPrinterNames
+    if ($names -contains $Requested) { return $Requested }
+    foreach ($n in $names) {
+        if ($n -match 'TSC|TTP.?244|TSCTTP|Barcode|TTP-244') { return $n }
+    }
+    return $Requested
+}
+
 function Invoke-RawPrint([string]$PrinterName, [string]$Tspl) {
+    $resolved = Resolve-TscPrinterName $PrinterName
     $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $tmp = Join-Path $env:TEMP "kc-erp-label-$(Get-Date -Format 'yyyyMMddHHmmss')-$suffix.prn"
     [System.IO.File]::WriteAllText($tmp, [string]$Tspl, [System.Text.Encoding]::UTF8)
     try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $RawPrintPs1 -PrinterName $PrinterName -FilePath $tmp
-        if ($LASTEXITCODE -ne 0) {
-            throw "Raw print failed for printer: $PrinterName"
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$RawPrintPs1`" -PrinterName `"$resolved`" -FilePath `"$tmp`""
+        $psi.RedirectStandardError = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $stderr = $p.StandardError.ReadToEnd()
+        $stdout = $p.StandardOutput.ReadToEnd()
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) {
+            $installed = Get-InstalledPrinterNames
+            $list = if ($installed.Count) { ($installed -join ', ') } else { 'none' }
+            $detail = if ($stderr.Trim()) { $stderr.Trim() } else { "Exit code $($p.ExitCode)" }
+            throw "Print failed ($resolved). Installed printers: $list. $detail"
+        }
+        if ($resolved -ne $PrinterName -and $stdout.Trim()) {
+            Write-Host $stdout.Trim()
         }
     } finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
@@ -123,7 +157,8 @@ Write-Host ' KC ERP Label Print Service (USB001)'
 Write-Host '========================================'
 Write-Host " Listening on $Prefix"
 Write-Host ' Keep this window OPEN while printing from Chrome.'
-Write-Host ' Printer name: TSC TTP-244 Pro (change in ERP Hardware if needed).'
+Write-Host ' Printer name: TSC TTP-244 Pro (must match Windows Printers list exactly).'
+Write-Host ' Run CHECK-TSC-Printer.bat if labels fail.'
 Write-Host ' Press Ctrl+C to stop.'
 Write-Host ''
 

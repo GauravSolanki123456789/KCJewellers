@@ -62,15 +62,14 @@ function tsplSafe(value) {
         .trim();
 }
 
-/** Restore TSPL line breaks when sanitize middleware collapsed multi-line PRN (OFF+SET → OFFSET bug). */
-function normalizePrnTemplate(raw) {
-    let s = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-    if (!s) return DEFAULT_LABEL_PRN;
+function preservePrnTemplate(raw) {
+    if (raw == null) return '';
+    return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
 
-    const lineCount = s.split('\n').filter((l) => l.trim()).length;
-    if (lineCount >= 8 && !/mmGAP|ONCLS|OFFSET CUTTER|PEEL OFFSET/i.test(s)) {
-        return s;
-    }
+function repairCorruptedPrnTemplate(raw) {
+    let s = preservePrnTemplate(raw).trim();
+    if (!s) return DEFAULT_LABEL_PRN;
 
     s = s.replace(/SET PEEL OFFSET/gi, 'SET PEEL OFF\nSET');
     s = s.replace(/SET CUTTER OFFSET/gi, 'SET CUTTER OFF\nSET');
@@ -109,9 +108,19 @@ function normalizePrnTemplate(raw) {
 
     return s
         .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .join('\n');
+        .map((l) => l.trimEnd())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n');
+}
+
+/** Restore TSPL line breaks when sanitize middleware collapsed multi-line PRN (OFF+SET → OFFSET bug). */
+function normalizePrnTemplate(raw) {
+    const preserved = preservePrnTemplate(raw);
+    if (!preserved.trim()) return DEFAULT_LABEL_PRN;
+    if (/mmGAP|ONCLS|PEEL OFFSET|CUTTER OFFSET|1252TEXT/i.test(preserved) || (preserved.length > 80 && !preserved.includes('\n'))) {
+        return repairCorruptedPrnTemplate(preserved);
+    }
+    return preserved;
 }
 
 function formatTsplLineEndings(tspl) {
@@ -127,6 +136,18 @@ function renderTemplate(template, vars) {
         out = out.split(`{{${key}}}`).join(replacement);
     }
     return out;
+}
+
+function formatMcRate(piece) {
+    const n = Number(piece?.mc_rate);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n.toFixed(2);
+}
+
+function formatWastage(piece) {
+    const n = Number(piece?.wastage_pct);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n.toFixed(2);
 }
 
 function buildLabelTemplateVars(piece, hw, profile) {
@@ -146,6 +167,9 @@ function buildLabelTemplateVars(piece, hw, profile) {
         gross_weight: gross,
         net_weight: net,
         avg_weight: net,
+        wastage_pct: formatWastage(piece),
+        mc_rate: formatMcRate(piece),
+        mc_type: String(piece.mc_type || '').trim(),
         company_code: companyCode,
         metal_type: String(piece.metal_type || 'SILVER').toUpperCase(),
         pcs: String(piece.pcs || 1),
@@ -163,6 +187,9 @@ function buildLabelTemplateVarsFromItemData(itemData) {
         gross_weight: itemData.grossWeight || itemData.weight || '0.000',
         net_weight: itemData.weight || '0.000',
         avg_weight: itemData.weight || '0.000',
+        wastage_pct: '',
+        mc_rate: '',
+        mc_type: '',
         company_code: itemData.companyCode || 'BMS925',
         metal_type: itemData.material || 'SILVER',
         pcs: String(itemData.pcs || 1),

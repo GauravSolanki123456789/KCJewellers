@@ -20,6 +20,7 @@ import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillSavedModal, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
+import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
@@ -194,6 +195,7 @@ export function ErpBillingWorkspace() {
   const [modalWhSilver, setModalWhSilver] = useState('')
   const [scanCode, setScanCode] = useState('')
   const [scanBusy, setScanBusy] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [bills, setBills] = useState<ErpBill[]>([])
   const [hydrated, setHydrated] = useState(false)
@@ -442,8 +444,8 @@ export function ErpBillingWorkspace() {
     scanRef.current?.focus()
   }
 
-  const scan = async () => {
-    const code = scanCode.trim()
+  const scanWithCode = async (rawCode: string) => {
+    const code = rawCode.trim()
     if (!code || scanBusy) return
 
     const dupIdx = lines.findIndex(
@@ -493,6 +495,8 @@ export function ErpBillingWorkspace() {
       setScanBusy(false)
     }
   }
+
+  const scan = async () => scanWithCode(scanCode)
 
   const updateLine = (idx: number, patch: Partial<ErpBillLine>) => {
     setLines((prev) =>
@@ -814,6 +818,11 @@ export function ErpBillingWorkspace() {
         defaultMobile={mobile}
         onDone={onSavedBillDone}
       />
+      <ErpCameraScannerModal
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onScan={(code) => void scanWithCode(code)}
+      />
 
       <Dialog open={soldStockOpen} onOpenChange={setSoldStockOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto border-rose-200 bg-white sm:max-w-md">
@@ -1097,7 +1106,15 @@ export function ErpBillingWorkspace() {
           <div className={`${erpCardCls} border-blue-200/60 bg-blue-50/30`}>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-blue-900">Scanner</span>
-              <Camera className="size-4 text-blue-600" />
+              <button
+                type="button"
+                className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-blue-200 bg-white text-blue-700 shadow-sm transition hover:bg-blue-50"
+                aria-label="Open camera scanner"
+                disabled={scanBusy}
+                onClick={() => setCameraOpen(true)}
+              >
+                <Camera className="size-4" />
+              </button>
             </div>
             <div className="flex gap-2">
               <input
@@ -1114,6 +1131,9 @@ export function ErpBillingWorkspace() {
                 {scanBusy ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
               </button>
             </div>
+            <p className="mt-2 text-[10px] text-blue-900/55">
+              USB scanner, type &amp; Enter, or tap the camera icon on phone/laptop.
+            </p>
             {(duplicateScanMsg || scanErrorMsg) ? (
               <div
                 ref={duplicateBannerRef}

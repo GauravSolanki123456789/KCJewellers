@@ -95,7 +95,7 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
       if (!(await checkLocalPrintAgent())) {
         return {
           ok: false,
-          message: 'Start erp-print-service on this PC (Desktop folder), then press F1 again.',
+          message: 'Start erp-print-service on this PC (START-KC-Label-Print.bat), then try again.',
         }
       }
     } else if (conn === 'serial') {
@@ -107,12 +107,25 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
       }
     }
 
-    const count = await printClientTsplLabels(
-      results,
-      hardware,
-      opts.printerProfileId,
-      res.data.printerProfile,
-    )
+    let count: number
+    try {
+      count = await printClientTsplLabels(
+        results,
+        hardware,
+        opts.printerProfileId,
+        res.data.printerProfile,
+      )
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Print failed'
+      if (/Raw print failed|Installed Windows printers|OpenPrinter/i.test(msg)) {
+        return {
+          ok: false,
+          message:
+            'TSC printer not installed in Windows. Install TSC TTP-244 driver so it appears in Settings → Printers. Run CHECK-TSC-Printer.bat on this PC.',
+        }
+      }
+      return { ok: false, message: msg }
+    }
 
     if (conn === 'usb') {
       const winName =

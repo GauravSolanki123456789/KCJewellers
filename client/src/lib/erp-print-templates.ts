@@ -60,6 +60,9 @@ export const LABEL_TEMPLATE_VARS = [
   'gross_weight',
   'net_weight',
   'avg_weight',
+  'wastage_pct',
+  'mc_rate',
+  'mc_type',
   'company_code',
   'metal_type',
   'pcs',
@@ -106,15 +109,15 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   return pf
 }
 
-/** Restore TSPL line breaks when server sanitize collapsed multi-line PRN. */
-export function normalizePrnTemplate(raw: string | null | undefined): string {
-  let s = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
-  if (!s) return DEFAULT_LABEL_PRN
+/** Normalize line endings only — keeps leading blank lines and empty TEXT rows. */
+export function preservePrnTemplate(raw: string | null | undefined): string {
+  if (raw == null) return ''
+  return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
 
-  const lineCount = s.split('\n').filter((l) => l.trim()).length
-  if (lineCount >= 8 && !/mmGAP|ONCLS|OFFSET CUTTER|PEEL OFFSET/i.test(s)) {
-    return s
-  }
+function repairCorruptedPrnTemplate(raw: string): string {
+  let s = preservePrnTemplate(raw).trim()
+  if (!s) return DEFAULT_LABEL_PRN
 
   s = s.replace(/SET PEEL OFFSET/gi, 'SET PEEL OFF\nSET')
   s = s.replace(/SET CUTTER OFFSET/gi, 'SET CUTTER OFF\nSET')
@@ -152,9 +155,19 @@ export function normalizePrnTemplate(raw: string | null | undefined): string {
 
   return s
     .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
+    .map((l) => l.trimEnd())
     .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+}
+
+/** Restore TSPL line breaks when server sanitize collapsed multi-line PRN. */
+export function normalizePrnTemplate(raw: string | null | undefined): string {
+  const preserved = preservePrnTemplate(raw)
+  if (!preserved.trim()) return DEFAULT_LABEL_PRN
+  if (isPrnTemplateLikelyCorrupted(preserved)) {
+    return repairCorruptedPrnTemplate(preserved)
+  }
+  return preserved
 }
 
 export function isPrnTemplateLikelyCorrupted(raw: string | null | undefined): boolean {

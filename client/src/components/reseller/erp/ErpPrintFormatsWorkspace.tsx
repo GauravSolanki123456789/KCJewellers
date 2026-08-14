@@ -12,6 +12,7 @@ import {
   LABEL_TEMPLATE_VARS,
   migratePrintFormats,
   normalizePrnTemplate,
+  preservePrnTemplate,
   suggestPrnPlaceholders,
   type ErpPrintFormatsSettings,
 } from '@/lib/erp-print-templates'
@@ -38,8 +39,8 @@ export function ErpPrintFormatsWorkspace() {
     try {
       const payload = migratePrintFormats({
         ...pf,
-        labelPrnTemplate: normalizePrnTemplate(pf.labelPrnTemplate),
-        billTemplate: pf.billTemplate,
+        labelPrnTemplate: preservePrnTemplate(pf.labelPrnTemplate),
+        billTemplate: preservePrnTemplate(pf.billTemplate),
       })
       await axios.put('/api/reseller/erp/settings', { settings: { printFormats: payload } })
       setPf(payload)
@@ -184,9 +185,11 @@ export function ErpPrintFormatsWorkspace() {
               Variables: {LABEL_TEMPLATE_VARS.map((v) => `{{${v}}}`).join(', ')}. These map to ERP
               product columns — e.g. <code className="rounded bg-black/5 px-1">{`{{barcode}}`}</code>{' '}
               = Barcode, <code className="rounded bg-black/5 px-1">{`{{net_weight}}`}</code> /{' '}
-              <code className="rounded bg-black/5 px-1">{`{{avg_weight}}`}</code> = Wt (g). If Gross
-              is empty, <code className="rounded bg-black/5 px-1">{`{{gross_weight}}`}</code> uses Wt (g)
-              automatically.
+              <code className="rounded bg-black/5 px-1">{`{{avg_weight}}`}</code> = Wt (g). Add wastage &amp;
+              MC lines like{' '}
+              <code className="rounded bg-black/5 px-1">V.A : {`{{wastage_pct}}`}</code> and{' '}
+              <code className="rounded bg-black/5 px-1">MC: {`{{mc_rate}}`}</code>. Blank lines at the top are kept
+              when you save.
             </p>
           </div>
         </>

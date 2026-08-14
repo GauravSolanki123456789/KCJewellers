@@ -29,11 +29,12 @@ function clampString(s, maxLen = DEFAULT_STRING_MAX, key = '') {
     // Keep newlines and tabs for AI prompts / multi-line settings; strip other control chars.
     v = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
     v = v.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Do not trim — PRN templates may start with a blank line on purpose.
   } else {
     v = s.replace(/[\u0000-\u001F\u007F]/g, '');
+    v = v.trim();
   }
   v = v.replace(/<\s*script[^>]*>.*?<\s*\/\s*script\s*>/gis, '');
-  v = v.trim();
   if (v.length > maxLen) v = v.slice(0, maxLen);
   return v;
 }
