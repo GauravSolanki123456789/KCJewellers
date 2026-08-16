@@ -429,6 +429,10 @@ type BreakdownResult = {
   /** Standard retail total incl. GST (for B2B strikethrough) */
   wholesale_retail_total?: number
   is_wholesale_price?: boolean
+  /** MC before slab MC discount (ERP / shared catalog display). */
+  mc_before_discount?: number
+  /** Slab MC discount % applied to MC. */
+  mc_discount_pct?: number
 }
 
 export type PriceBreakdown = BreakdownResult

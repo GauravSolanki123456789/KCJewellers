@@ -17,6 +17,7 @@ import {
   buildErpQuotePdfFilename,
   buildErpQuoteWhatsAppMessage,
   computeErpQuoteTotals,
+  enrichErpBillLinesForDisplay,
   erpCustomerWhatsAppHref,
   billRatesUnfixed,
   erpLinesToPdfItems,
@@ -33,13 +34,13 @@ export async function shareErpQuotePdf(params: {
   slabSettingsRaw?: unknown
   onSheet?: (payload: PdfShareSheetPayload) => void
 }): Promise<void> {
-  const lines = params.bill.lines ?? []
-  if (!lines.length) {
+  const enrichedLines = enrichErpBillLinesForDisplay(params.bill, params.slabSettingsRaw)
+  if (!enrichedLines.length) {
     alert('No line items to include in the quotation PDF.')
     return
   }
 
-  const linesWithImages = await resolveErpLineImages(lines)
+  const linesWithImages = await resolveErpLineImages(enrichedLines)
   const billForPdf = { ...params.bill, lines: linesWithImages }
   const itemsForPdf = await resolveItemsForPdf(erpLinesToPdfItems(linesWithImages))
   const brandLabel = params.brandLabel.trim() || 'Our store'

@@ -5,7 +5,7 @@ import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 import { getKcPdfPalette, type KcPdfPalette } from '@/lib/kc-pdf-palette'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
-import { billingMcDisplay, billingWastageDisplay } from '@/lib/erp-billing-display'
+import { billingMcPdfText, billingWastageDisplay } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 const COLS = [
@@ -193,8 +193,7 @@ function cell(line: ErpBillLine, key: string, rateSlab: ErpRateSlab = 'R'): stri
       if (line.rateLocked) return ''
       return line.ratePerGram != null ? String(line.ratePerGram) : '—'
     case 'mc': {
-      const mc = billingMcDisplay(line, rateSlab)
-      return mc !== '' && mc != null ? String(mc) : '—'
+      return billingMcPdfText(line, rateSlab)
     }
     case 'mct':
       return line.mc_type || '—'
@@ -320,6 +319,22 @@ export function ErpQuotePdfDocument({
                 <Text style={styles.summaryLabel}>Amount to pay</Text>
                 <Text style={styles.summaryValue}>
                   Rs.{Math.round(totals.balanceDue ?? 0).toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </>
+          ) : null}
+          {totals.billingDiscount != null ? (
+            <>
+              <View style={styles.summaryChip}>
+                <Text style={styles.summaryLabel}>Collected</Text>
+                <Text style={styles.summaryValue}>
+                  Rs.{Math.round(totals.collectedAmount ?? 0).toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <View style={styles.summaryChip}>
+                <Text style={styles.summaryLabel}>Discount</Text>
+                <Text style={styles.summaryValue}>
+                  Rs.{Math.round(totals.billingDiscount).toLocaleString('en-IN')}
                 </Text>
               </View>
             </>

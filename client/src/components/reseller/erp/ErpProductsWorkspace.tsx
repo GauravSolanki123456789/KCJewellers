@@ -112,12 +112,19 @@ export function ErpProductsWorkspace() {
   const deleteTagByBarcode = async (raw?: string) => {
     const code = String(raw ?? tagDeleteCode).trim()
     if (!code || tagDeleteBusy) return
+    if (
+      !window.confirm(
+        `Delete tag "${code}"?\n\nThis permanently removes the piece from stock across all uploads.`,
+      )
+    ) {
+      return
+    }
     setTagDeleteBusy(true)
     setMsg(null)
     try {
       await axios.post('/api/reseller/erp/stock-pieces/delete-by-barcode', { barcode: code })
       setMsgTone('ok')
-      setMsg(`Tag deleted — barcode ${code} removed from stock.`)
+      setMsg(`Tag "${code}" deleted successfully — stock removed from database.`)
       setTagDeleteCode('')
       tagDeleteRef.current?.focus()
       if (activeBatchId) await loadBatch(activeBatchId)
@@ -235,15 +242,17 @@ export function ErpProductsWorkspace() {
             Delete tag
           </button>
         </div>
-        {msg && msgTone === 'ok' && msg.toLowerCase().includes('tag deleted') ? (
-          <div
+        {msg ? (
+          <p
             role="status"
-            className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-900"
+            className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+              msgTone === 'err'
+                ? 'border-rose-200 bg-rose-50 text-rose-800'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            }`}
           >
             {msg}
-          </div>
-        ) : msg && msgTone === 'err' ? (
-          <p className="mt-3 text-xs font-medium text-red-600">{msg}</p>
+          </p>
         ) : null}
       </div>
       <div className={erpCardCls}>

@@ -10,7 +10,8 @@ import {
   perGramToDisplayRates,
   resolveLineDisplayRates,
 } from '@/lib/erp-billing-pricing'
-import { billingMcDisplay, billingWastageDisplay } from '@/lib/erp-billing-display'
+import { isGoldSlabRLine } from '@/lib/erp-billing-display'
+import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 export type ErpQuoteTotals = {
   count: number
@@ -20,6 +21,48 @@ export type ErpQuoteTotals = {
   net: number
   advancePaid?: number
   balanceDue?: number
+  collectedAmount?: number
+  billingDiscount?: number
+}
+
+/** Ensure Slab R gold lines carry MC discount display fields for PDF/grid. */
+export function enrichErpBillLinesForDisplay(
+  bill: ErpBill,
+  slabSettingsRaw?: unknown,
+): ErpBillLine[] {
+  const session = (bill.session || {}) as ErpBillSession
+  const slab = (session.rateSlab || 'R') as ErpRateSlab
+  const slabSettings = parseSlabSettingsFromUser(slabSettingsRaw)
+  const goldPerG = Number(session.goldPerG) || 0
+  const silverPerG = Number(session.silverPerG) || 0
+  const baseRates =
+    session.displayRates ??
+    (goldPerG > 0 ? perGramToDisplayRates(goldPerG, silverPerG) : [])
+
+  return (bill.lines ?? []).map((line) => {
+    const rates = resolveLineDisplayRates(line, baseRates, goldPerG, silverPerG)
+    const bd = computeLineBreakdown(
+      line,
+      rates,
+      slab,
+      slabSettings,
+      session.wholesaleGold,
+      session.wholesaleSilver,
+      goldPerG,
+      silverPerG,
+    )
+    const next: ErpBillLine = { ...line, lineTotalInr: line.lineTotalInr ?? bd.total }
+    if (isGoldSlabRLine(line, slab)) {
+      next.displayWastagePct = 0
+      next.displayMcInr = bd.mc > 0 ? bd.mc : null
+      next.displayMcBeforeDiscount =
+        bd.mc_before_discount != null && bd.mc_before_discount > bd.mc
+          ? bd.mc_before_discount
+          : null
+      next.displayMcDiscountPct = bd.mc_discount_pct ?? null
+    }
+    return next
+  })
 }
 
 function slugPart(s: string, max = 32): string {
@@ -115,6 +158,14 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
 
   const advance = Math.max(0, Number(session.advancePaidInr) || 0)
   const balanceDue = advance > 0 ? Math.max(0, net - advance) : undefined
+  const collected = Number(session.collectedAmountInr)
+  const collectedAmount = Number.isFinite(collected) ? collected : undefined
+  const billingDiscount =
+    session.billingDiscountInr != null && Number.isFinite(Number(session.billingDiscountInr))
+      ? Number(session.billingDiscountInr)
+      : collectedAmount != null && net > 0
+        ? Math.round(net - collectedAmount)
+        : undefined
 
   return {
     count,
@@ -124,6 +175,8 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
     net,
     advancePaid: advance > 0 ? advance : undefined,
     balanceDue,
+    collectedAmount,
+    billingDiscount,
   }
 }
 

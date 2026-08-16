@@ -1,32 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
-/** Parse slab from bill notes (`Rate slab W · …`) when session_json lacks rateSlab. */
-export function parseRateSlabFromNotes(notes?: string | null): ErpRateSlab | null {
-  const m = String(notes || '').match(/Rate slab\s+([RWF])\b/i)
-  if (!m) return null
-  const c = m[1].toUpperCase()
-  if (c === 'W' || c === 'F' || c === 'R') return c
-  return null
-}
-
-export function normalizeRateSlab(raw?: string | null): ErpRateSlab {
-  const s = String(raw || '').trim().toUpperCase()
-  if (s === 'W' || s === 'F') return s
-  return 'R'
-}
-
-/** Resolve saved slab from session + notes fallback. */
-export function resolveSavedRateSlab(
-  session?: { rateSlab?: string | null } | null,
-  notes?: string | null,
-): ErpRateSlab {
-  if (session?.rateSlab === 'R' || session?.rateSlab === 'W' || session?.rateSlab === 'F') {
-    return session.rateSlab
-  }
-  return parseRateSlabFromNotes(notes) ?? 'R'
-}
-
 export type ErpBillSession = {
   rateSlab?: ErpRateSlab
   wholesaleGold?: number | null
@@ -49,6 +23,10 @@ export type ErpBillSession = {
   billedSaleBillId?: number
   billedSaleBillNumber?: string
   billedAt?: string
+  /** Amount collected from customer (₹) — discount = net − collected. */
+  collectedAmountInr?: number
+  /** Billing discount (₹) = net total − collected; negative = over-collected. */
+  billingDiscountInr?: number
 }
 
 export function buildErpBillSession(input: {
@@ -64,10 +42,25 @@ export function buildErpBillSession(input: {
   advancePaidInr?: number | null
   pan?: string
   customerGst?: string
+  collectedAmountInr?: number | null
+  billingDiscountInr?: number | null
+  netTotalInr?: number
 }): ErpBillSession {
   const ratesUnfixed =
     input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
   const advance = Math.max(0, Number(input.advancePaidInr) || 0)
+  const collectedRaw = input.collectedAmountInr
+  const collected =
+    collectedRaw != null && Number.isFinite(Number(collectedRaw))
+      ? Number(collectedRaw)
+      : null
+  const netTotal = Number(input.netTotalInr) || 0
+  const billingDiscount =
+    input.billingDiscountInr != null && Number.isFinite(Number(input.billingDiscountInr))
+      ? Number(input.billingDiscountInr)
+      : collected != null && netTotal > 0
+        ? Math.round(netTotal - collected)
+        : undefined
   return {
     rateSlab: input.rateSlab,
     wholesaleGold: input.wholesaleGold,
@@ -81,6 +74,9 @@ export function buildErpBillSession(input: {
     advancePaidInr: advance > 0 ? advance : undefined,
     pan: input.pan?.trim() || undefined,
     customerGst: input.customerGst?.trim() || undefined,
+    collectedAmountInr: collected != null ? collected : undefined,
+    billingDiscountInr:
+      billingDiscount != null && Number.isFinite(billingDiscount) ? billingDiscount : undefined,
   }
 }
 

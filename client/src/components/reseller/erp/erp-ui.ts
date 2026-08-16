@@ -106,6 +106,10 @@ export type ErpBillLine = {
   displayMcInr?: number | null
   /** Slab R gold — hide wastage % in customer-facing grid. */
   displayWastagePct?: number | null
+  /** Slab R gold — MC before catalog MC discount (₹). */
+  displayMcBeforeDiscount?: number | null
+  /** Slab R gold — catalog MC discount % applied. */
+  displayMcDiscountPct?: number | null
   availability?: string | null
   /** Invoice line label e.g. SILVER JEWELLERY */
   invoice_item_name?: string | null

@@ -392,24 +392,33 @@ export function calculateBreakdownWithSlab(
   let mc: number
   let wastagePctVal = 0
   let wastageAmount: number | undefined
+  let mcBeforeDiscount: number | undefined
 
   if (isGold && kind === 'slab_r') {
     const effectiveWastage = effectiveGoldWastagePct(item, wastageDiscPts)
     metalPart = Math.floor(netWt * metalRate)
     const wastageAsMc = Math.floor((netWt * metalRate * effectiveWastage) / 100)
-    const itemMc = Math.round(mcPart(item, mcDisc))
-    mc = wastageAsMc + itemMc
+    const itemMcRaw = Math.round(mcPart(item, 0))
+    mcBeforeDiscount = wastageAsMc + itemMcRaw
+    mc =
+      mcDisc > 0
+        ? Math.round(mcBeforeDiscount * (1 - mcDisc / 100))
+        : mcBeforeDiscount
   } else if (isGold) {
     wastagePctVal = effectiveGoldWastagePct(
       item,
       kind === 'slab_w' || kind === 'slab_f' ? wastageDiscPts : 0,
     )
     metalPart = Math.floor((netWt * metalRate * (100 + wastagePctVal)) / 100)
-    mc = Math.round(mcPart(item, mcDisc))
+    const mcRaw = Math.round(mcPart(item, 0))
+    mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw
+    if (mcDisc > 0 && mcRaw > mc) mcBeforeDiscount = mcRaw
     wastageAmount = Math.max(0, metalPart - Math.floor(netWt * metalRate))
   } else {
     metalPart = metalRate * billWt
+    const mcRaw = mcPart(item, 0)
     mc = mcPart(item, mcDisc)
+    if (mcDisc > 0 && mcRaw > mc) mcBeforeDiscount = Math.round(mcRaw)
   }
 
   const stone = isGold ? Math.round(stonePart(item)) : stonePart(item)
@@ -459,6 +468,10 @@ export function calculateBreakdownWithSlab(
     billable_weight_gm: billWt,
     wastage_pct: isGold && wastagePctVal > 0 ? wastagePctVal : undefined,
     wastage_amount: wastageAmount,
+    mc_before_discount:
+      mcBeforeDiscount != null && mcBeforeDiscount > mc ? mcBeforeDiscount : undefined,
+    mc_discount_pct:
+      mcBeforeDiscount != null && mcBeforeDiscount > mc && mcDisc > 0 ? mcDisc : undefined,
   })
 }
 

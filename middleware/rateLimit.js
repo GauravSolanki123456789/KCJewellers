@@ -35,11 +35,6 @@ function isPublicStorefrontRead(req) {
   );
 }
 
-function isResellerApi(req) {
-  const path = String(req.path || req.url || '').split('?')[0];
-  return path.startsWith('/api/reseller/');
-}
-
 function pruneBuckets(win) {
   if (buckets.size < 5000) return;
   const t = now();
@@ -118,11 +113,23 @@ const authSessionLimiter = createRateLimiter({
   message: 'Too many session checks',
 });
 
-/** Reseller ERP + inbox — separate bucket; billing scans many endpoints per session. */
-const resellerApiLimiter = createRateLimiter({
+const RESELLER_WORKSPACE_PREFIXES = [
+  '/api/reseller/erp/',
+  '/api/reseller/inbox-summary',
+];
+
+function isResellerWorkspaceRequest(req) {
+  const path = String(req.path || req.url || '').split('?')[0];
+  return RESELLER_WORKSPACE_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(prefix),
+  );
+}
+
+/** Authenticated reseller ERP — high limit for billing workstation bursts. */
+const erpWorkspaceLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 150000,
-  namespace: 'reseller',
+  max: 80000,
+  namespace: 'erp',
   message: 'Rate limit exceeded',
 });
 
@@ -134,8 +141,8 @@ function skipRateLimitForCurrentUser(req, res, next) {
   if (req.method === 'GET' && path.startsWith('/auth/')) {
     return authSessionLimiter(req, res, next);
   }
-  if (isResellerApi(req)) {
-    return resellerApiLimiter(req, res, next);
+  if (isResellerWorkspaceRequest(req)) {
+    return erpWorkspaceLimiter(req, res, next);
   }
   if (isPublicStorefrontRead(req)) {
     return publicReadLimiter(req, res, next);
@@ -167,10 +174,10 @@ module.exports = {
   isPublicStorefrontRead,
   globalLimiter,
   publicReadLimiter,
+  erpWorkspaceLimiter,
   authLimiter,
   authSessionLimiter,
   adminLimiter,
-  resellerApiLimiter,
   skipRateLimitForCurrentUser,
   requireJson,
 };

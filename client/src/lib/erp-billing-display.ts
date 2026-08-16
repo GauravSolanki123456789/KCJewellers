@@ -12,12 +12,33 @@ export function billingWastageDisplay(line: ErpBillLine, slab: ErpRateSlab): str
   return line.wastage_pct ?? ''
 }
 
-/** Grid / PDF display for MC — Slab R gold shows computed ₹ MC; W/F gold leaves MC blank. */
+/** Grid / PDF display for MC — Slab R gold shows computed ₹ MC for the piece. */
 export function billingMcDisplay(line: ErpBillLine, slab: ErpRateSlab): string | number {
-  const metal = String(line.metal_type || '').toLowerCase()
-  if (metal.startsWith('gold') && slab !== 'R') return ''
   if (isGoldSlabRLine(line, slab) && line.displayMcInr != null && line.displayMcInr > 0) {
-    return line.displayMcInr
+    return Math.round(line.displayMcInr)
   }
   return line.mc_rate ?? ''
+}
+
+/** Short hint for MC discount (Slab R gold with catalog MC disc %). */
+export function billingMcDiscountHint(line: ErpBillLine, slab: ErpRateSlab): string | null {
+  if (!isGoldSlabRLine(line, slab)) return null
+  if (
+    line.displayMcBeforeDiscount != null &&
+    line.displayMcDiscountPct != null &&
+    line.displayMcInr != null &&
+    line.displayMcBeforeDiscount > line.displayMcInr
+  ) {
+    return `${Math.round(line.displayMcDiscountPct)}% off · was ₹${Math.round(line.displayMcBeforeDiscount).toLocaleString('en-IN')}`
+  }
+  return null
+}
+
+/** PDF-friendly MC cell — shows discounted MC with before/after when applicable. */
+export function billingMcPdfText(line: ErpBillLine, slab: ErpRateSlab): string {
+  const mc = billingMcDisplay(line, slab)
+  if (mc === '' || mc == null) return '—'
+  const hint = billingMcDiscountHint(line, slab)
+  if (hint) return `${mc} (${hint})`
+  return String(mc)
 }

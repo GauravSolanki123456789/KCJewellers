@@ -17,6 +17,13 @@ export function erpSlabToKind(slab: ErpRateSlab): CatalogSlabKind {
   return 'slab_r'
 }
 
+/** Parse rate slab from legacy bill notes (`Rate slab W · address`). */
+export function parseRateSlabFromNotes(notes?: string | null): ErpRateSlab | null {
+  const m = String(notes || '').match(/Rate slab\s+([RWF])\b/i)
+  if (!m) return null
+  return m[1].toUpperCase() as ErpRateSlab
+}
+
 export function lineToItem(line: ErpBillLine): Item {
   return {
     barcode: line.barcode || line.code,
