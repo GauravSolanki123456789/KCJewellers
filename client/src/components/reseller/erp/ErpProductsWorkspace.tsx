@@ -7,7 +7,7 @@ import {
   ErpWorkstationBar,
   useErpWorkstationSelection,
 } from '@/components/reseller/erp/ErpWorkstationBar'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import {
   migrateHardwareSettings,
   type ErpHardwareSettings,
@@ -15,7 +15,7 @@ import {
 import { printStockLabels } from '@/lib/erp-print-labels'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
-import { ArrowLeft, FileSpreadsheet, Loader2, Printer, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, Loader2, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
 
 type Batch = {
   id: string
@@ -34,6 +34,9 @@ export function ErpProductsWorkspace() {
   const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [msgTone, setMsgTone] = useState<'ok' | 'err'>('ok')
+  const [tagDeleteCode, setTagDeleteCode] = useState('')
+  const [tagDeleteBusy, setTagDeleteBusy] = useState(false)
+  const tagDeleteRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [workstation, setWorkstation] = useErpWorkstationSelection()
   const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
@@ -106,6 +109,29 @@ export function ErpProductsWorkspace() {
     }
   }
 
+  const deleteTagByBarcode = async (raw?: string) => {
+    const code = String(raw ?? tagDeleteCode).trim()
+    if (!code || tagDeleteBusy) return
+    setTagDeleteBusy(true)
+    setMsg(null)
+    try {
+      await axios.post('/api/reseller/erp/stock-pieces/delete-by-barcode', { barcode: code })
+      setMsgTone('ok')
+      setMsg(`Tag deleted — ${code}`)
+      setTagDeleteCode('')
+      tagDeleteRef.current?.focus()
+      if (activeBatchId) await loadBatch(activeBatchId)
+      await loadBatches()
+    } catch (e) {
+      setMsgTone('err')
+      setMsg(erpErr(e))
+      setTagDeleteCode('')
+      tagDeleteRef.current?.focus()
+    } finally {
+      setTagDeleteBusy(false)
+    }
+  }
+
   const deleteBatch = async () => {
     if (!activeBatchId || deleting) return
     if (!confirm(`Delete entire batch "${activeBatch?.batch_label}"? This cannot be undone.`)) return
@@ -174,6 +200,42 @@ export function ErpProductsWorkspace() {
   return (
     <div className="space-y-5">
       <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
+      <div className={`${erpCardCls} border-rose-100 bg-gradient-to-br from-white to-rose-50/40`}>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <ScanBarcode className="size-4 text-rose-700" aria-hidden />
+          <div>
+            <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Delete tag by barcode</p>
+            <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+              Scan or type a barcode and press Enter — removes the tag from stock across all uploads.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            ref={tagDeleteRef}
+            className={erpInputCls}
+            placeholder="Scan barcode to delete tag…"
+            value={tagDeleteCode}
+            disabled={tagDeleteBusy}
+            onChange={(e) => setTagDeleteCode(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void deleteTagByBarcode()
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-800 transition hover:bg-rose-100 disabled:opacity-60"
+            disabled={tagDeleteBusy || !tagDeleteCode.trim()}
+            onClick={() => void deleteTagByBarcode()}
+          >
+            {tagDeleteBusy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            Delete tag
+          </button>
+        </div>
+      </div>
       <div className={erpCardCls}>
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <FileSpreadsheet className="size-4 text-[var(--kc-accent,#c41e3a)]" />

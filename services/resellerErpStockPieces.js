@@ -961,6 +961,53 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
+    app.post('/api/reseller/erp/stock-pieces/delete-by-barcode', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const barcode = String(req.body.barcode || '').trim();
+            if (!barcode) return res.status(400).json({ error: 'barcode required' });
+
+            const rows = await query(
+                `SELECT id, batch_id, item_code, status FROM reseller_erp_stock_pieces
+                 WHERE reseller_user_id = $1 AND barcode = $2
+                 LIMIT 1`,
+                [req.user.id, barcode],
+            );
+            if (!rows.length) {
+                return res.status(404).json({ error: `No tag found for barcode ${barcode}` });
+            }
+            const piece = rows[0];
+            if (piece.status === 'sold') {
+                return res.status(400).json({ error: 'This tag is already sold and cannot be deleted.' });
+            }
+
+            await query(
+                `DELETE FROM reseller_erp_stock_pieces
+                 WHERE reseller_user_id = $1 AND id = $2`,
+                [req.user.id, piece.id],
+            );
+
+            if (piece.item_code) {
+                await syncStockAlertCounts(query, req.user.id, piece.item_code);
+            }
+            if (piece.batch_id) {
+                const count = await query(
+                    `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_pieces WHERE batch_id = $1::uuid`,
+                    [piece.batch_id],
+                );
+                await query(
+                    `UPDATE reseller_erp_stock_batches SET row_count = $1, updated_at = NOW()
+                     WHERE id = $2::uuid AND reseller_user_id = $3`,
+                    [count[0]?.n ?? 0, piece.batch_id, req.user.id],
+                );
+            }
+
+            res.json({ success: true, barcode, deleted: 1 });
+        } catch (e) {
+            console.error('erp stock delete barcode:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete tag' });
+        }
+    });
+
     app.get('/api/reseller/erp/stock-pieces/availability', checkAuth, erpGate, async (req, res) => {
         try {
             const itemCode = String(req.query.item_code || req.query.product || '').trim();

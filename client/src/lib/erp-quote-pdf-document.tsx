@@ -5,6 +5,8 @@ import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 import { getKcPdfPalette, type KcPdfPalette } from '@/lib/kc-pdf-palette'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
+import { billingMcDisplay, billingWastageDisplay } from '@/lib/erp-billing-display'
+import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 const COLS = [
   { key: 'barcode', label: 'Barcode', w: '7%' },
@@ -144,10 +146,10 @@ function buildStyles(p: KcPdfPalette) {
       overflow: 'hidden',
       backgroundColor: p.cardBg,
     },
-    photoThumb: { width: '100%', height: 72, objectFit: 'cover' },
+    photoThumb: { width: '100%', height: 96, objectFit: 'contain', backgroundColor: p.thumbBg },
     photoPlaceholder: {
       width: '100%',
-      height: 72,
+      height: 96,
       backgroundColor: p.thumbBg,
       alignItems: 'center',
       justifyContent: 'center',
@@ -169,7 +171,7 @@ function buildStyles(p: KcPdfPalette) {
   })
 }
 
-function cell(line: ErpBillLine, key: string): string {
+function cell(line: ErpBillLine, key: string, rateSlab: ErpRateSlab = 'R'): string {
   switch (key) {
     case 'barcode':
       return line.barcode || line.code || '—'
@@ -186,12 +188,14 @@ function cell(line: ErpBillLine, key: string): string {
     case 'purity':
       return line.purity != null ? String(line.purity) : '—'
     case 'wast':
-      return line.wastage_pct != null ? String(line.wastage_pct) : '—'
+      return String(billingWastageDisplay(line, rateSlab) || '—')
     case 'rate':
       if (line.rateLocked) return ''
       return line.ratePerGram != null ? String(line.ratePerGram) : '—'
-    case 'mc':
-      return line.mc_rate != null ? String(line.mc_rate) : '—'
+    case 'mc': {
+      const mc = billingMcDisplay(line, rateSlab)
+      return mc !== '' && mc != null ? String(mc) : '—'
+    }
     case 'mct':
       return line.mc_type || '—'
     case 'pcs':
@@ -238,6 +242,7 @@ export function ErpQuotePdfDocument({
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
   const lines = bill.lines ?? []
+  const rateSlab = ((bill.session as { rateSlab?: ErpRateSlab } | null)?.rateSlab ?? 'R') as ErpRateSlab
   const isInvoice = documentKind === 'invoice'
   const docLabel = isInvoice ? 'Tax Invoice' : 'Quotation'
   const tableTitle = isInvoice ? 'Invoice details — full breakdown' : 'Order summary — full details'
@@ -285,7 +290,7 @@ export function ErpQuotePdfDocument({
                 key={c.key}
                 style={[c.key === 'amt' ? styles.bodyCellAmt : styles.bodyCell, { width: c.w }]}
               >
-                {sanitizePdfText(cell(line, c.key))}
+                {sanitizePdfText(cell(line, c.key, rateSlab))}
               </Text>
             ))}
           </View>

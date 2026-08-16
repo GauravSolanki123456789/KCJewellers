@@ -13,6 +13,7 @@ import {
   perGramToDisplayRates,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
+import { billingMcDisplay, billingWastageDisplay, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
@@ -73,7 +74,12 @@ type BillingDraft = {
   wholesaleSilver: number | null
   goldPerG: number
   silverPerG: number
+  displayRates?: unknown
   advancePaidInr: string
+  editingBillId?: number | null
+  editingBillNumber?: string | null
+  editingBillType?: string | null
+  editingBillStatus?: string | null
 }
 
 const TABLE_COLS = [
@@ -231,6 +237,8 @@ export function ErpBillingWorkspace() {
         slabSettings,
         wholesaleGold,
         wholesaleSilver,
+        goldPerG,
+        silverPerG,
       )
       const next: ErpBillLine = { ...line, lineTotalInr: bd.total }
       const isGoldSlabR =
@@ -249,7 +257,7 @@ export function ErpBillingWorkspace() {
       }
       return next
     },
-    [displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver],
+    [displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG],
   )
 
   const recalcAll = useCallback(
@@ -300,7 +308,12 @@ export function ErpBillingWorkspace() {
       if (d.wholesaleSilver != null) setWholesaleSilver(d.wholesaleSilver)
       if (d.goldPerG) setGoldPerG(d.goldPerG)
       if (d.silverPerG) setSilverPerG(d.silverPerG)
+      if (d.displayRates) setDisplayRates(d.displayRates)
       if (d.advancePaidInr != null) setAdvancePaidInr(d.advancePaidInr)
+      if (d.editingBillId != null) setEditingBillId(d.editingBillId)
+      if (d.editingBillNumber) setEditingBillNumber(d.editingBillNumber)
+      if (d.editingBillType) setEditingBillType(d.editingBillType)
+      if (d.editingBillStatus) setEditingBillStatus(d.editingBillStatus)
     }
     setHydrated(true)
   }, [editIdParam])
@@ -330,14 +343,16 @@ export function ErpBillingWorkspace() {
       if (session.wholesaleGold != null) setWholesaleGold(session.wholesaleGold)
       if (session.wholesaleSilver != null) setWholesaleSilver(session.wholesaleSilver)
       if (session.goldPerG) {
-        const s = session.silverPerG ?? 0
         setGoldPerG(session.goldPerG)
-        setSilverPerG(s)
-        setDisplayRates(perGramToDisplayRates(session.goldPerG, s))
+        setSilverPerG(session.silverPerG ?? 0)
+      }
+      if (session.displayRates) setDisplayRates(session.displayRates)
+      else if (session.goldPerG) {
+        setDisplayRates(perGramToDisplayRates(session.goldPerG, session.silverPerG ?? 0))
       }
       setAdvancePaidInr(session.advancePaidInr ? String(session.advancePaidInr) : '')
       const loadedLines = applyRatesUnfixed(bill.lines || [], session.ratesUnfixed)
-      setLines(loadedLines)
+      setLines(recalcAll(loadedLines))
       if (bill.customer_id) {
         try {
           const custRes = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
@@ -347,9 +362,28 @@ export function ErpBillingWorkspace() {
           /* ignore */
         }
       }
-      clearDraftStorage()
+      saveDraft({
+        customerId: bill.customer_id ?? null,
+        customerName: bill.customer_name || '',
+        mobile: session.mobile || '',
+        address: session.address || '',
+        customerPan: session.pan || '',
+        customerGst: session.customerGst || '',
+        rateSlab: session.rateSlab || 'R',
+        lines: recalcAll(loadedLines),
+        wholesaleGold: session.wholesaleGold ?? null,
+        wholesaleSilver: session.wholesaleSilver ?? null,
+        goldPerG: session.goldPerG ?? goldPerG,
+        silverPerG: session.silverPerG ?? silverPerG,
+        displayRates: session.displayRates ?? displayRates,
+        advancePaidInr: session.advancePaidInr != null ? String(session.advancePaidInr) : '',
+        editingBillId: bill.id,
+        editingBillNumber: bill.bill_number,
+        editingBillType: bill.bill_type,
+        editingBillStatus: bill.status,
+      })
     },
-    [router],
+    [router, recalcAll, goldPerG, silverPerG, displayRates],
   )
 
   useEffect(() => {
@@ -360,7 +394,7 @@ export function ErpBillingWorkspace() {
   }, [hydrated, editIdParam, loadBillForEdit])
 
   useEffect(() => {
-    if (!hydrated || editingBillId) return
+    if (!hydrated) return
     saveDraft({
       customerId,
       customerName,
@@ -374,9 +408,14 @@ export function ErpBillingWorkspace() {
       wholesaleSilver,
       goldPerG,
       silverPerG,
+      displayRates,
       advancePaidInr,
+      editingBillId,
+      editingBillNumber,
+      editingBillType,
+      editingBillStatus,
     })
-  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, advancePaidInr, editingBillId])
+  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
@@ -588,14 +627,14 @@ export function ErpBillingWorkspace() {
     let net = 0
     let weight = 0
     for (const l of lines) {
-      const bd = computeLineBreakdown(l, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver)
+      const bd = computeLineBreakdown(l, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG)
       taxable += bd.taxable
       gst += (bd.cgst || 0) + (bd.sgst || 0)
       net += bd.total
       weight += Number(l.weightGm) || 0
     }
     return { subtotal: taxable, gst, net, weight, count: lines.length }
-  }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver])
+  }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG])
 
   const resetBill = () => {
     clearDuplicateState()
@@ -639,6 +678,7 @@ export function ErpBillingWorkspace() {
       wholesaleSilver,
       goldPerG,
       silverPerG,
+      displayRates,
       mobile,
       address,
       lines,
@@ -784,12 +824,11 @@ export function ErpBillingWorkspace() {
       case 'purity':
         return line.purity ?? ''
       case 'wastage_pct':
-        return line.displayWastagePct ?? line.wastage_pct ?? ''
+        return billingWastageDisplay(line, rateSlab)
       case 'ratePerGram':
         return line.ratePerGram ?? ''
       case 'mc_rate':
-        if (line.displayMcInr != null && line.displayMcInr > 0) return line.displayMcInr
-        return line.mc_rate ?? ''
+        return billingMcDisplay(line, rateSlab)
       case 'mc_type':
         return line.mc_type ?? ''
       case 'qty':
@@ -1258,12 +1297,24 @@ export function ErpBillingWorkspace() {
                         }
                         if ('edit' in col && col.edit) {
                           const k = col.key as keyof ErpBillLine
+                          const goldSlabRField =
+                            isGoldSlabRLine(line, rateSlab) &&
+                            (k === 'wastage_pct' || k === 'mc_rate')
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <input
-                                className="w-full min-w-[52px] rounded border border-[var(--color-slate-700,#e8e4df)] px-1 py-1 tabular-nums"
-                                value={String(line[k] ?? '')}
+                                className={`w-full min-w-[52px] rounded border border-[var(--color-slate-700,#e8e4df)] px-1 py-1 tabular-nums ${
+                                  goldSlabRField ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/70' : ''
+                                }`}
+                                readOnly={goldSlabRField}
+                                title={
+                                  goldSlabRField
+                                    ? 'Slab R gold — wastage is shown as making charges (auto)'
+                                    : undefined
+                                }
+                                value={String(cellVal(line, col.key) ?? '')}
                                 onChange={(e) => {
+                                  if (goldSlabRField) return
                                   const v = e.target.value
                                   const numKeys = ['weightGm', 'purity', 'wastage_pct', 'ratePerGram', 'mc_rate', 'qty', 'box_charges', 'stone_charges', 'fixed_price']
                                   const patch: Partial<ErpBillLine> = {

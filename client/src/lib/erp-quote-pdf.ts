@@ -8,7 +8,9 @@ import {
   computeLineBreakdown,
   parseSlabSettingsFromUser,
   perGramToDisplayRates,
+  resolveLineDisplayRates,
 } from '@/lib/erp-billing-pricing'
+import { billingMcDisplay, billingWastageDisplay } from '@/lib/erp-billing-display'
 
 export type ErpQuoteTotals = {
   count: number
@@ -47,10 +49,11 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   const lines = bill.lines ?? []
   const session = (bill.session || {}) as ErpBillSession
   const slabSettings = parseSlabSettingsFromUser(slabSettingsRaw)
-  const displayRates =
-    session.goldPerG && session.goldPerG > 0
-      ? perGramToDisplayRates(session.goldPerG, session.silverPerG ?? 0)
-      : null
+  const goldPerG = Number(session.goldPerG) || 0
+  const silverPerG = Number(session.silverPerG) || 0
+  const baseRates =
+    session.displayRates ??
+    (goldPerG > 0 ? perGramToDisplayRates(goldPerG, silverPerG) : null)
 
   let subtotal = 0
   let gst = 0
@@ -58,17 +61,22 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   let weight = 0
   let count = 0
 
-  if (displayRates && session.rateSlab) {
+  const slab = session.rateSlab
+
+  if (baseRates && slab) {
     for (const line of lines) {
       count += Number(line.qty) || 1
       weight += Number(line.weightGm) || 0
+      const rates = resolveLineDisplayRates(line, baseRates, goldPerG, silverPerG)
       const bd = computeLineBreakdown(
         line,
-        displayRates,
-        session.rateSlab,
+        rates,
+        slab,
         slabSettings,
         session.wholesaleGold,
         session.wholesaleSilver,
+        goldPerG,
+        silverPerG,
       )
       subtotal += bd.taxable
       gst += (bd.cgst || 0) + (bd.sgst || 0)
@@ -81,6 +89,19 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
       net += Number(line.lineTotalInr) || 0
     }
     if (net > 0) {
+      subtotal = Math.round(net / 1.03)
+      gst = net - subtotal
+    }
+  }
+
+  const lineNetSum = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0)
+  if (lineNetSum > 0 && Math.abs(lineNetSum - net) > 1) {
+    net = lineNetSum
+    if (subtotal > 0 && gst > 0) {
+      const ratio = lineNetSum / (subtotal + gst)
+      subtotal = Math.round(subtotal * ratio)
+      gst = lineNetSum - subtotal
+    } else {
       subtotal = Math.round(net / 1.03)
       gst = net - subtotal
     }

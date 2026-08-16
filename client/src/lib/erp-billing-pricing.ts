@@ -63,8 +63,62 @@ export function computeLineTotal(
   slabSettings: ResellerSlabSettings,
   wholesaleGold?: number | null,
   wholesaleSilver?: number | null,
+  goldPerG = 0,
+  silverPerG = 0,
 ): number {
-  return computeLineBreakdown(line, displayRates, slab, slabSettings, wholesaleGold, wholesaleSilver).total
+  return computeLineBreakdown(
+    line,
+    displayRates,
+    slab,
+    slabSettings,
+    wholesaleGold,
+    wholesaleSilver,
+    goldPerG,
+    silverPerG,
+  ).total
+}
+
+type RateRow = { metal_type?: string; display_rate?: number; sell_rate?: number }
+
+/** Apply per-line Rate column override to the rates payload used for slab math. */
+export function resolveLineDisplayRates(
+  line: ErpBillLine,
+  displayRates: unknown,
+  goldPerG = 0,
+  silverPerG = 0,
+): unknown {
+  const base: RateRow[] =
+    Array.isArray(displayRates) && displayRates.length
+      ? (displayRates as RateRow[]).map((r) => ({ ...r }))
+      : (perGramToDisplayRates(goldPerG, silverPerG) as RateRow[])
+
+  if (line.rateLocked || line.ratePerGram == null || !Number.isFinite(line.ratePerGram)) {
+    return base
+  }
+
+  const metal = String(line.metal_type || '').toLowerCase()
+  const rate = Number(line.ratePerGram)
+
+  if (metal.startsWith('gold')) {
+    const p = Number(line.purity) || 75
+    let key = 'gold'
+    if ((p >= 74 && p <= 76) || Math.abs(p - 75) < 1.5) key = 'gold_18k'
+    else if ((p >= 90 && p <= 93) || Math.abs(p - 91.6) < 1.5) key = 'gold_22k'
+    const idx = base.findIndex((r) => (r.metal_type || '').toLowerCase() === key)
+    const display_rate = Math.round(rate * 10)
+    if (idx >= 0) base[idx] = { ...base[idx], display_rate }
+    else base.push({ metal_type: key, display_rate })
+    return base
+  }
+
+  if (metal.startsWith('silver')) {
+    const idx = base.findIndex((r) => (r.metal_type || '').toLowerCase() === 'silver')
+    const display_rate = Math.round(rate * 1000)
+    if (idx >= 0) base[idx] = { ...base[idx], display_rate }
+    else base.push({ metal_type: 'silver', display_rate })
+  }
+
+  return base
 }
 
 export function computeLineBreakdown(
@@ -74,6 +128,8 @@ export function computeLineBreakdown(
   slabSettings: ResellerSlabSettings,
   wholesaleGold?: number | null,
   wholesaleSilver?: number | null,
+  goldPerG = 0,
+  silverPerG = 0,
 ) {
   const item = lineToItem(line)
   const ctx = buildSlabContext(
@@ -83,7 +139,8 @@ export function computeLineBreakdown(
     wholesaleSilver,
     line.metal_type,
   )
-  return calculateBreakdownWithSlab(item, displayRates, 3, ctx)
+  const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
+  return calculateBreakdownWithSlab(item, rates, 3, ctx)
 }
 
 export function parseSlabSettingsFromUser(raw: unknown): ResellerSlabSettings {

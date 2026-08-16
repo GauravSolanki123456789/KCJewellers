@@ -7,6 +7,8 @@ export type ErpBillSession = {
   wholesaleSilver?: number | null
   goldPerG?: number
   silverPerG?: number
+  /** Snapshot of live rates used in billing (incl. per-line rate overrides on regen). */
+  displayRates?: unknown
   mobile?: string
   address?: string
   /** When true, Rate column stays empty on reload (rate unfix). */
@@ -29,6 +31,7 @@ export function buildErpBillSession(input: {
   wholesaleSilver: number | null
   goldPerG: number
   silverPerG: number
+  displayRates?: unknown
   mobile: string
   address: string
   lines: ErpBillLine[]
@@ -45,6 +48,7 @@ export function buildErpBillSession(input: {
     wholesaleSilver: input.wholesaleSilver,
     goldPerG: input.goldPerG,
     silverPerG: input.silverPerG,
+    displayRates: input.displayRates,
     mobile: input.mobile.trim() || undefined,
     address: input.address.trim() || undefined,
     ratesUnfixed: ratesUnfixed || undefined,
