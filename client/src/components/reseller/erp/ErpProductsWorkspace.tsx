@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
-import {
-  ErpWorkstationBar,
-  useErpWorkstationSelection,
-} from '@/components/reseller/erp/ErpWorkstationBar'
+import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import {
   migrateHardwareSettings,
@@ -38,7 +35,7 @@ export function ErpProductsWorkspace() {
   const [tagDeleteBusy, setTagDeleteBusy] = useState(false)
   const tagDeleteRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const [workstation, setWorkstation] = useErpWorkstationSelection()
+  const [workstation] = useErpWorkstationSelection()
   const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
 
   useEffect(() => {
@@ -161,7 +158,6 @@ export function ErpProductsWorkspace() {
   if (activeBatchId && activeBatch) {
     return (
       <div className="space-y-4">
-        <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -206,7 +202,6 @@ export function ErpProductsWorkspace() {
 
   return (
     <div className="space-y-5">
-      <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
       <div className={`${erpCardCls} border-rose-100 bg-gradient-to-br from-white to-rose-50/40`}>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <ScanBarcode className="size-4 text-rose-700" aria-hidden />

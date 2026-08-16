@@ -21,7 +21,7 @@ import {
   resolveQuoteOutputMode,
   type ErpQuoteOutputMode,
 } from '@/lib/erp-quote-output'
-import { erpBtnGhost, erpCardCls } from '@/components/reseller/erp/erp-ui'
+import { erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { Monitor } from 'lucide-react'
 import Link from 'next/link'
 
@@ -30,7 +30,8 @@ type Props = {
   onChange: (sel: ErpWorkstationSelection) => void
 }
 
-export function ErpWorkstationBar({ value, onChange }: Props) {
+/** Per-PC device picks — saved in this browser only (Hardware settings). */
+export function ErpWorkstationPanel({ value, onChange }: Props) {
   const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
   const [shopQuoteMode, setShopQuoteMode] = useState<ErpQuoteOutputMode>('pdf')
 
@@ -51,14 +52,18 @@ export function ErpWorkstationBar({ value, onChange }: Props) {
 
   const effectiveQuoteMode = resolveQuoteOutputMode(value.quoteOutputMode, shopQuoteMode)
 
+  const patch = (next: ErpWorkstationSelection) => {
+    onChange(next)
+    saveWorkstationSelection(next)
+  }
+
   if (!hw?.printerProfiles?.length) {
     return (
-      <div className={`${erpCardCls} text-xs text-[var(--color-jewelry-black,#1a1814)]/55`}>
-        No label printer configured.{' '}
-        <Link href="/reseller/erp/hardware" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
-          Set up Hardware
-        </Link>{' '}
-        first (USB · TSC or COM3 · 9600).
+      <div className={`${erpCardCls} border-amber-200/80 bg-amber-50/40`}>
+        <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">This workstation</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65">
+          Add at least one label printer profile below, then pick which devices this PC uses.
+        </p>
       </div>
     )
   }
@@ -68,79 +73,90 @@ export function ErpWorkstationBar({ value, onChange }: Props) {
   const scale = getScaleProfileById(hw, value.scaleProfileId)
 
   return (
-    <div className={`${erpCardCls} flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end`}>
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-        <Monitor className="size-4" />
-        This workstation
-      </div>
-      <label className="min-w-[160px] flex-1 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-        Label printer
-        <select
-          className={`${erpBtnGhost} mt-1 w-full justify-start font-normal`}
-          value={value.printerProfileId || printer?.id || ''}
-          onChange={(e) => {
-            const next = { ...value, printerProfileId: e.target.value || null }
-            onChange(next)
-            saveWorkstationSelection(next)
-          }}
-        >
-          {(hw.printerProfiles || []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} — {printerProfileSummary(p)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="min-w-[160px] flex-1 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-        Weighing scale
-        <select
-          className={`${erpBtnGhost} mt-1 w-full justify-start font-normal`}
-          value={value.scaleProfileId || scale?.id || ''}
-          onChange={(e) => {
-            const next = { ...value, scaleProfileId: e.target.value || null }
-            onChange(next)
-            saveWorkstationSelection(next)
-          }}
-        >
-          {(hw.scaleProfiles || []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} — {s.serial.port} @ {s.serial.baudRate}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="min-w-[180px] flex-1 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
-        Generate quote on this PC
-        <select
-          className={`${erpBtnGhost} mt-1 w-full justify-start font-normal`}
-          value={value.quoteOutputMode ?? ''}
-          onChange={(e) => {
-            const raw = e.target.value
-            const next = {
-              ...value,
-              quoteOutputMode: raw ? (normalizeQuoteOutputMode(raw) as ErpQuoteOutputMode) : null,
-            }
-            onChange(next)
-            saveWorkstationSelection(next)
-          }}
-        >
-          <option value="">Shop default ({ERP_QUOTE_OUTPUT_LABELS[shopQuoteMode]})</option>
-          {ERP_QUOTE_OUTPUT_MODES.map((mode) => (
-            <option key={mode} value={mode}>
-              {ERP_QUOTE_OUTPUT_LABELS[mode]}
-            </option>
-          ))}
-        </select>
-        <span className="mt-1 block text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/45">
-          Active: {ERP_QUOTE_OUTPUT_LABELS[effectiveQuoteMode]} — {ERP_QUOTE_OUTPUT_HINTS[effectiveQuoteMode]}{' '}
-          <Link href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
-            Edit templates
-          </Link>
+    <div className={`${erpCardCls} border-[var(--kc-accent,#c41e3a)]/15 bg-gradient-to-br from-white to-[var(--color-slate-900,#faf8f4)]`}>
+      <div className="mb-4 flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--kc-accent,#c41e3a)]/10 text-[var(--kc-accent,#c41e3a)]">
+          <Monitor className="size-5" />
         </span>
-      </label>
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">This workstation</h2>
+          <p className="mt-0.5 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+            Saved on this PC only — each counter can choose its own label printer, scale, and quote output.
+            Billing, products, and labels use these picks automatically.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+          Label printer
+          <select
+            className={`${erpInputCls} mt-1.5`}
+            value={value.printerProfileId || printer?.id || ''}
+            onChange={(e) => patch({ ...value, printerProfileId: e.target.value || null })}
+          >
+            {(hw.printerProfiles || []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} — {printerProfileSummary(p)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+          Weighing scale
+          <select
+            className={`${erpInputCls} mt-1.5`}
+            value={value.scaleProfileId || scale?.id || ''}
+            onChange={(e) => patch({ ...value, scaleProfileId: e.target.value || null })}
+          >
+            {(hw.scaleProfiles || []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} — {s.serial.port} @ {s.serial.baudRate}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
+          Generate quote on this PC
+          <select
+            className={`${erpInputCls} mt-1.5 max-w-md`}
+            value={value.quoteOutputMode ?? ''}
+            onChange={(e) => {
+              const raw = e.target.value
+              patch({
+                ...value,
+                quoteOutputMode: raw ? (normalizeQuoteOutputMode(raw) as ErpQuoteOutputMode) : null,
+              })
+            }}
+          >
+            <option value="">Shop default ({ERP_QUOTE_OUTPUT_LABELS[shopQuoteMode]})</option>
+            {ERP_QUOTE_OUTPUT_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {ERP_QUOTE_OUTPUT_LABELS[mode]}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1.5 block text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+            Active:{' '}
+            <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/80">
+              {ERP_QUOTE_OUTPUT_LABELS[effectiveQuoteMode]}
+            </strong>
+            {' — '}
+            {ERP_QUOTE_OUTPUT_HINTS[effectiveQuoteMode]}{' '}
+            <Link href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
+              Shop default &amp; templates
+            </Link>
+          </span>
+        </label>
+      </div>
     </div>
   )
 }
+
+/** @deprecated Use ErpWorkstationPanel in Hardware settings only. */
+export const ErpWorkstationBar = ErpWorkstationPanel
 
 export function useErpWorkstationSelection(): [ErpWorkstationSelection, (s: ErpWorkstationSelection) => void] {
   const [sel, setSel] = useState<ErpWorkstationSelection>({ printerProfileId: null, scaleProfileId: null })

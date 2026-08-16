@@ -12,6 +12,7 @@ import {
   type ErpScaleProfile,
   type ErpSerialSettings,
 } from '@/lib/erp-hardware'
+import { ErpWorkstationPanel, useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { erpErr } from '@/components/reseller/erp/erp-ui'
 import {
@@ -98,6 +99,7 @@ export function ErpHardwareWorkspace() {
   const [hw, setHw] = useState<ErpHardwareSettings>(() =>
     migrateHardwareSettings({ companyCode: 'KC925', printerProfiles: [], scaleProfiles: [] }),
   )
+  const [workstation, setWorkstation] = useErpWorkstationSelection()
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [testMsg, setTestMsg] = useState<string | null>(null)
@@ -240,10 +242,13 @@ export function ErpHardwareWorkspace() {
 
   return (
     <div className="space-y-4">
+      <ErpWorkstationPanel value={workstation} onChange={setWorkstation} />
+
       <div className={erpCardCls}>
-        <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          Add one profile per PC / counter. Each workstation picks its printer &amp; scale in{' '}
-          <strong>Products</strong>. Customize layouts in{' '}
+        <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+          Add one profile per physical device (TSC label printer, Essae scale, Epson billing printer). Each PC picks
+          its devices in <strong className="text-[var(--color-jewelry-black,#1a1814)]/80">This workstation</strong>{' '}
+          above. Customize label &amp; receipt layouts in{' '}
           <a href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
             Print formats
           </a>

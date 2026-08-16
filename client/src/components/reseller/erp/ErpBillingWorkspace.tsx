@@ -24,7 +24,7 @@ import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillSavedModal, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
 import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
-import { ErpWorkstationBar, useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
+import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
@@ -241,7 +241,7 @@ export function ErpBillingWorkspace() {
   const duplicateBannerRef = useRef<HTMLDivElement>(null)
   const billLoadGen = useRef(0)
   const suppressEditLoadRef = useRef(false)
-  const [workstation, setWorkstation] = useErpWorkstationSelection()
+  const [workstation] = useErpWorkstationSelection()
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
 
   const quoteOutputMode = useMemo(
@@ -999,7 +999,6 @@ export function ErpBillingWorkspace() {
 
   return (
     <div className="space-y-4">
-      <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
       <PdfShareSheet open={pdfShareOpen} onOpenChange={setPdfShareOpen} payload={pdfSharePayload} minimal />
       <ErpSaveBillConfirmDialog
         open={saveConfirmOpen}
