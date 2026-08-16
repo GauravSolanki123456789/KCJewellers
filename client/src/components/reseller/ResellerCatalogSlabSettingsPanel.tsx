@@ -10,10 +10,10 @@ const SILVER_BLOCKS: { key: SlabKey; label: string; showSilverOffset: boolean; s
   { key: 'slab_f', label: 'Slab F (Wholesale + wastage)', showSilverOffset: false, showWastage: true },
 ]
 
-const GOLD_BLOCKS: { key: SlabKey; label: string; showGoldOffset: boolean; showWastage: boolean }[] = [
-  { key: 'gold_slab_r', label: 'Gold Slab R (Retail)', showGoldOffset: true, showWastage: false },
-  { key: 'gold_slab_w', label: 'Gold Slab W (Wholesale MC)', showGoldOffset: false, showWastage: false },
-  { key: 'gold_slab_f', label: 'Gold Slab F (Wholesale + wastage)', showGoldOffset: false, showWastage: true },
+const GOLD_BLOCKS: { key: SlabKey; label: string; showGoldOffset: boolean; showWastage: boolean; discountField: 'wastage_disc' | 'none' }[] = [
+  { key: 'gold_slab_r', label: 'Gold Slab R (Retail)', showGoldOffset: true, showWastage: false, discountField: 'wastage_disc' },
+  { key: 'gold_slab_w', label: 'Gold Slab W (Wholesale MC)', showGoldOffset: false, showWastage: false, discountField: 'wastage_disc' },
+  { key: 'gold_slab_f', label: 'Gold Slab F (Wholesale + wastage)', showGoldOffset: false, showWastage: true, discountField: 'none' },
 ]
 
 type Props = {
@@ -73,6 +73,7 @@ function TierGrid({
   rateOffsetKey,
   showRateOffset,
   showWastage,
+  discountField = 'gift',
 }: {
   form: ResellerSlabFormState
   onChange: (next: ResellerSlabFormState) => void
@@ -83,6 +84,8 @@ function TierGrid({
   rateOffsetKey: 'silver_rate_offset_per_g' | 'gold_rate_offset_per_g'
   showRateOffset: boolean
   showWastage: boolean
+  /** Gold blocks use wastage disc % instead of gift / MRP disc. Use `none` when Wastage −pts is shown. */
+  discountField?: 'gift' | 'wastage_disc' | 'none'
 }) {
   const rateLabel = rateOffsetKey === 'gold_rate_offset_per_g' ? 'Gold −₹/g' : 'Silver −₹/g'
   return (
@@ -134,19 +137,39 @@ function TierGrid({
         ) : (
           <div className="hidden sm:block" aria-hidden />
         )}
+        {discountField === 'none' ? (
+          <div className="hidden sm:block" aria-hidden />
+        ) : (
         <label className="block">
-          <span className={labelClass(variant)}>Gift / MRP disc %</span>
+          <span className={labelClass(variant)}>
+            {discountField === 'wastage_disc' ? 'Wastage disc %' : 'Gift / MRP disc %'}
+          </span>
           <input
             type="number"
             min={0}
             max={100}
             step={0.5}
             disabled={disabled}
-            value={form[blockKey].gift_discount_pct}
-            onChange={(e) => onChange(updateTier(form, blockKey, { gift_discount_pct: e.target.value }))}
+            value={
+              discountField === 'wastage_disc'
+                ? form[blockKey].wastage_discount_pct
+                : form[blockKey].gift_discount_pct
+            }
+            onChange={(e) =>
+              onChange(
+                updateTier(
+                  form,
+                  blockKey,
+                  discountField === 'wastage_disc'
+                    ? { wastage_discount_pct: e.target.value }
+                    : { gift_discount_pct: e.target.value },
+                ),
+              )
+            }
             className={fieldClass(variant)}
           />
         </label>
+        )}
         <label className="col-span-2 block sm:col-span-1">
           <span className={labelClass(variant)}>Margin %</span>
           <input
@@ -204,7 +227,7 @@ export function ResellerCatalogSlabSettingsPanel({
           {metalScope === 'all' ? (
             <p className={sectionTitleClass(variant)}>Gold products</p>
           ) : null}
-          {GOLD_BLOCKS.map(({ key, label, showGoldOffset, showWastage }) => (
+          {GOLD_BLOCKS.map(({ key, label, showGoldOffset, showWastage, discountField }) => (
             <TierGrid
               key={key}
               form={form}
@@ -216,6 +239,7 @@ export function ResellerCatalogSlabSettingsPanel({
               rateOffsetKey="gold_rate_offset_per_g"
               showRateOffset={showGoldOffset}
               showWastage={showWastage}
+              discountField={discountField}
             />
           ))}
         </div>
@@ -225,4 +249,4 @@ export function ResellerCatalogSlabSettingsPanel({
 }
 
 export const RESELLER_CATALOG_SLAB_HELP =
-  'Defaults for Slab R / W / F when you create WhatsApp catalogue links, on your storefront, and in Jewellery ERP billing. Silver & gift items use the first block; gold jewellery uses the gold block. MC and gift discounts are percentages; Slab R offsets subtract ₹/g from today\'s live rate. Margin % adds to the final price — use when discounts are 0.'
+  'Defaults for Slab R / W / F when you create WhatsApp catalogue links, on your storefront, and in Jewellery ERP billing. Silver & gift items use the first block; gold jewellery uses the gold block. MC discount is a percentage; gold slabs use wastage disc % (points off wastage — on Slab R this reduces MC derived from wastage). Slab R offsets subtract ₹/g from today\'s live rate. Margin % adds to the final price — use when discounts are 0.'

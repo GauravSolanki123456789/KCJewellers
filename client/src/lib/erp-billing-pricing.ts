@@ -31,6 +31,7 @@ export function lineToItem(line: ErpBillLine): Item {
     mc_rate: line.mc_rate ?? undefined,
     mc_type: line.mc_type ?? undefined,
     stone_charges: line.stone_charges ?? 0,
+    stone_wt: line.stone_wt ?? undefined,
     box_charges: line.box_charges ?? 0,
     fixed_price: line.fixed_price ?? undefined,
     size: line.size ?? undefined,

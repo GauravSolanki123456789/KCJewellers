@@ -89,6 +89,7 @@ const LABEL_RULE_FIELD_KEYS = [
     'gross_weight',
     'bag_wt',
     'stone_charges',
+    'stone_wt',
     'wastage_pct',
     'mc_rate',
     'bags',
@@ -397,6 +398,9 @@ function buildLabelTemplateVars(piece, hw, profile) {
             ? Number(piece.bag_wt).toFixed(3)
             : '',
         stone_charges: formatOptionalNumber(piece, 'stone_charges', 2),
+        stone_wt: piece.stone_wt != null && Number.isFinite(Number(piece.stone_wt))
+            ? Number(piece.stone_wt).toFixed(3)
+            : '',
         box_charges: formatOptionalNumber(piece, 'box_charges', 2),
         purity: piece.purity != null && String(piece.purity).trim() !== ''
             ? String(piece.purity).trim()

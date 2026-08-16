@@ -29,6 +29,7 @@ export type ErpProductHit = {
   pcs?: number | null
   box_charges?: number | null
   stone_charges?: number | null
+  stone_wt?: number | null
   item_code?: string | null
   attr_color?: string | null
   attr_stone?: string | null
@@ -51,6 +52,7 @@ export type ErpStockPiece = {
   pcs?: number
   box_charges?: number | null
   stone_charges?: number | null
+  stone_wt?: number | null
   metal_type?: string | null
   item_code?: string | null
   image_url?: string | null
@@ -94,11 +96,16 @@ export type ErpBillLine = {
   mc_type?: string | null
   box_charges?: number | null
   stone_charges?: number | null
+  stone_wt?: number | null
   metal_type?: string | null
   item_code?: string | null
   imageUrl?: string | null
   fixed_price?: number | null
   stock_piece_id?: number | null
+  /** Slab R gold — show computed MC (₹) instead of per-g MC rate in grid. */
+  displayMcInr?: number | null
+  /** Slab R gold — hide wastage % in customer-facing grid. */
+  displayWastagePct?: number | null
   availability?: string | null
   /** Invoice line label e.g. SILVER JEWELLERY */
   invoice_item_name?: string | null

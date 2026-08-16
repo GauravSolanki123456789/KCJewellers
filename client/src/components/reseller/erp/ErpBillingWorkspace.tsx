@@ -117,6 +117,7 @@ function productToLine(p: ErpProductHit, code: string): ErpBillLine {
     mc_type: p.mc_type ?? null,
     box_charges: p.box_charges ?? 0,
     stone_charges: p.stone_charges ?? 0,
+    stone_wt: p.stone_wt ?? null,
     metal_type: p.metal_type || 'silver',
     item_code: p.item_code ?? undefined,
     imageUrl: p.image_url ?? null,
@@ -232,6 +233,15 @@ export function ErpBillingWorkspace() {
         wholesaleSilver,
       )
       const next: ErpBillLine = { ...line, lineTotalInr: bd.total }
+      const isGoldSlabR =
+        rateSlab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
+      if (isGoldSlabR) {
+        next.displayWastagePct = 0
+        next.displayMcInr = bd.mc > 0 ? bd.mc : null
+      } else {
+        next.displayWastagePct = null
+        next.displayMcInr = null
+      }
       if (!line.rateLocked) {
         const r = bd.rate_per_gram
         next.ratePerGram =
@@ -774,10 +784,11 @@ export function ErpBillingWorkspace() {
       case 'purity':
         return line.purity ?? ''
       case 'wastage_pct':
-        return line.wastage_pct ?? ''
+        return line.displayWastagePct ?? line.wastage_pct ?? ''
       case 'ratePerGram':
         return line.ratePerGram ?? ''
       case 'mc_rate':
+        if (line.displayMcInr != null && line.displayMcInr > 0) return line.displayMcInr
         return line.mc_rate ?? ''
       case 'mc_type':
         return line.mc_type ?? ''

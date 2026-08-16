@@ -129,6 +129,7 @@ export const LABEL_TEMPLATE_VARS = [
   'bags',
   'bag_wt',
   'stone_charges',
+  'stone_wt',
   'box_charges',
   'purity',
 ] as const
@@ -137,6 +138,7 @@ export const LABEL_RULE_FIELD_KEYS = [
   'gross_weight',
   'bag_wt',
   'stone_charges',
+  'stone_wt',
   'wastage_pct',
   'mc_rate',
   'bags',
@@ -340,6 +342,7 @@ export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {
   gross_weight: 'Gross weight',
   bag_wt: 'Bag weight',
   stone_charges: 'Stone charges',
+  stone_wt: 'Stone weight',
   wastage_pct: 'Wastage %',
   mc_rate: 'MC rate',
   bags: 'Bags count',

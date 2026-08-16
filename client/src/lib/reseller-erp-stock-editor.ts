@@ -17,6 +17,7 @@ export type StockEditableField =
   | 'pcs'
   | 'box_charges'
   | 'stone_charges'
+  | 'stone_wt'
   | 'metal_type'
   | 'item_code'
   | 'image_url'
@@ -65,6 +66,7 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'pcs', label: 'PCS', type: 'number' },
   { key: 'box_charges', label: 'BoxCharges', type: 'number' },
   { key: 'stone_charges', label: 'StoneCharges', type: 'number' },
+  { key: 'stone_wt', label: 'StoneWt', shortLabel: 'Stone Wt', type: 'number' },
   { key: 'metal_type', label: 'MetalType', shortLabel: 'Metal', type: 'text' },
   { key: 'item_code', label: 'ItemCode', type: 'text' },
   { key: 'image_url', label: 'ImageUrl', type: 'text' },
@@ -102,6 +104,7 @@ export function pieceToRowDraft(p: ErpStockPiece): StockRowDraft {
       pcs: fieldToString(p.pcs ?? 1),
       box_charges: fieldToString(p.box_charges),
       stone_charges: fieldToString(p.stone_charges),
+      stone_wt: fieldToString(p.stone_wt),
       metal_type: fieldToString(p.metal_type),
       item_code: fieldToString(p.item_code),
       image_url: fieldToString(p.image_url),
@@ -139,6 +142,7 @@ export function rowDraftToApiPayload(d: StockRowDraft): Record<string, unknown> 
     pcs: num('pcs') ?? 1,
     box_charges: num('box_charges'),
     stone_charges: num('stone_charges'),
+    stone_wt: num('stone_wt'),
     metal_type: v.metal_type.trim() || null,
     item_code: v.item_code.trim() || null,
     image_url: v.image_url.trim() || null,

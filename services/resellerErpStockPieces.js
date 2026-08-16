@@ -115,6 +115,7 @@ const EXCEL_ALIASES = {
     pcs: ['PCS', 'pcs', 'Pcs'],
     box_charges: ['BoxCharges', 'box_charges'],
     stone_charges: ['StoneCharges', 'stone_charges'],
+    stone_wt: ['StoneWt', 'stone_wt', 'Stone Wt', 'StoneWeight'],
     metal_type: ['MetalType', 'metal_type', 'Metal'],
     item_code: ['ItemCode', 'item_code'],
     image_url: ['ImageUrl', 'image_url', 'Image'],
@@ -213,6 +214,7 @@ function parseExcelRowToPiece(row) {
         pcs: num(EXCEL_ALIASES.pcs) ?? 1,
         box_charges: num(EXCEL_ALIASES.box_charges) ?? 0,
         stone_charges: num(EXCEL_ALIASES.stone_charges) ?? 0,
+        stone_wt: num(EXCEL_ALIASES.stone_wt),
         metal_type: pickRowVal(row, EXCEL_ALIASES.metal_type)
             ? String(pickRowVal(row, EXCEL_ALIASES.metal_type)).trim().slice(0, 64)
             : null,
@@ -266,6 +268,7 @@ function mapPiece(row) {
         pcs: row.pcs != null ? Number(row.pcs) : 1,
         box_charges: row.box_charges != null ? Number(row.box_charges) : 0,
         stone_charges: row.stone_charges != null ? Number(row.stone_charges) : 0,
+        stone_wt: row.stone_wt != null ? Number(row.stone_wt) : null,
         metal_type: row.metal_type,
         item_code: row.item_code,
         image_url: row.image_url,
@@ -347,6 +350,7 @@ async function ensureStockPiecesSchema(pool) {
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS bag_wt NUMERIC(12, 3);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS split_from_barcode VARCHAR(128);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS merged_into_barcode VARCHAR(128);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS stone_wt NUMERIC(12, 3);
     `);
 }
 
@@ -659,13 +663,13 @@ function registerStockPieceRoutes(app, deps) {
                             batch_id = $1::uuid, sku = $2, style_code = $3, product_name = $4,
                             size = $5, avg_weight = $6, purity = $7, wastage_pct = $8,
                             mc_rate = $9, mc_type = $10, pcs = $11, box_charges = $12,
-                            stone_charges = $13, metal_type = $14, item_code = $15,
-                            image_url = $16, attr_color = $17, attr_stone = $18,
-                            fixed_price = $19, gross_weight = $20, bags = $21, bag_wt = $22,
-                            payload_json = $23::jsonb,
+                            stone_charges = $13, stone_wt = $14, metal_type = $15, item_code = $16,
+                            image_url = $17, attr_color = $18, attr_stone = $19,
+                            fixed_price = $20, gross_weight = $21, bags = $22, bag_wt = $23,
+                            payload_json = $24::jsonb,
                             status = CASE WHEN status = 'sold' THEN status ELSE 'in_stock' END,
                             updated_at = NOW()
-                         WHERE id = $24`,
+                         WHERE id = $25`,
                         [
                             batchId,
                             p.sku,
@@ -680,6 +684,7 @@ function registerStockPieceRoutes(app, deps) {
                             p.pcs,
                             p.box_charges,
                             p.stone_charges,
+                            p.stone_wt,
                             p.metal_type,
                             p.item_code,
                             p.image_url,
@@ -704,9 +709,9 @@ function registerStockPieceRoutes(app, deps) {
                         `INSERT INTO reseller_erp_stock_pieces (
                             reseller_user_id, batch_id, barcode, sku, style_code, product_name,
                             size, avg_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
-                            box_charges, stone_charges, metal_type, item_code, image_url,
+                            box_charges, stone_charges, stone_wt, metal_type, item_code, image_url,
                             attr_color, attr_stone, fixed_price, gross_weight, bags, bag_wt, payload_json
-                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb)`,
+                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb)`,
                         [
                             req.user.id,
                             batchId,
@@ -723,6 +728,7 @@ function registerStockPieceRoutes(app, deps) {
                             p.pcs,
                             p.box_charges,
                             p.stone_charges,
+                            p.stone_wt,
                             p.metal_type,
                             p.item_code,
                             p.image_url,
@@ -780,12 +786,12 @@ function registerStockPieceRoutes(app, deps) {
                         sku = $2, style_code = $3, product_name = $4, size = $5,
                         avg_weight = $6, purity = $7, wastage_pct = $8, mc_rate = $9,
                         mc_type = $10, pcs = $11, box_charges = $12, stone_charges = $13,
-                        metal_type = $14, item_code = $15, image_url = $16,
-                        attr_color = $17, attr_stone = $18, fixed_price = $19,
-                        gross_weight = $20, bags = $21, bag_wt = $22,
-                        payload_json = COALESCE(payload_json, '{}'::jsonb) || $23::jsonb,
+                        stone_wt = $14, metal_type = $15, item_code = $16, image_url = $17,
+                        attr_color = $18, attr_stone = $19, fixed_price = $20,
+                        gross_weight = $21, bags = $22, bag_wt = $23,
+                        payload_json = COALESCE(payload_json, '{}'::jsonb) || $24::jsonb,
                         updated_at = NOW()
-                     WHERE id = $24 AND batch_id = $25::uuid AND reseller_user_id = $26
+                     WHERE id = $25 AND batch_id = $26::uuid AND reseller_user_id = $27
                        AND status <> 'sold'`,
                     [
                         r.barcode ? String(r.barcode).trim().slice(0, 128) : null,
@@ -801,6 +807,7 @@ function registerStockPieceRoutes(app, deps) {
                         r.pcs != null ? parseInt(String(r.pcs), 10) || 1 : 1,
                         r.box_charges != null ? Number(r.box_charges) : 0,
                         r.stone_charges != null ? Number(r.stone_charges) : 0,
+                        r.stone_wt != null ? Number(r.stone_wt) : null,
                         r.metal_type ?? null,
                         r.item_code ?? null,
                         r.image_url ?? null,
@@ -1067,6 +1074,7 @@ function registerStockPieceRoutes(app, deps) {
                 'earring_wt_only',
                 'bag_wt',
                 'stone_charges',
+                'stone_wt',
                 'box_charges',
                 'wastage_pct',
                 'mc_rate',

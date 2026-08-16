@@ -9,6 +9,7 @@ import {
   productPriceShowsInclGst,
   type CatalogPricingOptions,
   type Item,
+  type PriceBreakdown,
   type WholesalePricingInput,
 } from '@/lib/pricing'
 import {
@@ -87,6 +88,8 @@ export type SharedCatalogUnitPrice = {
   slabDiscountLines: string[]
   /** Rupees saved vs retail (before slab) after markup + link discount. */
   savingsInr: number | null
+  /** Line breakdown for wastage / MC display on shared cards. */
+  priceBreakdown: PriceBreakdown | null
 }
 
 /** Final + compare-at prices for one shared brochure line (markup → link discount). */
@@ -171,6 +174,7 @@ export function computeSharedCatalogUnitPrice(
     showInclGst: productPriceShowsInclGst(item, pricingOptions),
     slabDiscountLines,
     savingsInr,
+    priceBreakdown: b,
   }
 }
 
@@ -299,6 +303,7 @@ export type SharedCatalogPricingRow = {
   savingsInr: number | null
   markupPercentage: number
   discountPercentage: number
+  priceBreakdown: PriceBreakdown | null
 }
 
 export type SharedCatalogGroupedRow = {
@@ -405,6 +410,7 @@ export function buildSharedCatalogPricingRows(
         savingsInr: price.savingsInr,
         markupPercentage: mk,
         discountPercentage: disc,
+        priceBreakdown: price.priceBreakdown,
       })
     } catch (e) {
       console.warn('shared catalog pricing row skipped', p?.barcode ?? p?.sku, e)

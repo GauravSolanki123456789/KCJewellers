@@ -19,6 +19,8 @@ export type Item = {
   mc_rate?: number
   mc_value?: number
   stone_charges?: number
+  /** Stone weight in grams (Excel StoneWt) — informational for labels / ERP. */
+  stone_wt?: number | null
   /** Gift packaging add-on (₹) — shown as optional "with box" price on storefront. */
   box_charges?: number | string | null
   /** When true, product is sold with box only (Excel WithBoxChargesOnly). */

@@ -1244,6 +1244,7 @@ function registerResellerErpRoutes(app, deps) {
                         pcs: p.pcs,
                         box_charges: p.box_charges,
                         stone_charges: p.stone_charges,
+                        stone_wt: p.stone_wt,
                         metal_type: p.metal_type,
                         item_code: p.item_code,
                         image_url: imageUrl,

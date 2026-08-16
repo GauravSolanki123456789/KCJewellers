@@ -18,6 +18,8 @@ export type ComponentWeightPart = {
 
 export type ProductCardMetalExtras = {
   wastage: ProductSpecLine | null
+  /** Shown on Slab R gold when wastage is folded into making charges. */
+  mc: ProductSpecLine | null
   hasComponentWeights: boolean
   componentParts: ComponentWeightPart[]
   componentSummary: string | null
@@ -105,6 +107,18 @@ export function getWastageSpecLine(
   }
 }
 
+export function getMcSpecLine(
+  item: Item | null | undefined,
+  breakdown?: PriceBreakdown | null,
+): ProductSpecLine | null {
+  if (!shouldShowWastageForItem(item)) return null
+  const mc = breakdown?.mc
+  if (mc == null || mc <= 0) return null
+  const wastageAmt = breakdown?.wastage_amount
+  if (wastageAmt != null && wastageAmt > 0) return null
+  return { label: 'Making charges', value: formatInr(mc) }
+}
+
 export function getBillableWeightSpecLine(
   item: Item | null | undefined,
   breakdown?: PriceBreakdown | null,
@@ -140,12 +154,13 @@ export function getProductCardMetalExtras(
   breakdown?: PriceBreakdown | null,
 ): ProductCardMetalExtras {
   if (!item) {
-    return { wastage: null, hasComponentWeights: false, componentParts: [], componentSummary: null }
+    return { wastage: null, mc: null, hasComponentWeights: false, componentParts: [], componentSummary: null }
   }
   const b = resolveBreakdown(item, rates, breakdown)
   const componentParts = getComponentWeightParts(item)
   return {
     wastage: getWastageSpecLine(item, b),
+    mc: getMcSpecLine(item, b),
     hasComponentWeights: componentParts.length > 0,
     componentParts,
     componentSummary: getComponentWeightSummary(item),
@@ -162,6 +177,7 @@ export function getProductMetalSpecLines(
   const extras = getProductCardMetalExtras(item, rates, breakdown)
   const lines: ProductSpecLine[] = []
   if (extras.wastage) lines.push(extras.wastage)
+  if (extras.mc) lines.push(extras.mc)
   lines.push(...getComponentWeightLines(item))
   return lines
 }
@@ -178,6 +194,7 @@ export function formatProductMetalSpecSummary(
   const wt = getCustomerDisplayWeightLabel(item)
   if (wt) parts.push(`Weight: ${wt}`)
   if (extras.wastage) parts.push(`${extras.wastage.label}: ${extras.wastage.value}`)
+  if (extras.mc) parts.push(`${extras.mc.label}: ${extras.mc.value}`)
   if (extras.componentSummary) parts.push(extras.componentSummary)
   return parts.length ? parts.join(' · ') : null
 }
@@ -193,6 +210,7 @@ export function formatSharedCatalogWeightBlock(
   const lines = [
     wt ? `Weight · ${wt}` : null,
     extras.wastage ? `${extras.wastage.label} · ${extras.wastage.value}` : null,
+    extras.mc ? `${extras.mc.label} · ${extras.mc.value}` : null,
     extras.componentSummary,
   ].filter(Boolean) as string[]
   return lines.join('\n')

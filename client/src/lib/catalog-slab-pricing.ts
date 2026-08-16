@@ -216,7 +216,19 @@ export function formatSlabDiscountLines(
   }
 
   if (mc > 0) lines.push(`Making charges ${Math.round(mc)}% off`)
-  if (slab.kind === 'slab_f' && wastageDisc > 0) {
+  const metal = String(item.metal_type || '').toLowerCase()
+  const isGold = metal.startsWith('gold')
+  if (wastageDisc > 0 && isGold && !isFixedPriceCatalogItem(item)) {
+    const w = resolveProductWastagePercent(item)
+    if (w > 0) {
+      const after = snapWastagePercent(Math.max(0, w - wastageDisc))
+      if (slab.kind === 'slab_r') {
+        lines.push(`Wastage ${Math.round(w)}% → MC (−${Math.round(wastageDisc)} pts on wastage)`)
+      } else {
+        lines.push(`Wastage ${Math.round(w)}% → ${after}% (−${Math.round(wastageDisc)} pts)`)
+      }
+    }
+  } else if (slab.kind === 'slab_f' && wastageDisc > 0 && !isGold) {
     const w = resolveProductWastagePercent(item)
     if (w > 0) {
       const after = snapWastagePercent(Math.max(0, w - wastageDisc))
@@ -224,7 +236,6 @@ export function formatSlabDiscountLines(
     }
   }
   if (slab.kind === 'slab_r') {
-    const metal = String(item.metal_type || '').toLowerCase()
     const silverOffset = Math.max(0, Number(s.silver_rate_offset_per_g) || 0)
     const goldOffset = Math.max(0, Number(s.gold_rate_offset_per_g) || 0)
     if (silverOffset > 0 && metal.startsWith('silver')) {
@@ -235,7 +246,6 @@ export function formatSlabDiscountLines(
     }
   }
   if (slab.kind === 'slab_w' || slab.kind === 'slab_f') {
-    const metal = String(item.metal_type || '').toLowerCase()
     if (metal.startsWith('silver')) {
       const wr = Number(slab.wholesaleSilverRatePerG)
       if (Number.isFinite(wr) && wr > 0) lines.push(`Wholesale silver ₹${wr}/g`)
@@ -260,6 +270,15 @@ function mcPart(item: Item, mcDiscountPct: number): number {
 
 function stonePart(item: Item): number {
   return Number(item.stone_charges || 0) || 0
+}
+
+/** Reduce configured wastage points before metal / MC-as-wastage calculations. */
+function effectiveGoldWastagePct(item: Item, wastageDiscountPts: number): number {
+  let w = resolveProductWastagePercent(item)
+  if (w > 0 && wastageDiscountPts > 0) {
+    w = snapWastagePercent(Math.max(0, w - clampPct(wastageDiscountPts, 0, 100)))
+  }
+  return w
 }
 
 function billableWithSlabWastage(item: Item, wastageDiscountPct: number): number {
@@ -354,11 +373,11 @@ export function calculateBreakdownWithSlab(
 
   const netWt = netWeight(item)
   const purity = purityPct(item)
-  const wastageDisc =
-    slab.kind === 'slab_f' ? clampPct(settings.wastage_discount_pct, 0, 100) : 0
+  const wastageDiscPts = clampPct(settings.wastage_discount_pct, 0, 100)
+  const wastageDiscForBillWt = kind === 'slab_f' ? wastageDiscPts : 0
   const billWt =
-    slab.kind === 'slab_f' && wastageDisc > 0
-      ? billableWithSlabWastage(item, wastageDisc)
+    kind === 'slab_f' && wastageDiscForBillWt > 0
+      ? billableWithSlabWastage(item, wastageDiscForBillWt)
       : metalBillableWeight(item)
 
   const fineRate = resolveFineMetalRatePerG(item, rates, effectiveSlab)
@@ -368,11 +387,31 @@ export function calculateBreakdownWithSlab(
 
   const effPurity = isSilver ? silverEffectivePurity(purity) : 100
   const metalRate = isGold ? fineRate : fineRate * (effPurity / 100)
-  const wastagePctVal = isGold ? resolveProductWastagePercent(item) : 0
-  const metalPart = isGold
-    ? Math.floor((netWt * metalRate * (100 + wastagePctVal)) / 100)
-    : metalRate * billWt
-  const mc = isGold ? Math.round(mcPart(item, mcDisc)) : mcPart(item, mcDisc)
+
+  let metalPart: number
+  let mc: number
+  let wastagePctVal = 0
+  let wastageAmount: number | undefined
+
+  if (isGold && kind === 'slab_r') {
+    const effectiveWastage = effectiveGoldWastagePct(item, wastageDiscPts)
+    metalPart = Math.floor(netWt * metalRate)
+    const wastageAsMc = Math.floor((netWt * metalRate * effectiveWastage) / 100)
+    const itemMc = Math.round(mcPart(item, mcDisc))
+    mc = wastageAsMc + itemMc
+  } else if (isGold) {
+    wastagePctVal = effectiveGoldWastagePct(
+      item,
+      kind === 'slab_w' || kind === 'slab_f' ? wastageDiscPts : 0,
+    )
+    metalPart = Math.floor((netWt * metalRate * (100 + wastagePctVal)) / 100)
+    mc = Math.round(mcPart(item, mcDisc))
+    wastageAmount = Math.max(0, metalPart - Math.floor(netWt * metalRate))
+  } else {
+    metalPart = metalRate * billWt
+    mc = mcPart(item, mcDisc)
+  }
+
   const stone = isGold ? Math.round(stonePart(item)) : stonePart(item)
   const baseRetail = metalPart + mc + stone
   const gstPct = gst
@@ -397,6 +436,8 @@ export function calculateBreakdownWithSlab(
       rate_per_gram: metalRate,
       net_weight: netWt,
       billable_weight_gm: billWt,
+      wastage_pct: isGold && wastagePctVal > 0 ? wastagePctVal : undefined,
+      wastage_amount: wastageAmount,
     })
   }
 
@@ -417,10 +458,7 @@ export function calculateBreakdownWithSlab(
     net_weight: netWt,
     billable_weight_gm: billWt,
     wastage_pct: isGold && wastagePctVal > 0 ? wastagePctVal : undefined,
-    wastage_amount:
-      isGold && wastagePctVal > 0
-        ? Math.max(0, metalPart - Math.floor(netWt * metalRate))
-        : undefined,
+    wastage_amount: wastageAmount,
   })
 }
 

@@ -15,7 +15,7 @@ export function useProductMetalExtras(
   breakdown?: PriceBreakdown | null,
 ): ProductCardMetalExtras {
   if (!item) {
-    return { wastage: null, hasComponentWeights: false, componentParts: [], componentSummary: null }
+    return { wastage: null, mc: null, hasComponentWeights: false, componentParts: [], componentSummary: null }
   }
   return getProductCardMetalExtras(item, rates, breakdown)
 }
@@ -34,7 +34,7 @@ export function ProductMetalSpecExtras({
   className?: string
 }) {
   const extras = getProductCardMetalExtras(item, rates, breakdown)
-  if (!extras.wastage && !extras.hasComponentWeights) return null
+  if (!extras.wastage && !extras.mc && !extras.hasComponentWeights) return null
 
   if (density === 'detail') {
     return (
@@ -45,6 +45,14 @@ export function ProductMetalSpecExtras({
               {extras.wastage.label}
             </span>
             <span className="font-medium tabular-nums text-slate-100">{extras.wastage.value}</span>
+          </div>
+        ) : null}
+        {extras.mc ? (
+          <div className={cn('rounded-lg border border-slate-800/80 bg-slate-900/60 px-4 py-3', className)}>
+            <span className="block text-xs uppercase tracking-wider text-slate-500">
+              {extras.mc.label}
+            </span>
+            <span className="font-medium tabular-nums text-slate-100">{extras.mc.value}</span>
           </div>
         ) : null}
         {extras.hasComponentWeights ? (
@@ -80,6 +88,11 @@ export function ProductMetalSpecExtras({
       {extras.wastage ? (
         <p className={cn(specCls, 'tabular-nums')}>
           {extras.wastage.label}: {extras.wastage.value}
+        </p>
+      ) : null}
+      {extras.mc ? (
+        <p className={cn(specCls, 'tabular-nums')}>
+          {extras.mc.label}: {extras.mc.value}
         </p>
       ) : null}
       {extras.componentSummary ? (

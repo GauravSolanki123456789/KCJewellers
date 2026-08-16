@@ -1083,7 +1083,7 @@ export default function SharedCatalogClient({
                 return set
               })()
               const hasVariants = group.variants.length > 1
-              const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst, slabDiscountLines, savingsInr } =
+              const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst, slabDiscountLines, savingsInr, priceBreakdown } =
                 activeRow
               const name = group.displayTitle
               const img = normalizeCatalogImageSrc(
@@ -1261,6 +1261,7 @@ export default function SharedCatalogClient({
                       <ProductMetalSpecExtras
                         item={item}
                         rates={payload.rates ?? []}
+                        breakdown={priceBreakdown}
                         density="shared"
                       />
                       {hasBox && hidePrices ? (

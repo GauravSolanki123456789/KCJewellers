@@ -204,6 +204,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     [slabSettings, pricingSlab],
   )
 
+  const activeGoldSlabTier = useMemo(
+    () => tierSettingsForSlab(slabSettings, pricingSlab, 'gold'),
+    [slabSettings, pricingSlab],
+  )
+
   const slabPayloadForPricing = useMemo(() => {
     if (pricingSlab === 'standard') return null
     return {
@@ -641,6 +646,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                       {activeSlabTier.silver_rate_offset_per_g
                         ? ` · Silver −₹${activeSlabTier.silver_rate_offset_per_g}/g vs today`
                         : ''}
+                      {activeGoldSlabTier.wastage_discount_pct
+                        ? ` · Gold wastage −${Math.round(activeGoldSlabTier.wastage_discount_pct)} pts`
+                        : ''}
                       {activeSlabTier.gift_discount_pct
                         ? ` · Gift ${Math.round(activeSlabTier.gift_discount_pct)}% off`
                         : ''}
@@ -655,6 +663,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                       <span className="kc-slab-hint-em">MC {Math.round(activeSlabTier.mc_discount_pct ?? 0)}% off</span>
                       {' · '}
                       Uses wholesale ₹/g you enter (not today&apos;s rate).
+                      {activeGoldSlabTier.wastage_discount_pct
+                        ? ` Gold wastage −${Math.round(activeGoldSlabTier.wastage_discount_pct)} pts.`
+                        : ''}
                       {activeSlabTier.gift_discount_pct
                         ? ` Gift ${Math.round(activeSlabTier.gift_discount_pct)}% off.`
                         : '.'}
@@ -666,6 +677,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   {pricingSlab === 'slab_f' && (
                     <>
                       Wastage −{Math.round(activeSlabTier.wastage_discount_pct ?? 0)} pts ·{' '}
+                      {activeGoldSlabTier.wastage_discount_pct
+                        ? `Gold wastage −${Math.round(activeGoldSlabTier.wastage_discount_pct)} pts · `
+                        : ''}
                       <span className="kc-slab-hint-em">MC {Math.round(activeSlabTier.mc_discount_pct ?? 0)}% off</span>
                       {' · '}
                       Wholesale ₹/g below.
