@@ -1,5 +1,7 @@
 /** ERP hardware profiles — shared between Hardware settings and workstation picker. */
 
+import type { ErpQuoteOutputMode } from '@/lib/erp-quote-output'
+
 export type ErpSerialSettings = {
   port: string
   baudRate: number
@@ -44,6 +46,8 @@ export type ErpHardwareSettings = {
 export type ErpWorkstationSelection = {
   printerProfileId: string | null
   scaleProfileId: string | null
+  /** When set, overrides shop default for Generate quote on this PC. */
+  quoteOutputMode?: ErpQuoteOutputMode | null
 }
 
 export const DEFAULT_SERIAL: ErpSerialSettings = {
@@ -173,6 +177,7 @@ export function loadWorkstationSelection(): ErpWorkstationSelection {
     return {
       printerProfileId: parsed.printerProfileId || null,
       scaleProfileId: parsed.scaleProfileId || null,
+      quoteOutputMode: parsed.quoteOutputMode ?? null,
     }
   } catch {
     return { printerProfileId: null, scaleProfileId: null }

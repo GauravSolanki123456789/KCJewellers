@@ -24,9 +24,17 @@ import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillSavedModal, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
 import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
+import { ErpWorkstationBar, useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
+import { migratePrintFormats } from '@/lib/erp-print-templates'
+import {
+  normalizeQuoteOutputMode,
+  printErpEstimateThermal,
+  resolveQuoteOutputMode,
+  type ErpQuoteOutputMode,
+} from '@/lib/erp-quote-output'
 import {
   defaultHsnCode,
   defaultInvoiceItemName,
@@ -233,6 +241,20 @@ export function ErpBillingWorkspace() {
   const duplicateBannerRef = useRef<HTMLDivElement>(null)
   const billLoadGen = useRef(0)
   const suppressEditLoadRef = useRef(false)
+  const [workstation, setWorkstation] = useErpWorkstationSelection()
+  const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
+
+  const quoteOutputMode = useMemo(
+    () => resolveQuoteOutputMode(workstation.quoteOutputMode, shopQuoteOutputMode),
+    [workstation.quoteOutputMode, shopQuoteOutputMode],
+  )
+
+  const generateQuoteButtonLabel = useMemo(() => {
+    const prefix = editingBillId ? 'Update & ' : 'Generate '
+    if (quoteOutputMode === 'epson') return `${prefix}Epson estimate`
+    if (quoteOutputMode === 'both') return `${prefix}quote (PDF + Epson)`
+    return `${prefix}PDF quote`
+  }, [editingBillId, quoteOutputMode])
 
   const recalcLine = useCallback(
     (
@@ -336,6 +358,15 @@ export function ErpBillingWorkspace() {
         setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
       })
       .catch(() => setBills([]))
+    void axios
+      .get<{ settings?: { printFormats?: unknown } }>('/api/reseller/erp/settings')
+      .then((res) => {
+        const pf = migratePrintFormats(
+          res.data.settings?.printFormats as Parameters<typeof migratePrintFormats>[0],
+        )
+        setShopQuoteOutputMode(normalizeQuoteOutputMode(pf.defaultQuoteOutputMode))
+      })
+      .catch(() => {})
   }, [loadDisplayRates])
 
   useEffect(() => {
@@ -881,21 +912,43 @@ export function ErpBillingWorkspace() {
     })
     const bill = await persistBill('estimate', status, { skipReset: true })
     if (!bill) return
+
+    const wantsPdf = quoteOutputMode === 'pdf' || quoteOutputMode === 'both'
+    const wantsEpson = quoteOutputMode === 'epson' || quoteOutputMode === 'both'
+
     try {
-      await shareErpQuotePdf({
-        bill,
-        brandLabel,
-        customerName,
-        mobile,
-        slabSettingsRaw: auth.user,
-        onSheet: (payload) => {
-          setPdfSharePayload(payload)
-          setPdfShareOpen(true)
-        },
-      })
+      if (wantsEpson) {
+        try {
+          const msg = await printErpEstimateThermal(bill.id)
+          if (!wantsPdf) alert(msg)
+        } catch (e) {
+          const errMsg =
+            (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not print estimate on Epson — check Hardware → billing printer IP.'
+          if (!wantsPdf) {
+            alert(errMsg)
+            return
+          }
+          alert(`${errMsg}\n\nPDF quote will still open.`)
+        }
+      }
+
+      if (wantsPdf) {
+        await shareErpQuotePdf({
+          bill,
+          brandLabel,
+          customerName,
+          mobile,
+          slabSettingsRaw: auth.user,
+          onSheet: (payload) => {
+            setPdfSharePayload(payload)
+            setPdfShareOpen(true)
+          },
+        })
+      }
     } catch (e) {
       console.error(e)
-      alert('Estimate saved but PDF could not be created.')
+      alert('Estimate saved but output could not be completed.')
     }
   }
 
@@ -946,6 +999,7 @@ export function ErpBillingWorkspace() {
 
   return (
     <div className="space-y-4">
+      <ErpWorkstationBar value={workstation} onChange={setWorkstation} />
       <PdfShareSheet open={pdfShareOpen} onOpenChange={setPdfShareOpen} payload={pdfSharePayload} minimal />
       <ErpSaveBillConfirmDialog
         open={saveConfirmOpen}
@@ -1258,7 +1312,7 @@ export function ErpBillingWorkspace() {
           </button>
           <button type="button" className={erpBtnGhost} disabled={saveBusy || lines.length === 0} onClick={() => void generateQuote()}>
             <FileText className="size-4" />
-            {editingBillId ? 'Update & PDF quote' : 'Generate quote'}
+            {generateQuoteButtonLabel}
           </button>
           <button
             type="button"

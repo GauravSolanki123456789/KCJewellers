@@ -204,7 +204,9 @@ export function formatSlabDiscountLines(
   item: Item,
 ): string[] {
   if (!slab || slab.kind === 'standard') return []
-  const s = slab.settings ?? {}
+  const s = slab.allSettings
+    ? tierSettingsForSlab(slab.allSettings, slab.kind, item.metal_type)
+    : (slab.settings ?? {})
   const lines: string[] = []
   const mc = clampPct(s.mc_discount_pct, 0, 100)
   const wastageDisc = clampPct(s.wastage_discount_pct, 0, 100)

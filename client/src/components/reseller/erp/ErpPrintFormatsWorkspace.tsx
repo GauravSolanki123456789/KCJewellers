@@ -5,6 +5,8 @@ import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import {
   DEFAULT_BILL_TEMPLATE,
+  DEFAULT_ESTIMATE_TEMPLATE_GOLD,
+  DEFAULT_ESTIMATE_TEMPLATE_SILVER,
   DEFAULT_LABEL_PRN,
   DEFAULT_LABEL_PRN_GOLD,
   DEFAULT_LABEL_PRN_SILVER,
@@ -23,13 +25,19 @@ import {
   type LabelPrnRule,
   type LabelRuleFieldKey,
 } from '@/lib/erp-print-templates'
+import {
+  ERP_QUOTE_OUTPUT_LABELS,
+  ERP_QUOTE_OUTPUT_MODES,
+  normalizeQuoteOutputMode,
+  type ErpQuoteOutputMode,
+} from '@/lib/erp-quote-output'
 import { ChevronDown, ChevronUp, FileText, Loader2, Plus, RotateCcw, Save, Tag, Trash2, Upload, Wand2 } from 'lucide-react'
 
 export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'label' | 'bill'>('label')
+  const [tab, setTab] = useState<'label' | 'bill' | 'estimate'>('label')
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const ruleFileRef = useRef<HTMLInputElement>(null)
@@ -54,6 +62,8 @@ export function ErpPrintFormatsWorkspace() {
           template: preservePrnTemplate(rule.template),
         })),
         billTemplate: preserveBillTemplate(pf.billTemplate),
+        estimateTemplateGold: preserveBillTemplate(pf.estimateTemplateGold),
+        estimateTemplateSilver: preserveBillTemplate(pf.estimateTemplateSilver),
       })
       await axios.put('/api/reseller/erp/settings', { settings: { printFormats: payload } })
       setPf(payload)
@@ -164,7 +174,7 @@ export function ErpPrintFormatsWorkspace() {
   return (
     <div className="space-y-4">
       <div className={erpCardCls}>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
             className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
@@ -188,6 +198,18 @@ export function ErpPrintFormatsWorkspace() {
           >
             <FileText className="mr-1 inline size-4" />
             Sales bill (Epson)
+          </button>
+          <button
+            type="button"
+            className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
+              tab === 'estimate'
+                ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+            }`}
+            onClick={() => setTab('estimate')}
+          >
+            <FileText className="mr-1 inline size-4" />
+            Estimate (Epson)
           </button>
         </div>
       </div>
@@ -506,7 +528,7 @@ export function ErpPrintFormatsWorkspace() {
             )}
           </div>
         </>
-      ) : (
+      ) : tab === 'bill' ? (
         <>
           <div className={erpCardCls}>
             <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Shop header</p>
@@ -563,6 +585,91 @@ export function ErpPrintFormatsWorkspace() {
               className={`${erpInputCls} min-h-[280px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
               value={pf.billTemplate || ''}
               onChange={(e) => setPf((p) => ({ ...p, billTemplate: e.target.value }))}
+              spellCheck={false}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className={erpCardCls}>
+            <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Generate quote — shop default
+            </p>
+            <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+              Staff can override this on each workstation (Billing → This workstation). Blank lines in templates
+              below are preserved on the Epson printout.
+            </p>
+            <label className="block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+              When staff clicks Generate quote
+              <select
+                className={`${erpInputCls} mt-1 max-w-md`}
+                value={pf.defaultQuoteOutputMode || 'pdf'}
+                onChange={(e) =>
+                  setPf((p) => ({
+                    ...p,
+                    defaultQuoteOutputMode: normalizeQuoteOutputMode(e.target.value) as ErpQuoteOutputMode,
+                  }))
+                }
+              >
+                {ERP_QUOTE_OUTPUT_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {ERP_QUOTE_OUTPUT_LABELS[mode]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className={erpCardCls}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Gold estimate template
+                </p>
+                <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Used when the estimate has gold items (or mixed with more gold lines).
+                </p>
+              </div>
+              <button
+                type="button"
+                className={erpBtnGhost}
+                onClick={() => setPf((p) => ({ ...p, estimateTemplateGold: DEFAULT_ESTIMATE_TEMPLATE_GOLD }))}
+              >
+                <RotateCcw className="size-4" />
+                Reset sample
+              </button>
+            </div>
+            <textarea
+              className={`${erpInputCls} min-h-[280px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
+              value={pf.estimateTemplateGold || ''}
+              onChange={(e) => setPf((p) => ({ ...p, estimateTemplateGold: e.target.value }))}
+              spellCheck={false}
+            />
+          </div>
+
+          <div className={erpCardCls}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Silver estimate template
+                </p>
+                <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Used for silver-only estimates (or mixed with more silver lines).
+                </p>
+              </div>
+              <button
+                type="button"
+                className={erpBtnGhost}
+                onClick={() => setPf((p) => ({ ...p, estimateTemplateSilver: DEFAULT_ESTIMATE_TEMPLATE_SILVER }))}
+              >
+                <RotateCcw className="size-4" />
+                Reset sample
+              </button>
+            </div>
+            <textarea
+              className={`${erpInputCls} min-h-[280px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
+              value={pf.estimateTemplateSilver || ''}
+              onChange={(e) => setPf((p) => ({ ...p, estimateTemplateSilver: e.target.value }))}
               spellCheck={false}
             />
           </div>

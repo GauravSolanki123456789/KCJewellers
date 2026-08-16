@@ -1662,6 +1662,70 @@ function registerResellerErpRoutes(app, deps) {
             res.status(500).json({ error: e.message || 'Bill print failed' });
         }
     });
+
+    app.post('/api/reseller/erp/print/estimate', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const billId = parseInt(String(req.body.bill_id), 10);
+            if (!Number.isFinite(billId)) return res.status(400).json({ error: 'bill_id required' });
+
+            const rows = await query(
+                `SELECT * FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [billId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Estimate not found' });
+            const bill = mapBill(rows[0]);
+            if (bill.bill_type !== 'estimate') {
+                return res.status(400).json({ error: 'Only estimate bills can be printed with this action.' });
+            }
+
+            const settingsRows = await query(
+                `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+                [req.user.id],
+            );
+            let settings = settingsRows[0]?.settings ?? {};
+            if (typeof settings === 'string') {
+                try {
+                    settings = JSON.parse(settings);
+                } catch {
+                    settings = {};
+                }
+            }
+            const hw = settings.hardware || {};
+            const printFormats = settings.printFormats || {};
+            const printerConfig = erpPrint.resolveBillingPrinterConfig(hw);
+            const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+            const rates = {
+                gold: session.goldPerG ?? session.gold_per_g ?? null,
+                silver: session.silverPerG ?? session.silver_per_g ?? null,
+            };
+            const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates);
+
+            if (!printerConfig?.address) {
+                return res.status(400).json({
+                    error: 'Configure Epson billing printer IP in Hardware (e.g. 192.168.0.198).',
+                });
+            }
+
+            if (printerConfig.type === 'network') {
+                await labelPrinter.sendToNetworkPrinter(
+                    escPos,
+                    printerConfig.address,
+                    printerConfig.port || 9100,
+                );
+                return res.json({
+                    printed: true,
+                    message: `Estimate sent to Epson at ${printerConfig.address}:${printerConfig.port || 9100}`,
+                });
+            }
+
+            return res.status(400).json({
+                error: 'Billing printer must be network (Epson TM) for server-side print.',
+            });
+        } catch (e) {
+            console.error('erp print estimate:', e);
+            res.status(500).json({ error: e.message || 'Estimate print failed' });
+        }
+    });
 }
 
 module.exports = {

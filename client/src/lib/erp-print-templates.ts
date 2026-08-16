@@ -116,6 +116,74 @@ Balance: Rs. {{balance}}
 Thank you — visit again!
 `.trim()
 
+export const DEFAULT_ESTIMATE_TEMPLATE_GOLD = `
+================================
+{{shop_name}}
+{{shop_address}}
+Ph: {{shop_phone}}
+GSTIN: {{shop_gstin}}
+================================
+GOLD ESTIMATE
+Estimate: {{bill_number}}
+Date: {{bill_date}}
+Slab: {{rate_slab}}
+
+--------------------------------
+Customer: {{customer_name}}
+Mobile: {{customer_mobile}}
+Address: {{customer_address}}
+--------------------------------
+{{lines_table}}
+--------------------------------
+Items: {{item_count}}
+Gold rate: Rs.{{gold_rate}}/g
+Silver rate: Rs.{{silver_rate}}/g
+--------------------------------
+ESTIMATE TOTAL: Rs. {{total}}
+MC discount: Rs. {{mc_discount}}
+Cash discount: Rs. {{cash_discount}}
+Total discount: Rs. {{total_discount}}
+Advance: Rs. {{advance_paid}}
+Balance: Rs. {{balance}}
+================================
+Rates subject to change.
+This is an estimate, not a tax invoice.
+`.trim()
+
+export const DEFAULT_ESTIMATE_TEMPLATE_SILVER = `
+================================
+{{shop_name}}
+{{shop_address}}
+Ph: {{shop_phone}}
+GSTIN: {{shop_gstin}}
+================================
+SILVER ESTIMATE
+Estimate: {{bill_number}}
+Date: {{bill_date}}
+Slab: {{rate_slab}}
+
+--------------------------------
+Customer: {{customer_name}}
+Mobile: {{customer_mobile}}
+Address: {{customer_address}}
+--------------------------------
+{{lines_table}}
+--------------------------------
+Items: {{item_count}}
+Gold rate: Rs.{{gold_rate}}/g
+Silver rate: Rs.{{silver_rate}}/g
+--------------------------------
+ESTIMATE TOTAL: Rs. {{total}}
+MC discount: Rs. {{mc_discount}}
+Cash discount: Rs. {{cash_discount}}
+Total discount: Rs. {{total_discount}}
+Advance: Rs. {{advance_paid}}
+Balance: Rs. {{balance}}
+================================
+Rates subject to change.
+This is an estimate, not a tax invoice.
+`.trim()
+
 export const LABEL_TEMPLATE_VARS = [
   'barcode',
   'product_name',
@@ -195,6 +263,10 @@ export type ErpPrintFormatsSettings = {
   labelPrnRules?: LabelPrnRule[]
   labelUsePrn?: boolean
   billTemplate?: string
+  estimateTemplateGold?: string
+  estimateTemplateSilver?: string
+  /** Shop-wide default when staff clicks Generate quote (workstation can override). */
+  defaultQuoteOutputMode?: 'pdf' | 'epson' | 'both'
   shopName?: string
   shopAddress?: string
   shopPhone?: string
@@ -283,9 +355,41 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   } else {
     pf.billTemplate = DEFAULT_BILL_TEMPLATE
   }
+  if (pf.estimateTemplateGold?.trim()) {
+    pf.estimateTemplateGold = preserveBillTemplate(pf.estimateTemplateGold)
+  } else {
+    pf.estimateTemplateGold = DEFAULT_ESTIMATE_TEMPLATE_GOLD
+  }
+  if (pf.estimateTemplateSilver?.trim()) {
+    pf.estimateTemplateSilver = preserveBillTemplate(pf.estimateTemplateSilver)
+  } else {
+    pf.estimateTemplateSilver = DEFAULT_ESTIMATE_TEMPLATE_SILVER
+  }
+  if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf'
   if (pf.labelUsePrn == null) pf.labelUsePrn = true
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
+}
+
+/** Pick gold vs silver Epson estimate template from bill line metals. */
+export function resolveEstimateTemplateForBill(
+  lines: { metal_type?: string | null }[] | null | undefined,
+  printFormats: ErpPrintFormatsSettings | null | undefined,
+): string {
+  const pf = migratePrintFormats(printFormats)
+  const list = lines || []
+  let gold = 0
+  let silver = 0
+  for (const line of list) {
+    const metal = String(line?.metal_type || '').toLowerCase()
+    if (metal.startsWith('gold')) gold += 1
+    else silver += 1
+  }
+  if (gold > 0 && silver === 0) return pf.estimateTemplateGold || DEFAULT_ESTIMATE_TEMPLATE_GOLD
+  if (silver > 0 && gold === 0) return pf.estimateTemplateSilver || DEFAULT_ESTIMATE_TEMPLATE_SILVER
+  return gold >= silver
+    ? pf.estimateTemplateGold || DEFAULT_ESTIMATE_TEMPLATE_GOLD
+    : pf.estimateTemplateSilver || DEFAULT_ESTIMATE_TEMPLATE_SILVER
 }
 
 function repairCorruptedPrnTemplate(raw: string): string {
