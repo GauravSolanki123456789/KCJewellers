@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import axios from "@/lib/axios";
+import { cachedGet } from "@/lib/api-get-cache";
 import type { CatalogPricingOptions } from "@/lib/pricing";
 
 type CatalogPricingSettingsContextValue = {
@@ -31,7 +32,8 @@ export function CatalogPricingSettingsProvider({
 
   const refresh = useCallback(async () => {
     try {
-      const res = await axios.get(`${url}/api/public/catalog-pricing-settings`);
+      const settingsUrl = `${url}/api/public/catalog-pricing-settings`;
+      const res = await cachedGet(settingsUrl, () => axios.get(settingsUrl));
       const on = res.data?.gifting_gst_enabled;
       setGiftingGstEnabled(on !== false && on !== "false" && on !== 0);
     } catch {

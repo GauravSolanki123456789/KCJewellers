@@ -60,9 +60,6 @@ export default function RateTicker() {
       }
     }, 2000)
     
-    // Also fetch immediately as backup
-    fetchRatesFromAPI()
-    
     return () => {
       clearTimeout(timeout)
       off()

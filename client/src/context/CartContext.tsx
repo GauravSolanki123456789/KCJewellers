@@ -8,6 +8,7 @@ import { getProductBoxCharges } from '@/lib/product-box-pricing'
 import { CART_LOCAL_STORAGE_KEY } from '@/lib/routes'
 import { ratesApiQueryForStorefront, shouldSubscribeGlobalLiveRates } from '@/lib/storefront-domain'
 import { KC_RATES_UPDATED_EVENT } from '@/lib/reseller-rates-events'
+import { cachedGet } from '@/lib/api-get-cache'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { useCatalogPricingSettings } from '@/context/CatalogPricingSettingsContext'
@@ -103,8 +104,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [breakdownForItem])
 
   const fetchDisplayRates = useCallback(() => {
-    axios
-      .get(`/api/rates/display${ratesApiQueryForStorefront()}`)
+    const ratesUrl = `/api/rates/display${ratesApiQueryForStorefront()}`
+    cachedGet(ratesUrl, () => axios.get(ratesUrl))
       .then((res) => {
         const rates = res.data?.rates || []
         const source = res.data?.source != null ? String(res.data.source) : null

@@ -30,6 +30,7 @@ import {
   type CatalogRetailBrowseByMetal,
 } from "@/lib/catalog-retail-tags";
 import axios from "@/lib/axios";
+import { cachedGet } from "@/lib/api-get-cache";
 import {
   buildFuseForSearchRecords,
   flattenCatalogToBrowseRecords,
@@ -115,8 +116,8 @@ export default function SmartSearch({
       setRecords(flattenCatalogToSearchRecords(cats));
       setBrowseRecords(flattenCatalogToBrowseRecords(cats));
     });
-    axios
-      .get("/api/public/catalog-retail-settings")
+    const retailUrl = "/api/public/catalog-retail-settings";
+    cachedGet(retailUrl, () => axios.get(retailUrl))
       .then((res) => {
         if (cancelled) return;
         const data = res.data ?? {};

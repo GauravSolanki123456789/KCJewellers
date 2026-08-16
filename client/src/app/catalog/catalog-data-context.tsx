@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import axios from "@/lib/axios";
+import { cachedGet, invalidateCachedGet } from "@/lib/api-get-cache";
 import type { Item } from "@/lib/pricing";
 import {
   DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL,
@@ -137,10 +138,13 @@ export function CatalogDataProvider({
     try {
       const catalogQ = catalogApiQueryForStorefront();
       const ratesQ = ratesApiQueryForStorefront();
+      const catalogUrl = `${url}/api/catalog${catalogQ}`;
+      const ratesUrl = `${url}/api/rates/display${ratesQ}`;
+      const retailUrl = `${url}/api/public/catalog-retail-settings`;
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
-        axios.get(`${url}/api/catalog${catalogQ}`),
-        axios.get(`${url}/api/rates/display${ratesQ}`),
-        axios.get(`${url}/api/public/catalog-retail-settings`),
+        cachedGet(catalogUrl, () => axios.get(catalogUrl)),
+        cachedGet(ratesUrl, () => axios.get(ratesUrl)),
+        cachedGet(retailUrl, () => axios.get(retailUrl)),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);
@@ -156,8 +160,8 @@ export function CatalogDataProvider({
 
   useEffect(() => {
     if (serverSeeded) {
-      axios
-        .get(`${url}/api/public/catalog-retail-settings`)
+      const retailUrl = `${url}/api/public/catalog-retail-settings`;
+      cachedGet(retailUrl, () => axios.get(retailUrl))
         .then((res) => applyRetailSettings(res.data ?? {}))
         .catch(() => setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }));
     }
@@ -173,10 +177,16 @@ export function CatalogDataProvider({
     try {
       const catalogQ = catalogApiQueryForStorefront();
       const ratesQ = ratesApiQueryForStorefront();
+      const catalogUrl = `${url}/api/catalog${catalogQ}`;
+      const ratesUrl = `${url}/api/rates/display${ratesQ}`;
+      const retailUrl = `${url}/api/public/catalog-retail-settings`;
+      invalidateCachedGet(catalogUrl);
+      invalidateCachedGet(ratesUrl);
+      invalidateCachedGet(retailUrl);
       const [catalogRes, ratesRes, retailRes] = await Promise.all([
-        axios.get(`${url}/api/catalog${catalogQ}`),
-        axios.get(`${url}/api/rates/display${ratesQ}`),
-        axios.get(`${url}/api/public/catalog-retail-settings`),
+        cachedGet(catalogUrl, () => axios.get(catalogUrl)),
+        cachedGet(ratesUrl, () => axios.get(ratesUrl)),
+        cachedGet(retailUrl, () => axios.get(retailUrl)),
       ]);
       setRawCategories(catalogRes.data?.categories ?? []);
       setRates(ratesRes.data?.rates ?? []);

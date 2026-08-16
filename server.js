@@ -903,7 +903,7 @@ app.get('/api/auth/current_user', async (req, res) => {
 });
 
 /** Public: active colour theme for main storefront (app_settings.kc_theme_id). */
-app.get('/api/public/kc-theme', globalLimiter, async (req, res) => {
+app.get('/api/public/kc-theme', async (req, res) => {
     try {
         const kc_theme_id = await getAppKcThemeId();
         res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=120');
@@ -1090,7 +1090,7 @@ async function loginCustomerByMobile(req, res, mobile_number) {
 }
 
 /** Public: whether storefront adds GST on gift-item fixed prices. */
-app.get('/api/public/catalog-pricing-settings', globalLimiter, async (req, res) => {
+app.get('/api/public/catalog-pricing-settings', async (req, res) => {
     try {
         const gifting_gst_enabled = await getGiftingGstEnabled();
         res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60');
@@ -1127,7 +1127,7 @@ app.put('/api/admin/settings/catalog-pricing', requireJson, isAdminStrict, async
 });
 
 /** Public: whether storefront shows Shop for (Women / Men / Kids) browse UI. */
-app.get('/api/public/catalog-retail-settings', globalLimiter, async (req, res) => {
+app.get('/api/public/catalog-retail-settings', async (req, res) => {
     try {
         const retail_browse_by_metal = await getCatalogRetailBrowseByMetal();
         const retail_browse_enabled = CATALOG_RETAIL_BROWSE_METAL_KEYS.some(
@@ -1248,7 +1248,7 @@ app.put('/api/admin/settings/kc-theme', requireJson, isAdminStrict, async (req, 
 });
 
 /** Public: reseller storefront branding by custom domain host (Next.js middleware passes Host-derived domain). */
-app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
+app.get('/api/public/reseller-branding', async (req, res) => {
     try {
         const raw = String(req.query.domain || req.query.host || '').trim().toLowerCase();
         const domain = raw
@@ -1319,7 +1319,7 @@ app.get('/api/public/reseller-branding', globalLimiter, async (req, res) => {
 });
 
 /** Public: whether Invest (SIP) is enabled for a storefront host (vanity domain). */
-app.get('/api/public/storefront-invest', globalLimiter, async (req, res) => {
+app.get('/api/public/storefront-invest', async (req, res) => {
     try {
         const allowed = await isStorefrontInvestAllowed(req);
         res.json({ invest_enabled: allowed });
@@ -1332,7 +1332,7 @@ app.get('/api/public/storefront-invest', globalLimiter, async (req, res) => {
 // RESELLER INVITE — public validate + apply; reseller panel; admin queue
 // ==========================================
 
-app.get('/api/public/reseller-invite/validate', globalLimiter, async (req, res) => {
+app.get('/api/public/reseller-invite/validate', async (req, res) => {
     try {
         const code = normalizeResellerInviteCode(req.query.code || req.query.reseller_invite_code);
         if (!code) {
@@ -7608,7 +7608,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
 });
 
 /** Public: link expiry options configured by admin (for WhatsApp catalogue modal). */
-app.get('/api/shared-catalog/expiry-options', globalLimiter, async (req, res) => {
+app.get('/api/shared-catalog/expiry-options', async (req, res) => {
     try {
         const options = await getSharedCatalogExpiryOptions(query);
         const maxExpiryDays = await getSharedCatalogMaxExpiryDays(query);
@@ -7766,7 +7766,7 @@ app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson,
 /**
  * Public: minimal brochure metadata for Open Graph / WhatsApp (no product payload).
  */
-app.get('/api/public/shared-catalog-meta/:uuid', globalLimiter, async (req, res) => {
+app.get('/api/public/shared-catalog-meta/:uuid', async (req, res) => {
     try {
         const uuid = String(req.params.uuid || '').trim();
         if (!UUID_RE.test(uuid)) {
@@ -7813,7 +7813,7 @@ app.get('/api/public/shared-catalog-meta/:uuid', globalLimiter, async (req, res)
 /**
  * Public: load a shared catalogue by UUID (for /shared/[uuid] brochure page).
  */
-app.get('/api/shared-catalog/:uuid', globalLimiter, async (req, res) => {
+app.get('/api/shared-catalog/:uuid', async (req, res) => {
     try {
         res.setHeader('Cache-Control', 'private, no-store');
         const uuid = String(req.params.uuid || '').trim();
