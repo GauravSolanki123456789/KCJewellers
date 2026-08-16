@@ -117,7 +117,7 @@ export function ErpProductsWorkspace() {
     try {
       await axios.post('/api/reseller/erp/stock-pieces/delete-by-barcode', { barcode: code })
       setMsgTone('ok')
-      setMsg(`Tag deleted — ${code}`)
+      setMsg(`Tag deleted — barcode ${code} removed from stock.`)
       setTagDeleteCode('')
       tagDeleteRef.current?.focus()
       if (activeBatchId) await loadBatch(activeBatchId)
@@ -235,6 +235,16 @@ export function ErpProductsWorkspace() {
             Delete tag
           </button>
         </div>
+        {msg && msgTone === 'ok' && msg.toLowerCase().includes('tag deleted') ? (
+          <div
+            role="status"
+            className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-900"
+          >
+            {msg}
+          </div>
+        ) : msg && msgTone === 'err' ? (
+          <p className="mt-3 text-xs font-medium text-red-600">{msg}</p>
+        ) : null}
       </div>
       <div className={erpCardCls}>
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">

@@ -1,6 +1,32 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
+/** Parse slab from bill notes (`Rate slab W · …`) when session_json lacks rateSlab. */
+export function parseRateSlabFromNotes(notes?: string | null): ErpRateSlab | null {
+  const m = String(notes || '').match(/Rate slab\s+([RWF])\b/i)
+  if (!m) return null
+  const c = m[1].toUpperCase()
+  if (c === 'W' || c === 'F' || c === 'R') return c
+  return null
+}
+
+export function normalizeRateSlab(raw?: string | null): ErpRateSlab {
+  const s = String(raw || '').trim().toUpperCase()
+  if (s === 'W' || s === 'F') return s
+  return 'R'
+}
+
+/** Resolve saved slab from session + notes fallback. */
+export function resolveSavedRateSlab(
+  session?: { rateSlab?: string | null } | null,
+  notes?: string | null,
+): ErpRateSlab {
+  if (session?.rateSlab === 'R' || session?.rateSlab === 'W' || session?.rateSlab === 'F') {
+    return session.rateSlab
+  }
+  return parseRateSlabFromNotes(notes) ?? 'R'
+}
+
 export type ErpBillSession = {
   rateSlab?: ErpRateSlab
   wholesaleGold?: number | null

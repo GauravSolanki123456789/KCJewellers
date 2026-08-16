@@ -12,8 +12,10 @@ export function billingWastageDisplay(line: ErpBillLine, slab: ErpRateSlab): str
   return line.wastage_pct ?? ''
 }
 
-/** Grid / PDF display for MC — Slab R gold shows computed ₹ MC for the piece. */
+/** Grid / PDF display for MC — Slab R gold shows computed ₹ MC; W/F gold leaves MC blank. */
 export function billingMcDisplay(line: ErpBillLine, slab: ErpRateSlab): string | number {
+  const metal = String(line.metal_type || '').toLowerCase()
+  if (metal.startsWith('gold') && slab !== 'R') return ''
   if (isGoldSlabRLine(line, slab) && line.displayMcInr != null && line.displayMcInr > 0) {
     return line.displayMcInr
   }

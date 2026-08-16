@@ -14,7 +14,8 @@ import {
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
 import { billingMcDisplay, billingWastageDisplay, isGoldSlabRLine } from '@/lib/erp-billing-display'
-import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
+import { applyRatesUnfixed, buildErpBillSession, resolveSavedRateSlab, type ErpBillSession } from '@/lib/erp-bill-session'
+import { cachedGet } from '@/lib/api-get-cache'
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
@@ -227,22 +228,34 @@ export function ErpBillingWorkspace() {
   const scanRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
   const duplicateBannerRef = useRef<HTMLDivElement>(null)
+  const resettingBillRef = useRef(false)
+  const loadedEditIdRef = useRef<number | null>(null)
 
   const recalcLine = useCallback(
-    (line: ErpBillLine): ErpBillLine => {
+    (
+      line: ErpBillLine,
+      opts?: {
+        slab?: ErpRateSlab
+        wholesaleGold?: number | null
+        wholesaleSilver?: number | null
+      },
+    ): ErpBillLine => {
+      const slab = opts?.slab ?? rateSlab
+      const wg = opts?.wholesaleGold !== undefined ? opts.wholesaleGold : wholesaleGold
+      const ws = opts?.wholesaleSilver !== undefined ? opts.wholesaleSilver : wholesaleSilver
       const bd = computeLineBreakdown(
         line,
         displayRates,
-        rateSlab,
+        slab,
         slabSettings,
-        wholesaleGold,
-        wholesaleSilver,
+        wg,
+        ws,
         goldPerG,
         silverPerG,
       )
       const next: ErpBillLine = { ...line, lineTotalInr: bd.total }
       const isGoldSlabR =
-        rateSlab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
+        slab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
       if (isGoldSlabR) {
         next.displayWastagePct = 0
         next.displayMcInr = bd.mc > 0 ? bd.mc : null
@@ -261,7 +274,19 @@ export function ErpBillingWorkspace() {
   )
 
   const recalcAll = useCallback(
-    (list: ErpBillLine[]) => list.map(recalcLine),
+    (
+      list: ErpBillLine[],
+      slabOverride?: ErpRateSlab,
+      wgOverride?: number | null,
+      wsOverride?: number | null,
+    ) =>
+      list.map((line) =>
+        recalcLine(line, {
+          slab: slabOverride,
+          wholesaleGold: wgOverride,
+          wholesaleSilver: wsOverride,
+        }),
+      ),
     [recalcLine],
   )
 
@@ -329,6 +354,7 @@ export function ErpBillingWorkspace() {
         return
       }
       const session = (bill.session || {}) as ErpBillSession
+      const savedSlab = resolveSavedRateSlab(session, bill.notes)
       setEditingBillId(bill.id)
       setEditingBillNumber(bill.bill_number)
       setEditingBillType(billType)
@@ -339,7 +365,7 @@ export function ErpBillingWorkspace() {
       setAddress(session.address || '')
       setCustomerPan(session.pan || '')
       setCustomerGst(session.customerGst || '')
-      if (session.rateSlab) setRateSlab(session.rateSlab)
+      setRateSlab(savedSlab)
       if (session.wholesaleGold != null) setWholesaleGold(session.wholesaleGold)
       if (session.wholesaleSilver != null) setWholesaleSilver(session.wholesaleSilver)
       if (session.goldPerG) {
@@ -352,10 +378,20 @@ export function ErpBillingWorkspace() {
       }
       setAdvancePaidInr(session.advancePaidInr ? String(session.advancePaidInr) : '')
       const loadedLines = applyRatesUnfixed(bill.lines || [], session.ratesUnfixed)
-      setLines(recalcAll(loadedLines))
+      const recalced = recalcAll(
+        loadedLines,
+        savedSlab,
+        session.wholesaleGold ?? null,
+        session.wholesaleSilver ?? null,
+      )
+      setLines(recalced)
+      loadedEditIdRef.current = bill.id
       if (bill.customer_id) {
         try {
-          const custRes = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
+          const custUrl = '/api/reseller/erp/customers'
+          const custRes = await cachedGet(custUrl, () =>
+            axios.get<{ customers: ErpCustomer[] }>(custUrl),
+          )
           const found = (custRes.data.customers || []).find((c) => c.id === bill.customer_id)
           if (found) setSelectedCustomer(found)
         } catch {
@@ -369,8 +405,8 @@ export function ErpBillingWorkspace() {
         address: session.address || '',
         customerPan: session.pan || '',
         customerGst: session.customerGst || '',
-        rateSlab: session.rateSlab || 'R',
-        lines: recalcAll(loadedLines),
+        rateSlab: savedSlab,
+        lines: recalced,
         wholesaleGold: session.wholesaleGold ?? null,
         wholesaleSilver: session.wholesaleSilver ?? null,
         goldPerG: session.goldPerG ?? goldPerG,
@@ -387,9 +423,14 @@ export function ErpBillingWorkspace() {
   )
 
   useEffect(() => {
-    if (!hydrated || !editIdParam) return
+    if (!hydrated || !editIdParam) {
+      if (!editIdParam) loadedEditIdRef.current = null
+      return
+    }
+    if (resettingBillRef.current) return
     const id = parseInt(editIdParam, 10)
     if (!Number.isFinite(id)) return
+    if (loadedEditIdRef.current === id) return
     void loadBillForEdit(id).catch((e) => alert(erpErr(e)))
   }, [hydrated, editIdParam, loadBillForEdit])
 
@@ -423,14 +464,18 @@ export function ErpBillingWorkspace() {
   }, [displayRates, rateSlab, wholesaleGold, wholesaleSilver, slabSettings, hydrated, recalcAll])
 
   const loadCustomers = useCallback(async (q: string) => {
-    const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
-      params: q.trim() ? { q: q.trim() } : {},
-    })
+    const trimmed = q.trim()
+    const url = trimmed
+      ? `/api/reseller/erp/customers?q=${encodeURIComponent(trimmed)}`
+      : '/api/reseller/erp/customers'
+    const res = await cachedGet(url, () =>
+      axios.get<{ customers: ErpCustomer[] }>(url),
+    )
     setCustomers(res.data.customers || [])
   }, [])
 
   useEffect(() => {
-    const t = setTimeout(() => void loadCustomers(customerQ), 250)
+    const t = setTimeout(() => void loadCustomers(customerQ), 400)
     return () => clearTimeout(t)
   }, [customerQ, loadCustomers])
 
@@ -560,14 +605,20 @@ export function ErpBillingWorkspace() {
     list.map((l) => ({ ...l, rateLocked: false }))
 
   const onSlabChange = (next: ErpRateSlab) => {
+    if (next === rateSlab) return
     if (next === 'W' || next === 'F') {
+      if (wholesaleGold || wholesaleSilver) {
+        setRateSlab(next)
+        setLines((prev) => recalcAll(unlockLineRates(prev), next, wholesaleGold, wholesaleSilver))
+        return
+      }
       setPendingSlab(next)
       setModalWhGold(wholesaleGold != null ? String(wholesaleGold) : '')
       setModalWhSilver(wholesaleSilver != null ? String(wholesaleSilver) : '')
       setShowWholesaleModal(true)
     } else {
       setRateSlab(next)
-      setLines((prev) => unlockLineRates(prev))
+      setLines((prev) => recalcAll(unlockLineRates(prev), next))
     }
   }
 
@@ -590,10 +641,14 @@ export function ErpBillingWorkspace() {
       alert('Enter a valid silver ₹/g')
       return
     }
+    const nextSlab = pendingSlab
+    if (!nextSlab) return
+    const newGold = hasGold ? g : wholesaleGold
+    const newSilver = hasSilver ? s : wholesaleSilver
     if (hasGold) setWholesaleGold(g)
     if (hasSilver) setWholesaleSilver(s)
-    if (pendingSlab) setRateSlab(pendingSlab)
-    setLines((prev) => unlockLineRates(prev))
+    setRateSlab(nextSlab)
+    setLines((prev) => recalcAll(unlockLineRates(prev), nextSlab, newGold, newSilver))
     setShowWholesaleModal(false)
     setPendingSlab(null)
   }
@@ -608,7 +663,7 @@ export function ErpBillingWorkspace() {
     setGoldPerG(g)
     setSilverPerG(s)
     setDisplayRates(perGramToDisplayRates(g, s))
-    setLines((prev) => unlockLineRates(prev))
+    setLines((prev) => recalcAll(unlockLineRates(prev)))
     setShowRateEdit(false)
   }
 
@@ -637,6 +692,8 @@ export function ErpBillingWorkspace() {
   }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG])
 
   const resetBill = () => {
+    resettingBillRef.current = true
+    loadedEditIdRef.current = null
     clearDuplicateState()
     setLines([])
     setScanCode('')
@@ -657,8 +714,11 @@ export function ErpBillingWorkspace() {
     setEditingBillStatus(null)
     setAdvancePaidInr('')
     clearDraftStorage()
-    void loadDisplayRates()
     router.replace(resellerErpModulePath('billing'))
+    void loadDisplayRates()
+    window.setTimeout(() => {
+      resettingBillRef.current = false
+    }, 0)
   }
 
   const parsedAdvance = Math.max(0, parseFloat(advancePaidInr) || 0)
