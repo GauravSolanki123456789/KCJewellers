@@ -93,6 +93,7 @@ GSTIN: {{shop_gstin}}
 TAX INVOICE
 Bill: {{bill_number}}
 Date: {{bill_date}}
+Slab: {{rate_slab}}
 --------------------------------
 Customer: {{customer_name}}
 Mobile: {{customer_mobile}}
@@ -105,6 +106,10 @@ Gold rate: Rs.{{gold_rate}}/g
 Silver rate: Rs.{{silver_rate}}/g
 --------------------------------
 TOTAL: Rs. {{total}}
+MC discount: Rs. {{mc_discount}}
+Cash discount: Rs. {{cash_discount}}
+Total discount: Rs. {{total_discount}}
+Collected: Rs. {{collected_amount}}
 Advance: Rs. {{advance_paid}}
 Balance: Rs. {{balance}}
 ================================
@@ -172,8 +177,13 @@ export const BILL_TEMPLATE_VARS = [
   'customer_gst',
   'lines_table',
   'item_count',
+  'rate_slab',
   'subtotal',
   'total',
+  'mc_discount',
+  'cash_discount',
+  'total_discount',
+  'collected_amount',
   'advance_paid',
   'balance',
   'gold_rate',

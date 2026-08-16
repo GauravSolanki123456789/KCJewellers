@@ -10,7 +10,7 @@ import {
   perGramToDisplayRates,
   resolveLineDisplayRates,
 } from '@/lib/erp-billing-pricing'
-import { isGoldSlabRLine } from '@/lib/erp-billing-display'
+import { isGoldSlabRLine, computeBillingDiscountSummary } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 export type ErpQuoteTotals = {
@@ -23,6 +23,8 @@ export type ErpQuoteTotals = {
   balanceDue?: number
   collectedAmount?: number
   billingDiscount?: number
+  mcDiscount?: number
+  cashDiscount?: number
 }
 
 /** Ensure Slab R gold lines carry MC discount display fields for PDF/grid. */
@@ -89,7 +91,8 @@ export function buildErpQuotePdfFilename(params: {
 }
 
 export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown): ErpQuoteTotals {
-  const lines = bill.lines ?? []
+  const enriched = enrichErpBillLinesForDisplay(bill, slabSettingsRaw)
+  const lines = enriched
   const session = (bill.session || {}) as ErpBillSession
   const slabSettings = parseSlabSettingsFromUser(slabSettingsRaw)
   const goldPerG = Number(session.goldPerG) || 0
@@ -158,14 +161,13 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
 
   const advance = Math.max(0, Number(session.advancePaidInr) || 0)
   const balanceDue = advance > 0 ? Math.max(0, net - advance) : undefined
-  const collected = Number(session.collectedAmountInr)
-  const collectedAmount = Number.isFinite(collected) ? collected : undefined
-  const billingDiscount =
-    session.billingDiscountInr != null && Number.isFinite(Number(session.billingDiscountInr))
-      ? Number(session.billingDiscountInr)
-      : collectedAmount != null && net > 0
-        ? Math.round(net - collectedAmount)
-        : undefined
+  const collectedStored = Number(session.collectedAmountInr)
+  const collectedAmount = Number.isFinite(collectedStored) ? collectedStored : undefined
+  const discountSummary = computeBillingDiscountSummary({
+    netTotal: net,
+    collectedAmount: collectedAmount ?? null,
+    lines: enriched,
+  })
 
   return {
     count,
@@ -176,7 +178,13 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
     advancePaid: advance > 0 ? advance : undefined,
     balanceDue,
     collectedAmount,
-    billingDiscount,
+    mcDiscount: discountSummary.mcDiscountInr > 0 ? discountSummary.mcDiscountInr : undefined,
+    cashDiscount:
+      collectedAmount != null && discountSummary.cashDiscountInr !== 0
+        ? discountSummary.cashDiscountInr
+        : undefined,
+    billingDiscount:
+      discountSummary.totalDiscountInr !== 0 ? discountSummary.totalDiscountInr : undefined,
   }
 }
 

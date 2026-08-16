@@ -151,6 +151,11 @@ export function computeLineBreakdown(
 }
 
 export function parseSlabSettingsFromUser(raw: unknown): ResellerSlabSettings {
+  if (raw && typeof raw === 'object' && 'reseller_slab_settings' in (raw as object)) {
+    return parseResellerSlabSettings(
+      (raw as { reseller_slab_settings?: unknown }).reseller_slab_settings,
+    )
+  }
   return parseResellerSlabSettings(raw)
 }
 

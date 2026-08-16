@@ -243,6 +243,7 @@ GSTIN: {{shop_gstin}}
 TAX INVOICE
 Bill: {{bill_number}}
 Date: {{bill_date}}
+Slab: {{rate_slab}}
 --------------------------------
 Customer: {{customer_name}}
 Mobile: {{customer_mobile}}
@@ -255,6 +256,10 @@ Gold rate: Rs.{{gold_rate}}/g
 Silver rate: Rs.{{silver_rate}}/g
 --------------------------------
 TOTAL: Rs. {{total}}
+MC discount: Rs. {{mc_discount}}
+Cash discount: Rs. {{cash_discount}}
+Total discount: Rs. {{total_discount}}
+Collected: Rs. {{collected_amount}}
 Advance: Rs. {{advance_paid}}
 Balance: Rs. {{balance}}
 ================================
@@ -439,17 +444,41 @@ function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
     return { tspl, ...resolved };
 }
 
-function buildLinesTable(lines, lineWidth = 32) {
+function buildLinesTable(lines, lineWidth = 32, rateSlab = 'R') {
     const out = [];
     for (const line of lines || []) {
-        const bc = String(line.barcode || line.code || '').slice(0, 14);
-        const nm = String(line.name || line.product_name || '').slice(0, 16);
-        const wt =
+        const bc = String(line.barcode || line.code || '').trim();
+        const nm = String(line.name || line.product_name || '').trim();
+        const metal = String(line.metal_type || '').toLowerCase();
+        const isGoldSlabR = rateSlab === 'R' && metal.startsWith('gold');
+        const netWt =
             line.weightGm != null
-                ? `${Number(line.weightGm).toFixed(3)}g`
-                : line.avg_weight != null
-                  ? `${Number(line.avg_weight).toFixed(3)}g`
+                ? Number(line.weightGm).toFixed(2)
+                : line.net_weight != null
+                  ? Number(line.net_weight).toFixed(2)
                   : '';
+        const stoneWt =
+            line.stone_wt != null && Number.isFinite(Number(line.stone_wt))
+                ? Number(line.stone_wt).toFixed(2)
+                : '';
+        const wast = isGoldSlabR
+            ? '0'
+            : line.displayWastagePct != null
+              ? String(line.displayWastagePct)
+              : line.wastage_pct != null
+                ? String(line.wastage_pct)
+                : '';
+        const purity = line.purity != null ? String(line.purity) : '';
+        const rate =
+            line.rateLocked || line.ratePerGram == null ? '' : String(line.ratePerGram);
+        const mc =
+            isGoldSlabR && line.displayMcInr != null
+                ? String(Math.round(Number(line.displayMcInr)))
+                : line.mc_rate != null
+                  ? String(line.mc_rate)
+                  : '';
+        const stone =
+            line.stone_charges != null ? String(Math.round(Number(line.stone_charges))) : '';
         const amt =
             line.lineTotalInr != null
                 ? `Rs.${Math.round(Number(line.lineTotalInr))}`
@@ -457,7 +486,16 @@ function buildLinesTable(lines, lineWidth = 32) {
                   ? `Rs.${Math.round(Number(line.unitInr) * (line.qty || 1))}`
                   : '';
         out.push(`${bc} ${nm}`.slice(0, lineWidth));
-        if (wt || amt) out.push(`  ${wt}  ${amt}`.trim().slice(0, lineWidth));
+        const parts = [];
+        if (netWt) parts.push(`NWT:${netWt}g`);
+        if (stoneWt) parts.push(`StWt:${stoneWt}g`);
+        if (purity) parts.push(`Pur:${purity}`);
+        if (wast !== '') parts.push(`Wast:${wast}%`);
+        if (rate) parts.push(`Rate:${rate}`);
+        if (mc) parts.push(`MC:${mc}`);
+        if (stone) parts.push(`Stone:${stone}`);
+        if (parts.length) out.push(`  ${parts.join(' ')}`.slice(0, lineWidth));
+        if (amt) out.push(`  ${amt}`.slice(0, lineWidth));
     }
     return out.join('\n') || '(no items)';
 }
@@ -467,6 +505,18 @@ function buildBillTemplateVars(bill, printFormats, rates) {
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
     const advance = Number(session.advancePaidInr ?? session.advance_paid ?? 0) || 0;
     const total = Number(bill.total_inr) || 0;
+    const collected = Number(session.collectedAmountInr);
+    const mcDiscount = Number(session.mcDiscountInr) || 0;
+    const cashDiscount =
+        session.cashDiscountInr != null
+            ? Number(session.cashDiscountInr)
+            : Number.isFinite(collected)
+              ? Math.round(total - collected)
+              : 0;
+    const totalDiscount =
+        Number(session.totalDiscountInr ?? session.billingDiscountInr) ||
+        (Number.isFinite(collected) ? mcDiscount + cashDiscount : mcDiscount);
+    const rateSlab = String(session.rateSlab || 'R').toUpperCase();
     return {
         shop_name: pf.shopName || bill.shop_name || 'B N MARLECHA SILVER',
         shop_address: pf.shopAddress || '',
@@ -475,15 +525,20 @@ function buildBillTemplateVars(bill, printFormats, rates) {
         bill_number: bill.bill_number || '',
         bill_date: bill.bill_date || new Date().toLocaleDateString('en-IN'),
         customer_name: bill.customer_name || 'Walk-in',
-        customer_mobile: bill.customer_mobile || session.customerMobile || '',
-        customer_address: bill.customer_address || session.customerAddress || '',
+        customer_mobile: bill.customer_mobile || session.mobile || session.customerMobile || '',
+        customer_address: bill.customer_address || session.address || session.customerAddress || '',
         customer_gst: bill.customer_gst || session.customerGst || '',
-        lines_table: buildLinesTable(bill.lines || []),
+        rate_slab: rateSlab,
+        lines_table: buildLinesTable(bill.lines || [], 32, rateSlab),
         item_count: String((bill.lines || []).length),
         subtotal: String(Math.round(total)),
         total: String(Math.round(total)),
         advance_paid: String(Math.round(advance)),
         balance: String(Math.round(Math.max(0, total - advance))),
+        collected_amount: Number.isFinite(collected) ? String(Math.round(collected)) : '',
+        mc_discount: mcDiscount > 0 ? String(Math.round(mcDiscount)) : '',
+        cash_discount: Number.isFinite(collected) && cashDiscount !== 0 ? String(Math.round(cashDiscount)) : '',
+        total_discount: totalDiscount !== 0 ? String(Math.round(totalDiscount)) : '',
         gold_rate: rates?.gold != null ? String(Math.round(rates.gold)) : '',
         silver_rate: rates?.silver != null ? String(Math.round(rates.silver)) : '',
     };

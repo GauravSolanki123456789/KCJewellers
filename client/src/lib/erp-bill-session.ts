@@ -25,7 +25,13 @@ export type ErpBillSession = {
   billedAt?: string
   /** Amount collected from customer (₹) — discount = net − collected. */
   collectedAmountInr?: number
-  /** Billing discount (₹) = net total − collected; negative = over-collected. */
+  /** Catalog MC discount total (₹) across lines. */
+  mcDiscountInr?: number
+  /** Cash / rounding discount (₹) = net − collected. */
+  cashDiscountInr?: number
+  /** Total discount shown (MC + cash). */
+  totalDiscountInr?: number
+  /** @deprecated use totalDiscountInr */
   billingDiscountInr?: number
 }
 
@@ -43,7 +49,9 @@ export function buildErpBillSession(input: {
   pan?: string
   customerGst?: string
   collectedAmountInr?: number | null
-  billingDiscountInr?: number | null
+  mcDiscountInr?: number | null
+  cashDiscountInr?: number | null
+  totalDiscountInr?: number | null
   netTotalInr?: number
 }): ErpBillSession {
   const ratesUnfixed =
@@ -54,13 +62,19 @@ export function buildErpBillSession(input: {
     collectedRaw != null && Number.isFinite(Number(collectedRaw))
       ? Number(collectedRaw)
       : null
-  const netTotal = Number(input.netTotalInr) || 0
-  const billingDiscount =
-    input.billingDiscountInr != null && Number.isFinite(Number(input.billingDiscountInr))
-      ? Number(input.billingDiscountInr)
-      : collected != null && netTotal > 0
-        ? Math.round(netTotal - collected)
-        : undefined
+  const mcDiscount = Math.max(0, Number(input.mcDiscountInr) || 0)
+  const cashDiscount =
+    input.cashDiscountInr != null && Number.isFinite(Number(input.cashDiscountInr))
+      ? Number(input.cashDiscountInr)
+      : collected != null
+        ? Math.round((Number(input.netTotalInr) || 0) - collected)
+        : 0
+  const totalDiscount =
+    input.totalDiscountInr != null && Number.isFinite(Number(input.totalDiscountInr))
+      ? Number(input.totalDiscountInr)
+      : collected != null
+        ? mcDiscount + cashDiscount
+        : mcDiscount
   return {
     rateSlab: input.rateSlab,
     wholesaleGold: input.wholesaleGold,
@@ -75,8 +89,11 @@ export function buildErpBillSession(input: {
     pan: input.pan?.trim() || undefined,
     customerGst: input.customerGst?.trim() || undefined,
     collectedAmountInr: collected != null ? collected : undefined,
-    billingDiscountInr:
-      billingDiscount != null && Number.isFinite(billingDiscount) ? billingDiscount : undefined,
+    mcDiscountInr: mcDiscount > 0 ? mcDiscount : undefined,
+    cashDiscountInr:
+      collected != null && cashDiscount !== 0 ? cashDiscount : undefined,
+    totalDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
+    billingDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
   }
 }
 

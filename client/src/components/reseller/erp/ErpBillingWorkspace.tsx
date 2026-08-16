@@ -14,7 +14,7 @@ import {
   perGramToDisplayRates,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
-import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, isGoldSlabRLine } from '@/lib/erp-billing-display'
+import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, computeBillingDiscountSummary, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { cachedGet } from '@/lib/api-get-cache'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
@@ -744,10 +744,15 @@ export function ErpBillingWorkspace() {
     collectedAmountInr.trim() !== '' && Number.isFinite(parseFloat(collectedAmountInr))
       ? parseFloat(collectedAmountInr)
       : null
-  const billingDiscount =
-    parsedCollected != null && totals.net > 0
-      ? Math.round(totals.net - parsedCollected)
-      : null
+  const discountSummary = useMemo(
+    () =>
+      computeBillingDiscountSummary({
+        netTotal: totals.net,
+        collectedAmount: parsedCollected,
+        lines,
+      }),
+    [totals.net, parsedCollected, lines],
+  )
   const balanceDue = Math.max(0, totals.net - parsedAdvance)
 
   const buildPayload = (billType: 'sale' | 'estimate', status: string) => ({
@@ -772,7 +777,9 @@ export function ErpBillingWorkspace() {
       pan: customerPan,
       customerGst,
       collectedAmountInr: parsedCollected,
-      billingDiscountInr: billingDiscount,
+      mcDiscountInr: discountSummary.mcDiscountInr,
+      cashDiscountInr: discountSummary.cashDiscountInr,
+      totalDiscountInr: discountSummary.totalDiscountInr,
       netTotalInr: totals.net,
     }),
     ...(editingBillId &&
@@ -1141,9 +1148,21 @@ export function ErpBillingWorkspace() {
             <input
               className={`${erpInputCls} bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/80`}
               readOnly
-              value={billingDiscount != null ? String(billingDiscount) : ''}
-              placeholder="Auto from collected"
-              title="Net total minus collected amount"
+              value={
+                discountSummary.totalDiscountInr !== 0
+                  ? String(discountSummary.totalDiscountInr)
+                  : ''
+              }
+              placeholder="Auto (MC + cash)"
+              title={
+                discountSummary.mcDiscountInr > 0
+                  ? `MC discount ₹${discountSummary.mcDiscountInr.toLocaleString('en-IN')}${
+                      parsedCollected != null
+                        ? ` + cash ₹${discountSummary.cashDiscountInr.toLocaleString('en-IN')}`
+                        : ''
+                    }`
+                  : 'Net total minus collected amount'
+              }
             />
           </div>
           <div className="sm:col-span-2">
@@ -1497,12 +1516,20 @@ export function ErpBillingWorkspace() {
                   </div>
                 </>
               ) : null}
-              {billingDiscount != null ? (
+              {discountSummary.totalDiscountInr !== 0 ? (
                 <div>
                   <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Discount</p>
-                  <p className={`font-semibold tabular-nums ${billingDiscount >= 0 ? 'text-emerald-700' : 'text-amber-800'}`}>
-                    {formatErpInr(billingDiscount)}
+                  <p className="font-semibold tabular-nums text-emerald-700">
+                    {formatErpInr(discountSummary.totalDiscountInr)}
                   </p>
+                  {discountSummary.mcDiscountInr > 0 ? (
+                    <p className="text-[9px] text-[var(--color-jewelry-black,#1a1814)]/50">
+                      MC ₹{discountSummary.mcDiscountInr.toLocaleString('en-IN')}
+                      {parsedCollected != null && discountSummary.cashDiscountInr !== 0
+                        ? ` + cash ₹${discountSummary.cashDiscountInr.toLocaleString('en-IN')}`
+                        : ''}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {parsedCollected != null ? (

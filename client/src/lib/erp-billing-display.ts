@@ -42,3 +42,48 @@ export function billingMcPdfText(line: ErpBillLine, slab: ErpRateSlab): string {
   if (hint) return `${mc} (${hint})`
   return String(mc)
 }
+
+/** Sum of catalog MC discounts across lines (before − after). */
+export function computeMcDiscountTotal(lines: ErpBillLine[]): number {
+  return lines.reduce((sum, line) => {
+    if (
+      line.displayMcBeforeDiscount != null &&
+      line.displayMcInr != null &&
+      line.displayMcBeforeDiscount > line.displayMcInr
+    ) {
+      return sum + Math.round(line.displayMcBeforeDiscount - line.displayMcInr)
+    }
+    return sum
+  }, 0)
+}
+
+export type BillingDiscountSummary = {
+  mcDiscountInr: number
+  cashDiscountInr: number
+  totalDiscountInr: number
+  collectedAmount: number | null
+}
+
+/** MC slab savings + cash/rounding discount from collected amount. */
+export function computeBillingDiscountSummary(params: {
+  netTotal: number
+  collectedAmount: number | null
+  lines: ErpBillLine[]
+}): BillingDiscountSummary {
+  const mcDiscountInr = computeMcDiscountTotal(params.lines)
+  const collectedAmount = params.collectedAmount
+  const cashDiscountInr =
+    collectedAmount != null && params.netTotal > 0
+      ? Math.round(params.netTotal - collectedAmount)
+      : 0
+  const totalDiscountInr =
+    collectedAmount != null
+      ? mcDiscountInr + cashDiscountInr
+      : mcDiscountInr
+  return {
+    mcDiscountInr,
+    cashDiscountInr,
+    totalDiscountInr,
+    collectedAmount,
+  }
+}
