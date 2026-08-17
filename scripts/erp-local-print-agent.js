@@ -34,6 +34,24 @@ async function printRaw(printerName, tspl) {
     }
 }
 
+async function printRawBinary(printerName, escPosBase64) {
+    const tmp = path.join(os.tmpdir(), `kc-erp-receipt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.bin`);
+    fs.writeFileSync(tmp, Buffer.from(String(escPosBase64 || ''), 'base64'));
+    try {
+        await execFileAsync(
+            'powershell.exe',
+            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS1, '-PrinterName', printerName, '-FilePath', tmp],
+            { timeout: 45000, windowsHide: true },
+        );
+    } finally {
+        try {
+            fs.unlinkSync(tmp);
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
 function readBody(req) {
     return new Promise((resolve, reject) => {
         let body = '';
@@ -95,6 +113,14 @@ const server = http.createServer(async (req, res) => {
             const body = await readBody(req);
             const payload = JSON.parse(body || '{}');
             const printerName = String(payload.printerName || 'TSC TTP-244 Pro').trim();
+
+            if (payload.escPosBase64) {
+                await printRawBinary(printerName, payload.escPosBase64);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, count: 1, printerName, kind: 'receipt' }));
+                return;
+            }
+
             const list = Array.isArray(payload.tsplList)
                 ? payload.tsplList
                 : payload.tspl
@@ -102,7 +128,7 @@ const server = http.createServer(async (req, res) => {
                   : [];
             if (!list.length) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'No TSPL data' }));
+                res.end(JSON.stringify({ ok: false, error: 'No TSPL or receipt data' }));
                 return;
             }
             for (let i = 0; i < list.length; i += 1) {
@@ -112,7 +138,7 @@ const server = http.createServer(async (req, res) => {
                 }
             }
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, count: list.length, printerName }));
+            res.end(JSON.stringify({ ok: true, count: list.length, printerName, kind: 'label' }));
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message || 'Print failed' }));

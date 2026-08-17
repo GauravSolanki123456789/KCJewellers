@@ -17,6 +17,17 @@ export async function checkLocalPrintAgent(): Promise<boolean> {
   }
 }
 
+export async function listLocalPrinters(): Promise<string[]> {
+  const r = await fetch(`${LOCAL_PRINT_AGENT_URL}/printers`, {
+    method: 'GET',
+    cache: 'no-store',
+    signal: AbortSignal.timeout(5000),
+  })
+  const data = (await r.json()) as { ok?: boolean; printers?: string[] }
+  if (!r.ok || !data.ok) return []
+  return Array.isArray(data.printers) ? data.printers : []
+}
+
 export function resolveWindowsPrinterName(
   hw: ErpHardwareSettings | null,
   printerProfileId: string | null | undefined,

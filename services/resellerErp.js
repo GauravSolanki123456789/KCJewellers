@@ -1635,10 +1635,34 @@ function registerResellerErpRoutes(app, deps) {
             };
             const template = printFormats.billTemplate || erpPrint.DEFAULT_BILL_TEMPLATE;
             const escPos = erpPrint.renderBillEscPos(template, bill, printFormats, rates);
+            const mode = String(req.body.mode || req.body.delivery || 'auto').toLowerCase();
+            const windowsPrinterName = erpPrint.resolveBillingWindowsPrinterName(hw);
+            const clientPayload = {
+                escPosBase64: erpPrint.escPosToBase64(escPos),
+                windowsPrinterName,
+                clientPrint: true,
+            };
+
+            if (mode === 'prepare' || mode === 'client') {
+                return res.json({
+                    ...clientPayload,
+                    printed: false,
+                    message: `Receipt ready for ${windowsPrinterName} on this PC.`,
+                });
+            }
+
+            if (mode !== 'network' && mode !== 'server' && printerConfig?.type === 'windows') {
+                return res.json({
+                    ...clientPayload,
+                    printed: false,
+                    message: `Receipt ready for ${windowsPrinterName} on this PC.`,
+                });
+            }
 
             if (!printerConfig?.address) {
                 return res.status(400).json({
-                    error: 'Configure Epson billing printer IP in Hardware (e.g. 192.168.0.198).',
+                    error: 'Configure Epson billing printer in Hardware → Epson billing printer.',
+                    ...clientPayload,
                 });
             }
 
@@ -1655,7 +1679,8 @@ function registerResellerErpRoutes(app, deps) {
             }
 
             return res.status(400).json({
-                error: 'Billing printer must be network (Epson TM) for server-side print.',
+                error: 'Billing printer must be network (Epson TM) for server-side print, or use Windows printer on this PC.',
+                ...clientPayload,
             });
         } catch (e) {
             console.error('erp print bill:', e);
@@ -1699,10 +1724,34 @@ function registerResellerErpRoutes(app, deps) {
                 silver: session.silverPerG ?? session.silver_per_g ?? null,
             };
             const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates);
+            const mode = String(req.body.mode || req.body.delivery || 'auto').toLowerCase();
+            const windowsPrinterName = erpPrint.resolveBillingWindowsPrinterName(hw);
+            const clientPayload = {
+                escPosBase64: erpPrint.escPosToBase64(escPos),
+                windowsPrinterName,
+                clientPrint: true,
+            };
+
+            if (mode === 'prepare' || mode === 'client') {
+                return res.json({
+                    ...clientPayload,
+                    printed: false,
+                    message: `Estimate ready for ${windowsPrinterName} on this PC.`,
+                });
+            }
+
+            if (mode !== 'network' && mode !== 'server' && printerConfig?.type === 'windows') {
+                return res.json({
+                    ...clientPayload,
+                    printed: false,
+                    message: `Estimate ready for ${windowsPrinterName} on this PC.`,
+                });
+            }
 
             if (!printerConfig?.address) {
                 return res.status(400).json({
-                    error: 'Configure Epson billing printer IP in Hardware (e.g. 192.168.0.198).',
+                    error: 'Configure Epson billing printer in Hardware → Epson billing printer.',
+                    ...clientPayload,
                 });
             }
 
@@ -1719,7 +1768,8 @@ function registerResellerErpRoutes(app, deps) {
             }
 
             return res.status(400).json({
-                error: 'Billing printer must be network (Epson TM) for server-side print.',
+                error: 'Billing printer must be network (Epson TM) for server-side print, or use Windows printer on this PC.',
+                ...clientPayload,
             });
         } catch (e) {
             console.error('erp print estimate:', e);

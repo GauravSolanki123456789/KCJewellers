@@ -203,6 +203,7 @@ export const LABEL_TEMPLATE_VARS = [
   'bag_wt',
   'stone_charges',
   'stone_wt',
+  'stone_weight',
   'box_charges',
   'purity',
 ] as const

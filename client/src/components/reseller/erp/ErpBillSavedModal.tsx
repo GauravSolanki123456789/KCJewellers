@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import axios from '@/lib/axios'
+import { printErpBillThermal } from '@/lib/erp-billing-print'
 import {
   CheckCircle2,
   Download,
@@ -106,14 +106,13 @@ export function ErpBillSavedModal({
     if (!bill?.id) return
     setThermalBusy(true)
     try {
-      const res = await axios.post<{ message?: string }>('/api/reseller/erp/print/bill', {
-        bill_id: bill.id,
-      })
-      alert(res.data.message || 'Receipt sent to Epson printer.')
+      const msg = await printErpBillThermal(bill.id)
+      alert(msg)
     } catch (e) {
       const msg =
+        (e as Error)?.message ||
         (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        'Could not print on Epson — check Hardware → billing printer IP.'
+        'Could not print on Epson — start the local print agent on this PC and check Hardware → Epson billing printer.'
       alert(msg)
     } finally {
       setThermalBusy(false)

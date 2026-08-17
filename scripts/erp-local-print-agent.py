@@ -6,6 +6,7 @@ Optional alternative if Python is installed. Usually use start-erp-print-agent.b
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -20,6 +21,40 @@ PORT = int(os.environ.get("ERP_PRINT_AGENT_PORT", "17888"))
 HOST = "127.0.0.1"
 SCRIPT_DIR = Path(__file__).resolve().parent
 RAW_PRINT_PS1 = SCRIPT_DIR / "windows-raw-print.ps1"
+
+
+def print_raw_binary(printer_name: str, esc_pos_base64: str) -> None:
+    suffix = os.urandom(4).hex()
+    fd, tmp = tempfile.mkstemp(prefix=f"kc-erp-receipt-{suffix}-", suffix=".bin")
+    os.close(fd)
+    try:
+        Path(tmp).write_bytes(base64.b64decode(str(esc_pos_base64 or "")))
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(RAW_PRINT_PS1),
+                "-PrinterName",
+                printer_name,
+                "-FilePath",
+                tmp,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(detail or f"Receipt print failed for {printer_name}")
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def print_raw(printer_name: str, tspl: str) -> None:
@@ -114,12 +149,16 @@ class Handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(length).decode("utf-8") if length else "{}"
             payload = json.loads(raw or "{}")
             printer_name = str(payload.get("printerName") or "TSC TTP-244 Pro").strip()
+            if payload.get("escPosBase64"):
+                print_raw_binary(printer_name, str(payload["escPosBase64"]))
+                self._json(200, {"ok": True, "count": 1, "printerName": printer_name, "kind": "receipt"})
+                return
             tspl_list = payload.get("tsplList")
             if tspl_list is None and payload.get("tspl"):
                 tspl_list = [payload["tspl"]]
             tspl_list = list(tspl_list or [])
             if not tspl_list:
-                self._json(400, {"ok": False, "error": "No TSPL data"})
+                self._json(400, {"ok": False, "error": "No TSPL or receipt data"})
                 return
             for i, item in enumerate(tspl_list):
                 print_raw(printer_name, str(item))

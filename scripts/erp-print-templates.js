@@ -576,6 +576,11 @@ function buildLabelTemplateVars(piece, hw, profile) {
         stone_wt: piece.stone_wt != null && Number.isFinite(Number(piece.stone_wt))
             ? Number(piece.stone_wt).toFixed(3)
             : '',
+        /** Alias — templates may use {{stone_weight}} instead of {{stone_wt}}. */
+        stone_weight:
+            piece.stone_wt != null && Number.isFinite(Number(piece.stone_wt))
+                ? Number(piece.stone_wt).toFixed(3)
+                : '',
         box_charges: formatOptionalNumber(piece, 'box_charges', 2),
         purity: piece.purity != null && String(piece.purity).trim() !== ''
             ? String(piece.purity).trim()
@@ -738,8 +743,23 @@ function renderEstimateEscPos(bill, printFormats, rates) {
     return textToEscPos(body);
 }
 
+function resolveBillingWindowsPrinterName(hw) {
+    const bp = hw?.billingPrinter || {};
+    const name =
+        bp.windowsPrinterName ||
+        bp.windowsPrinter?.name ||
+        bp.windowsName ||
+        'EPSON TM-m30III Receipt';
+    return String(name).trim() || 'EPSON TM-m30III Receipt';
+}
+
 function resolveBillingPrinterConfig(hw) {
     const bp = hw?.billingPrinter || {};
+    if (bp.type === 'windows') {
+        const name = resolveBillingWindowsPrinterName(hw);
+        if (!name) return null;
+        return { type: 'windows', address: name };
+    }
     if (!bp.address) return null;
     const isNetwork = bp.type === 'network' || /^\d+\.\d+\.\d+\.\d+/.test(String(bp.address));
     if (isNetwork) {
@@ -753,6 +773,10 @@ function resolveBillingPrinterConfig(hw) {
         type: 'serial',
         address: String(bp.address).trim(),
     };
+}
+
+function escPosToBase64(escPos) {
+    return Buffer.from(String(escPos || ''), 'latin1').toString('base64');
 }
 
 function shouldUsePrnTemplate(profile, printFormats) {
@@ -791,5 +815,7 @@ module.exports = {
     migratePrintFormats,
     preserveBillTemplate,
     resolveBillingPrinterConfig,
+    resolveBillingWindowsPrinterName,
+    escPosToBase64,
     shouldUsePrnTemplate,
 };

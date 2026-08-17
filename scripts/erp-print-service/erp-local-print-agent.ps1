@@ -55,6 +55,44 @@ function Resolve-TscPrinterName([string]$Requested) {
     return $Requested
 }
 
+function Invoke-RawPrintBinary([string]$PrinterName, [string]$EscPosBase64) {
+    $resolved = Resolve-TscPrinterName $PrinterName
+    if ($PrinterName -match 'EPSON|TM-m|TM-T|Receipt|Billing') {
+        $names = Get-InstalledPrinterNames
+        if ($names -contains $PrinterName) { $resolved = $PrinterName }
+        else {
+            foreach ($n in $names) {
+                if ($n -match 'EPSON|TM-m|TM-T|Receipt|Billing') { $resolved = $n; break }
+            }
+        }
+    }
+    $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $tmp = Join-Path $env:TEMP "kc-erp-receipt-$(Get-Date -Format 'yyyyMMddHHmmss')-$suffix.bin"
+    $bytes = [Convert]::FromBase64String([string]$EscPosBase64)
+    [System.IO.File]::WriteAllBytes($tmp, $bytes)
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$RawPrintPs1`" -PrinterName `"$resolved`" -FilePath `"$tmp`""
+        $psi.RedirectStandardError = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $stderr = $p.StandardError.ReadToEnd()
+        $stdout = $p.StandardOutput.ReadToEnd()
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) {
+            $installed = Get-InstalledPrinterNames
+            $list = if ($installed.Count) { ($installed -join ', ') } else { 'none' }
+            $detail = if ($stderr.Trim()) { $stderr.Trim() } else { "Exit code $($p.ExitCode)" }
+            throw "Receipt print failed ($resolved). Installed printers: $list. $detail"
+        }
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-RawPrint([string]$PrinterName, [string]$Tspl) {
     $resolved = Resolve-TscPrinterName $PrinterName
     $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -123,6 +161,11 @@ function Handle-Request($Context) {
             }
             $printerName = [string]($payload.printerName)
             if (-not $printerName.Trim()) { $printerName = 'TSC TTP-244 Pro' }
+            if ($payload.escPosBase64) {
+                Invoke-RawPrintBinary $printerName ([string]$payload.escPosBase64)
+                Send-JsonResponse $Context 200 @{ ok = $true; count = 1; printerName = $printerName; kind = 'receipt' }
+                return
+            }
             $list = @()
             if ($payload.tsplList) {
                 $list = @($payload.tsplList)
@@ -130,7 +173,7 @@ function Handle-Request($Context) {
                 $list = @([string]$payload.tspl)
             }
             if ($list.Count -eq 0) {
-                Send-JsonResponse $Context 400 @{ ok = $false; error = 'No TSPL data' }
+                Send-JsonResponse $Context 400 @{ ok = $false; error = 'No TSPL or receipt data' }
                 return
             }
             foreach ($item in $list) {

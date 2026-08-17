@@ -11,6 +11,15 @@ function Get-InstalledPrinterNames {
     }
 }
 
+function Resolve-ReceiptPrinterName([string]$Requested) {
+    $names = Get-InstalledPrinterNames
+    if ($names -contains $Requested) { return $Requested }
+    foreach ($n in $names) {
+        if ($n -match 'EPSON|TM-m|TM-T|Receipt|Billing') { return $n }
+    }
+    return $Requested
+}
+
 function Resolve-TscPrinterName([string]$Requested) {
     $names = Get-InstalledPrinterNames
     if ($names -contains $Requested) { return $Requested }
@@ -18,6 +27,14 @@ function Resolve-TscPrinterName([string]$Requested) {
         if ($n -match 'TSC|TTP.?244|TSCTTP|Barcode|TTP-244') { return $n }
     }
     return $Requested
+}
+
+function Resolve-PrinterName([string]$Requested) {
+    $names = Get-InstalledPrinterNames
+    if ($names -contains $Requested) { return $Requested }
+    $epson = Resolve-ReceiptPrinterName $Requested
+    if ($names -contains $epson) { return $epson }
+    return Resolve-TscPrinterName $Requested
 }
 
 Add-Type -TypeDefinition @"
@@ -105,7 +122,7 @@ if (-not (Test-Path -LiteralPath $FilePath)) {
     exit 2
 }
 
-$resolved = Resolve-TscPrinterName $PrinterName
+$resolved = Resolve-PrinterName $PrinterName
 $installed = Get-InstalledPrinterNames
 $listText = if ($installed.Count) { ($installed -join ' | ') } else { '(none — TSC driver not installed)' }
 

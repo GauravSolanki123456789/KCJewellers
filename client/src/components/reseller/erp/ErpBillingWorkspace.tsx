@@ -923,8 +923,9 @@ export function ErpBillingWorkspace() {
           if (!wantsPdf) alert(msg)
         } catch (e) {
           const errMsg =
+            (e as Error)?.message ||
             (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-            'Could not print estimate on Epson — check Hardware → billing printer IP.'
+            'Could not print estimate on Epson — start the local print agent on this PC and check Hardware → Epson billing printer.'
           if (!wantsPdf) {
             alert(errMsg)
             return

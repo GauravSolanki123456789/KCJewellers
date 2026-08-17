@@ -605,49 +605,76 @@ export function ErpHardwareWorkspace() {
             Type
             <select
               className={`${erpInputCls} mt-1`}
-              value={hw.billingPrinter?.type || 'network'}
-              onChange={(e) =>
-                setHw((h) => ({
-                  ...h,
-                  billingPrinter: { ...h.billingPrinter, type: e.target.value },
-                }))
-              }
-            >
-              <option value="network">Network (Epson TM)</option>
-              <option value="serial">Serial / COM</option>
-            </select>
-          </label>
-          <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-            IP address
-            <input
-              className={`${erpInputCls} mt-1 font-mono`}
-              placeholder="192.168.0.198"
-              value={hw.billingPrinter?.address || ''}
-              onChange={(e) =>
-                setHw((h) => ({
-                  ...h,
-                  billingPrinter: { ...h.billingPrinter, address: e.target.value },
-                }))
-              }
-            />
-          </label>
-          <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-            Port
-            <input
-              type="number"
-              className={`${erpInputCls} mt-1 font-mono`}
-              value={hw.billingPrinter?.port || 9100}
+              value={hw.billingPrinter?.type || 'windows'}
               onChange={(e) =>
                 setHw((h) => ({
                   ...h,
                   billingPrinter: {
                     ...h.billingPrinter,
-                    port: Number(e.target.value) || 9100,
+                    type: e.target.value as 'network' | 'serial' | 'windows',
                   },
                 }))
               }
-            />
+            >
+              <option value="windows">Windows (this PC — recommended)</option>
+              <option value="network">Network IP (server on same LAN)</option>
+              <option value="serial">Serial / COM</option>
+            </select>
           </label>
+          {hw.billingPrinter?.type === 'windows' || !hw.billingPrinter?.type ? (
+            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
+              Windows printer name
+              <input
+                className={`${erpInputCls} mt-1 font-mono`}
+                placeholder="EPSON TM-m30III Receipt"
+                value={hw.billingPrinter?.windowsPrinterName || ''}
+                onChange={(e) =>
+                  setHw((h) => ({
+                    ...h,
+                    billingPrinter: {
+                      ...h.billingPrinter,
+                      type: h.billingPrinter?.type || 'windows',
+                      windowsPrinterName: e.target.value,
+                    },
+                  }))
+                }
+              />
+            </label>
+          ) : (
+            <>
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                IP address
+                <input
+                  className={`${erpInputCls} mt-1 font-mono`}
+                  placeholder="192.168.0.198"
+                  value={hw.billingPrinter?.address || ''}
+                  onChange={(e) =>
+                    setHw((h) => ({
+                      ...h,
+                      billingPrinter: { ...h.billingPrinter, address: e.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                Port
+                <input
+                  type="number"
+                  className={`${erpInputCls} mt-1 font-mono`}
+                  value={hw.billingPrinter?.port || 9100}
+                  onChange={(e) =>
+                    setHw((h) => ({
+                      ...h,
+                      billingPrinter: {
+                        ...h.billingPrinter,
+                        port: Number(e.target.value) || 9100,
+                      },
+                    }))
+                  }
+                />
+              </label>
+            </>
+          )}
         </div>
       </div>
 

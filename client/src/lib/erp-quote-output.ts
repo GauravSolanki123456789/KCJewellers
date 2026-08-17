@@ -1,7 +1,5 @@
 /** Quote / estimate output — PDF, Epson thermal, or both (shop default + workstation override). */
 
-import axios from '@/lib/axios'
-
 export type ErpQuoteOutputMode = 'pdf' | 'epson' | 'both'
 
 export const ERP_QUOTE_OUTPUT_MODES: ErpQuoteOutputMode[] = ['pdf', 'epson', 'both']
@@ -32,9 +30,4 @@ export function resolveQuoteOutputMode(
   return normalizeQuoteOutputMode(resellerDefault ?? 'pdf')
 }
 
-export async function printErpEstimateThermal(billId: number): Promise<string> {
-  const res = await axios.post<{ message?: string }>('/api/reseller/erp/print/estimate', {
-    bill_id: billId,
-  })
-  return res.data.message || 'Estimate sent to Epson printer.'
-}
+export { printErpEstimateThermal } from '@/lib/erp-billing-print'

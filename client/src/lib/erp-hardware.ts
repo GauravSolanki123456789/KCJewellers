@@ -37,7 +37,13 @@ export type ErpHardwareSettings = {
   companyCode?: string
   printerProfiles?: ErpPrinterProfile[]
   scaleProfiles?: ErpScaleProfile[]
-  billingPrinter?: { type?: string; address?: string; port?: number }
+  billingPrinter?: {
+    type?: 'network' | 'serial' | 'windows'
+    address?: string
+    port?: number
+    /** Windows spooler name for Epson on this PC (e.g. EPSON TM-m30III Receipt). */
+    windowsPrinterName?: string
+  }
   scanner?: { mode?: string; suffix?: string }
   /** Posh RFID cloud API — used when admin enables RFID for this reseller. */
   poshRfid?: {
@@ -128,7 +134,14 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
     hw.printerProfiles = profiles
   }
 
-  if (!hw.billingPrinter?.address) {
+  if (!hw.billingPrinter?.type && !hw.billingPrinter?.windowsPrinterName) {
+    hw.billingPrinter = {
+      type: 'windows',
+      windowsPrinterName: 'EPSON TM-m30III Receipt',
+      address: hw.billingPrinter?.address || '192.168.0.198',
+      port: hw.billingPrinter?.port || 9100,
+    }
+  } else if (!hw.billingPrinter?.address && hw.billingPrinter?.type !== 'windows') {
     hw.billingPrinter = { type: 'network', address: '192.168.0.198', port: 9100 }
   }
 
