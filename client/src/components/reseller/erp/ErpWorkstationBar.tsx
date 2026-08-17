@@ -80,10 +80,6 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
         </span>
         <div>
           <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">This workstation</h2>
-          <p className="mt-0.5 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-            Saved on this PC only — each counter can choose its own label printer, scale, and quote output.
-            Billing, products, and labels use these picks automatically.
-          </p>
         </div>
       </div>
 

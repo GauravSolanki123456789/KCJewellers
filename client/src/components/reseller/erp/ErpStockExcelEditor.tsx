@@ -681,7 +681,7 @@ export function ErpStockExcelEditor({
                           ) : null}
                           <button
                             type="button"
-                            title={row.rfid_tag ? 'Change RFID tag' : 'Link Posh RFID tag (F1 to print)'}
+                            title={row.rfid_tag ? 'Change RFID tag' : 'Link RFID tag (F1 to print)'}
                             className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center gap-1 rounded-lg border border-[var(--kc-accent,#c41e3a)]/25 bg-[var(--kc-accent,#c41e3a)]/[0.06] px-2 text-[var(--kc-accent,#c41e3a)] disabled:opacity-40"
                             disabled={deleting || rfidLinkBusy}
                             onClick={() => openRfidDialog(row)}

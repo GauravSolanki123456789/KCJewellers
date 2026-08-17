@@ -253,12 +253,8 @@ export function ErpHardwareWorkspace() {
         <div className={erpCardCls}>
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             <Radio className="size-4 text-[var(--kc-accent,#c41e3a)]" />
-            Posh RFID API
+            RFID API
           </div>
-          <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-            Connect your Posh RFID cloud account so linked tags appear on the handheld gun. Unlinked
-            tags stay off inventory until staff links them in Products.
-          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
               API base URL
@@ -323,16 +319,7 @@ export function ErpHardwareWorkspace() {
       ) : null}
 
       <div className={erpCardCls}>
-        <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-          Add one profile per physical device (TSC label printer, Essae scale, Epson billing printer). Each PC picks
-          its devices in <strong className="text-[var(--color-jewelry-black,#1a1814)]/80">This workstation</strong>{' '}
-          above. Customize label &amp; receipt layouts in{' '}
-          <a href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
-            Print formats
-          </a>
-          .
-        </p>
-        <label className="mt-3 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+        <label className="block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
           Default company code on labels
           <input
             className={`${erpInputCls} mt-1 max-w-xs font-mono`}
@@ -503,13 +490,6 @@ export function ErpHardwareWorkspace() {
                       }
                     />
                   </label>
-                  <p className="sm:col-span-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
-USB labels print via the local print service on this PC (not COM). Copy folder{' '}
-                    <code className="rounded bg-black/5 px-1">erp-print-service</code> to Desktop and run{' '}
-                    <code className="rounded bg-black/5 px-1">START-KC-Label-Print.bat</code>.
-                    The TSC must appear as its own printer in Windows Settings — run{' '}
-                    <code className="rounded bg-black/5 px-1">CHECK-TSC-Printer.bat</code> if print fails.
-                  </p>
                 </div>
               ) : (
                 <div className="mt-3">

@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import {
@@ -593,15 +592,8 @@ export function ErpPrintFormatsWorkspace() {
       ) : (
         <>
           <div className={erpCardCls}>
-            <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+            <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Generate quote — shop default
-            </p>
-            <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-              Staff can override the shop default on each PC under{' '}
-              <Link href="/reseller/erp/hardware" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
-                Hardware → This workstation
-              </Link>
-              . Blank lines in templates below are preserved on the Epson printout.
             </p>
             <label className="block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
               When staff clicks Generate quote

@@ -34,7 +34,6 @@ import {
   type ResellerSlabFormState,
 } from '@/lib/reseller-catalog-slab-form'
 import {
-  RESELLER_CATALOG_SLAB_HELP,
   ResellerCatalogSlabSettingsPanel,
 } from '@/components/reseller/ResellerCatalogSlabSettingsPanel'
 
@@ -930,11 +929,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Weight-only shared catalogues</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, this reseller&apos;s shared web links, PDF shortlists, and WhatsApp picks show
-                        product weight only — no prices. Snapshotted when each link is created (
-                        <code className="text-slate-400">reseller_hide_prices</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -962,12 +956,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Allow product uploads</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, this reseller&apos;s staff can add products and photos at{' '}
-                        <code className="text-slate-400">/reseller/products</code>. Submissions require your approval
-                        before going live on kcjewellers.co.in (
-                        <code className="text-slate-400">reseller_product_uploads_enabled</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -998,11 +986,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Allow live product edits</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, this reseller&apos;s staff can update weight, MC, photos, and other details on
-                        products already live on the site — changes apply immediately without admin review (
-                        <code className="text-slate-400">reseller_product_edits_enabled</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1033,11 +1016,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">WhatsApp-only shared catalogues</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, customers opening this reseller&apos;s shared catalogue links can shortlist and
-                        share via WhatsApp (text) only — the &quot;PDF with photos&quot; option is hidden (
-                        <code className="text-slate-400">reseller_hide_shared_catalog_pdf</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1068,12 +1046,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Enhanced picture subscription</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, this reseller&apos;s staff get AI studio photos at{' '}
-                        <code className="text-slate-400">/reseller/enhanced-pictures</code> (idol template first).
-                        Generated shots auto-attach to Excel upload barcodes (
-                        <code className="text-slate-400">reseller_enhanced_pictures_enabled</code>).
-                      </p>
                       {resellerModalUser ? (
                         <Link
                           href={`/admin/enhanced-pictures?userId=${resellerModalUser.id}`}
@@ -1114,12 +1086,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">B2B pricelist module</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, staff get a separate pricelist at{' '}
-                        <code className="text-slate-400">/reseller/pricelist</code> — Excel categories,
-                        price slabs & WhatsApp share links, isolated from the live catalogue (
-                        <code className="text-slate-400">reseller_pricelist_enabled</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1150,12 +1116,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Allow staff to update live rates</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, this reseller&apos;s team can set silver and gold 18K / 22K / 24K ₹/g at{' '}
-                        <code className="text-slate-400">/reseller/rates</code>. The latest save applies site-wide
-                        on kcjewellers.co.in, custom domains, catalogue, cart, and Live Rates (
-                        <code className="text-slate-400">reseller_rates_update_enabled</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1186,13 +1146,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Allow MC slab uploads</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, this reseller&apos;s staff can upload weight-range MC Excel at{' '}
-                        <code className="text-slate-400">/reseller/mc-slabs</code>. When generating WhatsApp
-                        catalogue links they pick a slab (Slab C, Slab 2, etc.) and customers see MC + MCTYPE on
-                        each product (
-                        <code className="text-slate-400">reseller_upload_slabs_enabled</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1223,14 +1176,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Enable ERP software</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, this reseller&apos;s staff get the jewellery ERP hub at{' '}
-                        <code className="text-slate-400">/reseller/erp</code> — billing, credit bills,
-                        customers (birthdays &amp; anniversaries), stock &amp; ROL, DigiGold / DigiSilver,
-                        GST, slabs, sales reports, barcoding / tag splitting, estimation &amp; bill
-                        tracking, e-invoice / e-way / Tally API linking, and more (
-                        <code className="text-slate-400">reseller_erp_enabled</code>).
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1261,20 +1206,13 @@ function B2BAdminContent() {
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-200">Posh RFID (ERP products)</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                        When enabled, staff can link yellow Posh RFID tags to barcoded stock in{' '}
-                        <code className="text-slate-400">/reseller/erp/products</code>. Tags unlink
-                        automatically when the piece is sold or the barcode tag is deleted — reusable
-                        tags sync to the RFID gun via API (
-                        <code className="text-slate-400">reseller_rfid_enabled</code>).
-                      </p>
+                      <p className="text-sm font-medium text-slate-200">RFID (ERP products)</p>
                     </div>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={resellerForm.reseller_rfid_enabled}
-                      aria-label="Enable Posh RFID for reseller ERP"
+                      aria-label="Enable RFID for reseller ERP"
                       onClick={() =>
                         setResellerForm((f) => ({
                           ...f,
@@ -1297,8 +1235,7 @@ function B2BAdminContent() {
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-                  <p className="mb-1 text-sm font-medium text-slate-200">Shared catalogue slabs</p>
-                  <p className="mb-4 text-[11px] leading-relaxed text-slate-500">{RESELLER_CATALOG_SLAB_HELP}</p>
+                  <p className="mb-4 text-sm font-medium text-slate-200">Shared catalogue slabs</p>
                   <ResellerCatalogSlabSettingsPanel
                     variant="admin"
                     form={{

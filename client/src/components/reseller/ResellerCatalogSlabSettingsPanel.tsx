@@ -247,6 +247,3 @@ export function ResellerCatalogSlabSettingsPanel({
     </div>
   )
 }
-
-export const RESELLER_CATALOG_SLAB_HELP =
-  'Defaults for Slab R / W / F when you create WhatsApp catalogue links, on your storefront, and in Jewellery ERP billing. Silver & gift items use the first block; gold jewellery uses the gold block. MC discount is a percentage; gold slabs use wastage disc % (points off wastage — on Slab R this reduces MC derived from wastage). Slab R offsets subtract ₹/g from today\'s live rate. Margin % adds to the final price — use when discounts are 0.'

@@ -61,7 +61,7 @@ export function ErpRfidLinkDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-[var(--color-jewelry-black,#1a1814)]">
             <Radio className="size-5 text-[var(--kc-accent,#c41e3a)]" />
-            Link Posh RFID tag
+            Link RFID tag
           </DialogTitle>
           <DialogDescription className="text-[var(--color-jewelry-black,#1a1814)]/65">
             Barcode <strong className="text-[var(--color-jewelry-black,#1a1814)]">{barcode}</strong>
@@ -94,11 +94,6 @@ export function ErpRfidLinkDialog({
               }}
             />
           </label>
-          <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs leading-relaxed text-emerald-950">
-            Scan or type the yellow Posh tag ID, then press{' '}
-            <kbd className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">F1</kbd> or{' '}
-            <strong>Link &amp; print</strong>. The barcode label prints and stock syncs to the RFID gun.
-          </p>
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-row">

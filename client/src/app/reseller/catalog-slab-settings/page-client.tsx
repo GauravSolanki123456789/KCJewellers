@@ -17,7 +17,6 @@ import {
 } from '@/lib/reseller-catalog-slab-form'
 import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import {
-  RESELLER_CATALOG_SLAB_HELP,
   ResellerCatalogSlabSettingsPanel,
 } from '@/components/reseller/ResellerCatalogSlabSettingsPanel'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
@@ -134,9 +133,6 @@ function CatalogSlabSettingsContent() {
 
       <div className="kc-profile-card rounded-2xl p-4 sm:p-5">
         <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Shared catalogue slabs</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-          {RESELLER_CATALOG_SLAB_HELP}
-        </p>
         <div className="mt-4">
           <ResellerCatalogSlabSettingsPanel form={form} onChange={setForm} disabled={slabSave.saving} />
         </div>
