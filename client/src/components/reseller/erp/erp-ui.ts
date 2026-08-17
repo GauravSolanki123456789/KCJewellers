@@ -67,6 +67,7 @@ export type ErpStockPiece = {
   bag_wt?: number | null
   status: string
   sold_bill_id?: number | null
+  rfid_tag?: string | null
 }
 
 export type ErpOrderLineStatus = 'in_shop' | 'on_hold' | 'with_karigar' | 'returned' | 'completed'

@@ -15,13 +15,15 @@ import {
 import { ErpWorkstationPanel, useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { erpErr } from '@/components/reseller/erp/erp-ui'
+import { useAuth } from '@/hooks/useAuth'
+import type { WholesaleUserFields } from '@/lib/customer-tier'
 import {
   connectLabelPrinter,
   sendTsplOverSerial,
   webSerialSupported,
 } from '@/lib/erp-serial-device'
 import { checkLocalPrintAgent, printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
-import { Loader2, Plus, Printer, Save, Scale, Trash2, Wifi } from 'lucide-react'
+import { Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
 
 function SerialFields({
   value,
@@ -96,6 +98,8 @@ function SerialFields({
 }
 
 export function ErpHardwareWorkspace() {
+  const auth = useAuth()
+  const rfidEnabled = !!(auth.user as WholesaleUserFields | null)?.reseller_rfid_enabled
   const [hw, setHw] = useState<ErpHardwareSettings>(() =>
     migrateHardwareSettings({ companyCode: 'KC925', printerProfiles: [], scaleProfiles: [] }),
   )
@@ -104,6 +108,7 @@ export function ErpHardwareWorkspace() {
   const [saved, setSaved] = useState(false)
   const [testMsg, setTestMsg] = useState<string | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
+  const [rfidSyncBusy, setRfidSyncBusy] = useState(false)
 
   useEffect(() => {
     void axios
@@ -243,6 +248,79 @@ export function ErpHardwareWorkspace() {
   return (
     <div className="space-y-4">
       <ErpWorkstationPanel value={workstation} onChange={setWorkstation} />
+
+      {rfidEnabled ? (
+        <div className={erpCardCls}>
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+            <Radio className="size-4 text-[var(--kc-accent,#c41e3a)]" />
+            Posh RFID API
+          </div>
+          <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+            Connect your Posh RFID cloud account so linked tags appear on the handheld gun. Unlinked
+            tags stay off inventory until staff links them in Products.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
+              API base URL
+              <input
+                className={`${erpInputCls} mt-1 font-mono text-xs`}
+                placeholder="https://api.poshrfid.example/v1"
+                value={hw.poshRfid?.apiUrl || ''}
+                onChange={(e) =>
+                  setHw((h) => ({
+                    ...h,
+                    poshRfid: { ...(h.poshRfid || {}), apiUrl: e.target.value },
+                  }))
+                }
+              />
+            </label>
+            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+              API key
+              <input
+                className={`${erpInputCls} mt-1 font-mono text-xs`}
+                type="password"
+                autoComplete="off"
+                value={hw.poshRfid?.apiKey || ''}
+                onChange={(e) =>
+                  setHw((h) => ({
+                    ...h,
+                    poshRfid: { ...(h.poshRfid || {}), apiKey: e.target.value },
+                  }))
+                }
+              />
+            </label>
+            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+              Store / showroom ID
+              <input
+                className={`${erpInputCls} mt-1 font-mono text-xs`}
+                value={hw.poshRfid?.storeId || ''}
+                onChange={(e) =>
+                  setHw((h) => ({
+                    ...h,
+                    poshRfid: { ...(h.poshRfid || {}), storeId: e.target.value },
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            className={`${erpBtnPrimary} mt-3`}
+            disabled={rfidSyncBusy}
+            onClick={() => {
+              setRfidSyncBusy(true)
+              void axios
+                .post('/api/reseller/erp/rfid/sync-inventory')
+                .then(() => setTestMsg('RFID inventory synced to Posh.'))
+                .catch((e) => setTestMsg(erpErr(e)))
+                .finally(() => setRfidSyncBusy(false))
+            }}
+          >
+            {rfidSyncBusy ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
+            Sync linked stock to RFID gun
+          </button>
+        </div>
+      ) : null}
 
       <div className={erpCardCls}>
         <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">

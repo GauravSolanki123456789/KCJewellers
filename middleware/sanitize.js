@@ -11,10 +11,14 @@
    'description',
    'body',
    'labelPrnTemplate',
-   'billTemplate',
-   'label_prn_template',
-   'bill_template',
-   'template',
+  'billTemplate',
+  'estimateTemplateGold',
+  'estimateTemplateSilver',
+  'label_prn_template',
+  'bill_template',
+  'estimate_template_gold',
+  'estimate_template_silver',
+  'template',
  ]);
 
  function maxLenForKey(key) {

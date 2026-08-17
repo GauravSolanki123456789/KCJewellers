@@ -338,20 +338,80 @@ function preserveBillTemplate(raw) {
     return preservePrnTemplate(raw);
 }
 
+function repairCollapsedBillTemplate(raw) {
+    const preserved = preserveBillTemplate(raw);
+    if (!preserved.trim()) return preserved;
+    if (preserved.includes('\n')) return preserved;
+
+    let s = preserved;
+    s = s.replace(/={8,}/g, '\n$&\n');
+    s = s.replace(/-{8,}/g, '\n$&\n');
+    const breaks = [
+        'TAX INVOICE',
+        'GOLD ESTIMATE',
+        'SILVER ESTIMATE',
+        'Bill:',
+        'Estimate:',
+        'Date:',
+        'Slab:',
+        'Customer:',
+        'Mobile:',
+        'Address:',
+        'GSTIN:',
+        'Ph:',
+        'Items:',
+        'Gold rate:',
+        'Silver rate:',
+        'TOTAL:',
+        'ESTIMATE TOTAL:',
+        'MC discount:',
+        'Cash discount:',
+        'Total discount:',
+        'Collected:',
+        'Advance:',
+        'Balance:',
+        'Rates subject',
+        'Thank you',
+        'This is an estimate',
+        '{{lines_table}}',
+    ];
+    for (const token of breaks) {
+        s = s.split(token).join(`\n${token}`);
+    }
+    return s
+        .split('\n')
+        .map((l) => l.trimEnd())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function applyBillTemplatePreservation(raw, fallback) {
+    const preserved = preserveBillTemplate(raw);
+    if (!preserved.trim()) return fallback;
+    return repairCollapsedBillTemplate(preserved);
+}
+
 function migratePrintFormats(raw) {
     const pf = { ...(raw || {}) };
     if (pf.billTemplate?.trim()) {
-        pf.billTemplate = preserveBillTemplate(pf.billTemplate);
+        pf.billTemplate = applyBillTemplatePreservation(pf.billTemplate, DEFAULT_BILL_TEMPLATE);
     } else {
         pf.billTemplate = DEFAULT_BILL_TEMPLATE;
     }
     if (pf.estimateTemplateGold?.trim()) {
-        pf.estimateTemplateGold = preserveBillTemplate(pf.estimateTemplateGold);
+        pf.estimateTemplateGold = applyBillTemplatePreservation(
+            pf.estimateTemplateGold,
+            DEFAULT_ESTIMATE_TEMPLATE_GOLD,
+        );
     } else {
         pf.estimateTemplateGold = DEFAULT_ESTIMATE_TEMPLATE_GOLD;
     }
     if (pf.estimateTemplateSilver?.trim()) {
-        pf.estimateTemplateSilver = preserveBillTemplate(pf.estimateTemplateSilver);
+        pf.estimateTemplateSilver = applyBillTemplatePreservation(
+            pf.estimateTemplateSilver,
+            DEFAULT_ESTIMATE_TEMPLATE_SILVER,
+        );
     } else {
         pf.estimateTemplateSilver = DEFAULT_ESTIMATE_TEMPLATE_SILVER;
     }

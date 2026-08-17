@@ -5,6 +5,7 @@
 const { randomUUID } = require('crypto');
 const labelPrinter = require('../scripts/label-printer');
 const erpPrint = require('../scripts/erp-print-templates');
+const poshRfid = require('./poshRfid');
 
 function normalizeComPort(raw) {
     const t = String(raw || '').trim().toUpperCase();
@@ -290,6 +291,7 @@ function mapPiece(row) {
                 : comp.earring_wt_only,
         bags: row.bags,
         bag_wt: row.bag_wt != null ? Number(row.bag_wt) : null,
+        rfid_tag: row.rfid_tag ? String(row.rfid_tag).trim() : null,
         status: row.status,
         sold_bill_id: row.sold_bill_id,
         created_at: row.created_at,
@@ -351,6 +353,12 @@ async function ensureStockPiecesSchema(pool) {
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS split_from_barcode VARCHAR(128);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS merged_into_barcode VARCHAR(128);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS stone_wt NUMERIC(12, 3);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS rfid_tag VARCHAR(64);
+    `);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_stock_pieces_rfid_active
+            ON reseller_erp_stock_pieces (reseller_user_id, lower(rfid_tag))
+            WHERE rfid_tag IS NOT NULL AND status = 'in_stock';
     `);
 }
 
@@ -384,17 +392,40 @@ async function syncStockAlertCounts(query, resellerUserId, itemCode) {
     }
 }
 
+async function unlinkRfidRows(query, resellerUserId, rows) {
+    for (const row of rows || []) {
+        const tag = row?.rfid_tag ? String(row.rfid_tag).trim() : '';
+        if (!tag) continue;
+        try {
+            await poshRfid.syncPieceUnlinked(query, resellerUserId, tag, row.barcode);
+        } catch (e) {
+            console.error('posh rfid unlink:', e.message);
+        }
+    }
+}
+
 async function markPiecesSold(query, resellerUserId, lines, billId) {
     const barcodes = (lines || [])
         .map((l) => (l.barcode || l.code || '').trim())
         .filter(Boolean);
     if (!barcodes.length) return;
+
+    const linked = await query(
+        `SELECT barcode, rfid_tag FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[])
+           AND status = 'in_stock' AND rfid_tag IS NOT NULL`,
+        [resellerUserId, barcodes],
+    );
+
     await query(
         `UPDATE reseller_erp_stock_pieces SET
-            status = 'sold', sold_bill_id = $1, updated_at = NOW()
+            status = 'sold', sold_bill_id = $1, rfid_tag = NULL, updated_at = NOW()
          WHERE reseller_user_id = $2 AND barcode = ANY($3::text[]) AND status = 'in_stock'`,
         [billId, resellerUserId, barcodes],
     );
+
+    await unlinkRfidRows(query, resellerUserId, linked);
+
     const itemCodes = await query(
         `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
          WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
@@ -562,6 +593,29 @@ async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, exclude
 
 function registerStockPieceRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, erpGate } = deps;
+
+    const requireRfid = async (req, res, next) => {
+        try {
+            const rows = await query(
+                `SELECT COALESCE(reseller_rfid_enabled, false) AS enabled FROM users WHERE id = $1`,
+                [req.user.id],
+            );
+            if (!rows[0]?.enabled) {
+                return res.status(403).json({ error: 'RFID is not enabled for this reseller account.' });
+            }
+            req.user.reseller_rfid_enabled = true;
+            next();
+        } catch (e) {
+            const msg = String(e.message || '');
+            if (msg.includes('reseller_rfid_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_rfid_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+                return res.status(403).json({ error: 'RFID is not enabled for this reseller account.' });
+            }
+            next(e);
+        }
+    };
 
     ensureStockPiecesSchema(pool).catch((e) => console.warn('erp stock pieces schema:', e.message));
 
@@ -921,7 +975,7 @@ function registerStockPieceRoutes(app, deps) {
                 deletedRows = await query(
                     `DELETE FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND id = ANY($2::int[]) AND status <> 'sold'
-                     RETURNING id`,
+                     RETURNING id, rfid_tag, barcode`,
                     [req.user.id, ids],
                 );
             } else {
@@ -933,10 +987,12 @@ function registerStockPieceRoutes(app, deps) {
                     params.push(batchId);
                     sql += ` AND batch_id = $3::uuid`;
                 }
-                sql += ' RETURNING id, item_code';
+                sql += ' RETURNING id, item_code, rfid_tag, barcode';
                 deletedRows = await query(sql, params);
                 itemCodes.add(itemCode);
             }
+
+            await unlinkRfidRows(query, req.user.id, deletedRows);
 
             for (const ic of itemCodes) {
                 if (ic) await syncStockAlertCounts(query, req.user.id, ic);
@@ -967,7 +1023,7 @@ function registerStockPieceRoutes(app, deps) {
             if (!barcode) return res.status(400).json({ error: 'barcode required' });
 
             const rows = await query(
-                `SELECT id, batch_id, item_code, status FROM reseller_erp_stock_pieces
+                `SELECT id, batch_id, item_code, status, rfid_tag, barcode FROM reseller_erp_stock_pieces
                  WHERE reseller_user_id = $1 AND barcode = $2
                  LIMIT 1`,
                 [req.user.id, barcode],
@@ -978,6 +1034,10 @@ function registerStockPieceRoutes(app, deps) {
             const piece = rows[0];
             if (piece.status === 'sold') {
                 return res.status(400).json({ error: 'This tag is already sold and cannot be deleted.' });
+            }
+
+            if (piece.rfid_tag) {
+                await unlinkRfidRows(query, req.user.id, [piece]);
             }
 
             await query(
@@ -1005,6 +1065,127 @@ function registerStockPieceRoutes(app, deps) {
         } catch (e) {
             console.error('erp stock delete barcode:', e);
             res.status(500).json({ error: e.message || 'Failed to delete tag' });
+        }
+    });
+
+    app.post(
+        '/api/reseller/erp/stock-pieces/:pieceId/link-rfid',
+        checkAuth,
+        erpGate,
+        requireRfid,
+        requireJson,
+        async (req, res) => {
+            try {
+                const pieceId = parseInt(String(req.params.pieceId), 10);
+                if (!Number.isFinite(pieceId)) {
+                    return res.status(400).json({ error: 'Invalid piece id' });
+                }
+                const rfidTag = poshRfid.normalizeRfidTag(req.body.rfid_tag);
+                if (!rfidTag) return res.status(400).json({ error: 'rfid_tag required (e.g. B0297)' });
+
+                const rows = await query(
+                    `SELECT * FROM reseller_erp_stock_pieces
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [pieceId, req.user.id],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Stock piece not found' });
+                const piece = rows[0];
+                if (piece.status === 'sold') {
+                    return res.status(400).json({ error: 'Cannot link RFID to a sold piece.' });
+                }
+
+                const taken = await query(
+                    `SELECT id, barcode FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
+                       AND status = 'in_stock' AND id <> $3
+                     LIMIT 1`,
+                    [req.user.id, rfidTag, pieceId],
+                );
+                if (taken.length) {
+                    return res.status(409).json({
+                        error: `RFID tag ${rfidTag} is already linked to barcode ${taken[0].barcode}. Unlink it first (sell or delete that tag).`,
+                    });
+                }
+
+                if (piece.rfid_tag && String(piece.rfid_tag).toLowerCase() !== rfidTag.toLowerCase()) {
+                    await unlinkRfidRows(query, req.user.id, [piece]);
+                }
+
+                const updated = await query(
+                    `UPDATE reseller_erp_stock_pieces
+                     SET rfid_tag = $1, updated_at = NOW()
+                     WHERE id = $2 AND reseller_user_id = $3
+                     RETURNING *`,
+                    [rfidTag, pieceId, req.user.id],
+                );
+                const mapped = mapPiece(updated[0]);
+
+                try {
+                    await poshRfid.syncPieceLinked(query, req.user.id, mapped);
+                } catch (syncErr) {
+                    await query(
+                        `UPDATE reseller_erp_stock_pieces SET rfid_tag = NULL, updated_at = NOW()
+                         WHERE id = $1 AND reseller_user_id = $2`,
+                        [pieceId, req.user.id],
+                    );
+                    return res.status(502).json({
+                        error: syncErr.message || 'Posh RFID sync failed — tag was not saved.',
+                    });
+                }
+
+                res.json({ success: true, piece: mapped });
+            } catch (e) {
+                console.error('erp link rfid:', e);
+                res.status(500).json({ error: e.message || 'Failed to link RFID tag' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/erp/stock-pieces/:pieceId/unlink-rfid',
+        checkAuth,
+        erpGate,
+        requireRfid,
+        requireJson,
+        async (req, res) => {
+            try {
+                const pieceId = parseInt(String(req.params.pieceId), 10);
+                if (!Number.isFinite(pieceId)) {
+                    return res.status(400).json({ error: 'Invalid piece id' });
+                }
+                const rows = await query(
+                    `SELECT * FROM reseller_erp_stock_pieces
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [pieceId, req.user.id],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Stock piece not found' });
+                const piece = rows[0];
+                if (!piece.rfid_tag) {
+                    return res.json({ success: true, piece: mapPiece(piece) });
+                }
+                await unlinkRfidRows(query, req.user.id, [piece]);
+                const updated = await query(
+                    `UPDATE reseller_erp_stock_pieces
+                     SET rfid_tag = NULL, updated_at = NOW()
+                     WHERE id = $1 AND reseller_user_id = $2
+                     RETURNING *`,
+                    [pieceId, req.user.id],
+                );
+                res.json({ success: true, piece: mapPiece(updated[0]) });
+            } catch (e) {
+                console.error('erp unlink rfid:', e);
+                res.status(500).json({ error: e.message || 'Failed to unlink RFID tag' });
+            }
+        },
+    );
+
+    app.post('/api/reseller/erp/rfid/sync-inventory', checkAuth, erpGate, requireRfid, async (req, res) => {
+        try {
+            const result = await poshRfid.syncBulkInventory(query, req.user.id);
+            res.json({ success: true, result });
+        } catch (e) {
+            console.error('erp rfid bulk sync:', e);
+            res.status(500).json({ error: e.message || 'RFID inventory sync failed' });
         }
     });
 

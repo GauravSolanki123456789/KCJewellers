@@ -636,6 +636,10 @@ async function initSchema() {
         `);
         await pool.query(`
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_rfid_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_enhanced_pictures_enabled BOOLEAN NOT NULL DEFAULT false
         `);
         await pool.query(`

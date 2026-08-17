@@ -14,8 +14,9 @@ import {
 import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleBar'
+import { ErpRfidLinkDialog } from '@/components/reseller/erp/ErpRfidLinkDialog'
 import { printStockLabels, type PrintLabelPieceOverride } from '@/lib/erp-print-labels'
-import { Check, Loader2, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
+import { Check, Loader2, Radio, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
 
 const cellCls =
   'kc-batch-cell-input w-full min-w-0 rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none focus:border-[var(--kc-accent,#c41e3a)] focus:bg-white focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/15'
@@ -99,12 +100,14 @@ export function ErpStockExcelEditor({
   onSaved,
   scaleProfileId,
   printerProfileId,
+  rfidEnabled = false,
 }: {
   batchId: string
   pieces: ErpStockPiece[]
   onSaved: (rows: ErpStockPiece[]) => void
   scaleProfileId?: string | null
   printerProfileId?: string | null
+  rfidEnabled?: boolean
 }) {
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
   const [baseline, setBaseline] = useState<StockRowDraft[]>([])
@@ -118,6 +121,10 @@ export function ErpStockExcelEditor({
   const [scaleConnected, setScaleConnected] = useState(false)
   const [scaleFocus, setScaleFocus] = useState<ScaleFocus | null>(null)
   const [printingLabel, setPrintingLabel] = useState(false)
+  const [rfidDialogOpen, setRfidDialogOpen] = useState(false)
+  const [rfidTargetRowId, setRfidTargetRowId] = useState<number | null>(null)
+  const [rfidInput, setRfidInput] = useState('')
+  const [rfidLinkBusy, setRfidLinkBusy] = useState(false)
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
 
   const productNames = useMemo(() => {
@@ -402,6 +409,73 @@ export function ErpStockExcelEditor({
     }
   }
 
+  const openRfidDialog = (row: StockRowDraft) => {
+    if (row.status === 'sold') return
+    setRfidTargetRowId(row.id)
+    setRfidInput(row.rfid_tag?.trim() || '')
+    setRfidDialogOpen(true)
+    setError(null)
+  }
+
+  const rfidTargetRow = useMemo(
+    () => (rfidTargetRowId != null ? drafts.find((d) => d.id === rfidTargetRowId) : null),
+    [drafts, rfidTargetRowId],
+  )
+
+  const linkRfidAndPrint = useCallback(async () => {
+    if (!rfidTargetRowId || rfidLinkBusy) return
+    const tag = rfidInput.trim().toUpperCase()
+    if (!tag) return
+    const row = drafts.find((d) => d.id === rfidTargetRowId)
+    if (!row || row.status === 'sold') return
+
+    setRfidLinkBusy(true)
+    setError(null)
+    try {
+      await axios.post(`/api/reseller/erp/stock-pieces/${rfidTargetRowId}/link-rfid`, {
+        rfid_tag: tag,
+      })
+
+      const result = await printStockLabels({
+        pieceIds: [rfidTargetRowId],
+        printerProfileId: printerProfileId ?? null,
+      })
+      if (!result.ok) {
+        setError(result.message)
+        await refreshPieces()
+        return
+      }
+
+      await refreshPieces()
+      setRfidInput('')
+
+      const nextId = nextScaleRow(rfidTargetRowId, 'avg_weight')
+      if (nextId != null) {
+        focusCell(nextId, 'avg_weight')
+        setRfidTargetRowId(nextId)
+        setRfidDialogOpen(true)
+        setMessage(`${result.message} · RFID ${tag} linked — next piece.`)
+      } else {
+        setRfidDialogOpen(false)
+        setRfidTargetRowId(null)
+        setScaleFocus(null)
+        setMessage(`${result.message} · RFID ${tag} linked.`)
+      }
+    } catch (e) {
+      setError(erpErr(e))
+    } finally {
+      setRfidLinkBusy(false)
+    }
+  }, [
+    focusCell,
+    nextScaleRow,
+    printerProfileId,
+    rfidInput,
+    rfidLinkBusy,
+    rfidTargetRowId,
+    drafts,
+  ])
+
   const applyScaleWeight = (grams: number) => {
     const targetId =
       scaleFocus?.rowId ??
@@ -598,16 +672,38 @@ export function ErpStockExcelEditor({
                   })}
                   <td className="sticky right-0 z-10 bg-white px-1 py-0.5">
                     {!readOnly ? (
-                      <button
-                        type="button"
-                        title="Delete tag & remove from stock"
-                        className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 disabled:opacity-40"
-                        disabled={deleting}
-                        onClick={() => void deleteTag(row)}
-                      >
-                        <Tag className="size-3.5" />
-                        <Trash2 className="size-3" />
-                      </button>
+                      rfidEnabled ? (
+                        <div className="flex min-w-[88px] flex-col items-stretch gap-1">
+                          {row.rfid_tag ? (
+                            <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-center font-mono text-[10px] font-semibold text-emerald-800">
+                              {row.rfid_tag}
+                            </span>
+                          ) : null}
+                          <button
+                            type="button"
+                            title={row.rfid_tag ? 'Change RFID tag' : 'Link Posh RFID tag (F1 to print)'}
+                            className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center gap-1 rounded-lg border border-[var(--kc-accent,#c41e3a)]/25 bg-[var(--kc-accent,#c41e3a)]/[0.06] px-2 text-[var(--kc-accent,#c41e3a)] disabled:opacity-40"
+                            disabled={deleting || rfidLinkBusy}
+                            onClick={() => openRfidDialog(row)}
+                          >
+                            <Radio className="size-3.5" />
+                            <Tag className="size-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          title="Delete tag & remove from stock"
+                          className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 disabled:opacity-40"
+                          disabled={deleting}
+                          onClick={() => void deleteTag(row)}
+                        >
+                          <Tag className="size-3.5" />
+                          <Trash2 className="size-3" />
+                        </button>
+                      )
+                    ) : row.rfid_tag ? (
+                      <span className="font-mono text-[10px] text-emerald-800">{row.rfid_tag}</span>
                     ) : null}
                   </td>
                 </tr>
@@ -616,6 +712,19 @@ export function ErpStockExcelEditor({
           </tbody>
         </table>
       </div>
+
+      {rfidEnabled ? (
+        <ErpRfidLinkDialog
+          open={rfidDialogOpen}
+          onOpenChange={setRfidDialogOpen}
+          barcode={rfidTargetRow?.values.barcode?.trim() || '—'}
+          productName={rfidTargetRow?.values.product_name?.trim() || rfidTargetRow?.values.item_code?.trim()}
+          rfidInput={rfidInput}
+          onRfidInputChange={setRfidInput}
+          busy={rfidLinkBusy}
+          onConfirm={linkRfidAndPrint}
+        />
+      ) : null}
     </div>
   )
 }

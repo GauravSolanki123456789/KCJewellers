@@ -741,6 +741,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerSlabSettings = parseResellerSlabSettingsServer(resolvedUser.reseller_slab_settings);
         let resellerUploadSlabsEnabled = !!resolvedUser.reseller_upload_slabs_enabled;
         let resellerErpEnabled = !!resolvedUser.reseller_erp_enabled;
+        let resellerRfidEnabled = !!resolvedUser.reseller_rfid_enabled;
         let resellerEnhancedPicturesEnabled = !!resolvedUser.reseller_enhanced_pictures_enabled;
         let resellerPricelistEnabled = !!resolvedUser.reseller_pricelist_enabled;
         try {
@@ -752,6 +753,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_invest_manage_enabled, false) AS invest_manage,
                         COALESCE(reseller_upload_slabs_enabled, false) AS upload_slabs,
                         COALESCE(reseller_erp_enabled, false) AS erp_enabled,
+                        COALESCE(reseller_rfid_enabled, false) AS rfid_enabled,
                         COALESCE(reseller_enhanced_pictures_enabled, false) AS enhanced_pictures,
                         COALESCE(reseller_pricelist_enabled, false) AS pricelist_enabled,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
@@ -766,6 +768,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerInvestManageEnabled = !!fresh[0].invest_manage;
                 resellerUploadSlabsEnabled = !!fresh[0].upload_slabs;
                 resellerErpEnabled = !!fresh[0].erp_enabled;
+                resellerRfidEnabled = !!fresh[0].rfid_enabled;
                 resellerEnhancedPicturesEnabled = !!fresh[0].enhanced_pictures;
                 resellerPricelistEnabled = !!fresh[0].pricelist_enabled;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
@@ -810,6 +813,11 @@ app.get('/api/auth/current_user', async (req, res) => {
             if (msg.includes('reseller_erp_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_erp_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_rfid_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_rfid_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
             if (msg.includes('reseller_enhanced_pictures_enabled')) {
@@ -863,6 +871,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_invest_manage_enabled: resellerInvestManageEnabled,
                 reseller_upload_slabs_enabled: resellerUploadSlabsEnabled,
                 reseller_erp_enabled: resellerErpEnabled,
+                reseller_rfid_enabled: resellerRfidEnabled,
                 reseller_enhanced_pictures_enabled: resellerEnhancedPicturesEnabled,
                 reseller_pricelist_enabled: resellerPricelistEnabled,
                 reseller_slab_settings: resellerSlabSettings,
@@ -4140,6 +4149,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_rates_update_enabled, false) AS reseller_rates_update_enabled,
                        COALESCE(reseller_upload_slabs_enabled, false) AS reseller_upload_slabs_enabled,
                        COALESCE(reseller_erp_enabled, false) AS reseller_erp_enabled,
+                       COALESCE(reseller_rfid_enabled, false) AS reseller_rfid_enabled,
                        COALESCE(reseller_enhanced_pictures_enabled, false) AS reseller_enhanced_pictures_enabled,
                        COALESCE(reseller_pricelist_enabled, false) AS reseller_pricelist_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
@@ -4598,6 +4608,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_erp_enabled !== undefined) {
             updates.push(`reseller_erp_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_erp_enabled);
+        }
+
+        if (req.body.reseller_rfid_enabled !== undefined) {
+            updates.push(`reseller_rfid_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_rfid_enabled);
         }
 
         if (req.body.reseller_enhanced_pictures_enabled !== undefined) {

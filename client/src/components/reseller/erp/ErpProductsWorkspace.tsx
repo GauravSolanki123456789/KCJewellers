@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from '@/lib/axios'
+import { useAuth } from '@/hooks/useAuth'
+import type { WholesaleUserFields } from '@/lib/customer-tier'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
@@ -23,6 +25,8 @@ type Batch = {
 }
 
 export function ErpProductsWorkspace() {
+  const auth = useAuth()
+  const rfidEnabled = !!(auth.user as WholesaleUserFields | null)?.reseller_rfid_enabled
   const [batches, setBatches] = useState<Batch[]>([])
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
   const [pieces, setPieces] = useState<ErpStockPiece[]>([])
@@ -195,6 +199,7 @@ export function ErpProductsWorkspace() {
           onSaved={setPieces}
           scaleProfileId={workstation.scaleProfileId}
           printerProfileId={workstation.printerProfileId}
+          rfidEnabled={rfidEnabled}
         />
       </div>
     )

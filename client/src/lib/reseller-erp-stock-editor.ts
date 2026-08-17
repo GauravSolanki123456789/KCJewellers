@@ -43,6 +43,7 @@ export const SCALE_CAPTURE_FIELDS: StockEditableField[] = [
 export type StockRowDraft = {
   id: number
   status: string
+  rfid_tag?: string | null
   values: Record<StockEditableField, string>
 }
 
@@ -90,6 +91,7 @@ export function pieceToRowDraft(p: ErpStockPiece): StockRowDraft {
   return {
     id: p.id,
     status: p.status || 'in_stock',
+    rfid_tag: p.rfid_tag ?? null,
     values: {
       barcode: fieldToString(p.barcode),
       sku: fieldToString(p.sku),

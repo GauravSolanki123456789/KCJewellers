@@ -48,6 +48,8 @@ export type WholesaleUserFields = {
   reseller_upload_slabs_enabled?: boolean
   /** Admin enables jewellery ERP suite at `/reseller/erp`. */
   reseller_erp_enabled?: boolean
+  /** Admin enables Posh RFID tag linking in ERP products. */
+  reseller_rfid_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio at `/reseller/enhanced-pictures`. */
   reseller_enhanced_pictures_enabled?: boolean
 }

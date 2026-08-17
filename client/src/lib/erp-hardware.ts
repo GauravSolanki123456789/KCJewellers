@@ -39,6 +39,13 @@ export type ErpHardwareSettings = {
   scaleProfiles?: ErpScaleProfile[]
   billingPrinter?: { type?: string; address?: string; port?: number }
   scanner?: { mode?: string; suffix?: string }
+  /** Posh RFID cloud API — used when admin enables RFID for this reseller. */
+  poshRfid?: {
+    apiUrl?: string
+    apiKey?: string
+    storeId?: string
+    enabled?: boolean
+  }
   /** @deprecated use printerProfiles */
   labelPrinter?: { type?: string; address?: string; port?: number; serial?: ErpSerialSettings }
 }
