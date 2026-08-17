@@ -628,6 +628,10 @@ function isSlabR(rateSlab) {
     return String(rateSlab || 'R').toUpperCase() === 'R';
 }
 
+function isSilverLine(line) {
+    return String(line?.metal_type || '').toLowerCase().startsWith('silver');
+}
+
 function thermalWastageDisplay(line, rateSlab) {
     if (isGoldSlabRLine(line, rateSlab)) return '0';
     if (line.displayWastagePct != null && line.displayWastagePct !== '') {
@@ -844,11 +848,187 @@ function renderBillEscPos(template, bill, printFormats, rates) {
     return textToEscPos(body);
 }
 
-function renderEstimateEscPos(bill, printFormats, rates) {
+const ROUGH_ESTIMATE_WIDTH = 42;
+
+function roughCenter(text, width = ROUGH_ESTIMATE_WIDTH) {
+    const t = String(text || '').trim();
+    if (!t) return '';
+    if (t.length >= width) return t.slice(0, width);
+    const pad = Math.floor((width - t.length) / 2);
+    return `${' '.repeat(Math.max(0, pad))}${t}`;
+}
+
+function roughField(label, value) {
+    const lbl = `${String(label || '').trim()}   `.slice(0, 9);
+    return `${lbl}: ${value}`;
+}
+
+function extractEstimateNo(billNumber) {
+    const s = String(billNumber || '').trim();
+    const m = s.match(/(\d+)\s*$/);
+    if (m) return String(parseInt(m[1], 10));
+    return s || '0';
+}
+
+function formatRoughDateTime(raw) {
+    const d = raw ? new Date(raw) : new Date();
+    if (Number.isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    let h = d.getHours();
+    const ampm = h >= 12 ? 'pm' : 'am';
+    h = h % 12 || 12;
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}-${mm}-${yy}  ${String(h).padStart(2, '0')}:${min} ${ampm}`;
+}
+
+function roughVAddnGrams(line, rateSlab) {
+    if (isGoldSlabRLine(line, rateSlab)) return '0.000';
+    const wt = Number(line.weightGm ?? line.net_weight) || 0;
+    const wastPct = Number(line.displayWastagePct ?? line.wastage_pct) || 0;
+    if (wt <= 0 || wastPct <= 0) return '0.000';
+    return (wt * (wastPct / 100)).toFixed(3);
+}
+
+function roughRateForLine(line, rates) {
+    const fromLine = thermalRateDisplay(line);
+    if (fromLine) {
+        const n = Number(fromLine);
+        if (isSilverLine(line)) return n.toFixed(2);
+        return String(Math.round(n));
+    }
+    const metal = String(line.metal_type || '').toLowerCase();
+    if (metal.startsWith('silver') && rates?.silver != null) {
+        return Number(rates.silver).toFixed(2);
+    }
+    if (metal.startsWith('gold') && rates?.gold != null) {
+        return String(Math.round(Number(rates.gold)));
+    }
+    return '';
+}
+
+function shouldShowRoughMcLine(line, rateSlab) {
+    if (isGoldSlabRLine(line, rateSlab)) return true;
+    return isSilverLine(line);
+}
+
+function roughMcForLine(line, rateSlab) {
+    if (!shouldShowRoughMcLine(line, rateSlab)) return '';
+    const mc = thermalMcDisplay(line, rateSlab);
+    if (!mc || Number(mc) === 0) return '';
+    if (isGoldSlabRLine(line, rateSlab)) return String(Math.round(Number(mc)));
+    const n = Number(mc);
+    return Number.isFinite(n) ? (Number.isInteger(n) ? String(n) : n.toFixed(2)) : mc;
+}
+
+function lineTaxableFromTotal(lineTotalInr) {
+    const total = Number(lineTotalInr) || 0;
+    if (total <= 0) return 0;
+    return Math.round((total / 1.03) * 100) / 100;
+}
+
+function splitRoughGst(taxable) {
+    const base = Number(taxable) || 0;
+    const cgst = Math.round(base * 0.015 * 100) / 100;
+    const sgst = cgst;
+    const gross = Math.round((base + cgst + sgst) * 100) / 100;
+    return { taxable: base, cgst, sgst, gross };
+}
+
+function buildRoughEstimateItemSection(line, rateSlab, billDate, rates) {
+    const out = [];
+    const dt = formatRoughDateTime(billDate);
+    const ornament = isSilverLine(line) ? 'Silver Ornaments' : 'Gold Ornaments';
+    out.push(`NEW ITEM : ${ornament}     ${dt}`);
+    const tag = String(line.barcode || line.code || '').trim();
+    out.push(`Qty: ${line.qty != null ? line.qty : 1}   Tag:${tag ? ` ${tag}` : ''}`);
+    const wt = Number(line.weightGm ?? line.net_weight) || 0;
+    out.push(roughField('Weight', `${wt.toFixed(3)} gms`));
+    out.push(roughField('V.ADDN', roughVAddnGrams(line, rateSlab)));
+    const rate = roughRateForLine(line, rates);
+    if (rate) out.push(roughField('Rate/Gm', rate));
+    const mc = roughMcForLine(line, rateSlab);
+    if (mc) out.push(roughField('MC', mc));
+    const stoneWt = Number(line.stone_wt);
+    if (Number.isFinite(stoneWt) && stoneWt > 0) {
+        out.push(roughField('Stone Wt', `${stoneWt.toFixed(3)} gms`));
+    }
+    const stoneCh = Number(line.stone_charges);
+    if (Number.isFinite(stoneCh) && stoneCh > 0) {
+        out.push(roughField('Stone', stoneCh.toFixed(2)));
+    }
+    const taxable = lineTaxableFromTotal(line.lineTotalInr);
+    out.push(roughField('Total', taxable.toFixed(2)));
+    return { lines: out, taxable };
+}
+
+function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
     const pf = migratePrintFormats(printFormats);
-    const template = resolveEstimateTemplateForBill(bill.lines || [], pf);
-    const vars = buildBillTemplateVars(bill, pf, rates);
-    const body = renderTemplate(template || DEFAULT_ESTIMATE_TEMPLATE_GOLD, vars, { plainText: true });
+    const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    const rateSlab = String(session.rateSlab || 'R').toUpperCase();
+    const shopName = String(pf.shopName || bill.shop_name || 'B N MARLECHA SILVER')
+        .trim()
+        .toUpperCase();
+    const estNo = extractEstimateNo(bill.bill_number);
+    const billDate = bill.bill_date || bill.created_at || new Date();
+    const phone = String(pf.shopPhone || '').trim();
+    const dots = '.'.repeat(ROUGH_ESTIMATE_WIDTH);
+    const dash = '-'.repeat(20);
+    const out = [];
+
+    if (isDuplicate) {
+        out.push('');
+        out.push(roughCenter('Duplicate Copy'));
+        out.push(roughCenter(`Rough Estimate : ${estNo}`));
+        out.push('');
+    }
+
+    out.push(roughCenter(shopName));
+    out.push(roughCenter(`ROUGH ESTIMATE:${estNo}`));
+    out.push(dots);
+
+    const items = bill.lines || [];
+    let sumTaxable = 0;
+    for (let i = 0; i < items.length; i += 1) {
+        const block = buildRoughEstimateItemSection(items[i], rateSlab, billDate, rates);
+        out.push(...block.lines);
+        sumTaxable += block.taxable;
+        if (i < items.length - 1) out.push('');
+    }
+
+    if (!items.length) {
+        out.push('NEW ITEM : Gold Ornaments');
+        out.push('Qty: 0   Tag:');
+    }
+
+    out.push(dash);
+    const gst = splitRoughGst(sumTaxable);
+    out.push(roughField('CGST @ 1.5%', gst.cgst.toFixed(2)));
+    out.push(roughField('SGST @ 1.5%', gst.sgst.toFixed(2)));
+    out.push(dash);
+    out.push(roughField('Gross', gst.gross.toFixed(2)));
+    out.push(roughField('Nett RS', gst.gross.toFixed(2)));
+    out.push(roughField('FINAL AMOUNT', ''));
+    out.push(dots);
+
+    const contact = phone || '7867867886,8825888888,9169161616';
+    out.push(`CONTACT : ${contact}`);
+    out.push('**valid only for 1hr. prices may change**');
+    out.push('Join Our Monthly Savings Scheme !!');
+    out.push('Tax Bill will be issued on Confirmation');
+
+    return out.join('\n');
+}
+
+function buildRoughEstimateBody(bill, printFormats, rates) {
+    const original = buildRoughEstimateCopy(bill, printFormats, rates, false);
+    const duplicate = buildRoughEstimateCopy(bill, printFormats, rates, true);
+    return `${original}\n\n${duplicate}`;
+}
+
+function renderEstimateEscPos(bill, printFormats, rates) {
+    const body = buildRoughEstimateBody(bill, printFormats, rates);
     return textToEscPos(body);
 }
 
@@ -918,6 +1098,7 @@ module.exports = {
     buildLabelTemplateVarsFromItemData,
     buildBillTemplateVars,
     buildLinesTable,
+    buildRoughEstimateBody,
     renderBillEscPos,
     renderEstimateEscPos,
     resolveEstimateTemplateForBill,

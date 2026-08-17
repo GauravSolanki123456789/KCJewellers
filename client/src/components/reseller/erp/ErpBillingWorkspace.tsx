@@ -241,6 +241,9 @@ export function ErpBillingWorkspace() {
   const duplicateBannerRef = useRef<HTMLDivElement>(null)
   const billLoadGen = useRef(0)
   const suppressEditLoadRef = useRef(false)
+  /** Prevents re-fetching the same estimate when slab/rates recalc changes loadBillForEdit identity. */
+  const loadedEditBillRef = useRef<number | null>(null)
+  const loadBillForEditRef = useRef<(id: number) => Promise<void>>(async () => {})
   const [workstation] = useErpWorkstationSelection()
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
 
@@ -471,17 +474,22 @@ export function ErpBillingWorkspace() {
     [router, recalcLine, goldPerG, silverPerG, displayRates],
   )
 
+  loadBillForEditRef.current = loadBillForEdit
+
   useEffect(() => {
     if (!hydrated) return
     if (!editIdParam) {
       suppressEditLoadRef.current = false
+      loadedEditBillRef.current = null
       return
     }
     if (suppressEditLoadRef.current) return
     const id = parseInt(editIdParam, 10)
     if (!Number.isFinite(id)) return
-    void loadBillForEdit(id).catch((e) => alert(erpErr(e)))
-  }, [hydrated, editIdParam, loadBillForEdit])
+    if (loadedEditBillRef.current === id) return
+    loadedEditBillRef.current = id
+    void loadBillForEditRef.current(id).catch((e) => alert(erpErr(e)))
+  }, [hydrated, editIdParam])
 
   useEffect(() => {
     if (!hydrated) return
@@ -671,8 +679,8 @@ export function ErpBillingWorkspace() {
     }
     void loadDisplayRates().then((rates) => {
       const pg = displayRatesToPerGram(rates)
-      setRateSlab('R')
-      setLines((prev) => transitionLinesForSlab(prev, 'R', rates, pg.gold, pg.silver))
+      setRateSlab(next)
+      setLines((prev) => transitionLinesForSlab(prev, next, rates, pg.gold, pg.silver))
     })
   }
 
@@ -745,6 +753,7 @@ export function ErpBillingWorkspace() {
   const resetBill = () => {
     billLoadGen.current += 1
     suppressEditLoadRef.current = true
+    loadedEditBillRef.current = null
     clearDuplicateState()
     setLines([])
     setScanCode('')

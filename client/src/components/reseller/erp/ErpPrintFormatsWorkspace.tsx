@@ -615,6 +615,11 @@ export function ErpPrintFormatsWorkspace() {
       ) : (
         <>
           <ShopHeaderPanel pf={pf} setPf={setPf} />
+          <p className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
+            Epson estimates print in the legacy <strong>Rough Estimate</strong> layout (original + duplicate
+            copy): Weight, V.ADDN, Rate/Gm, MC (gold Slab R / silver), stone weight &amp; charges when
+            present, CGST/SGST split, and contact footer. Shop name and phone come from Shop header above.
+          </p>
           <div className={erpCardCls}>
             <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Generate quote — shop default
