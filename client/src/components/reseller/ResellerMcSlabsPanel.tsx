@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   mergeMcSlabRows,
+  newMcSlabBatchId,
   parseMcSlabSheetRows,
   slabOptionsFromUploadedRows,
+  type McSlabUploadBatch,
   type UploadedMcSlabOption,
   type UploadedMcSlabRow,
   UPLOADED_MC_SLAB_LABELS,
@@ -49,8 +51,10 @@ export function ResellerMcSlabsPanel() {
   const [saving, setSaving] = useState(false)
   const [savingEdits, setSavingEdits] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null)
   const [enabled, setEnabled] = useState(false)
   const [rows, setRows] = useState<UploadedMcSlabRow[]>([])
+  const [batches, setBatches] = useState<McSlabUploadBatch[]>([])
   const [draftRows, setDraftRows] = useState<UploadedMcSlabRow[]>([])
   const [slabOptions, setSlabOptions] = useState<UploadedMcSlabOption[]>([])
   const [uploadedAt, setUploadedAt] = useState<string | null>(null)
@@ -68,12 +72,14 @@ export function ResellerMcSlabsPanel() {
       const { data } = await axios.get<{
         enabled?: boolean
         rows?: UploadedMcSlabRow[]
+        batches?: McSlabUploadBatch[]
         slabOptions?: UploadedMcSlabOption[]
         uploadedAt?: string | null
       }>('/api/reseller/mc-slabs')
       setEnabled(!!data.enabled)
       const loaded = Array.isArray(data.rows) ? data.rows : []
       setRows(loaded)
+      setBatches(Array.isArray(data.batches) ? data.batches : [])
       setDraftRows(loaded.map((r) => ({ ...r, rates: { ...r.rates } })))
       setSlabOptions(
         Array.isArray(data.slabOptions) ? data.slabOptions : slabOptionsFromUploadedRows(loaded),
@@ -95,11 +101,36 @@ export function ResellerMcSlabsPanel() {
   }, [load])
 
   const persistRows = async (nextRows: UploadedMcSlabRow[], successMsg: string) => {
-    await axios.put('/api/reseller/mc-slabs', { rows: nextRows })
+    const { data } = await axios.put<{
+      batches?: McSlabUploadBatch[]
+      uploadedAt?: string
+    }>('/api/reseller/mc-slabs', { rows: nextRows })
     setRows(nextRows)
     setDraftRows(nextRows.map((r) => ({ ...r, rates: { ...r.rates } })))
+    if (Array.isArray(data.batches)) setBatches(data.batches)
     setSlabOptions(slabOptionsFromUploadedRows(nextRows))
-    setUploadedAt(new Date().toISOString())
+    setUploadedAt(data.uploadedAt ?? new Date().toISOString())
+    setMessage(successMsg)
+  }
+
+  const persistAppendUpload = async (
+    file: File,
+    mergedRows: UploadedMcSlabRow[],
+    batchId: string,
+    successMsg: string,
+  ) => {
+    const { data } = await axios.put<{
+      batches?: McSlabUploadBatch[]
+      uploadedAt?: string
+    }>('/api/reseller/mc-slabs', {
+      rows: mergedRows,
+      newBatch: { id: batchId, filename: file.name },
+    })
+    setRows(mergedRows)
+    setDraftRows(mergedRows.map((r) => ({ ...r, rates: { ...r.rates } })))
+    setBatches(Array.isArray(data.batches) ? data.batches : [])
+    setSlabOptions(slabOptionsFromUploadedRows(mergedRows))
+    setUploadedAt(data.uploadedAt ?? new Date().toISOString())
     setMessage(successMsg)
   }
 
@@ -121,14 +152,18 @@ export function ResellerMcSlabsPanel() {
     try {
       const parsedRows = await parseExcelFile(file)
       const baseRows = draftRows.length ? draftRows : rows
-      const { rows: mergedRows, added, updated } = mergeMcSlabRows(baseRows, parsedRows)
+      const batchId = newMcSlabBatchId()
+      const tagged = parsedRows.map((row) => ({ ...row, batchId }))
+      const { rows: mergedRows, added, updated } = mergeMcSlabRows(baseRows, tagged)
       const parts: string[] = []
       if (added) parts.push(`${added} new`)
       if (updated) parts.push(`${updated} updated`)
       const detail = parts.length ? ` (${parts.join(', ')})` : ''
-      await persistRows(
+      await persistAppendUpload(
+        file,
         mergedRows,
-        `Saved ${mergedRows.length} slab rule${mergedRows.length === 1 ? '' : 's'}${detail}.`,
+        batchId,
+        `Uploaded ${file.name} — ${mergedRows.length} total rule${mergedRows.length === 1 ? '' : 's'}${detail}.`,
       )
     } catch (e: unknown) {
       const msg =
@@ -185,9 +220,10 @@ export function ResellerMcSlabsPanel() {
       await axios.delete('/api/reseller/mc-slabs')
       setRows([])
       setDraftRows([])
+      setBatches([])
       setSlabOptions([])
       setUploadedAt(null)
-      setMessage('MC slabs cleared.')
+      setMessage('All MC slab uploads cleared.')
     } catch (e: unknown) {
       const msg =
         e && typeof e === 'object' && 'response' in e
@@ -196,6 +232,46 @@ export function ResellerMcSlabsPanel() {
       setError(msg || 'Could not clear MC slabs')
     } finally {
       setClearing(false)
+    }
+  }
+
+  const handleDeleteBatch = async (batch: McSlabUploadBatch) => {
+    const label = batch.filename || 'this upload'
+    if (
+      !window.confirm(
+        `Remove "${label}" (${batch.rowCount} rule${batch.rowCount === 1 ? '' : 's'})? Other uploads will stay.`,
+      )
+    ) {
+      return
+    }
+    setDeletingBatchId(batch.id)
+    setError(null)
+    setMessage(null)
+    try {
+      const { data } = await axios.delete<{
+        rows?: UploadedMcSlabRow[]
+        batches?: McSlabUploadBatch[]
+        slabOptions?: UploadedMcSlabOption[]
+      }>('/api/reseller/mc-slabs', { params: { batchId: batch.id } })
+      const nextRows = Array.isArray(data.rows)
+        ? data.rows
+        : draftRows.filter((row) => row.batchId !== batch.id)
+      setRows(nextRows)
+      setDraftRows(nextRows.map((r) => ({ ...r, rates: { ...r.rates } })))
+      setBatches(Array.isArray(data.batches) ? data.batches : [])
+      setSlabOptions(
+        Array.isArray(data.slabOptions) ? data.slabOptions : slabOptionsFromUploadedRows(nextRows),
+      )
+      if (!nextRows.length) setUploadedAt(null)
+      setMessage(`Removed "${label}".`)
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null
+      setError(msg || 'Could not remove upload')
+    } finally {
+      setDeletingBatchId(null)
     }
   }
 
@@ -311,10 +387,47 @@ export function ResellerMcSlabsPanel() {
         </div>
 
         <p className="kc-upload-hint mt-3 text-[11px]">
-          Required columns: SKU, StyleCode, WT_FROM, WT_TO, slab columns, MCType, MetalType. New uploads are{' '}
-          <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/75">added</strong> to existing
-          rules — use Clear all only when you want to start over.
+          Required columns: SKU, StyleCode, WT_FROM, WT_TO, slab columns, MCType, MetalType. Each Excel upload
+          is saved as its own file — you can remove one upload without clearing the rest.
         </p>
+
+        {batches.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+              Uploaded files
+            </p>
+            <ul className="space-y-2">
+              {batches.map((batch) => (
+                <li
+                  key={batch.id}
+                  className="flex flex-col gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
+                      {batch.filename}
+                    </p>
+                    <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+                      {batch.rowCount} rule{batch.rowCount === 1 ? '' : 's'} · {formatWhen(batch.uploadedAt)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={deletingBatchId === batch.id || saving || savingEdits || clearing}
+                    onClick={() => void handleDeleteBatch(batch)}
+                    className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-lg border border-red-300/80 bg-white px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {deletingBatchId === batch.id ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-3.5" />
+                    )}
+                    Remove file
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {message ? (
           <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">

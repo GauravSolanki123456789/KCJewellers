@@ -125,7 +125,28 @@ function parseMcSlabRowsFromSheetRows(sheetRows) {
     return { rows, slabOptions };
 }
 
-function sanitizeStoredRows(raw) {
+async function ensureMcSlabColumns(pool) {
+    await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_upload_slabs_enabled BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_mc_slab_rows JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_mc_slab_uploaded_at TIMESTAMPTZ;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_mc_slab_batches JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS uploaded_mc_slab_key VARCHAR(64);
+        ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS uploaded_mc_slab_rows_snapshot JSONB;
+    `);
+}
+
+function newBatchId() {
+    return `batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function stripRowBatchId(row) {
+    if (!row || typeof row !== 'object') return row;
+    const { batchId, batch_id, ...rest } = row;
+    return rest;
+}
+
+function sanitizeStoredRows(raw, batchId) {
     if (!Array.isArray(raw)) return [];
     const out = [];
     for (const row of raw.slice(0, 5000)) {
@@ -142,6 +163,7 @@ function sanitizeStoredRows(raw) {
             if (v != null) rates[def.key] = v;
         }
         if (Object.keys(rates).length === 0) continue;
+        const bid = String(row.batchId || row.batch_id || batchId || '').trim() || null;
         out.push({
             sku,
             styleCode,
@@ -150,9 +172,79 @@ function sanitizeStoredRows(raw) {
             mcType: String(row.mcType || row.mc_type || 'MC/GM').trim().slice(0, 32) || 'MC/GM',
             metalType: row.metalType != null ? String(row.metalType).trim().slice(0, 32) : null,
             rates,
+            ...(bid ? { batchId: bid } : {}),
         });
     }
     return out;
+}
+
+function sanitizeBatch(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = String(raw.id || '').trim();
+    if (!id) return null;
+    const filename = String(raw.filename || raw.file_name || 'Upload').trim().slice(0, 200) || 'Upload';
+    const uploadedAt = raw.uploadedAt || raw.uploaded_at || new Date().toISOString();
+    const rows = sanitizeStoredRows(raw.rows, id);
+    if (!rows.length) return null;
+    return {
+        id,
+        filename,
+        uploadedAt,
+        rowCount: rows.length,
+        rows,
+    };
+}
+
+/** Migrate legacy flat row array → batch storage. */
+function normalizeMcSlabBatches(storedRows, storedBatches) {
+    if (Array.isArray(storedBatches) && storedBatches.length) {
+        return storedBatches.map(sanitizeBatch).filter(Boolean);
+    }
+    const flat = sanitizeStoredRows(storedRows);
+    if (!flat.length) return [];
+    return [
+        {
+            id: 'legacy',
+            filename: 'Previous upload',
+            uploadedAt: new Date().toISOString(),
+            rowCount: flat.length,
+            rows: flat.map((row) => ({ ...row, batchId: 'legacy' })),
+        },
+    ];
+}
+
+function flattenBatchRows(batches) {
+    const out = [];
+    for (const batch of batches || []) {
+        const bid = batch?.id;
+        for (const row of batch.rows || []) {
+            out.push({ ...row, batchId: row.batchId || bid });
+        }
+    }
+    return out;
+}
+
+function batchSummaries(batches) {
+    return (batches || []).map((b) => ({
+        id: b.id,
+        filename: b.filename,
+        uploadedAt: b.uploadedAt,
+        rowCount: Array.isArray(b.rows) ? b.rows.length : b.rowCount || 0,
+    }));
+}
+
+async function saveMcSlabBatches(query, uid, batches) {
+    const sanitized = (batches || []).map(sanitizeBatch).filter(Boolean);
+    const flat = flattenBatchRows(sanitized);
+    await query(
+        `UPDATE users
+         SET reseller_mc_slab_batches = $2::jsonb,
+             reseller_mc_slab_rows = $3::jsonb,
+             reseller_mc_slab_uploaded_at = CASE WHEN $4::int > 0 THEN CURRENT_TIMESTAMP ELSE NULL END
+         WHERE id = $1`,
+        [uid, JSON.stringify(sanitized), JSON.stringify(flat), flat.length],
+    );
+    return sanitized;
 }
 
 function productWeightGm(product) {
@@ -271,21 +363,37 @@ function lookupUploadedMcRate(rows, product, slabKey) {
     return best;
 }
 
+function regroupFlatRowsToBatches(flatRows, existingBatches, newBatchMeta) {
+    const meta = new Map((existingBatches || []).map((b) => [b.id, b]));
+    const grouped = new Map();
+    for (const row of sanitizeStoredRows(flatRows)) {
+        const bid = row.batchId || 'legacy';
+        if (!grouped.has(bid)) grouped.set(bid, []);
+        grouped.get(bid).push({ ...row, batchId: bid });
+    }
+    const batches = [];
+    for (const [id, batchRows] of grouped.entries()) {
+        const prev = meta.get(id);
+        const isNewUpload = newBatchMeta && String(newBatchMeta.id) === id;
+        batches.push({
+            id,
+            filename: isNewUpload
+                ? String(newBatchMeta.filename || 'Upload').trim().slice(0, 200) || 'Upload'
+                : prev?.filename || 'Upload',
+            uploadedAt: isNewUpload
+                ? new Date().toISOString()
+                : prev?.uploadedAt || new Date().toISOString(),
+            rows: batchRows,
+        });
+    }
+    return batches;
+}
+
 function slabOptionsFromRows(rows) {
     const sanitized = sanitizeStoredRows(rows);
     return UPLOADED_MC_SLAB_KEYS.filter((d) =>
         sanitized.some((row) => row.rates[d.key] != null),
     ).map((d) => ({ key: d.key, label: d.labels[0] }));
-}
-
-async function ensureMcSlabColumns(pool) {
-    await pool.query(`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_upload_slabs_enabled BOOLEAN NOT NULL DEFAULT false;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_mc_slab_rows JSONB NOT NULL DEFAULT '[]'::jsonb;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_mc_slab_uploaded_at TIMESTAMPTZ;
-        ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS uploaded_mc_slab_key VARCHAR(64);
-        ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS uploaded_mc_slab_rows_snapshot JSONB;
-    `);
 }
 
 function parseUploadedMcSlabKey(raw) {
@@ -325,16 +433,19 @@ function registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator,
             const rows = await query(
                 `SELECT COALESCE(reseller_upload_slabs_enabled, false) AS enabled,
                         COALESCE(reseller_mc_slab_rows, '[]'::jsonb) AS rows,
+                        COALESCE(reseller_mc_slab_batches, '[]'::jsonb) AS batches,
                         reseller_mc_slab_uploaded_at
                  FROM users WHERE id = $1`,
                 [uid],
             );
             if (!rows.length) return res.status(404).json({ error: 'User not found' });
-            const sanitized = sanitizeStoredRows(rows[0].rows);
+            const batches = normalizeMcSlabBatches(rows[0].rows, rows[0].batches);
+            const sanitized = flattenBatchRows(batches);
             res.json({
                 success: true,
                 enabled: !!rows[0].enabled,
                 rows: sanitized,
+                batches: batchSummaries(batches),
                 rowCount: sanitized.length,
                 uploadedAt: rows[0].reseller_mc_slab_uploaded_at,
                 slabOptions: slabOptionsFromRows(sanitized),
@@ -347,21 +458,60 @@ function registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator,
     app.put('/api/reseller/mc-slabs', requireSharedCatalogCreator, requireUploadSlabsEnabled, requireJson, async (req, res) => {
         try {
             const uid = req.user?.id;
-            const sanitized = sanitizeStoredRows(req.body?.rows ?? req.body);
-            if (!sanitized.length) {
+            const existingRows = await query(
+                `SELECT COALESCE(reseller_mc_slab_batches, '[]'::jsonb) AS batches,
+                        COALESCE(reseller_mc_slab_rows, '[]'::jsonb) AS rows
+                 FROM users WHERE id = $1`,
+                [uid],
+            );
+            const existingBatches = normalizeMcSlabBatches(
+                existingRows[0]?.rows,
+                existingRows[0]?.batches,
+            );
+
+            if (String(req.body?.action || '').toLowerCase() === 'append') {
+                const filename = String(req.body.filename || req.body.fileName || 'Upload').trim().slice(0, 200) || 'Upload';
+                const incoming = sanitizeStoredRows(req.body.rows);
+                if (!incoming.length) {
+                    return res.status(400).json({ error: 'No valid slab rows in upload' });
+                }
+                const batchId = newBatchId();
+                const batchRows = incoming.map((row) => ({ ...row, batchId }));
+                const nextBatches = [
+                    ...existingBatches,
+                    {
+                        id: batchId,
+                        filename,
+                        uploadedAt: new Date().toISOString(),
+                        rows: batchRows,
+                    },
+                ];
+                const saved = await saveMcSlabBatches(query, uid, nextBatches);
+                const flat = flattenBatchRows(saved);
+                return res.json({
+                    success: true,
+                    rowCount: flat.length,
+                    batches: batchSummaries(saved),
+                    slabOptions: slabOptionsFromRows(flat),
+                    uploadedAt: new Date().toISOString(),
+                });
+            }
+
+            const regrouped = regroupFlatRowsToBatches(
+                req.body?.rows ?? req.body,
+                existingBatches,
+                req.body?.newBatch,
+            );
+            if (!regrouped.length) {
                 return res.status(400).json({ error: 'No valid slab rows to save' });
             }
-            await query(
-                `UPDATE users
-                 SET reseller_mc_slab_rows = $2::jsonb,
-                     reseller_mc_slab_uploaded_at = CURRENT_TIMESTAMP
-                 WHERE id = $1`,
-                [uid, JSON.stringify(sanitized)],
-            );
+            const saved = await saveMcSlabBatches(query, uid, regrouped);
+            const flat = flattenBatchRows(saved);
             res.json({
                 success: true,
-                rowCount: sanitized.length,
-                slabOptions: slabOptionsFromRows(sanitized),
+                rowCount: flat.length,
+                batches: batchSummaries(saved),
+                slabOptions: slabOptionsFromRows(flat),
                 uploadedAt: new Date().toISOString(),
             });
         } catch (error) {
@@ -372,14 +522,43 @@ function registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator,
     app.delete('/api/reseller/mc-slabs', requireSharedCatalogCreator, requireUploadSlabsEnabled, async (req, res) => {
         try {
             const uid = req.user?.id;
+            const batchId = String(req.query?.batchId || req.body?.batchId || '').trim();
+
+            if (batchId) {
+                const existingRows = await query(
+                    `SELECT COALESCE(reseller_mc_slab_batches, '[]'::jsonb) AS batches,
+                            COALESCE(reseller_mc_slab_rows, '[]'::jsonb) AS rows
+                     FROM users WHERE id = $1`,
+                    [uid],
+                );
+                const existingBatches = normalizeMcSlabBatches(
+                    existingRows[0]?.rows,
+                    existingRows[0]?.batches,
+                );
+                const nextBatches = existingBatches.filter((b) => b.id !== batchId);
+                if (nextBatches.length === existingBatches.length) {
+                    return res.status(404).json({ error: 'Upload batch not found' });
+                }
+                const saved = await saveMcSlabBatches(query, uid, nextBatches);
+                const flat = flattenBatchRows(saved);
+                return res.json({
+                    success: true,
+                    rowCount: flat.length,
+                    rows: flat,
+                    batches: batchSummaries(saved),
+                    slabOptions: slabOptionsFromRows(flat),
+                });
+            }
+
             await query(
                 `UPDATE users
                  SET reseller_mc_slab_rows = '[]'::jsonb,
+                     reseller_mc_slab_batches = '[]'::jsonb,
                      reseller_mc_slab_uploaded_at = NULL
                  WHERE id = $1`,
                 [uid],
             );
-            res.json({ success: true });
+            res.json({ success: true, batches: [], rowCount: 0, slabOptions: [] });
         } catch (error) {
             res.status(500).json({ error: error.message || 'Failed to clear MC slabs' });
         }

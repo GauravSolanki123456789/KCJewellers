@@ -8,6 +8,15 @@ export type UploadedMcSlabRow = {
   mcType: string
   metalType?: string | null
   rates: Record<string, number>
+  /** Which Excel upload batch this row belongs to (for per-file delete). */
+  batchId?: string
+}
+
+export type McSlabUploadBatch = {
+  id: string
+  filename: string
+  uploadedAt: string
+  rowCount: number
 }
 
 export type UploadedMcSlabOption = {
@@ -152,6 +161,10 @@ export function slabOptionsFromUploadedRows(rows: UploadedMcSlabRow[]): Uploaded
   return keys
     .filter((key) => rows.some((row) => row.rates?.[key] != null))
     .map((key) => ({ key, label: UPLOADED_MC_SLAB_LABELS[key] || key }))
+}
+
+export function newMcSlabBatchId(): string {
+  return `batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
 
 function rowIdentityKey(row: UploadedMcSlabRow): string {

@@ -34,7 +34,8 @@ export function ProductMetalSpecExtras({
   className?: string
 }) {
   const extras = getProductCardMetalExtras(item, rates, breakdown)
-  if (!extras.wastage && !extras.mc && !extras.hasComponentWeights) return null
+  const showMc = density === 'detail' && extras.mc
+  if (!extras.wastage && !showMc && !extras.hasComponentWeights) return null
 
   if (density === 'detail') {
     return (
@@ -90,9 +91,9 @@ export function ProductMetalSpecExtras({
           {extras.wastage.label}: {extras.wastage.value}
         </p>
       ) : null}
-      {extras.mc ? (
+      {showMc ? (
         <p className={cn(specCls, 'tabular-nums')}>
-          {extras.mc.label}: {extras.mc.value}
+          {extras.mc!.label}: {extras.mc!.value}
         </p>
       ) : null}
       {extras.componentSummary ? (
