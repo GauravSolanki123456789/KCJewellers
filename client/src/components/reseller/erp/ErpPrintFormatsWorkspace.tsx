@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import {
@@ -32,6 +32,65 @@ import {
   type ErpQuoteOutputMode,
 } from '@/lib/erp-quote-output'
 import { ChevronDown, ChevronUp, FileText, Loader2, Plus, RotateCcw, Save, Tag, Trash2, Upload, Wand2 } from 'lucide-react'
+
+function ShopHeaderPanel({
+  pf,
+  setPf,
+}: {
+  pf: ErpPrintFormatsSettings
+  setPf: Dispatch<SetStateAction<ErpPrintFormatsSettings>>
+}) {
+  return (
+    <div className={erpCardCls}>
+      <p className="mb-1 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+        Shop header (Epson bills &amp; estimates)
+      </p>
+      <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+        Phone and GSTIN appear on thermal printouts as{' '}
+        <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{shop_phone}}'}</code> and{' '}
+        <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{shop_gstin}}'}</code>.
+        Save print formats after editing.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
+          Shop name
+          <input
+            className={`${erpInputCls} mt-1`}
+            value={pf.shopName || ''}
+            onChange={(e) => setPf((p) => ({ ...p, shopName: e.target.value }))}
+          />
+        </label>
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
+          Address
+          <textarea
+            className={`${erpInputCls} mt-1 min-h-[64px] py-2`}
+            value={pf.shopAddress || ''}
+            onChange={(e) => setPf((p) => ({ ...p, shopAddress: e.target.value }))}
+          />
+        </label>
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+          Phone
+          <input
+            className={`${erpInputCls} mt-1`}
+            placeholder="e.g. 9841166668"
+            inputMode="tel"
+            value={pf.shopPhone || ''}
+            onChange={(e) => setPf((p) => ({ ...p, shopPhone: e.target.value }))}
+          />
+        </label>
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+          GSTIN
+          <input
+            className={`${erpInputCls} mt-1 font-mono`}
+            placeholder="e.g. 33AATFK196779"
+            value={pf.shopGstin || ''}
+            onChange={(e) => setPf((p) => ({ ...p, shopGstin: e.target.value }))}
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
 
 export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
@@ -530,43 +589,7 @@ export function ErpPrintFormatsWorkspace() {
         </>
       ) : tab === 'bill' ? (
         <>
-          <div className={erpCardCls}>
-            <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Shop header</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
-                Shop name
-                <input
-                  className={`${erpInputCls} mt-1`}
-                  value={pf.shopName || ''}
-                  onChange={(e) => setPf((p) => ({ ...p, shopName: e.target.value }))}
-                />
-              </label>
-              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
-                Address
-                <textarea
-                  className={`${erpInputCls} mt-1 min-h-[64px] py-2`}
-                  value={pf.shopAddress || ''}
-                  onChange={(e) => setPf((p) => ({ ...p, shopAddress: e.target.value }))}
-                />
-              </label>
-              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                Phone
-                <input
-                  className={`${erpInputCls} mt-1`}
-                  value={pf.shopPhone || ''}
-                  onChange={(e) => setPf((p) => ({ ...p, shopPhone: e.target.value }))}
-                />
-              </label>
-              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                GSTIN
-                <input
-                  className={`${erpInputCls} mt-1 font-mono`}
-                  value={pf.shopGstin || ''}
-                  onChange={(e) => setPf((p) => ({ ...p, shopGstin: e.target.value }))}
-                />
-              </label>
-            </div>
-          </div>
+          <ShopHeaderPanel pf={pf} setPf={setPf} />
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
@@ -591,6 +614,7 @@ export function ErpPrintFormatsWorkspace() {
         </>
       ) : (
         <>
+          <ShopHeaderPanel pf={pf} setPf={setPf} />
           <div className={erpCardCls}>
             <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Generate quote — shop default

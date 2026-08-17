@@ -619,59 +619,156 @@ function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
     return { tspl, ...resolved };
 }
 
-function buildLinesTable(lines, lineWidth = 32, rateSlab = 'R') {
-    const out = [];
-    for (const line of lines || []) {
-        const bc = String(line.barcode || line.code || '').trim();
-        const nm = String(line.name || line.product_name || '').trim();
-        const metal = String(line.metal_type || '').toLowerCase();
-        const isGoldSlabR = rateSlab === 'R' && metal.startsWith('gold');
-        const netWt =
-            line.weightGm != null
-                ? Number(line.weightGm).toFixed(2)
-                : line.net_weight != null
-                  ? Number(line.net_weight).toFixed(2)
-                  : '';
-        const stoneWt =
-            line.stone_wt != null && Number.isFinite(Number(line.stone_wt))
-                ? Number(line.stone_wt).toFixed(2)
-                : '';
-        const wast = isGoldSlabR
-            ? '0'
-            : line.displayWastagePct != null
-              ? String(line.displayWastagePct)
-              : line.wastage_pct != null
-                ? String(line.wastage_pct)
-                : '';
-        const purity = line.purity != null ? String(line.purity) : '';
-        const rate =
-            line.rateLocked || line.ratePerGram == null ? '' : String(line.ratePerGram);
-        const mc =
-            isGoldSlabR && line.displayMcInr != null
-                ? String(Math.round(Number(line.displayMcInr)))
-                : line.mc_rate != null
-                  ? String(line.mc_rate)
-                  : '';
-        const stone =
-            line.stone_charges != null ? String(Math.round(Number(line.stone_charges))) : '';
-        const amt =
-            line.lineTotalInr != null
-                ? `Rs.${Math.round(Number(line.lineTotalInr))}`
-                : line.unitInr != null
-                  ? `Rs.${Math.round(Number(line.unitInr) * (line.qty || 1))}`
-                  : '';
-        out.push(`${bc} ${nm}`.slice(0, lineWidth));
-        const parts = [];
-        if (netWt) parts.push(`NWT:${netWt}g`);
-        if (stoneWt) parts.push(`StWt:${stoneWt}g`);
-        if (purity) parts.push(`Pur:${purity}`);
-        if (wast !== '') parts.push(`Wast:${wast}%`);
-        if (rate) parts.push(`Rate:${rate}`);
-        if (mc) parts.push(`MC:${mc}`);
-        if (stone) parts.push(`Stone:${stone}`);
-        if (parts.length) out.push(`  ${parts.join(' ')}`.slice(0, lineWidth));
-        if (amt) out.push(`  ${amt}`.slice(0, lineWidth));
+function isGoldSlabRLine(line, rateSlab) {
+    const slab = String(rateSlab || 'R').toUpperCase();
+    return slab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold');
+}
+
+function isSlabR(rateSlab) {
+    return String(rateSlab || 'R').toUpperCase() === 'R';
+}
+
+function thermalWastageDisplay(line, rateSlab) {
+    if (isGoldSlabRLine(line, rateSlab)) return '0';
+    if (line.displayWastagePct != null && line.displayWastagePct !== '') {
+        return String(line.displayWastagePct);
     }
+    if (line.wastage_pct != null && line.wastage_pct !== '') return String(line.wastage_pct);
+    return '';
+}
+
+function thermalMcDisplay(line, rateSlab) {
+    if (isGoldSlabRLine(line, rateSlab) && line.displayMcInr != null && Number(line.displayMcInr) > 0) {
+        return String(Math.round(Number(line.displayMcInr)));
+    }
+    if (line.mc_rate != null && line.mc_rate !== '') return String(line.mc_rate);
+    return '';
+}
+
+function thermalRateDisplay(line) {
+    if (line.rateLocked || line.ratePerGram == null || !Number.isFinite(Number(line.ratePerGram))) {
+        return '';
+    }
+    return String(Math.round(Number(line.ratePerGram)));
+}
+
+function thermalFmtNum(v, decimals = 2) {
+    if (v == null || v === '') return '';
+    const n = Number(v);
+    if (!Number.isFinite(n)) return String(v).trim();
+    if (decimals <= 0) return String(Math.round(n));
+    return n.toFixed(decimals);
+}
+
+function thermalClip(text, maxLen) {
+    const t = String(text ?? '').trim();
+    if (!t) return '';
+    if (t.length <= maxLen) return t;
+    return `${t.slice(0, Math.max(1, maxLen - 1))}…`;
+}
+
+function thermalPushLine(out, text, lineWidth) {
+    const row = String(text || '').trim();
+    if (!row) return;
+    out.push(row.length <= lineWidth ? row : row.slice(0, lineWidth));
+}
+
+function formatBillDate(raw) {
+    if (!raw) {
+        return new Date().toLocaleString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    }
+    const d = raw instanceof Date ? raw : new Date(raw);
+    if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    }
+    const s = String(raw).trim();
+    return s.length > 40 ? s.slice(0, 40) : s;
+}
+
+function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R') {
+    const slab = String(rateSlab || 'R').toUpperCase();
+    const out = [];
+    let idx = 0;
+    for (const line of lines || []) {
+        idx += 1;
+        const bc = thermalClip(line.barcode || line.code, 14);
+        const sku = thermalClip(line.sku, 8);
+        const style = thermalClip(line.style_code, 16);
+        const name = thermalClip(line.name || line.product_name, 22);
+        const invoiceItem = thermalClip(line.invoice_item_name, 20);
+        const hsn = thermalClip(line.hsn_code, 12);
+        const size = thermalClip(line.size, 14);
+        const wt = thermalFmtNum(line.weightGm ?? line.net_weight, 1);
+        const pur = line.purity != null && line.purity !== '' ? String(line.purity) : '';
+        const wast = thermalWastageDisplay(line, slab);
+        const rate = thermalRateDisplay(line);
+        const mc = thermalMcDisplay(line, slab);
+        const mcType = thermalClip(line.mc_type, 10);
+        const pcs = line.qty != null ? String(line.qty) : '1';
+        const box =
+            line.box_charges != null && Number.isFinite(Number(line.box_charges))
+                ? String(Math.round(Number(line.box_charges)))
+                : '0';
+        const stone =
+            line.stone_charges != null && Number.isFinite(Number(line.stone_charges))
+                ? String(Math.round(Number(line.stone_charges)))
+                : '0';
+        const stWt = thermalFmtNum(line.stone_wt, 2);
+        const metal = thermalClip(String(line.metal_type || 'silver'), 12);
+        const fixed =
+            line.fixed_price != null && Number(line.fixed_price) > 0
+                ? String(Math.round(Number(line.fixed_price)))
+                : '';
+        const amt =
+            line.lineTotalInr != null && Number.isFinite(Number(line.lineTotalInr))
+                ? Math.round(Number(line.lineTotalInr))
+                : line.unitInr != null
+                  ? Math.round(Number(line.unitInr) * (line.qty || 1))
+                  : null;
+
+        thermalPushLine(out, `#${idx}  ${bc}  ${sku}  ${style}`, lineWidth);
+        if (name) thermalPushLine(out, `Product: ${name}`, lineWidth);
+        if (invoiceItem) thermalPushLine(out, `Item: ${invoiceItem}`, lineWidth);
+        if (hsn || size) thermalPushLine(out, `HSN: ${hsn || '—'}  Size: ${size || '—'}`, lineWidth);
+
+        const wtLine = [`Wt:${wt || '—'}g`, pur ? `Pur:${pur}` : '', `Pcs:${pcs}`, metal ? `Metal:${metal}` : '']
+            .filter(Boolean)
+            .join('  ');
+        thermalPushLine(out, wtLine, lineWidth);
+
+        const priceParts = [];
+        if (rate) priceParts.push(`Rate:${rate}`);
+        if (isSlabR(slab)) {
+            if (mc) priceParts.push(`MC:${mc}`);
+            if (wast !== '' && wast !== '0') priceParts.push(`Wast:${wast}%`);
+        } else {
+            if (wast !== '') priceParts.push(`Wast:${wast}%`);
+            if (mc) priceParts.push(`MC:${mc}`);
+        }
+        if (mcType) priceParts.push(`MCType:${mcType}`);
+        if (priceParts.length) thermalPushLine(out, priceParts.join('  '), lineWidth);
+
+        const chargeParts = [`Box:${box}`, `Stone:${stone}`];
+        if (stWt) chargeParts.push(`StWt:${stWt}g`);
+        if (fixed) chargeParts.push(`Fixed:${fixed}`);
+        thermalPushLine(out, chargeParts.join('  '), lineWidth);
+
+        if (amt != null) thermalPushLine(out, `Amount: Rs.${amt}`, lineWidth);
+        thermalPushLine(out, '-'.repeat(Math.min(32, lineWidth)), lineWidth);
+    }
+    if (out.length && out[out.length - 1].match(/^-+$/)) out.pop();
     return out.join('\n') || '(no items)';
 }
 
@@ -698,13 +795,13 @@ function buildBillTemplateVars(bill, printFormats, rates) {
         shop_phone: pf.shopPhone || '',
         shop_gstin: pf.shopGstin || '',
         bill_number: bill.bill_number || '',
-        bill_date: bill.bill_date || new Date().toLocaleDateString('en-IN'),
+        bill_date: formatBillDate(bill.bill_date),
         customer_name: bill.customer_name || 'Walk-in',
         customer_mobile: bill.customer_mobile || session.mobile || session.customerMobile || '',
         customer_address: bill.customer_address || session.address || session.customerAddress || '',
         customer_gst: bill.customer_gst || session.customerGst || '',
         rate_slab: rateSlab,
-        lines_table: buildLinesTable(bill.lines || [], 32, rateSlab),
+        lines_table: buildLinesTable(bill.lines || [], 48, rateSlab),
         item_count: String((bill.lines || []).length),
         subtotal: String(Math.round(total)),
         total: String(Math.round(total)),
