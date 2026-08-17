@@ -920,7 +920,7 @@ export function ErpBillingWorkspace() {
       if (wantsEpson) {
         try {
           const msg = await printErpEstimateThermal(bill.id)
-          if (!wantsPdf) alert(msg)
+          alert(msg)
         } catch (e) {
           const errMsg =
             (e as Error)?.message ||

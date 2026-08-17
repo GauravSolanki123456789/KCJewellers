@@ -77,7 +77,15 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, service: 'kc-erp-local-print', port: PORT }));
+        res.end(
+            JSON.stringify({
+                ok: true,
+                service: 'kc-erp-local-print',
+                port: PORT,
+                supportsReceipt: true,
+                supportsLabels: true,
+            }),
+        );
         return;
     }
 
@@ -104,6 +112,26 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message || 'Could not list printers' }));
+        }
+        return;
+    }
+
+    if (req.method === 'POST' && req.url === '/print-receipt') {
+        try {
+            const body = await readBody(req);
+            const payload = JSON.parse(body || '{}');
+            const printerName = String(payload.printerName || 'EPSON TM-m30III Receipt').trim();
+            if (!payload.escPosBase64) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'No receipt data' }));
+                return;
+            }
+            await printRawBinary(printerName, payload.escPosBase64);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, count: 1, printerName, kind: 'receipt' }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message || 'Receipt print failed' }));
         }
         return;
     }

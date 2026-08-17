@@ -116,7 +116,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path.rstrip("/") == "/health":
-            self._json(200, {"ok": True, "service": "kc-erp-local-print", "port": PORT, "runtime": "python"})
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "service": "kc-erp-local-print",
+                    "port": PORT,
+                    "runtime": "python",
+                    "supportsReceipt": True,
+                    "supportsLabels": True,
+                },
+            )
             return
         if self.path.rstrip("/") == "/printers":
             try:
@@ -139,7 +149,24 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"ok": False, "error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path.rstrip("/") != "/print":
+        path = self.path.rstrip("/")
+        if path == "/print-receipt":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length > 2_000_000:
+                    raise ValueError("Payload too large")
+                raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+                payload = json.loads(raw or "{}")
+                printer_name = str(payload.get("printerName") or "EPSON TM-m30III Receipt").strip()
+                if not payload.get("escPosBase64"):
+                    self._json(400, {"ok": False, "error": "No receipt data"})
+                    return
+                print_raw_binary(printer_name, str(payload["escPosBase64"]))
+                self._json(200, {"ok": True, "count": 1, "printerName": printer_name, "kind": "receipt"})
+            except Exception as exc:
+                self._json(500, {"ok": False, "error": str(exc)})
+            return
+        if path != "/print":
             self._json(404, {"ok": False, "error": "Not found"})
             return
         try:

@@ -18,10 +18,10 @@ if not exist "%~dp0erp-local-print-agent.ps1" (
 
 echo.
 echo ========================================
-echo  KC ERP Label Print Service (USB001)
+echo  KC ERP Print Service
 echo ========================================
-echo  No Node.js or Python needed.
 echo  Keep this window OPEN while printing.
+echo  Labels (TSC) + Epson receipts use this agent.
 echo.
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0erp-local-print-agent.ps1"

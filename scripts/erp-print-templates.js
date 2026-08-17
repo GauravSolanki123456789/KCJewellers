@@ -723,10 +723,22 @@ function textToEscPos(text) {
     const ESC = '\x1B';
     const GS = '\x1D';
     let out = ESC + '@';
-    out += String(text || '').replace(/\r\n/g, '\n');
-    out += '\n\n\n';
+    const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    out += normalized.split('\n').join('\r\n');
+    out += '\r\n\r\n\r\n';
     out += GS + 'V' + '\x00';
     return out;
+}
+
+function buildSampleReceiptEscPos() {
+    return textToEscPos(
+        '========================\n' +
+            'KC ERP — Epson test print\n' +
+            '------------------------\n' +
+            'If you can read this,\n' +
+            'billing printer is OK.\n' +
+            '========================\n',
+    );
 }
 
 function renderBillEscPos(template, bill, printFormats, rates) {
@@ -817,5 +829,6 @@ module.exports = {
     resolveBillingPrinterConfig,
     resolveBillingWindowsPrinterName,
     escPosToBase64,
+    buildSampleReceiptEscPos,
     shouldUsePrnTemplate,
 };

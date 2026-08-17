@@ -4,17 +4,23 @@ import axios from '@/lib/axios'
 import {
   LOCAL_PRINT_AGENT_URL,
   checkLocalPrintAgent,
+  getLocalPrintAgentInfo,
   listLocalPrinters,
 } from '@/lib/erp-local-print'
+import { migrateHardwareSettings, type ErpHardwareSettings } from '@/lib/erp-hardware'
 
 type ThermalPrepareResponse = {
   escPosBase64?: string
   windowsPrinterName?: string
   message?: string
   printed?: boolean
+  requiresClientPrint?: boolean
 }
 
 const DEFAULT_EPSON_NAME = 'EPSON TM-m30III Receipt'
+
+const AGENT_UPGRADE_MSG =
+  'Your print agent is outdated. Copy the latest erp-print-service folder to Desktop, restart START-KC-Label-Print.bat, then try again.'
 
 export async function resolveLocalBillingPrinterName(configured?: string | null): Promise<string> {
   const requested = String(configured || DEFAULT_EPSON_NAME).trim() || DEFAULT_EPSON_NAME
@@ -29,27 +35,74 @@ export async function resolveLocalBillingPrinterName(configured?: string | null)
   return requested
 }
 
+async function loadBillingPrinterNameFromSettings(): Promise<string | null> {
+  try {
+    const res = await axios.get<{ settings?: { hardware?: ErpHardwareSettings } }>(
+      '/api/reseller/erp/settings',
+    )
+    const hw = migrateHardwareSettings(res.data.settings?.hardware)
+    return hw.billingPrinter?.windowsPrinterName?.trim() || null
+  } catch {
+    return null
+  }
+}
+
 export async function printReceiptViaLocalAgent(
   escPosBase64: string,
   printerName: string,
 ): Promise<void> {
-  const r = await fetch(`${LOCAL_PRINT_AGENT_URL}/print`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ printerName, escPosBase64 }),
-  })
-  let data: { ok?: boolean; error?: string } = {}
-  try {
-    data = (await r.json()) as typeof data
-  } catch {
-    data = {}
+  const agent = await getLocalPrintAgentInfo()
+  if (agent.ok && agent.supportsReceipt === false) {
+    throw new Error(AGENT_UPGRADE_MSG)
   }
-  if (!r.ok || !data.ok) {
-    throw new Error(
-      data.error ||
-        'Could not print on Epson — is the local print agent running on this PC? (START-KC-Label-Print.bat)',
-    )
+
+  const body = JSON.stringify({ printerName, escPosBase64 })
+  const endpoints = ['/print-receipt', '/print'] as const
+
+  let lastError = 'Could not print on Epson.'
+  for (const path of endpoints) {
+    try {
+      const r = await fetch(`${LOCAL_PRINT_AGENT_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
+      let data: { ok?: boolean; error?: string } = {}
+      try {
+        data = (await r.json()) as typeof data
+      } catch {
+        data = {}
+      }
+      if (r.ok && data.ok) return
+      lastError =
+        data.error ||
+        (path === '/print' && r.status === 400
+          ? AGENT_UPGRADE_MSG
+          : `Epson print failed (${r.status}).`)
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : lastError
+    }
   }
+
+  throw new Error(
+    `${lastError} Keep START-KC-Label-Print.bat running and check Hardware → Epson billing printer name.`,
+  )
+}
+
+async function deliverThermalReceipt(
+  prep: ThermalPrepareResponse,
+  successLabel: string,
+): Promise<string> {
+  const escPosBase64 = prep.escPosBase64
+  if (!escPosBase64) {
+    throw new Error('Could not prepare Epson receipt data from server.')
+  }
+
+  const configuredName =
+    prep.windowsPrinterName || (await loadBillingPrinterNameFromSettings()) || DEFAULT_EPSON_NAME
+  const printerName = await resolveLocalBillingPrinterName(configuredName)
+  await printReceiptViaLocalAgent(escPosBase64, printerName)
+  return `${successLabel} sent to ${printerName} on this PC.`
 }
 
 async function printThermalViaLocalAgent(
@@ -66,16 +119,14 @@ async function printThermalViaLocalAgent(
 
   const prep = await axios.post<ThermalPrepareResponse>(endpoint, {
     bill_id: billId,
-    mode: 'prepare',
+    mode: 'client',
   })
-  const escPosBase64 = prep.data.escPosBase64
-  if (!escPosBase64) {
-    throw new Error('Could not prepare Epson receipt data.')
+
+  if (prep.data.printed && !prep.data.escPosBase64) {
+    return prep.data.message || `${successLabel} sent to Epson.`
   }
 
-  const printerName = await resolveLocalBillingPrinterName(prep.data.windowsPrinterName)
-  await printReceiptViaLocalAgent(escPosBase64, printerName)
-  return `${successLabel} sent to ${printerName} on this PC.`
+  return deliverThermalReceipt(prep.data, successLabel)
 }
 
 export function printErpEstimateThermal(billId: number): Promise<string> {
@@ -84,4 +135,16 @@ export function printErpEstimateThermal(billId: number): Promise<string> {
 
 export function printErpBillThermal(billId: number): Promise<string> {
   return printThermalViaLocalAgent('/api/reseller/erp/print/bill', billId, 'Receipt')
+}
+
+export async function printErpTestReceipt(): Promise<string> {
+  const agentOk = await checkLocalPrintAgent()
+  if (!agentOk) {
+    throw new Error(
+      'Local print agent is not running. Start START-KC-Label-Print.bat on this PC first.',
+    )
+  }
+
+  const prep = await axios.post<ThermalPrepareResponse>('/api/reseller/erp/print/test-receipt')
+  return deliverThermalReceipt(prep.data, 'Test receipt')
 }

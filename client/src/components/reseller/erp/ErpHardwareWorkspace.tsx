@@ -23,6 +23,7 @@ import {
   webSerialSupported,
 } from '@/lib/erp-serial-device'
 import { checkLocalPrintAgent, printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
+import { printErpTestReceipt } from '@/lib/erp-billing-print'
 import { Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
 
 function SerialFields({
@@ -109,6 +110,7 @@ export function ErpHardwareWorkspace() {
   const [testMsg, setTestMsg] = useState<string | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [rfidSyncBusy, setRfidSyncBusy] = useState(false)
+  const [epsonTestBusy, setEpsonTestBusy] = useState(false)
 
   useEffect(() => {
     void axios
@@ -676,6 +678,21 @@ export function ErpHardwareWorkspace() {
             </>
           )}
         </div>
+        <button
+          type="button"
+          className={`${erpBtnPrimary} mt-3`}
+          disabled={epsonTestBusy}
+          onClick={() => {
+            setEpsonTestBusy(true)
+            void printErpTestReceipt()
+              .then((msg) => setTestMsg(msg))
+              .catch((e) => setTestMsg(e instanceof Error ? e.message : 'Epson test print failed'))
+              .finally(() => setEpsonTestBusy(false))
+          }}
+        >
+          {epsonTestBusy ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
+          Test Epson receipt
+        </button>
       </div>
 
       <div className={erpCardCls}>

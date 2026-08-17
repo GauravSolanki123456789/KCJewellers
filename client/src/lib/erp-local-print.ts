@@ -4,17 +4,31 @@ import { formatTsplForSerial } from '@/lib/erp-serial-device'
 
 export const LOCAL_PRINT_AGENT_URL = 'http://127.0.0.1:17888'
 
-export async function checkLocalPrintAgent(): Promise<boolean> {
+export type LocalPrintAgentInfo = {
+  ok: boolean
+  supportsReceipt?: boolean
+  supportsLabels?: boolean
+  runtime?: string
+}
+
+export async function getLocalPrintAgentInfo(): Promise<LocalPrintAgentInfo> {
   try {
     const r = await fetch(`${LOCAL_PRINT_AGENT_URL}/health`, {
       method: 'GET',
       cache: 'no-store',
       signal: AbortSignal.timeout(2500),
     })
-    return r.ok
+    if (!r.ok) return { ok: false }
+    const data = (await r.json()) as LocalPrintAgentInfo
+    return { ...data, ok: true }
   } catch {
-    return false
+    return { ok: false }
   }
+}
+
+export async function checkLocalPrintAgent(): Promise<boolean> {
+  const info = await getLocalPrintAgentInfo()
+  return info.ok
 }
 
 export async function listLocalPrinters(): Promise<string[]> {

@@ -138,7 +138,14 @@ function Handle-Request($Context) {
     }
 
     if ($request.HttpMethod -eq 'GET' -and $path -eq '/health') {
-        Send-JsonResponse $Context 200 @{ ok = $true; service = 'kc-erp-local-print'; port = $Port; runtime = 'powershell' }
+        Send-JsonResponse $Context 200 @{
+            ok = $true
+            service = 'kc-erp-local-print'
+            port = $Port
+            runtime = 'powershell'
+            supportsReceipt = $true
+            supportsLabels = $true
+        }
         return
     }
 
@@ -146,6 +153,27 @@ function Handle-Request($Context) {
         try {
             $names = @(Get-Printer | Select-Object -ExpandProperty Name)
             Send-JsonResponse $Context 200 @{ ok = $true; printers = $names }
+        } catch {
+            Send-JsonResponse $Context 500 @{ ok = $false; error = $_.Exception.Message }
+        }
+        return
+    }
+
+    if ($request.HttpMethod -eq 'POST' -and $path -eq '/print-receipt') {
+        try {
+            $body = Read-RequestBody $request
+            $payload = @{}
+            if ($body) {
+                $payload = $body | ConvertFrom-Json
+            }
+            $printerName = [string]($payload.printerName)
+            if (-not $printerName.Trim()) { $printerName = 'EPSON TM-m30III Receipt' }
+            if (-not $payload.escPosBase64) {
+                Send-JsonResponse $Context 400 @{ ok = $false; error = 'No receipt data' }
+                return
+            }
+            Invoke-RawPrintBinary $printerName ([string]$payload.escPosBase64)
+            Send-JsonResponse $Context 200 @{ ok = $true; count = 1; printerName = $printerName; kind = 'receipt' }
         } catch {
             Send-JsonResponse $Context 500 @{ ok = $false; error = $_.Exception.Message }
         }
@@ -196,11 +224,11 @@ $listener.Start()
 
 Write-Host ''
 Write-Host '========================================'
-Write-Host ' KC ERP Label Print Service (USB001)'
+Write-Host ' KC ERP Print Service'
 Write-Host '========================================'
 Write-Host " Listening on $Prefix"
 Write-Host ' Keep this window OPEN while printing from Chrome.'
-Write-Host ' Printer name: TSC TTP-244 Pro (must match Windows Printers list exactly).'
+Write-Host ' Labels: TSC TTP-244 Pro · Receipts: EPSON TM-m30III Receipt'
 Write-Host ' Run CHECK-TSC-Printer.bat if labels fail.'
 Write-Host ' Press Ctrl+C to stop.'
 Write-Host ''

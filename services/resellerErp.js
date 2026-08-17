@@ -1601,6 +1601,37 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
+    app.post('/api/reseller/erp/print/test-receipt', checkAuth, erpGate, async (req, res) => {
+        try {
+            const settingsRows = await query(
+                `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+                [req.user.id],
+            );
+            let settings = settingsRows[0]?.settings ?? {};
+            if (typeof settings === 'string') {
+                try {
+                    settings = JSON.parse(settings);
+                } catch {
+                    settings = {};
+                }
+            }
+            const hw = settings.hardware || {};
+            const windowsPrinterName = erpPrint.resolveBillingWindowsPrinterName(hw);
+            const escPos = erpPrint.buildSampleReceiptEscPos();
+            return res.json({
+                escPosBase64: erpPrint.escPosToBase64(escPos),
+                windowsPrinterName,
+                clientPrint: true,
+                requiresClientPrint: true,
+                printed: false,
+                message: `Test receipt ready for ${windowsPrinterName} on this PC.`,
+            });
+        } catch (e) {
+            console.error('erp print test-receipt:', e);
+            res.status(500).json({ error: e.message || 'Test receipt failed' });
+        }
+    });
+
     app.post('/api/reseller/erp/print/bill', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const billId = parseInt(String(req.body.bill_id), 10);
@@ -1635,23 +1666,16 @@ function registerResellerErpRoutes(app, deps) {
             };
             const template = printFormats.billTemplate || erpPrint.DEFAULT_BILL_TEMPLATE;
             const escPos = erpPrint.renderBillEscPos(template, bill, printFormats, rates);
-            const mode = String(req.body.mode || req.body.delivery || 'auto').toLowerCase();
+            const mode = String(req.body.mode || req.body.delivery || 'client').toLowerCase();
             const windowsPrinterName = erpPrint.resolveBillingWindowsPrinterName(hw);
             const clientPayload = {
                 escPosBase64: erpPrint.escPosToBase64(escPos),
                 windowsPrinterName,
                 clientPrint: true,
+                requiresClientPrint: true,
             };
 
-            if (mode === 'prepare' || mode === 'client') {
-                return res.json({
-                    ...clientPayload,
-                    printed: false,
-                    message: `Receipt ready for ${windowsPrinterName} on this PC.`,
-                });
-            }
-
-            if (mode !== 'network' && mode !== 'server' && printerConfig?.type === 'windows') {
+            if (mode !== 'network' && mode !== 'server') {
                 return res.json({
                     ...clientPayload,
                     printed: false,
@@ -1724,23 +1748,16 @@ function registerResellerErpRoutes(app, deps) {
                 silver: session.silverPerG ?? session.silver_per_g ?? null,
             };
             const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates);
-            const mode = String(req.body.mode || req.body.delivery || 'auto').toLowerCase();
+            const mode = String(req.body.mode || req.body.delivery || 'client').toLowerCase();
             const windowsPrinterName = erpPrint.resolveBillingWindowsPrinterName(hw);
             const clientPayload = {
                 escPosBase64: erpPrint.escPosToBase64(escPos),
                 windowsPrinterName,
                 clientPrint: true,
+                requiresClientPrint: true,
             };
 
-            if (mode === 'prepare' || mode === 'client') {
-                return res.json({
-                    ...clientPayload,
-                    printed: false,
-                    message: `Estimate ready for ${windowsPrinterName} on this PC.`,
-                });
-            }
-
-            if (mode !== 'network' && mode !== 'server' && printerConfig?.type === 'windows') {
+            if (mode !== 'network' && mode !== 'server') {
                 return res.json({
                     ...clientPayload,
                     printed: false,
