@@ -17,6 +17,7 @@ import {
   CATALOG_INQUIRY_PERIOD_OPTIONS,
   formatCatalogInr,
   formatCatalogWhen,
+  formatCatalogWeightGm,
   type CatalogInquiryPeriod,
   type CatalogInquiryRow,
   type CatalogInquiryStatus,
@@ -27,12 +28,15 @@ type ResellerRow = {
   reseller_id: number
   reseller_label: string
   custom_domain: string | null
+  weight_only_catalog?: boolean
   links_created: number
   inquiry_count: number
   completed_count?: number
   total_pieces: number
   total_inr: number
   completed_inr?: number
+  quoted_weight_gm?: number
+  completed_weight_gm?: number
   last_inquiry_at: string | null
 }
 
@@ -54,12 +58,15 @@ type AnalyticsPayload = {
     resellerId: number
     resellerLabel: string
     customDomain: string | null
+    weightOnlyCatalog?: boolean
     linksCreated: number
     inquiryCount: number
     completedCount: number
     totalPieces: number
     totalInr: number
     completedInr: number
+    quotedWeightGm?: number
+    completedWeightGm?: number
     lastInquiryAt: string | null
   } | null
   recentInquiries: CatalogInquiryRow[]
@@ -136,10 +143,30 @@ function ResellerCatalogAnalyticsContent() {
         totalPieces: d.totalPieces,
         totalInr: d.totalInr,
         completedInr: d.completedInr,
+        weightOnlyCatalog: !!d.weightOnlyCatalog,
+        quotedWeightGm: d.quotedWeightGm ?? 0,
+        completedWeightGm: d.completedWeightGm ?? 0,
       }
     }
     return data?.summary
+      ? {
+          ...data.summary,
+          weightOnlyCatalog: false,
+          quotedWeightGm: 0,
+          completedWeightGm: 0,
+        }
+      : undefined
   }, [selectedResellerId, data])
+
+  const formatResellerQuotedTotal = (row: ResellerRow) =>
+    row.weight_only_catalog
+      ? formatCatalogWeightGm(row.quoted_weight_gm ?? 0)
+      : formatCatalogInr(row.total_inr)
+
+  const formatResellerCompletedTotal = (row: ResellerRow) =>
+    row.weight_only_catalog
+      ? `${formatCatalogWeightGm(row.completed_weight_gm ?? 0)} completed`
+      : `${formatCatalogInr(row.completed_inr ?? 0)} completed`
 
   const inquiries = data?.recentInquiries ?? []
 
@@ -251,10 +278,10 @@ function ResellerCatalogAnalyticsContent() {
                       </div>
                       <div className="shrink-0 text-right">
                         <p className="text-lg font-bold tabular-nums text-emerald-400">
-                          {formatCatalogInr(row.total_inr)}
+                          {formatResellerQuotedTotal(row)}
                         </p>
                         <p className="text-[11px] text-slate-500">
-                          {formatCatalogInr(row.completed_inr ?? 0)} completed
+                          {formatResellerCompletedTotal(row)}
                         </p>
                       </div>
                       <ChevronRight className="size-5 shrink-0 text-slate-500" />
@@ -291,8 +318,24 @@ function ResellerCatalogAnalyticsContent() {
               { label: 'Inquiries', value: String(summary?.inquiryCount ?? 0) },
               { label: 'Completed', value: String(summary?.completedCount ?? 0) },
               { label: 'Pieces quoted', value: String(summary?.totalPieces ?? 0) },
-              { label: 'Quoted ₹', value: formatCatalogInr(summary?.totalInr ?? 0) },
-              { label: 'Completed ₹', value: formatCatalogInr(summary?.completedInr ?? 0) },
+              summary?.weightOnlyCatalog
+                ? {
+                    label: 'Quoted weight',
+                    value: formatCatalogWeightGm(summary?.quotedWeightGm ?? 0),
+                  }
+                : {
+                    label: 'Quoted ₹',
+                    value: formatCatalogInr(summary?.totalInr ?? 0),
+                  },
+              summary?.weightOnlyCatalog
+                ? {
+                    label: 'Completed weight',
+                    value: formatCatalogWeightGm(summary?.completedWeightGm ?? 0),
+                  }
+                : {
+                    label: 'Completed ₹',
+                    value: formatCatalogInr(summary?.completedInr ?? 0),
+                  },
             ].map((card) => (
               <div
                 key={card.label}

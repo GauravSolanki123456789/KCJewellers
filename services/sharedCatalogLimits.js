@@ -16,6 +16,46 @@ const INQUIRY_STATUS = {
 /** Count in quoted totals — excludes no_sale. */
 const COUNTABLE_INQUIRY_STATUS_SQL = `COALESCE(inquiry_status, 'pending') IN ('pending', 'completed')`;
 
+function parseCatalogWeightGm(raw) {
+    if (raw == null) return 0;
+    const s = String(raw).trim();
+    if (!s) return 0;
+    const m = s.match(/([\d.]+)/);
+    if (!m) return 0;
+    const n = parseFloat(m[1]);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function sumInquiryLinesWeightGm(lines) {
+    if (!Array.isArray(lines)) return 0;
+    let total = 0;
+    for (const line of lines) {
+        const qty = Math.max(1, parseInt(String(line?.qty ?? 1), 10) || 1);
+        total += parseCatalogWeightGm(line?.weightLabel) * qty;
+    }
+    return Math.round(total * 1000) / 1000;
+}
+
+function aggregateInquiryWeightTotals(inquiries) {
+    let quotedWeightGm = 0;
+    let completedWeightGm = 0;
+    for (const row of inquiries || []) {
+        const status = normalizeInquiryStatus(row.inquiry_status);
+        const lines = parseInquiryLinesFromRow(row);
+        const wt = sumInquiryLinesWeightGm(lines);
+        if (status === INQUIRY_STATUS.PENDING || status === INQUIRY_STATUS.COMPLETED) {
+            quotedWeightGm += wt;
+        }
+        if (status === INQUIRY_STATUS.COMPLETED) {
+            completedWeightGm += wt;
+        }
+    }
+    return {
+        quotedWeightGm: Math.round(quotedWeightGm * 1000) / 1000,
+        completedWeightGm: Math.round(completedWeightGm * 1000) / 1000,
+    };
+}
+
 function clampInt(n, lo, hi) {
     const v = parseInt(String(n), 10);
     if (!Number.isFinite(v)) return lo;
@@ -647,6 +687,7 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
             u.id AS reseller_id,
             COALESCE(NULLIF(TRIM(u.business_name), ''), u.email) AS reseller_label,
             u.custom_domain,
+            COALESCE(u.reseller_hide_prices, false) AS weight_only_catalog,
             COALESCE(sc_stats.links_created, 0)::int AS links_created,
             COALESCE(sci_stats.inquiry_count, 0)::int AS inquiry_count,
             COALESCE(sci_stats.completed_count, 0)::int AS completed_count,
@@ -695,24 +736,73 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
     const filterResellerId = parseInt(String(opts.resellerId ?? ''), 10);
     if (Number.isFinite(filterResellerId) && filterResellerId > 0) {
         const urows = await query(
-            `SELECT id, COALESCE(NULLIF(TRIM(business_name), ''), email) AS reseller_label, custom_domain
+            `SELECT id, COALESCE(NULLIF(TRIM(business_name), ''), email) AS reseller_label, custom_domain,
+                    COALESCE(reseller_hide_prices, false) AS weight_only_catalog
              FROM users WHERE id = $1`,
             [filterResellerId],
         );
         const row = byReseller.find((r) => Number(r.reseller_id) === filterResellerId);
+        const weightOnly = !!(
+            urows[0]?.weight_only_catalog ?? row?.weight_only_catalog
+        );
+        let quotedWeightGm = 0;
+        let completedWeightGm = 0;
+        if (weightOnly) {
+            const weightRows = await query(
+                `SELECT inquiry_status, lines_json
+                 FROM shared_catalog_inquiries
+                 WHERE ${inquiryTimeSql.replace(/\bsci\./g, '')}
+                   AND reseller_user_id = $${timeParams.length + 1}`,
+                [...timeParams, filterResellerId],
+            );
+            const weights = aggregateInquiryWeightTotals(weightRows);
+            quotedWeightGm = weights.quotedWeightGm;
+            completedWeightGm = weights.completedWeightGm;
+        }
         resellerDetail = {
             resellerId: filterResellerId,
             resellerLabel: urows[0]?.reseller_label ?? row?.reseller_label ?? 'Reseller',
             customDomain: urows[0]?.custom_domain ?? row?.custom_domain ?? null,
+            weightOnlyCatalog: weightOnly,
             linksCreated: row?.links_created ?? 0,
             inquiryCount: row?.inquiry_count ?? 0,
             completedCount: row?.completed_count ?? 0,
             totalPieces: row?.total_pieces ?? 0,
             totalInr: row?.total_inr ?? 0,
             completedInr: row?.completed_inr ?? 0,
+            quotedWeightGm,
+            completedWeightGm,
             lastInquiryAt: row?.last_inquiry_at ?? null,
         };
     }
+
+    const byResellerWithWeight = await Promise.all(
+        (byReseller || []).map(async (row) => {
+            const weightOnly = !!row.weight_only_catalog;
+            if (!weightOnly) {
+                return {
+                    ...row,
+                    weight_only_catalog: weightOnly,
+                    quoted_weight_gm: 0,
+                    completed_weight_gm: 0,
+                };
+            }
+            const weightRows = await query(
+                `SELECT inquiry_status, lines_json
+                 FROM shared_catalog_inquiries
+                 WHERE ${inquiryTimeSql.replace(/\bsci\./g, '')}
+                   AND reseller_user_id = $${timeParams.length + 1}`,
+                [...timeParams, row.reseller_id],
+            );
+            const weights = aggregateInquiryWeightTotals(weightRows);
+            return {
+                ...row,
+                weight_only_catalog: weightOnly,
+                quoted_weight_gm: weights.quotedWeightGm,
+                completed_weight_gm: weights.completedWeightGm,
+            };
+        }),
+    );
 
     return {
         period: win.label,
@@ -730,7 +820,7 @@ async function getAdminResellerCatalogAnalytics(query, opts = {}) {
             completedInr: inquiryAgg[0]?.completed_inr ?? 0,
             noSaleCount: inquiryAgg[0]?.no_sale_count ?? 0,
         },
-        byReseller,
+        byReseller: byResellerWithWeight,
         resellerDetail,
         recentInquiries: await enrichInquiryListMc(
             query,
@@ -842,16 +932,36 @@ async function getResellerCatalogInquiriesSummary(query, resellerUserId, opts = 
         params,
     );
 
+    const userRows = await query(
+        `SELECT COALESCE(reseller_hide_prices, false) AS weight_only_catalog
+         FROM users WHERE id = $1 LIMIT 1`,
+        [resellerUserId],
+    );
+    const weightOnly = !!userRows[0]?.weight_only_catalog;
+
     const inquiries = await getAdminResellerCatalogInquiries(query, {
         period: opts.period ?? opts.days ?? 30,
         resellerId: resellerUserId,
         limit: opts.limit ?? 100,
     });
 
+    let quotedWeightGm = 0;
+    let completedWeightGm = 0;
+    if (weightOnly) {
+        const weightRows = await query(
+            `SELECT inquiry_status, lines_json FROM shared_catalog_inquiries WHERE ${timeSql}`,
+            params,
+        );
+        const weights = aggregateInquiryWeightTotals(weightRows);
+        quotedWeightGm = weights.quotedWeightGm;
+        completedWeightGm = weights.completedWeightGm;
+    }
+
     return {
         period: win.label,
         since: since.toISOString(),
         until: until ? until.toISOString() : null,
+        weightOnlyCatalog: weightOnly,
         summary: {
             inquiryCount: agg[0]?.inquiry_count ?? 0,
             completedCount: agg[0]?.completed_count ?? 0,
@@ -859,6 +969,8 @@ async function getResellerCatalogInquiriesSummary(query, resellerUserId, opts = 
             totalPieces: agg[0]?.total_pieces ?? 0,
             quotedInr: agg[0]?.quoted_inr ?? 0,
             completedInr: agg[0]?.completed_inr ?? 0,
+            quotedWeightGm,
+            completedWeightGm,
         },
         inquiries,
     };

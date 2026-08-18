@@ -66,6 +66,38 @@ export function formatCatalogInr(n: number | null | undefined): string {
   return `₹${Math.round(n).toLocaleString('en-IN')}`
 }
 
+/** Parse "34.15 gm" / "34.15" from inquiry weight labels. */
+export function parseCatalogWeightGm(raw: string | null | undefined): number {
+  if (raw == null) return 0
+  const s = String(raw).trim()
+  if (!s) return 0
+  const m = s.match(/([\d.]+)/)
+  if (!m) return 0
+  const n = parseFloat(m[1])
+  return Number.isFinite(n) ? n : 0
+}
+
+export function formatCatalogWeightGm(gm: number | null | undefined): string {
+  if (gm == null || !Number.isFinite(gm) || gm <= 0) return '—'
+  const rounded = Math.round(gm * 1000) / 1000
+  const label = Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(3).replace(/\.?0+$/, '')
+  return `${label} gm`
+}
+
+export function sumInquiryLinesWeightGm(
+  lines: CatalogInquiryLine[] | null | undefined,
+): number {
+  if (!Array.isArray(lines) || lines.length === 0) return 0
+  let total = 0
+  for (const line of lines) {
+    const qty = Math.max(1, Number(line?.qty) || 1)
+    total += parseCatalogWeightGm(line?.weightLabel) * qty
+  }
+  return Math.round(total * 1000) / 1000
+}
+
 export function formatCatalogWhen(iso: string): string {
   return new Date(iso).toLocaleString('en-IN', {
     dateStyle: 'medium',

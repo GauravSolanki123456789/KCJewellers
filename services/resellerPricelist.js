@@ -33,12 +33,68 @@ function normalizeExcelRow(row) {
     return out;
 }
 
+function pickExcelField(norm, aliases) {
+    for (const alias of aliases) {
+        const key = String(alias || '')
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, '');
+        if (!key) continue;
+        const val = norm[key];
+        if (val != null && String(val).trim() !== '') return String(val).trim();
+    }
+    return '';
+}
+
+function parsePricelistExcelRow(row) {
+    const norm = normalizeExcelRow(row);
+    const subName = pickExcelField(norm, [
+        'PRICELISTSUBCATEGORY',
+        'SUBCATEGORY',
+        'SUB_CATEGORY',
+        'SUBCAT',
+        'CATEGORY',
+        'STYLE',
+    ]);
+    const prodName = pickExcelField(norm, [
+        'PRICELISTPRODUCTNAME',
+        'PRODUCTNAME',
+        'PRODUCT_NAME',
+        'PRODUCT',
+        'NAME',
+        'ITEM',
+        'DESCRIPTION',
+    ]);
+    const avgRaw = pickExcelField(norm, [
+        'PRICELISTAVGWT',
+        'AVGWT',
+        'AVG_WEIGHT',
+        'WEIGHT',
+        'NETWT',
+        'NET_WEIGHT',
+        'AVGWEIGHT',
+    ]);
+    const avgNum = parseFloat(String(avgRaw || '').replace(/,/g, '').trim());
+    const avgWeight = Number.isFinite(avgNum) ? avgNum : null;
+    const slabRates = { ...extractSlabRates(row), ...extractSlabRates(norm) };
+    return { subName, prodName, avgWeight, slabRates };
+}
+
 function extractSlabRates(row) {
     const rates = {};
     const normalized = normalizeExcelRow(row);
     for (const [k, v] of Object.entries(normalized)) {
-        if (!k.startsWith('PRICELISTSLAB')) continue;
-        const slabKey = k.slice('PRICELISTSLAB'.length) || 'default';
+        let slabKey = null;
+        if (k.startsWith('PRICELISTSLAB')) {
+            slabKey = k.slice('PRICELISTSLAB'.length) || 'default';
+        } else if (/^SLAB\d+$/i.test(k)) {
+            slabKey = k.slice('SLAB'.length);
+        } else if (/^RATE\d+$/i.test(k)) {
+            slabKey = k.slice('RATE'.length);
+        } else if (/^MC\d+$/i.test(k)) {
+            slabKey = `mc${k.slice('MC'.length)}`;
+        }
+        if (!slabKey) continue;
         const num = parseFloat(String(v ?? '').replace(/,/g, '').trim());
         if (Number.isFinite(num)) {
             rates[slabKey.toLowerCase()] = num;
@@ -522,22 +578,17 @@ function registerResellerPricelistRoutes(app, deps) {
 
                 for (let i = 0; i < rows.length; i++) {
                     try {
-                        const norm = normalizeExcelRow(rows[i]);
-                        const subName = String(norm.PRICELISTSUBCATEGORY || '').trim();
-                        const prodName = String(norm.PRICELISTPRODUCTNAME || '').trim();
+                        const parsed = parsePricelistExcelRow(rows[i]);
+                        const { subName, prodName, avgWeight, slabRates } = parsed;
                         if (!subName || !prodName) {
                             errors.push({
                                 row: i,
-                                error: 'PRICELISTSUBCATEGORY and PRICELISTPRODUCTNAME required',
+                                error: 'Subcategory and product name required (PRICELISTSUBCATEGORY + PRICELISTPRODUCTNAME, or SUBCATEGORY + PRODUCTNAME)',
                             });
                             continue;
                         }
                         const subcategoryId = await upsertSubcategory(query, category.id, subName);
                         const productSlug = slugify(prodName);
-                        const avgRaw = norm.PRICELISTAVGWT;
-                        const avgNum = parseFloat(String(avgRaw ?? '').replace(/,/g, '').trim());
-                        const avgWeight = Number.isFinite(avgNum) ? avgNum : null;
-                        const slabRates = extractSlabRates(rows[i]);
 
                         await query(
                             `INSERT INTO reseller_pricelist_products (

@@ -56,6 +56,7 @@ import {
   getDefaultStoreWhatsAppDigits,
   normalizeIndianMobileDigits,
   openWhatsAppOrder,
+  stripPricePartsFromMetalSpecSummary,
   toWhatsAppWaMeDigits,
 } from '@/lib/cart-order-whatsapp'
 import {
@@ -639,7 +640,9 @@ export default function SharedCatalogClient({
             compareAtInr: weightOnly ? null : (waLine.compareAtInr ?? null),
             sizeLabel: waLine.sizeLabel ?? null,
             weightLabel: waLine.weightLabel ?? null,
-            metalSpecSummary: waLine.metalSpecSummary ?? null,
+            metalSpecSummary: weightOnly
+              ? stripPricePartsFromMetalSpecSummary(waLine.metalSpecSummary ?? null)
+              : (waLine.metalSpecSummary ?? null),
             showInclGst: weightOnly ? undefined : waLine.showInclGst,
             withBoxPriceInr: weightOnly ? null : (waLine.withBoxPriceInr ?? null),
             slabDiscountLines: weightOnly ? undefined : waLine.slabDiscountLines,

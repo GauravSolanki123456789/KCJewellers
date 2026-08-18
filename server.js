@@ -1780,6 +1780,7 @@ registerResellerPricelistRoutes(app, {
     requireJson,
     getPublicApiBaseUrl,
     uploadsWebProductsDir,
+    uploadsPricelistDir: path.join(__dirname, '..', 'public', 'uploads', 'pricelist'),
 });
 ensurePricelistSchema(pool).catch((e) => console.warn('reseller pricelist schema:', e.message));
 

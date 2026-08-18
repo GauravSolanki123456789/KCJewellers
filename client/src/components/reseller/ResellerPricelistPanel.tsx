@@ -528,8 +528,9 @@ export function ResellerPricelistPanel() {
 
           {categories.length === 0 ? (
             <p className="py-8 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
-              No categories yet. Create one above, then upload Excel with PRICELISTSUBCATEGORY, PRICELISTPRODUCTNAME,
-              PRICELISTAVGWT, PRICELISTSLAB1… columns.
+              No categories yet. Create one above, then upload Excel with columns like
+              PRICELISTSUBCATEGORY, PRICELISTPRODUCTNAME, PRICELISTAVGWT, PRICELISTSLAB1… (or
+              SUBCATEGORY, PRODUCTNAME, WEIGHT, SLAB1…).
             </p>
           ) : (
             <ul className="space-y-3">

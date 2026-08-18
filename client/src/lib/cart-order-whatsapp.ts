@@ -143,6 +143,23 @@ export type SharedCatalogPickLineForWhatsApp = {
 
 const ORDER_DIVIDER = '────────────────'
 
+/** Drop ₹ making-charges / wastage amounts from metal spec text (weight-only shared catalog). */
+export function stripPricePartsFromMetalSpecSummary(spec: string | null | undefined): string | null {
+  if (!spec?.trim()) return null
+  const parts = spec
+    .split(' · ')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .filter((part) => {
+      if (/^Weight:/i.test(part)) return true
+      if (/^Making charges:/i.test(part)) return false
+      if (/^Wastage\s*\(/i.test(part)) return false
+      if (/^Billable weight:/i.test(part)) return true
+      return !/₹/.test(part)
+    })
+  return parts.length ? parts.join(' · ') : null
+}
+
 /** Avoid "Weight: 9 gm" twice when metalSpecSummary already starts with the same weight. */
 function mergeWeightAndSpecLines(
   wtLine: string | null,
@@ -214,9 +231,11 @@ export function formatSharedCatalogOrderWhatsAppBody(params: {
       const qtyLine = `*QTY: ${qty} ${qty === 1 ? 'pc' : 'pcs'}*`
       const sizeLine = l.sizeLabel?.trim() ? `Size: ${l.sizeLabel.trim()}` : null
       const refLine = `Ref: ${l.skuOrBarcode}`
+      const specRaw = l.metalSpecSummary?.trim() ? l.metalSpecSummary.trim() : null
+      const specSansPrices = stripPricePartsFromMetalSpecSummary(specRaw)
       const { wtLine, specLine } = mergeWeightAndSpecLines(
         l.weightLabel ? `Weight: ${l.weightLabel}` : null,
-        l.metalSpecSummary?.trim() ? l.metalSpecSummary.trim() : null,
+        specSansPrices ?? (hidePrices ? null : specRaw),
       )
 
       const mcLine =

@@ -16,6 +16,7 @@ import {
 import {
   CATALOG_INQUIRY_PERIOD_OPTIONS,
   formatCatalogInr,
+  formatCatalogWeightGm,
   type CatalogInquiryPeriod,
   type CatalogInquiryRow,
   type CatalogInquiryStatus,
@@ -24,6 +25,7 @@ import { PROFILE_PATH } from '@/lib/routes'
 
 type ResellerInquiriesPayload = {
   period: string
+  weightOnlyCatalog?: boolean
   summary: {
     inquiryCount: number
     completedCount: number
@@ -31,6 +33,8 @@ type ResellerInquiriesPayload = {
     totalPieces: number
     quotedInr: number
     completedInr: number
+    quotedWeightGm?: number
+    completedWeightGm?: number
   }
   inquiries: CatalogInquiryRow[]
 }
@@ -105,6 +109,7 @@ function ResellerInquiriesContent() {
   }
 
   const s = data?.summary
+  const weightOnly = !!data?.weightOnlyCatalog
 
   return (
     <div className="kc-profile-page min-h-screen bg-[var(--color-slate-950,#0f172a)] pb-24">
@@ -160,8 +165,18 @@ function ResellerInquiriesContent() {
               {[
                 { label: 'Inquiries', value: String(s?.inquiryCount ?? 0) },
                 { label: 'Completed', value: String(s?.completedCount ?? 0) },
-                { label: 'Quoted ₹', value: formatCatalogInr(s?.quotedInr ?? 0) },
-                { label: 'Completed ₹', value: formatCatalogInr(s?.completedInr ?? 0) },
+                weightOnly
+                  ? {
+                      label: 'Quoted weight',
+                      value: formatCatalogWeightGm(s?.quotedWeightGm ?? 0),
+                    }
+                  : { label: 'Quoted ₹', value: formatCatalogInr(s?.quotedInr ?? 0) },
+                weightOnly
+                  ? {
+                      label: 'Completed weight',
+                      value: formatCatalogWeightGm(s?.completedWeightGm ?? 0),
+                    }
+                  : { label: 'Completed ₹', value: formatCatalogInr(s?.completedInr ?? 0) },
               ].map((card) => (
                 <div
                   key={card.label}
