@@ -859,8 +859,20 @@ function roughCenter(text, width = ROUGH_ESTIMATE_WIDTH) {
 }
 
 function roughField(label, value) {
-    const lbl = `${String(label || '').trim()}   `.slice(0, 9);
-    return `${lbl}: ${value}`;
+    const lbl = String(label || '').trim();
+    const val = String(value ?? '').trim();
+    const line = `${lbl}: ${val}`;
+    if (line.length <= ROUGH_ESTIMATE_WIDTH) return line;
+    return `${lbl}:\n  ${val}`;
+}
+
+function purityToKarats(purity) {
+    const p = Number(purity);
+    if (!Number.isFinite(p) || p <= 0) return '';
+    if (p >= 99) return '24 K';
+    if (p >= 91) return '22 K';
+    if (p >= 74) return '18 K';
+    return `${p}%`;
 }
 
 function extractEstimateNo(billNumber) {
@@ -940,24 +952,38 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates) {
     const out = [];
     const dt = formatRoughDateTime(billDate);
     const ornament = isSilverLine(line) ? 'Silver Ornaments' : 'Gold Ornaments';
-    out.push(`NEW ITEM : ${ornament}     ${dt}`);
+    out.push(`NEW ITEM: ${ornament}`);
+    out.push(dt);
     const tag = String(line.barcode || line.code || '').trim();
-    out.push(`Qty: ${line.qty != null ? line.qty : 1}   Tag:${tag ? ` ${tag}` : ''}`);
-    const wt = Number(line.weightGm ?? line.net_weight) || 0;
-    out.push(roughField('Weight', `${wt.toFixed(3)} gms`));
-    out.push(roughField('V.ADDN', roughVAddnGrams(line, rateSlab)));
-    const rate = roughRateForLine(line, rates);
-    if (rate) out.push(roughField('Rate/Gm', rate));
-    const mc = roughMcForLine(line, rateSlab);
-    if (mc) out.push(roughField('MC', mc));
+    out.push(`Qty: ${line.qty != null ? line.qty : 1}  Tag: ${tag || '—'}`);
+    const purityLabel = purityToKarats(line.purity);
+    if (purityLabel) out.push(roughField('Purity', purityLabel));
+    const grossWt = Number(line.gross_weight);
     const stoneWt = Number(line.stone_wt);
+    const netWt = Number(line.weightGm ?? line.net_weight) || 0;
+    if (Number.isFinite(grossWt) && grossWt > 0) {
+        out.push(roughField('Gross Wt', `${grossWt.toFixed(3)} gms`));
+    }
     if (Number.isFinite(stoneWt) && stoneWt > 0) {
         out.push(roughField('Stone Wt', `${stoneWt.toFixed(3)} gms`));
     }
+    out.push(roughField('Net Wt', `${netWt.toFixed(3)} gms`));
+    out.push(roughField('V.ADDN', roughVAddnGrams(line, rateSlab)));
+    const rate = roughRateForLine(line, rates);
+    if (rate) {
+        out.push(roughField('Rate', rate));
+        const rateNum = Number(rate);
+        if (Number.isFinite(rateNum) && rateNum > 0 && netWt > 0) {
+            const metalValue = Math.round(rateNum * netWt * 100) / 100;
+            out.push(roughField('Value', `Rs.${metalValue.toFixed(2)}`));
+        }
+    }
     const stoneCh = Number(line.stone_charges);
     if (Number.isFinite(stoneCh) && stoneCh > 0) {
-        out.push(roughField('Stone', stoneCh.toFixed(2)));
+        out.push(roughField('Stone Chrg', stoneCh.toFixed(2)));
     }
+    const mc = roughMcForLine(line, rateSlab);
+    if (mc) out.push(roughField('MC', mc));
     const taxable = lineTaxableFromTotal(line.lineTotalInr);
     out.push(roughField('Total', taxable.toFixed(2)));
     return { lines: out, taxable };
@@ -1004,12 +1030,10 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
 
     out.push(dash);
     const gst = splitRoughGst(sumTaxable);
-    out.push(roughField('CGST @ 1.5%', gst.cgst.toFixed(2)));
-    out.push(roughField('SGST @ 1.5%', gst.sgst.toFixed(2)));
+    out.push(roughField('CGST 1.5%', gst.cgst.toFixed(2)));
+    out.push(roughField('SGST 1.5%', gst.sgst.toFixed(2)));
     out.push(dash);
-    out.push(roughField('Gross', gst.gross.toFixed(2)));
-    out.push(roughField('Nett RS', gst.gross.toFixed(2)));
-    out.push(roughField('FINAL AMOUNT', ''));
+    out.push(roughField('Final Amt', gst.gross.toFixed(2)));
     out.push(dots);
 
     const contact = phone || '7867867886,8825888888,9169161616';

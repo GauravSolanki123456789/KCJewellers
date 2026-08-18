@@ -922,6 +922,13 @@ function registerStockPieceRoutes(app, deps) {
                 [batchId, req.user.id],
             );
 
+            const linkedRows = await query(
+                `SELECT barcode, rfid_tag FROM reseller_erp_stock_pieces
+                 WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND rfid_tag IS NOT NULL`,
+                [batchId, req.user.id],
+            );
+            await unlinkRfidRows(query, req.user.id, linkedRows);
+
             await query(
                 `DELETE FROM reseller_erp_stock_pieces WHERE batch_id = $1::uuid AND reseller_user_id = $2`,
                 [batchId, req.user.id],
@@ -1178,6 +1185,27 @@ function registerStockPieceRoutes(app, deps) {
             }
         },
     );
+
+    app.get('/api/reseller/erp/rfid/lookup', checkAuth, erpGate, requireRfid, async (req, res) => {
+        try {
+            const tag = poshRfid.normalizeRfidTag(req.query.tag || req.query.rfid || req.query.q);
+            if (!tag) return res.status(400).json({ error: 'RFID tag required (e.g. B0297)' });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_stock_pieces
+                 WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
+                 ORDER BY CASE WHEN status = 'in_stock' THEN 0 ELSE 1 END, updated_at DESC
+                 LIMIT 1`,
+                [req.user.id, tag],
+            );
+            if (!rows.length) {
+                return res.json({ found: false, piece: null, rfid_tag: tag });
+            }
+            res.json({ found: true, rfid_tag: tag, piece: mapPiece(rows[0]) });
+        } catch (e) {
+            console.error('erp rfid lookup:', e);
+            res.status(500).json({ error: e.message || 'RFID lookup failed' });
+        }
+    });
 
     app.post('/api/reseller/erp/rfid/sync-inventory', checkAuth, erpGate, requireRfid, async (req, res) => {
         try {

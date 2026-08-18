@@ -13,8 +13,8 @@ import {
   type ErpSerialSettings,
 } from '@/lib/erp-hardware'
 import { ErpWorkstationPanel, useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
-import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
-import { erpErr } from '@/components/reseller/erp/erp-ui'
+import { erpBtnPrimary, erpCardCls, erpInputCls, erpErr } from '@/components/reseller/erp/erp-ui'
+import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
 import {
@@ -110,6 +110,13 @@ export function ErpHardwareWorkspace() {
   const [testMsg, setTestMsg] = useState<string | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [rfidSyncBusy, setRfidSyncBusy] = useState(false)
+  const [rfidLookup, setRfidLookup] = useState('')
+  const [rfidLookupBusy, setRfidLookupBusy] = useState(false)
+  const [rfidLookupResult, setRfidLookupResult] = useState<{
+    found: boolean
+    piece: ErpStockPiece | null
+    rfid_tag?: string
+  } | null>(null)
   const [epsonTestBusy, setEpsonTestBusy] = useState(false)
 
   useEffect(() => {
@@ -317,6 +324,77 @@ export function ErpHardwareWorkspace() {
             {rfidSyncBusy ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
             Sync linked stock to RFID gun
           </button>
+
+          <div className="mt-5 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
+            <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">RFID tag lookup</p>
+            <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Scan or type an RFID tag to see which barcode and product it is linked to.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                className={erpInputCls}
+                placeholder="Scan RFID tag e.g. B0297"
+                value={rfidLookup}
+                onChange={(e) => setRfidLookup(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && rfidLookup.trim()) {
+                    setRfidLookupBusy(true)
+                    void axios
+                      .get<{ found: boolean; piece: ErpStockPiece | null; rfid_tag?: string }>(
+                        '/api/reseller/erp/rfid/lookup',
+                        { params: { tag: rfidLookup.trim() } },
+                      )
+                      .then((res) => setRfidLookupResult(res.data))
+                      .catch((err) => setRfidLookupResult({ found: false, piece: null, rfid_tag: rfidLookup.trim() }))
+                      .finally(() => setRfidLookupBusy(false))
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className={erpBtnPrimary}
+                disabled={rfidLookupBusy || !rfidLookup.trim()}
+                onClick={() => {
+                  setRfidLookupBusy(true)
+                  void axios
+                    .get<{ found: boolean; piece: ErpStockPiece | null; rfid_tag?: string }>(
+                      '/api/reseller/erp/rfid/lookup',
+                      { params: { tag: rfidLookup.trim() } },
+                    )
+                    .then((res) => setRfidLookupResult(res.data))
+                    .catch(() => setRfidLookupResult({ found: false, piece: null, rfid_tag: rfidLookup.trim() }))
+                    .finally(() => setRfidLookupBusy(false))
+                }}
+              >
+                {rfidLookupBusy ? <Loader2 className="size-4 animate-spin" /> : 'Lookup'}
+              </button>
+            </div>
+            {rfidLookupResult ? (
+              <div
+                className={`mt-3 rounded-xl border px-3 py-2.5 text-sm ${
+                  rfidLookupResult.found && rfidLookupResult.piece
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                    : 'border-amber-200 bg-amber-50 text-amber-950'
+                }`}
+              >
+                {!rfidLookupResult.found || !rfidLookupResult.piece ? (
+                  <p>No in-stock piece linked to RFID {rfidLookupResult.rfid_tag || rfidLookup}.</p>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="font-bold">{rfidLookupResult.piece.barcode}</p>
+                    <p>{rfidLookupResult.piece.product_name || rfidLookupResult.piece.item_code || '—'}</p>
+                    <p className="text-xs opacity-80">
+                      {rfidLookupResult.piece.avg_weight ?? '—'}g · {rfidLookupResult.piece.purity ?? '—'} purity ·{' '}
+                      {rfidLookupResult.piece.metal_type || '—'} · {rfidLookupResult.piece.status}
+                    </p>
+                    {rfidLookupResult.piece.sku ? (
+                      <p className="text-xs opacity-70">SKU {rfidLookupResult.piece.sku}</p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

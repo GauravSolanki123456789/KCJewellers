@@ -164,6 +164,30 @@ export function draftsEqual(a: StockRowDraft, b: StockRowDraft): boolean {
   return JSON.stringify(a.values) === JSON.stringify(b.values)
 }
 
+function parseNum(raw: string | undefined): number | null {
+  const v = raw?.trim()
+  if (!v) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Net weight = gross − bag/cover − stone (when gross is set). */
+export function computeNetWeightFromValues(values: Record<StockEditableField, string>): string | null {
+  const gross = parseNum(values.gross_weight)
+  if (gross == null) return null
+  const stone = parseNum(values.stone_wt) ?? 0
+  const bag = parseNum(values.bag_wt) ?? 0
+  const net = gross - bag - stone
+  if (!Number.isFinite(net) || net < 0) return null
+  return net.toFixed(3)
+}
+
+const NET_WEIGHT_TRIGGER_FIELDS: StockEditableField[] = ['gross_weight', 'stone_wt', 'bag_wt']
+
+export function shouldRecalcNetWeight(field: StockEditableField): boolean {
+  return NET_WEIGHT_TRIGGER_FIELDS.includes(field)
+}
+
 /** Parse uploaded workbook first sheet to row objects keyed by header. */
 export function parseStockExcelRows(buffer: ArrayBuffer): Record<string, unknown>[] {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

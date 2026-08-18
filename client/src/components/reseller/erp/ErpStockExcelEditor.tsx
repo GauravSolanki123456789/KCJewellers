@@ -8,6 +8,8 @@ import {
   rowDraftToApiPayload,
   SCALE_CAPTURE_FIELDS,
   STOCK_EDITOR_COLUMNS,
+  computeNetWeightFromValues,
+  shouldRecalcNetWeight,
   type StockEditableField,
   type StockRowDraft,
 } from '@/lib/reseller-erp-stock-editor'
@@ -52,10 +54,10 @@ function overrideForWeightField(
   field: StockEditableField,
   weight: number,
 ): PrintLabelPieceOverride {
-  if (field === 'gross_weight') return { gross_weight: weight, avg_weight: weight }
-  if (field === 'chain_wt_only') return { chain_wt_only: weight, avg_weight: weight }
-  if (field === 'pendant_wt_only') return { pendant_wt_only: weight, avg_weight: weight }
-  if (field === 'earring_wt_only') return { earring_wt_only: weight, avg_weight: weight }
+  if (field === 'gross_weight') return { gross_weight: weight }
+  if (field === 'chain_wt_only') return { chain_wt_only: weight }
+  if (field === 'pendant_wt_only') return { pendant_wt_only: weight }
+  if (field === 'earring_wt_only') return { earring_wt_only: weight }
   return { avg_weight: weight }
 }
 
@@ -156,7 +158,15 @@ export function ErpStockExcelEditor({
 
   const setCell = useCallback((rowId: number, field: StockEditableField, value: string) => {
     setDrafts((prev) =>
-      prev.map((d) => (d.id === rowId ? { ...d, values: { ...d.values, [field]: value } } : d)),
+      prev.map((d) => {
+        if (d.id !== rowId) return d
+        const nextValues = { ...d.values, [field]: value }
+        if (shouldRecalcNetWeight(field)) {
+          const net = computeNetWeightFromValues(nextValues)
+          if (net != null) nextValues.avg_weight = net
+        }
+        return { ...d, values: nextValues }
+      }),
     )
     setMessage(null)
     setError(null)

@@ -66,6 +66,7 @@ import {
   resolveRetailCatalogSelection,
   isSelectionValidInRetailTree,
   isRetailBrowseEnabledForMetal,
+  findSubcategoryByPathSegment,
   type CatalogProductType,
   type CatalogShopFor,
 } from '@/lib/catalog-retail-tags'
@@ -275,14 +276,21 @@ function pathSegmentsFromPathname(pathname: string): ParsedCatalogPath | null {
 }
 
 /**
- * URL segment may be a shorthand (e.g. `pitara-bangle`) while DB slug is suffixed (`pitara-bangle-37`).
- * Only allow prefix extension when the path segment looks like a full slug (contains a hyphen).
+ * URL segment may be a shorthand (e.g. `lakshmi`) while DB slug is `emerald-idols-lakshmi`.
  */
-function subSlugMatchesPathSegment(subSlug: string, pathSkuSegment: string): boolean {
+function subSlugMatchesPathSegment(
+  subSlug: string,
+  pathSkuSegment: string,
+  styleSlug?: string,
+): boolean {
   const s = (subSlug || '').toLowerCase()
   const w = (pathSkuSegment || '').toLowerCase().trim()
   if (!w) return false
   if (s === w) return true
+  if (styleSlug) {
+    const composite = `${styleSlug.toLowerCase()}-${w}`
+    if (s === composite) return true
+  }
   if (w.includes('-') && s.startsWith(`${w}-`)) return true
   return false
 }
@@ -298,7 +306,7 @@ function selectionMatchesPath(
   if (parsed.metal !== selectedMetal) return false
   const cat = cats.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
   if (!cat || cat.id !== activeStyleId) return false
-  const sub = cat.subcategories.find((s) => subSlugMatchesPathSegment(s.slug || '', parsed.skuSlug))
+  const sub = findSubcategoryByPathSegment(cat.subcategories, parsed.skuSlug, cat.slug)
   return !!sub && sub.id === activeSkuId
 }
 
@@ -413,12 +421,12 @@ export default function CatalogPageClient() {
     const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
     if (cat) {
       setActiveStyleId(cat.id)
-      const sub = cat.subcategories.find((s) => subSlugMatchesPathSegment(s.slug || '', skuSlug))
+      const sub = findSubcategoryByPathSegment(cat.subcategories, skuSlug, cat.slug)
       if (sub) setActiveSkuId(sub.id)
       else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
     } else {
       for (const c of cats) {
-        const sub = c.subcategories.find((s) => subSlugMatchesPathSegment(s.slug || '', skuSlug))
+        const sub = findSubcategoryByPathSegment(c.subcategories, skuSlug, c.slug)
         if (sub) {
           setActiveStyleId(c.id)
           setActiveSkuId(sub.id)
@@ -706,10 +714,13 @@ export default function CatalogPageClient() {
       const cat = tree.find(
         (c) => (c.slug || '').toLowerCase() === pathFromUrl.styleSlug.toLowerCase(),
       )
-      const sub = cat?.subcategories.find((s) =>
-        subSlugMatchesPathSegment(s.slug || '', pathFromUrl.skuSlug),
+      if (!cat) return
+      const sub = findSubcategoryByPathSegment(
+        cat.subcategories,
+        pathFromUrl.skuSlug,
+        cat.slug,
       )
-      if (!cat || !sub) return
+      if (!sub) return
     }
 
     if (

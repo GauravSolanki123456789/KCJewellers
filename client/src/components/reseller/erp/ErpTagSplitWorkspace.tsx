@@ -35,6 +35,47 @@ type SplitLine = {
   weight: string
   bags: string
   bag_wt: string
+  part_label: string
+  product_name: string
+  rfid_tag: string
+}
+
+const SUFFIX_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+function previewSplitBarcode(sourceBarcode: string, splitIndex: number): string {
+  const base = sourceBarcode.replace(/-[A-Z]$/, '')
+  if (splitIndex <= 0) return base
+  const letter = SUFFIX_LETTERS[splitIndex - 1] || String(splitIndex)
+  return `${base}-${letter}`
+}
+
+function appendPartLabel(baseName: string, partLabel: string): string {
+  const base = baseName.trim()
+  const suffix = partLabel.trim().toUpperCase()
+  if (!suffix) return base
+  if (base.toUpperCase().endsWith(suffix)) return base
+  return `${base} ${suffix}`.trim()
+}
+
+function componentSplitsFromSource(source: ErpStockPiece): SplitLine[] {
+  const base = source.product_name || source.item_code || ''
+  const parts: { label: string; weight: number }[] = []
+  const chain = Number(source.chain_wt_only)
+  const pendant = Number(source.pendant_wt_only)
+  const earring = Number(source.earring_wt_only)
+  if (Number.isFinite(chain) && chain > 0) parts.push({ label: 'CHAIN', weight: chain })
+  if (Number.isFinite(pendant) && pendant > 0) parts.push({ label: 'PENDANT', weight: pendant })
+  if (Number.isFinite(earring) && earring > 0) parts.push({ label: 'EARRING', weight: earring })
+  return parts.map((p) => ({
+    id: uid(),
+    pcs: '1',
+    weight: p.weight.toFixed(3),
+    bags: source.bags || '',
+    bag_wt: source.bag_wt != null ? String(source.bag_wt) : '',
+    part_label: p.label,
+    product_name: appendPartLabel(base, p.label),
+    rfid_tag: '',
+  }))
 }
 
 type TagOperation = {
@@ -58,7 +99,7 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function ErpTagSplitWorkspace() {
+export function ErpTagSplitWorkspace({ rfidEnabled = false }: { rfidEnabled?: boolean }) {
   const [tab, setTab] = useState<'split' | 'merge'>('split')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -153,11 +194,30 @@ export function ErpTagSplitWorkspace() {
 
   const addSplitLine = () => {
     if (!source) return
-    const defPcs = remainder && remainder.pcs > 0 ? '1' : '1'
     setSplitLines((prev) => [
       ...prev,
-      { id: uid(), pcs: defPcs, weight: '', bags: source.bags || '', bag_wt: source.bag_wt != null ? String(source.bag_wt) : '' },
+      {
+        id: uid(),
+        pcs: '1',
+        weight: '',
+        bags: source.bags || '',
+        bag_wt: source.bag_wt != null ? String(source.bag_wt) : '',
+        part_label: '',
+        product_name: '',
+        rfid_tag: '',
+      },
     ])
+  }
+
+  const autoFillComponents = () => {
+    if (!source) return
+    const lines = componentSplitsFromSource(source)
+    if (!lines.length) {
+      setError('No chain / pendant / earring weights on this tag.')
+      return
+    }
+    setSplitLines(lines)
+    setError('')
   }
 
   const updateSplitLine = (id: string, patch: Partial<SplitLine>) => {
@@ -184,23 +244,35 @@ export function ErpTagSplitWorkspace() {
         weight: round3(Number(l.weight) || 0),
         bags: l.bags.trim() || null,
         bag_wt: l.bag_wt.trim() ? round3(Number(l.bag_wt)) : null,
+        part_label: l.part_label.trim() || null,
+        product_name: l.product_name.trim() || null,
+        rfid_tag: l.rfid_tag.trim() || null,
       }))
       const res = await axios.post<{
         success: boolean
         pieces: ErpStockPiece[]
+        updated_source?: ErpStockPiece | null
         remainder_on_source?: { pcs: number; weight: number; gross_weight?: number | null } | null
         source_barcode: string
+        result_barcodes?: string[]
       }>('/api/reseller/erp/tags/split', {
         source_barcode: source.barcode,
         splits,
+        use_suffix: true,
       })
       const newCodes = res.data.pieces.map((p) => p.barcode)
+      const allPieces = [
+        ...(res.data.updated_source ? [res.data.updated_source] : []),
+        ...res.data.pieces,
+      ]
       const msg = res.data.remainder_on_source
-        ? `Created ${newCodes.join(', ')}. Remainder kept on ${res.data.source_barcode} (${res.data.remainder_on_source.pcs} pcs · ${res.data.remainder_on_source.weight}g).`
-        : `Split complete — new tags: ${newCodes.join(', ')}`
-      setLastResult({ barcodes: newCodes, message: msg, pieces: res.data.pieces })
-      openPrintSheet(res.data.pieces)
-      if (res.data.remainder_on_source) {
+        ? `Split complete — ${res.data.source_barcode} updated, new tags: ${newCodes.join(', ')}. Unassigned remainder: ${res.data.remainder_on_source.weight}g on ${res.data.source_barcode}.`
+        : `Split complete — ${res.data.source_barcode}${newCodes.length ? `, ${newCodes.join(', ')}` : ''}`
+      setLastResult({ barcodes: res.data.result_barcodes || [res.data.source_barcode, ...newCodes], message: msg, pieces: allPieces })
+      openPrintSheet(allPieces)
+      if (res.data.updated_source) {
+        setSource(res.data.updated_source)
+      } else if (res.data.remainder_on_source) {
         setSource({
           ...source,
           pcs: res.data.remainder_on_source.pcs,
@@ -404,8 +476,17 @@ export function ErpTagSplitWorkspace() {
                     <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/65">
                       {source.product_name || source.item_code || '—'} · {source.pcs ?? 1} pcs ·{' '}
                       {source.avg_weight ?? '—'}g
-                      {source.gross_weight != null ? ` · gross ${source.gross_weight}g` : ''}
+                    {source.gross_weight != null ? ` · gross ${source.gross_weight}g` : ''}
+                    {source.rfid_tag ? ` · RFID ${source.rfid_tag}` : ''}
+                  </p>
+                  {(source.chain_wt_only || source.pendant_wt_only || source.earring_wt_only) ? (
+                    <p className="mt-1 text-xs text-emerald-800">
+                      Components:
+                      {source.chain_wt_only ? ` Chain ${source.chain_wt_only}g` : ''}
+                      {source.pendant_wt_only ? ` · Pendant ${source.pendant_wt_only}g` : ''}
+                      {source.earring_wt_only ? ` · Earring ${source.earring_wt_only}g` : ''}
                     </p>
+                  ) : null}
                     {source.bags ? (
                       <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">Bags: {source.bags}</p>
                     ) : null}
@@ -428,11 +509,23 @@ export function ErpTagSplitWorkspace() {
               <div className={erpCardCls}>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Split lines</p>
-                  <button type="button" className={erpBtnGhost} onClick={addSplitLine}>
-                    <Plus className="size-4" />
-                    Add split
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    {(source.chain_wt_only || source.pendant_wt_only || source.earring_wt_only) ? (
+                      <button type="button" className={erpBtnGhost} onClick={autoFillComponents}>
+                        Auto-fill components
+                      </button>
+                    ) : null}
+                    <button type="button" className={erpBtnGhost} onClick={addSplitLine}>
+                      <Plus className="size-4" />
+                      Add split
+                    </button>
+                  </div>
                 </div>
+
+                <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  First line stays on <span className="font-semibold">{source.barcode}</span>; extra lines become{' '}
+                  {previewSplitBarcode(source.barcode, 1)}, {previewSplitBarcode(source.barcode, 2)}, …
+                </p>
 
                 {splitLines.length === 0 ? (
                   <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -443,45 +536,92 @@ export function ErpTagSplitWorkspace() {
                     {splitLines.map((line, idx) => (
                       <div
                         key={line.id}
-                        className="grid gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3 sm:grid-cols-2 lg:grid-cols-5"
+                        className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3"
                       >
-                        <label className="block text-xs">
-                          <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
-                            Split #{idx + 1} · PCS
-                          </span>
-                          <input
-                            className={erpInputCls}
-                            inputMode="numeric"
-                            value={line.pcs}
-                            onChange={(e) => updateSplitLine(line.id, { pcs: e.target.value })}
-                          />
-                        </label>
-                        <label className="block text-xs">
-                          <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Weight (g)</span>
-                          <input
-                            className={erpInputCls}
-                            inputMode="decimal"
-                            value={line.weight}
-                            onChange={(e) => updateSplitLine(line.id, { weight: e.target.value })}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                if (idx === splitLines.length - 1) addSplitLine()
-                              }
-                            }}
-                          />
-                        </label>
-                        <label className="block text-xs sm:col-span-2">
-                          <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Bags</span>
-                          <input
-                            className={erpInputCls}
-                            value={line.bags}
-                            onChange={(e) => updateSplitLine(line.id, { bags: e.target.value })}
-                            placeholder="e.g. 1*6 ,10*2.35"
-                          />
-                        </label>
-                        <div className="flex items-end gap-2">
-                          <label className="block flex-1 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold text-emerald-900">
+                            Split #{idx + 1} → {previewSplitBarcode(source.barcode, idx)}
+                          </p>
+                          <button
+                            type="button"
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
+                            onClick={() => removeSplitLine(line.id)}
+                            aria-label="Remove split line"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          <label className="block text-xs">
+                            <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Part</span>
+                            <input
+                              className={erpInputCls}
+                              placeholder="CHAIN / EARRING"
+                              value={line.part_label}
+                              onChange={(e) => {
+                                const part = e.target.value.toUpperCase()
+                                updateSplitLine(line.id, {
+                                  part_label: part,
+                                  product_name:
+                                    line.product_name ||
+                                    appendPartLabel(source.product_name || source.item_code || '', part),
+                                })
+                              }}
+                            />
+                          </label>
+                          <label className="block text-xs sm:col-span-2">
+                            <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Product name</span>
+                            <input
+                              className={erpInputCls}
+                              value={line.product_name}
+                              onChange={(e) => updateSplitLine(line.id, { product_name: e.target.value })}
+                            />
+                          </label>
+                          <label className="block text-xs">
+                            <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">PCS</span>
+                            <input
+                              className={erpInputCls}
+                              inputMode="numeric"
+                              value={line.pcs}
+                              onChange={(e) => updateSplitLine(line.id, { pcs: e.target.value })}
+                            />
+                          </label>
+                          <label className="block text-xs">
+                            <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Weight (g)</span>
+                            <input
+                              className={erpInputCls}
+                              inputMode="decimal"
+                              value={line.weight}
+                              onChange={(e) => updateSplitLine(line.id, { weight: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  if (idx === splitLines.length - 1) addSplitLine()
+                                }
+                              }}
+                            />
+                          </label>
+                          {rfidEnabled && idx > 0 ? (
+                            <label className="block text-xs">
+                              <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">RFID tag</span>
+                              <input
+                                className={erpInputCls}
+                                placeholder="e.g. B0298"
+                                value={line.rfid_tag}
+                                onChange={(e) => updateSplitLine(line.id, { rfid_tag: e.target.value.toUpperCase() })}
+                              />
+                            </label>
+                          ) : null}
+                          <label className="block text-xs sm:col-span-2">
+                            <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Bags</span>
+                            <input
+                              className={erpInputCls}
+                              value={line.bags}
+                              onChange={(e) => updateSplitLine(line.id, { bags: e.target.value })}
+                              placeholder="e.g. 1*6 ,10*2.35"
+                            />
+                          </label>
+                          <label className="block text-xs">
                             <span className="mb-1 block font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">Bag Wt</span>
                             <input
                               className={erpInputCls}
@@ -490,14 +630,6 @@ export function ErpTagSplitWorkspace() {
                               onChange={(e) => updateSplitLine(line.id, { bag_wt: e.target.value })}
                             />
                           </label>
-                          <button
-                            type="button"
-                            className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50"
-                            onClick={() => removeSplitLine(line.id)}
-                            aria-label="Remove split line"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -506,9 +638,10 @@ export function ErpTagSplitWorkspace() {
 
                 {remainder ? (
                   <div className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-sm text-amber-950">
-                    <span className="font-semibold">Remaining on source: </span>
-                    {remainder.pcs} pcs · {remainder.wt}g
+                    <span className="font-semibold">Unassigned weight: </span>
+                    {remainder.wt}g
                     {remainder.gross != null ? ` · gross ${remainder.gross}g` : ''}
+                    {remainder.wt <= 0.05 ? ' — ready to split' : ' — add another split line or adjust weights'}
                   </div>
                 ) : null}
 

@@ -127,6 +127,8 @@ function productToLine(p: ErpProductHit, code: string): ErpBillLine {
     size: p.size ?? null,
     qty: p.pcs ?? 1,
     weightGm: wt,
+    gross_weight: p.gross_weight ?? null,
+    bag_wt: p.bag_wt ?? null,
     purity: p.purity ?? (metal.includes('silver') ? 925 : null),
     wastage_pct: p.wastage_pct ?? null,
     ratePerGram: null,

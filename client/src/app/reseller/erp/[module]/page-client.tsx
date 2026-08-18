@@ -3,6 +3,8 @@
 import { Suspense, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { useAuth } from '@/hooks/useAuth'
+import type { WholesaleUserFields } from '@/lib/customer-tier'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { getResellerErpModule, type ResellerErpModuleId } from '@/lib/reseller-erp-modules'
 import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
@@ -30,6 +32,9 @@ import {
 } from '@/components/reseller/erp/ResellerErpWorkspaces'
 
 function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
+  const auth = useAuth()
+  const rfidEnabled = !!(auth.user as WholesaleUserFields | null)?.reseller_rfid_enabled
+
   switch (moduleId) {
     case 'customers':
       return <CustomersWorkspace />
@@ -189,7 +194,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
         />
       )
     case 'tag-splitting':
-      return <ErpTagSplitWorkspace />
+      return <ErpTagSplitWorkspace rfidEnabled={rfidEnabled} />
     default:
       return <ErpFallbackPanel />
   }

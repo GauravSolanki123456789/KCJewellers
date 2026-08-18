@@ -390,13 +390,52 @@ export function collectAvailableProductTypes(
 export function subSlugMatchesRetailPath(
   subSlug: string,
   pathSkuSegment: string,
+  styleSlug?: string,
 ): boolean {
   const s = (subSlug || "").toLowerCase();
   const w = (pathSkuSegment || "").toLowerCase().trim();
   if (!w) return false;
   if (s === w) return true;
+  if (styleSlug) {
+    const composite = `${styleSlug.toLowerCase()}-${w}`;
+    if (s === composite) return true;
+  }
   if (w.includes("-") && s.startsWith(`${w}-`)) return true;
   return false;
+}
+
+/** Resolve a URL sku segment (e.g. `lakshmi`) to the correct subcategory slug. */
+export function findSubcategoryByPathSegment<
+  T extends { slug?: string; id: number },
+>(subcategories: T[], pathSkuSegment: string, styleSlug?: string): T | undefined {
+  const w = (pathSkuSegment || "").toLowerCase().trim();
+  if (!w || subcategories.length === 0) return undefined;
+
+  const exact = subcategories.find((s) => (s.slug || "").toLowerCase() === w);
+  if (exact) return exact;
+
+  if (styleSlug) {
+    const composite = `${styleSlug.toLowerCase()}-${w}`;
+    const compositeMatch = subcategories.find(
+      (s) => (s.slug || "").toLowerCase() === composite,
+    );
+    if (compositeMatch) return compositeMatch;
+  }
+
+  if (w.includes("-")) {
+    const prefixMatch = subcategories.find((s) =>
+      (s.slug || "").toLowerCase().startsWith(`${w}-`),
+    );
+    if (prefixMatch) return prefixMatch;
+  }
+
+  const suffixMatches = subcategories.filter((s) => {
+    const slug = (s.slug || "").toLowerCase();
+    return slug.endsWith(`-${w}`);
+  });
+  if (suffixMatches.length === 1) return suffixMatches[0];
+
+  return undefined;
 }
 
 export function isSelectionValidInRetailTree<
@@ -435,7 +474,7 @@ export function resolveRetailCatalogSelection<
   if (styleSlug && skuSlug) {
     const cat = tree.find((c) => (c.slug || "").toLowerCase() === styleSlug);
     const sub = cat?.subcategories.find((s) =>
-      subSlugMatchesRetailPath(s.slug || "", skuSlug),
+      subSlugMatchesRetailPath(s.slug || "", skuSlug, cat.slug),
     );
     if (cat && sub) return { styleId: cat.id, skuId: sub.id };
   }

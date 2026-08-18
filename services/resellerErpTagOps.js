@@ -3,6 +3,9 @@
  */
 
 const { randomUUID } = require('crypto');
+const poshRfid = require('./poshRfid');
+
+const SUFFIX_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function round3(n) {
     const x = Number(n);
@@ -71,6 +74,46 @@ async function allocateBarcodes(query, resellerUserId, itemCode, refBarcode, cou
     return out;
 }
 
+function baseBarcodeWithoutSuffix(barcode) {
+    const s = String(barcode || '').trim();
+    const m = s.match(/^(.+)-([A-Z])$/);
+    return m ? m[1] : s;
+}
+
+function suffixBarcode(base, index) {
+    const letter = SUFFIX_LETTERS[index] || String(index + 1);
+    return `${base}-${letter}`;
+}
+
+async function allocateSuffixBarcodes(query, resellerUserId, baseBarcode, count, startIndex = 0) {
+    const base = baseBarcodeWithoutSuffix(baseBarcode);
+    const out = [];
+    for (let i = 0; i < count; i += 1) {
+        let candidate = suffixBarcode(base, startIndex + i);
+        let tries = 0;
+        while (tries < 50) {
+            const exists = await query(
+                `SELECT id FROM reseller_erp_stock_pieces
+                 WHERE reseller_user_id = $1 AND lower(barcode) = lower($2) LIMIT 1`,
+                [resellerUserId, candidate],
+            );
+            if (!exists.length) break;
+            candidate = suffixBarcode(base, startIndex + i + tries + 1);
+            tries += 1;
+        }
+        out.push(candidate);
+    }
+    return out;
+}
+
+function appendPartLabel(baseName, partLabel) {
+    const base = String(baseName || '').trim();
+    const suffix = String(partLabel || '').trim().toUpperCase();
+    if (!suffix) return base || null;
+    if (base.toUpperCase().endsWith(suffix)) return base;
+    return `${base} ${suffix}`.trim();
+}
+
 async function ensureTagOpsSchema(pool) {
     await pool.query(`
         ALTER TABLE reseller_erp_stock_pieces
@@ -125,6 +168,10 @@ function mapPieceRow(row) {
         item_code: row.item_code,
         bags: row.bags,
         bag_wt: row.bag_wt != null ? Number(row.bag_wt) : null,
+        chain_wt_only: row.chain_wt_only != null ? Number(row.chain_wt_only) : null,
+        pendant_wt_only: row.pendant_wt_only != null ? Number(row.pendant_wt_only) : null,
+        earring_wt_only: row.earring_wt_only != null ? Number(row.earring_wt_only) : null,
+        rfid_tag: row.rfid_tag ? String(row.rfid_tag).trim() : null,
         status: row.status,
         split_from_barcode: row.split_from_barcode,
         merged_into_barcode: row.merged_into_barcode,
@@ -186,6 +233,7 @@ function registerTagOpsRoutes(app, deps) {
             const sourceBarcode = String(req.body.source_barcode || '').trim();
             const splits = Array.isArray(req.body.splits) ? req.body.splits : [];
             const notes = String(req.body.notes || '').trim().slice(0, 500);
+            const useSuffix = req.body.use_suffix !== false;
             if (!sourceBarcode) return res.status(400).json({ error: 'source_barcode required' });
             if (splits.length < 1) return res.status(400).json({ error: 'At least one split chunk required' });
 
@@ -209,6 +257,7 @@ function registerTagOpsRoutes(app, deps) {
             const sourcePcs = Number(source.pcs) || 1;
             const sourceWt = round3(source.avg_weight || 0);
             const sourceGross = source.gross_weight != null ? round3(source.gross_weight) : null;
+            const queryFn = (sql, params) => client.query(sql, params).then((r) => r.rows);
 
             let totalSplitPcs = 0;
             let totalSplitWt = 0;
@@ -217,6 +266,9 @@ function registerTagOpsRoutes(app, deps) {
                 weight: round3(s.weight),
                 bags: s.bags != null ? String(s.bags).trim().slice(0, 200) : null,
                 bag_wt: s.bag_wt != null ? round3(s.bag_wt) : null,
+                part_label: s.part_label ? String(s.part_label).trim().toUpperCase() : null,
+                product_name: s.product_name ? String(s.product_name).trim().slice(0, 255) : null,
+                rfid_tag: s.rfid_tag ? poshRfid.normalizeRfidTag(s.rfid_tag) : null,
             }));
 
             for (const s of normalizedSplits) {
@@ -238,87 +290,241 @@ function registerTagOpsRoutes(app, deps) {
                 });
             }
 
-            const newBarcodes = await allocateBarcodes(
-                (sql, params) => client.query(sql, params).then((r) => r.rows),
-                req.user.id,
-                source.item_code,
-                source.barcode,
-                normalizedSplits.length,
-            );
+            for (const s of normalizedSplits) {
+                if (!s.rfid_tag) continue;
+                const taken = await client.query(
+                    `SELECT id, barcode FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
+                       AND status = 'in_stock' AND id <> $3 LIMIT 1`,
+                    [req.user.id, s.rfid_tag, source.id],
+                );
+                if (taken.rows.length) {
+                    await client.query('ROLLBACK');
+                    return res.status(409).json({
+                        error: `RFID ${s.rfid_tag} is already linked to ${taken.rows[0].barcode}`,
+                    });
+                }
+            }
 
             const created = [];
-            for (let i = 0; i < normalizedSplits.length; i += 1) {
-                const s = normalizedSplits[i];
-                const newBc = newBarcodes[i];
-                const grossShare =
+            let remainderOnSource = null;
+            let updatedSource = null;
+
+            if (useSuffix && normalizedSplits.length >= 1) {
+                const first = normalizedSplits[0];
+                const rest = normalizedSplits.slice(1);
+                const firstName =
+                    first.product_name ||
+                    appendPartLabel(source.product_name, first.part_label) ||
+                    source.product_name;
+                const firstGross =
                     sourceGross != null && sourceWt > 0
-                        ? round3((sourceGross * s.weight) / sourceWt)
-                        : null;
-                const ins = await client.query(
-                    `INSERT INTO reseller_erp_stock_pieces (
-                        reseller_user_id, batch_id, barcode, sku, style_code, product_name, size,
-                        avg_weight, gross_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
-                        box_charges, stone_charges, metal_type, item_code, image_url,
-                        attr_color, attr_stone, fixed_price, bags, bag_wt, split_from_barcode, status, payload_json
-                     ) VALUES (
-                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'in_stock',$26::jsonb
-                     ) RETURNING *`,
+                        ? round3((sourceGross * first.weight) / sourceWt)
+                        : first.weight;
+
+                await client.query(
+                    `UPDATE reseller_erp_stock_pieces SET
+                        pcs = $1, avg_weight = $2, gross_weight = $3, product_name = $4,
+                        bags = COALESCE($5, bags), bag_wt = COALESCE($6, bag_wt),
+                        chain_wt_only = NULL, pendant_wt_only = NULL, earring_wt_only = NULL,
+                        updated_at = NOW(), status = 'in_stock'
+                     WHERE id = $7`,
                     [
-                        req.user.id,
-                        source.batch_id,
-                        newBc,
-                        source.sku,
-                        source.style_code,
-                        source.product_name,
-                        source.size,
-                        s.weight,
-                        grossShare,
-                        source.purity,
-                        source.wastage_pct,
-                        source.mc_rate,
-                        source.mc_type,
-                        s.pcs,
-                        source.box_charges,
-                        source.stone_charges,
-                        source.metal_type,
-                        source.item_code,
-                        source.image_url,
-                        source.attr_color,
-                        source.attr_stone,
-                        source.fixed_price,
-                        s.bags || source.bags,
-                        s.bag_wt != null ? s.bag_wt : source.bag_wt,
-                        source.barcode,
-                        JSON.stringify({ split_from: source.barcode, split_index: i + 1 }),
+                        first.pcs,
+                        first.weight,
+                        firstGross,
+                        firstName,
+                        first.bags,
+                        first.bag_wt,
+                        source.id,
                     ],
                 );
-                created.push(mapPieceRow(ins.rows[0]));
-            }
+                updatedSource = mapPieceRow({
+                    ...source,
+                    pcs: first.pcs,
+                    avg_weight: first.weight,
+                    gross_weight: firstGross,
+                    product_name: firstName,
+                    bags: first.bags || source.bags,
+                    bag_wt: first.bag_wt != null ? first.bag_wt : source.bag_wt,
+                });
 
-            const remainPcs = sourcePcs - totalSplitPcs;
-            const remainWt = round3(Math.max(0, sourceWt - totalSplitWt));
-            const remainGross =
-                sourceGross != null && sourceWt > 0
-                    ? round3(Math.max(0, sourceGross - (sourceGross * totalSplitWt) / sourceWt))
-                    : sourceGross != null
-                      ? round3(Math.max(0, sourceGross - totalSplitWt))
-                      : null;
-
-            if (remainPcs > 0) {
-                await client.query(
-                    `UPDATE reseller_erp_stock_pieces SET
-                        pcs = $1, avg_weight = $2, gross_weight = $3, updated_at = NOW(), status = 'in_stock'
-                     WHERE id = $4`,
-                    [remainPcs, remainWt, remainGross, source.id],
+                const suffixBarcodes = await allocateSuffixBarcodes(
+                    queryFn,
+                    req.user.id,
+                    source.barcode,
+                    rest.length,
+                    0,
                 );
+
+                for (let i = 0; i < rest.length; i += 1) {
+                    const s = rest[i];
+                    const newBc = suffixBarcodes[i];
+                    const pieceName =
+                        s.product_name ||
+                        appendPartLabel(source.product_name, s.part_label) ||
+                        source.product_name;
+                    const grossShare =
+                        sourceGross != null && sourceWt > 0
+                            ? round3((sourceGross * s.weight) / sourceWt)
+                            : s.weight;
+                    const ins = await client.query(
+                        `INSERT INTO reseller_erp_stock_pieces (
+                            reseller_user_id, batch_id, barcode, sku, style_code, product_name, size,
+                            avg_weight, gross_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
+                            box_charges, stone_charges, stone_wt, metal_type, item_code, image_url,
+                            attr_color, attr_stone, fixed_price, bags, bag_wt, rfid_tag,
+                            split_from_barcode, status, payload_json
+                         ) VALUES (
+                            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,'in_stock',$28::jsonb
+                         ) RETURNING *`,
+                        [
+                            req.user.id,
+                            source.batch_id,
+                            newBc,
+                            source.sku,
+                            source.style_code,
+                            pieceName,
+                            source.size,
+                            s.weight,
+                            grossShare,
+                            source.purity,
+                            source.wastage_pct,
+                            source.mc_rate,
+                            source.mc_type,
+                            s.pcs,
+                            source.box_charges,
+                            source.stone_charges,
+                            source.stone_wt,
+                            source.metal_type,
+                            source.item_code,
+                            source.image_url,
+                            source.attr_color,
+                            source.attr_stone,
+                            source.fixed_price,
+                            s.bags || source.bags,
+                            s.bag_wt != null ? s.bag_wt : source.bag_wt,
+                            s.rfid_tag,
+                            source.barcode,
+                            JSON.stringify({
+                                split_from: source.barcode,
+                                split_index: i + 2,
+                                part_label: s.part_label,
+                            }),
+                        ],
+                    );
+                    const mapped = mapPieceRow(ins.rows[0]);
+                    created.push(mapped);
+                    if (s.rfid_tag) {
+                        try {
+                            await poshRfid.syncPieceLinked(queryFn, req.user.id, mapped);
+                        } catch (e) {
+                            console.warn('posh rfid link after split:', e.message);
+                        }
+                    }
+                }
+
+                const remainWt = round3(Math.max(0, sourceWt - totalSplitWt));
+                if (remainWt > 0.05 && rest.length === 0) {
+                    remainderOnSource = {
+                        pcs: sourcePcs - totalSplitPcs + first.pcs,
+                        weight: remainWt,
+                        gross_weight:
+                            sourceGross != null
+                                ? round3(Math.max(0, sourceGross - firstGross))
+                                : null,
+                    };
+                }
             } else {
-                await client.query(
-                    `UPDATE reseller_erp_stock_pieces SET
-                        status = 'split', merged_into_barcode = NULL, updated_at = NOW()
-                     WHERE id = $1`,
-                    [source.id],
+                const newBarcodes = await allocateBarcodes(
+                    queryFn,
+                    req.user.id,
+                    source.item_code,
+                    source.barcode,
+                    normalizedSplits.length,
                 );
+
+                for (let i = 0; i < normalizedSplits.length; i += 1) {
+                    const s = normalizedSplits[i];
+                    const newBc = newBarcodes[i];
+                    const grossShare =
+                        sourceGross != null && sourceWt > 0
+                            ? round3((sourceGross * s.weight) / sourceWt)
+                            : null;
+                    const ins = await client.query(
+                        `INSERT INTO reseller_erp_stock_pieces (
+                            reseller_user_id, batch_id, barcode, sku, style_code, product_name, size,
+                            avg_weight, gross_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
+                            box_charges, stone_charges, metal_type, item_code, image_url,
+                            attr_color, attr_stone, fixed_price, bags, bag_wt, split_from_barcode, status, payload_json
+                         ) VALUES (
+                            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'in_stock',$26::jsonb
+                         ) RETURNING *`,
+                        [
+                            req.user.id,
+                            source.batch_id,
+                            newBc,
+                            source.sku,
+                            source.style_code,
+                            s.product_name ||
+                                appendPartLabel(source.product_name, s.part_label) ||
+                                source.product_name,
+                            source.size,
+                            s.weight,
+                            grossShare,
+                            source.purity,
+                            source.wastage_pct,
+                            source.mc_rate,
+                            source.mc_type,
+                            s.pcs,
+                            source.box_charges,
+                            source.stone_charges,
+                            source.metal_type,
+                            source.item_code,
+                            source.image_url,
+                            source.attr_color,
+                            source.attr_stone,
+                            source.fixed_price,
+                            s.bags || source.bags,
+                            s.bag_wt != null ? s.bag_wt : source.bag_wt,
+                            source.barcode,
+                            JSON.stringify({ split_from: source.barcode, split_index: i + 1 }),
+                        ],
+                    );
+                    created.push(mapPieceRow(ins.rows[0]));
+                }
+
+                const remainPcs = sourcePcs - totalSplitPcs;
+                const remainWt = round3(Math.max(0, sourceWt - totalSplitWt));
+                const remainGross =
+                    sourceGross != null && sourceWt > 0
+                        ? round3(Math.max(0, sourceGross - (sourceGross * totalSplitWt) / sourceWt))
+                        : sourceGross != null
+                          ? round3(Math.max(0, sourceGross - totalSplitWt))
+                          : null;
+
+                if (remainPcs > 0) {
+                    await client.query(
+                        `UPDATE reseller_erp_stock_pieces SET
+                            pcs = $1, avg_weight = $2, gross_weight = $3, updated_at = NOW(), status = 'in_stock'
+                         WHERE id = $4`,
+                        [remainPcs, remainWt, remainGross, source.id],
+                    );
+                    remainderOnSource = { pcs: remainPcs, weight: remainWt, gross_weight: remainGross };
+                } else {
+                    await client.query(
+                        `UPDATE reseller_erp_stock_pieces SET
+                            status = 'split', merged_into_barcode = NULL, updated_at = NOW()
+                         WHERE id = $1`,
+                        [source.id],
+                    );
+                }
             }
+
+            const resultBarcodes = [
+                source.barcode,
+                ...created.map((p) => p.barcode),
+            ].filter(Boolean);
 
             await client.query(
                 `INSERT INTO reseller_erp_tag_operations (
@@ -329,7 +535,7 @@ function registerTagOpsRoutes(app, deps) {
                 [
                     req.user.id,
                     [source.barcode],
-                    newBarcodes,
+                    created.map((p) => p.barcode),
                     sourcePcs,
                     sourceWt,
                     totalSplitPcs,
@@ -343,11 +549,11 @@ function registerTagOpsRoutes(app, deps) {
             res.json({
                 success: true,
                 source_barcode: source.barcode,
-                remainder_on_source: remainPcs > 0
-                    ? { pcs: remainPcs, weight: remainWt, gross_weight: remainGross }
-                    : null,
-                removed_from_stock: remainPcs <= 0,
+                updated_source: updatedSource,
+                remainder_on_source: remainderOnSource,
+                removed_from_stock: !remainderOnSource && !useSuffix,
                 pieces: created,
+                result_barcodes: resultBarcodes,
             });
         } catch (e) {
             await client.query('ROLLBACK').catch(() => {});
