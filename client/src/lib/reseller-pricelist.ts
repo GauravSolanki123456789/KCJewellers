@@ -36,6 +36,13 @@ export type PricelistTreeCategory = {
   subcategories: PricelistSubcategory[]
 }
 
+export type PricelistImportBatch = {
+  id: string
+  source_filename: string
+  product_count: number
+  created_at: string
+}
+
 export type PricelistBootstrap = {
   enabled: boolean
   categoriesCount: number
@@ -108,15 +115,50 @@ export async function fetchPricelistTree(): Promise<PricelistTreeCategory[]> {
 export async function uploadPricelistExcelRows(
   categoryId: number,
   rows: Record<string, unknown>[],
+  sourceFilename?: string,
 ): Promise<{
   success: boolean
   batch_id?: string
+  source_filename?: string
   upserted?: number
   errors?: { row: number; error: string }[]
 }> {
   const { data } = await axios.post(
     `/api/reseller/pricelist/categories/${categoryId}/upload-excel`,
-    { rows },
+    { rows, sourceFilename },
+  )
+  return data
+}
+
+export async function fetchPricelistImportBatches(
+  categoryId: number,
+): Promise<PricelistImportBatch[]> {
+  const { data } = await axios.get<{ batches?: PricelistImportBatch[] }>(
+    `/api/reseller/pricelist/categories/${categoryId}/batches`,
+  )
+  return data.batches ?? []
+}
+
+export async function deletePricelistImportBatch(
+  categoryId: number,
+  batchId: string,
+): Promise<{ deletedProducts: number }> {
+  const { data } = await axios.delete<{ deletedProducts: number }>(
+    `/api/reseller/pricelist/categories/${categoryId}/batches/${batchId}`,
+  )
+  return data
+}
+
+export async function uploadPricelistProductPhoto(
+  productId: number,
+  file: File,
+): Promise<{ image_url: string; product_slug: string; suggested_filename: string }> {
+  const fd = new FormData()
+  fd.append('image', file)
+  const { data } = await axios.post(
+    `/api/reseller/pricelist/products/${productId}/photo`,
+    fd,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
   )
   return data
 }

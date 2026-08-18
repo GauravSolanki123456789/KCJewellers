@@ -168,6 +168,17 @@ async function ensurePricelistSchema(pool) {
         );
         CREATE INDEX IF NOT EXISTS idx_pricelist_shared_links_owner
             ON pricelist_shared_links (owner_user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS reseller_pricelist_import_batches (
+            id UUID PRIMARY KEY,
+            category_id INTEGER NOT NULL REFERENCES reseller_pricelist_categories(id) ON DELETE CASCADE,
+            owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            source_filename VARCHAR(512) NOT NULL DEFAULT 'Excel import',
+            product_count INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_reseller_pricelist_import_batches_cat
+            ON reseller_pricelist_import_batches (category_id, owner_user_id, created_at DESC);
     `);
 }
 
@@ -360,6 +371,60 @@ function createPricelistUploadMulter(uploadsDir) {
     ]);
 }
 
+function createPricelistSinglePhotoMulter(uploadsDir) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    return multer({
+        storage: multer.diskStorage({
+            destination: (req, file, cb) => cb(null, uploadsDir),
+            filename: (req, file, cb) => {
+                const raw =
+                    path.basename(String(file.originalname || '').trim()) ||
+                    `upload-${Date.now()}.webp`;
+                cb(null, raw);
+            },
+        }),
+        limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+    }).single('image');
+}
+
+async function listPricelistImportBatches(query, userId, categoryId) {
+    const rows = await query(
+        `SELECT b.id, b.source_filename, b.product_count, b.created_at,
+                (SELECT COUNT(*)::int FROM reseller_pricelist_products p
+                 WHERE p.batch_id = b.id AND p.owner_user_id = $2 AND p.is_active = true) AS live_product_count
+         FROM reseller_pricelist_import_batches b
+         WHERE b.category_id = $1 AND b.owner_user_id = $2
+         ORDER BY b.created_at DESC`,
+        [categoryId, userId],
+    );
+    const known = new Set(rows.map((r) => String(r.id)));
+    const orphanRows = await query(
+        `SELECT p.batch_id AS id,
+                'Excel import' AS source_filename,
+                COUNT(*)::int AS product_count,
+                MAX(p.created_at) AS created_at,
+                COUNT(*)::int AS live_product_count
+         FROM reseller_pricelist_products p
+         WHERE p.category_id = $1 AND p.owner_user_id = $2
+           AND p.batch_id IS NOT NULL
+           AND p.is_active = true
+         GROUP BY p.batch_id
+         HAVING COUNT(*) > 0`,
+        [categoryId, userId],
+    );
+    const merged = [...rows];
+    for (const row of orphanRows) {
+        if (!known.has(String(row.id))) merged.push(row);
+    }
+    merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return merged.map((r) => ({
+        id: String(r.id),
+        source_filename: r.source_filename || 'Excel import',
+        product_count: r.live_product_count ?? r.product_count ?? 0,
+        created_at: r.created_at,
+    }));
+}
+
 async function upsertSubcategory(query, categoryId, name) {
     const trimmed = String(name || '').trim().slice(0, 255);
     if (!trimmed) return null;
@@ -396,6 +461,7 @@ function registerResellerPricelistRoutes(app, deps) {
 
     const pricelistGate = requirePricelistGate(query);
     const PRICELIST_UPLOAD = createPricelistUploadMulter(uploadsPricelistDir);
+    const PRICELIST_SINGLE_PHOTO = createPricelistSinglePhotoMulter(uploadsPricelistDir);
 
     ensurePricelistSchema(pool).catch((e) => console.warn('pricelist schema:', e.message));
 
@@ -619,15 +685,141 @@ function registerResellerPricelistRoutes(app, deps) {
                     }
                 }
 
+                const sourceFilename = String(
+                    req.body?.sourceFilename || req.body?.source_filename || 'Excel import',
+                )
+                    .trim()
+                    .slice(0, 512);
+
+                if (upserted > 0) {
+                    await query(
+                        `INSERT INTO reseller_pricelist_import_batches (
+                            id, category_id, owner_user_id, source_filename, product_count
+                         ) VALUES ($1::uuid, $2, $3, $4, $5)
+                         ON CONFLICT (id) DO UPDATE SET
+                            source_filename = EXCLUDED.source_filename,
+                            product_count = EXCLUDED.product_count`,
+                        [batchId, category.id, req.user.id, sourceFilename || 'Excel import', upserted],
+                    );
+                }
+
                 res.json({
                     success: true,
                     batch_id: batchId,
+                    source_filename: sourceFilename || 'Excel import',
                     upserted,
                     errors: errors.length ? errors : undefined,
                 });
             } catch (e) {
                 console.error('pricelist upload-excel:', e);
                 res.status(e.status || 500).json({ error: e.message || 'Failed to import Excel rows' });
+            }
+        },
+    );
+
+    app.get(
+        '/api/reseller/pricelist/categories/:id/batches',
+        checkAuth,
+        pricelistGate,
+        async (req, res) => {
+            try {
+                const category = await getCategoryOrFail(query, req.user.id, req.params.id);
+                const batches = await listPricelistImportBatches(
+                    query,
+                    req.user.id,
+                    category.id,
+                );
+                res.json({ batches });
+            } catch (e) {
+                console.error('pricelist list batches:', e);
+                res.status(e.status || 500).json({ error: e.message || 'Failed to list imports' });
+            }
+        },
+    );
+
+    app.delete(
+        '/api/reseller/pricelist/categories/:id/batches/:batchId',
+        checkAuth,
+        pricelistGate,
+        async (req, res) => {
+            try {
+                const category = await getCategoryOrFail(query, req.user.id, req.params.id);
+                const batchId = String(req.params.batchId || '').trim();
+                if (!UUID_RE.test(batchId)) {
+                    return res.status(400).json({ error: 'Invalid batch id' });
+                }
+                const del = await query(
+                    `DELETE FROM reseller_pricelist_products
+                     WHERE owner_user_id = $1 AND category_id = $2 AND batch_id = $3::uuid
+                     RETURNING id`,
+                    [req.user.id, category.id, batchId],
+                );
+                await query(
+                    `DELETE FROM reseller_pricelist_import_batches
+                     WHERE id = $1::uuid AND category_id = $2 AND owner_user_id = $3`,
+                    [batchId, category.id, req.user.id],
+                );
+                res.json({ success: true, deletedProducts: del.length });
+            } catch (e) {
+                console.error('pricelist delete batch:', e);
+                res.status(e.status || 500).json({ error: e.message || 'Failed to delete import' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/pricelist/products/:productId/photo',
+        checkAuth,
+        pricelistGate,
+        PRICELIST_SINGLE_PHOTO,
+        async (req, res) => {
+            try {
+                const productId = parseInt(String(req.params.productId), 10);
+                if (!Number.isFinite(productId) || productId <= 0) {
+                    return res.status(400).json({ error: 'Invalid product id' });
+                }
+                const rows = await query(
+                    `SELECT * FROM reseller_pricelist_products
+                     WHERE id = $1 AND owner_user_id = $2 AND is_active = true LIMIT 1`,
+                    [productId, req.user.id],
+                );
+                if (!rows.length) {
+                    return res.status(404).json({ error: 'Product not found' });
+                }
+                const product = rows[0];
+                const file = req.file;
+                if (!file) {
+                    return res.status(400).json({ error: 'No image file received' });
+                }
+                const ext = path.extname(file.filename) || '.webp';
+                const target = `${product.product_slug}${ext}`;
+                const srcPath = path.join(uploadsPricelistDir, file.filename);
+                const destPath = path.join(uploadsPricelistDir, target);
+                if (file.filename !== target) {
+                    if (fs.existsSync(destPath)) {
+                        try {
+                            fs.unlinkSync(destPath);
+                        } catch (_) {
+                            /* ignore */
+                        }
+                    }
+                    fs.renameSync(srcPath, destPath);
+                }
+                const apiBase = getPublicApiBaseUrl();
+                const url = `${apiBase}/uploads/pricelist/${target}`;
+                await query(
+                    `UPDATE reseller_pricelist_products SET image_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                    [url, product.id],
+                );
+                res.json({
+                    success: true,
+                    image_url: url,
+                    product_slug: product.product_slug,
+                    suggested_filename: `${product.product_slug}${ext}`,
+                });
+            } catch (e) {
+                console.error('pricelist product photo:', e);
+                res.status(e.status || 500).json({ error: e.message || 'Failed to upload photo' });
             }
         },
     );
