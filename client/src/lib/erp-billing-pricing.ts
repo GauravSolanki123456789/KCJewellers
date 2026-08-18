@@ -52,6 +52,7 @@ export function buildSlabContext(
   wholesaleGold?: number | null,
   wholesaleSilver?: number | null,
   metalType?: string | null,
+  goldSlabRShowMc = true,
 ): SharedCatalogSlabContext {
   const kind = erpSlabToKind(slab)
   return {
@@ -60,6 +61,7 @@ export function buildSlabContext(
     allSettings: settings,
     wholesaleGoldRatePerG: wholesaleGold ?? null,
     wholesaleSilverRatePerG: wholesaleSilver ?? null,
+    goldSlabRUseMcPricing: goldSlabRShowMc !== false,
   }
 }
 
@@ -137,6 +139,7 @@ export function computeLineBreakdown(
   wholesaleSilver?: number | null,
   goldPerG = 0,
   silverPerG = 0,
+  goldSlabRShowMc = true,
 ) {
   const item = lineToItem(line)
   const ctx = buildSlabContext(
@@ -145,6 +148,7 @@ export function computeLineBreakdown(
     wholesaleGold,
     wholesaleSilver,
     line.metal_type,
+    goldSlabRShowMc,
   )
   const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
   return calculateBreakdownWithSlab(item, rates, 3, ctx)

@@ -31,9 +31,12 @@ export type ErpQuoteTotals = {
 export function enrichErpBillLinesForDisplay(
   bill: ErpBill,
   slabSettingsRaw?: unknown,
+  goldSlabRShowMc = true,
 ): ErpBillLine[] {
   const session = (bill.session || {}) as ErpBillSession
   const slab = (session.rateSlab || 'R') as ErpRateSlab
+  const mcMode =
+    session.goldSlabRShowMc != null ? session.goldSlabRShowMc !== false : goldSlabRShowMc !== false
   const slabSettings = parseSlabSettingsFromUser(slabSettingsRaw)
   const goldPerG = Number(session.goldPerG) || 0
   const silverPerG = Number(session.silverPerG) || 0
@@ -52,9 +55,10 @@ export function enrichErpBillLinesForDisplay(
       session.wholesaleSilver,
       goldPerG,
       silverPerG,
+      mcMode,
     )
     const next: ErpBillLine = { ...line, lineTotalInr: line.lineTotalInr ?? bd.total }
-    if (isGoldSlabRLine(line, slab)) {
+    if (isGoldSlabRLine(line, slab) && mcMode !== false) {
       next.displayWastagePct = 0
       next.displayMcInr = bd.mc > 0 ? bd.mc : null
       next.displayMcBeforeDiscount =
@@ -62,6 +66,11 @@ export function enrichErpBillLinesForDisplay(
           ? bd.mc_before_discount
           : null
       next.displayMcDiscountPct = bd.mc_discount_pct ?? null
+    } else if (isGoldSlabRLine(line, slab)) {
+      next.displayWastagePct = line.wastage_pct ?? bd.wastage_pct ?? null
+      next.displayMcInr = null
+      next.displayMcBeforeDiscount = null
+      next.displayMcDiscountPct = null
     }
     return next
   })

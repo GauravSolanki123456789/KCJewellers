@@ -615,10 +615,41 @@ export function ErpPrintFormatsWorkspace() {
       ) : (
         <>
           <ShopHeaderPanel pf={pf} setPf={setPf} />
+          <div className={erpCardCls}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Slab R gold — show MC on bills &amp; estimates
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                  When ON, gold items on rate slab R show making charges (MC ₹) with wastage bundled in — same as
+                  before. When OFF, slab R gold uses wastage % in the metal calculation like Slab W / Slab F. Save
+                  print formats after changing.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={pf.goldSlabRShowMc !== false}
+                className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition ${
+                  pf.goldSlabRShowMc !== false ? 'bg-emerald-700' : 'bg-[var(--color-slate-700,#d4cfc8)]'
+                }`}
+                onClick={() =>
+                  setPf((p) => ({ ...p, goldSlabRShowMc: p.goldSlabRShowMc === false ? true : false }))
+                }
+              >
+                <span
+                  className={`inline-block size-6 transform rounded-full bg-white shadow transition ${
+                    pf.goldSlabRShowMc !== false ? 'translate-x-7' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
           <p className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
             Epson estimates print in the legacy <strong>Rough Estimate</strong> layout (original + duplicate
-            copy): Weight, V.ADDN, Rate/Gm, MC (gold Slab R / silver), stone weight &amp; charges when
-            present, CGST/SGST split, and contact footer. Shop name and phone come from Shop header above.
+            copy): purity, gross/net weight, V.ADDN, rate, value, stone charges, MC or wastage (per setting above),
+            CGST/SGST split, and contact footer.
           </p>
           <div className={erpCardCls}>
             <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">

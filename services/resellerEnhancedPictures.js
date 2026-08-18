@@ -2525,6 +2525,40 @@ async function ensureDefaultIdolsPrompt(query, resellerUserId, adminId) {
     return inserted[0];
 }
 
+async function findSubmissionByExactStem(query, resellerUserId, stem) {
+    const keys = stemKeys(stem);
+    if (!keys.length) return null;
+    const rows = await query(
+        `SELECT id, barcode, web_product_sku, product_name, design_group, payload_json,
+                image_url, secondary_image_url, submission_status, batch_id,
+                mrp_rate_behind_box
+         FROM reseller_product_submissions
+         WHERE submitted_by_user_id = $1
+           AND submission_status IN ('draft', 'pending', 'approved')
+         ORDER BY
+           CASE submission_status WHEN 'draft' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+           updated_at DESC NULLS LAST,
+           created_at DESC
+         LIMIT 500`,
+        [resellerUserId],
+    );
+    for (const row of rows) {
+        const skuKeys = stemKeys(row.web_product_sku || '');
+        const bcKeys = stemKeys(row.barcode || '');
+        if (keys.some((k) => skuKeys.includes(k) || bcKeys.includes(k))) {
+            const payload =
+                row.payload_json && typeof row.payload_json === 'object' ? row.payload_json : {};
+            return {
+                ...row,
+                excel_has_mrp_behind_box_column:
+                    payload.excel_has_mrp_behind_box_column === true ||
+                    payload.excelHasMrpBehindBoxColumn === true,
+            };
+        }
+    }
+    return null;
+}
+
 async function findSubmissionByStem(query, resellerUserId, stem) {
     const keys = stemKeys(stem);
     if (!keys.length) return null;
@@ -2627,9 +2661,9 @@ async function attachGeneratedToProduct({
     resultMime,
     mrpRateBehindBox,
 }) {
-    const entry = await findSubmissionByStem(query, resellerUserId, stem);
+    const entry = await findSubmissionByExactStem(query, resellerUserId, stem);
     if (!entry) {
-        return { attached: false, reason: 'No matching draft/pending product for this barcode' };
+        return { attached: false, reason: 'No matching product SKU/barcode for this stem' };
     }
     const prodSku = normalizeStem(entry.web_product_sku || entry.barcode || stem);
     if (!prodSku) {
@@ -2694,6 +2728,21 @@ async function attachGeneratedToProduct({
             [url, entry.id],
         );
     }
+
+    if (entry.submission_status === 'approved' && entry.web_product_sku) {
+        if (urlField === 'image_url') {
+            await query(`UPDATE web_products SET image_url = $1 WHERE sku = $2`, [
+                url,
+                entry.web_product_sku,
+            ]);
+        } else if (urlField === 'secondary_image_url') {
+            await query(`UPDATE web_products SET secondary_image_url = $1 WHERE sku = $2`, [
+                url,
+                entry.web_product_sku,
+            ]);
+        }
+    }
+
     return {
         attached: true,
         submissionId: entry.id,

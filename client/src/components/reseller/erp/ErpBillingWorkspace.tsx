@@ -248,6 +248,7 @@ export function ErpBillingWorkspace() {
   const loadBillForEditRef = useRef<(id: number) => Promise<void>>(async () => {})
   const [workstation] = useErpWorkstationSelection()
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
+  const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
 
   const quoteOutputMode = useMemo(
     () => resolveQuoteOutputMode(workstation.quoteOutputMode, shopQuoteOutputMode),
@@ -264,12 +265,13 @@ export function ErpBillingWorkspace() {
   const recalcLine = useCallback(
     (
       line: ErpBillLine,
-      opts?: { slab?: ErpRateSlab; rates?: unknown; goldPerG?: number; silverPerG?: number },
+      opts?: { slab?: ErpRateSlab; rates?: unknown; goldPerG?: number; silverPerG?: number; goldSlabRShowMc?: boolean },
     ): ErpBillLine => {
       const slab = opts?.slab ?? rateSlab
       const rates = opts?.rates ?? displayRates
       const g = opts?.goldPerG ?? goldPerG
       const s = opts?.silverPerG ?? silverPerG
+      const mcMode = opts?.goldSlabRShowMc ?? goldSlabRShowMc
       const bd = computeLineBreakdown(
         line,
         rates,
@@ -279,11 +281,12 @@ export function ErpBillingWorkspace() {
         wholesaleSilver,
         g,
         s,
+        mcMode,
       )
       const next: ErpBillLine = { ...line, lineTotalInr: bd.total }
       const isGoldSlabR =
         slab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
-      if (isGoldSlabR) {
+      if (isGoldSlabR && mcMode !== false) {
         next.displayWastagePct = 0
         next.displayMcInr = bd.mc > 0 ? bd.mc : null
         next.displayMcBeforeDiscount =
@@ -291,6 +294,11 @@ export function ErpBillingWorkspace() {
             ? bd.mc_before_discount
             : null
         next.displayMcDiscountPct = bd.mc_discount_pct ?? null
+      } else if (isGoldSlabR) {
+        next.displayWastagePct = line.wastage_pct ?? bd.wastage_pct ?? null
+        next.displayMcInr = null
+        next.displayMcBeforeDiscount = null
+        next.displayMcDiscountPct = null
       } else {
         next.displayWastagePct = null
         next.displayMcInr = null
@@ -304,7 +312,7 @@ export function ErpBillingWorkspace() {
       }
       return next
     },
-    [displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG],
+    [displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, goldSlabRShowMc],
   )
 
   const transitionLinesForSlab = useCallback(
@@ -370,6 +378,7 @@ export function ErpBillingWorkspace() {
           res.data.settings?.printFormats as Parameters<typeof migratePrintFormats>[0],
         )
         setShopQuoteOutputMode(normalizeQuoteOutputMode(pf.defaultQuoteOutputMode))
+        setGoldSlabRShowMc(pf.goldSlabRShowMc !== false)
       })
       .catch(() => {})
   }, [loadDisplayRates])
@@ -447,8 +456,12 @@ export function ErpBillingWorkspace() {
       setCollectedAmountInr(
         session.collectedAmountInr != null ? String(session.collectedAmountInr) : '',
       )
+      if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
       const loadedLines = applyRatesUnfixed(bill.lines || [], session.ratesUnfixed)
-      const recalcedLines = loadedLines.map((l) => recalcLine(l, { slab: restoredSlab }))
+      const mcMode = session.goldSlabRShowMc === false ? false : goldSlabRShowMc
+      const recalcedLines = loadedLines.map((l) =>
+        recalcLine(l, { slab: restoredSlab, goldSlabRShowMc: mcMode }),
+      )
       setLines(recalcedLines)
       saveDraft({
         customerId: bill.customer_id ?? null,
@@ -743,7 +756,7 @@ export function ErpBillingWorkspace() {
     let net = 0
     let weight = 0
     for (const l of lines) {
-      const bd = computeLineBreakdown(l, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG)
+      const bd = computeLineBreakdown(l, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, goldSlabRShowMc)
       taxable += bd.taxable
       gst += (bd.cgst || 0) + (bd.sgst || 0)
       net += bd.total
@@ -823,6 +836,7 @@ export function ErpBillingWorkspace() {
       cashDiscountInr: discountSummary.cashDiscountInr,
       totalDiscountInr: discountSummary.totalDiscountInr,
       netTotalInr: totals.net,
+      goldSlabRShowMc,
     }),
     ...(editingBillId &&
     editingBillType === 'estimate' &&
@@ -985,11 +999,11 @@ export function ErpBillingWorkspace() {
       case 'purity':
         return line.purity ?? ''
       case 'wastage_pct':
-        return billingWastageDisplay(line, rateSlab)
+        return billingWastageDisplay(line, rateSlab, goldSlabRShowMc)
       case 'ratePerGram':
         return line.ratePerGram ?? ''
       case 'mc_rate':
-        return billingMcDisplay(line, rateSlab)
+        return billingMcDisplay(line, rateSlab, goldSlabRShowMc)
       case 'mc_type':
         return line.mc_type ?? ''
       case 'qty':
@@ -1498,7 +1512,7 @@ export function ErpBillingWorkspace() {
                           const goldSlabRField =
                             isGoldSlabRLine(line, rateSlab) &&
                             (k === 'wastage_pct' || k === 'mc_rate')
-                          const mcHint = k === 'mc_rate' ? billingMcDiscountHint(line, rateSlab) : null
+                          const mcHint = k === 'mc_rate' ? billingMcDiscountHint(line, rateSlab, goldSlabRShowMc) : null
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <input

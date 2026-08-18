@@ -416,6 +416,7 @@ function migratePrintFormats(raw) {
         pf.estimateTemplateSilver = DEFAULT_ESTIMATE_TEMPLATE_SILVER;
     }
     if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf';
+    if (pf.goldSlabRShowMc == null) pf.goldSlabRShowMc = true;
     return pf;
 }
 
@@ -632,8 +633,13 @@ function isSilverLine(line) {
     return String(line?.metal_type || '').toLowerCase().startsWith('silver');
 }
 
-function thermalWastageDisplay(line, rateSlab) {
-    if (isGoldSlabRLine(line, rateSlab)) return '0';
+function isGoldSlabRMcMode(line, rateSlab, printFormats) {
+    const pf = migratePrintFormats(printFormats);
+    return isGoldSlabRLine(line, rateSlab) && pf.goldSlabRShowMc !== false;
+}
+
+function thermalWastageDisplay(line, rateSlab, printFormats) {
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) return '0';
     if (line.displayWastagePct != null && line.displayWastagePct !== '') {
         return String(line.displayWastagePct);
     }
@@ -641,8 +647,8 @@ function thermalWastageDisplay(line, rateSlab) {
     return '';
 }
 
-function thermalMcDisplay(line, rateSlab) {
-    if (isGoldSlabRLine(line, rateSlab) && line.displayMcInr != null && Number(line.displayMcInr) > 0) {
+function thermalMcDisplay(line, rateSlab, printFormats) {
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats) && line.displayMcInr != null && Number(line.displayMcInr) > 0) {
         return String(Math.round(Number(line.displayMcInr)));
     }
     if (line.mc_rate != null && line.mc_rate !== '') return String(line.mc_rate);
@@ -701,7 +707,7 @@ function formatBillDate(raw) {
     return s.length > 40 ? s.slice(0, 40) : s;
 }
 
-function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R') {
+function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R', printFormats = null) {
     const slab = String(rateSlab || 'R').toUpperCase();
     const out = [];
     let idx = 0;
@@ -716,9 +722,9 @@ function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R') {
         const size = thermalClip(line.size, 14);
         const wt = thermalFmtNum(line.weightGm ?? line.net_weight, 1);
         const pur = line.purity != null && line.purity !== '' ? String(line.purity) : '';
-        const wast = thermalWastageDisplay(line, slab);
+        const wast = thermalWastageDisplay(line, slab, printFormats);
         const rate = thermalRateDisplay(line);
-        const mc = thermalMcDisplay(line, slab);
+        const mc = thermalMcDisplay(line, slab, printFormats);
         const mcType = thermalClip(line.mc_type, 10);
         const pcs = line.qty != null ? String(line.qty) : '1';
         const box =
@@ -777,8 +783,11 @@ function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R') {
 }
 
 function buildBillTemplateVars(bill, printFormats, rates) {
-    const pf = printFormats || {};
+    const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    if (session.goldSlabRShowMc === false) {
+        pf.goldSlabRShowMc = false;
+    }
     const advance = Number(session.advancePaidInr ?? session.advance_paid ?? 0) || 0;
     const total = Number(bill.total_inr) || 0;
     const collected = Number(session.collectedAmountInr);
@@ -805,7 +814,7 @@ function buildBillTemplateVars(bill, printFormats, rates) {
         customer_address: bill.customer_address || session.address || session.customerAddress || '',
         customer_gst: bill.customer_gst || session.customerGst || '',
         rate_slab: rateSlab,
-        lines_table: buildLinesTable(bill.lines || [], 48, rateSlab),
+        lines_table: buildLinesTable(bill.lines || [], 48, rateSlab, pf),
         item_count: String((bill.lines || []).length),
         subtotal: String(Math.round(total)),
         total: String(Math.round(total)),
@@ -895,8 +904,8 @@ function formatRoughDateTime(raw) {
     return `${dd}-${mm}-${yy}  ${String(h).padStart(2, '0')}:${min} ${ampm}`;
 }
 
-function roughVAddnGrams(line, rateSlab) {
-    if (isGoldSlabRLine(line, rateSlab)) return '0.000';
+function roughVAddnGrams(line, rateSlab, printFormats) {
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) return '0.000';
     const wt = Number(line.weightGm ?? line.net_weight) || 0;
     const wastPct = Number(line.displayWastagePct ?? line.wastage_pct) || 0;
     if (wt <= 0 || wastPct <= 0) return '0.000';
@@ -920,16 +929,16 @@ function roughRateForLine(line, rates) {
     return '';
 }
 
-function shouldShowRoughMcLine(line, rateSlab) {
-    if (isGoldSlabRLine(line, rateSlab)) return true;
+function shouldShowRoughMcLine(line, rateSlab, printFormats) {
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) return true;
     return isSilverLine(line);
 }
 
-function roughMcForLine(line, rateSlab) {
-    if (!shouldShowRoughMcLine(line, rateSlab)) return '';
-    const mc = thermalMcDisplay(line, rateSlab);
+function roughMcForLine(line, rateSlab, printFormats) {
+    if (!shouldShowRoughMcLine(line, rateSlab, printFormats)) return '';
+    const mc = thermalMcDisplay(line, rateSlab, printFormats);
     if (!mc || Number(mc) === 0) return '';
-    if (isGoldSlabRLine(line, rateSlab)) return String(Math.round(Number(mc)));
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) return String(Math.round(Number(mc)));
     const n = Number(mc);
     return Number.isFinite(n) ? (Number.isInteger(n) ? String(n) : n.toFixed(2)) : mc;
 }
@@ -948,7 +957,7 @@ function splitRoughGst(taxable) {
     return { taxable: base, cgst, sgst, gross };
 }
 
-function buildRoughEstimateItemSection(line, rateSlab, billDate, rates) {
+function buildRoughEstimateItemSection(line, rateSlab, billDate, rates, printFormats) {
     const out = [];
     const dt = formatRoughDateTime(billDate);
     const ornament = isSilverLine(line) ? 'Silver Ornaments' : 'Gold Ornaments';
@@ -968,7 +977,7 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates) {
         out.push(roughField('Stone Wt', `${stoneWt.toFixed(3)} gms`));
     }
     out.push(roughField('Net Wt', `${netWt.toFixed(3)} gms`));
-    out.push(roughField('V.ADDN', roughVAddnGrams(line, rateSlab)));
+    out.push(roughField('V.ADDN', roughVAddnGrams(line, rateSlab, printFormats)));
     const rate = roughRateForLine(line, rates);
     if (rate) {
         out.push(roughField('Rate', rate));
@@ -982,7 +991,7 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates) {
     if (Number.isFinite(stoneCh) && stoneCh > 0) {
         out.push(roughField('Stone Chrg', stoneCh.toFixed(2)));
     }
-    const mc = roughMcForLine(line, rateSlab);
+    const mc = roughMcForLine(line, rateSlab, printFormats);
     if (mc) out.push(roughField('MC', mc));
     const taxable = lineTaxableFromTotal(line.lineTotalInr);
     out.push(roughField('Total', taxable.toFixed(2)));
@@ -992,6 +1001,9 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates) {
 function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
     const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    if (session.goldSlabRShowMc === false) {
+        pf.goldSlabRShowMc = false;
+    }
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
     const shopName = String(pf.shopName || bill.shop_name || 'B N MARLECHA SILVER')
         .trim()
@@ -1017,7 +1029,7 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
     const items = bill.lines || [];
     let sumTaxable = 0;
     for (let i = 0; i < items.length; i += 1) {
-        const block = buildRoughEstimateItemSection(items[i], rateSlab, billDate, rates);
+        const block = buildRoughEstimateItemSection(items[i], rateSlab, billDate, rates, pf);
         out.push(...block.lines);
         sumTaxable += block.taxable;
         if (i < items.length - 1) out.push('');

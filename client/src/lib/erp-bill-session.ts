@@ -33,6 +33,8 @@ export type ErpBillSession = {
   totalDiscountInr?: number
   /** @deprecated use totalDiscountInr */
   billingDiscountInr?: number
+  /** Slab R gold: MC pricing mode when saved (see printFormats.goldSlabRShowMc). */
+  goldSlabRShowMc?: boolean
 }
 
 export function buildErpBillSession(input: {
@@ -53,6 +55,7 @@ export function buildErpBillSession(input: {
   cashDiscountInr?: number | null
   totalDiscountInr?: number | null
   netTotalInr?: number
+  goldSlabRShowMc?: boolean
 }): ErpBillSession {
   const ratesUnfixed =
     input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
@@ -94,6 +97,7 @@ export function buildErpBillSession(input: {
       collected != null && cashDiscount !== 0 ? cashDiscount : undefined,
     totalDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
     billingDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
+    goldSlabRShowMc: input.goldSlabRShowMc === false ? false : undefined,
   }
 }
 

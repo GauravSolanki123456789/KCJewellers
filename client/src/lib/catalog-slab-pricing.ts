@@ -55,6 +55,8 @@ export type SharedCatalogSlabContext = {
   /** User-entered wholesale ₹/g (SLABW / SLABF) — fine metal rate before purity factor. */
   wholesaleGoldRatePerG?: number | null
   wholesaleSilverRatePerG?: number | null
+  /** Slab R gold: bundle wastage into MC (true, default). False = wastage % in metal like Slab W/F. */
+  goldSlabRUseMcPricing?: boolean
 }
 
 function clampPct(n: unknown, lo = 0, hi = 100): number {
@@ -396,7 +398,7 @@ export function calculateBreakdownWithSlab(
   let wastageAmount: number | undefined
   let mcBeforeDiscount: number | undefined
 
-  if (isGold && kind === 'slab_r') {
+  if (isGold && kind === 'slab_r' && slab.goldSlabRUseMcPricing !== false) {
     const effectiveWastage = effectiveGoldWastagePct(item, wastageDiscPts)
     metalPart = Math.floor(netWt * metalRate)
     const wastageAsMc = Math.floor((netWt * metalRate * effectiveWastage) / 100)

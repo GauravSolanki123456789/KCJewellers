@@ -522,16 +522,7 @@ export function ErpTagSplitWorkspace({ rfidEnabled = false }: { rfidEnabled?: bo
                   </div>
                 </div>
 
-                <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                  First line stays on <span className="font-semibold">{source.barcode}</span>; extra lines become{' '}
-                  {previewSplitBarcode(source.barcode, 1)}, {previewSplitBarcode(source.barcode, 2)}, …
-                </p>
-
-                {splitLines.length === 0 ? (
-                  <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
-                    Add one or more splits — remaining pcs &amp; weight auto-calculate below.
-                  </p>
-                ) : (
+                {splitLines.length === 0 ? null : (
                   <div className="space-y-3">
                     {splitLines.map((line, idx) => (
                       <div

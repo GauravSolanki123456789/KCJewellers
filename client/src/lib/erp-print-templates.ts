@@ -268,6 +268,8 @@ export type ErpPrintFormatsSettings = {
   estimateTemplateSilver?: string
   /** Shop-wide default when staff clicks Generate quote (workstation can override). */
   defaultQuoteOutputMode?: 'pdf' | 'epson' | 'both'
+  /** Slab R gold: show MC ₹ on bills/estimates (default). When false, show wastage % like Slab W/F. */
+  goldSlabRShowMc?: boolean
   shopName?: string
   shopAddress?: string
   shopPhone?: string
@@ -430,6 +432,7 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   }
   if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf'
   if (pf.labelUsePrn == null) pf.labelUsePrn = true
+  if (pf.goldSlabRShowMc == null) pf.goldSlabRShowMc = true
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
 }
