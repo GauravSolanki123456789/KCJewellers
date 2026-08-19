@@ -74,11 +74,24 @@ function draftToPrintOverride(
   field: StockEditableField,
   weight: number,
 ): PrintLabelPieceOverride {
+  const nextValues = { ...row.values }
+  if (field === 'gross_weight') nextValues.gross_weight = weight.toFixed(3)
+  else if (field === 'avg_weight') nextValues.avg_weight = weight.toFixed(3)
+  else if (field === 'chain_wt_only') nextValues.chain_wt_only = weight.toFixed(3)
+  else if (field === 'pendant_wt_only') nextValues.pendant_wt_only = weight.toFixed(3)
+  else if (field === 'earring_wt_only') nextValues.earring_wt_only = weight.toFixed(3)
+
   const base = overrideForWeightField(field, weight)
   const ov: PrintLabelPieceOverride = { ...base }
-  const gross = parseDraftNumber(row.values.gross_weight)
+  const net = computeNetWeightFromValues(nextValues)
+  if (net != null) {
+    ov.avg_weight = Number(net)
+  } else if (field === 'avg_weight') {
+    ov.avg_weight = weight
+  }
+  const gross = parseDraftNumber(nextValues.gross_weight)
   if (gross != null) ov.gross_weight = gross
-  const bagWt = parseDraftNumber(row.values.bag_wt)
+  const bagWt = parseDraftNumber(nextValues.bag_wt)
   if (bagWt != null) ov.bag_wt = bagWt
   const stone = parseDraftNumber(row.values.stone_charges)
   if (stone != null) ov.stone_charges = stone

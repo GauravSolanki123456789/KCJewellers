@@ -2,6 +2,7 @@ import type { ResellerSlabSettings, ResellerSlabTierSettings } from '@/lib/catal
 
 export type SlabTierForm = {
   mc_discount_pct: string
+  mc_gm_discount_pct: string
   gift_discount_pct: string
   silver_rate_offset_per_g: string
   gold_rate_offset_per_g: string
@@ -20,6 +21,7 @@ export type ResellerSlabFormState = {
 
 export const emptySlabTierForm = (): SlabTierForm => ({
   mc_discount_pct: '0',
+  mc_gm_discount_pct: '0',
   gift_discount_pct: '0',
   silver_rate_offset_per_g: '0',
   gold_rate_offset_per_g: '0',
@@ -39,6 +41,7 @@ export const emptyResellerSlabForm = (): ResellerSlabFormState => ({
 export function slabTierFormFromSettings(t?: ResellerSlabTierSettings): SlabTierForm {
   return {
     mc_discount_pct: String(t?.mc_discount_pct ?? 0),
+    mc_gm_discount_pct: String(t?.mc_gm_discount_pct ?? 0),
     gift_discount_pct: String(t?.gift_discount_pct ?? 0),
     silver_rate_offset_per_g: String(t?.silver_rate_offset_per_g ?? 0),
     gold_rate_offset_per_g: String(t?.gold_rate_offset_per_g ?? 0),
@@ -62,6 +65,7 @@ export function resellerSlabFormFromSettings(settings?: ResellerSlabSettings | n
 function tierFromForm(t: SlabTierForm): ResellerSlabTierSettings {
   return {
     mc_discount_pct: Math.max(0, Math.min(100, Number(t.mc_discount_pct) || 0)),
+    mc_gm_discount_pct: Math.max(0, Math.min(100, Number(t.mc_gm_discount_pct) || 0)),
     gift_discount_pct: Math.max(0, Math.min(100, Number(t.gift_discount_pct) || 0)),
     silver_rate_offset_per_g: Math.max(0, Number(t.silver_rate_offset_per_g) || 0),
     gold_rate_offset_per_g: Math.max(0, Number(t.gold_rate_offset_per_g) || 0),

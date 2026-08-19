@@ -7055,6 +7055,7 @@ function parseResellerSlabSettingsServer(raw) {
         if (!t || typeof t !== 'object') return undefined;
         const row = {
             mc_discount_pct: clampSlabPct(t.mc_discount_pct),
+            mc_gm_discount_pct: clampSlabPct(t.mc_gm_discount_pct),
             silver_rate_offset_per_g: Math.max(0, Number(t.silver_rate_offset_per_g) || 0),
             gold_rate_offset_per_g: Math.max(0, Number(t.gold_rate_offset_per_g) || 0),
             wastage_discount_pct: clampSlabPct(t.wastage_discount_pct),

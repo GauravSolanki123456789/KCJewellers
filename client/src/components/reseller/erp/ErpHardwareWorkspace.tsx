@@ -115,8 +115,30 @@ export function ErpHardwareWorkspace() {
   const [rfidLookupResult, setRfidLookupResult] = useState<{
     found: boolean
     piece: ErpStockPiece | null
-    rfid_tag?: string
+    lookup_by?: 'rfid' | 'barcode' | null
+    rfid_tag?: string | null
+    barcode?: string | null
+    query?: string
   } | null>(null)
+  const runRfidLookup = useCallback((raw: string) => {
+    const q = raw.trim()
+    if (!q) return
+    setRfidLookupBusy(true)
+    void axios
+      .get<{
+        found: boolean
+        piece: ErpStockPiece | null
+        lookup_by?: 'rfid' | 'barcode' | null
+        rfid_tag?: string | null
+        barcode?: string | null
+        query?: string
+      }>('/api/reseller/erp/rfid/lookup', { params: { q } })
+      .then((res) => setRfidLookupResult(res.data))
+      .catch(() =>
+        setRfidLookupResult({ found: false, piece: null, lookup_by: null, query: q, barcode: q, rfid_tag: null }),
+      )
+      .finally(() => setRfidLookupBusy(false))
+  }, [])
   const [epsonTestBusy, setEpsonTestBusy] = useState(false)
 
   useEffect(() => {
@@ -327,68 +349,66 @@ export function ErpHardwareWorkspace() {
 
           <div className="mt-5 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
             <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">RFID tag lookup</p>
-            <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Scan or type an RFID tag to see which barcode and product it is linked to.
+            <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
+              Scan or type an RFID tag <span className="font-medium">or product barcode</span> to see linked stock details.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 className={erpInputCls}
-                placeholder="Scan RFID tag e.g. B0297"
+                placeholder="RFID tag e.g. B1238 or barcode e.g. FS001"
                 value={rfidLookup}
                 onChange={(e) => setRfidLookup(e.target.value.toUpperCase())}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && rfidLookup.trim()) {
-                    setRfidLookupBusy(true)
-                    void axios
-                      .get<{ found: boolean; piece: ErpStockPiece | null; rfid_tag?: string }>(
-                        '/api/reseller/erp/rfid/lookup',
-                        { params: { tag: rfidLookup.trim() } },
-                      )
-                      .then((res) => setRfidLookupResult(res.data))
-                      .catch((err) => setRfidLookupResult({ found: false, piece: null, rfid_tag: rfidLookup.trim() }))
-                      .finally(() => setRfidLookupBusy(false))
-                  }
+                  if (e.key === 'Enter' && rfidLookup.trim()) runRfidLookup(rfidLookup)
                 }}
               />
               <button
                 type="button"
                 className={erpBtnPrimary}
                 disabled={rfidLookupBusy || !rfidLookup.trim()}
-                onClick={() => {
-                  setRfidLookupBusy(true)
-                  void axios
-                    .get<{ found: boolean; piece: ErpStockPiece | null; rfid_tag?: string }>(
-                      '/api/reseller/erp/rfid/lookup',
-                      { params: { tag: rfidLookup.trim() } },
-                    )
-                    .then((res) => setRfidLookupResult(res.data))
-                    .catch(() => setRfidLookupResult({ found: false, piece: null, rfid_tag: rfidLookup.trim() }))
-                    .finally(() => setRfidLookupBusy(false))
-                }}
+                onClick={() => runRfidLookup(rfidLookup)}
               >
                 {rfidLookupBusy ? <Loader2 className="size-4 animate-spin" /> : 'Lookup'}
               </button>
             </div>
             {rfidLookupResult ? (
               <div
-                className={`mt-3 rounded-xl border px-3 py-2.5 text-sm ${
+                className={`mt-3 rounded-xl border px-3 py-3 text-sm ${
                   rfidLookupResult.found && rfidLookupResult.piece
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
-                    : 'border-amber-200 bg-amber-50 text-amber-950'
+                    ? 'border-emerald-300 bg-white shadow-sm'
+                    : 'border-amber-300 bg-amber-50'
                 }`}
               >
                 {!rfidLookupResult.found || !rfidLookupResult.piece ? (
-                  <p>No in-stock piece linked to RFID {rfidLookupResult.rfid_tag || rfidLookup}.</p>
+                  <p className="text-[var(--color-jewelry-black,#1a1814)]">
+                    No in-stock piece found for{' '}
+                    <span className="font-mono font-semibold">
+                      {rfidLookupResult.query || rfidLookupResult.barcode || rfidLookup}
+                    </span>
+                    .
+                  </p>
                 ) : (
-                  <div className="space-y-1">
-                    <p className="font-bold">{rfidLookupResult.piece.barcode}</p>
-                    <p>{rfidLookupResult.piece.product_name || rfidLookupResult.piece.item_code || '—'}</p>
-                    <p className="text-xs opacity-80">
+                  <div className="space-y-1.5 text-[var(--color-jewelry-black,#1a1814)]">
+                    <p className="font-mono text-base font-bold tracking-wide">{rfidLookupResult.piece.barcode}</p>
+                    <p className="text-sm font-semibold">
+                      {rfidLookupResult.piece.product_name || rfidLookupResult.piece.item_code || '—'}
+                    </p>
+                    <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/75">
                       {rfidLookupResult.piece.avg_weight ?? '—'}g · {rfidLookupResult.piece.purity ?? '—'} purity ·{' '}
                       {rfidLookupResult.piece.metal_type || '—'} · {rfidLookupResult.piece.status}
                     </p>
                     {rfidLookupResult.piece.sku ? (
-                      <p className="text-xs opacity-70">SKU {rfidLookupResult.piece.sku}</p>
+                      <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/70">
+                        SKU {rfidLookupResult.piece.sku}
+                        {rfidLookupResult.piece.style_code ? ` · ${rfidLookupResult.piece.style_code}` : ''}
+                      </p>
+                    ) : null}
+                    {rfidLookupResult.piece.rfid_tag ? (
+                      <p className="text-xs font-mono font-semibold text-emerald-800">
+                        RFID {rfidLookupResult.piece.rfid_tag}
+                      </p>
+                    ) : rfidLookupResult.lookup_by === 'barcode' ? (
+                      <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">No RFID tag linked yet.</p>
                     ) : null}
                   </div>
                 )}

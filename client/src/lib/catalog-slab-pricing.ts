@@ -24,7 +24,10 @@ import {
 export type CatalogSlabKind = 'standard' | 'slab_r' | 'slab_w' | 'slab_f'
 
 export type ResellerSlabTierSettings = {
+  /** MC/PC — % off making charges when mc_type is per-piece. */
   mc_discount_pct?: number
+  /** MC/GM — % off making charges when mc_type is per-gram (silver etc.). */
+  mc_gm_discount_pct?: number
   /** SLABR — subtract from live 999 silver ₹/g (e.g. 5 → rate 240 when live is 245). */
   silver_rate_offset_per_g?: number
   /** SLABR gold — subtract from live gold ₹/g for gold jewellery. */
@@ -111,6 +114,7 @@ export function parseResellerSlabSettings(raw: unknown): ResellerSlabSettings {
     const row = t as Record<string, unknown>
     return {
       mc_discount_pct: clampPct(row.mc_discount_pct, 0, 100),
+      mc_gm_discount_pct: clampPct(row.mc_gm_discount_pct, 0, 100),
       silver_rate_offset_per_g: Math.max(0, Number(row.silver_rate_offset_per_g) || 0),
       gold_rate_offset_per_g: Math.max(0, Number(row.gold_rate_offset_per_g) || 0),
       wastage_discount_pct: clampPct(row.wastage_discount_pct, 0, 100),
@@ -210,7 +214,7 @@ export function formatSlabDiscountLines(
     ? tierSettingsForSlab(slab.allSettings, slab.kind, item.metal_type)
     : (slab.settings ?? {})
   const lines: string[] = []
-  const mc = clampPct(s.mc_discount_pct, 0, 100)
+  const mc = resolveMcDiscountPct(item, s)
   const wastageDisc = clampPct(s.wastage_discount_pct, 0, 100)
   const giftDisc = clampPct(s.gift_discount_pct, 0, 100)
 
@@ -219,7 +223,13 @@ export function formatSlabDiscountLines(
     return lines
   }
 
-  if (mc > 0) lines.push(`Making charges ${Math.round(mc)}% off`)
+  if (mc > 0) {
+    lines.push(
+      isMcPerPiece(item.mc_type)
+        ? `MC/PC ${Math.round(mc)}% off`
+        : `MC/GM ${Math.round(mc)}% off`,
+    )
+  }
   const metal = String(item.metal_type || '').toLowerCase()
   const isGold = metal.startsWith('gold')
   if (wastageDisc > 0 && isGold && !isFixedPriceCatalogItem(item)) {
@@ -262,6 +272,17 @@ export function formatSlabDiscountLines(
     lines.push(`Gift / MRP ${Math.round(giftDisc)}% off`)
   }
   return lines
+}
+
+function resolveMcDiscountPct(item: Item, settings: ResellerSlabTierSettings): number {
+  if (isMcPerPiece(item.mc_type)) {
+    return clampPct(settings.mc_discount_pct, 0, 100)
+  }
+  const gm = settings.mc_gm_discount_pct
+  if (gm != null && Number.isFinite(Number(gm))) {
+    return clampPct(gm, 0, 100)
+  }
+  return clampPct(settings.mc_discount_pct, 0, 100)
 }
 
 function mcPart(item: Item, mcDiscountPct: number): number {
@@ -352,7 +373,7 @@ export function calculateBreakdownWithSlab(
     ? tierSettingsForSlab(slab.allSettings, kind, item.metal_type)
     : (slab.settings ?? {})
   const effectiveSlab: SharedCatalogSlabContext = { ...slab, settings }
-  const mcDisc = clampPct(settings.mc_discount_pct, 0, 100)
+  const mcDisc = resolveMcDiscountPct(item, settings)
   const giftDisc = clampPct(settings.gift_discount_pct, 0, 100)
   const finish = (b: PriceBreakdown) => applySlabMarginToBreakdown(b, settings.margin_pct)
 

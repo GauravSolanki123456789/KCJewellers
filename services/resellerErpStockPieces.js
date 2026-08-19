@@ -157,29 +157,96 @@ function componentWeightsFromPayload(payload) {
     };
 }
 
+function trimCatalogKey(v, max = 255) {
+    if (v == null || v === '') return null;
+    const s = String(v).trim().slice(0, max);
+    return s || null;
+}
+
+function normalizeItemCodeBase(itemCode, productName) {
+    const raw = String(itemCode || productName || 'ITEM')
+        .replace(/\s+/g, '')
+        .toUpperCase();
+    return raw.slice(0, 32) || 'ITEM';
+}
+
+function randomFiveDigitSuffix() {
+    return String(Math.floor(10000 + Math.random() * 90000));
+}
+
+async function generateUniqueStockBarcode(query, resellerUserId, itemCode, productName, usedInBatch) {
+    const base = normalizeItemCodeBase(itemCode, productName);
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const bc = `${base}-${randomFiveDigitSuffix()}`;
+        if (usedInBatch.has(bc)) continue;
+        const existing = await query(
+            `SELECT 1 FROM reseller_erp_stock_pieces
+             WHERE reseller_user_id = $1 AND barcode = $2 LIMIT 1`,
+            [resellerUserId, bc],
+        );
+        if (!existing.length) {
+            usedInBatch.add(bc);
+            return bc;
+        }
+    }
+    throw new Error(`Could not generate unique barcode for ${base}`);
+}
+
+function applyNetWeightToPiece(p) {
+    if (!p || p.avg_weight != null) return p;
+    const gross = p.gross_weight;
+    if (gross == null || !Number.isFinite(Number(gross))) return p;
+    const stone = Number(p.stone_wt) || 0;
+    const bag = Number(p.bag_wt) || 0;
+    const net = Number(gross) - bag - stone;
+    if (Number.isFinite(net) && net >= 0) {
+        p.avg_weight = Math.round(net * 1000) / 1000;
+    }
+    return p;
+}
+
+/** Match catalogue photos by barcode, then metal → SKU → style → item code (design_group). */
 async function lookupCatalogImageUrl(query, keys) {
-    const name = keys?.product_name ? String(keys.product_name).trim().slice(0, 255) : null;
-    const sku = keys?.sku ? String(keys.sku).trim().slice(0, 128) : null;
-    const item = keys?.item_code ? String(keys.item_code).trim().slice(0, 128) : null;
-    if (!name && !sku && !item) return null;
+    const barcode = trimCatalogKey(keys?.barcode, 128);
+    const sku = trimCatalogKey(keys?.sku, 128);
+    const styleCode = trimCatalogKey(keys?.style_code, 128);
+    const itemCode = trimCatalogKey(keys?.item_code, 128);
+    const metalType = trimCatalogKey(keys?.metal_type, 64);
+    if (!barcode && !sku && !styleCode && !itemCode) return null;
+
     const rows = await query(
-        `SELECT image_url FROM web_products wp
+        `SELECT wp.image_url FROM web_products wp
+         JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+         JOIN web_categories wc ON wc.id = ws.category_id
          WHERE (wp.is_active IS NULL OR wp.is_active = true)
            AND wp.image_url IS NOT NULL AND TRIM(wp.image_url) <> ''
            AND (
-             ($1::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($1))
-             OR ($2::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2))
-             OR ($3::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($3))
+             ($1::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.barcode, ''))) = LOWER($1))
+             OR (
+               $4::text IS NOT NULL
+               AND LOWER(TRIM(COALESCE(wp.design_group, ''))) = LOWER($4)
+               AND ($2::text IS NULL OR LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2)
+                 OR LOWER(TRIM(COALESCE(ws.slug, ''))) = LOWER($2)
+                 OR LOWER(TRIM(COALESCE(ws.name, ''))) = LOWER($2))
+               AND ($3::text IS NULL OR LOWER(TRIM(COALESCE(ws.name, ''))) = LOWER($3)
+                 OR LOWER(TRIM(COALESCE(ws.slug, ''))) = LOWER($3))
+               AND ($5::text IS NULL OR LOWER(TRIM(COALESCE(wp.metal_type, wc.name, ''))) LIKE LOWER($5) || '%'
+                 OR LOWER(TRIM(COALESCE(wc.slug, ''))) LIKE '%' || LOWER($5) || '%'
+                 OR LOWER(TRIM(COALESCE(wc.name, ''))) LIKE '%' || LOWER($5) || '%')
+             )
+             OR ($4::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.design_group, ''))) = LOWER($4))
            )
          ORDER BY
            CASE
-             WHEN $1::text IS NOT NULL AND LOWER(TRIM(wp.name)) = LOWER($1) THEN 0
-             WHEN $2::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2) THEN 1
-             ELSE 2
+             WHEN $1::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.barcode, ''))) = LOWER($1) THEN 0
+             WHEN $4::text IS NOT NULL AND $2::text IS NOT NULL AND $3::text IS NOT NULL THEN 1
+             WHEN $4::text IS NOT NULL AND $2::text IS NOT NULL THEN 2
+             WHEN $4::text IS NOT NULL THEN 3
+             ELSE 4
            END,
            wp.updated_at DESC NULLS LAST
          LIMIT 1`,
-        [name, sku, item],
+        [barcode, sku, styleCode, itemCode, metalType],
     );
     return rows[0]?.image_url || null;
 }
@@ -668,11 +735,20 @@ function registerStockPieceRoutes(app, deps) {
             if (rawRows.length > 2000) return res.status(400).json({ error: 'Max 2000 rows per upload' });
 
             const pieces = [];
+            const usedBarcodes = new Set();
             for (const row of rawRows) {
-                const p = parseExcelRowToPiece(row);
+                const p = applyNetWeightToPiece(parseExcelRowToPiece(row));
                 if (!p) continue;
                 if (!p.barcode) {
-                    p.barcode = `${(p.item_code || p.product_name || 'ITEM').replace(/\s+/g, '').toUpperCase()}-${Date.now()}-${pieces.length}`;
+                    p.barcode = await generateUniqueStockBarcode(
+                        query,
+                        req.user.id,
+                        p.item_code,
+                        p.product_name,
+                        usedBarcodes,
+                    );
+                } else {
+                    usedBarcodes.add(String(p.barcode).trim());
                 }
                 pieces.push(p);
             }
@@ -697,9 +773,11 @@ function registerStockPieceRoutes(app, deps) {
                 if (!p.image_url) {
                     try {
                         const url = await lookupCatalogImageUrl(query, {
-                            product_name: p.product_name,
+                            barcode: p.barcode,
                             sku: p.sku,
+                            style_code: p.style_code,
                             item_code: p.item_code,
+                            metal_type: p.metal_type,
                         });
                         if (url) p.image_url = url;
                     } catch {
@@ -834,6 +912,30 @@ function registerStockPieceRoutes(app, deps) {
             for (const r of rows) {
                 const id = parseInt(String(r.id), 10);
                 if (!Number.isFinite(id) || id <= 0) continue;
+                let avgWeight = r.avg_weight != null ? Number(r.avg_weight) : null;
+                if (avgWeight == null && r.gross_weight != null) {
+                    const gross = Number(r.gross_weight);
+                    const bag = Number(r.bag_wt) || 0;
+                    const stone = Number(r.stone_wt) || 0;
+                    const net = gross - bag - stone;
+                    if (Number.isFinite(net) && net >= 0) {
+                        avgWeight = Math.round(net * 1000) / 1000;
+                    }
+                }
+                let imageUrl = r.image_url ?? null;
+                if (!imageUrl) {
+                    try {
+                        imageUrl = await lookupCatalogImageUrl(query, {
+                            barcode: r.barcode,
+                            sku: r.sku,
+                            style_code: r.style_code,
+                            item_code: r.item_code,
+                            metal_type: r.metal_type,
+                        });
+                    } catch {
+                        /* best-effort */
+                    }
+                }
                 await query(
                     `UPDATE reseller_erp_stock_pieces SET
                         barcode = COALESCE($1, barcode),
@@ -853,7 +955,7 @@ function registerStockPieceRoutes(app, deps) {
                         r.style_code ?? null,
                         r.product_name ?? null,
                         r.size ?? null,
-                        r.avg_weight != null ? Number(r.avg_weight) : null,
+                        avgWeight,
                         r.purity != null ? Number(r.purity) : null,
                         r.wastage_pct != null ? Number(r.wastage_pct) : null,
                         r.mc_rate != null ? Number(r.mc_rate) : null,
@@ -864,7 +966,7 @@ function registerStockPieceRoutes(app, deps) {
                         r.stone_wt != null ? Number(r.stone_wt) : null,
                         r.metal_type ?? null,
                         r.item_code ?? null,
-                        r.image_url ?? null,
+                        imageUrl,
                         r.attr_color ?? null,
                         r.attr_stone ?? null,
                         r.fixed_price != null ? Number(r.fixed_price) : null,
@@ -1188,19 +1290,46 @@ function registerStockPieceRoutes(app, deps) {
 
     app.get('/api/reseller/erp/rfid/lookup', checkAuth, erpGate, requireRfid, async (req, res) => {
         try {
-            const tag = poshRfid.normalizeRfidTag(req.query.tag || req.query.rfid || req.query.q);
-            if (!tag) return res.status(400).json({ error: 'RFID tag required (e.g. B0297)' });
-            const rows = await query(
+            const q = poshRfid.normalizeRfidTag(req.query.tag || req.query.rfid || req.query.q || req.query.barcode);
+            if (!q) {
+                return res.status(400).json({ error: 'Scan or type an RFID tag or product barcode (e.g. B0297 or FS001)' });
+            }
+
+            let rows = await query(
                 `SELECT * FROM reseller_erp_stock_pieces
                  WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
                  ORDER BY CASE WHEN status = 'in_stock' THEN 0 ELSE 1 END, updated_at DESC
                  LIMIT 1`,
-                [req.user.id, tag],
+                [req.user.id, q],
             );
-            if (!rows.length) {
-                return res.json({ found: false, piece: null, rfid_tag: tag });
+            if (rows.length) {
+                return res.json({
+                    found: true,
+                    lookup_by: 'rfid',
+                    rfid_tag: rows[0].rfid_tag,
+                    barcode: rows[0].barcode,
+                    piece: mapPiece(rows[0]),
+                });
             }
-            res.json({ found: true, rfid_tag: tag, piece: mapPiece(rows[0]) });
+
+            rows = await query(
+                `SELECT * FROM reseller_erp_stock_pieces
+                 WHERE reseller_user_id = $1 AND lower(barcode) = lower($2)
+                 ORDER BY CASE WHEN status = 'in_stock' THEN 0 ELSE 1 END, updated_at DESC
+                 LIMIT 1`,
+                [req.user.id, q],
+            );
+            if (rows.length) {
+                return res.json({
+                    found: true,
+                    lookup_by: 'barcode',
+                    rfid_tag: rows[0].rfid_tag,
+                    barcode: rows[0].barcode,
+                    piece: mapPiece(rows[0]),
+                });
+            }
+
+            res.json({ found: false, piece: null, lookup_by: null, rfid_tag: null, barcode: q, query: q });
         } catch (e) {
             console.error('erp rfid lookup:', e);
             res.status(500).json({ error: e.message || 'RFID lookup failed' });

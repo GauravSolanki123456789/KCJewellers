@@ -204,7 +204,7 @@ export async function resolveErpLineImages(lines: ErpBillLine[]): Promise<ErpBil
     if (line.imageUrl) return
     needIdx.push(i)
     keys.push({
-      product_name: line.name,
+      barcode: line.barcode || line.code,
       sku: line.sku,
       style_code: line.style_code,
       item_code: line.item_code,

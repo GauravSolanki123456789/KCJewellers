@@ -73,6 +73,7 @@ function TierGrid({
   rateOffsetKey,
   showRateOffset,
   showWastage,
+  showMcGmDisc = false,
   discountField = 'gift',
 }: {
   form: ResellerSlabFormState
@@ -84,6 +85,7 @@ function TierGrid({
   rateOffsetKey: 'silver_rate_offset_per_g' | 'gold_rate_offset_per_g'
   showRateOffset: boolean
   showWastage: boolean
+  showMcGmDisc?: boolean
   /** Gold blocks use wastage disc % instead of gift / MRP disc. Use `none` when Wastage −pts is shown. */
   discountField?: 'gift' | 'wastage_disc' | 'none'
 }) {
@@ -91,9 +93,9 @@ function TierGrid({
   return (
     <div className={blockClass(variant)}>
       <p className={titleClass(variant)}>{label}</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <label className="block">
-          <span className={labelClass(variant)}>MC disc %</span>
+          <span className={labelClass(variant)}>MC/PC disc %</span>
           <input
             type="number"
             min={0}
@@ -105,6 +107,21 @@ function TierGrid({
             className={fieldClass(variant)}
           />
         </label>
+        {showMcGmDisc ? (
+          <label className="block">
+            <span className={labelClass(variant)}>MC/GM disc %</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              disabled={disabled}
+              value={form[blockKey].mc_gm_discount_pct}
+              onChange={(e) => onChange(updateTier(form, blockKey, { mc_gm_discount_pct: e.target.value }))}
+              className={fieldClass(variant)}
+            />
+          </label>
+        ) : null}
         {showRateOffset ? (
           <label className="block">
             <span className={labelClass(variant)}>{rateLabel}</span>
@@ -218,6 +235,7 @@ export function ResellerCatalogSlabSettingsPanel({
               rateOffsetKey="silver_rate_offset_per_g"
               showRateOffset={showSilverOffset}
               showWastage={showWastage}
+              showMcGmDisc
             />
           ))}
         </div>
