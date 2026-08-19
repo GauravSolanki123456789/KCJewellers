@@ -137,16 +137,6 @@ const EXCEL_ALIASES = {
     metal_slab_f_pct: ['MetalSlabF%', 'MetalSlabF', 'metal_slab_f_pct', 'Metal Slab F %'],
 };
 
-function normalizeMetalSlabPct(v) {
-    if (v == null || v === '') return null;
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    if (n <= 0) return 0;
-    if (n <= 1) return Math.round(n * 10000) / 100;
-    if (n <= 100) return n;
-    return 100;
-}
-
 function pickRowVal(row, keys) {
     for (const k of keys) {
         if (row[k] != null && String(row[k]).trim() !== '') return row[k];
@@ -206,6 +196,15 @@ async function generateUniqueStockBarcode(query, resellerUserId, itemCode, produ
         }
     }
     throw new Error(`Could not generate unique barcode for ${base}`);
+}
+
+function parseMetalSlabFraction(raw) {
+    if (raw == null || raw === '') return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    if (n > 1) return Math.min(1, Math.max(0, n / 100));
+    if (n > 0 && n <= 1) return n;
+    return null;
 }
 
 function applyNetWeightToPiece(p) {
@@ -324,9 +323,9 @@ function parseExcelRowToPiece(row) {
         mc_rate_slab_r: num(EXCEL_ALIASES.mc_rate_slab_r),
         mc_rate_slab_w: num(EXCEL_ALIASES.mc_rate_slab_w),
         mc_rate_slab_f: num(EXCEL_ALIASES.mc_rate_slab_f),
-        metal_slab_r_pct: normalizeMetalSlabPct(pickRowVal(row, EXCEL_ALIASES.metal_slab_r_pct)),
-        metal_slab_w_pct: normalizeMetalSlabPct(pickRowVal(row, EXCEL_ALIASES.metal_slab_w_pct)),
-        metal_slab_f_pct: normalizeMetalSlabPct(pickRowVal(row, EXCEL_ALIASES.metal_slab_f_pct)),
+        metal_slab_r_pct: parseMetalSlabFraction(pickRowVal(row, EXCEL_ALIASES.metal_slab_r_pct)),
+        metal_slab_w_pct: parseMetalSlabFraction(pickRowVal(row, EXCEL_ALIASES.metal_slab_w_pct)),
+        metal_slab_f_pct: parseMetalSlabFraction(pickRowVal(row, EXCEL_ALIASES.metal_slab_f_pct)),
         payload_json: row,
     };
 }
@@ -386,6 +385,8 @@ function mapPiece(row) {
         metal_slab_r_pct: row.metal_slab_r_pct != null ? Number(row.metal_slab_r_pct) : null,
         metal_slab_w_pct: row.metal_slab_w_pct != null ? Number(row.metal_slab_w_pct) : null,
         metal_slab_f_pct: row.metal_slab_f_pct != null ? Number(row.metal_slab_f_pct) : null,
+        floor_id: row.floor_id || null,
+        box_id: row.box_id || null,
         rfid_tag: row.rfid_tag ? String(row.rfid_tag).trim() : null,
         status: row.status,
         sold_bill_id: row.sold_bill_id,
@@ -452,9 +453,11 @@ async function ensureStockPiecesSchema(pool) {
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_r NUMERIC(12, 2);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_w NUMERIC(12, 2);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_f NUMERIC(12, 2);
-        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_r_pct NUMERIC(8, 3);
-        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_w_pct NUMERIC(8, 3);
-        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_f_pct NUMERIC(8, 3);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_r_pct NUMERIC(8, 4);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_w_pct NUMERIC(8, 4);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_f_pct NUMERIC(8, 4);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS floor_id UUID;
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS box_id UUID;
     `);
     await pool.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_stock_pieces_rfid_active

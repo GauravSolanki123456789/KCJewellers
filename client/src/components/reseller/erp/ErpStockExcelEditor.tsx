@@ -18,7 +18,14 @@ import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/c
 import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleBar'
 import { ErpRfidLinkDialog } from '@/components/reseller/erp/ErpRfidLinkDialog'
 import { printStockLabels, type PrintLabelPieceOverride } from '@/lib/erp-print-labels'
-import { Check, Loader2, Radio, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
+import { Check, Loader2, MapPin, Radio, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
+
+type FloorOption = {
+  id: string
+  name: string
+  code: string
+  boxes: { id: string; code: string; label?: string | null }[]
+}
 
 const cellCls =
   'kc-batch-cell-input w-full min-w-0 rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none focus:border-[var(--kc-accent,#c41e3a)] focus:bg-white focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/15'
@@ -140,7 +147,42 @@ export function ErpStockExcelEditor({
   const [rfidTargetRowId, setRfidTargetRowId] = useState<number | null>(null)
   const [rfidInput, setRfidInput] = useState('')
   const [rfidLinkBusy, setRfidLinkBusy] = useState(false)
+  const [floors, setFloors] = useState<FloorOption[]>([])
+  const [assignFloorId, setAssignFloorId] = useState('')
+  const [assignBoxId, setAssignBoxId] = useState('')
+  const [assignBusy, setAssignBusy] = useState(false)
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
+
+  useEffect(() => {
+    void axios
+      .get<{ floors: FloorOption[] }>('/api/reseller/erp/floors')
+      .then((res) => setFloors(res.data.floors || []))
+      .catch(() => {})
+  }, [])
+
+  const assignBoxes = useMemo(() => {
+    const f = floors.find((x) => x.id === assignFloorId)
+    return f?.boxes || []
+  }, [floors, assignFloorId])
+
+  const assignSelectedToFloor = async () => {
+    if (!assignFloorId || selected.size === 0) return
+    setAssignBusy(true)
+    setError(null)
+    try {
+      await axios.post('/api/reseller/erp/floors/assign', {
+        piece_ids: Array.from(selected),
+        floor_id: assignFloorId,
+        box_id: assignBoxId || null,
+      })
+      setMessage(`Assigned ${selected.size} piece(s) to floor`)
+      setSelected(new Set())
+    } catch (e) {
+      setError(erpErr(e))
+    } finally {
+      setAssignBusy(false)
+    }
+  }
 
   const productNames = useMemo(() => {
     const names = new Set<string>()
@@ -567,6 +609,56 @@ export function ErpStockExcelEditor({
           </span>
         ) : null}
         {error ? <span className="text-xs font-medium text-rose-600">{error}</span> : null}
+      </div>
+
+      <div className={`${erpCardCls} flex flex-wrap items-end gap-2`}>
+        <div className="min-w-[140px] flex-1">
+          <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+            Assign to floor {selected.size > 0 ? `(${selected.size})` : ''}
+          </label>
+          <select
+            className={erpInputCls}
+            value={assignFloorId}
+            onChange={(e) => {
+              setAssignFloorId(e.target.value)
+              setAssignBoxId('')
+            }}
+          >
+            <option value="">Choose floor…</option>
+            {floors.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="min-w-[140px] flex-1">
+          <label className="mb-1 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+            Box (optional)
+          </label>
+          <select
+            className={erpInputCls}
+            value={assignBoxId}
+            onChange={(e) => setAssignBoxId(e.target.value)}
+            disabled={!assignFloorId}
+          >
+            <option value="">Floor only</option>
+            {assignBoxes.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.code}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          className={erpBtnPrimary}
+          disabled={assignBusy || !assignFloorId || selected.size === 0}
+          onClick={() => void assignSelectedToFloor()}
+        >
+          {assignBusy ? <Loader2 className="size-4 animate-spin" /> : <MapPin className="size-4" />}
+          Assign floor
+        </button>
       </div>
 
       <div className={`${erpCardCls} flex flex-wrap items-end gap-2`}>

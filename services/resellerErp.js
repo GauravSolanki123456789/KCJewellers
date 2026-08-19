@@ -9,6 +9,7 @@ const {
     markPiecesSold,
     findSoldBarcodeConflicts,
 } = require('./resellerErpStockPieces');
+const { registerFloorRoutes } = require('./resellerErpFloors');
 const { registerTagOpsRoutes } = require('./resellerErpTagOps');
 const {
     loadErpSettings,
@@ -408,6 +409,7 @@ function registerResellerErpRoutes(app, deps) {
     ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
 
     registerStockPieceRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerFloorRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
@@ -1259,12 +1261,14 @@ function registerResellerErpRoutes(app, deps) {
                         wastage_pct: p.wastage_pct,
                         mc_rate: p.mc_rate,
                         mc_type: p.mc_type,
-                        mc_rate_slab_r: p.mc_rate_slab_r,
-                        mc_rate_slab_w: p.mc_rate_slab_w,
-                        mc_rate_slab_f: p.mc_rate_slab_f,
-                        metal_slab_r_pct: p.metal_slab_r_pct,
-                        metal_slab_w_pct: p.metal_slab_w_pct,
-                        metal_slab_f_pct: p.metal_slab_f_pct,
+                        mc_rate_slab_r: p.mc_rate_slab_r != null ? Number(p.mc_rate_slab_r) : null,
+                        mc_rate_slab_w: p.mc_rate_slab_w != null ? Number(p.mc_rate_slab_w) : null,
+                        mc_rate_slab_f: p.mc_rate_slab_f != null ? Number(p.mc_rate_slab_f) : null,
+                        metal_slab_r_pct: p.metal_slab_r_pct != null ? Number(p.metal_slab_r_pct) : null,
+                        metal_slab_w_pct: p.metal_slab_w_pct != null ? Number(p.metal_slab_w_pct) : null,
+                        metal_slab_f_pct: p.metal_slab_f_pct != null ? Number(p.metal_slab_f_pct) : null,
+                        floor_id: p.floor_id || null,
+                        box_id: p.box_id || null,
                         pcs: p.pcs,
                         box_charges: p.box_charges,
                         stone_charges: p.stone_charges,

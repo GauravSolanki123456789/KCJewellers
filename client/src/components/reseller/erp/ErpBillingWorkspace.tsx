@@ -7,15 +7,16 @@ import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
+  applyPieceSlabToLine,
   computeLineBreakdown,
   displayRatesToPerGram,
+  lineHasPieceSlabFields,
   parseRateSlabFromNotes,
   parseSlabSettingsFromUser,
   perGramToDisplayRates,
+  resolveErpSilverMetalRatePerG,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
-import { applyProductSlabToLine, hasProductSlabPricing } from '@/lib/erp-product-slab-pricing'
-import { isMcPerPiece } from '@/lib/pricing'
 import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, computeBillingDiscountSummary, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { cachedGet } from '@/lib/api-get-cache'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
@@ -117,7 +118,7 @@ const TABLE_COLS = [
   { key: 'amount', label: 'Amount', w: 'min-w-[72px]' },
 ] as const
 
-function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab): ErpBillLine {
+function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'): ErpBillLine {
   const wt = p.net_weight ?? p.gross_weight ?? null
   const metal = (p.metal_type || 'silver').toLowerCase()
   const base: ErpBillLine = {
@@ -128,8 +129,8 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab): ErpBi
     style_code: p.style_code || undefined,
     size: p.size ?? null,
     qty: p.pcs ?? 1,
+    originalWeightGm: wt,
     weightGm: wt,
-    baseWeightGm: wt,
     gross_weight: p.gross_weight ?? null,
     bag_wt: p.bag_wt ?? null,
     purity: p.purity ?? (metal.includes('silver') ? 925 : null),
@@ -156,7 +157,7 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab): ErpBi
     invoice_item_name: defaultInvoiceItemName(metal, p.product_name || p.name),
     hsn_code: defaultHsnCode(metal),
   }
-  return applyProductSlabToLine(base, slab)
+  return applyPieceSlabToLine(base, slab)
 }
 
 function loadDraft(): Partial<BillingDraft> | null {
@@ -282,9 +283,13 @@ export function ErpBillingWorkspace() {
       const g = opts?.goldPerG ?? goldPerG
       const s = opts?.silverPerG ?? silverPerG
       const mcMode = opts?.goldSlabRShowMc ?? goldSlabRShowMc
-      const slabbed = applyProductSlabToLine(line, slab)
+      const withOriginal = {
+        ...line,
+        originalWeightGm: line.originalWeightGm ?? line.weightGm,
+      }
+      const slabLine = applyPieceSlabToLine(withOriginal, slab)
       const bd = computeLineBreakdown(
-        slabbed,
+        slabLine,
         rates,
         slab,
         slabSettings,
@@ -294,7 +299,11 @@ export function ErpBillingWorkspace() {
         s,
         mcMode,
       )
-      const next: ErpBillLine = { ...slabbed, lineTotalInr: bd.total }
+      const next: ErpBillLine = {
+        ...slabLine,
+        lineTotalInr: bd.total,
+        originalWeightGm: withOriginal.originalWeightGm,
+      }
       const isGoldSlabR =
         slab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
       if (isGoldSlabR && mcMode !== false) {
@@ -317,10 +326,10 @@ export function ErpBillingWorkspace() {
         next.displayMcDiscountPct = null
       }
       if (!line.rateLocked) {
-        const r = bd.rate_per_gram
-        if (hasProductSlabPricing(next) && !isMcPerPiece(next.mc_type) && r != null && next.mc_rate != null) {
-          next.ratePerGram = Math.round((r + Number(next.mc_rate)) * 100) / 100
+        if (lineHasPieceSlabFields(slabLine) && String(line.metal_type || '').toLowerCase().startsWith('silver')) {
+          next.ratePerGram = resolveErpSilverMetalRatePerG(slab, s, wholesaleSilver)
         } else {
+          const r = bd.rate_per_gram
           next.ratePerGram =
             r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
         }
@@ -348,7 +357,7 @@ export function ErpBillingWorkspace() {
           displayMcBeforeDiscount: null,
           displayMcDiscountPct: null,
         }
-        return recalcLine(applyProductSlabToLine(cleared, nextSlab), {
+        return recalcLine(cleared, {
           slab: nextSlab,
           rates: ratesOverride,
           goldPerG: goldOverride,

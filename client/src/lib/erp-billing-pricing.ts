@@ -7,13 +7,14 @@ import {
   type SharedCatalogSlabContext,
 } from '@/lib/catalog-slab-pricing'
 import {
-  applyProductSlabToLine,
-  computeProductSlabBreakdown,
-  hasProductSlabPricing,
-  resolveBillableWeightGm,
-} from '@/lib/erp-product-slab-pricing'
+  applyPieceSlabToLine,
+  computeErpPieceSlabBreakdown,
+  lineHasPieceSlabFields,
+  pieceSlabBillableWeight,
+  resolveErpSilverMetalRatePerG,
+  pieceSlabMcRate,
+} from '@/lib/erp-piece-slab-pricing'
 import type { Item } from '@/lib/pricing'
-import { silverEffectivePurityPct } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
 export type ErpRateSlab = 'R' | 'W' | 'F'
@@ -31,19 +32,15 @@ export function parseRateSlabFromNotes(notes?: string | null): ErpRateSlab | nul
   return m[1].toUpperCase() as ErpRateSlab
 }
 
-export function lineToItem(line: ErpBillLine, slab?: ErpRateSlab): Item {
-  const billWt =
-    slab && hasProductSlabPricing(line)
-      ? resolveBillableWeightGm(line, slab)
-      : (line.weightGm ?? undefined)
+export function lineToItem(line: ErpBillLine): Item {
   return {
     barcode: line.barcode || line.code,
     sku: line.sku,
     item_name: line.name,
     style_code: line.style_code,
     metal_type: line.metal_type || 'silver',
-    net_weight: billWt,
-    net_wt: billWt,
+    net_weight: line.weightGm ?? undefined,
+    net_wt: line.weightGm ?? undefined,
     purity: line.purity ?? 925,
     wastage_pct: line.wastage_pct ?? undefined,
     mc_rate: line.mc_rate ?? undefined,
@@ -55,63 +52,6 @@ export function lineToItem(line: ErpBillLine, slab?: ErpRateSlab): Item {
     size: line.size ?? undefined,
     pcs: line.qty ?? 1,
   }
-}
-
-function resolveProductSlabMetalRatePerG(
-  line: ErpBillLine,
-  slab: ErpRateSlab,
-  displayRates: unknown,
-  wholesaleGold?: number | null,
-  wholesaleSilver?: number | null,
-  goldPerG = 0,
-  silverPerG = 0,
-  slabSettings: ResellerSlabSettings = {},
-): number {
-  const metal = String(line.metal_type || 'silver').toLowerCase()
-  const isSilver = metal.startsWith('silver')
-
-  if (slab === 'W' || slab === 'F') {
-    if (isSilver) {
-      const wr = Number(wholesaleSilver)
-      if (Number.isFinite(wr) && wr > 0) return wr
-    } else if (metal.startsWith('gold')) {
-      const wr = Number(wholesaleGold)
-      if (Number.isFinite(wr) && wr > 0) return wr
-    }
-  }
-
-  const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
-  const arr = Array.isArray(rates) ? rates : []
-  if (isSilver) {
-    const row = arr.find((r: { metal_type?: string }) => (r.metal_type || '').toLowerCase() === 'silver') as
-      | { display_rate?: number }
-      | undefined
-    let live = row?.display_rate ? Number(row.display_rate) / 1000 : silverPerG
-    if (slab === 'R') {
-      const offset = Math.max(0, Number(slabSettings.slab_r?.silver_rate_offset_per_g) || 0)
-      live = Math.max(0, live - offset)
-    }
-    const purity = Number(line.purity) || 925
-    return live * (silverEffectivePurityPct(purity) / 100)
-  }
-
-  if (metal.startsWith('gold')) {
-    const p = Number(line.purity) || 75
-    let key = 'gold'
-    if ((p >= 74 && p <= 76) || Math.abs(p - 75) < 1.5) key = 'gold_18k'
-    else if ((p >= 90 && p <= 93) || Math.abs(p - 91.6) < 1.5) key = 'gold_22k'
-    const row = arr.find((r: { metal_type?: string }) => (r.metal_type || '').toLowerCase() === key) as
-      | { display_rate?: number }
-      | undefined
-    let live = row?.display_rate ? Number(row.display_rate) / 10 : goldPerG
-    if (slab === 'R') {
-      const offset = Math.max(0, Number(slabSettings.gold_slab_r?.gold_rate_offset_per_g) || 0)
-      live = Math.max(0, live - offset)
-    }
-    return live
-  }
-
-  return 0
 }
 
 export function buildSlabContext(
@@ -209,29 +149,19 @@ export function computeLineBreakdown(
   silverPerG = 0,
   goldSlabRShowMc = true,
 ) {
-  const slabbedLine = applyProductSlabToLine(line, slab)
-
-  if (hasProductSlabPricing(slabbedLine)) {
-    const metalRate = resolveProductSlabMetalRatePerG(
-      slabbedLine,
+  const metal = String(line.metal_type || '').toLowerCase()
+  if (lineHasPieceSlabFields(line) && metal.startsWith('silver')) {
+    const adjusted = applyPieceSlabToLine(line, slab)
+    return computeErpPieceSlabBreakdown(
+      adjusted,
       slab,
-      displayRates,
-      wholesaleGold,
-      wholesaleSilver,
-      goldPerG,
       silverPerG,
-      slabSettings,
+      wholesaleSilver,
+      3,
     )
-    const productBd = computeProductSlabBreakdown({
-      line: slabbedLine,
-      slab,
-      metalRatePerG: metalRate,
-      gstPct: 3,
-    })
-    if (productBd) return productBd
   }
 
-  const item = lineToItem(slabbedLine, slab)
+  const item = lineToItem(line)
   const ctx = buildSlabContext(
     slab,
     slabSettings,
@@ -240,7 +170,7 @@ export function computeLineBreakdown(
     line.metal_type,
     goldSlabRShowMc,
   )
-  const rates = resolveLineDisplayRates(slabbedLine, displayRates, goldPerG, silverPerG)
+  const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
   return calculateBreakdownWithSlab(item, rates, 3, ctx)
 }
 
@@ -273,4 +203,12 @@ export function perGramToDisplayRates(goldPerG: number, silverPerG: number): unk
     { metal_type: 'gold_18k', display_rate: Math.round(goldPerG * 10 * 0.75) },
     { metal_type: 'silver', display_rate: Math.round(silverPerG * 1000) },
   ]
+}
+
+export {
+  applyPieceSlabToLine,
+  lineHasPieceSlabFields,
+  pieceSlabBillableWeight,
+  pieceSlabMcRate,
+  resolveErpSilverMetalRatePerG,
 }

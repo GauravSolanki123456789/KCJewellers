@@ -27,6 +27,16 @@ export type ErpProductHit = {
   metal_type?: string | null
   mc_rate?: number | null
   mc_type?: string | null
+  mc_rate_slab_r?: number | null
+  mc_rate_slab_w?: number | null
+  mc_rate_slab_f?: number | null
+  metal_slab_r_pct?: number | null
+  metal_slab_w_pct?: number | null
+  metal_slab_f_pct?: number | null
+  floor_id?: string | null
+  box_id?: string | null
+  floor_name?: string | null
+  box_code?: string | null
   pcs?: number | null
   box_charges?: number | null
   stone_charges?: number | null
@@ -35,12 +45,6 @@ export type ErpProductHit = {
   attr_color?: string | null
   attr_stone?: string | null
   fixed_price?: number | null
-  mc_rate_slab_r?: number | null
-  mc_rate_slab_w?: number | null
-  mc_rate_slab_f?: number | null
-  metal_slab_r_pct?: number | null
-  metal_slab_w_pct?: number | null
-  metal_slab_f_pct?: number | null
 }
 
 export type ErpStockPiece = {
@@ -56,6 +60,16 @@ export type ErpStockPiece = {
   wastage_pct?: number | null
   mc_rate?: number | null
   mc_type?: string | null
+  mc_rate_slab_r?: number | null
+  mc_rate_slab_w?: number | null
+  mc_rate_slab_f?: number | null
+  metal_slab_r_pct?: number | null
+  metal_slab_w_pct?: number | null
+  metal_slab_f_pct?: number | null
+  floor_id?: string | null
+  box_id?: string | null
+  floor_name?: string | null
+  box_code?: string | null
   pcs?: number
   box_charges?: number | null
   stone_charges?: number | null
@@ -75,12 +89,6 @@ export type ErpStockPiece = {
   status: string
   sold_bill_id?: number | null
   rfid_tag?: string | null
-  mc_rate_slab_r?: number | null
-  mc_rate_slab_w?: number | null
-  mc_rate_slab_f?: number | null
-  metal_slab_r_pct?: number | null
-  metal_slab_w_pct?: number | null
-  metal_slab_f_pct?: number | null
 }
 
 export type ErpOrderLineStatus = 'in_shop' | 'on_hold' | 'with_karigar' | 'returned' | 'completed'
@@ -101,6 +109,8 @@ export type ErpBillLine = {
   unitInr?: number | null
   lineTotalInr?: number | null
   weightGm?: number | null
+  /** True net weight before slab metal % adjustment. */
+  originalWeightGm?: number | null
   purity?: number | null
   wastage_pct?: number | null
   ratePerGram?: number | null
@@ -108,6 +118,12 @@ export type ErpBillLine = {
   rateLocked?: boolean
   mc_rate?: number | null
   mc_type?: string | null
+  mc_rate_slab_r?: number | null
+  mc_rate_slab_w?: number | null
+  mc_rate_slab_f?: number | null
+  metal_slab_r_pct?: number | null
+  metal_slab_w_pct?: number | null
+  metal_slab_f_pct?: number | null
   box_charges?: number | null
   stone_charges?: number | null
   stone_wt?: number | null
@@ -118,14 +134,6 @@ export type ErpBillLine = {
   imageUrl?: string | null
   fixed_price?: number | null
   stock_piece_id?: number | null
-  /** Original net weight before metal-slab % adjustment. */
-  baseWeightGm?: number | null
-  mc_rate_slab_r?: number | null
-  mc_rate_slab_w?: number | null
-  mc_rate_slab_f?: number | null
-  metal_slab_r_pct?: number | null
-  metal_slab_w_pct?: number | null
-  metal_slab_f_pct?: number | null
   /** Slab R gold — show computed MC (₹) instead of per-g MC rate in grid. */
   displayMcInr?: number | null
   /** Slab R gold — hide wastage % in customer-facing grid. */
