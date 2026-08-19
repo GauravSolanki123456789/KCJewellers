@@ -35,6 +35,12 @@ export type ErpProductHit = {
   attr_color?: string | null
   attr_stone?: string | null
   fixed_price?: number | null
+  mc_rate_slab_r?: number | null
+  mc_rate_slab_w?: number | null
+  mc_rate_slab_f?: number | null
+  metal_slab_r_pct?: number | null
+  metal_slab_w_pct?: number | null
+  metal_slab_f_pct?: number | null
 }
 
 export type ErpStockPiece = {
@@ -69,6 +75,12 @@ export type ErpStockPiece = {
   status: string
   sold_bill_id?: number | null
   rfid_tag?: string | null
+  mc_rate_slab_r?: number | null
+  mc_rate_slab_w?: number | null
+  mc_rate_slab_f?: number | null
+  metal_slab_r_pct?: number | null
+  metal_slab_w_pct?: number | null
+  metal_slab_f_pct?: number | null
 }
 
 export type ErpOrderLineStatus = 'in_shop' | 'on_hold' | 'with_karigar' | 'returned' | 'completed'
@@ -106,6 +118,14 @@ export type ErpBillLine = {
   imageUrl?: string | null
   fixed_price?: number | null
   stock_piece_id?: number | null
+  /** Original net weight before metal-slab % adjustment. */
+  baseWeightGm?: number | null
+  mc_rate_slab_r?: number | null
+  mc_rate_slab_w?: number | null
+  mc_rate_slab_f?: number | null
+  metal_slab_r_pct?: number | null
+  metal_slab_w_pct?: number | null
+  metal_slab_f_pct?: number | null
   /** Slab R gold — show computed MC (₹) instead of per-g MC rate in grid. */
   displayMcInr?: number | null
   /** Slab R gold — hide wastage % in customer-facing grid. */

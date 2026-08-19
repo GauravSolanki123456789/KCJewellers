@@ -426,29 +426,29 @@ export function ErpPrintFormatsWorkspace() {
 
                         {open ? (
                           <div className="space-y-3 border-t border-[var(--color-slate-700,#e8e4df)] px-3 py-3 sm:px-4">
-                            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
                               <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
                                 Rule name
-                                <input
-                                  className={`${erpInputCls} mt-1`}
+                <input
+                  className={`${erpInputCls} mt-1`}
                                   value={rule.name}
                                   onChange={(e) => updateRule(rule.id, { name: e.target.value })}
-                                />
-                              </label>
-                              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                />
+              </label>
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
                                 Priority (higher = first)
-                                <input
+                <input
                                   className={`${erpInputCls} mt-1 tabular-nums`}
                                   type="number"
                                   value={rule.priority}
                                   onChange={(e) =>
                                     updateRule(rule.id, { priority: Number(e.target.value) || 0 })
                                   }
-                                />
-                              </label>
+                />
+              </label>
                               <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
                                 Metal types (comma-separated, e.g. GOLD, SILVER)
-                                <input
+                <input
                                   className={`${erpInputCls} mt-1`}
                                   value={(rule.metalTypes || []).join(', ')}
                                   onChange={(e) =>
@@ -460,9 +460,9 @@ export function ErpPrintFormatsWorkspace() {
                                     })
                                   }
                                   placeholder="Leave empty for any metal"
-                                />
-                              </label>
-                            </div>
+                />
+              </label>
+            </div>
 
                             <label className="flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
                               <input

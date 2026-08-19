@@ -14,6 +14,8 @@ import {
   perGramToDisplayRates,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
+import { applyProductSlabToLine, hasProductSlabPricing } from '@/lib/erp-product-slab-pricing'
+import { isMcPerPiece } from '@/lib/pricing'
 import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, computeBillingDiscountSummary, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { cachedGet } from '@/lib/api-get-cache'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
@@ -115,10 +117,10 @@ const TABLE_COLS = [
   { key: 'amount', label: 'Amount', w: 'min-w-[72px]' },
 ] as const
 
-function productToLine(p: ErpProductHit, code: string): ErpBillLine {
+function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab): ErpBillLine {
   const wt = p.net_weight ?? p.gross_weight ?? null
   const metal = (p.metal_type || 'silver').toLowerCase()
-  return {
+  const base: ErpBillLine = {
     name: p.product_name || p.name || code,
     code,
     barcode: p.barcode || code,
@@ -127,6 +129,7 @@ function productToLine(p: ErpProductHit, code: string): ErpBillLine {
     size: p.size ?? null,
     qty: p.pcs ?? 1,
     weightGm: wt,
+    baseWeightGm: wt,
     gross_weight: p.gross_weight ?? null,
     bag_wt: p.bag_wt ?? null,
     purity: p.purity ?? (metal.includes('silver') ? 925 : null),
@@ -134,6 +137,12 @@ function productToLine(p: ErpProductHit, code: string): ErpBillLine {
     ratePerGram: null,
     mc_rate: p.mc_rate ?? null,
     mc_type: p.mc_type ?? null,
+    mc_rate_slab_r: p.mc_rate_slab_r ?? null,
+    mc_rate_slab_w: p.mc_rate_slab_w ?? null,
+    mc_rate_slab_f: p.mc_rate_slab_f ?? null,
+    metal_slab_r_pct: p.metal_slab_r_pct ?? null,
+    metal_slab_w_pct: p.metal_slab_w_pct ?? null,
+    metal_slab_f_pct: p.metal_slab_f_pct ?? null,
     box_charges: p.box_charges ?? 0,
     stone_charges: p.stone_charges ?? 0,
     stone_wt: p.stone_wt ?? null,
@@ -147,6 +156,7 @@ function productToLine(p: ErpProductHit, code: string): ErpBillLine {
     invoice_item_name: defaultInvoiceItemName(metal, p.product_name || p.name),
     hsn_code: defaultHsnCode(metal),
   }
+  return applyProductSlabToLine(base, slab)
 }
 
 function loadDraft(): Partial<BillingDraft> | null {
@@ -272,8 +282,9 @@ export function ErpBillingWorkspace() {
       const g = opts?.goldPerG ?? goldPerG
       const s = opts?.silverPerG ?? silverPerG
       const mcMode = opts?.goldSlabRShowMc ?? goldSlabRShowMc
+      const slabbed = applyProductSlabToLine(line, slab)
       const bd = computeLineBreakdown(
-        line,
+        slabbed,
         rates,
         slab,
         slabSettings,
@@ -283,7 +294,7 @@ export function ErpBillingWorkspace() {
         s,
         mcMode,
       )
-      const next: ErpBillLine = { ...line, lineTotalInr: bd.total }
+      const next: ErpBillLine = { ...slabbed, lineTotalInr: bd.total }
       const isGoldSlabR =
         slab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
       if (isGoldSlabR && mcMode !== false) {
@@ -307,8 +318,12 @@ export function ErpBillingWorkspace() {
       }
       if (!line.rateLocked) {
         const r = bd.rate_per_gram
-        next.ratePerGram =
-          r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
+        if (hasProductSlabPricing(next) && !isMcPerPiece(next.mc_type) && r != null && next.mc_rate != null) {
+          next.ratePerGram = Math.round((r + Number(next.mc_rate)) * 100) / 100
+        } else {
+          next.ratePerGram =
+            r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
+        }
       }
       return next
     },
@@ -333,7 +348,7 @@ export function ErpBillingWorkspace() {
           displayMcBeforeDiscount: null,
           displayMcDiscountPct: null,
         }
-        return recalcLine(cleared, {
+        return recalcLine(applyProductSlabToLine(cleared, nextSlab), {
           slab: nextSlab,
           rates: ratesOverride,
           goldPerG: goldOverride,
@@ -631,7 +646,7 @@ export function ErpBillingWorkspace() {
         '/api/reseller/erp/products/lookup',
         { params: { code } },
       )
-      let line = productToLine(res.data.product, code)
+      let line = productToLine(res.data.product, code, rateSlab)
       if (res.data.availability?.label) line.availability = res.data.availability.label
       line = recalcLine(line)
       setLines((prev) => [...prev, line])

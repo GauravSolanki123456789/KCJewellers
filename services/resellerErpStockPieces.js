@@ -129,7 +129,23 @@ const EXCEL_ALIASES = {
     chain_wt_only: ['ChainWtOnly', 'chain_wt_only', 'Chain Wt'],
     pendant_wt_only: ['PendantWtOnly', 'pendant_wt_only', 'Pendant Wt'],
     earring_wt_only: ['EarringWtOnly', 'earring_wt_only', 'Earring Wt'],
+    mc_rate_slab_r: ['MCRateSlabR', 'mc_rate_slab_r', 'MC Rate Slab R'],
+    mc_rate_slab_w: ['MCRateSlabW', 'mc_rate_slab_w', 'MC Rate Slab W'],
+    mc_rate_slab_f: ['MCRateSlabF', 'mc_rate_slab_f', 'MC Rate Slab F'],
+    metal_slab_r_pct: ['MetalSlabR%', 'MetalSlabR', 'metal_slab_r_pct', 'Metal Slab R %'],
+    metal_slab_w_pct: ['MetalSlabW%', 'MetalSlabW', 'metal_slab_w_pct', 'Metal Slab W %'],
+    metal_slab_f_pct: ['MetalSlabF%', 'MetalSlabF', 'metal_slab_f_pct', 'Metal Slab F %'],
 };
+
+function normalizeMetalSlabPct(v) {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    if (n <= 0) return 0;
+    if (n <= 1) return Math.round(n * 10000) / 100;
+    if (n <= 100) return n;
+    return 100;
+}
 
 function pickRowVal(row, keys) {
     for (const k of keys) {
@@ -305,6 +321,12 @@ function parseExcelRowToPiece(row) {
         chain_wt_only: num(EXCEL_ALIASES.chain_wt_only),
         pendant_wt_only: num(EXCEL_ALIASES.pendant_wt_only),
         earring_wt_only: num(EXCEL_ALIASES.earring_wt_only),
+        mc_rate_slab_r: num(EXCEL_ALIASES.mc_rate_slab_r),
+        mc_rate_slab_w: num(EXCEL_ALIASES.mc_rate_slab_w),
+        mc_rate_slab_f: num(EXCEL_ALIASES.mc_rate_slab_f),
+        metal_slab_r_pct: normalizeMetalSlabPct(pickRowVal(row, EXCEL_ALIASES.metal_slab_r_pct)),
+        metal_slab_w_pct: normalizeMetalSlabPct(pickRowVal(row, EXCEL_ALIASES.metal_slab_w_pct)),
+        metal_slab_f_pct: normalizeMetalSlabPct(pickRowVal(row, EXCEL_ALIASES.metal_slab_f_pct)),
         payload_json: row,
     };
 }
@@ -358,6 +380,12 @@ function mapPiece(row) {
                 : comp.earring_wt_only,
         bags: row.bags,
         bag_wt: row.bag_wt != null ? Number(row.bag_wt) : null,
+        mc_rate_slab_r: row.mc_rate_slab_r != null ? Number(row.mc_rate_slab_r) : null,
+        mc_rate_slab_w: row.mc_rate_slab_w != null ? Number(row.mc_rate_slab_w) : null,
+        mc_rate_slab_f: row.mc_rate_slab_f != null ? Number(row.mc_rate_slab_f) : null,
+        metal_slab_r_pct: row.metal_slab_r_pct != null ? Number(row.metal_slab_r_pct) : null,
+        metal_slab_w_pct: row.metal_slab_w_pct != null ? Number(row.metal_slab_w_pct) : null,
+        metal_slab_f_pct: row.metal_slab_f_pct != null ? Number(row.metal_slab_f_pct) : null,
         rfid_tag: row.rfid_tag ? String(row.rfid_tag).trim() : null,
         status: row.status,
         sold_bill_id: row.sold_bill_id,
@@ -421,6 +449,12 @@ async function ensureStockPiecesSchema(pool) {
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS merged_into_barcode VARCHAR(128);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS stone_wt NUMERIC(12, 3);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS rfid_tag VARCHAR(64);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_r NUMERIC(12, 2);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_w NUMERIC(12, 2);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_f NUMERIC(12, 2);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_r_pct NUMERIC(8, 3);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_w_pct NUMERIC(8, 3);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_f_pct NUMERIC(8, 3);
     `);
     await pool.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_stock_pieces_rfid_active
@@ -798,10 +832,12 @@ function registerStockPieceRoutes(app, deps) {
                             stone_charges = $13, stone_wt = $14, metal_type = $15, item_code = $16,
                             image_url = $17, attr_color = $18, attr_stone = $19,
                             fixed_price = $20, gross_weight = $21, bags = $22, bag_wt = $23,
-                            payload_json = $24::jsonb,
+                            mc_rate_slab_r = $24, mc_rate_slab_w = $25, mc_rate_slab_f = $26,
+                            metal_slab_r_pct = $27, metal_slab_w_pct = $28, metal_slab_f_pct = $29,
+                            payload_json = $30::jsonb,
                             status = CASE WHEN status = 'sold' THEN status ELSE 'in_stock' END,
                             updated_at = NOW()
-                         WHERE id = $25`,
+                         WHERE id = $31`,
                         [
                             batchId,
                             p.sku,
@@ -826,6 +862,12 @@ function registerStockPieceRoutes(app, deps) {
                             p.gross_weight,
                             p.bags,
                             p.bag_wt,
+                            p.mc_rate_slab_r,
+                            p.mc_rate_slab_w,
+                            p.mc_rate_slab_f,
+                            p.metal_slab_r_pct,
+                            p.metal_slab_w_pct,
+                            p.metal_slab_f_pct,
                             JSON.stringify({
                                 ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
                                 chain_wt_only: p.chain_wt_only,
@@ -842,8 +884,11 @@ function registerStockPieceRoutes(app, deps) {
                             reseller_user_id, batch_id, barcode, sku, style_code, product_name,
                             size, avg_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
                             box_charges, stone_charges, stone_wt, metal_type, item_code, image_url,
-                            attr_color, attr_stone, fixed_price, gross_weight, bags, bag_wt, payload_json
-                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb)`,
+                            attr_color, attr_stone, fixed_price, gross_weight, bags, bag_wt,
+                            mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
+                            metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct,
+                            payload_json
+                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb)`,
                         [
                             req.user.id,
                             batchId,
@@ -870,6 +915,12 @@ function registerStockPieceRoutes(app, deps) {
                             p.gross_weight,
                             p.bags,
                             p.bag_wt,
+                            p.mc_rate_slab_r,
+                            p.mc_rate_slab_w,
+                            p.mc_rate_slab_f,
+                            p.metal_slab_r_pct,
+                            p.metal_slab_w_pct,
+                            p.metal_slab_f_pct,
                             JSON.stringify({
                                 ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
                                 chain_wt_only: p.chain_wt_only,
