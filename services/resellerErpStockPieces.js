@@ -999,9 +999,11 @@ function registerStockPieceRoutes(app, deps) {
                         stone_wt = $14, metal_type = $15, item_code = $16, image_url = $17,
                         attr_color = $18, attr_stone = $19, fixed_price = $20,
                         gross_weight = $21, bags = $22, bag_wt = $23,
-                        payload_json = COALESCE(payload_json, '{}'::jsonb) || $24::jsonb,
+                        mc_rate_slab_r = $24, mc_rate_slab_w = $25, mc_rate_slab_f = $26,
+                        metal_slab_r_pct = $27, metal_slab_w_pct = $28, metal_slab_f_pct = $29,
+                        payload_json = COALESCE(payload_json, '{}'::jsonb) || $30::jsonb,
                         updated_at = NOW()
-                     WHERE id = $25 AND batch_id = $26::uuid AND reseller_user_id = $27
+                     WHERE id = $31 AND batch_id = $32::uuid AND reseller_user_id = $33
                        AND status <> 'sold'`,
                     [
                         r.barcode ? String(r.barcode).trim().slice(0, 128) : null,
@@ -1027,6 +1029,12 @@ function registerStockPieceRoutes(app, deps) {
                         r.gross_weight != null ? Number(r.gross_weight) : null,
                         r.bags ?? null,
                         r.bag_wt != null ? Number(r.bag_wt) : null,
+                        r.mc_rate_slab_r != null ? Number(r.mc_rate_slab_r) : null,
+                        r.mc_rate_slab_w != null ? Number(r.mc_rate_slab_w) : null,
+                        r.mc_rate_slab_f != null ? Number(r.mc_rate_slab_f) : null,
+                        r.metal_slab_r_pct != null ? Number(r.metal_slab_r_pct) : null,
+                        r.metal_slab_w_pct != null ? Number(r.metal_slab_w_pct) : null,
+                        r.metal_slab_f_pct != null ? Number(r.metal_slab_f_pct) : null,
                         JSON.stringify({
                             chain_wt_only: r.chain_wt_only != null ? Number(r.chain_wt_only) : null,
                             pendant_wt_only: r.pendant_wt_only != null ? Number(r.pendant_wt_only) : null,

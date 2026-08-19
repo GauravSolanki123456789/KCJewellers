@@ -710,7 +710,11 @@ export function ErpPrintFormatsWorkspace() {
                   Silver estimate template
                 </p>
                 <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-                  Used for silver-only estimates (or mixed with more silver lines).
+                  Used for silver-only estimates (or mixed with more silver lines). Placeholders:{' '}
+                  <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{lines_table}}'}</code>,{' '}
+                  <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{silver_rate}}'}</code>,{' '}
+                  <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{total}}'}</code>.
+                  Epson rough estimates use a separate auto layout (Rate/Gm, MC total, CGST/SGST) — silver omits karat/purity.
                 </p>
               </div>
               <button

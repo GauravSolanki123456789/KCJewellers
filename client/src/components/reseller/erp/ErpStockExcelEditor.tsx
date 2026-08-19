@@ -151,6 +151,7 @@ export function ErpStockExcelEditor({
   const [assignFloorId, setAssignFloorId] = useState('')
   const [assignBoxId, setAssignBoxId] = useState('')
   const [assignBusy, setAssignBusy] = useState(false)
+  const [bulkMcSlabR, setBulkMcSlabR] = useState('')
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
 
   useEffect(() => {
@@ -226,6 +227,28 @@ export function ErpStockExcelEditor({
     setMessage(null)
     setError(null)
   }, [])
+
+  const applyBulkMcSlabR = () => {
+    const n = Number(bulkMcSlabR)
+    if (!Number.isFinite(n) || n < 0) {
+      setError('Enter a valid MCRateSlabR value')
+      return
+    }
+    const val = String(n)
+    const targetIds =
+      selected.size > 0 ? selected : new Set(drafts.filter((d) => d.status !== 'sold').map((d) => d.id))
+    if (!targetIds.size) {
+      setError('No rows to update')
+      return
+    }
+    setDrafts((prev) =>
+      prev.map((d) =>
+        targetIds.has(d.id) ? { ...d, values: { ...d.values, mc_rate_slab_r: val } } : d,
+      ),
+    )
+    setMessage(`Set MCRateSlabR = ${val} on ${targetIds.size} row(s) — click Save edits.`)
+    setError(null)
+  }
 
   const focusCell = useCallback((rowId: number, field: StockEditableField) => {
     const el = inputRefs.current.get(cellKey(rowId, field))
@@ -609,6 +632,20 @@ export function ErpStockExcelEditor({
           </span>
         ) : null}
         {error ? <span className="text-xs font-medium text-rose-600">{error}</span> : null}
+        <span className="hidden h-6 w-px bg-black/10 sm:inline" aria-hidden />
+        <label className="flex items-center gap-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
+          <span className="whitespace-nowrap font-semibold uppercase tracking-wide">MC R all</span>
+          <input
+            className={`${erpInputCls} !min-h-[36px] w-16 py-1 text-center text-xs`}
+            inputMode="decimal"
+            placeholder="24"
+            value={bulkMcSlabR}
+            onChange={(e) => setBulkMcSlabR(e.target.value)}
+          />
+          <button type="button" className={erpBtnGhost} onClick={applyBulkMcSlabR}>
+            Apply
+          </button>
+        </label>
       </div>
 
       <div className={`${erpCardCls} flex flex-wrap items-end gap-2`}>

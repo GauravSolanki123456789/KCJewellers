@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { printViaLocalAgent } from '@/lib/erp-local-print'
+import { openBrowserLocationLabelPrint, type LocationLabelRow } from '@/lib/erp-location-label-print'
 import { Building2, Loader2, MapPin, Package, Plus, Printer, QrCode, Search, Shuffle } from 'lucide-react'
 
 type FloorBox = {
@@ -133,14 +134,21 @@ export function ErpFloorsWorkspace() {
     setBusy(true)
     setErr(null)
     try {
-      const res = await axios.post<{ tspl?: string; count?: number }>(
-        '/api/reseller/erp/print/location-labels',
-        { floor_ids: floorIds, box_ids: boxIds },
-      )
-      if (res.data.tspl) {
+      const res = await axios.post<{
+        tspl?: string
+        count?: number
+        labels?: LocationLabelRow[]
+      }>('/api/reseller/erp/print/location-labels', { floor_ids: floorIds, box_ids: boxIds })
+      const labels = res.data.labels || []
+      if (labels.length) {
+        openBrowserLocationLabelPrint(labels)
+        setMsg(`Opened print preview for ${labels.length} QR label(s) — choose any printer (A4).`)
+      } else if (res.data.tspl) {
         await printViaLocalAgent([res.data.tspl], '')
+        setMsg(`Sent ${res.data.count ?? 1} label(s) to thermal printer`)
+      } else {
+        setMsg('Nothing to print')
       }
-      setMsg(`Sent ${res.data.count ?? 1} label(s) to printer`)
     } catch (e) {
       setErr(erpErr(e))
     } finally {

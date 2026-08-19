@@ -170,8 +170,8 @@ Address: {{customer_address}}
 {{lines_table}}
 --------------------------------
 Items: {{item_count}}
-Gold rate: Rs.{{gold_rate}}/g
 Silver rate: Rs.{{silver_rate}}/g
+(Slab R may show lower rate per item)
 --------------------------------
 ESTIMATE TOTAL: Rs. {{total}}
 MC discount: Rs. {{mc_discount}}
@@ -182,6 +182,10 @@ Balance: Rs. {{balance}}
 ================================
 Rates subject to change.
 This is an estimate, not a tax invoice.
+
+Note: Epson "Generate estimate" uses a separate
+ROUGH ESTIMATE layout (weight, Rate/Gm, MC total,
+CGST/SGST). Silver items omit purity/karat.
 `.trim()
 
 export const LABEL_TEMPLATE_VARS = [

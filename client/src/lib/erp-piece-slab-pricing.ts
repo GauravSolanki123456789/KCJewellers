@@ -57,8 +57,10 @@ export function resolveErpSilverMetalRatePerG(
   slab: ErpRateSlab,
   silverPerG: number,
   wholesaleSilver?: number | null,
+  silverRateOffsetPerG = 0,
 ): number {
-  if (slab === 'R') return Math.max(0, silverPerG)
+  const offset = Math.max(0, Number(silverRateOffsetPerG) || 0)
+  if (slab === 'R') return Math.max(0, silverPerG - offset)
   const wh = wholesaleSilver ?? silverPerG
   return Math.max(0, wh)
 }
@@ -82,10 +84,16 @@ export function computeErpPieceSlabBreakdown(
   silverPerG: number,
   wholesaleSilver?: number | null,
   gstPct = 3,
+  silverRateOffsetPerG = 0,
 ): PriceBreakdown {
   const netWt = line.originalWeightGm ?? line.weightGm ?? 0
   const billWt = pieceSlabBillableWeight(line, slab)
-  const metalRate = resolveErpSilverMetalRatePerG(slab, silverPerG, wholesaleSilver)
+  const metalRate = resolveErpSilverMetalRatePerG(
+    slab,
+    silverPerG,
+    wholesaleSilver,
+    silverRateOffsetPerG,
+  )
   const mcRate = pieceSlabMcRate(line, slab) ?? 0
   const qty = line.qty ?? 1
   const stone = Number(line.stone_charges || 0) || 0

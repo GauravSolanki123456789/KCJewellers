@@ -152,12 +152,16 @@ export function computeLineBreakdown(
   const metal = String(line.metal_type || '').toLowerCase()
   if (lineHasPieceSlabFields(line) && metal.startsWith('silver')) {
     const adjusted = applyPieceSlabToLine(line, slab)
+    const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
+    const silverOffset =
+      slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
     return computeErpPieceSlabBreakdown(
       adjusted,
       slab,
       silverPerG,
       wholesaleSilver,
       3,
+      silverOffset,
     )
   }
 

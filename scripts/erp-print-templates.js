@@ -320,8 +320,8 @@ Address: {{customer_address}}
 {{lines_table}}
 --------------------------------
 Items: {{item_count}}
-Gold rate: Rs.{{gold_rate}}/g
 Silver rate: Rs.{{silver_rate}}/g
+(Slab R may show lower rate per item)
 --------------------------------
 ESTIMATE TOTAL: Rs. {{total}}
 MC discount: Rs. {{mc_discount}}
@@ -332,6 +332,10 @@ Balance: Rs. {{balance}}
 ================================
 Rates subject to change.
 This is an estimate, not a tax invoice.
+
+Note: Epson "Generate estimate" uses a separate
+ROUGH ESTIMATE layout (weight, Rate/Gm, MC total,
+CGST/SGST). Silver items omit purity/karat.
 `.trim();
 
 function preserveBillTemplate(raw) {
@@ -867,12 +871,27 @@ function roughCenter(text, width = ROUGH_ESTIMATE_WIDTH) {
     return `${' '.repeat(Math.max(0, pad))}${t}`;
 }
 
-function roughField(label, value) {
+function roughField(label, value, labelWidth = 14) {
     const lbl = String(label || '').trim();
     const val = String(value ?? '').trim();
-    const line = `${lbl}: ${val}`;
+    const padded = `${lbl}:`.padEnd(labelWidth, ' ');
+    const line = `${padded} ${val}`;
     if (line.length <= ROUGH_ESTIMATE_WIDTH) return line;
-    return `${lbl}:\n  ${val}`;
+    return `${lbl}:\n${' '.repeat(labelWidth)} ${val}`;
+}
+
+function roughDash(width = 20) {
+    return '-'.repeat(Math.min(width, ROUGH_ESTIMATE_WIDTH));
+}
+
+function isMcPerPieceType(mcType) {
+    const t = String(mcType || '').toUpperCase().replace(/\s/g, '');
+    return t.includes('PC') || t.includes('PIECE') || t === 'MC/PCS';
+}
+
+function formatPurityForEstimate(line) {
+    if (isSilverLine(line)) return '';
+    return purityToKarats(line.purity);
 }
 
 function purityToKarats(purity) {
@@ -936,11 +955,22 @@ function shouldShowRoughMcLine(line, rateSlab, printFormats) {
 
 function roughMcForLine(line, rateSlab, printFormats) {
     if (!shouldShowRoughMcLine(line, rateSlab, printFormats)) return '';
-    const mc = thermalMcDisplay(line, rateSlab, printFormats);
-    if (!mc || Number(mc) === 0) return '';
-    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) return String(Math.round(Number(mc)));
-    const n = Number(mc);
-    return Number.isFinite(n) ? (Number.isInteger(n) ? String(n) : n.toFixed(2)) : mc;
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) {
+        const mc = thermalMcDisplay(line, rateSlab, printFormats);
+        if (!mc || Number(mc) === 0) return '';
+        return String(Math.round(Number(mc)));
+    }
+    const mcRate = Number(line.mc_rate);
+    if (!Number.isFinite(mcRate) || mcRate === 0) return '';
+    const netWt = Number(line.weightGm ?? line.net_weight) || 0;
+    const qty = Number(line.qty) || 1;
+    if (isMcPerPieceType(line.mc_type)) {
+        return String(Math.round(mcRate * qty));
+    }
+    if (netWt > 0) {
+        return String(Math.round(mcRate * netWt));
+    }
+    return String(Math.round(mcRate));
 }
 
 function lineTaxableFromTotal(lineTotalInr) {
@@ -965,7 +995,7 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates, printFor
     out.push(dt);
     const tag = String(line.barcode || line.code || '').trim();
     out.push(`Qty: ${line.qty != null ? line.qty : 1}  Tag: ${tag || '—'}`);
-    const purityLabel = purityToKarats(line.purity);
+    const purityLabel = formatPurityForEstimate(line);
     if (purityLabel) out.push(roughField('Purity', purityLabel));
     const grossWt = Number(line.gross_weight);
     const stoneWt = Number(line.stone_wt);
@@ -978,9 +1008,10 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates, printFor
     }
     out.push(roughField('Net Wt', `${netWt.toFixed(3)} gms`));
     out.push(roughField('V.ADDN', roughVAddnGrams(line, rateSlab, printFormats)));
+    out.push(roughDash());
     const rate = roughRateForLine(line, rates);
     if (rate) {
-        out.push(roughField('Rate', rate));
+        out.push(roughField('Rate/Gm', rate));
         const rateNum = Number(rate);
         if (Number.isFinite(rateNum) && rateNum > 0 && netWt > 0) {
             const metalValue = Math.round(rateNum * netWt * 100) / 100;
@@ -991,6 +1022,7 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates, printFor
     if (Number.isFinite(stoneCh) && stoneCh > 0) {
         out.push(roughField('Stone Chrg', stoneCh.toFixed(2)));
     }
+    out.push(roughDash());
     const mc = roughMcForLine(line, rateSlab, printFormats);
     if (mc) out.push(roughField('MC', mc));
     const taxable = lineTaxableFromTotal(line.lineTotalInr);
@@ -1045,7 +1077,12 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
     out.push(roughField('CGST 1.5%', gst.cgst.toFixed(2)));
     out.push(roughField('SGST 1.5%', gst.sgst.toFixed(2)));
     out.push(dash);
-    out.push(roughField('Final Amt', gst.gross.toFixed(2)));
+    out.push('');
+    out.push(roughCenter(`Gross  Rs.${gst.gross.toFixed(2)}`));
+    out.push(roughCenter(`Nett RS  ${gst.gross.toFixed(2)}`));
+    out.push('');
+    out.push(roughCenter('FINAL AMOUNT'));
+    out.push(roughCenter(`Rs.${gst.gross.toFixed(2)}`));
     out.push(dots);
 
     const contact = phone || '7867867886,8825888888,9169161616';

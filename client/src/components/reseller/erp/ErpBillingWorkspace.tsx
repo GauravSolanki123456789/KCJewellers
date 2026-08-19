@@ -327,7 +327,16 @@ export function ErpBillingWorkspace() {
       }
       if (!line.rateLocked) {
         if (lineHasPieceSlabFields(slabLine) && String(line.metal_type || '').toLowerCase().startsWith('silver')) {
-          next.ratePerGram = resolveErpSilverMetalRatePerG(slab, s, wholesaleSilver)
+          const silverOffset =
+            slab === 'R'
+              ? Math.max(0, Number(slabSettings.slab_r?.silver_rate_offset_per_g) || 0)
+              : 0
+          next.ratePerGram = resolveErpSilverMetalRatePerG(
+            slab,
+            s,
+            wholesaleSilver,
+            silverOffset,
+          )
         } else {
           const r = bd.rate_per_gram
           next.ratePerGram =

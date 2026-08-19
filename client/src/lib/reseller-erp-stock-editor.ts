@@ -30,6 +30,12 @@ export type StockEditableField =
   | 'earring_wt_only'
   | 'bags'
   | 'bag_wt'
+  | 'mc_rate_slab_r'
+  | 'mc_rate_slab_w'
+  | 'mc_rate_slab_f'
+  | 'metal_slab_r_pct'
+  | 'metal_slab_w_pct'
+  | 'metal_slab_f_pct'
 
 /** Fields that accept live weight from the connected scale (Enter to commit & next row). */
 export const SCALE_CAPTURE_FIELDS: StockEditableField[] = [
@@ -63,6 +69,12 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'purity', label: 'Purity', type: 'number' },
   { key: 'wastage_pct', label: 'Wastage(%)', shortLabel: 'Wast %', type: 'number' },
   { key: 'mc_rate', label: 'MCRate', shortLabel: 'MC', type: 'number' },
+  { key: 'mc_rate_slab_r', label: 'MCRateSlabR', shortLabel: 'MC R', type: 'number' },
+  { key: 'mc_rate_slab_w', label: 'MCRateSlabW', shortLabel: 'MC W', type: 'number' },
+  { key: 'mc_rate_slab_f', label: 'MCRateSlabF', shortLabel: 'MC F', type: 'number' },
+  { key: 'metal_slab_r_pct', label: 'MetalSlabR%', shortLabel: 'Met R%', type: 'number' },
+  { key: 'metal_slab_w_pct', label: 'MetalSlabW%', shortLabel: 'Met W%', type: 'number' },
+  { key: 'metal_slab_f_pct', label: 'MetalSlabF%', shortLabel: 'Met F%', type: 'number' },
   { key: 'mc_type', label: 'MCType', type: 'text' },
   { key: 'pcs', label: 'PCS', type: 'number' },
   { key: 'box_charges', label: 'BoxCharges', type: 'number' },
@@ -102,6 +114,12 @@ export function pieceToRowDraft(p: ErpStockPiece): StockRowDraft {
       purity: fieldToString(p.purity),
       wastage_pct: fieldToString(p.wastage_pct),
       mc_rate: fieldToString(p.mc_rate),
+      mc_rate_slab_r: fieldToString(p.mc_rate_slab_r),
+      mc_rate_slab_w: fieldToString(p.mc_rate_slab_w),
+      mc_rate_slab_f: fieldToString(p.mc_rate_slab_f),
+      metal_slab_r_pct: fieldToString(p.metal_slab_r_pct),
+      metal_slab_w_pct: fieldToString(p.metal_slab_w_pct),
+      metal_slab_f_pct: fieldToString(p.metal_slab_f_pct),
       mc_type: fieldToString(p.mc_type),
       pcs: fieldToString(p.pcs ?? 1),
       box_charges: fieldToString(p.box_charges),
@@ -140,6 +158,12 @@ export function rowDraftToApiPayload(d: StockRowDraft): Record<string, unknown> 
     purity: num('purity'),
     wastage_pct: num('wastage_pct'),
     mc_rate: num('mc_rate'),
+    mc_rate_slab_r: num('mc_rate_slab_r'),
+    mc_rate_slab_w: num('mc_rate_slab_w'),
+    mc_rate_slab_f: num('mc_rate_slab_f'),
+    metal_slab_r_pct: num('metal_slab_r_pct'),
+    metal_slab_w_pct: num('metal_slab_w_pct'),
+    metal_slab_f_pct: num('metal_slab_f_pct'),
     mc_type: v.mc_type.trim() || null,
     pcs: num('pcs') ?? 1,
     box_charges: num('box_charges'),
