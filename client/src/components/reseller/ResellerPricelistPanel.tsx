@@ -104,8 +104,8 @@ function PricelistShareModal({ open, onClose, productIds, slabKeys, hidePdf }: S
     setShareUrl('')
     setError('')
     setCopied(false)
-    if (slabKeys.length && !selectedSlabKey) setSelectedSlabKey(slabKeys[0])
-  }, [open, slabKeys, selectedSlabKey])
+    setSelectedSlabKey('')
+  }, [open])
 
   if (!open) return null
 

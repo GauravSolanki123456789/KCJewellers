@@ -22,6 +22,7 @@ export type ErpProductHit = {
   net_weight?: number | null
   gross_weight?: number | null
   bag_wt?: number | null
+  bags?: string | null
   purity?: number | null
   wastage_pct?: number | null
   metal_type?: string | null
@@ -129,6 +130,7 @@ export type ErpBillLine = {
   stone_wt?: number | null
   gross_weight?: number | null
   bag_wt?: number | null
+  bags?: string | null
   metal_type?: string | null
   item_code?: string | null
   imageUrl?: string | null

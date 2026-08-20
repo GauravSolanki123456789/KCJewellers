@@ -805,8 +805,7 @@ function registerResellerPricelistRoutes(app, deps) {
                     }
                     fs.renameSync(srcPath, destPath);
                 }
-                const apiBase = getPublicApiBaseUrl();
-                const url = `${apiBase}/uploads/pricelist/${target}`;
+                const url = `/uploads/pricelist/${target}`;
                 await query(
                     `UPDATE reseller_pricelist_products SET image_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
                     [url, product.id],
@@ -859,7 +858,6 @@ function registerResellerPricelistRoutes(app, deps) {
                     return res.status(400).json({ error: 'No image files received' });
                 }
 
-                const apiBase = getPublicApiBaseUrl();
                 const matched = [];
                 const unmatched = [];
                 const errors = [];
@@ -887,7 +885,7 @@ function registerResellerPricelistRoutes(app, deps) {
                             }
                             fs.renameSync(srcPath, destPath);
                         }
-                        const url = `${apiBase}/uploads/pricelist/${target}`;
+                        const url = `/uploads/pricelist/${target}`;
                         await query(
                             `UPDATE reseller_pricelist_products SET image_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
                             [url, entry.id],

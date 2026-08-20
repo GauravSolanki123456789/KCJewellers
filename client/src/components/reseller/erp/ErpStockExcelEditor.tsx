@@ -158,7 +158,8 @@ export function ErpStockExcelEditor({
   const [assignFloorId, setAssignFloorId] = useState('')
   const [assignBoxId, setAssignBoxId] = useState('')
   const [assignBusy, setAssignBusy] = useState(false)
-  const [bulkMcSlabR, setBulkMcSlabR] = useState('')
+  const [bulkField, setBulkField] = useState<StockEditableField>('style_code')
+  const [bulkValue, setBulkValue] = useState('')
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
 
   useEffect(() => {
@@ -239,13 +240,17 @@ export function ErpStockExcelEditor({
     setError(null)
   }, [])
 
-  const applyBulkMcSlabR = () => {
-    const n = Number(bulkMcSlabR)
-    if (!Number.isFinite(n) || n < 0) {
-      setError('Enter a valid MCRateSlabR value')
+  const applyBulkColumn = () => {
+    const val = bulkValue.trim()
+    if (!val) {
+      setError('Enter a value to apply')
       return
     }
-    const val = String(n)
+    const col = STOCK_EDITOR_COLUMNS.find((c) => c.key === bulkField)
+    if (col?.type === 'number' && !Number.isFinite(Number(val))) {
+      setError(`Enter a valid number for ${col.label}`)
+      return
+    }
     const targetIds =
       selected.size > 0 ? selected : new Set(drafts.filter((d) => d.status !== 'sold').map((d) => d.id))
     if (!targetIds.size) {
@@ -253,11 +258,22 @@ export function ErpStockExcelEditor({
       return
     }
     setDrafts((prev) =>
-      prev.map((d) =>
-        targetIds.has(d.id) ? { ...d, values: { ...d.values, mc_rate_slab_r: val } } : d,
-      ),
+      prev.map((d) => {
+        if (!targetIds.has(d.id)) return d
+        const nextValues = { ...d.values, [bulkField]: val }
+        if (shouldRecalcNetWeight(bulkField)) {
+          const net = computeNetWeightFromValues(nextValues)
+          if (net != null) nextValues.avg_weight = net
+        }
+        if (shouldRecalcBagWt(bulkField)) {
+          const bag = computeBagWtFromValues(nextValues)
+          if (bag != null) nextValues.bag_wt = bag
+        }
+        return { ...d, values: nextValues }
+      }),
     )
-    setMessage(`Set MCRateSlabR = ${val} on ${targetIds.size} row(s) — click Save edits.`)
+    const label = STOCK_EDITOR_COLUMNS.find((c) => c.key === bulkField)?.shortLabel || bulkField
+    setMessage(`Set ${label} = "${val}" on ${targetIds.size} row(s) — click Save edits.`)
     setError(null)
   }
 
@@ -644,17 +660,27 @@ export function ErpStockExcelEditor({
         ) : null}
         {error ? <span className="text-xs font-medium text-rose-600">{error}</span> : null}
         <span className="hidden h-6 w-px bg-black/10 sm:inline" aria-hidden />
-        <label className="flex items-center gap-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-          <span className="whitespace-nowrap font-semibold uppercase tracking-wide">MC R all</span>
+        <label className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
+          <span className="whitespace-nowrap font-semibold uppercase tracking-wide">Set column</span>
+          <select
+            className={`${erpInputCls} !min-h-[36px] max-w-[140px] py-1 text-xs`}
+            value={bulkField}
+            onChange={(e) => setBulkField(e.target.value as StockEditableField)}
+          >
+            {STOCK_EDITOR_COLUMNS.filter((c) => c.key !== 'barcode' && c.key !== 'image_url').map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.shortLabel || c.label}
+              </option>
+            ))}
+          </select>
           <input
-            className={`${erpInputCls} !min-h-[36px] w-16 py-1 text-center text-xs`}
-            inputMode="decimal"
-            placeholder="24"
-            value={bulkMcSlabR}
-            onChange={(e) => setBulkMcSlabR(e.target.value)}
+            className={`${erpInputCls} !min-h-[36px] min-w-[72px] max-w-[120px] py-1 text-xs`}
+            placeholder="Value"
+            value={bulkValue}
+            onChange={(e) => setBulkValue(e.target.value)}
           />
-          <button type="button" className={erpBtnGhost} onClick={applyBulkMcSlabR}>
-            Apply
+          <button type="button" className={erpBtnGhost} onClick={applyBulkColumn}>
+            Apply all
           </button>
         </label>
       </div>

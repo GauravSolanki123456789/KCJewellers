@@ -63,6 +63,7 @@ import {
   Plus,
   Receipt,
   Search,
+  UserPlus,
   X,
 } from 'lucide-react'
 import {
@@ -134,6 +135,7 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     weightGm: wt,
     gross_weight: p.gross_weight ?? null,
     bag_wt: p.bag_wt ?? null,
+    bags: p.bags ?? null,
     purity: p.purity ?? (metal.includes('silver') ? 925 : null),
     wastage_pct: p.wastage_pct ?? null,
     ratePerGram: null,
@@ -229,6 +231,7 @@ export function ErpBillingWorkspace() {
   const [scanBusy, setScanBusy] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
+  const [customerSaveBusy, setCustomerSaveBusy] = useState(false)
   const [bills, setBills] = useState<ErpBill[]>([])
   const [hydrated, setHydrated] = useState(false)
   const [editingBillId, setEditingBillId] = useState<number | null>(null)
@@ -603,6 +606,32 @@ export function ErpBillingWorkspace() {
     const list = customers.slice(0, 8)
     if (customerPickIdx >= 0 && customerPickIdx < list.length) {
       selectCustomer(list[customerPickIdx])
+    }
+  }
+
+  const saveCustomerQuick = async () => {
+    const name = (customerName || customerQ).trim()
+    if (!name) {
+      alert('Enter a customer name to save.')
+      return
+    }
+    setCustomerSaveBusy(true)
+    try {
+      const res = await axios.post<{ success: boolean; customer: ErpCustomer }>(
+        '/api/reseller/erp/customers',
+        {
+          name,
+          mobile: mobile.trim() || undefined,
+          address: address.trim() || undefined,
+          pan: customerPan.trim() || undefined,
+          gstin: customerGst.trim() || undefined,
+        },
+      )
+      selectCustomer(res.data.customer)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setCustomerSaveBusy(false)
     }
   }
 
@@ -1367,6 +1396,16 @@ export function ErpBillingWorkspace() {
           </div>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={erpBtnGhost}
+            disabled={customerSaveBusy || !(customerName || customerQ).trim()}
+            title="Save customer details without saving the bill"
+            onClick={() => void saveCustomerQuick()}
+          >
+            {customerSaveBusy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+            + Customer
+          </button>
           <button type="button" className={erpBtnGhost} onClick={resetBill}>
             <Receipt className="size-4" />
             New bill

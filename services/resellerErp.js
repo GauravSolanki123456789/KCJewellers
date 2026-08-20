@@ -1284,6 +1284,7 @@ function registerResellerErpRoutes(app, deps) {
                         net_weight: p.avg_weight,
                         gross_weight: p.gross_weight != null ? Number(p.gross_weight) : p.avg_weight,
                         bag_wt: p.bag_wt != null ? Number(p.bag_wt) : null,
+                        bags: p.bags ?? null,
                         purity: p.purity,
                         wastage_pct: p.wastage_pct,
                         mc_rate: p.mc_rate,
