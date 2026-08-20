@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
-import { printViaLocalAgent } from '@/lib/erp-local-print'
-import { openBrowserLocationLabelPrint, type LocationLabelRow } from '@/lib/erp-location-label-print'
-import { Building2, Loader2, MapPin, Package, Plus, Printer, QrCode, Search, Shuffle } from 'lucide-react'
+import { downloadLocationQrImages, type LocationLabelRow } from '@/lib/erp-location-label-print'
+import { Building2, Download, Loader2, MapPin, Package, Plus, Search, Shuffle } from 'lucide-react'
 
 type FloorBox = {
   id: string
@@ -135,19 +134,19 @@ export function ErpFloorsWorkspace() {
     setErr(null)
     try {
       const res = await axios.post<{
-        tspl?: string
         count?: number
         labels?: LocationLabelRow[]
       }>('/api/reseller/erp/print/location-labels', { floor_ids: floorIds, box_ids: boxIds })
       const labels = res.data.labels || []
-      if (labels.length) {
-        openBrowserLocationLabelPrint(labels)
-        setMsg(`Opened print preview for ${labels.length} QR label(s) — choose any printer (A4).`)
-      } else if (res.data.tspl) {
-        await printViaLocalAgent([res.data.tspl], '')
-        setMsg(`Sent ${res.data.count ?? 1} label(s) to thermal printer`)
+      if (!labels.length) {
+        setErr('No QR labels to download')
+        return
+      }
+      const downloaded = await downloadLocationQrImages(labels)
+      if (downloaded > 0) {
+        setMsg(`Downloaded ${downloaded} QR image(s) — check your Downloads folder.`)
       } else {
-        setMsg('Nothing to print')
+        setErr('Could not download QR images — check your connection and try again.')
       }
     } catch (e) {
       setErr(erpErr(e))
@@ -286,8 +285,8 @@ export function ErpFloorsWorkspace() {
                       disabled={busy}
                       onClick={() => void printLabels([floor.id], [])}
                     >
-                      <Printer className="size-4" />
-                      Floor QR
+                      <Download className="size-4" />
+                      Download floor QR
                     </button>
                     <button
                       type="button"
@@ -344,8 +343,8 @@ export function ErpFloorsWorkspace() {
                               disabled={busy}
                               onClick={() => void printLabels([], [box.id])}
                             >
-                              <QrCode className="size-4" />
-                              Print QR
+                              <Download className="size-4" />
+                              Download box QR
                             </button>
                           </li>
                         ))}

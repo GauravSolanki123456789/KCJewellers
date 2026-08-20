@@ -36,6 +36,7 @@ import {
   normalizeQuoteOutputMode,
   printErpEstimateThermal,
   resolveQuoteOutputMode,
+  resolveQuoteOutputModeForSlab,
   type ErpQuoteOutputMode,
 } from '@/lib/erp-quote-output'
 import {
@@ -262,16 +263,18 @@ export function ErpBillingWorkspace() {
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
 
   const quoteOutputMode = useMemo(
-    () => resolveQuoteOutputMode(workstation.quoteOutputMode, shopQuoteOutputMode),
-    [workstation.quoteOutputMode, shopQuoteOutputMode],
+    () => resolveQuoteOutputModeForSlab(rateSlab, workstation.quoteOutputMode, shopQuoteOutputMode),
+    [rateSlab, workstation.quoteOutputMode, shopQuoteOutputMode],
   )
 
   const generateQuoteButtonLabel = useMemo(() => {
     const prefix = editingBillId ? 'Update & ' : 'Generate '
+    if (rateSlab === 'R') return `${prefix}Epson estimate`
+    if (rateSlab === 'W' || rateSlab === 'F') return `${prefix}PDF quote`
     if (quoteOutputMode === 'epson') return `${prefix}Epson estimate`
     if (quoteOutputMode === 'both') return `${prefix}quote (PDF + Epson)`
     return `${prefix}PDF quote`
-  }, [editingBillId, quoteOutputMode])
+  }, [editingBillId, quoteOutputMode, rateSlab])
 
   const recalcLine = useCallback(
     (

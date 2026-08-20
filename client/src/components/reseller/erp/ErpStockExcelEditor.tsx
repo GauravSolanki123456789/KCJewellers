@@ -9,7 +9,9 @@ import {
   SCALE_CAPTURE_FIELDS,
   STOCK_EDITOR_COLUMNS,
   computeNetWeightFromValues,
+  computeBagWtFromValues,
   shouldRecalcNetWeight,
+  shouldRecalcBagWt,
   type StockEditableField,
   type StockRowDraft,
 } from '@/lib/reseller-erp-stock-editor'
@@ -84,6 +86,7 @@ function draftToPrintOverride(
   const nextValues = { ...row.values }
   if (field === 'gross_weight') nextValues.gross_weight = weight.toFixed(3)
   else if (field === 'avg_weight') nextValues.avg_weight = weight.toFixed(3)
+  else if (field === 'bag_wt') nextValues.bag_wt = weight.toFixed(3)
   else if (field === 'chain_wt_only') nextValues.chain_wt_only = weight.toFixed(3)
   else if (field === 'pendant_wt_only') nextValues.pendant_wt_only = weight.toFixed(3)
   else if (field === 'earring_wt_only') nextValues.earring_wt_only = weight.toFixed(3)
@@ -95,6 +98,10 @@ function draftToPrintOverride(
     ov.avg_weight = Number(net)
   } else if (field === 'avg_weight') {
     ov.avg_weight = weight
+  }
+  const bagAuto = computeBagWtFromValues(nextValues)
+  if (bagAuto != null && field !== 'bag_wt') {
+    nextValues.bag_wt = bagAuto
   }
   const gross = parseDraftNumber(nextValues.gross_weight)
   if (gross != null) ov.gross_weight = gross
@@ -220,6 +227,10 @@ export function ErpStockExcelEditor({
         if (shouldRecalcNetWeight(field)) {
           const net = computeNetWeightFromValues(nextValues)
           if (net != null) nextValues.avg_weight = net
+        }
+        if (shouldRecalcBagWt(field)) {
+          const bag = computeBagWtFromValues(nextValues)
+          if (bag != null) nextValues.bag_wt = bag
         }
         return { ...d, values: nextValues }
       }),

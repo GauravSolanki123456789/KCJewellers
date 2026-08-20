@@ -245,6 +245,13 @@ export function ErpQuotePdfDocument({
   const isInvoice = documentKind === 'invoice'
   const docLabel = isInvoice ? 'Tax Invoice' : 'Quotation'
   const tableTitle = isInvoice ? 'Invoice details — full breakdown' : 'Order summary — full details'
+  const photoEntries = useMemo(
+    () =>
+      products
+        .map((p, i) => ({ p, line: lines[i], i }))
+        .filter(({ p }) => Boolean(p.pdfImageSrc)),
+    [products, lines],
+  )
 
   return (
     <Document>
@@ -370,12 +377,11 @@ export function ErpQuotePdfDocument({
           </View>
         </View>
 
-        {products.length > 0 ? (
+        {photoEntries.length > 0 ? (
           <>
             <Text style={styles.photosTitle}>PRODUCT PHOTOS</Text>
             <View style={styles.photoGrid}>
-              {products.map((p, i) => {
-                const line = lines[i]
+              {photoEntries.map(({ p, line, i }) => {
                 const name = sanitizePdfText(line?.name || p.item_name || 'Item')
                 const ref = line?.barcode || line?.code || p.barcode || '—'
                 const wt = line?.weightGm != null ? `${line.weightGm} gm` : ''
@@ -385,13 +391,7 @@ export function ErpQuotePdfDocument({
                     : ''
                 return (
                   <View key={`photo-${i}`} style={styles.photoCard}>
-                    {p.pdfImageSrc ? (
-                      <Image style={styles.photoThumb} src={p.pdfImageSrc} />
-                    ) : (
-                      <View style={styles.photoPlaceholder}>
-                        <Text style={styles.photoPlaceholderText}>{name.charAt(0) || '?'}</Text>
-                      </View>
-                    )}
+                    <Image style={styles.photoThumb} src={p.pdfImageSrc!} />
                     <View style={styles.photoBody}>
                       <Text style={styles.photoName}>{name}</Text>
                       <Text style={styles.photoMeta}>Ref: {ref}{wt ? ` · ${wt}` : ''}</Text>

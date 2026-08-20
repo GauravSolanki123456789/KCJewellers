@@ -41,6 +41,7 @@ export type StockEditableField =
 export const SCALE_CAPTURE_FIELDS: StockEditableField[] = [
   'avg_weight',
   'gross_weight',
+  'bag_wt',
   'chain_wt_only',
   'pendant_wt_only',
   'earring_wt_only',
@@ -66,6 +67,8 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'product_name', label: 'ProductName', shortLabel: 'Product', type: 'text' },
   { key: 'size', label: 'Size', type: 'text' },
   { key: 'avg_weight', label: 'AvgWeight', shortLabel: 'Wt (g)', type: 'number', scaleCapture: true },
+  { key: 'gross_weight', label: 'Gross', shortLabel: 'Gross', type: 'number', scaleCapture: true },
+  { key: 'bag_wt', label: 'BagWt', shortLabel: 'Bag Wt', type: 'number', scaleCapture: true },
   { key: 'purity', label: 'Purity', type: 'number' },
   { key: 'wastage_pct', label: 'Wastage(%)', shortLabel: 'Wast %', type: 'number' },
   { key: 'mc_rate', label: 'MCRate', shortLabel: 'MC', type: 'number' },
@@ -86,12 +89,10 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'attr_color', label: 'Attr:Color', type: 'text' },
   { key: 'attr_stone', label: 'Attr:Stone', type: 'text' },
   { key: 'fixed_price', label: 'FixedPrice', type: 'number' },
-  { key: 'gross_weight', label: 'Gross', shortLabel: 'Gross', type: 'number', scaleCapture: true },
   { key: 'chain_wt_only', label: 'ChainWtOnly', shortLabel: 'Chain', type: 'number', scaleCapture: true },
   { key: 'pendant_wt_only', label: 'PendantWtOnly', shortLabel: 'Pendant', type: 'number', scaleCapture: true },
   { key: 'earring_wt_only', label: 'EarringWtOnly', shortLabel: 'Earring', type: 'number', scaleCapture: true },
   { key: 'bags', label: 'Bags', type: 'text' },
-  { key: 'bag_wt', label: 'BagWt', shortLabel: 'Bag Wt', type: 'number' },
 ]
 
 function fieldToString(val: unknown): string {
@@ -210,6 +211,23 @@ const NET_WEIGHT_TRIGGER_FIELDS: StockEditableField[] = ['gross_weight', 'stone_
 
 export function shouldRecalcNetWeight(field: StockEditableField): boolean {
   return NET_WEIGHT_TRIGGER_FIELDS.includes(field)
+}
+
+/** Bag wt = gross − net − stone (when net and gross are both set). */
+export function computeBagWtFromValues(values: Record<StockEditableField, string>): string | null {
+  const gross = parseNum(values.gross_weight)
+  const net = parseNum(values.avg_weight)
+  if (gross == null || net == null) return null
+  const stone = parseNum(values.stone_wt) ?? 0
+  const bag = gross - net - stone
+  if (!Number.isFinite(bag) || bag < 0) return null
+  return bag.toFixed(3)
+}
+
+const BAG_WT_TRIGGER_FIELDS: StockEditableField[] = ['avg_weight', 'gross_weight', 'stone_wt']
+
+export function shouldRecalcBagWt(field: StockEditableField): boolean {
+  return BAG_WT_TRIGGER_FIELDS.includes(field)
 }
 
 /** Parse uploaded workbook first sheet to row objects keyed by header. */

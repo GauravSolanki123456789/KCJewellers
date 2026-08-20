@@ -209,6 +209,7 @@ export async function resolveErpLineImages(lines: ErpBillLine[]): Promise<ErpBil
       style_code: line.style_code,
       item_code: line.item_code,
       metal_type: line.metal_type,
+      product_name: line.name,
     })
   })
   if (!needIdx.length) return lines

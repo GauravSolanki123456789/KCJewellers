@@ -30,4 +30,15 @@ export function resolveQuoteOutputMode(
   return normalizeQuoteOutputMode(resellerDefault ?? 'pdf')
 }
 
+/** Billing slab overrides shop default: R → Epson only, W/F → PDF only. */
+export function resolveQuoteOutputModeForSlab(
+  rateSlab: 'R' | 'W' | 'F',
+  workstationMode?: ErpQuoteOutputMode | null,
+  resellerDefault?: ErpQuoteOutputMode | null,
+): ErpQuoteOutputMode {
+  if (rateSlab === 'R') return 'epson'
+  if (rateSlab === 'W' || rateSlab === 'F') return 'pdf'
+  return resolveQuoteOutputMode(workstationMode, resellerDefault)
+}
+
 export { printErpEstimateThermal } from '@/lib/erp-billing-print'

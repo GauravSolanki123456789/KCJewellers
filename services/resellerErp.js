@@ -215,7 +215,8 @@ async function lookupCatalogImageUrl(query, keys) {
     const styleCode = trimStr(keys?.style_code, 128);
     const itemCode = trimStr(keys?.item_code, 128);
     const metalType = trimStr(keys?.metal_type, 64);
-    if (!barcode && !sku && !styleCode && !itemCode) return null;
+    const productName = trimStr(keys?.product_name, 256);
+    if (!barcode && !sku && !styleCode && !itemCode && !productName) return null;
     const rows = await query(
         `SELECT wp.image_url FROM web_products wp
          JOIN web_subcategories ws ON ws.id = wp.subcategory_id
@@ -224,6 +225,7 @@ async function lookupCatalogImageUrl(query, keys) {
            AND wp.image_url IS NOT NULL AND TRIM(wp.image_url) <> ''
            AND (
              ($1::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.barcode, ''))) = LOWER($1))
+             OR ($1::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($1))
              OR (
                $4::text IS NOT NULL
                AND LOWER(TRIM(COALESCE(wp.design_group, ''))) = LOWER($4)
@@ -237,18 +239,43 @@ async function lookupCatalogImageUrl(query, keys) {
                  OR LOWER(TRIM(COALESCE(wc.name, ''))) LIKE '%' || LOWER($5) || '%')
              )
              OR ($4::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.design_group, ''))) = LOWER($4))
+             OR (
+               $2::text IS NOT NULL
+               AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2)
+               AND ($5::text IS NULL OR LOWER(TRIM(COALESCE(wp.metal_type, wc.name, ''))) LIKE LOWER($5) || '%'
+                 OR LOWER(TRIM(COALESCE(wc.slug, ''))) LIKE '%' || LOWER($5) || '%')
+             )
+             OR (
+               $2::text IS NOT NULL AND $3::text IS NOT NULL
+               AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($2)
+               AND (
+                 LOWER(TRIM(COALESCE(ws.name, ''))) = LOWER($3)
+                 OR LOWER(TRIM(COALESCE(ws.slug, ''))) = LOWER(REPLACE($3, ' ', '-'))
+                 OR LOWER(TRIM(COALESCE(ws.name, ''))) LIKE '%' || LOWER($3) || '%'
+               )
+               AND ($5::text IS NULL OR LOWER(TRIM(COALESCE(wp.metal_type, wc.name, ''))) LIKE LOWER($5) || '%'
+                 OR LOWER(TRIM(COALESCE(wc.slug, ''))) LIKE '%' || LOWER($5) || '%')
+             )
+             OR (
+               $6::text IS NOT NULL
+               AND LOWER(TRIM(COALESCE(wp.name, ''))) = LOWER($6)
+             )
            )
          ORDER BY
            CASE
              WHEN $1::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.barcode, ''))) = LOWER($1) THEN 0
-             WHEN $4::text IS NOT NULL AND $2::text IS NOT NULL AND $3::text IS NOT NULL THEN 1
-             WHEN $4::text IS NOT NULL AND $2::text IS NOT NULL THEN 2
-             WHEN $4::text IS NOT NULL THEN 3
-             ELSE 4
+             WHEN $1::text IS NOT NULL AND LOWER(TRIM(COALESCE(wp.sku, ''))) = LOWER($1) THEN 1
+             WHEN $4::text IS NOT NULL AND $2::text IS NOT NULL AND $3::text IS NOT NULL THEN 2
+             WHEN $2::text IS NOT NULL AND $3::text IS NOT NULL THEN 3
+             WHEN $4::text IS NOT NULL AND $2::text IS NOT NULL THEN 4
+             WHEN $4::text IS NOT NULL THEN 5
+             WHEN $2::text IS NOT NULL THEN 6
+             WHEN $6::text IS NOT NULL THEN 7
+             ELSE 8
            END,
            wp.updated_at DESC NULLS LAST
          LIMIT 1`,
-        [barcode, sku, styleCode, itemCode, metalType],
+        [barcode, sku, styleCode, itemCode, metalType, productName],
     );
     return rows[0]?.image_url || null;
 }
