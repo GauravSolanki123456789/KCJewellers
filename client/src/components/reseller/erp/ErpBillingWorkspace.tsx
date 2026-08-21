@@ -264,6 +264,7 @@ export function ErpBillingWorkspace() {
   const [workstation] = useErpWorkstationSelection()
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
+  const [pdfLayoutMode, setPdfLayoutMode] = useState<'detailed' | 'summary'>('detailed')
 
   const quoteOutputMode = useMemo(
     () => resolveQuoteOutputModeForSlab(rateSlab, workstation.quoteOutputMode, shopQuoteOutputMode),
@@ -282,13 +283,23 @@ export function ErpBillingWorkspace() {
   const recalcLine = useCallback(
     (
       line: ErpBillLine,
-      opts?: { slab?: ErpRateSlab; rates?: unknown; goldPerG?: number; silverPerG?: number; goldSlabRShowMc?: boolean },
+      opts?: {
+        slab?: ErpRateSlab
+        rates?: unknown
+        goldPerG?: number
+        silverPerG?: number
+        goldSlabRShowMc?: boolean
+        wholesaleGold?: number | null
+        wholesaleSilver?: number | null
+      },
     ): ErpBillLine => {
       const slab = opts?.slab ?? rateSlab
       const rates = opts?.rates ?? displayRates
       const g = opts?.goldPerG ?? goldPerG
       const s = opts?.silverPerG ?? silverPerG
       const mcMode = opts?.goldSlabRShowMc ?? goldSlabRShowMc
+      const whGold = opts?.wholesaleGold !== undefined ? opts.wholesaleGold : wholesaleGold
+      const whSilver = opts?.wholesaleSilver !== undefined ? opts.wholesaleSilver : wholesaleSilver
       const withOriginal = {
         ...line,
         originalWeightGm: line.originalWeightGm ?? line.weightGm,
@@ -299,8 +310,8 @@ export function ErpBillingWorkspace() {
         rates,
         slab,
         slabSettings,
-        wholesaleGold,
-        wholesaleSilver,
+        whGold,
+        whSilver,
         g,
         s,
         mcMode,
@@ -764,6 +775,13 @@ export function ErpBillingWorkspace() {
     })
   }
 
+  const openEditWholesale = () => {
+    setPendingSlab(null)
+    setModalWhGold(wholesaleGold != null ? String(wholesaleGold) : '')
+    setModalWhSilver(wholesaleSilver != null ? String(wholesaleSilver) : '')
+    setShowWholesaleModal(true)
+  }
+
   const applyWholesaleSlab = () => {
     const gRaw = modalWhGold.trim()
     const sRaw = modalWhSilver.trim()
@@ -783,11 +801,20 @@ export function ErpBillingWorkspace() {
       alert('Enter a valid silver ₹/g')
       return
     }
+    const gVal = hasGold ? g : wholesaleGold
+    const sVal = hasSilver ? s : wholesaleSilver
     if (hasGold) setWholesaleGold(g)
     if (hasSilver) setWholesaleSilver(s)
     const nextSlab = pendingSlab ?? rateSlab
     if (pendingSlab) setRateSlab(pendingSlab)
-    setLines((prev) => transitionLinesForSlab(prev, nextSlab))
+    setLines((prev) =>
+      prev.map((line) =>
+        recalcLine(
+          { ...line, rateLocked: false, ratePerGram: null, displayMcInr: null, displayWastagePct: null },
+          { slab: nextSlab, wholesaleGold: gVal, wholesaleSilver: sVal },
+        ),
+      ),
+    )
     setShowWholesaleModal(false)
     setPendingSlab(null)
   }
@@ -1031,6 +1058,7 @@ export function ErpBillingWorkspace() {
           customerName,
           mobile,
           slabSettingsRaw: auth.user,
+          layoutMode: pdfLayoutMode,
           onSheet: (payload) => {
             setPdfSharePayload(payload)
             setPdfShareOpen(true)
@@ -1176,7 +1204,9 @@ export function ErpBillingWorkspace() {
       {showWholesaleModal ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div className={`${erpCardCls} w-full max-w-md`}>
-            <h3 className="mb-3 text-sm font-semibold">Slab {pendingSlab} — wholesale metal rate</h3>
+            <h3 className="mb-3 text-sm font-semibold">
+              {pendingSlab ? `Slab ${pendingSlab} — wholesale metal rate` : 'Edit wholesale metal rate'}
+            </h3>
             <div className="grid gap-3">
               <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
                 Gold ₹/g
@@ -1189,7 +1219,7 @@ export function ErpBillingWorkspace() {
             </div>
             <div className="mt-4 flex gap-2">
               <button type="button" className={erpBtnPrimary} onClick={applyWholesaleSlab}>
-                Apply slab {pendingSlab}
+                {pendingSlab ? `Apply slab ${pendingSlab}` : 'Apply wholesale rates'}
               </button>
               <button type="button" className={erpBtnGhost} onClick={() => { setShowWholesaleModal(false); setPendingSlab(null) }}>
                 Cancel
@@ -1395,7 +1425,28 @@ export function ErpBillingWorkspace() {
             </div>
           </div>
         ) : null}
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {(rateSlab === 'W' || rateSlab === 'F') ? (
+            <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                PDF layout
+              </span>
+              {(['detailed', 'summary'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`min-h-[36px] rounded-lg px-3 text-xs font-semibold capitalize ${
+                    pdfLayoutMode === mode
+                      ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                      : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]/75'
+                  }`}
+                  onClick={() => setPdfLayoutMode(mode)}
+                >
+                  {mode} estimate
+                </button>
+              ))}
+            </div>
+          ) : null}
           <button
             type="button"
             className={erpBtnGhost}
@@ -1517,12 +1568,29 @@ export function ErpBillingWorkspace() {
               </li>
             </ul>
             {(rateSlab === 'W' || rateSlab === 'F') && (wholesaleGold || wholesaleSilver) ? (
-              <p className="mt-2 text-[10px] text-emerald-700">
-                Wholesale:
-                {wholesaleGold ? ` Au ${formatErpInr(wholesaleGold)}/g` : ''}
-                {wholesaleGold && wholesaleSilver ? ' ·' : ''}
-                {wholesaleSilver ? ` Ag ${formatErpInr(wholesaleSilver)}/g` : ''}
-              </p>
+              <div className="mt-2 space-y-1">
+                <p className="text-[10px] text-emerald-700">
+                  Wholesale:
+                  {wholesaleGold ? ` Au ${formatErpInr(wholesaleGold)}/g` : ''}
+                  {wholesaleGold && wholesaleSilver ? ' ·' : ''}
+                  {wholesaleSilver ? ` Ag ${formatErpInr(wholesaleSilver)}/g` : ''}
+                </p>
+                <button
+                  type="button"
+                  className="text-[10px] font-semibold text-[var(--kc-accent,#c41e3a)] underline"
+                  onClick={openEditWholesale}
+                >
+                  Edit wholesale rates
+                </button>
+              </div>
+            ) : (rateSlab === 'W' || rateSlab === 'F') ? (
+              <button
+                type="button"
+                className="mt-2 text-[10px] font-semibold text-[var(--kc-accent,#c41e3a)] underline"
+                onClick={openEditWholesale}
+              >
+                Set wholesale rates
+              </button>
             ) : null}
             {lines.length > 0 ? (
               <button

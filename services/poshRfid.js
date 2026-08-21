@@ -109,6 +109,7 @@ async function poshRequest(config, method, path, body) {
 }
 
 function pieceToPoshPayload(piece) {
+    const boxLabel = piece.box_label || piece.box_code || '';
     return {
         rfid_tag: normalizeRfidTag(piece.rfid_tag),
         barcode: String(piece.barcode || '').trim(),
@@ -125,6 +126,13 @@ function pieceToPoshPayload(piece) {
         stone_charges: piece.stone_charges != null ? Number(piece.stone_charges) : null,
         status: piece.status === 'sold' ? 'sold' : 'in_stock',
         store_id: piece.store_id || null,
+        floor_id: piece.floor_id || null,
+        floor_name: piece.floor_name || null,
+        floor_code: piece.floor_code || null,
+        box_id: piece.box_id || null,
+        box_code: piece.box_code || null,
+        box_label: boxLabel || null,
+        box_name: boxLabel || null,
     };
 }
 
@@ -161,8 +169,17 @@ async function syncBulkInventory(query, resellerUserId) {
         return { skipped: true, reason: 'Posh RFID not configured' };
     }
     const rows = await query(
-        `SELECT * FROM reseller_erp_stock_pieces
-         WHERE reseller_user_id = $1 AND status = 'in_stock' AND rfid_tag IS NOT NULL`,
+        `SELECT p.*,
+                f.name AS floor_name,
+                f.code AS floor_code,
+                b.code AS box_code,
+                b.label AS box_label
+         FROM reseller_erp_stock_pieces p
+         LEFT JOIN reseller_erp_floors f ON f.id = p.floor_id
+         LEFT JOIN reseller_erp_boxes b ON b.id = p.box_id
+         WHERE p.reseller_user_id = $1
+           AND p.status = 'in_stock'
+           AND p.rfid_tag IS NOT NULL`,
         [resellerUserId],
     );
     const items = rows.map((r) => pieceToPoshPayload({ ...r, store_id: config.storeId }));

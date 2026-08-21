@@ -29,6 +29,14 @@ type FloorOption = {
   boxes: { id: string; code: string; label?: string | null }[]
 }
 
+const WEIGHT_TAB_ORDER: StockEditableField[] = ['avg_weight', 'gross_weight', 'bag_wt']
+
+function nextWeightField(field: StockEditableField): StockEditableField | null {
+  const idx = WEIGHT_TAB_ORDER.indexOf(field)
+  if (idx < 0 || idx >= WEIGHT_TAB_ORDER.length - 1) return null
+  return WEIGHT_TAB_ORDER[idx + 1]
+}
+
 const cellCls =
   'kc-batch-cell-input w-full min-w-0 rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none focus:border-[var(--kc-accent,#c41e3a)] focus:bg-white focus:ring-2 focus:ring-[var(--kc-accent,#c41e3a)]/15'
 
@@ -296,26 +304,6 @@ export function ErpStockExcelEditor({
     [drafts],
   )
 
-  const commitScaleWeight = useCallback(
-    (rowId: number, field: StockEditableField) => {
-      if (liveWeight == null || !Number.isFinite(liveWeight)) {
-        setMessage('Waiting for stable weight from scale…')
-        return false
-      }
-      setCell(rowId, field, liveWeight.toFixed(3))
-      const nextId = nextScaleRow(rowId, field)
-      if (nextId != null) {
-        focusCell(nextId, field)
-        setMessage(`Saved ${liveWeight.toFixed(3)} g — next row ready. Press F1 to print label.`)
-      } else {
-        setScaleFocus(null)
-        setMessage(`Saved ${liveWeight.toFixed(3)} g — last row. Press F1 to print or Save edits.`)
-      }
-      return true
-    },
-    [focusCell, liveWeight, nextScaleRow, setCell],
-  )
-
   const persistRowWeight = useCallback(
     async (rowId: number, field: StockEditableField, weightText: string) => {
       const row = drafts.find((d) => d.id === rowId)
@@ -340,13 +328,59 @@ export function ErpStockExcelEditor({
     [batchId, drafts, onSaved],
   )
 
-  const printLabelAndNext = useCallback(
-    async (rowId: number, field: StockEditableField) => {
+  const commitScaleWeight = useCallback(
+    (rowId: number, field: StockEditableField, valueOverride?: string) => {
+      const row = drafts.find((d) => d.id === rowId)
+      if (!row) return false
+      let weightText = valueOverride?.trim()
+      if (!weightText) {
+        if (field === 'bag_wt') {
+          const auto = computeBagWtFromValues(row.values)
+          if (auto != null) weightText = auto
+        } else if (liveWeight != null && Number.isFinite(liveWeight)) {
+          weightText = liveWeight.toFixed(3)
+        } else {
+          weightText = row.values[field]?.trim()
+        }
+      }
+      if (!weightText) {
+        setMessage('Enter or capture weight first.')
+        return false
+      }
+      setCell(rowId, field, weightText)
+      void persistRowWeight(rowId, field, weightText)
+      return true
+    },
+    [drafts, liveWeight, persistRowWeight, setCell],
+  )
+
+  const printLabelAtRow = useCallback(
+    async (rowId: number, field: StockEditableField, advanceRow: boolean) => {
       if (printingLabel) return
       const row = drafts.find((d) => d.id === rowId)
       if (!row || row.status === 'sold') return
 
-      const weightStr = effectiveWeightValue(row, field, scaleFocus, scaleConnected, liveWeight)
+      let values = { ...row.values }
+      for (const f of WEIGHT_TAB_ORDER) {
+        const raw = values[f]?.trim()
+        if (f === field || raw) continue
+        if (f === 'bag_wt') {
+          const auto = computeBagWtFromValues(values)
+          if (auto != null) values = { ...values, bag_wt: auto }
+        }
+      }
+
+      const weightStr =
+        field === 'bag_wt' && !values.bag_wt?.trim()
+          ? computeBagWtFromValues(values) || ''
+          : effectiveWeightValue(
+              { ...row, values },
+              field,
+              scaleFocus,
+              scaleConnected && field !== 'bag_wt',
+              field === 'bag_wt' ? null : liveWeight,
+            ) || values[field]?.trim() || ''
+
       const weight = Number(weightStr)
       if (!weightStr || !Number.isFinite(weight) || weight <= 0) {
         setError('Enter weight first (scale or type manually), then press F1.')
@@ -360,23 +394,19 @@ export function ErpStockExcelEditor({
       try {
         const result = await printStockLabels({
           pieceIds: [rowId],
-          pieceOverrides: { [rowId]: draftToPrintOverride(row, field, weight) },
+          pieceOverrides: { [rowId]: draftToPrintOverride({ ...row, values }, field, weight) },
           printerProfileId: printerProfileId ?? null,
         })
         if (!result.ok) {
           setError(result.message)
           return
         }
-
         void persistRowWeight(rowId, field, weightText)
-
-        const nextId = nextScaleRow(rowId, field)
-        if (nextId != null) {
-          focusCell(nextId, field)
-          setMessage(`${result.message} — next row.`)
-        } else {
-          setScaleFocus(null)
-          setMessage(`${result.message} — last row.`)
+        setMessage(`${result.message}${advanceRow ? ' — next row.' : ' — same row (F1 again to reprint).'}`)
+        if (advanceRow) {
+          const nextId = nextScaleRow(rowId, field)
+          if (nextId != null) focusCell(nextId, 'avg_weight')
+          else setScaleFocus(null)
         }
       } catch (e) {
         setError(erpErr(e))
@@ -396,6 +426,45 @@ export function ErpStockExcelEditor({
       scaleFocus,
       setCell,
     ],
+  )
+
+  const handleWeightKeyDown = useCallback(
+    (
+      e: React.KeyboardEvent<HTMLInputElement>,
+      rowId: number,
+      field: StockEditableField,
+      readOnly: boolean,
+    ) => {
+      if (readOnly || !SCALE_CAPTURE_FIELDS.includes(field)) return
+      if (e.key === 'F1') {
+        e.preventDefault()
+        void printLabelAtRow(rowId, field, false)
+        return
+      }
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault()
+        const inputVal = e.currentTarget.value.trim()
+        commitScaleWeight(rowId, field, inputVal || undefined)
+        const nextField = nextWeightField(field)
+        if (nextField) {
+          focusCell(rowId, nextField)
+        } else {
+          const nextId = nextScaleRow(rowId, 'avg_weight')
+          if (nextId != null) focusCell(nextId, 'avg_weight')
+          else setScaleFocus(null)
+        }
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const inputVal = e.currentTarget.value.trim()
+        commitScaleWeight(rowId, field, inputVal || undefined)
+        const nextId = nextScaleRow(rowId, 'avg_weight')
+        if (nextId != null) focusCell(nextId, 'avg_weight')
+        else setScaleFocus(null)
+      }
+    },
+    [commitScaleWeight, focusCell, nextScaleRow, printLabelAtRow],
   )
 
   const toggleSelect = (id: number) => {
@@ -606,6 +675,7 @@ export function ErpStockExcelEditor({
 
   const displayCellValue = (row: StockRowDraft, field: StockEditableField) => {
     const saved = row.values[field]
+    if (field === 'bag_wt') return saved
     const isFocused =
       scaleFocus?.rowId === row.id &&
       scaleFocus.field === field &&
@@ -839,22 +909,7 @@ export function ErpStockExcelEditor({
                             }
                           }}
                           onChange={(e) => setCell(row.id, col.key, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'F1' && isScaleField && !readOnly) {
-                              e.preventDefault()
-                              void printLabelAndNext(row.id, col.key)
-                              return
-                            }
-                            if (
-                              e.key === 'Enter' &&
-                              isScaleField &&
-                              !readOnly &&
-                              scaleConnected
-                            ) {
-                              e.preventDefault()
-                              commitScaleWeight(row.id, col.key)
-                            }
-                          }}
+                          onKeyDown={(e) => handleWeightKeyDown(e, row.id, col.key, readOnly)}
                         />
                       </td>
                     )

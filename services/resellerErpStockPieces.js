@@ -414,12 +414,47 @@ function mapPiece(row) {
         metal_slab_f_pct: row.metal_slab_f_pct != null ? Number(row.metal_slab_f_pct) : null,
         floor_id: row.floor_id || null,
         box_id: row.box_id || null,
+        floor_name: row.floor_name || null,
+        floor_code: row.floor_code || null,
+        box_code: row.box_code || null,
+        box_label: row.box_label || null,
+        box_name: row.box_name || row.box_label || row.box_code || null,
         rfid_tag: row.rfid_tag ? String(row.rfid_tag).trim() : null,
         status: row.status,
         sold_bill_id: row.sold_bill_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
+}
+
+async function enrichPiecesWithLocation(query, resellerUserId, pieces) {
+    const ids = (pieces || []).map((p) => p.id).filter(Boolean);
+    if (!ids.length) return pieces || [];
+    const locs = await query(
+        `SELECT p.id,
+                f.name AS floor_name,
+                f.code AS floor_code,
+                b.code AS box_code,
+                b.label AS box_label
+         FROM reseller_erp_stock_pieces p
+         LEFT JOIN reseller_erp_floors f ON f.id = p.floor_id
+         LEFT JOIN reseller_erp_boxes b ON b.id = p.box_id
+         WHERE p.reseller_user_id = $1 AND p.id = ANY($2::int[])`,
+        [resellerUserId, ids],
+    );
+    const byId = new Map(locs.map((r) => [r.id, r]));
+    return pieces.map((p) => {
+        const loc = byId.get(p.id) || {};
+        const boxLabel = loc.box_label || loc.box_code || '';
+        return {
+            ...p,
+            floor_name: loc.floor_name || p.floor_name || null,
+            floor_code: loc.floor_code || p.floor_code || null,
+            box_code: loc.box_code || p.box_code || null,
+            box_label: boxLabel || p.box_label || null,
+            box_name: boxLabel || p.box_name || null,
+        };
+    });
 }
 
 async function ensureStockPiecesSchema(pool) {
@@ -1518,6 +1553,7 @@ function registerStockPieceRoutes(app, deps) {
             if (!pieces.length) {
                 return res.status(404).json({ error: 'No matching stock pieces found for printing' });
             }
+            pieces = await enrichPiecesWithLocation(query, req.user.id, pieces);
 
             const settingsRows = await query(
                 `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,

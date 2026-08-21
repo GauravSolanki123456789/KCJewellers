@@ -253,4 +253,10 @@ export const LABEL_VAR_TO_ERP_COLUMN: Record<string, string> = {
   metal_type: 'MetalType',
   pcs: 'PCS',
   bags: 'Bags',
+  bag_wt: 'Bag Wt',
+  box_name: 'Box label (e.g. DOLLAR BOX-1) — empty if no box',
+  box_code: 'Box code',
+  box_label: 'Box label',
+  floor_name: 'Floor name',
+  floor_code: 'Floor code',
 }

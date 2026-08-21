@@ -590,6 +590,11 @@ function buildLabelTemplateVars(piece, hw, profile) {
         purity: piece.purity != null && String(piece.purity).trim() !== ''
             ? String(piece.purity).trim()
             : '',
+        floor_name: String(piece.floor_name || '').trim(),
+        floor_code: String(piece.floor_code || '').trim(),
+        box_code: String(piece.box_code || '').trim(),
+        box_label: String(piece.box_label || piece.box_code || '').trim(),
+        box_name: String(piece.box_name || piece.box_label || piece.box_code || '').trim(),
     };
 }
 

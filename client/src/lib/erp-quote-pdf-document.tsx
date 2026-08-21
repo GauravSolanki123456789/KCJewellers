@@ -8,6 +8,9 @@ import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { billingMcPdfText, billingWastageDisplay } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { parseMetalSlabFraction } from '@/lib/erp-piece-slab-pricing'
+import { computeMcValueForPdf, groupBillLinesForSummaryPdf } from '@/lib/erp-quote-pdf-summary'
+
+export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
 
 type PdfCol = { key: string; label: string; w: string }
 
@@ -49,6 +52,7 @@ function buildPdfColumns(lines: ErpBillLine[], rateSlab: ErpRateSlab): PdfCol[] 
     { key: 'size', label: 'Size', w: '4%' },
   ]
   if (showGross) cols.push({ key: 'gross', label: 'Gross', w: '5%' })
+  if (showBagWt) cols.push({ key: 'bagWt', label: 'Bag Wt', w: '4%' })
   if (showNetOrig) cols.push({ key: 'netOrig', label: 'Net Wt', w: '5%' })
   if (showSlabPct) cols.push({ key: 'slabPct', label: 'Met %', w: '4%' })
   cols.push({ key: 'wt', label: showSlabDetail && showSlabPct ? 'Bill Wt' : 'Wt', w: '5%' })
@@ -58,9 +62,9 @@ function buildPdfColumns(lines: ErpBillLine[], rateSlab: ErpRateSlab): PdfCol[] 
     { key: 'rate', label: 'Rate', w: '5%' },
     { key: 'mc', label: 'MC', w: '5%' },
     { key: 'mct', label: 'MCType', w: '5%' },
+    { key: 'mcValue', label: 'MCValue', w: '5%' },
     { key: 'pcs', label: 'PCS', w: '3%' },
   )
-  if (showBagWt) cols.push({ key: 'bagWt', label: 'Bag Wt', w: '4%' })
   if (showBags) cols.push({ key: 'bags', label: 'Bags', w: '4%' })
   cols.push(
     { key: 'box', label: 'Box', w: '4%' },
@@ -116,16 +120,16 @@ function buildStyles(p: KcPdfPalette) {
     tableTitleText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
     headRow: {
       flexDirection: 'row',
-      backgroundColor: p.headerRule,
-      borderBottomWidth: 1,
-      borderBottomColor: p.cardBorder,
+      backgroundColor: p.cardBg,
+      borderBottomWidth: 1.5,
+      borderBottomColor: p.accent,
     },
     headCell: {
       paddingVertical: 4,
       paddingHorizontal: 2,
-      fontSize: 6.5,
+      fontSize: 7,
       fontWeight: 'bold',
-      color: '#fff',
+      color: p.textPrimary,
     },
     bodyRow: {
       flexDirection: 'row',
@@ -240,6 +244,15 @@ function cell(
       return billingMcPdfText(line, rateSlab)
     case 'mct':
       return line.mc_type || '—'
+    case 'mcValue': {
+      if (ratesUnfixed) return ''
+      const groupedMc = line.displayMcInr
+      if (groupedMc != null && groupedMc > 0 && String(line.barcode || '').includes(' items')) {
+        return String(Math.round(groupedMc))
+      }
+      const mv = computeMcValueForPdf(line, rateSlab)
+      return mv != null ? String(mv) : '—'
+    }
     case 'pcs':
       return String(line.qty ?? 1)
     case 'bagWt':
@@ -279,6 +292,7 @@ export type ErpQuotePdfDocumentProps = {
   ratesUnfixed?: boolean
   documentKind?: 'quote' | 'invoice'
   gstin?: string | null
+  layoutMode?: ErpQuotePdfLayoutMode
 }
 
 export function ErpQuotePdfDocument({
@@ -291,21 +305,33 @@ export function ErpQuotePdfDocument({
   ratesUnfixed = false,
   documentKind = 'quote',
   gstin,
+  layoutMode = 'detailed',
 }: ErpQuotePdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
-  const lines = bill.lines ?? []
+  const rawLines = bill.lines ?? []
   const rateSlab = ((bill.session as { rateSlab?: ErpRateSlab } | null)?.rateSlab ?? 'R') as ErpRateSlab
+  const lines = useMemo(() => {
+    if (layoutMode !== 'summary') return rawLines
+    return groupBillLinesForSummaryPdf(rawLines, rateSlab)
+  }, [rawLines, layoutMode, rateSlab])
   const cols = useMemo(() => buildPdfColumns(lines, rateSlab), [lines, rateSlab])
   const isInvoice = documentKind === 'invoice'
   const docLabel = isInvoice ? 'Tax Invoice' : 'Quotation'
-  const tableTitle = isInvoice ? 'Invoice details — full breakdown' : 'Order summary — full details'
+  const tableTitle =
+    layoutMode === 'summary'
+      ? isInvoice
+        ? 'Invoice summary — grouped by product'
+        : 'Order summary — grouped by product'
+      : isInvoice
+        ? 'Invoice details — full breakdown'
+        : 'Order summary — full details'
   const photoEntries = useMemo(
     () =>
       products
-        .map((p, i) => ({ p, line: lines[i], i }))
+        .map((p, i) => ({ p, line: rawLines[i], i }))
         .filter(({ p }) => Boolean(p.pdfImageSrc)),
-    [products, lines],
+    [products, rawLines],
   )
 
   return (

@@ -5,6 +5,7 @@ import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
+import { ErpStockExcelBuilder } from '@/components/reseller/erp/ErpStockExcelBuilder'
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import {
@@ -255,6 +256,7 @@ export function ErpProductsWorkspace() {
           </p>
         ) : null}
       </div>
+      <ErpStockExcelBuilder />
       <div className={erpCardCls}>
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <FileSpreadsheet className="size-4 text-[var(--kc-accent,#c41e3a)]" />

@@ -32,6 +32,7 @@ export async function shareErpQuotePdf(params: {
   mobile?: string | null
   kcThemeId?: string | null
   slabSettingsRaw?: unknown
+  layoutMode?: 'detailed' | 'summary'
   onSheet?: (payload: PdfShareSheetPayload) => void
 }): Promise<void> {
   const enrichedLines = enrichErpBillLinesForDisplay(params.bill, params.slabSettingsRaw)
@@ -57,6 +58,7 @@ export async function shareErpQuotePdf(params: {
       totals={totals}
       customerName={params.customerName ?? params.bill.customer_name}
       ratesUnfixed={ratesUnfixed}
+      layoutMode={params.layoutMode ?? 'detailed'}
     />,
   ).toBlob()
 

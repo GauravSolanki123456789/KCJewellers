@@ -143,6 +143,59 @@ function registerFloorRoutes(app, deps) {
         }
     });
 
+    app.put('/api/reseller/erp/floors/:floorId', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const floorId = String(req.params.floorId || '').trim();
+            const name = req.body.name != null ? trimCode(req.body.name, 255) : null;
+            const code = req.body.code != null ? trimCode(req.body.code, 64) : null;
+            if (!name && !code) return res.status(400).json({ error: 'name or code required' });
+            const rows = await query(
+                `UPDATE reseller_erp_floors SET
+                    name = COALESCE($3, name),
+                    code = COALESCE($4, code),
+                    updated_at = NOW()
+                 WHERE id = $1::uuid AND reseller_user_id = $2
+                 RETURNING *`,
+                [floorId, req.user.id, name || null, code || null],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Floor not found' });
+            res.json({ success: true, floor: rows[0] });
+        } catch (e) {
+            if (String(e.message || '').includes('idx_reseller_erp_floors_code')) {
+                return res.status(409).json({ error: 'Floor code already exists' });
+            }
+            console.error('erp floor update:', e);
+            res.status(500).json({ error: e.message || 'Failed to update floor' });
+        }
+    });
+
+    app.put('/api/reseller/erp/floors/:floorId/boxes/:boxId', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const floorId = String(req.params.floorId || '').trim();
+            const boxId = String(req.params.boxId || '').trim();
+            const code = req.body.code != null ? trimCode(req.body.code, 128) : null;
+            const label = req.body.label != null ? trimCode(req.body.label, 255) : null;
+            if (!code && !label) return res.status(400).json({ error: 'code or label required' });
+            const rows = await query(
+                `UPDATE reseller_erp_boxes SET
+                    code = COALESCE($4, code),
+                    label = COALESCE($5, label),
+                    updated_at = NOW()
+                 WHERE id = $1::uuid AND floor_id = $2::uuid AND reseller_user_id = $3
+                 RETURNING *`,
+                [boxId, floorId, req.user.id, code || null, label || null],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Box not found' });
+            res.json({ success: true, box: rows[0] });
+        } catch (e) {
+            if (String(e.message || '').includes('idx_reseller_erp_boxes_code')) {
+                return res.status(409).json({ error: 'Box code already exists' });
+            }
+            console.error('erp box update:', e);
+            res.status(500).json({ error: e.message || 'Failed to update box' });
+        }
+    });
+
     app.post('/api/reseller/erp/floors/:floorId/boxes', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const floorId = String(req.params.floorId || '').trim();

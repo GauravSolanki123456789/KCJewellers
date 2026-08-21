@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { downloadLocationQrImages, type LocationLabelRow } from '@/lib/erp-location-label-print'
-import { Building2, Download, Loader2, MapPin, Package, Plus, Search, Shuffle } from 'lucide-react'
+import { Building2, Download, Loader2, MapPin, Package, Pencil, Plus, Search, Shuffle } from 'lucide-react'
 
 type FloorBox = {
   id: string
@@ -121,6 +121,38 @@ export function ErpFloorsWorkspace() {
       })
       setNewBoxCode((prev) => ({ ...prev, [floorId]: '' }))
       setMsg('Box created')
+      await loadFloors()
+    } catch (e) {
+      setErr(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const renameFloor = async (floor: Floor) => {
+    const name = window.prompt('Floor name', floor.name)?.trim()
+    if (!name) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await axios.put(`/api/reseller/erp/floors/${floor.id}`, { name })
+      setMsg('Floor renamed')
+      await loadFloors()
+    } catch (e) {
+      setErr(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const renameBox = async (floorId: string, box: FloorBox) => {
+    const label = window.prompt('Box name (shown on labels & RFID)', box.label || box.code)?.trim()
+    if (!label) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await axios.put(`/api/reseller/erp/floors/${floorId}/boxes/${box.id}`, { label })
+      setMsg('Box renamed')
       await loadFloors()
     } catch (e) {
       setErr(erpErr(e))
@@ -283,6 +315,16 @@ export function ErpFloorsWorkspace() {
                       type="button"
                       className={erpBtnGhost}
                       disabled={busy}
+                      title="Rename floor"
+                      onClick={() => void renameFloor(floor)}
+                    >
+                      <Pencil className="size-4" />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className={erpBtnGhost}
+                      disabled={busy}
                       onClick={() => void printLabels([floor.id], [])}
                     >
                       <Download className="size-4" />
@@ -337,6 +379,16 @@ export function ErpFloorsWorkspace() {
                                 {box.piece_count ?? 0} pcs · net {box.net_weight_gm ?? 0} g
                               </p>
                             </div>
+                            <button
+                              type="button"
+                              className={erpBtnGhost}
+                              disabled={busy}
+                              title="Rename box"
+                              onClick={() => void renameBox(floor.id, box)}
+                            >
+                              <Pencil className="size-4" />
+                              Edit
+                            </button>
                             <button
                               type="button"
                               className={erpBtnGhost}
