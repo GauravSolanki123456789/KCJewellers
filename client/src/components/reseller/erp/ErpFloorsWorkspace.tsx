@@ -197,6 +197,7 @@ export function ErpFloorsWorkspace() {
         params: { q: trimmed },
       })
       setLookupResult(res.data)
+      setLookupQ('')
     } catch (e) {
       setErr(erpErr(e))
       setLookupResult(null)

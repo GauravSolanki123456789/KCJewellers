@@ -12,11 +12,13 @@ import {
   Link2,
   Loader2,
   MessageCircle,
+  Pencil,
   Plus,
   Share2,
   Trash2,
   X,
 } from 'lucide-react'
+import { PricelistSpreadsheetEditor } from '@/components/reseller/PricelistSpreadsheetEditor'
 import {
   createPricelistCategory,
   createPricelistSharedLink,
@@ -316,6 +318,7 @@ export function ResellerPricelistPanel() {
   const [manageExpandedCatId, setManageExpandedCatId] = useState<number | null>(null)
   const [manageExpandedSubs, setManageExpandedSubs] = useState<Set<number>>(new Set())
   const [productPhotoBusyId, setProductPhotoBusyId] = useState<number | null>(null)
+  const [spreadsheetCatId, setSpreadsheetCatId] = useState<number | null>(null)
   const excelInputRef = useRef<HTMLInputElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const productPhotoInputRef = useRef<HTMLInputElement>(null)
@@ -705,6 +708,15 @@ export function ResellerPricelistPanel() {
                             )}
                             Upload / update Excel
                           </button>
+                          <button
+                            type="button"
+                            disabled={!treeCat?.subcategories.length}
+                            onClick={() => setSpreadsheetCatId(cat.id)}
+                            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-600/30 bg-emerald-50 text-sm font-semibold text-emerald-900 disabled:opacity-50"
+                          >
+                            <Pencil className="size-4" />
+                            Edit spreadsheet
+                          </button>
                           <input
                             ref={photoInputRef}
                             type="file"
@@ -1070,6 +1082,17 @@ export function ResellerPricelistPanel() {
         slabKeys={slabKeys}
         hidePdf={hidePdf}
       />
+
+      {spreadsheetCatId != null ? (
+        <PricelistSpreadsheetEditor
+          categoryId={spreadsheetCatId}
+          categoryName={categories.find((c) => c.id === spreadsheetCatId)?.name || 'Category'}
+          treeCat={tree.find((c) => c.id === spreadsheetCatId)}
+          slabKeys={slabKeys}
+          onClose={() => setSpreadsheetCatId(null)}
+          onSaved={() => void reload()}
+        />
+      ) : null}
     </div>
   )
 }

@@ -80,8 +80,33 @@ QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
 `.trim()
 
-/** Legacy alias — silver standard layout. */
+/** Standard silver label — also the default fallback template. */
 export const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER
+
+/** Box-assigned pieces — prints box name on label (use with smart rule: box code present). */
+export const DEFAULT_LABEL_PRN_BOX = `
+SIZE 92.5 mm, 15 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 720,101,"ROMAN.TTF",180,1,8,"{{product_name}}"
+TEXT 720,77,"ROMAN.TTF",180,1,8,"NWT:"
+TEXT 648,77,"ROMAN.TTF",180,1,9,"{{net_weight}}"
+TEXT 720,53,"ROMAN.TTF",180,1,8,"GWT:"
+TEXT 648,53,"ROMAN.TTF",180,1,9,"{{gross_weight}}"
+TEXT 720,29,"ROMAN.TTF",180,1,8,"BOX:"
+TEXT 648,29,"ROMAN.TTF",180,1,9,"{{box_name}}"
+TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
+QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+PRINT 1,1
+`.trim()
 
 export const DEFAULT_BILL_TEMPLATE = `
 ================================
@@ -221,6 +246,8 @@ export const LABEL_RULE_FIELD_KEYS = [
   'mc_rate',
   'bags',
   'box_charges',
+  'box_code',
+  'box_name',
 ] as const
 
 export type LabelRuleFieldKey = (typeof LABEL_RULE_FIELD_KEYS)[number]
@@ -531,6 +558,8 @@ export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {
   mc_rate: 'MC rate',
   bags: 'Bags count',
   box_charges: 'Box charges',
+  box_code: 'Box code',
+  box_name: 'Box name (label)',
 }
 
 /** Best-effort map from another software's sample PRN to our {{placeholders}}. */

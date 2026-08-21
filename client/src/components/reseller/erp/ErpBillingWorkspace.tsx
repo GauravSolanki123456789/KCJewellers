@@ -1571,9 +1571,9 @@ export function ErpBillingWorkspace() {
               <div className="mt-2 space-y-1">
                 <p className="text-[10px] text-emerald-700">
                   Wholesale:
-                  {wholesaleGold ? ` Au ${formatErpInr(wholesaleGold)}/g` : ''}
-                  {wholesaleGold && wholesaleSilver ? ' ·' : ''}
-                  {wholesaleSilver ? ` Ag ${formatErpInr(wholesaleSilver)}/g` : ''}
+                {wholesaleGold ? ` Gold ${formatErpInr(wholesaleGold)}/g` : ''}
+                {wholesaleGold && wholesaleSilver ? ' ·' : ''}
+                {wholesaleSilver ? ` Silver ${formatErpInr(wholesaleSilver)}/g` : ''}
                 </p>
                 <button
                   type="button"

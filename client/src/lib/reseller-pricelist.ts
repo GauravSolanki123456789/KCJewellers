@@ -112,6 +112,30 @@ export async function fetchPricelistTree(): Promise<PricelistTreeCategory[]> {
   return data.tree ?? []
 }
 
+export async function bulkSavePricelistProducts(
+  categoryId: number,
+  products: {
+    id?: number
+    subcategory_name: string
+    product_name: string
+    avg_weight: number | null
+    slab_rates: Record<string, number>
+  }[],
+  deletedIds: number[] = [],
+): Promise<{
+  success: boolean
+  updated?: number
+  created?: number
+  deleted?: number
+  errors?: { row: number; error: string }[]
+}> {
+  const { data } = await axios.put(
+    `/api/reseller/pricelist/categories/${categoryId}/products/bulk`,
+    { products, deletedIds },
+  )
+  return data
+}
+
 export async function uploadPricelistExcelRows(
   categoryId: number,
   rows: Record<string, unknown>[],

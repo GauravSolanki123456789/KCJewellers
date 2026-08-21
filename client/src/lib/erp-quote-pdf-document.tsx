@@ -29,51 +29,59 @@ function metalSlabPctDisplay(line: ErpBillLine, slab: ErpRateSlab): string {
   return `${Math.round(frac * 100)}%`
 }
 
-function buildPdfColumns(lines: ErpBillLine[], rateSlab: ErpRateSlab): PdfCol[] {
+function isEmptyPdfCell(val: string, key: string): boolean {
+  const s = val.trim()
+  if (!s || s === '—' || s === '-') return true
+  if (key === 'box' || key === 'stone' || key === 'fixed') return s === '0' || s === '0.0'
+  if (key === 'wast') return s === '0' || s === '0.00'
+  return false
+}
+
+function buildPdfColumns(
+  lines: ErpBillLine[],
+  rateSlab: ErpRateSlab,
+  ratesUnfixed: boolean,
+): PdfCol[] {
   const hasGold = lines.some((l) => !isSilverMetal(l))
-  const showGross = lines.some((l) => l.gross_weight != null && Number(l.gross_weight) > 0)
   const showSlabDetail = rateSlab === 'W' || rateSlab === 'F'
   const showSlabPct =
     showSlabDetail && lines.some((l) => metalSlabPctDisplay(l, rateSlab) !== '')
-  const showNetOrig =
-    showSlabDetail &&
-    lines.some((l) => {
-      const orig = l.originalWeightGm ?? l.weightGm
-      return orig != null && Number(orig) > 0
-    })
-  const showBagWt = lines.some((l) => l.bag_wt != null && Number(l.bag_wt) > 0)
-  const showBags = lines.some((l) => String(l.bags || '').trim())
 
-  const cols: PdfCol[] = [
+  const rateUnfixAlways = new Set(['rate', 'mcValue', 'amt'])
+
+  const candidates: PdfCol[] = [
     { key: 'barcode', label: 'Barcode', w: '9%' },
     { key: 'sku', label: 'SKU', w: '5%' },
     { key: 'style', label: 'Style', w: '6%' },
     { key: 'name', label: 'Product', w: '9%' },
     { key: 'size', label: 'Size', w: '4%' },
-  ]
-  if (showGross) cols.push({ key: 'gross', label: 'Gross', w: '5%' })
-  if (showBagWt) cols.push({ key: 'bagWt', label: 'Bag Wt', w: '4%' })
-  if (showNetOrig) cols.push({ key: 'netOrig', label: 'Net Wt', w: '5%' })
-  if (showSlabPct) cols.push({ key: 'slabPct', label: 'Met %', w: '4%' })
-  cols.push({ key: 'wt', label: showSlabDetail && showSlabPct ? 'Bill Wt' : 'Wt', w: '5%' })
-  if (hasGold) cols.push({ key: 'purity', label: 'Pur', w: '4%' })
-  cols.push(
+    { key: 'gross', label: 'Gross', w: '5%' },
+    { key: 'bagWt', label: 'Bag Wt', w: '4%' },
+    { key: 'netOrig', label: 'Net Wt', w: '5%' },
+    ...(showSlabPct ? [{ key: 'slabPct', label: 'Met %', w: '4%' }] : []),
+    { key: 'wt', label: showSlabDetail && showSlabPct ? 'Bill Wt' : 'Wt', w: '5%' },
+    ...(hasGold ? [{ key: 'purity', label: 'Pur', w: '4%' }] : []),
     { key: 'wast', label: 'W%', w: '3%' },
     { key: 'rate', label: 'Rate', w: '5%' },
     { key: 'mc', label: 'MC', w: '5%' },
     { key: 'mct', label: 'MCType', w: '5%' },
     { key: 'mcValue', label: 'MCValue', w: '5%' },
     { key: 'pcs', label: 'PCS', w: '3%' },
-  )
-  if (showBags) cols.push({ key: 'bags', label: 'Bags', w: '4%' })
-  cols.push(
+    { key: 'bags', label: 'Bags', w: '4%' },
     { key: 'box', label: 'Box', w: '4%' },
     { key: 'stone', label: 'Stone', w: '4%' },
     { key: 'metal', label: 'Metal', w: '5%' },
     { key: 'fixed', label: 'Fixed', w: '4%' },
     { key: 'amt', label: 'Amount', w: '7%' },
-  )
-  return cols
+  ]
+
+  return candidates.filter((col) => {
+    if (ratesUnfixed && rateUnfixAlways.has(col.key)) return true
+    return lines.some((line) => {
+      const val = cell(line, col.key, rateSlab, ratesUnfixed)
+      return !isEmptyPdfCell(val, col.key)
+    })
+  })
 }
 
 function buildStyles(p: KcPdfPalette) {
@@ -315,7 +323,10 @@ export function ErpQuotePdfDocument({
     if (layoutMode !== 'summary') return rawLines
     return groupBillLinesForSummaryPdf(rawLines, rateSlab)
   }, [rawLines, layoutMode, rateSlab])
-  const cols = useMemo(() => buildPdfColumns(lines, rateSlab), [lines, rateSlab])
+  const cols = useMemo(
+    () => buildPdfColumns(lines, rateSlab, ratesUnfixed),
+    [lines, rateSlab, ratesUnfixed],
+  )
   const isInvoice = documentKind === 'invoice'
   const docLabel = isInvoice ? 'Tax Invoice' : 'Quotation'
   const tableTitle =

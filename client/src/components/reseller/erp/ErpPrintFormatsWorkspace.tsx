@@ -8,6 +8,7 @@ import {
   DEFAULT_ESTIMATE_TEMPLATE_GOLD,
   DEFAULT_ESTIMATE_TEMPLATE_SILVER,
   DEFAULT_LABEL_PRN,
+  DEFAULT_LABEL_PRN_BOX,
   DEFAULT_LABEL_PRN_GOLD,
   DEFAULT_LABEL_PRN_SILVER,
   DEFAULT_LABEL_PRN_SILVER_EXTRAS,
@@ -148,17 +149,19 @@ export function ErpPrintFormatsWorkspace() {
     }))
   }
 
-  const addRule = (preset?: 'gold' | 'silver' | 'silver-extras' | 'blank') => {
+  const addRule = (preset?: 'gold' | 'silver' | 'silver-extras' | 'box' | 'blank') => {
     const templates: Record<string, string> = {
       gold: DEFAULT_LABEL_PRN_GOLD,
       silver: DEFAULT_LABEL_PRN_SILVER,
       'silver-extras': DEFAULT_LABEL_PRN_SILVER_EXTRAS,
+      box: DEFAULT_LABEL_PRN_BOX,
       blank: DEFAULT_LABEL_PRN,
     }
     const names: Record<string, string> = {
       gold: 'Gold',
       silver: 'Silver · standard',
       'silver-extras': 'Silver · gross / bag / stone',
+      box: 'Silver · in box (shows box name)',
       blank: 'Custom rule',
     }
     const presets: Partial<LabelPrnRule> =
@@ -172,7 +175,13 @@ export function ErpPrintFormatsWorkspace() {
                 priority: 30,
                 requireAny: ['gross_weight', 'bag_wt', 'stone_charges'],
               }
-            : { metalTypes: [], priority: 0 }
+            : preset === 'box'
+              ? {
+                  metalTypes: ['SILVER'],
+                  priority: 40,
+                  requireAny: ['box_code'],
+                }
+              : { metalTypes: [], priority: 0 }
     const id = newRuleId()
     const rule: LabelPrnRule = {
       id,
@@ -364,6 +373,10 @@ export function ErpPrintFormatsWorkspace() {
                     <button type="button" className={erpBtnGhost} onClick={() => addRule('silver-extras')}>
                       <Plus className="size-4" />
                       Silver extras
+                    </button>
+                    <button type="button" className={erpBtnGhost} onClick={() => addRule('box')}>
+                      <Plus className="size-4" />
+                      In box
                     </button>
                     <button type="button" className={erpBtnGhost} onClick={() => addRule('blank')}>
                       <Plus className="size-4" />

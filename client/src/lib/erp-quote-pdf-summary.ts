@@ -26,7 +26,7 @@ export function computeMcValueForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): 
   if (mcType.includes('/PC') || mcType === 'MC/PC' || mcType.includes('PER PC')) {
     return Math.round(mc)
   }
-  const wt = line.originalWeightGm ?? line.weightGm
+  const wt = line.weightGm
   if (wt == null || !Number.isFinite(Number(wt))) return null
   return Math.round(mc * Number(wt))
 }

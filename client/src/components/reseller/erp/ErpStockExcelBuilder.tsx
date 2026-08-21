@@ -3,10 +3,11 @@
 import { useMemo, useState } from 'react'
 import {
   downloadStockExcelBuilderFile,
+  type StockExcelBuilderBlock,
   type StockExcelBuilderDefaults,
 } from '@/lib/erp-stock-excel-builder'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
-import { FileSpreadsheet, ChevronDown, ChevronUp } from 'lucide-react'
+import { FileSpreadsheet, ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
 
 const FIELD_ROWS: { key: keyof StockExcelBuilderDefaults; label: string; placeholder?: string }[] = [
   { key: 'sku', label: 'SKU', placeholder: 'DOLLAR' },
@@ -39,6 +40,26 @@ const FIELD_ROWS: { key: keyof StockExcelBuilderDefaults; label: string; placeho
   { key: 'earring_wt_only', label: 'Earring' },
 ]
 
+const DEFAULT_BLOCK: StockExcelBuilderDefaults = {
+  mc_type: 'MC/GM',
+  pcs: 1,
+  metal_type: 'SILVER',
+}
+
+type BlockState = {
+  id: string
+  defaults: StockExcelBuilderDefaults
+  rowCount: string
+}
+
+function newBlock(id: string, copy?: StockExcelBuilderDefaults): BlockState {
+  return {
+    id,
+    defaults: copy ? { ...copy } : { ...DEFAULT_BLOCK },
+    rowCount: '10',
+  }
+}
+
 type Props = {
   existingSkus?: string[]
   existingStyles?: string[]
@@ -47,30 +68,120 @@ type Props = {
 
 export function ErpStockExcelBuilder({ existingSkus = [], existingStyles = [], existingProducts = [] }: Props) {
   const [open, setOpen] = useState(false)
-  const [rowCount, setRowCount] = useState('17')
-  const [defaults, setDefaults] = useState<StockExcelBuilderDefaults>({
-    mc_type: 'MC/GM',
-    pcs: 1,
-    metal_type: 'SILVER',
-  })
+  const [blocks, setBlocks] = useState<BlockState[]>(() => [newBlock('b1')])
+
+  const totalRows = useMemo(
+    () => blocks.reduce((n, b) => n + (parseInt(b.rowCount, 10) || 0), 0),
+    [blocks],
+  )
 
   const filename = useMemo(() => {
-    const base = defaults.product_name || defaults.item_code || defaults.sku || 'stock'
-    return `${String(base).replace(/\s+/g, '_')}_${rowCount}.xlsx`
-  }, [defaults, rowCount])
+    const names = blocks
+      .map((b) => b.defaults.product_name || b.defaults.item_code || b.defaults.sku)
+      .filter(Boolean)
+      .slice(0, 3)
+    const base = names.length ? names.join('_') : 'stock'
+    return `${String(base).replace(/\s+/g, '_')}_${totalRows || 1}.xlsx`
+  }, [blocks, totalRows])
 
-  const setField = (key: keyof StockExcelBuilderDefaults, value: string) => {
-    setDefaults((prev) => ({ ...prev, [key]: value }))
+  const setBlockField = (blockId: string, key: keyof StockExcelBuilderDefaults, value: string) => {
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === blockId ? { ...b, defaults: { ...b.defaults, [key]: value } } : b,
+      ),
+    )
+  }
+
+  const setBlockRows = (blockId: string, value: string) => {
+    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, rowCount: value } : b)))
+  }
+
+  const addBlock = () => {
+    const last = blocks[blocks.length - 1]?.defaults
+    setBlocks((prev) => [...prev, newBlock(`b${Date.now()}`, last)])
+  }
+
+  const removeBlock = (blockId: string) => {
+    setBlocks((prev) => (prev.length <= 1 ? prev : prev.filter((b) => b.id !== blockId)))
   }
 
   const createExcel = () => {
-    const n = parseInt(rowCount, 10)
-    if (!Number.isFinite(n) || n < 1) {
-      alert('Enter how many rows you need (1–500).')
-      return
+    const payload: StockExcelBuilderBlock[] = []
+    for (const b of blocks) {
+      const n = parseInt(b.rowCount, 10)
+      if (!Number.isFinite(n) || n < 1) {
+        alert('Each product block needs a valid row count (1–500).')
+        return
+      }
+      if (!b.defaults.product_name?.trim() && !b.defaults.item_code?.trim()) {
+        alert('Each block needs at least a Product or Item code.')
+        return
+      }
+      payload.push({ defaults: b.defaults, rowCount: n })
     }
-    downloadStockExcelBuilderFile(defaults, n, filename)
+    downloadStockExcelBuilderFile(payload, filename)
   }
+
+  const renderField = (
+    block: BlockState,
+    key: keyof StockExcelBuilderDefaults,
+    label: string,
+    placeholder?: string,
+  ) => (
+    <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+      {label}
+      {key === 'sku' && existingSkus.length ? (
+        <select
+          className={`${erpInputCls} mt-1 text-xs`}
+          value={String(block.defaults.sku ?? '')}
+          onChange={(e) => setBlockField(block.id, 'sku', e.target.value)}
+        >
+          <option value="">Type new…</option>
+          {existingSkus.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      ) : key === 'style_code' && existingStyles.length ? (
+        <select
+          className={`${erpInputCls} mt-1 text-xs`}
+          value={String(block.defaults.style_code ?? '')}
+          onChange={(e) => setBlockField(block.id, 'style_code', e.target.value)}
+        >
+          <option value="">Type new…</option>
+          {existingStyles.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      ) : key === 'product_name' && existingProducts.length ? (
+        <select
+          className={`${erpInputCls} mt-1 text-xs`}
+          value={String(block.defaults.product_name ?? '')}
+          onChange={(e) => {
+            setBlockField(block.id, 'product_name', e.target.value)
+            if (!block.defaults.item_code) setBlockField(block.id, 'item_code', e.target.value)
+          }}
+        >
+          <option value="">Type new…</option>
+          {existingProducts.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          className={`${erpInputCls} mt-1 text-xs`}
+          placeholder={placeholder}
+          value={String(block.defaults[key] ?? '')}
+          onChange={(e) => setBlockField(block.id, key, e.target.value)}
+        />
+      )}
+    </label>
+  )
 
   return (
     <div className={erpCardCls}>
@@ -81,87 +192,57 @@ export function ErpStockExcelBuilder({ existingSkus = [], existingStyles = [], e
       >
         <span className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <FileSpreadsheet className="size-4 text-emerald-700" />
-          Build Excel template (no upload file needed)
+          Build Excel template
         </span>
         {open ? <ChevronUp className="size-4 opacity-50" /> : <ChevronDown className="size-4 opacity-50" />}
       </button>
       {open ? (
-        <div className="mt-3 space-y-3 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
-          <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-            Fill defaults below, set row count, then create Excel with auto barcodes. Upload the file like any stock
-            Excel — edit weights in the sheet or use the in-app editor.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {FIELD_ROWS.map(({ key, label, placeholder }) => (
-              <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                {label}
-                {key === 'sku' && existingSkus.length ? (
-                  <select
-                    className={`${erpInputCls} mt-1 text-xs`}
-                    value={String(defaults.sku ?? '')}
-                    onChange={(e) => setField('sku', e.target.value)}
+        <div className="mt-3 space-y-4 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
+          {blocks.map((block, idx) => (
+            <div
+              key={block.id}
+              className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)]/40 p-3"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Product block {idx + 1}
+                  {block.defaults.product_name ? ` · ${block.defaults.product_name}` : ''}
+                </p>
+                {blocks.length > 1 ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700"
+                    onClick={() => removeBlock(block.id)}
                   >
-                    <option value="">Type new…</option>
-                    {existingSkus.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                ) : key === 'style_code' && existingStyles.length ? (
-                  <select
-                    className={`${erpInputCls} mt-1 text-xs`}
-                    value={String(defaults.style_code ?? '')}
-                    onChange={(e) => setField('style_code', e.target.value)}
-                  >
-                    <option value="">Type new…</option>
-                    {existingStyles.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                ) : key === 'product_name' && existingProducts.length ? (
-                  <select
-                    className={`${erpInputCls} mt-1 text-xs`}
-                    value={String(defaults.product_name ?? '')}
-                    onChange={(e) => {
-                      setField('product_name', e.target.value)
-                      if (!defaults.item_code) setField('item_code', e.target.value)
-                    }}
-                  >
-                    <option value="">Type new…</option>
-                    {existingProducts.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
+                    <Trash2 className="size-3" />
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {FIELD_ROWS.map(({ key, label, placeholder }) => renderField(block, key, label, placeholder))}
+                <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                  How many rows?
                   <input
                     className={`${erpInputCls} mt-1 text-xs`}
-                    placeholder={placeholder}
-                    value={String(defaults[key] ?? '')}
-                    onChange={(e) => setField(key, e.target.value)}
+                    inputMode="numeric"
+                    value={block.rowCount}
+                    onChange={(e) => setBlockRows(block.id, e.target.value)}
+                    placeholder="17"
                   />
-                )}
-              </label>
-            ))}
-            <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-              How many rows?
-              <input
-                className={`${erpInputCls} mt-1 text-xs`}
-                inputMode="numeric"
-                value={rowCount}
-                onChange={(e) => setRowCount(e.target.value)}
-                placeholder="17"
-              />
-            </label>
-          </div>
+                </label>
+              </div>
+            </div>
+          ))}
+
           <div className="flex flex-wrap gap-2">
+            <button type="button" className={erpBtnGhost} onClick={addBlock}>
+              <Plus className="size-4" />
+              Add another product (e.g. Lakshmi, Saraswati…)
+            </button>
             <button type="button" className={erpBtnPrimary} onClick={createExcel}>
               <FileSpreadsheet className="size-4" />
-              Create Excel
+              Create Excel ({totalRows} row{totalRows !== 1 ? 's' : ''})
             </button>
             <button type="button" className={erpBtnGhost} onClick={() => setOpen(false)}>
               Close

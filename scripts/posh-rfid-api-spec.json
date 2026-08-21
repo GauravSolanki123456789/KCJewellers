@@ -1,0 +1,106 @@
+{
+  "integration_name": "KC Jewellers ERP ↔ Posh RFID",
+  "version": "1.0",
+  "description": "REST API contract for syncing linked RFID tags with ERP stock. Send this to Posh RFID developers for review.",
+  "base_url_example": "https://api.poshrfid.example/v1",
+  "authentication": {
+    "type": "Bearer token + optional store header",
+    "headers": {
+      "Authorization": "Bearer {api_key}",
+      "X-Api-Key": "{api_key}",
+      "X-Store-Id": "{store_id}",
+      "Content-Type": "application/json"
+    }
+  },
+  "endpoints_we_call": [
+    {
+      "method": "POST",
+      "path": "/api/v1/inventory/link",
+      "when": "User links an RFID tag to a barcode in ERP",
+      "body_example": {
+        "rfid_tag": "B0297",
+        "barcode": "AYAPPA-32843",
+        "sku": "DOLLAR",
+        "product_name": "AYAPPA",
+        "item_code": "AYAPPA",
+        "size": null,
+        "weight_gm": 6.788,
+        "gross_weight_gm": 13.028,
+        "purity": 925,
+        "wastage_pct": null,
+        "metal_type": "SILVER",
+        "mc_rate": 8,
+        "stone_charges": null,
+        "status": "in_stock",
+        "store_id": "SHOWROOM-001",
+        "floor_id": 1,
+        "floor_name": "DOLLAR",
+        "floor_code": "DOLLAR",
+        "box_id": 2,
+        "box_code": "DOLLAR BOX-1",
+        "box_label": "DOLLAR BOX-1",
+        "box_name": "DOLLAR BOX-1"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/inventory/unlink",
+      "when": "Item sold, stock deleted, tag unlinked, or barcode removed from RFID",
+      "body_example": {
+        "rfid_tag": "B0297",
+        "barcode": "AYAPPA-32843",
+        "store_id": "SHOWROOM-001"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/inventory/sync",
+      "when": "Manual full sync from ERP Hardware page",
+      "body_example": {
+        "store_id": "SHOWROOM-001",
+        "items": []
+      },
+      "notes": "Replaces or merges full in-stock RFID inventory for the store. Items not in the list should be removed from the gun."
+    }
+  ],
+  "erp_lifecycle_events": [
+    "RFID tag linked to barcode → POST link",
+    "Bill saved (sold) → POST unlink for each sold tagged piece",
+    "Stock piece deleted → POST unlink",
+    "RFID manually unlinked → POST unlink",
+    "Batch delete → POST unlink for each tagged piece",
+    "Manual sync button → POST sync with all in_stock + rfid_tag rows"
+  ],
+  "questions_for_posh_developer": [
+    "Confirm final base URL and API version path",
+    "Confirm auth scheme (Bearer vs X-Api-Key only)",
+    "Does sync replace entire store inventory or upsert only?",
+    "How should we handle duplicate rfid_tag across stores?",
+    "Webhook support for gun-side changes back to ERP?",
+    "Rate limits and retry policy",
+    "Sandbox/test store ID and sample credentials",
+    "Expected response format and error codes"
+  ],
+  "sample_products": [
+    {
+      "rfid_tag": "B0297",
+      "barcode": "AYAPPA-32843",
+      "sku": "DOLLAR",
+      "product_name": "AYAPPA",
+      "weight_gm": 6.788,
+      "metal_type": "SILVER",
+      "floor_name": "DOLLAR",
+      "box_name": "DOLLAR BOX-1"
+    },
+    {
+      "rfid_tag": "B0142",
+      "barcode": "GANESH-67158",
+      "sku": "DOLLAR",
+      "product_name": "GANESH",
+      "weight_gm": 12.5,
+      "metal_type": "SILVER",
+      "floor_name": "DOLLAR",
+      "box_name": "925 BOX-2"
+    }
+  ]
+}

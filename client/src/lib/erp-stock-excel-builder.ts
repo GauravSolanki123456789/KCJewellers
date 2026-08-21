@@ -1,5 +1,6 @@
 /**
  * Build a stock upload Excel from form defaults + row count (client-side).
+ * Barcodes are NOT included — generated on server when the file is uploaded.
  */
 export type StockExcelBuilderDefaults = {
   sku?: string
@@ -35,8 +36,12 @@ export type StockExcelBuilderDefaults = {
   bags?: string
 }
 
+export type StockExcelBuilderBlock = {
+  defaults: StockExcelBuilderDefaults
+  rowCount: number
+}
+
 const HEADERS = [
-  'Barcode',
   'SKU',
   'StyleCode',
   'ProductName',
@@ -70,77 +75,57 @@ const HEADERS = [
   'BagWt',
 ] as const
 
-function normalizeBase(itemCode: string, productName: string): string {
-  const raw = (itemCode || productName || 'ITEM').replace(/\s+/g, '').toUpperCase()
-  return raw.slice(0, 32) || 'ITEM'
-}
-
-function randomBarcodeSuffix(): string {
-  return String(Math.floor(10000 + Math.random() * 90000))
-}
-
-function genBarcode(base: string, used: Set<string>): string {
-  for (let i = 0; i < 80; i++) {
-    const bc = `${base}-${randomBarcodeSuffix()}`
-    if (!used.has(bc)) {
-      used.add(bc)
-      return bc
-    }
-  }
-  return `${base}-${Date.now()}`
-}
-
 function cell(v: string | number | undefined | null): string | number | '' {
   if (v == null || v === '') return ''
   return v
 }
 
-export function buildStockExcelArrayBuffer(
-  defaults: StockExcelBuilderDefaults,
-  rowCount: number,
-): ArrayBuffer {
+function rowFromDefaults(defaults: StockExcelBuilderDefaults): Record<string, string | number> {
+  return {
+    SKU: cell(defaults.sku),
+    StyleCode: cell(defaults.style_code),
+    ProductName: cell(defaults.product_name),
+    Size: cell(defaults.size),
+    AvgWeight: cell(defaults.avg_weight),
+    Purity: cell(defaults.purity),
+    'Wastage(%)': cell(defaults.wastage_pct),
+    MCRate: cell(defaults.mc_rate),
+    'MetalSlabR%': cell(defaults.metal_slab_r_pct),
+    MCRateSlabR: cell(defaults.mc_rate_slab_r),
+    'MetalSlabW%': cell(defaults.metal_slab_w_pct),
+    MCRateSlabW: cell(defaults.mc_rate_slab_w),
+    'MetalSlabF%': cell(defaults.metal_slab_f_pct),
+    MCRateSlabF: cell(defaults.mc_rate_slab_f),
+    MCType: cell(defaults.mc_type) || 'MC/GM',
+    PCS: cell(defaults.pcs) || 1,
+    BoxCharges: cell(defaults.box_charges),
+    StoneCharges: cell(defaults.stone_charges),
+    StoneWt: cell(defaults.stone_wt),
+    MetalType: cell(defaults.metal_type) || 'SILVER',
+    ItemCode: cell(defaults.item_code) || cell(defaults.product_name),
+    ImageUrl: cell(defaults.image_url),
+    'Attr:Color': cell(defaults.attr_color),
+    'Attr:Stone': cell(defaults.attr_stone),
+    FixedPrice: cell(defaults.fixed_price),
+    Gross: cell(defaults.gross_weight),
+    ChainWtOnly: cell(defaults.chain_wt_only),
+    PendantWtOnly: cell(defaults.pendant_wt_only),
+    EarringWtOnly: cell(defaults.earring_wt_only),
+    Bags: cell(defaults.bags),
+    BagWt: cell(defaults.bag_wt),
+  }
+}
+
+export function buildStockExcelArrayBuffer(blocks: StockExcelBuilderBlock[]): ArrayBuffer {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const XLSX = require('xlsx') as typeof import('xlsx')
-  const n = Math.max(1, Math.min(500, Math.floor(rowCount) || 1))
-  const base = normalizeBase(String(defaults.item_code || ''), String(defaults.product_name || ''))
-  const used = new Set<string>()
   const rows: Record<string, string | number>[] = []
 
-  for (let i = 0; i < n; i++) {
-    rows.push({
-      Barcode: genBarcode(base, used),
-      SKU: cell(defaults.sku),
-      StyleCode: cell(defaults.style_code),
-      ProductName: cell(defaults.product_name),
-      Size: cell(defaults.size),
-      AvgWeight: cell(defaults.avg_weight),
-      Purity: cell(defaults.purity),
-      'Wastage(%)': cell(defaults.wastage_pct),
-      MCRate: cell(defaults.mc_rate),
-      'MetalSlabR%': cell(defaults.metal_slab_r_pct),
-      MCRateSlabR: cell(defaults.mc_rate_slab_r),
-      'MetalSlabW%': cell(defaults.metal_slab_w_pct),
-      MCRateSlabW: cell(defaults.mc_rate_slab_w),
-      'MetalSlabF%': cell(defaults.metal_slab_f_pct),
-      MCRateSlabF: cell(defaults.mc_rate_slab_f),
-      MCType: cell(defaults.mc_type) || 'MC/GM',
-      PCS: cell(defaults.pcs) || 1,
-      BoxCharges: cell(defaults.box_charges),
-      StoneCharges: cell(defaults.stone_charges),
-      StoneWt: cell(defaults.stone_wt),
-      MetalType: cell(defaults.metal_type) || 'SILVER',
-      ItemCode: cell(defaults.item_code) || cell(defaults.product_name),
-      ImageUrl: cell(defaults.image_url),
-      'Attr:Color': cell(defaults.attr_color),
-      'Attr:Stone': cell(defaults.attr_stone),
-      FixedPrice: cell(defaults.fixed_price),
-      Gross: cell(defaults.gross_weight),
-      ChainWtOnly: cell(defaults.chain_wt_only),
-      PendantWtOnly: cell(defaults.pendant_wt_only),
-      EarringWtOnly: cell(defaults.earring_wt_only),
-      Bags: cell(defaults.bags),
-      BagWt: cell(defaults.bag_wt),
-    })
+  for (const block of blocks) {
+    const n = Math.max(1, Math.min(500, Math.floor(block.rowCount) || 1))
+    for (let i = 0; i < n; i++) {
+      rows.push(rowFromDefaults(block.defaults))
+    }
   }
 
   const ws = XLSX.utils.json_to_sheet(rows, { header: [...HEADERS] })
@@ -149,12 +134,8 @@ export function buildStockExcelArrayBuffer(
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
 }
 
-export function downloadStockExcelBuilderFile(
-  defaults: StockExcelBuilderDefaults,
-  rowCount: number,
-  filename: string,
-): void {
-  const buf = buildStockExcelArrayBuffer(defaults, rowCount)
+export function downloadStockExcelBuilderFile(blocks: StockExcelBuilderBlock[], filename: string): void {
+  const buf = buildStockExcelArrayBuffer(blocks)
   const blob = new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
@@ -164,4 +145,13 @@ export function downloadStockExcelBuilderFile(
   a.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** Backward-compatible single-block helper */
+export function downloadStockExcelBuilderSingle(
+  defaults: StockExcelBuilderDefaults,
+  rowCount: number,
+  filename: string,
+): void {
+  downloadStockExcelBuilderFile([{ defaults, rowCount }], filename)
 }

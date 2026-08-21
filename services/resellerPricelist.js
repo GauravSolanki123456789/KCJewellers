@@ -767,6 +767,129 @@ function registerResellerPricelistRoutes(app, deps) {
         },
     );
 
+    app.put(
+        '/api/reseller/pricelist/categories/:id/products/bulk',
+        checkAuth,
+        pricelistGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                const category = await getCategoryOrFail(query, req.user.id, req.params.id);
+                const rows = Array.isArray(req.body?.products) ? req.body.products : [];
+                const deletedIds = Array.isArray(req.body?.deletedIds)
+                    ? req.body.deletedIds.map((id) => parseInt(String(id), 10)).filter(Number.isFinite)
+                    : [];
+
+                let updated = 0;
+                let created = 0;
+                const errors = [];
+
+                for (const rawId of deletedIds) {
+                    await query(
+                        `UPDATE reseller_pricelist_products
+                         SET is_active = false, updated_at = CURRENT_TIMESTAMP
+                         WHERE id = $1 AND owner_user_id = $2 AND category_id = $3`,
+                        [rawId, req.user.id, category.id],
+                    );
+                }
+
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i] || {};
+                    if (row._delete) continue;
+                    try {
+                        const subName = String(row.subcategory_name || row.subcategory || '').trim();
+                        const prodName = String(row.product_name || '').trim();
+                        if (!subName || !prodName) {
+                            errors.push({ row: i, error: 'Subcategory and product name required' });
+                            continue;
+                        }
+                        const avgRaw = row.avg_weight;
+                        const avgNum =
+                            avgRaw == null || avgRaw === ''
+                                ? null
+                                : parseFloat(String(avgRaw).replace(/,/g, '').trim());
+                        const avgWeight = Number.isFinite(avgNum) ? avgNum : null;
+                        const slabRates =
+                            row.slab_rates && typeof row.slab_rates === 'object' ? row.slab_rates : {};
+                        const subcategoryId = await upsertSubcategory(query, category.id, subName);
+                        const productSlug = slugify(prodName);
+                        const productId = row.id != null ? parseInt(String(row.id), 10) : null;
+
+                        if (productId && Number.isFinite(productId)) {
+                            const existing = await query(
+                                `SELECT id FROM reseller_pricelist_products
+                                 WHERE id = $1 AND owner_user_id = $2 AND category_id = $3 LIMIT 1`,
+                                [productId, req.user.id, category.id],
+                            );
+                            if (!existing.length) {
+                                errors.push({ row: i, error: 'Product not found' });
+                                continue;
+                            }
+                            await query(
+                                `UPDATE reseller_pricelist_products SET
+                                    subcategory_id = $1,
+                                    product_name = $2,
+                                    product_slug = $3,
+                                    avg_weight = $4,
+                                    slab_rates = $5::jsonb,
+                                    is_active = true,
+                                    updated_at = CURRENT_TIMESTAMP
+                                 WHERE id = $6 AND owner_user_id = $7`,
+                                [
+                                    subcategoryId,
+                                    prodName.slice(0, 255),
+                                    productSlug,
+                                    avgWeight,
+                                    JSON.stringify(slabRates),
+                                    productId,
+                                    req.user.id,
+                                ],
+                            );
+                            updated += 1;
+                        } else {
+                            await query(
+                                `INSERT INTO reseller_pricelist_products (
+                                    owner_user_id, category_id, subcategory_id, product_name, product_slug,
+                                    avg_weight, slab_rates
+                                 ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+                                 ON CONFLICT (subcategory_id, product_slug) DO UPDATE SET
+                                    product_name = EXCLUDED.product_name,
+                                    avg_weight = EXCLUDED.avg_weight,
+                                    slab_rates = EXCLUDED.slab_rates,
+                                    category_id = EXCLUDED.category_id,
+                                    is_active = true,
+                                    updated_at = CURRENT_TIMESTAMP`,
+                                [
+                                    req.user.id,
+                                    category.id,
+                                    subcategoryId,
+                                    prodName.slice(0, 255),
+                                    productSlug,
+                                    avgWeight,
+                                    JSON.stringify(slabRates),
+                                ],
+                            );
+                            created += 1;
+                        }
+                    } catch (rowErr) {
+                        errors.push({ row: i, error: rowErr.message });
+                    }
+                }
+
+                res.json({
+                    success: true,
+                    updated,
+                    created,
+                    deleted: deletedIds.length,
+                    errors: errors.length ? errors : undefined,
+                });
+            } catch (e) {
+                console.error('pricelist bulk save:', e);
+                res.status(e.status || 500).json({ error: e.message || 'Failed to save products' });
+            }
+        },
+    );
+
     app.post(
         '/api/reseller/pricelist/products/:productId/photo',
         checkAuth,
