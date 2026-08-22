@@ -15,7 +15,7 @@ import {
   type WholesaleUserFields,
 } from '@/lib/customer-tier'
 import { resolveCatalogShareBrand } from '@/lib/catalog-share'
-import { createSharedCatalog, fetchSharedCatalogExpiryOptions, fetchActiveSharedCatalogs, appendToSharedCatalog, type ActiveSharedCatalog, type SharedCatalogExpiryOption } from '@/lib/shared-catalog-api'
+import { createSharedCatalog, fetchSharedCatalogExpiryOptions, fetchActiveSharedCatalogs, appendToSharedCatalog, updateSharedCatalogWholesaleRates, type ActiveSharedCatalog, type SharedCatalogExpiryOption } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
 import {
   type CatalogSlabKind,
@@ -40,7 +40,7 @@ const DEFAULT_EXPIRY_OPTIONS: SharedCatalogExpiryOption[] = [
   { label: '24 days', hours: 576 },
 ]
 
-type LinkMode = 'new' | 'existing'
+type LinkMode = 'new' | 'existing' | 'update_rates'
 
 type Props = {
   open: boolean
@@ -254,7 +254,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   }, [open])
 
   useEffect(() => {
-    if (!open || outputFormat !== 'temporary_web_link' || linkMode !== 'existing') return
+    if (!open || outputFormat !== 'temporary_web_link' || (linkMode !== 'existing' && linkMode !== 'update_rates')) return
     setActiveCatalogsLoading(true)
     void fetchActiveSharedCatalogs()
       .then((catalogs) => {
@@ -264,6 +264,25 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
       .catch(() => setActiveCatalogs([]))
       .finally(() => setActiveCatalogsLoading(false))
   }, [open, outputFormat, linkMode])
+
+  useEffect(() => {
+    if (linkMode !== 'update_rates' || !selectedCatalogId) return
+    const cat = activeCatalogs.find((c) => c.id === selectedCatalogId)
+    if (!cat) return
+    if (cat.pricingSlab === 'slab_w' || cat.pricingSlab === 'slab_f') {
+      setPricingSlab(cat.pricingSlab as CatalogSlabKind)
+      setWholesaleGoldRate(
+        cat.wholesaleGoldRatePerG != null && cat.wholesaleGoldRatePerG > 0
+          ? String(cat.wholesaleGoldRatePerG)
+          : '',
+      )
+      setWholesaleSilverRate(
+        cat.wholesaleSilverRatePerG != null && cat.wholesaleSilverRatePerG > 0
+          ? String(cat.wholesaleSilverRatePerG)
+          : '',
+      )
+    }
+  }, [linkMode, selectedCatalogId, activeCatalogs])
 
   useEffect(() => {
     if (!shareUrl) return
@@ -282,6 +301,39 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
   const handleSubmit = useCallback(async () => {
     setError(null)
     setShareUrl(null)
+
+    if (outputFormat === 'temporary_web_link' && linkMode === 'update_rates') {
+      if (!selectedCatalogId) {
+        setError('Choose an active catalogue link to update.')
+        return
+      }
+      const cat = activeCatalogs.find((c) => c.id === selectedCatalogId)
+      if (!cat || (cat.pricingSlab !== 'slab_w' && cat.pricingSlab !== 'slab_f')) {
+        setError('Wholesale rates can only be updated on Slab W or Slab F catalogues.')
+        return
+      }
+      setBusy(true)
+      try {
+        await updateSharedCatalogWholesaleRates(selectedCatalogId, {
+          wholesaleGoldRatePerG: Number(wholesaleGoldRate) > 0 ? Number(wholesaleGoldRate) : null,
+          wholesaleSilverRatePerG: Number(wholesaleSilverRate) > 0 ? Number(wholesaleSilverRate) : null,
+        })
+        const refreshed = await fetchActiveSharedCatalogs()
+        setActiveCatalogs(refreshed)
+        const updated = refreshed.find((c) => c.id === selectedCatalogId)
+        if (updated?.shareUrl) setShareUrl(updated.shareUrl)
+      } catch (e: unknown) {
+        const msg =
+          e && typeof e === 'object' && 'response' in e
+            ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+            : null
+        setError(msg || (e instanceof Error ? e.message : 'Could not update wholesale rates.'))
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+
     if (selectedProductIds.length === 0) {
       setError('No products selected.')
       return
@@ -472,6 +524,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     maxSelectable,
     linkMode,
     selectedCatalogId,
+    activeCatalogs,
     uploadedMcSlabKey,
   ])
 
@@ -632,6 +685,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                 value={pricingSlab}
                 onChange={(e) => setPricingSlab(e.target.value as CatalogSlabKind)}
                 className="kc-catalog-modal-select"
+                disabled={linkMode === 'update_rates'}
               >
                 <option value="standard">Standard — live rates + markup / discount</option>
                 <option value="slab_r">Slab R — retail MC off + silver −₹/g</option>
@@ -695,7 +749,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   <p className="kc-catalog-modal-label !normal-case !tracking-normal">
                     Wholesale metal rate (₹/g fine)
                   </p>
-                  {metalsNeeded.needsGold && (
+                  {(linkMode === 'update_rates' || metalsNeeded.needsGold) && (
                     <div>
                       <label htmlFor="wholesale-gold" className="mb-1 block text-[11px] text-slate-500">
                         Gold ₹/g
@@ -713,7 +767,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                       />
                     </div>
                   )}
-                  {metalsNeeded.needsSilver && (
+                  {(linkMode === 'update_rates' || metalsNeeded.needsSilver) && (
                     <div>
                       <label htmlFor="wholesale-silver" className="mb-1 block text-[11px] text-slate-500">
                         Silver ₹/g (999 fine)
@@ -731,7 +785,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                       />
                     </div>
                   )}
-                  {!metalsNeeded.needsGold && !metalsNeeded.needsSilver && (
+                  {linkMode !== 'update_rates' && !metalsNeeded.needsGold && !metalsNeeded.needsSilver && (
                     <p className="kc-slab-hint">Selected items are gift / fixed-price only.</p>
                   )}
                 </div>
@@ -739,7 +793,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             </div>
           )}
 
-          {(outputFormat === 'temporary_web_link' || isReseller) && !resellerHidePrices && (
+          {(outputFormat === 'temporary_web_link' || isReseller) && !resellerHidePrices && linkMode !== 'update_rates' && (
             <div className="space-y-5">
               <div>
                 <label htmlFor="markup-pct" className="kc-catalog-modal-label mb-1.5 block">
@@ -793,7 +847,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
             <div className="space-y-5">
               <div>
                 <p className="kc-catalog-modal-label mb-2">Link action</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <button
                     type="button"
                     onClick={() => setLinkMode('new')}
@@ -818,13 +872,25 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                     <span className="font-medium">Add to existing</span>
                     <span className="mt-0.5 block text-[11px] text-slate-500">Same URL, more products</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinkMode('update_rates')}
+                    className={`rounded-xl border px-3 py-2.5 text-left text-sm transition touch-manipulation min-h-[56px] ${
+                      linkMode === 'update_rates'
+                        ? 'border-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_55%,transparent)] bg-[color-mix(in_oklab,var(--kc-accent,var(--color-emerald-600))_12%,transparent)] text-slate-100'
+                        : 'border-slate-700 bg-slate-900/50 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="font-medium">Update rates</span>
+                    <span className="mt-0.5 block text-[11px] text-slate-500">Change wholesale ₹/g on live link</span>
+                  </button>
                 </div>
               </div>
 
-              {linkMode === 'existing' ? (
+              {linkMode === 'existing' || linkMode === 'update_rates' ? (
                 <div>
                   <label htmlFor="existing-catalog" className="kc-catalog-modal-label mb-1.5 block">
-                    Active catalogue link
+                    {linkMode === 'update_rates' ? 'Catalogue to reprice' : 'Active catalogue link'}
                   </label>
                   {activeCatalogsLoading ? (
                     <p className="text-xs text-slate-500">Loading your active links…</p>
@@ -833,18 +899,27 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                       No active links found. Create a new link first, or your previous links may have expired.
                     </p>
                   ) : (
-                    <select
-                      id="existing-catalog"
-                      value={selectedCatalogId}
-                      onChange={(e) => setSelectedCatalogId(e.target.value)}
-                      className="kc-catalog-modal-select"
-                    >
-                      {activeCatalogs.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.productCount} items · valid until {formatCatalogExpiry(c.expiresAt)}
-                        </option>
-                      ))}
-                    </select>
+                    <>
+                      <select
+                        id="existing-catalog"
+                        value={selectedCatalogId}
+                        onChange={(e) => setSelectedCatalogId(e.target.value)}
+                        className="kc-catalog-modal-select"
+                      >
+                        {activeCatalogs.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.productCount} items · {c.pricingSlab.replace('_', ' ')} · until{' '}
+                            {formatCatalogExpiry(c.expiresAt)}
+                          </option>
+                        ))}
+                      </select>
+                      {linkMode === 'update_rates' ? (
+                        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                          Works on Slab W / Slab F links. Customers on the same URL see updated prices and savings
+                          immediately — no new link needed.
+                        </p>
+                      ) : null}
+                    </>
                   )}
                 </div>
               ) : (
@@ -924,7 +999,9 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   ? 'Generate PDF & share'
                   : linkMode === 'existing'
                     ? 'Add to catalogue link'
-                    : 'Create share link'}
+                    : linkMode === 'update_rates'
+                      ? 'Update wholesale rates'
+                      : 'Create share link'}
           </button>
         </div>
       </div>

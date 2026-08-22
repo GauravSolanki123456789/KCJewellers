@@ -81,6 +81,11 @@ function buildPdfColumns(
       const val = cell(line, col.key, rateSlab, ratesUnfixed)
       return !isEmptyPdfCell(val, col.key)
     })
+  }).map((col, _, arr) => {
+    const total = arr.reduce((s, c) => s + parseFloat(c.w), 0)
+    if (total <= 0) return col
+    const pct = (parseFloat(col.w) / total) * 100
+    return { ...col, w: `${pct.toFixed(1)}%` }
   })
 }
 

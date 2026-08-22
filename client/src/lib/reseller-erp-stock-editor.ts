@@ -148,8 +148,7 @@ export function rowDraftToApiPayload(d: StockRowDraft): Record<string, unknown> 
     const n = Number(v[k])
     return v[k] === '' || !Number.isFinite(n) ? null : n
   }
-  return {
-    id: d.id,
+  const payload: Record<string, unknown> = {
     barcode: v.barcode.trim() || null,
     sku: v.sku.trim() || null,
     style_code: v.style_code.trim() || null,
@@ -183,10 +182,24 @@ export function rowDraftToApiPayload(d: StockRowDraft): Record<string, unknown> 
     bags: v.bags.trim() || null,
     bag_wt: num('bag_wt'),
   }
+  if (d.id > 0) payload.id = d.id
+  return payload
 }
 
 export function draftsEqual(a: StockRowDraft, b: StockRowDraft): boolean {
   return JSON.stringify(a.values) === JSON.stringify(b.values)
+}
+
+export function emptyStockRowDraft(tempId: number): StockRowDraft {
+  const values = Object.fromEntries(
+    STOCK_EDITOR_COLUMNS.map((c) => [c.key, '']),
+  ) as Record<StockEditableField, string>
+  values.pcs = '1'
+  return { id: tempId, status: 'in_stock', rfid_tag: null, values }
+}
+
+export function isNewStockRowDraft(row: StockRowDraft): boolean {
+  return row.id <= 0
 }
 
 function parseNum(raw: string | undefined): number | null {

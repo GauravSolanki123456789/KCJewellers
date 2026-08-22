@@ -25,6 +25,8 @@ const {
     createBillAdvanceLedgerEntry,
 } = require('./resellerErpLedger');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
+const { registerDesignMasterRoutes } = require('./resellerErpDesignMaster');
+const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
 const erpPrint = require('../scripts/erp-print-templates');
@@ -436,6 +438,8 @@ function registerResellerErpRoutes(app, deps) {
     ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
 
     registerStockPieceRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerDesignMasterRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerPoshRfidInboundRoutes(app, { query });
     registerFloorRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
@@ -1685,6 +1689,35 @@ function registerResellerErpRoutes(app, deps) {
         } catch (e) {
             console.error('erp print test-receipt:', e);
             res.status(500).json({ error: e.message || 'Test receipt failed' });
+        }
+    });
+
+    app.post('/api/reseller/erp/print/preview-template', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const template = String(req.body.template || '');
+            const kind = String(req.body.kind || 'bill').toLowerCase();
+            if (!template.trim()) return res.status(400).json({ error: 'template required' });
+
+            const settingsRows = await query(
+                `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+                [req.user.id],
+            );
+            let settings = settingsRows[0]?.settings ?? {};
+            if (typeof settings === 'string') {
+                try {
+                    settings = JSON.parse(settings);
+                } catch {
+                    settings = {};
+                }
+            }
+            const printFormats = settings.printFormats || {};
+            const sampleBill = erpPrint.buildSampleBillForPreview(kind);
+            const rates = { gold: 13200, silver: 270 };
+            const preview = erpPrint.previewTemplateText(template, sampleBill, printFormats, rates);
+            res.json({ preview });
+        } catch (e) {
+            console.error('erp print preview-template:', e);
+            res.status(500).json({ error: e.message || 'Preview failed' });
         }
     });
 

@@ -74,6 +74,9 @@ export type ActiveSharedCatalog = {
   markupPercentage: number
   discountPercentage: number
   pricingSlab: string
+  wholesaleGoldRatePerG?: number | null
+  wholesaleSilverRatePerG?: number | null
+  shareUrl?: string
 }
 
 export async function fetchActiveSharedCatalogs(): Promise<ActiveSharedCatalog[]> {
@@ -91,6 +94,26 @@ export type AppendSharedCatalogResponse = {
   addedCount: number
   productCount: number
   expiresAt: string
+}
+
+export async function updateSharedCatalogWholesaleRates(
+  uuid: string,
+  payload: { wholesaleGoldRatePerG?: number | null; wholesaleSilverRatePerG?: number | null },
+): Promise<{
+  success: boolean
+  id: string
+  wholesaleGoldRatePerG?: number | null
+  wholesaleSilverRatePerG?: number | null
+}> {
+  const { data } = await axios.patch(
+    `/api/admin/shared-catalog/${uuid}/pricing`,
+    {
+      wholesaleGoldRatePerG: payload.wholesaleGoldRatePerG,
+      wholesaleSilverRatePerG: payload.wholesaleSilverRatePerG,
+    },
+    { withCredentials: true },
+  )
+  return data
 }
 
 export async function appendToSharedCatalog(

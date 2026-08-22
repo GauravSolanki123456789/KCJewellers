@@ -194,9 +194,9 @@ Address: {{customer_address}}
 --------------------------------
 {{lines_table}}
 --------------------------------
+{{savings_block}}
 Items: {{item_count}}
-Silver rate: Rs.{{silver_rate}}/g
-(Slab R may show lower rate per item)
+Silver rate: Rs.{{silver_rate}}/g (live Rs.{{live_silver_rate}}/g)
 --------------------------------
 ESTIMATE TOTAL: Rs. {{total}}
 MC discount: Rs. {{mc_discount}}
@@ -288,7 +288,11 @@ export const BILL_TEMPLATE_VARS = [
   'balance',
   'gold_rate',
   'silver_rate',
+  'savings_block',
+  'live_silver_rate',
 ] as const
+
+export type EstimatePrintMode = 'rough' | 'custom'
 
 export type ErpPrintFormatsSettings = {
   labelPrnTemplate?: string
@@ -301,6 +305,10 @@ export type ErpPrintFormatsSettings = {
   defaultQuoteOutputMode?: 'pdf' | 'epson' | 'both'
   /** Slab R gold: show MC ₹ on bills/estimates (default). When false, show wastage % like Slab W/F. */
   goldSlabRShowMc?: boolean
+  /** Epson estimate: rough (legacy layout) or custom (gold/silver template textareas). */
+  estimatePrintMode?: EstimatePrintMode
+  /** When custom estimate mode, print duplicate copy below original. */
+  estimateDuplicateCopy?: boolean
   shopName?: string
   shopAddress?: string
   shopPhone?: string
@@ -464,6 +472,8 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf'
   if (pf.labelUsePrn == null) pf.labelUsePrn = true
   if (pf.goldSlabRShowMc == null) pf.goldSlabRShowMc = true
+  if (!pf.estimatePrintMode) pf.estimatePrintMode = 'rough'
+  if (pf.estimateDuplicateCopy == null) pf.estimateDuplicateCopy = true
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
 }

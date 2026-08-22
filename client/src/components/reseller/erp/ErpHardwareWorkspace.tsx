@@ -347,6 +347,31 @@ export function ErpHardwareWorkspace() {
             Sync linked stock to RFID gun
           </button>
 
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-xs text-[var(--color-jewelry-black,#1a1814)]">
+            <p className="mb-1 font-semibold text-emerald-900">Give Posh RFID these KC API details</p>
+            <p className="mb-2 text-[var(--color-jewelry-black,#1a1814)]/70">
+              Posh connects to KC (inbound). Save API key &amp; store ID below first, then share this URL with your Posh
+              developer.
+            </p>
+            <p className="font-mono text-[11px] font-semibold break-all text-emerald-950">
+              {typeof window !== 'undefined'
+                ? `${window.location.origin}/api/external/posh-rfid/v1/inventory`
+                : 'https://kcjewellers.co.in/api/external/posh-rfid/v1/inventory'}
+            </p>
+            <p className="mt-2 text-[var(--color-jewelry-black,#1a1814)]/65">
+              Headers: <span className="font-mono">X-Api-Key</span> (above) ·{' '}
+              <span className="font-mono">X-Store-Id</span> (store / showroom ID)
+            </p>
+            <p className="mt-1 text-[var(--color-jewelry-black,#1a1814)]/55">
+              Health check:{' '}
+              <span className="font-mono break-all">
+                {typeof window !== 'undefined'
+                  ? `${window.location.origin}/api/external/posh-rfid/v1/health`
+                  : '/api/external/posh-rfid/v1/health'}
+              </span>
+            </p>
+          </div>
+
           <div className="mt-5 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
             <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">RFID tag lookup</p>
             <p className="mb-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">

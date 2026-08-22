@@ -12,6 +12,8 @@ import {
   computeBagWtFromValues,
   shouldRecalcNetWeight,
   shouldRecalcBagWt,
+  emptyStockRowDraft,
+  isNewStockRowDraft,
   type StockEditableField,
   type StockRowDraft,
 } from '@/lib/reseller-erp-stock-editor'
@@ -20,7 +22,7 @@ import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/c
 import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleBar'
 import { ErpRfidLinkDialog } from '@/components/reseller/erp/ErpRfidLinkDialog'
 import { printStockLabels, type PrintLabelPieceOverride } from '@/lib/erp-print-labels'
-import { Check, Loader2, MapPin, Radio, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
+import { Check, Loader2, MapPin, Plus, Radio, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
 
 type FloorOption = {
   id: string
@@ -168,7 +170,72 @@ export function ErpStockExcelEditor({
   const [assignBusy, setAssignBusy] = useState(false)
   const [bulkField, setBulkField] = useState<StockEditableField>('style_code')
   const [bulkValue, setBulkValue] = useState('')
+  const [nextTempId, setNextTempId] = useState(-1)
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
+
+  type DesignDefaults = {
+    product_name?: string | null
+    purity?: number | null
+    metal_type?: string | null
+    wastage_pct?: number | null
+    mc_rate?: number | null
+    mc_rate_slab_r?: number | null
+    mc_rate_slab_w?: number | null
+    mc_rate_slab_f?: number | null
+    metal_slab_r_pct?: number | null
+    metal_slab_w_pct?: number | null
+    metal_slab_f_pct?: number | null
+    mc_type?: string | null
+  }
+
+  const applyDesignDefaultsToRow = useCallback((rowId: number, defaults: DesignDefaults | null) => {
+    if (!defaults) return
+    const fillKeys: { key: StockEditableField; val: unknown }[] = [
+      { key: 'product_name', val: defaults.product_name },
+      { key: 'purity', val: defaults.purity },
+      { key: 'metal_type', val: defaults.metal_type },
+      { key: 'wastage_pct', val: defaults.wastage_pct },
+      { key: 'mc_rate', val: defaults.mc_rate },
+      { key: 'mc_rate_slab_r', val: defaults.mc_rate_slab_r },
+      { key: 'mc_rate_slab_w', val: defaults.mc_rate_slab_w },
+      { key: 'mc_rate_slab_f', val: defaults.mc_rate_slab_f },
+      { key: 'metal_slab_r_pct', val: defaults.metal_slab_r_pct },
+      { key: 'metal_slab_w_pct', val: defaults.metal_slab_w_pct },
+      { key: 'metal_slab_f_pct', val: defaults.metal_slab_f_pct },
+      { key: 'mc_type', val: defaults.mc_type },
+    ]
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.id !== rowId) return d
+        const nextValues = { ...d.values }
+        for (const { key, val } of fillKeys) {
+          if (val == null || val === '') continue
+          if (!nextValues[key]?.trim()) nextValues[key] = String(val)
+        }
+        return { ...d, values: nextValues }
+      }),
+    )
+  }, [])
+
+  const tryAutofillFromDesignMaster = useCallback(
+    async (rowId: number) => {
+      const row = drafts.find((d) => d.id === rowId)
+      if (!row || row.status === 'sold') return
+      const style = row.values.style_code.trim()
+      const sku = row.values.sku.trim()
+      if (!style || !sku) return
+      try {
+        const res = await axios.get<{ defaults: DesignDefaults | null }>(
+          '/api/reseller/erp/design-master/lookup',
+          { params: { style_code: style, sku } },
+        )
+        applyDesignDefaultsToRow(rowId, res.data.defaults)
+      } catch {
+        /* lookup is best-effort */
+      }
+    },
+    [applyDesignDefaultsToRow, drafts],
+  )
 
   useEffect(() => {
     void axios
@@ -223,10 +290,23 @@ export function ErpStockExcelEditor({
   const dirtyCount = useMemo(() => {
     let n = 0
     for (let i = 0; i < drafts.length; i++) {
-      if (baseline[i] && !draftsEqual(drafts[i], baseline[i])) n++
+      const d = drafts[i]
+      const b = baseline[i]
+      if (isNewStockRowDraft(d)) {
+        const hasData = Object.values(d.values).some((v) => v.trim())
+        if (hasData) n++
+      } else if (b && !draftsEqual(d, b)) n++
     }
     return n
   }, [drafts, baseline])
+
+  const addRow = () => {
+    const row = emptyStockRowDraft(nextTempId)
+    setNextTempId((n) => n - 1)
+    setDrafts((prev) => [...prev, row])
+    setBaseline((prev) => [...prev, { ...row, values: { ...row.values } }])
+    setMessage('New row added — fill Style + SKU to autofill MC defaults, then Save edits.')
+  }
 
   const setCell = useCallback((rowId: number, field: StockEditableField, value: string) => {
     setDrafts((prev) =>
@@ -500,7 +580,13 @@ export function ErpStockExcelEditor({
     setSaving(true)
     setError(null)
     try {
-      const dirty = drafts.filter((d, i) => baseline[i] && !draftsEqual(d, baseline[i]))
+      const dirty = drafts.filter((d, i) => {
+        const b = baseline[i]
+        if (isNewStockRowDraft(d)) {
+          return Object.values(d.values).some((v) => v.trim())
+        }
+        return b && !draftsEqual(d, b)
+      })
       const res = await axios.put<{ pieces: ErpStockPiece[] }>(
         `/api/reseller/erp/stock-pieces/batches/${batchId}/rows`,
         { rows: dirty.map(rowDraftToApiPayload) },
@@ -697,6 +783,14 @@ export function ErpStockExcelEditor({
         <button type="button" className={erpBtnPrimary} disabled={saving || dirtyCount === 0} onClick={() => void save()}>
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
           Save edits {dirtyCount > 0 ? `(${dirtyCount})` : ''}
+        </button>
+        <button
+          type="button"
+          className={erpBtnGhost}
+          onClick={addRow}
+        >
+          <Plus className="size-4" />
+          Add row
         </button>
         <button
           type="button"
@@ -906,6 +1000,12 @@ export function ErpStockExcelEditor({
                           onBlur={() => {
                             if (scaleFocus?.rowId === row.id && scaleFocus.field === col.key) {
                               setScaleFocus(null)
+                            }
+                            if (
+                              !readOnly &&
+                              (col.key === 'sku' || col.key === 'style_code')
+                            ) {
+                              void tryAutofillFromDesignMaster(row.id)
                             }
                           }}
                           onChange={(e) => setCell(row.id, col.key, e.target.value)}

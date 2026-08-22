@@ -7672,22 +7672,31 @@ app.get('/api/reseller/shared-catalogs/active', requireSharedCatalogCreator, asy
         }
         const rows = await query(
             `SELECT id, product_ids, expires_at, created_at, markup_percentage, discount_percentage,
-                    COALESCE(pricing_slab, 'standard') AS pricing_slab
+                    COALESCE(pricing_slab, 'standard') AS pricing_slab,
+                    slab_wholesale_gold_rate_per_g,
+                    slab_wholesale_silver_rate_per_g
              FROM shared_catalogs
              WHERE created_by_user_id = $1 AND expires_at > NOW()
              ORDER BY created_at DESC
              LIMIT 20`,
             [uid],
         );
-        const catalogs = rows.map((r) => ({
-            id: String(r.id),
-            productCount: Array.isArray(r.product_ids) ? r.product_ids.length : 0,
-            expiresAt: new Date(r.expires_at).toISOString(),
-            createdAt: new Date(r.created_at).toISOString(),
-            markupPercentage: parseSharedMarkupPct(r.markup_percentage),
-            discountPercentage: parseSharedDiscountPct(r.discount_percentage),
-            pricingSlab: String(r.pricing_slab || 'standard'),
-        }));
+        const catalogs = await Promise.all(
+            rows.map(async (r) => ({
+                id: String(r.id),
+                productCount: Array.isArray(r.product_ids) ? r.product_ids.length : 0,
+                expiresAt: new Date(r.expires_at).toISOString(),
+                createdAt: new Date(r.created_at).toISOString(),
+                markupPercentage: parseSharedMarkupPct(r.markup_percentage),
+                discountPercentage: parseSharedDiscountPct(r.discount_percentage),
+                pricingSlab: String(r.pricing_slab || 'standard'),
+                wholesaleGoldRatePerG:
+                    r.slab_wholesale_gold_rate_per_g != null ? Number(r.slab_wholesale_gold_rate_per_g) : null,
+                wholesaleSilverRatePerG:
+                    r.slab_wholesale_silver_rate_per_g != null ? Number(r.slab_wholesale_silver_rate_per_g) : null,
+                shareUrl: await buildSharedCatalogShareUrl(String(r.id), uid),
+            })),
+        );
         res.json({ catalogs });
     } catch (error) {
         console.error('active shared-catalogs:', error);
@@ -7777,6 +7786,71 @@ app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson,
     } catch (error) {
         console.error('shared-catalog append products:', error);
         res.status(500).json({ error: error.message || 'Failed to update catalogue' });
+    }
+});
+
+/** Update wholesale metal rates on an existing shared catalogue (Slab W / F). */
+app.patch('/api/admin/shared-catalog/:uuid/pricing', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
+    try {
+        const uuid = String(req.params.uuid || '').trim();
+        if (!UUID_RE.test(uuid)) return res.status(400).json({ error: 'Invalid catalog id' });
+
+        const rows = await query(
+            `SELECT id, expires_at, created_by_user_id, pricing_slab, product_ids,
+                    slab_wholesale_gold_rate_per_g, slab_wholesale_silver_rate_per_g
+             FROM shared_catalogs WHERE id = $1::uuid`,
+            [uuid],
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Catalog not found' });
+        const row = rows[0];
+        if (new Date(row.expires_at).getTime() <= Date.now()) {
+            return res.status(410).json({ error: 'Catalog link has expired' });
+        }
+
+        const creatorUid = row.created_by_user_id != null ? parseInt(String(row.created_by_user_id), 10) : null;
+        const requesterUid = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        const isAdminUser = userHasAdminDashboardAccess(req.user);
+        if (!isAdminUser && (!Number.isFinite(requesterUid) || requesterUid !== creatorUid)) {
+            return res.status(403).json({ error: 'You can only edit your own shared catalogues' });
+        }
+
+        const slab = String(row.pricing_slab || 'standard').toLowerCase();
+        if (slab !== 'slab_w' && slab !== 'slab_f') {
+            return res.status(400).json({ error: 'Wholesale rates apply only to Slab W or Slab F links' });
+        }
+
+        const goldRaw = req.body.wholesaleGoldRatePerG ?? req.body.wholesale_gold_rate_per_g;
+        const silverRaw = req.body.wholesaleSilverRatePerG ?? req.body.wholesale_silver_rate_per_g;
+        const gold = goldRaw != null && goldRaw !== '' ? Number(goldRaw) : null;
+        const silver = silverRaw != null && silverRaw !== '' ? Number(silverRaw) : null;
+
+        const productIds = Array.isArray(row.product_ids) ? row.product_ids.map(String) : [];
+        const needs = await sharedCatalogSlabMetalRequirements(productIds);
+        if (needs.gold && (!Number.isFinite(gold) || gold <= 0)) {
+            return res.status(400).json({ error: 'Valid wholesale gold ₹/g required' });
+        }
+        if (needs.silver && (!Number.isFinite(silver) || silver <= 0)) {
+            return res.status(400).json({ error: 'Valid wholesale silver ₹/g required' });
+        }
+
+        await query(
+            `UPDATE shared_catalogs SET
+                slab_wholesale_gold_rate_per_g = COALESCE($1, slab_wholesale_gold_rate_per_g),
+                slab_wholesale_silver_rate_per_g = COALESCE($2, slab_wholesale_silver_rate_per_g),
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3::uuid`,
+            [needs.gold ? gold : null, needs.silver ? silver : null, uuid],
+        );
+
+        res.json({
+            success: true,
+            id: uuid,
+            wholesaleGoldRatePerG: needs.gold ? gold : null,
+            wholesaleSilverRatePerG: needs.silver ? silver : null,
+        });
+    } catch (error) {
+        console.error('shared-catalog update pricing:', error);
+        res.status(500).json({ error: error.message || 'Failed to update pricing' });
     }
 });
 

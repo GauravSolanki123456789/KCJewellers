@@ -6,6 +6,10 @@ const { randomUUID } = require('crypto');
 const labelPrinter = require('../scripts/label-printer');
 const erpPrint = require('../scripts/erp-print-templates');
 const poshRfid = require('./poshRfid');
+const {
+    lookupDesignDefaults,
+    applyDesignDefaultsToPiece,
+} = require('./resellerErpDesignMaster');
 
 function normalizeComPort(raw) {
     const t = String(raw || '').trim().toUpperCase();
@@ -135,6 +139,7 @@ const EXCEL_ALIASES = {
     metal_slab_r_pct: ['MetalSlabR%', 'MetalSlabR', 'metal_slab_r_pct', 'Metal Slab R %'],
     metal_slab_w_pct: ['MetalSlabW%', 'MetalSlabW', 'metal_slab_w_pct', 'Metal Slab W %'],
     metal_slab_f_pct: ['MetalSlabF%', 'MetalSlabF', 'metal_slab_f_pct', 'Metal Slab F %'],
+    rfid_tag: ['RFIDTag', 'RFID', 'rfid_tag', 'Rfid Tag', 'RfidTag', 'RFID Tag'],
 };
 
 function pickRowVal(row, keys) {
@@ -353,6 +358,10 @@ function parseExcelRowToPiece(row) {
         metal_slab_r_pct: parseMetalSlabFraction(pickRowVal(row, EXCEL_ALIASES.metal_slab_r_pct)),
         metal_slab_w_pct: parseMetalSlabFraction(pickRowVal(row, EXCEL_ALIASES.metal_slab_w_pct)),
         metal_slab_f_pct: parseMetalSlabFraction(pickRowVal(row, EXCEL_ALIASES.metal_slab_f_pct)),
+        rfid_tag: (() => {
+            const raw = pickRowVal(row, EXCEL_ALIASES.rfid_tag);
+            return raw ? poshRfid.normalizeRfidTag(raw) : null;
+        })(),
         payload_json: row,
     };
 }
@@ -525,6 +534,19 @@ async function ensureStockPiecesSchema(pool) {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_stock_pieces_rfid_active
             ON reseller_erp_stock_pieces (reseller_user_id, lower(rfid_tag))
             WHERE rfid_tag IS NOT NULL AND status = 'in_stock';
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_stock_import_batches (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            stock_batch_id UUID NOT NULL REFERENCES reseller_erp_stock_batches(id) ON DELETE CASCADE,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            source_filename VARCHAR(512) NOT NULL DEFAULT 'Excel import',
+            piece_count INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_reseller_erp_stock_import_batches_batch
+            ON reseller_erp_stock_import_batches (stock_batch_id, created_at DESC);
+        ALTER TABLE reseller_erp_stock_pieces
+            ADD COLUMN IF NOT EXISTS import_batch_id UUID REFERENCES reseller_erp_stock_import_batches(id) ON DELETE SET NULL;
     `);
 }
 
@@ -836,8 +858,21 @@ function registerStockPieceRoutes(app, deps) {
             const pieces = [];
             const usedBarcodes = new Set();
             for (const row of rawRows) {
-                const p = applyNetWeightToPiece(parseExcelRowToPiece(row));
+                let p = applyNetWeightToPiece(parseExcelRowToPiece(row));
                 if (!p) continue;
+                if (p.style_code && p.sku) {
+                    try {
+                        const defaults = await lookupDesignDefaults(
+                            query,
+                            req.user.id,
+                            p.style_code,
+                            p.sku,
+                        );
+                        applyDesignDefaultsToPiece(p, defaults);
+                    } catch {
+                        /* design master lookup is best-effort */
+                    }
+                }
                 if (!p.barcode) {
                     p.barcode = await generateUniqueStockBarcode(
                         query,
@@ -853,15 +888,42 @@ function registerStockPieceRoutes(app, deps) {
             }
             if (!pieces.length) return res.status(400).json({ error: 'No valid rows found' });
 
-            const batchLabel =
-                String(req.body.batch_label || '').trim() ||
-                `Stock ${new Date().toLocaleDateString('en-IN')}`;
-            const batchId = randomUUID();
+            const appendBatchId = String(req.body.batch_id || '').trim() || null;
+            const sourceFilename = String(
+                req.body.source_filename || req.body.sourceFilename || 'Excel import',
+            )
+                .trim()
+                .slice(0, 512);
 
+            let batchId;
+            let batchLabel;
+            if (appendBatchId) {
+                const batchRows = await query(
+                    `SELECT id, batch_label FROM reseller_erp_stock_batches
+                     WHERE id = $1::uuid AND reseller_user_id = $2`,
+                    [appendBatchId, req.user.id],
+                );
+                if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
+                batchId = appendBatchId;
+                batchLabel = batchRows[0].batch_label;
+            } else {
+                batchLabel =
+                    String(req.body.batch_label || '').trim() ||
+                    `Stock ${new Date().toLocaleDateString('en-IN')}`;
+                batchId = randomUUID();
+                await query(
+                    `INSERT INTO reseller_erp_stock_batches (id, reseller_user_id, batch_label, row_count)
+                     VALUES ($1::uuid, $2, $3, $4)`,
+                    [batchId, req.user.id, batchLabel.slice(0, 255), pieces.length],
+                );
+            }
+
+            const importBatchId = randomUUID();
             await query(
-                `INSERT INTO reseller_erp_stock_batches (id, reseller_user_id, batch_label, row_count)
-                 VALUES ($1::uuid, $2, $3, $4)`,
-                [batchId, req.user.id, batchLabel.slice(0, 255), pieces.length],
+                `INSERT INTO reseller_erp_stock_import_batches (
+                    id, stock_batch_id, reseller_user_id, source_filename, piece_count
+                 ) VALUES ($1::uuid, $2::uuid, $3, $4, $5)`,
+                [importBatchId, batchId, req.user.id, sourceFilename || 'Excel import', pieces.length],
             );
 
             let inserted = 0;
@@ -869,6 +931,20 @@ function registerStockPieceRoutes(app, deps) {
             const itemCodes = new Set();
 
             for (const p of pieces) {
+                const rfidTag = p.rfid_tag ? poshRfid.normalizeRfidTag(p.rfid_tag) : null;
+                if (rfidTag) {
+                    const taken = await query(
+                        `SELECT barcode FROM reseller_erp_stock_pieces
+                         WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
+                           AND status = 'in_stock' AND barcode <> $3 LIMIT 1`,
+                        [req.user.id, rfidTag, p.barcode],
+                    );
+                    if (taken.length) {
+                        return res.status(400).json({
+                            error: `RFID ${rfidTag} already linked to barcode ${taken[0].barcode}`,
+                        });
+                    }
+                }
                 if (!p.image_url) {
                     try {
                         const url = await lookupCatalogImageUrl(query, {
@@ -884,27 +960,31 @@ function registerStockPieceRoutes(app, deps) {
                     }
                 }
                 const existing = await query(
-                    `SELECT id FROM reseller_erp_stock_pieces
+                    `SELECT id, rfid_tag FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND barcode = $2`,
                     [req.user.id, p.barcode],
                 );
                 if (existing.length) {
+                    const oldTag = existing[0].rfid_tag;
                     await query(
                         `UPDATE reseller_erp_stock_pieces SET
-                            batch_id = $1::uuid, sku = $2, style_code = $3, product_name = $4,
-                            size = $5, avg_weight = $6, purity = $7, wastage_pct = $8,
-                            mc_rate = $9, mc_type = $10, pcs = $11, box_charges = $12,
-                            stone_charges = $13, stone_wt = $14, metal_type = $15, item_code = $16,
-                            image_url = $17, attr_color = $18, attr_stone = $19,
-                            fixed_price = $20, gross_weight = $21, bags = $22, bag_wt = $23,
-                            mc_rate_slab_r = $24, mc_rate_slab_w = $25, mc_rate_slab_f = $26,
-                            metal_slab_r_pct = $27, metal_slab_w_pct = $28, metal_slab_f_pct = $29,
-                            payload_json = $30::jsonb,
+                            batch_id = $1::uuid, import_batch_id = $2::uuid,
+                            sku = $3, style_code = $4, product_name = $5,
+                            size = $6, avg_weight = $7, purity = $8, wastage_pct = $9,
+                            mc_rate = $10, mc_type = $11, pcs = $12, box_charges = $13,
+                            stone_charges = $14, stone_wt = $15, metal_type = $16, item_code = $17,
+                            image_url = $18, attr_color = $19, attr_stone = $20,
+                            fixed_price = $21, gross_weight = $22, bags = $23, bag_wt = $24,
+                            mc_rate_slab_r = $25, mc_rate_slab_w = $26, mc_rate_slab_f = $27,
+                            metal_slab_r_pct = $28, metal_slab_w_pct = $29, metal_slab_f_pct = $30,
+                            rfid_tag = COALESCE($31, rfid_tag),
+                            payload_json = $32::jsonb,
                             status = CASE WHEN status = 'sold' THEN status ELSE 'in_stock' END,
                             updated_at = NOW()
-                         WHERE id = $31`,
+                         WHERE id = $33`,
                         [
                             batchId,
+                            importBatchId,
                             p.sku,
                             p.style_code,
                             p.product_name,
@@ -933,6 +1013,7 @@ function registerStockPieceRoutes(app, deps) {
                             p.metal_slab_r_pct,
                             p.metal_slab_w_pct,
                             p.metal_slab_f_pct,
+                            rfidTag,
                             JSON.stringify({
                                 ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
                                 chain_wt_only: p.chain_wt_only,
@@ -942,21 +1023,40 @@ function registerStockPieceRoutes(app, deps) {
                             existing[0].id,
                         ],
                     );
+                    if (rfidTag) {
+                        try {
+                            const mapped = mapPiece(
+                                (
+                                    await query(
+                                        `SELECT * FROM reseller_erp_stock_pieces WHERE id = $1`,
+                                        [existing[0].id],
+                                    )
+                                )[0],
+                            );
+                            await poshRfid.syncPieceLinked(query, req.user.id, mapped);
+                        } catch (e) {
+                            console.warn('posh rfid link after upload update:', e.message);
+                        }
+                    } else if (oldTag && !rfidTag) {
+                        await unlinkRfidRows(query, req.user.id, [{ rfid_tag: oldTag, barcode: p.barcode }]);
+                    }
                     updated++;
                 } else {
-                    await query(
+                    const ins = await query(
                         `INSERT INTO reseller_erp_stock_pieces (
-                            reseller_user_id, batch_id, barcode, sku, style_code, product_name,
+                            reseller_user_id, batch_id, import_batch_id, barcode, sku, style_code, product_name,
                             size, avg_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
                             box_charges, stone_charges, stone_wt, metal_type, item_code, image_url,
                             attr_color, attr_stone, fixed_price, gross_weight, bags, bag_wt,
                             mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
                             metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct,
-                            payload_json
-                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb)`,
+                            rfid_tag, payload_json
+                         ) VALUES ($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33::jsonb)
+                         RETURNING *`,
                         [
                             req.user.id,
                             batchId,
+                            importBatchId,
                             p.barcode,
                             p.sku,
                             p.style_code,
@@ -986,6 +1086,7 @@ function registerStockPieceRoutes(app, deps) {
                             p.metal_slab_r_pct,
                             p.metal_slab_w_pct,
                             p.metal_slab_f_pct,
+                            rfidTag,
                             JSON.stringify({
                                 ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
                                 chain_wt_only: p.chain_wt_only,
@@ -994,10 +1095,25 @@ function registerStockPieceRoutes(app, deps) {
                             }),
                         ],
                     );
+                    if (rfidTag && ins[0]) {
+                        try {
+                            await poshRfid.syncPieceLinked(query, req.user.id, mapPiece(ins[0]));
+                        } catch (e) {
+                            console.warn('posh rfid link after upload insert:', e.message);
+                        }
+                    }
                     inserted++;
                 }
                 if (p.item_code) itemCodes.add(p.item_code);
             }
+
+            await query(
+                `UPDATE reseller_erp_stock_batches SET
+                    row_count = (SELECT COUNT(*)::int FROM reseller_erp_stock_pieces WHERE batch_id = $1::uuid),
+                    updated_at = NOW()
+                 WHERE id = $1::uuid AND reseller_user_id = $2`,
+                [batchId, req.user.id],
+            );
 
             for (const ic of itemCodes) {
                 await syncStockAlertCounts(query, req.user.id, ic);
@@ -1007,6 +1123,8 @@ function registerStockPieceRoutes(app, deps) {
                 success: true,
                 batch_id: batchId,
                 batch_label: batchLabel,
+                import_batch_id: importBatchId,
+                source_filename: sourceFilename || 'Excel import',
                 inserted,
                 updated,
                 total: pieces.length,
@@ -1017,6 +1135,91 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
+    app.patch('/api/reseller/erp/stock-pieces/batches/:batchId', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            const label = String(req.body.batch_label || req.body.batchLabel || '').trim();
+            if (!label) return res.status(400).json({ error: 'batch_label required' });
+            const rows = await query(
+                `UPDATE reseller_erp_stock_batches SET batch_label = $1, updated_at = NOW()
+                 WHERE id = $2::uuid AND reseller_user_id = $3 RETURNING *`,
+                [label.slice(0, 255), batchId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Batch not found' });
+            res.json({ batch: rows[0] });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to rename batch' });
+        }
+    });
+
+    app.get('/api/reseller/erp/stock-pieces/batches/:batchId/imports', checkAuth, erpGate, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            const rows = await query(
+                `SELECT ib.id, ib.source_filename, ib.piece_count, ib.created_at,
+                    (SELECT COUNT(*)::int FROM reseller_erp_stock_pieces p
+                     WHERE p.import_batch_id = ib.id AND p.status <> 'sold') AS live_count
+                 FROM reseller_erp_stock_import_batches ib
+                 JOIN reseller_erp_stock_batches b ON b.id = ib.stock_batch_id
+                 WHERE ib.stock_batch_id = $1::uuid AND ib.reseller_user_id = $2
+                 ORDER BY ib.created_at DESC`,
+                [batchId, req.user.id],
+            );
+            res.json({ imports: rows });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to list imports' });
+        }
+    });
+
+    app.delete(
+        '/api/reseller/erp/stock-pieces/batches/:batchId/imports/:importId',
+        checkAuth,
+        erpGate,
+        async (req, res) => {
+            try {
+                const batchId = String(req.params.batchId || '').trim();
+                const importId = String(req.params.importId || '').trim();
+                const linked = await query(
+                    `SELECT id, barcode, rfid_tag FROM reseller_erp_stock_pieces
+                     WHERE import_batch_id = $1::uuid AND batch_id = $2::uuid
+                       AND reseller_user_id = $3 AND status = 'in_stock'`,
+                    [importId, batchId, req.user.id],
+                );
+                if (linked.length) {
+                    const sold = await query(
+                        `SELECT 1 FROM reseller_erp_stock_pieces
+                         WHERE import_batch_id = $1::uuid AND status = 'sold' LIMIT 1`,
+                        [importId],
+                    );
+                    if (sold.length) {
+                        return res.status(400).json({ error: 'Cannot delete import — some pieces were sold.' });
+                    }
+                    await unlinkRfidRows(query, req.user.id, linked);
+                    await query(
+                        `DELETE FROM reseller_erp_stock_pieces
+                         WHERE import_batch_id = $1::uuid AND batch_id = $2::uuid AND reseller_user_id = $3`,
+                        [importId, batchId, req.user.id],
+                    );
+                }
+                await query(
+                    `DELETE FROM reseller_erp_stock_import_batches
+                     WHERE id = $1::uuid AND stock_batch_id = $2::uuid AND reseller_user_id = $3`,
+                    [importId, batchId, req.user.id],
+                );
+                await query(
+                    `UPDATE reseller_erp_stock_batches SET
+                        row_count = (SELECT COUNT(*)::int FROM reseller_erp_stock_pieces WHERE batch_id = $1::uuid),
+                        updated_at = NOW()
+                     WHERE id = $1::uuid`,
+                    [batchId],
+                );
+                res.json({ success: true, deletedPieces: linked.length });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to delete import' });
+            }
+        },
+    );
+
     app.put('/api/reseller/erp/stock-pieces/batches/:batchId/rows', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const batchId = String(req.params.batchId || '').trim();
@@ -1024,10 +1227,17 @@ function registerStockPieceRoutes(app, deps) {
             if (!rows.length) return res.status(400).json({ error: 'rows required' });
             if (rows.length > 500) return res.status(400).json({ error: 'Max 500 rows per save' });
 
+            const batchRows = await query(
+                `SELECT id FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+                [batchId, req.user.id],
+            );
+            if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
+
             const itemCodes = new Set();
             for (const r of rows) {
                 const id = parseInt(String(r.id), 10);
-                if (!Number.isFinite(id) || id <= 0) continue;
+                const isInsert = !Number.isFinite(id) || id <= 0;
+
                 let avgWeight = r.avg_weight != null ? Number(r.avg_weight) : null;
                 if (avgWeight == null && r.gross_weight != null) {
                     const gross = Number(r.gross_weight);
@@ -1038,6 +1248,131 @@ function registerStockPieceRoutes(app, deps) {
                         avgWeight = Math.round(net * 1000) / 1000;
                     }
                 }
+
+                let pieceRow = {
+                    barcode: r.barcode ? String(r.barcode).trim().slice(0, 128) : null,
+                    sku: r.sku ?? null,
+                    style_code: r.style_code ?? null,
+                    product_name: r.product_name ?? null,
+                    size: r.size ?? null,
+                    avg_weight: avgWeight,
+                    purity: r.purity != null ? Number(r.purity) : null,
+                    wastage_pct: r.wastage_pct != null ? Number(r.wastage_pct) : null,
+                    mc_rate: r.mc_rate != null ? Number(r.mc_rate) : null,
+                    mc_type: r.mc_type ?? null,
+                    pcs: r.pcs != null ? parseInt(String(r.pcs), 10) || 1 : 1,
+                    box_charges: r.box_charges != null ? Number(r.box_charges) : 0,
+                    stone_charges: r.stone_charges != null ? Number(r.stone_charges) : 0,
+                    stone_wt: r.stone_wt != null ? Number(r.stone_wt) : null,
+                    metal_type: r.metal_type ?? null,
+                    item_code: r.item_code ?? null,
+                    image_url: r.image_url ?? null,
+                    attr_color: r.attr_color ?? null,
+                    attr_stone: r.attr_stone ?? null,
+                    fixed_price: r.fixed_price != null ? Number(r.fixed_price) : null,
+                    gross_weight: r.gross_weight != null ? Number(r.gross_weight) : null,
+                    bags: r.bags ?? null,
+                    bag_wt: r.bag_wt != null ? Number(r.bag_wt) : null,
+                    mc_rate_slab_r: r.mc_rate_slab_r != null ? Number(r.mc_rate_slab_r) : null,
+                    mc_rate_slab_w: r.mc_rate_slab_w != null ? Number(r.mc_rate_slab_w) : null,
+                    mc_rate_slab_f: r.mc_rate_slab_f != null ? Number(r.mc_rate_slab_f) : null,
+                    metal_slab_r_pct: r.metal_slab_r_pct != null ? Number(r.metal_slab_r_pct) : null,
+                    metal_slab_w_pct: r.metal_slab_w_pct != null ? Number(r.metal_slab_w_pct) : null,
+                    metal_slab_f_pct: r.metal_slab_f_pct != null ? Number(r.metal_slab_f_pct) : null,
+                    chain_wt_only: r.chain_wt_only != null ? Number(r.chain_wt_only) : null,
+                    pendant_wt_only: r.pendant_wt_only != null ? Number(r.pendant_wt_only) : null,
+                    earring_wt_only: r.earring_wt_only != null ? Number(r.earring_wt_only) : null,
+                };
+
+                if (pieceRow.style_code && pieceRow.sku) {
+                    try {
+                        const defaults = await lookupDesignDefaults(
+                            query,
+                            req.user.id,
+                            pieceRow.style_code,
+                            pieceRow.sku,
+                        );
+                        applyDesignDefaultsToPiece(pieceRow, defaults);
+                    } catch {
+                        /* best-effort */
+                    }
+                }
+
+                if (isInsert) {
+                    if (!pieceRow.barcode) {
+                        pieceRow.barcode = await generateUniqueStockBarcode(
+                            query,
+                            req.user.id,
+                            pieceRow.item_code,
+                            pieceRow.product_name,
+                            new Set(),
+                        );
+                    }
+                    if (!pieceRow.image_url) {
+                        try {
+                            pieceRow.image_url = await lookupCatalogImageUrl(query, {
+                                barcode: pieceRow.barcode,
+                                sku: pieceRow.sku,
+                                style_code: pieceRow.style_code,
+                                item_code: pieceRow.item_code,
+                                metal_type: pieceRow.metal_type,
+                            });
+                        } catch {
+                            /* best-effort */
+                        }
+                    }
+                    await query(
+                        `INSERT INTO reseller_erp_stock_pieces (
+                            reseller_user_id, batch_id, barcode, sku, style_code, product_name,
+                            size, avg_weight, purity, wastage_pct, mc_rate, mc_type, pcs,
+                            box_charges, stone_charges, stone_wt, metal_type, item_code, image_url,
+                            attr_color, attr_stone, fixed_price, gross_weight, bags, bag_wt,
+                            mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
+                            metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct, payload_json
+                         ) VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb)`,
+                        [
+                            req.user.id,
+                            batchId,
+                            pieceRow.barcode,
+                            pieceRow.sku,
+                            pieceRow.style_code,
+                            pieceRow.product_name,
+                            pieceRow.size,
+                            pieceRow.avg_weight,
+                            pieceRow.purity,
+                            pieceRow.wastage_pct,
+                            pieceRow.mc_rate,
+                            pieceRow.mc_type,
+                            pieceRow.pcs,
+                            pieceRow.box_charges,
+                            pieceRow.stone_charges,
+                            pieceRow.stone_wt,
+                            pieceRow.metal_type,
+                            pieceRow.item_code,
+                            pieceRow.image_url,
+                            pieceRow.attr_color,
+                            pieceRow.attr_stone,
+                            pieceRow.fixed_price,
+                            pieceRow.gross_weight,
+                            pieceRow.bags,
+                            pieceRow.bag_wt,
+                            pieceRow.mc_rate_slab_r,
+                            pieceRow.mc_rate_slab_w,
+                            pieceRow.mc_rate_slab_f,
+                            pieceRow.metal_slab_r_pct,
+                            pieceRow.metal_slab_w_pct,
+                            pieceRow.metal_slab_f_pct,
+                            JSON.stringify({
+                                chain_wt_only: pieceRow.chain_wt_only,
+                                pendant_wt_only: pieceRow.pendant_wt_only,
+                                earring_wt_only: pieceRow.earring_wt_only,
+                            }),
+                        ],
+                    );
+                    if (pieceRow.item_code) itemCodes.add(String(pieceRow.item_code));
+                    continue;
+                }
+
                 let imageUrl = r.image_url ?? null;
                 if (!imageUrl) {
                     try {
@@ -1068,50 +1403,57 @@ function registerStockPieceRoutes(app, deps) {
                      WHERE id = $31 AND batch_id = $32::uuid AND reseller_user_id = $33
                        AND status <> 'sold'`,
                     [
-                        r.barcode ? String(r.barcode).trim().slice(0, 128) : null,
-                        r.sku ?? null,
-                        r.style_code ?? null,
-                        r.product_name ?? null,
-                        r.size ?? null,
-                        avgWeight,
-                        r.purity != null ? Number(r.purity) : null,
-                        r.wastage_pct != null ? Number(r.wastage_pct) : null,
-                        r.mc_rate != null ? Number(r.mc_rate) : null,
-                        r.mc_type ?? null,
-                        r.pcs != null ? parseInt(String(r.pcs), 10) || 1 : 1,
-                        r.box_charges != null ? Number(r.box_charges) : 0,
-                        r.stone_charges != null ? Number(r.stone_charges) : 0,
-                        r.stone_wt != null ? Number(r.stone_wt) : null,
-                        r.metal_type ?? null,
-                        r.item_code ?? null,
+                        pieceRow.barcode,
+                        pieceRow.sku,
+                        pieceRow.style_code,
+                        pieceRow.product_name,
+                        pieceRow.size,
+                        pieceRow.avg_weight,
+                        pieceRow.purity,
+                        pieceRow.wastage_pct,
+                        pieceRow.mc_rate,
+                        pieceRow.mc_type,
+                        pieceRow.pcs,
+                        pieceRow.box_charges,
+                        pieceRow.stone_charges,
+                        pieceRow.stone_wt,
+                        pieceRow.metal_type,
+                        pieceRow.item_code,
                         imageUrl,
-                        r.attr_color ?? null,
-                        r.attr_stone ?? null,
-                        r.fixed_price != null ? Number(r.fixed_price) : null,
-                        r.gross_weight != null ? Number(r.gross_weight) : null,
-                        r.bags ?? null,
-                        r.bag_wt != null ? Number(r.bag_wt) : null,
-                        r.mc_rate_slab_r != null ? Number(r.mc_rate_slab_r) : null,
-                        r.mc_rate_slab_w != null ? Number(r.mc_rate_slab_w) : null,
-                        r.mc_rate_slab_f != null ? Number(r.mc_rate_slab_f) : null,
-                        r.metal_slab_r_pct != null ? Number(r.metal_slab_r_pct) : null,
-                        r.metal_slab_w_pct != null ? Number(r.metal_slab_w_pct) : null,
-                        r.metal_slab_f_pct != null ? Number(r.metal_slab_f_pct) : null,
+                        pieceRow.attr_color,
+                        pieceRow.attr_stone,
+                        pieceRow.fixed_price,
+                        pieceRow.gross_weight,
+                        pieceRow.bags,
+                        pieceRow.bag_wt,
+                        pieceRow.mc_rate_slab_r,
+                        pieceRow.mc_rate_slab_w,
+                        pieceRow.mc_rate_slab_f,
+                        pieceRow.metal_slab_r_pct,
+                        pieceRow.metal_slab_w_pct,
+                        pieceRow.metal_slab_f_pct,
                         JSON.stringify({
-                            chain_wt_only: r.chain_wt_only != null ? Number(r.chain_wt_only) : null,
-                            pendant_wt_only: r.pendant_wt_only != null ? Number(r.pendant_wt_only) : null,
-                            earring_wt_only: r.earring_wt_only != null ? Number(r.earring_wt_only) : null,
+                            chain_wt_only: pieceRow.chain_wt_only,
+                            pendant_wt_only: pieceRow.pendant_wt_only,
+                            earring_wt_only: pieceRow.earring_wt_only,
                         }),
                         id,
                         batchId,
                         req.user.id,
                     ],
                 );
-                if (r.item_code) itemCodes.add(String(r.item_code));
+                if (pieceRow.item_code) itemCodes.add(String(pieceRow.item_code));
             }
             for (const ic of itemCodes) {
                 await syncStockAlertCounts(query, req.user.id, ic);
             }
+            await query(
+                `UPDATE reseller_erp_stock_batches SET
+                    row_count = (SELECT COUNT(*)::int FROM reseller_erp_stock_pieces WHERE batch_id = $1::uuid),
+                    updated_at = NOW()
+                 WHERE id = $1::uuid AND reseller_user_id = $2`,
+                [batchId, req.user.id],
+            );
             const pieces = await query(
                 `SELECT * FROM reseller_erp_stock_pieces
                  WHERE batch_id = $1::uuid AND reseller_user_id = $2 ORDER BY id`,

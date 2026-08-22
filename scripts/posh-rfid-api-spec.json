@@ -12,6 +12,22 @@
       "Content-Type": "application/json"
     }
   },
+  "endpoints_posh_calls_kc": [
+    {
+      "method": "GET",
+      "path": "/api/external/posh-rfid/v1/inventory",
+      "description": "Posh RFID gun polls linked in-stock items for this store",
+      "headers": {
+        "X-Api-Key": "{api_key configured in ERP Hardware}",
+        "X-Store-Id": "{store_id configured in ERP Hardware}"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/external/posh-rfid/v1/health",
+      "description": "Health check — verify credentials before full sync"
+    }
+  ],
   "endpoints_we_call": [
     {
       "method": "POST",

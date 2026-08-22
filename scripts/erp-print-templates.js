@@ -319,9 +319,9 @@ Address: {{customer_address}}
 --------------------------------
 {{lines_table}}
 --------------------------------
+{{savings_block}}
 Items: {{item_count}}
-Silver rate: Rs.{{silver_rate}}/g
-(Slab R may show lower rate per item)
+Silver rate: Rs.{{silver_rate}}/g (live Rs.{{live_silver_rate}}/g)
 --------------------------------
 ESTIMATE TOTAL: Rs. {{total}}
 MC discount: Rs. {{mc_discount}}
@@ -421,6 +421,8 @@ function migratePrintFormats(raw) {
     }
     if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf';
     if (pf.goldSlabRShowMc == null) pf.goldSlabRShowMc = true;
+    if (!pf.estimatePrintMode) pf.estimatePrintMode = 'rough';
+    if (pf.estimateDuplicateCopy == null) pf.estimateDuplicateCopy = true;
     return pf;
 }
 
@@ -791,6 +793,32 @@ function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R', printFormats = n
     return out.join('\n') || '(no items)';
 }
 
+function buildSavingsBlock(bill, rates) {
+    const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    const rateSlab = String(session.rateSlab || 'R').toUpperCase();
+    if (rateSlab !== 'R') return '';
+    let sumMetalDisc = 0;
+    let sumMcDisc = 0;
+    for (const line of bill.lines || []) {
+        const d = computeSlabRLineDiscounts(line, rates);
+        sumMetalDisc += d.metalDisc;
+        sumMcDisc += d.mcDisc;
+    }
+    if (sumMetalDisc <= 0 && sumMcDisc <= 0) return '';
+    const out = [];
+    out.push('--- YOUR SAVINGS (Slab R) ---');
+    if (sumMetalDisc > 0) {
+        out.push(`Silver rate discount: Rs.${sumMetalDisc.toLocaleString('en-IN')}`);
+    }
+    if (sumMcDisc > 0) {
+        out.push(`MC discount: Rs.${sumMcDisc.toLocaleString('en-IN')}`);
+    }
+    const totalSave = sumMetalDisc + sumMcDisc;
+    out.push(`Total discount: Rs.${totalSave.toLocaleString('en-IN')}`);
+    out.push('--------------------------------');
+    return out.join('\n');
+}
+
 function buildBillTemplateVars(bill, printFormats, rates) {
     const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
@@ -835,6 +863,8 @@ function buildBillTemplateVars(bill, printFormats, rates) {
         total_discount: totalDiscount !== 0 ? String(Math.round(totalDiscount)) : '',
         gold_rate: rates?.gold != null ? String(Math.round(rates.gold)) : '',
         silver_rate: rates?.silver != null ? String(Math.round(rates.silver)) : '',
+        savings_block: buildSavingsBlock(bill, rates),
+        live_silver_rate: rates?.silver != null ? String(Math.round(rates.silver)) : '',
     };
 }
 
@@ -1035,6 +1065,28 @@ function buildRoughEstimateItemSection(line, rateSlab, billDate, rates, printFor
     return { lines: out, taxable };
 }
 
+function computeSlabRLineDiscounts(line, rates) {
+    const out = { metalDisc: 0, mcDisc: 0 };
+    const wt = Number(line.weightGm ?? line.net_weight) || 0;
+    if (wt <= 0) return out;
+    const liveSilver = rates?.silver != null ? Number(rates.silver) : null;
+    const lineRate = line.ratePerGram != null ? Number(line.ratePerGram) : null;
+    if (isSilverLine(line) && liveSilver != null && lineRate != null && liveSilver > lineRate) {
+        out.metalDisc = Math.round((liveSilver - lineRate) * wt);
+    }
+    const baseMc = Number(line.mc_rate);
+    const slabMc = line.mc_rate_slab_r != null ? Number(line.mc_rate_slab_r) : null;
+    if (Number.isFinite(baseMc) && baseMc > 0 && slabMc != null && baseMc > slabMc) {
+        const mcType = String(line.mc_type || '').toUpperCase();
+        if (mcType.includes('/PC') || mcType.includes('PER PC')) {
+            out.mcDisc = Math.round((baseMc - slabMc) * (Number(line.qty) || 1));
+        } else {
+            out.mcDisc = Math.round((baseMc - slabMc) * wt);
+        }
+    }
+    return out;
+}
+
 function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
     const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
@@ -1065,10 +1117,17 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
 
     const items = bill.lines || [];
     let sumTaxable = 0;
+    let sumMetalDisc = 0;
+    let sumMcDisc = 0;
     for (let i = 0; i < items.length; i += 1) {
         const block = buildRoughEstimateItemSection(items[i], rateSlab, billDate, rates, pf);
         out.push(...block.lines);
         sumTaxable += block.taxable;
+        if (rateSlab === 'R') {
+            const d = computeSlabRLineDiscounts(items[i], rates);
+            sumMetalDisc += d.metalDisc;
+            sumMcDisc += d.mcDisc;
+        }
         if (i < items.length - 1) out.push('');
     }
 
@@ -1078,6 +1137,18 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
     }
 
     out.push(dash);
+    if (rateSlab === 'R' && (sumMetalDisc > 0 || sumMcDisc > 0)) {
+        out.push(roughCenter('--- YOUR SAVINGS (Slab R) ---'));
+        if (sumMetalDisc > 0) {
+            out.push(roughField('Silver rate disc', `Rs.${sumMetalDisc.toLocaleString('en-IN')}`));
+        }
+        if (sumMcDisc > 0) {
+            out.push(roughField('MC discount', `Rs.${sumMcDisc.toLocaleString('en-IN')}`));
+        }
+        const totalSave = sumMetalDisc + sumMcDisc;
+        out.push(roughField('Total discount', `Rs.${totalSave.toLocaleString('en-IN')}`));
+        out.push(dash);
+    }
     const gst = splitRoughGst(sumTaxable);
     out.push(roughField('CGST 1.5%', gst.cgst.toFixed(2)));
     out.push(roughField('SGST 1.5%', gst.sgst.toFixed(2)));
@@ -1105,9 +1176,79 @@ function buildRoughEstimateBody(bill, printFormats, rates) {
     return `${original}\n\n${duplicate}`;
 }
 
+function buildSampleBillForPreview(kind) {
+    const isSilver = kind === 'estimate_silver' || kind === 'silver';
+    const rateSlab = isSilver ? 'R' : 'R';
+    return {
+        shop_name: 'B N MARLECHA SILVER',
+        bill_number: 'EST-1042',
+        bill_date: new Date().toISOString(),
+        customer_name: 'Sample Customer',
+        customer_mobile: '9841166668',
+        customer_address: 'Sample Address',
+        total_inr: 125000,
+        session: {
+            rateSlab,
+            goldPerG: 13200,
+            silverPerG: 270,
+            goldSlabRShowMc: true,
+        },
+        lines: isSilver
+            ? [
+                  {
+                      barcode: 'CHO-69321',
+                      sku: 'PLAIN CHOMBU',
+                      style_code: 'CHOMBU',
+                      product_name: 'CHO',
+                      metal_type: 'SILVER',
+                      weightGm: 450.4,
+                      purity: 80,
+                      mc_rate: 4,
+                      mc_rate_slab_r: 0,
+                      mc_type: 'MC/GM',
+                      ratePerGram: 265,
+                      lineTotalInr: 118500,
+                      qty: 1,
+                  },
+              ]
+            : [
+                  {
+                      barcode: 'GOLD-001',
+                      sku: 'RING',
+                      style_code: 'RING',
+                      product_name: 'Gold Ring',
+                      metal_type: 'GOLD',
+                      weightGm: 8.5,
+                      purity: 91.6,
+                      mc_rate: 450,
+                      mc_rate_slab_r: 225,
+                      mc_type: 'MC/GM',
+                      ratePerGram: 13200,
+                      lineTotalInr: 115000,
+                      qty: 1,
+                  },
+              ],
+    };
+}
+
 function renderEstimateEscPos(bill, printFormats, rates) {
+    const pf = migratePrintFormats(printFormats);
+    if (pf.estimatePrintMode === 'custom') {
+        const template = resolveEstimateTemplateForBill(bill.lines, pf);
+        const vars = buildBillTemplateVars(bill, printFormats, rates);
+        const body = renderTemplate(template, vars, { plainText: true });
+        if (pf.estimateDuplicateCopy !== false) {
+            return textToEscPos(`${body}\n\n${'='.repeat(32)}\nDUPLICATE COPY\n${'='.repeat(32)}\n\n${body}`);
+        }
+        return textToEscPos(body);
+    }
     const body = buildRoughEstimateBody(bill, printFormats, rates);
     return textToEscPos(body);
+}
+
+function previewTemplateText(template, bill, printFormats, rates) {
+    const vars = buildBillTemplateVars(bill, printFormats, rates);
+    return renderTemplate(template || DEFAULT_BILL_TEMPLATE, vars, { plainText: true });
 }
 
 function resolveBillingWindowsPrinterName(hw) {
@@ -1177,6 +1318,8 @@ module.exports = {
     buildBillTemplateVars,
     buildLinesTable,
     buildRoughEstimateBody,
+    buildSampleBillForPreview,
+    previewTemplateText,
     renderBillEscPos,
     renderEstimateEscPos,
     resolveEstimateTemplateForBill,

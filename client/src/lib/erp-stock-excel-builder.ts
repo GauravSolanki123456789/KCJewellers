@@ -3,6 +3,7 @@
  * Barcodes are NOT included — generated on server when the file is uploaded.
  */
 export type StockExcelBuilderDefaults = {
+  rfid_tag?: string
   sku?: string
   style_code?: string
   product_name?: string
@@ -42,6 +43,7 @@ export type StockExcelBuilderBlock = {
 }
 
 const HEADERS = [
+  'RFIDTag',
   'SKU',
   'StyleCode',
   'ProductName',
@@ -82,7 +84,8 @@ function cell(v: string | number | undefined | null): string | number | '' {
 
 function rowFromDefaults(defaults: StockExcelBuilderDefaults): Record<string, string | number> {
   return {
-    SKU: cell(defaults.sku),
+    RFIDTag: cell(defaults.rfid_tag),
+      SKU: cell(defaults.sku),
     StyleCode: cell(defaults.style_code),
     ProductName: cell(defaults.product_name),
     Size: cell(defaults.size),

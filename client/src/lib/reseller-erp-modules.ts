@@ -34,6 +34,7 @@ export type ResellerErpModuleId =
   | 'customers'
   | 'ledger'
   | 'products'
+  | 'design-master'
   | 'floors'
   | 'hardware'
   | 'print-formats'
@@ -136,6 +137,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Stock upload',
     description: '',
     icon: Package,
+    group: 'inventory',
+    kind: 'workspace',
+  },
+  {
+    id: 'design-master',
+    title: 'Design master',
+    short: 'Designs',
+    description: 'Style & SKU calculation defaults for stock autofill',
+    icon: Layers,
     group: 'inventory',
     kind: 'workspace',
   },

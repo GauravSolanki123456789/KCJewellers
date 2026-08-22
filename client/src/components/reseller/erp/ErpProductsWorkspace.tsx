@@ -15,13 +15,21 @@ import {
 import { printStockLabels } from '@/lib/erp-print-labels'
 import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
-import { ArrowLeft, FileSpreadsheet, Loader2, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
 
 type Batch = {
   id: string
   batch_label: string
   row_count: number
   piece_count?: number
+  created_at: string
+}
+
+type ImportBatch = {
+  id: string
+  source_filename: string
+  piece_count: number
+  live_count: number
   created_at: string
 }
 
@@ -40,8 +48,15 @@ export function ErpProductsWorkspace() {
   const [tagDeleteBusy, setTagDeleteBusy] = useState(false)
   const tagDeleteRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const appendFileRef = useRef<HTMLInputElement>(null)
   const [workstation] = useErpWorkstationSelection()
   const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
+  const [renameLabel, setRenameLabel] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  const [appendBusy, setAppendBusy] = useState(false)
+  const [imports, setImports] = useState<ImportBatch[]>([])
+  const [importsLoading, setImportsLoading] = useState(false)
+  const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
 
   useEffect(() => {
     void axios
@@ -61,14 +76,31 @@ export function ErpProductsWorkspace() {
     )
     setPieces(res.data.pieces || [])
     setActiveBatchId(batchId)
+    setRenameLabel(res.data.batch?.batch_label || '')
+  }, [])
+
+  const loadImports = useCallback(async (batchId: string) => {
+    setImportsLoading(true)
+    try {
+      const res = await axios.get<{ imports: ImportBatch[] }>(
+        `/api/reseller/erp/stock-pieces/batches/${batchId}/imports`,
+      )
+      setImports(res.data.imports || [])
+    } catch {
+      setImports([])
+    } finally {
+      setImportsLoading(false)
+    }
   }, [])
 
   useEffect(() => {
     void loadBatches().catch(() => setBatches([]))
   }, [loadBatches])
 
-  const onFile = async (file: File) => {
-    setBusy(true)
+  const onFile = async (file: File, appendToBatchId?: string) => {
+    const isAppend = !!appendToBatchId
+    if (isAppend) setAppendBusy(true)
+    else setBusy(true)
     setMsg(null)
     try {
       const buf = await file.arrayBuffer()
@@ -76,20 +108,80 @@ export function ErpProductsWorkspace() {
       if (!rows.length) throw new Error('No rows in file')
       const res = await axios.post<{ batch_id: string; inserted: number; updated: number; total: number }>(
         '/api/reseller/erp/stock-pieces/bulk',
-        { rows, batch_label: `Stock ${file.name.replace(/\.[^.]+$/, '')}` },
+        isAppend
+          ? {
+              rows,
+              batch_id: appendToBatchId,
+              source_filename: file.name,
+            }
+          : { rows, batch_label: `Stock ${file.name.replace(/\.[^.]+$/, '')}`, source_filename: file.name },
       )
       setMsgTone('ok')
-      setMsg(`Uploaded ${res.data.total} piece(s) — ${res.data.inserted} new, ${res.data.updated} updated.`)
+      setMsg(
+        isAppend
+          ? `Added ${res.data.total} piece(s) to batch — ${res.data.inserted} new, ${res.data.updated} updated.`
+          : `Uploaded ${res.data.total} piece(s) — ${res.data.inserted} new, ${res.data.updated} updated.`,
+      )
       await loadBatches()
       await loadBatch(res.data.batch_id)
+      if (isAppend) await loadImports(res.data.batch_id)
     } catch (e) {
       setMsgTone('err')
       setMsg(erpErr(e))
     } finally {
-      setBusy(false)
-      if (fileRef.current) fileRef.current.value = ''
+      if (isAppend) {
+        setAppendBusy(false)
+        if (appendFileRef.current) appendFileRef.current.value = ''
+      } else {
+        setBusy(false)
+        if (fileRef.current) fileRef.current.value = ''
+      }
     }
   }
+
+  const renameBatch = async () => {
+    if (!activeBatchId || renaming) return
+    const label = renameLabel.trim()
+    if (!label) return
+    setRenaming(true)
+    try {
+      await axios.patch(`/api/reseller/erp/stock-pieces/batches/${activeBatchId}`, {
+        batch_label: label,
+      })
+      await loadBatches()
+      setMsgTone('ok')
+      setMsg('Batch renamed.')
+    } catch (e) {
+      setMsgTone('err')
+      setMsg(erpErr(e))
+    } finally {
+      setRenaming(false)
+    }
+  }
+
+  const deleteImport = async (importId: string, filename: string) => {
+    if (!activeBatchId || deletingImportId) return
+    if (!confirm(`Delete Excel upload "${filename}" and remove its pieces from this batch?`)) return
+    setDeletingImportId(importId)
+    try {
+      await axios.delete(
+        `/api/reseller/erp/stock-pieces/batches/${activeBatchId}/imports/${importId}`,
+      )
+      await loadBatch(activeBatchId)
+      await loadImports(activeBatchId)
+      await loadBatches()
+      setMsgTone('ok')
+      setMsg(`Removed upload "${filename}".`)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setDeletingImportId(null)
+    }
+  }
+
+  useEffect(() => {
+    if (activeBatchId) void loadImports(activeBatchId)
+  }, [activeBatchId, loadImports])
 
   const printBarcodes = async () => {
     if (!activeBatchId) return
@@ -170,14 +262,46 @@ export function ErpProductsWorkspace() {
             onClick={() => {
               setActiveBatchId(null)
               setPieces([])
+              setImports([])
             }}
           >
             <ArrowLeft className="size-4" />
             All batches
           </button>
-          <h2 className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">{activeBatch.batch_label}</h2>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <input
+              className={`${erpInputCls} min-w-[140px] max-w-xs text-sm font-semibold`}
+              value={renameLabel}
+              onChange={(e) => setRenameLabel(e.target.value)}
+              aria-label="Batch name"
+            />
+            <button
+              type="button"
+              className={erpBtnGhost}
+              disabled={renaming || !renameLabel.trim() || renameLabel.trim() === activeBatch.batch_label}
+              onClick={() => void renameBatch()}
+            >
+              {renaming ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
+              Rename
+            </button>
+          </div>
           <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">{pieces.length} pieces</span>
-          <button type="button" className={`${erpBtnPrimary} ml-auto`} disabled={printing} onClick={() => void printBarcodes()}>
+          <label className={`${erpBtnPrimary} ml-auto cursor-pointer`}>
+            <input
+              ref={appendFileRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              disabled={appendBusy}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f && activeBatchId) void onFile(f, activeBatchId)
+              }}
+            />
+            {appendBusy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+            Add Excel to batch
+          </label>
+          <button type="button" className={erpBtnPrimary} disabled={printing} onClick={() => void printBarcodes()}>
             {printing ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
             Generate barcodes
           </button>
@@ -191,6 +315,47 @@ export function ErpProductsWorkspace() {
             Delete batch
           </button>
         </div>
+        {imports.length > 0 || importsLoading ? (
+          <div className={`${erpCardCls} space-y-2`}>
+            <p className="text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+              Excel uploads in this batch
+            </p>
+            {importsLoading ? (
+              <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">Loading uploads…</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {imports.map((imp) => (
+                  <li
+                    key={imp.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
+                        {imp.source_filename}
+                      </p>
+                      <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+                        {imp.live_count ?? imp.piece_count} piece(s) · {formatErpDateDdMmYyyy(imp.created_at)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                      disabled={deletingImportId === imp.id}
+                      onClick={() => void deleteImport(imp.id, imp.source_filename)}
+                    >
+                      {deletingImportId === imp.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
+                      )}
+                      Delete upload
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
         {msg ? (
           <p className={`text-xs font-medium ${msgTone === 'err' ? 'text-red-600' : 'text-emerald-700'}`}>{msg}</p>
         ) : null}

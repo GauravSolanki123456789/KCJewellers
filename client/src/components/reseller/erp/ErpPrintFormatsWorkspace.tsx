@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { ErpTemplateEditor } from '@/components/reseller/erp/ErpTemplateEditor'
 import {
   DEFAULT_BILL_TEMPLATE,
   DEFAULT_ESTIMATE_TEMPLATE_GOLD,
@@ -603,27 +604,13 @@ export function ErpPrintFormatsWorkspace() {
       ) : tab === 'bill' ? (
         <>
           <ShopHeaderPanel pf={pf} setPf={setPf} />
-          <div className={erpCardCls}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                Epson receipt template
-              </p>
-              <button
-                type="button"
-                className={erpBtnGhost}
-                onClick={() => setPf((p) => ({ ...p, billTemplate: DEFAULT_BILL_TEMPLATE }))}
-              >
-                <RotateCcw className="size-4" />
-                Reset sample
-              </button>
-            </div>
-            <textarea
-              className={`${erpInputCls} min-h-[280px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
-              value={pf.billTemplate || ''}
-              onChange={(e) => setPf((p) => ({ ...p, billTemplate: e.target.value }))}
-              spellCheck={false}
-            />
-          </div>
+          <ErpTemplateEditor
+            label="Epson receipt template"
+            previewKind="bill"
+            value={pf.billTemplate || ''}
+            onChange={(billTemplate) => setPf((p) => ({ ...p, billTemplate }))}
+            onReset={() => setPf((p) => ({ ...p, billTemplate: DEFAULT_BILL_TEMPLATE }))}
+          />
         </>
       ) : (
         <>
@@ -659,10 +646,64 @@ export function ErpPrintFormatsWorkspace() {
               </button>
             </div>
           </div>
+          <div className={erpCardCls}>
+            <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Epson estimate print mode
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm ${
+                  (pf.estimatePrintMode || 'rough') === 'rough'
+                    ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-950'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                }`}
+                onClick={() => setPf((p) => ({ ...p, estimatePrintMode: 'rough' }))}
+              >
+                Rough estimate (legacy)
+                <span className="mt-0.5 block text-[11px] font-normal opacity-70">
+                  Original + duplicate copy, item-wise purity/weight/GST
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm ${
+                  pf.estimatePrintMode === 'custom'
+                    ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-950'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                }`}
+                onClick={() => setPf((p) => ({ ...p, estimatePrintMode: 'custom' }))}
+              >
+                Custom template
+                <span className="mt-0.5 block text-[11px] font-normal opacity-70">
+                  Use gold/silver templates below — click placeholders to insert
+                </span>
+              </button>
+            </div>
+            {pf.estimatePrintMode === 'custom' ? (
+              <label className="mt-3 flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
+                <input
+                  type="checkbox"
+                  checked={pf.estimateDuplicateCopy !== false}
+                  onChange={(e) => setPf((p) => ({ ...p, estimateDuplicateCopy: e.target.checked }))}
+                />
+                Print duplicate copy below original
+              </label>
+            ) : null}
+          </div>
           <p className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
-            Epson estimates print in the legacy <strong>Rough Estimate</strong> layout (original + duplicate
-            copy): purity, gross/net weight, V.ADDN, rate, value, stone charges, MC or wastage (per setting above),
-            CGST/SGST split, and contact footer.
+            {(pf.estimatePrintMode || 'rough') === 'rough' ? (
+              <>
+                Rough mode prints the legacy layout with Slab R savings (silver rate + MC discount in ₹) before
+                GST totals.
+              </>
+            ) : (
+              <>
+                Custom mode uses your templates. Use <code className="font-mono text-[10px]">{'{{lines_table}}'}</code>{' '}
+                for item lines and <code className="font-mono text-[10px]">{'{{savings_block}}'}</code> for Slab R
+                discount breakdown.
+              </>
+            )}
           </p>
           <div className={erpCardCls}>
             <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
@@ -689,63 +730,23 @@ export function ErpPrintFormatsWorkspace() {
             </label>
           </div>
 
-          <div className={erpCardCls}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  Gold estimate template
-                </p>
-                <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-                  Used when the estimate has gold items (or mixed with more gold lines).
-                </p>
-              </div>
-              <button
-                type="button"
-                className={erpBtnGhost}
-                onClick={() => setPf((p) => ({ ...p, estimateTemplateGold: DEFAULT_ESTIMATE_TEMPLATE_GOLD }))}
-              >
-                <RotateCcw className="size-4" />
-                Reset sample
-              </button>
-            </div>
-            <textarea
-              className={`${erpInputCls} min-h-[280px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
-              value={pf.estimateTemplateGold || ''}
-              onChange={(e) => setPf((p) => ({ ...p, estimateTemplateGold: e.target.value }))}
-              spellCheck={false}
-            />
-          </div>
+          <ErpTemplateEditor
+            label="Gold estimate template"
+            hint="Used when the estimate has gold items (or mixed with more gold lines)."
+            previewKind="estimate_gold"
+            value={pf.estimateTemplateGold || ''}
+            onChange={(estimateTemplateGold) => setPf((p) => ({ ...p, estimateTemplateGold }))}
+            onReset={() => setPf((p) => ({ ...p, estimateTemplateGold: DEFAULT_ESTIMATE_TEMPLATE_GOLD }))}
+          />
 
-          <div className={erpCardCls}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  Silver estimate template
-                </p>
-                <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-                  Used for silver-only estimates (or mixed with more silver lines). Placeholders:{' '}
-                  <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{lines_table}}'}</code>,{' '}
-                  <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{silver_rate}}'}</code>,{' '}
-                  <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">{'{{total}}'}</code>.
-                  Epson rough estimates use a separate auto layout (Rate/Gm, MC total, CGST/SGST) — silver omits karat/purity.
-                </p>
-              </div>
-              <button
-                type="button"
-                className={erpBtnGhost}
-                onClick={() => setPf((p) => ({ ...p, estimateTemplateSilver: DEFAULT_ESTIMATE_TEMPLATE_SILVER }))}
-              >
-                <RotateCcw className="size-4" />
-                Reset sample
-              </button>
-            </div>
-            <textarea
-              className={`${erpInputCls} min-h-[280px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
-              value={pf.estimateTemplateSilver || ''}
-              onChange={(e) => setPf((p) => ({ ...p, estimateTemplateSilver: e.target.value }))}
-              spellCheck={false}
-            />
-          </div>
+          <ErpTemplateEditor
+            label="Silver estimate template"
+            hint="Used for silver-only estimates. Include {{savings_block}} for Slab R discount lines."
+            previewKind="estimate_silver"
+            value={pf.estimateTemplateSilver || ''}
+            onChange={(estimateTemplateSilver) => setPf((p) => ({ ...p, estimateTemplateSilver }))}
+            onReset={() => setPf((p) => ({ ...p, estimateTemplateSilver: DEFAULT_ESTIMATE_TEMPLATE_SILVER }))}
+          />
         </>
       )}
 
