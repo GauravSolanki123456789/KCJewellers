@@ -742,6 +742,8 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerUploadSlabsEnabled = !!resolvedUser.reseller_upload_slabs_enabled;
         let resellerErpEnabled = !!resolvedUser.reseller_erp_enabled;
         let resellerRfidEnabled = !!resolvedUser.reseller_rfid_enabled;
+        let resellerDigigoldEnabled = !!resolvedUser.reseller_digigold_enabled;
+        let resellerDigisilverEnabled = !!resolvedUser.reseller_digisilver_enabled;
         let resellerEnhancedPicturesEnabled = !!resolvedUser.reseller_enhanced_pictures_enabled;
         let resellerPricelistEnabled = !!resolvedUser.reseller_pricelist_enabled;
         try {
@@ -754,6 +756,8 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_upload_slabs_enabled, false) AS upload_slabs,
                         COALESCE(reseller_erp_enabled, false) AS erp_enabled,
                         COALESCE(reseller_rfid_enabled, false) AS rfid_enabled,
+                        COALESCE(reseller_digigold_enabled, false) AS digigold_enabled,
+                        COALESCE(reseller_digisilver_enabled, false) AS digisilver_enabled,
                         COALESCE(reseller_enhanced_pictures_enabled, false) AS enhanced_pictures,
                         COALESCE(reseller_pricelist_enabled, false) AS pricelist_enabled,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
@@ -769,6 +773,8 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerUploadSlabsEnabled = !!fresh[0].upload_slabs;
                 resellerErpEnabled = !!fresh[0].erp_enabled;
                 resellerRfidEnabled = !!fresh[0].rfid_enabled;
+                resellerDigigoldEnabled = !!fresh[0].digigold_enabled;
+                resellerDigisilverEnabled = !!fresh[0].digisilver_enabled;
                 resellerEnhancedPicturesEnabled = !!fresh[0].enhanced_pictures;
                 resellerPricelistEnabled = !!fresh[0].pricelist_enabled;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
@@ -818,6 +824,16 @@ app.get('/api/auth/current_user', async (req, res) => {
             if (msg.includes('reseller_rfid_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_rfid_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_digigold_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_digigold_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
+            if (msg.includes('reseller_digisilver_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_digisilver_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
             if (msg.includes('reseller_enhanced_pictures_enabled')) {
@@ -872,6 +888,8 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_upload_slabs_enabled: resellerUploadSlabsEnabled,
                 reseller_erp_enabled: resellerErpEnabled,
                 reseller_rfid_enabled: resellerRfidEnabled,
+                reseller_digigold_enabled: resellerDigigoldEnabled,
+                reseller_digisilver_enabled: resellerDigisilverEnabled,
                 reseller_enhanced_pictures_enabled: resellerEnhancedPicturesEnabled,
                 reseller_pricelist_enabled: resellerPricelistEnabled,
                 reseller_slab_settings: resellerSlabSettings,
@@ -4151,6 +4169,8 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_upload_slabs_enabled, false) AS reseller_upload_slabs_enabled,
                        COALESCE(reseller_erp_enabled, false) AS reseller_erp_enabled,
                        COALESCE(reseller_rfid_enabled, false) AS reseller_rfid_enabled,
+                       COALESCE(reseller_digigold_enabled, false) AS reseller_digigold_enabled,
+                       COALESCE(reseller_digisilver_enabled, false) AS reseller_digisilver_enabled,
                        COALESCE(reseller_enhanced_pictures_enabled, false) AS reseller_enhanced_pictures_enabled,
                        COALESCE(reseller_pricelist_enabled, false) AS reseller_pricelist_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
@@ -4614,6 +4634,16 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_rfid_enabled !== undefined) {
             updates.push(`reseller_rfid_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_rfid_enabled);
+        }
+
+        if (req.body.reseller_digigold_enabled !== undefined) {
+            updates.push(`reseller_digigold_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_digigold_enabled);
+        }
+
+        if (req.body.reseller_digisilver_enabled !== undefined) {
+            updates.push(`reseller_digisilver_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_digisilver_enabled);
         }
 
         if (req.body.reseller_enhanced_pictures_enabled !== undefined) {

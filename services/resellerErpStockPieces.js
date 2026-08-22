@@ -1051,7 +1051,7 @@ function registerStockPieceRoutes(app, deps) {
                             mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
                             metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct,
                             rfid_tag, payload_json
-                         ) VALUES ($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33::jsonb)
+                         ) VALUES ($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)
                          RETURNING *`,
                         [
                             req.user.id,
@@ -1118,6 +1118,12 @@ function registerStockPieceRoutes(app, deps) {
             for (const ic of itemCodes) {
                 await syncStockAlertCounts(query, req.user.id, ic);
             }
+
+            await query(
+                `UPDATE reseller_erp_stock_import_batches SET piece_count = $1
+                 WHERE id = $2::uuid AND reseller_user_id = $3`,
+                [inserted + updated, importBatchId, req.user.id],
+            );
 
             res.json({
                 success: true,

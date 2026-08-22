@@ -1,9 +1,11 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import axios from '@/lib/axios'
 import { ChevronRight } from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
+import type { WholesaleUserFields } from '@/lib/customer-tier'
 import { PROFILE_PATH } from '@/lib/routes'
 import {
   RESELLER_ERP_GROUPS,
@@ -25,7 +27,17 @@ type ErpStatus = {
 }
 
 function ErpHubContent() {
+  const auth = useAuth()
+  const user = auth.user as WholesaleUserFields | null
   const [status, setStatus] = useState<ErpStatus | null>(null)
+
+  const visibleModules = useMemo(() => {
+    return RESELLER_ERP_MODULES.filter((m) => {
+      if (m.id === 'digigold') return !!user?.reseller_digigold_enabled
+      if (m.id === 'digisilver') return !!user?.reseller_digisilver_enabled
+      return true
+    })
+  }, [user?.reseller_digigold_enabled, user?.reseller_digisilver_enabled])
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +96,7 @@ function ErpHubContent() {
 
       <div className="space-y-7">
         {RESELLER_ERP_GROUPS.map((group) => {
-          const mods = RESELLER_ERP_MODULES.filter((m) => m.group === group.id)
+          const mods = visibleModules.filter((m) => m.group === group.id)
           if (!mods.length) return null
           return (
             <section key={group.id}>

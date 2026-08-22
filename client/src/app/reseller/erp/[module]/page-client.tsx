@@ -208,8 +208,36 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
 
 function ModulePageContent() {
   const params = useParams()
+  const auth = useAuth()
+  const user = auth.user as WholesaleUserFields | null
   const raw = typeof params?.module === 'string' ? params.module : Array.isArray(params?.module) ? params.module[0] : ''
   const mod = useMemo(() => getResellerErpModule(raw), [raw])
+
+  if (mod && mod.id === 'digigold' && !user?.reseller_digigold_enabled) {
+    return (
+      <ResellerErpShell title="DigiGold">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+          DigiGold is not enabled for your account. Ask your KC admin to switch it on in Admin → B2B clients → Reseller profile.
+        </p>
+        <Link href={RESELLER_ERP_PATH} className={`${erpBtnPrimary} mt-4 inline-flex`}>
+          ERP home
+        </Link>
+      </ResellerErpShell>
+    )
+  }
+
+  if (mod && mod.id === 'digisilver' && !user?.reseller_digisilver_enabled) {
+    return (
+      <ResellerErpShell title="DigiSilver">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+          DigiSilver is not enabled for your account. Ask your KC admin to switch it on in Admin → B2B clients → Reseller profile.
+        </p>
+        <Link href={RESELLER_ERP_PATH} className={`${erpBtnPrimary} mt-4 inline-flex`}>
+          ERP home
+        </Link>
+      </ResellerErpShell>
+    )
+  }
 
   if (!mod) {
     return (

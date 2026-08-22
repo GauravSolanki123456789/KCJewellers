@@ -50,6 +50,10 @@ export type WholesaleUserFields = {
   reseller_erp_enabled?: boolean
   /** Admin enables Posh RFID tag linking in ERP products. */
   reseller_rfid_enabled?: boolean
+  /** Admin enables DigiGold tab in jewellery ERP. */
+  reseller_digigold_enabled?: boolean
+  /** Admin enables DigiSilver tab in jewellery ERP. */
+  reseller_digisilver_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio at `/reseller/enhanced-pictures`. */
   reseller_enhanced_pictures_enabled?: boolean
 }

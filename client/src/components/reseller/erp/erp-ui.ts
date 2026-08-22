@@ -10,6 +10,13 @@ export const erpBtnGhost =
 export const erpCardCls =
   'rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 shadow-sm'
 
+/** Selected list/tile — KC themes invert emerald-950 to a light tint; always use jewelry-black text. */
+export const erpSelectedTileCls =
+  'border-emerald-600 bg-[#d1fae5] font-semibold text-[var(--color-jewelry-black,#1a1814)] ring-1 ring-emerald-600/35'
+
+export const erpSelectedListCls =
+  'bg-[#d1fae5] font-semibold text-[var(--color-jewelry-black,#1a1814)] ring-1 ring-inset ring-emerald-600/30'
+
 export type ErpProductHit = {
   id?: number
   barcode?: string | null

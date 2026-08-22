@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import axios from '@/lib/axios'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, erpSelectedTileCls } from '@/components/reseller/erp/erp-ui'
 import { ErpTemplateEditor } from '@/components/reseller/erp/ErpTemplateEditor'
 import {
   DEFAULT_BILL_TEMPLATE,
@@ -655,8 +655,8 @@ export function ErpPrintFormatsWorkspace() {
                 type="button"
                 className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm ${
                   (pf.estimatePrintMode || 'rough') === 'rough'
-                    ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-950'
-                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                    ? erpSelectedTileCls
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
                 }`}
                 onClick={() => setPf((p) => ({ ...p, estimatePrintMode: 'rough' }))}
               >
@@ -669,8 +669,8 @@ export function ErpPrintFormatsWorkspace() {
                 type="button"
                 className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm ${
                   pf.estimatePrintMode === 'custom'
-                    ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-950'
-                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                    ? erpSelectedTileCls
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
                 }`}
                 onClick={() => setPf((p) => ({ ...p, estimatePrintMode: 'custom' }))}
               >

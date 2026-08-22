@@ -68,6 +68,10 @@ type AdminUser = {
   reseller_erp_enabled?: boolean
   /** Admin enables Posh RFID in ERP (`users.reseller_rfid_enabled`). */
   reseller_rfid_enabled?: boolean
+  /** Admin enables DigiGold ERP tab (`users.reseller_digigold_enabled`). */
+  reseller_digigold_enabled?: boolean
+  /** Admin enables DigiSilver ERP tab (`users.reseller_digisilver_enabled`). */
+  reseller_digisilver_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio (`users.reseller_enhanced_pictures_enabled`). */
   reseller_enhanced_pictures_enabled?: boolean
   /** Admin enables B2B pricelist module (`users.reseller_pricelist_enabled`). */
@@ -181,6 +185,8 @@ function B2BAdminContent() {
     reseller_upload_slabs_enabled: false,
     reseller_erp_enabled: false,
     reseller_rfid_enabled: false,
+    reseller_digigold_enabled: false,
+    reseller_digisilver_enabled: false,
     reseller_enhanced_pictures_enabled: false,
     reseller_pricelist_enabled: false,
     reseller_invite_code: '',
@@ -265,6 +271,8 @@ function B2BAdminContent() {
         reseller_upload_slabs_enabled: !!resellerModalUser.reseller_upload_slabs_enabled,
         reseller_erp_enabled: !!resellerModalUser.reseller_erp_enabled,
         reseller_rfid_enabled: !!resellerModalUser.reseller_rfid_enabled,
+        reseller_digigold_enabled: !!resellerModalUser.reseller_digigold_enabled,
+        reseller_digisilver_enabled: !!resellerModalUser.reseller_digisilver_enabled,
         reseller_enhanced_pictures_enabled: !!resellerModalUser.reseller_enhanced_pictures_enabled,
         reseller_pricelist_enabled: !!resellerModalUser.reseller_pricelist_enabled,
         reseller_invite_code: resellerModalUser.reseller_invite_code
@@ -372,6 +380,8 @@ function B2BAdminContent() {
         reseller_upload_slabs_enabled: resellerForm.reseller_upload_slabs_enabled,
         reseller_erp_enabled: resellerForm.reseller_erp_enabled,
         reseller_rfid_enabled: resellerForm.reseller_rfid_enabled,
+        reseller_digigold_enabled: resellerForm.reseller_digigold_enabled,
+        reseller_digisilver_enabled: resellerForm.reseller_digisilver_enabled,
         reseller_enhanced_pictures_enabled: resellerForm.reseller_enhanced_pictures_enabled,
         reseller_pricelist_enabled: resellerForm.reseller_pricelist_enabled,
         reseller_invite_code: resellerForm.reseller_invite_code.trim()
@@ -1228,6 +1238,70 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_rfid_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">DigiGold (ERP chit / savings)</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Shows DigiGold tab in jewellery ERP for this reseller.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_digigold_enabled}
+                      aria-label="Enable DigiGold for reseller ERP"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_digigold_enabled: !f.reseller_digigold_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_digigold_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_digigold_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">DigiSilver (ERP chit / savings)</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Shows DigiSilver tab in jewellery ERP for this reseller.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_digisilver_enabled}
+                      aria-label="Enable DigiSilver for reseller ERP"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_digisilver_enabled: !f.reseller_digisilver_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_digisilver_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_digisilver_enabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

@@ -99,6 +99,17 @@ export function ErpProductsWorkspace() {
 
   const onFile = async (file: File, appendToBatchId?: string) => {
     const isAppend = !!appendToBatchId
+    const name = file.name || ''
+    if (/^~\$/i.test(name) || name.startsWith('.')) {
+      setMsgTone('err')
+      setMsg('That is an Excel temp/lock file — close Excel and choose the real .xlsx (e.g. AL_CHOMBU_100.xlsx).')
+      return
+    }
+    if (!/\.(xlsx|csv)$/i.test(name)) {
+      setMsgTone('err')
+      setMsg('Please upload a .xlsx or .csv file.')
+      return
+    }
     if (isAppend) setAppendBusy(true)
     else setBusy(true)
     setMsg(null)

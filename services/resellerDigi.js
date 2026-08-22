@@ -112,6 +112,72 @@ async function ensureDigiSchema(pool) {
             paid_at TIMESTAMP
         )
     `);
+    await pool.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS reseller_digigold_enabled BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS reseller_digisilver_enabled BOOLEAN NOT NULL DEFAULT false
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_digi_orders
+        ADD COLUMN IF NOT EXISTS source VARCHAR(24) NOT NULL DEFAULT 'razorpay',
+        ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(24),
+        ADD COLUMN IF NOT EXISTS reference_no VARCHAR(128),
+        ADD COLUMN IF NOT EXISTS notes TEXT,
+        ADD COLUMN IF NOT EXISTS customer_name_manual VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS customer_mobile_manual VARCHAR(16)
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_chit_schemes (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            product_line VARCHAR(16) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            scheme_type VARCHAR(32) NOT NULL DEFAULT 'monthly_chit',
+            description TEXT,
+            monthly_amount_inr NUMERIC(12, 2),
+            duration_months INTEGER,
+            metal_key VARCHAR(24),
+            bonus_pct NUMERIC(5, 2) NOT NULL DEFAULT 0,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_chit_members (
+            id SERIAL PRIMARY KEY,
+            scheme_id INTEGER NOT NULL REFERENCES reseller_chit_schemes(id) ON DELETE CASCADE,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            customer_name VARCHAR(255) NOT NULL,
+            customer_mobile VARCHAR(16),
+            customer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            enrolled_at DATE NOT NULL DEFAULT CURRENT_DATE,
+            target_amount_inr NUMERIC(12, 2),
+            notes TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_chit_transactions (
+            id SERIAL PRIMARY KEY,
+            scheme_id INTEGER NOT NULL REFERENCES reseller_chit_schemes(id) ON DELETE CASCADE,
+            member_id INTEGER NOT NULL REFERENCES reseller_chit_members(id) ON DELETE CASCADE,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            txn_type VARCHAR(20) NOT NULL DEFAULT 'payment',
+            amount_inr NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            grams NUMERIC(14, 6) NOT NULL DEFAULT 0,
+            metal_key VARCHAR(24),
+            rate_per_gram NUMERIC(12, 2),
+            payment_mode VARCHAR(24) NOT NULL DEFAULT 'cash',
+            reference_no VARCHAR(128),
+            notes TEXT,
+            txn_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 }
 
 async function findResellerByInviteCode(query, code) {
@@ -299,6 +365,59 @@ async function getCustomerHoldings(query, resellerUserId, customerUserId) {
     }));
 }
 
+async function findOrCreateDigiCustomer(query, { name, mobile }) {
+    const digits = String(mobile || '')
+        .replace(/\D/g, '')
+        .slice(-10);
+    if (digits.length === 10) {
+        const existing = await query(
+            `SELECT id FROM users WHERE RIGHT(REGEXP_REPLACE(COALESCE(mobile_number, ''), '[^0-9]', '', 'g'), 10) = $1 LIMIT 1`,
+            [digits],
+        );
+        if (existing.length) return existing[0].id;
+    }
+    const safeName = String(name || 'Customer').trim().slice(0, 255) || 'Customer';
+    const email = `digi.${digits || Date.now()}.${Math.random().toString(36).slice(2, 8)}@kc.local`;
+    const ins = await query(
+        `INSERT INTO users (email, name, mobile_number, customer_tier, account_status, role)
+         VALUES ($1, $2, $3, 'B2C_CUSTOMER', 'active', 'user')
+         RETURNING id`,
+        [email, safeName, digits.length === 10 ? digits : null],
+    );
+    return ins[0].id;
+}
+
+function requireDigiProduct(query, productLine) {
+    const col = productLine === 'silver' ? 'reseller_digisilver_enabled' : 'reseller_digigold_enabled';
+    return async (req, res, next) => {
+        try {
+            const rows = await query(
+                `SELECT COALESCE(${col}, false) AS enabled FROM users WHERE id = $1`,
+                [req.user.id],
+            );
+            if (!rows.length || !rows[0].enabled) {
+                return res.status(403).json({ error: `${productLine === 'silver' ? 'DigiSilver' : 'DigiGold'} is not enabled for your account.` });
+            }
+            next();
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Access check failed' });
+        }
+    };
+}
+
+async function assertDigiProductEnabled(query, userId, productLine) {
+    const col = productLine === 'silver' ? 'reseller_digisilver_enabled' : 'reseller_digigold_enabled';
+    const rows = await query(
+        `SELECT COALESCE(${col}, false) AS enabled FROM users WHERE id = $1`,
+        [userId],
+    );
+    if (!rows.length || !rows[0].enabled) {
+        const err = new Error(`${productLine === 'silver' ? 'DigiSilver' : 'DigiGold'} is not enabled for your account.`);
+        err.status = 403;
+        throw err;
+    }
+}
+
 function registerResellerDigiRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, globalLimiter, authLimiter } = deps;
     const erpGate = requireResellerErp(query);
@@ -413,8 +532,9 @@ function registerResellerDigiRoutes(app, deps) {
             let sql = `
                 SELECT o.id, o.metal_key, o.amount_inr, o.retail_rate_per_gram, o.discount_inr,
                        o.effective_rate_per_gram, o.grams, o.razorpay_order_id, o.razorpay_payment_id,
-                       o.status, o.created_at, o.paid_at,
-                       u.name AS customer_name, u.mobile_number AS customer_mobile
+                       o.status, o.created_at, o.paid_at, o.source, o.payment_mode, o.reference_no,
+                       COALESCE(u.name, o.customer_name_manual) AS customer_name,
+                       COALESCE(u.mobile_number, o.customer_mobile_manual) AS customer_mobile
                 FROM reseller_digi_orders o
                 LEFT JOIN users u ON u.id = o.customer_user_id
                 WHERE o.reseller_user_id = $1 AND o.status = 'paid'`;
@@ -448,7 +568,9 @@ function registerResellerDigiRoutes(app, deps) {
             const rows = await query(sql, params);
 
             const holdRows = await query(
-                `SELECT h.metal_key, h.balance_grams, u.name AS customer_name, u.mobile_number AS customer_mobile,
+                `SELECT h.metal_key, h.balance_grams,
+                        COALESCE(u.name, '') AS customer_name,
+                        u.mobile_number AS customer_mobile,
                         u.id AS customer_user_id, h.updated_at
                  FROM reseller_digi_holdings h
                  JOIN users u ON u.id = h.customer_user_id
@@ -461,6 +583,323 @@ function registerResellerDigiRoutes(app, deps) {
         } catch (e) {
             console.error('erp digi transactions:', e);
             res.status(500).json({ error: e.message || 'Failed to load transactions' });
+        }
+    });
+
+    // ——— Chit schemes (DigiGold / DigiSilver tab) ———
+    app.get('/api/reseller/erp/digi/chit-schemes', checkAuth, erpGate, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const productLine = String(req.query.product_line || req.query.metal || 'gold').trim().toLowerCase();
+            await assertDigiProductEnabled(query, req.user.id, productLine === 'silver' ? 'silver' : 'gold');
+            const rows = await query(
+                `SELECT s.*,
+                    (SELECT COUNT(*)::int FROM reseller_chit_members m WHERE m.scheme_id = s.id AND m.status = 'active') AS member_count,
+                    (SELECT COALESCE(SUM(t.amount_inr), 0) FROM reseller_chit_transactions t WHERE t.scheme_id = s.id) AS total_collected_inr
+                 FROM reseller_chit_schemes s
+                 WHERE s.reseller_user_id = $1 AND s.product_line = $2
+                 ORDER BY s.is_active DESC, s.updated_at DESC`,
+                [req.user.id, productLine === 'silver' ? 'silver' : 'gold'],
+            );
+            res.json({ schemes: rows });
+        } catch (e) {
+            console.error('chit schemes list:', e);
+            res.status(e.status || 500).json({ error: e.message || 'Failed to load schemes' });
+        }
+    });
+
+    app.post('/api/reseller/erp/digi/chit-schemes', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const productLine = String(req.body.product_line || 'gold').trim().toLowerCase();
+            await assertDigiProductEnabled(query, req.user.id, productLine === 'silver' ? 'silver' : 'gold');
+            const name = String(req.body.name || '').trim();
+            if (!name) return res.status(400).json({ error: 'Scheme name required' });
+            const rows = await query(
+                `INSERT INTO reseller_chit_schemes (
+                    reseller_user_id, product_line, name, scheme_type, description,
+                    monthly_amount_inr, duration_months, metal_key, bonus_pct, is_active
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+                [
+                    req.user.id,
+                    productLine === 'silver' ? 'silver' : 'gold',
+                    name.slice(0, 255),
+                    String(req.body.scheme_type || 'monthly_chit').trim().slice(0, 32),
+                    req.body.description ? String(req.body.description).trim().slice(0, 2000) : null,
+                    req.body.monthly_amount_inr != null ? safeNum(req.body.monthly_amount_inr) : null,
+                    req.body.duration_months != null ? parseInt(String(req.body.duration_months), 10) || null : null,
+                    req.body.metal_key ? String(req.body.metal_key).trim().slice(0, 24) : null,
+                    safeNum(req.body.bonus_pct),
+                    req.body.is_active !== false,
+                ],
+            );
+            res.json({ scheme: rows[0] });
+        } catch (e) {
+            console.error('chit scheme create:', e);
+            res.status(500).json({ error: e.message || 'Failed to create scheme' });
+        }
+    });
+
+    app.put('/api/reseller/erp/digi/chit-schemes/:id', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const id = parseInt(String(req.params.id), 10);
+            const existing = await query(
+                `SELECT * FROM reseller_chit_schemes WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!existing.length) return res.status(404).json({ error: 'Scheme not found' });
+            await assertDigiProductEnabled(
+                query,
+                req.user.id,
+                existing[0].product_line === 'silver' ? 'silver' : 'gold',
+            );
+            const name = req.body.name != null ? String(req.body.name).trim().slice(0, 255) : existing[0].name;
+            const rows = await query(
+                `UPDATE reseller_chit_schemes SET
+                    name = $1, scheme_type = $2, description = $3,
+                    monthly_amount_inr = $4, duration_months = $5, metal_key = $6,
+                    bonus_pct = $7, is_active = $8, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $9 AND reseller_user_id = $10 RETURNING *`,
+                [
+                    name,
+                    req.body.scheme_type != null
+                        ? String(req.body.scheme_type).trim().slice(0, 32)
+                        : existing[0].scheme_type,
+                    req.body.description != null
+                        ? String(req.body.description).trim().slice(0, 2000)
+                        : existing[0].description,
+                    req.body.monthly_amount_inr != null
+                        ? safeNum(req.body.monthly_amount_inr)
+                        : existing[0].monthly_amount_inr,
+                    req.body.duration_months != null
+                        ? parseInt(String(req.body.duration_months), 10) || null
+                        : existing[0].duration_months,
+                    req.body.metal_key != null
+                        ? String(req.body.metal_key).trim().slice(0, 24)
+                        : existing[0].metal_key,
+                    req.body.bonus_pct != null ? safeNum(req.body.bonus_pct) : existing[0].bonus_pct,
+                    req.body.is_active != null ? !!req.body.is_active : existing[0].is_active,
+                    id,
+                    req.user.id,
+                ],
+            );
+            res.json({ scheme: rows[0] });
+        } catch (e) {
+            console.error('chit scheme update:', e);
+            res.status(500).json({ error: e.message || 'Failed to update scheme' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/digi/chit-schemes/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const id = parseInt(String(req.params.id), 10);
+            const existing = await query(
+                `SELECT product_line FROM reseller_chit_schemes WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!existing.length) return res.status(404).json({ error: 'Scheme not found' });
+            await assertDigiProductEnabled(
+                query,
+                req.user.id,
+                existing[0].product_line === 'silver' ? 'silver' : 'gold',
+            );
+            await query(`DELETE FROM reseller_chit_schemes WHERE id = $1 AND reseller_user_id = $2`, [
+                id,
+                req.user.id,
+            ]);
+            res.json({ ok: true });
+        } catch (e) {
+            console.error('chit scheme delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete scheme' });
+        }
+    });
+
+    app.get('/api/reseller/erp/digi/chit-schemes/:id/members', checkAuth, erpGate, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const id = parseInt(String(req.params.id), 10);
+            const scheme = await query(
+                `SELECT * FROM reseller_chit_schemes WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!scheme.length) return res.status(404).json({ error: 'Scheme not found' });
+            const rows = await query(
+                `SELECT m.*,
+                    (SELECT COALESCE(SUM(t.amount_inr), 0) FROM reseller_chit_transactions t WHERE t.member_id = m.id) AS paid_inr,
+                    (SELECT COALESCE(SUM(t.grams), 0) FROM reseller_chit_transactions t WHERE t.member_id = m.id) AS grams_total
+                 FROM reseller_chit_members m
+                 WHERE m.scheme_id = $1 AND m.reseller_user_id = $2
+                 ORDER BY m.updated_at DESC`,
+                [id, req.user.id],
+            );
+            res.json({ members: rows, scheme: scheme[0] });
+        } catch (e) {
+            console.error('chit members list:', e);
+            res.status(500).json({ error: e.message || 'Failed to load members' });
+        }
+    });
+
+    app.post('/api/reseller/erp/digi/chit-schemes/:id/members', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const id = parseInt(String(req.params.id), 10);
+            const scheme = await query(
+                `SELECT * FROM reseller_chit_schemes WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!scheme.length) return res.status(404).json({ error: 'Scheme not found' });
+            const name = String(req.body.customer_name || '').trim();
+            if (!name) return res.status(400).json({ error: 'Customer name required' });
+            const mobile = String(req.body.customer_mobile || '').replace(/\D/g, '').slice(-10) || null;
+            let customerUserId = null;
+            if (mobile) {
+                customerUserId = await findOrCreateDigiCustomer(query, { name, mobile });
+            }
+            const rows = await query(
+                `INSERT INTO reseller_chit_members (
+                    scheme_id, reseller_user_id, customer_name, customer_mobile, customer_user_id,
+                    status, target_amount_inr, notes
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+                [
+                    id,
+                    req.user.id,
+                    name.slice(0, 255),
+                    mobile,
+                    customerUserId,
+                    String(req.body.status || 'active').slice(0, 20),
+                    req.body.target_amount_inr != null ? safeNum(req.body.target_amount_inr) : null,
+                    req.body.notes ? String(req.body.notes).trim().slice(0, 2000) : null,
+                ],
+            );
+            res.json({ member: rows[0] });
+        } catch (e) {
+            console.error('chit member create:', e);
+            res.status(500).json({ error: e.message || 'Failed to add member' });
+        }
+    });
+
+    app.post('/api/reseller/erp/digi/chit-transactions', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const schemeId = parseInt(String(req.body.scheme_id), 10);
+            const memberId = parseInt(String(req.body.member_id), 10);
+            const scheme = await query(
+                `SELECT * FROM reseller_chit_schemes WHERE id = $1 AND reseller_user_id = $2`,
+                [schemeId, req.user.id],
+            );
+            if (!scheme.length) return res.status(404).json({ error: 'Scheme not found' });
+            const member = await query(
+                `SELECT * FROM reseller_chit_members WHERE id = $1 AND scheme_id = $2 AND reseller_user_id = $3`,
+                [memberId, schemeId, req.user.id],
+            );
+            if (!member.length) return res.status(404).json({ error: 'Member not found' });
+            const amountInr = safeNum(req.body.amount_inr);
+            const grams = safeNum(req.body.grams);
+            if (amountInr <= 0 && grams <= 0) {
+                return res.status(400).json({ error: 'Enter amount or grams' });
+            }
+            const metalKey = req.body.metal_key
+                ? String(req.body.metal_key).trim()
+                : scheme[0].metal_key || (scheme[0].product_line === 'silver' ? 'silver' : 'gold_22k');
+            const rate = safeNum(req.body.rate_per_gram);
+            let finalGrams = grams;
+            if (finalGrams <= 0 && amountInr > 0 && rate > 0) {
+                finalGrams = gramsFromAmount(amountInr, rate);
+            }
+            const rows = await query(
+                `INSERT INTO reseller_chit_transactions (
+                    scheme_id, member_id, reseller_user_id, txn_type, amount_inr, grams, metal_key,
+                    rate_per_gram, payment_mode, reference_no, notes, txn_date, created_by_user_id
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::date, CURRENT_DATE), $13)
+                 RETURNING *`,
+                [
+                    schemeId,
+                    memberId,
+                    req.user.id,
+                    String(req.body.txn_type || 'payment').slice(0, 20),
+                    amountInr,
+                    finalGrams,
+                    metalKey,
+                    rate || null,
+                    String(req.body.payment_mode || 'cash').slice(0, 24),
+                    req.body.reference_no ? String(req.body.reference_no).trim().slice(0, 128) : null,
+                    req.body.notes ? String(req.body.notes).trim().slice(0, 2000) : null,
+                    req.body.txn_date || null,
+                    req.user.id,
+                ],
+            );
+            if (finalGrams > 0 && member[0].customer_user_id && isValidMetalKey(metalKey)) {
+                await creditDigiHolding(query, {
+                    resellerUserId: req.user.id,
+                    customerUserId: member[0].customer_user_id,
+                    metalKey,
+                    grams: finalGrams,
+                });
+            }
+            res.json({ transaction: rows[0] });
+        } catch (e) {
+            console.error('chit transaction create:', e);
+            res.status(500).json({ error: e.message || 'Failed to record transaction' });
+        }
+    });
+
+    app.post('/api/reseller/erp/digi/manual-transaction', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const metalKey = String(req.body.metal_key || '').trim();
+            if (!isValidMetalKey(metalKey)) {
+                return res.status(400).json({ error: 'Valid metal_key required' });
+            }
+            const productLine = metalKey === 'silver' ? 'silver' : 'gold';
+            await assertDigiProductEnabled(query, req.user.id, productLine);
+            const name = String(req.body.customer_name || '').trim();
+            const mobile = String(req.body.customer_mobile || '').replace(/\D/g, '').slice(-10);
+            if (!name) return res.status(400).json({ error: 'Customer name required' });
+            const amountInr = safeNum(req.body.amount_inr);
+            if (amountInr <= 0) return res.status(400).json({ error: 'Amount must be positive' });
+            const stored = await getStoredRates(req.user.id);
+            if (!stored) return res.status(400).json({ error: 'Save today rates first' });
+            const retail = safeNum(stored[RETAIL_RATE_COL[metalKey]]);
+            const discount = safeNum(stored[DISCOUNT_COL[metalKey]]);
+            const effective = effectiveRatePerGram(retail, discount);
+            const grams = gramsFromAmount(amountInr, effective);
+            const customerUserId = await findOrCreateDigiCustomer(query, { name, mobile });
+            const orderRows = await query(
+                `INSERT INTO reseller_digi_orders (
+                    reseller_user_id, customer_user_id, metal_key, amount_inr, retail_rate_per_gram,
+                    discount_inr, effective_rate_per_gram, grams, status, paid_at, source,
+                    payment_mode, reference_no, notes, customer_name_manual, customer_mobile_manual
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'paid', CURRENT_TIMESTAMP, 'manual',
+                    $9, $10, $11, $12, $13)
+                 RETURNING *`,
+                [
+                    req.user.id,
+                    customerUserId,
+                    metalKey,
+                    amountInr,
+                    retail,
+                    discount,
+                    effective,
+                    grams,
+                    String(req.body.payment_mode || 'cash').slice(0, 24),
+                    req.body.reference_no ? String(req.body.reference_no).trim().slice(0, 128) : null,
+                    req.body.notes ? String(req.body.notes).trim().slice(0, 2000) : null,
+                    name.slice(0, 255),
+                    mobile || null,
+                ],
+            );
+            await creditDigiHolding(query, {
+                resellerUserId: req.user.id,
+                customerUserId,
+                metalKey,
+                grams,
+            });
+            res.json({ order: orderRows[0], grams });
+        } catch (e) {
+            console.error('digi manual transaction:', e);
+            res.status(500).json({ error: e.message || 'Failed to record transaction' });
         }
     });
 

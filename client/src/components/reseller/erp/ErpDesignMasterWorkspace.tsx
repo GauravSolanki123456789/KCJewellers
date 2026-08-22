@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import axios from '@/lib/axios'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, erpSelectedListCls } from '@/components/reseller/erp/erp-ui'
 import { Layers, Loader2, Plus, Save, Download } from 'lucide-react'
 
 type DesignSku = {
@@ -232,7 +232,7 @@ export function ErpDesignMasterWorkspace() {
                     type="button"
                     className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
                       selectedStyleId === s.id
-                        ? 'bg-emerald-100 font-semibold text-emerald-950'
+                        ? erpSelectedListCls
                         : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
                     }`}
                     onClick={() => {
@@ -271,7 +271,7 @@ export function ErpDesignMasterWorkspace() {
                       type="button"
                       className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
                         selectedSkuId === sk.id
-                          ? 'bg-amber-100 font-semibold text-amber-950'
+                          ? 'bg-amber-100 font-semibold text-[var(--color-jewelry-black,#1a1814)] ring-1 ring-inset ring-amber-600/25'
                           : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
                       }`}
                       onClick={() => setSelectedSkuId(sk.id)}
