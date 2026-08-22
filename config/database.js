@@ -640,6 +640,11 @@ async function initSchema() {
         `);
         await pool.query(`
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_digigold_enabled BOOLEAN NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS reseller_digisilver_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_enhanced_pictures_enabled BOOLEAN NOT NULL DEFAULT false
         `);
         await pool.query(`

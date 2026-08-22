@@ -40,6 +40,8 @@ export const RESELLER_SMS_SETTINGS_PATH = '/reseller/sms-settings'
 export const RESELLER_MC_SLABS_PATH = '/reseller/mc-slabs'
 /** RESELLER tier — jewellery ERP hub (billing, CRM, stock, GST, reports…). */
 export const RESELLER_ERP_PATH = '/reseller/erp'
+/** RESELLER tier — DigiGold / DigiSilver schemes & customer savings (Profile tab). */
+export const PROFILE_DIGI_PATH = '/profile/digi'
 /** RESELLER tier — Razorpay keys for DigiGold / DigiSilver. */
 export const RESELLER_PAYMENT_SETTINGS_PATH = '/reseller/payment-settings'
 /** RESELLER tier — Slab R / W / F defaults for WhatsApp catalogues + storefront margin. */

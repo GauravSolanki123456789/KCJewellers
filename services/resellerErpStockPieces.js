@@ -1119,12 +1119,6 @@ function registerStockPieceRoutes(app, deps) {
                 await syncStockAlertCounts(query, req.user.id, ic);
             }
 
-            await query(
-                `UPDATE reseller_erp_stock_import_batches SET piece_count = $1
-                 WHERE id = $2::uuid AND reseller_user_id = $3`,
-                [inserted + updated, importBatchId, req.user.id],
-            );
-
             res.json({
                 success: true,
                 batch_id: batchId,

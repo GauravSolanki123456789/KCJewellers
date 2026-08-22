@@ -10,12 +10,15 @@ export const erpBtnGhost =
 export const erpCardCls =
   'rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 shadow-sm'
 
-/** Selected list/tile — KC themes invert emerald-950 to a light tint; always use jewelry-black text. */
-export const erpSelectedTileCls =
-  'border-emerald-600 bg-[#d1fae5] font-semibold text-[var(--color-jewelry-black,#1a1814)] ring-1 ring-emerald-600/35'
-
-export const erpSelectedListCls =
-  'bg-[#d1fae5] font-semibold text-[var(--color-jewelry-black,#1a1814)] ring-1 ring-inset ring-emerald-600/30'
+/** Selected list row — forced dark text for KC light / inverted slate themes */
+export const erpListItemSelected =
+  'bg-emerald-100 font-semibold !text-[#1a1814] ring-1 ring-emerald-300/80'
+export const erpListItemSelectedAlt =
+  'bg-amber-100 font-semibold !text-[#1a1814] ring-1 ring-amber-300/80'
+export const erpOptionSelected =
+  'border-emerald-600 bg-emerald-50 font-semibold !text-[#1a1814] ring-1 ring-emerald-300/60'
+export const erpMonoUrl =
+  'break-all rounded-lg border border-emerald-200 bg-white px-2 py-1.5 font-mono text-[11px] font-semibold text-[#0f5132]'
 
 export type ErpProductHit = {
   id?: number

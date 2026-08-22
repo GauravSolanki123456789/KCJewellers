@@ -389,6 +389,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/profile/digi/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/profile/digi">> = Specific
+  const handler = {} as typeof import("../../src/app/profile/digi/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/profile/ledger/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/profile/ledger">> = Specific

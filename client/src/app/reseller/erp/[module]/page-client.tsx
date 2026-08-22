@@ -1,11 +1,11 @@
 'use client'
 
-import { Suspense, useMemo } from 'react'
-import { useParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo } from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
-import { RESELLER_ERP_PATH } from '@/lib/routes'
+import { PROFILE_DIGI_PATH, RESELLER_ERP_PATH } from '@/lib/routes'
 import { getResellerErpModule, type ResellerErpModuleId } from '@/lib/reseller-erp-modules'
 import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
 import { erpBtnPrimary } from '@/components/reseller/erp/erp-ui'
@@ -19,7 +19,6 @@ import { ErpDesignMasterWorkspace } from '@/components/reseller/erp/ErpDesignMas
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import { ErpFloorsWorkspace } from '@/components/reseller/erp/ErpFloorsWorkspace'
 import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
-import { ErpDigiWorkspace } from '@/components/reseller/erp/ErpDigiWorkspace'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
 import {
   BillsWorkspace,
@@ -70,10 +69,6 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <StockWorkspace />
     case 'rol':
       return <StockWorkspace rolOnly />
-    case 'digigold':
-      return <ErpDigiWorkspace metal="gold" />
-    case 'digisilver':
-      return <ErpDigiWorkspace metal="silver" />
     case 'sales-reports':
       return <ReportsWorkspace />
     case 'sales-percentages':
@@ -208,34 +203,21 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
 
 function ModulePageContent() {
   const params = useParams()
-  const auth = useAuth()
-  const user = auth.user as WholesaleUserFields | null
+  const router = useRouter()
   const raw = typeof params?.module === 'string' ? params.module : Array.isArray(params?.module) ? params.module[0] : ''
   const mod = useMemo(() => getResellerErpModule(raw), [raw])
 
-  if (mod && mod.id === 'digigold' && !user?.reseller_digigold_enabled) {
-    return (
-      <ResellerErpShell title="DigiGold">
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
-          DigiGold is not enabled for your account. Ask your KC admin to switch it on in Admin → B2B clients → Reseller profile.
-        </p>
-        <Link href={RESELLER_ERP_PATH} className={`${erpBtnPrimary} mt-4 inline-flex`}>
-          ERP home
-        </Link>
-      </ResellerErpShell>
-    )
-  }
+  useEffect(() => {
+    if (raw === 'digigold' || raw === 'digisilver') {
+      router.replace(PROFILE_DIGI_PATH)
+    }
+  }, [raw, router])
 
-  if (mod && mod.id === 'digisilver' && !user?.reseller_digisilver_enabled) {
+  if (raw === 'digigold' || raw === 'digisilver') {
     return (
-      <ResellerErpShell title="DigiSilver">
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
-          DigiSilver is not enabled for your account. Ask your KC admin to switch it on in Admin → B2B clients → Reseller profile.
-        </p>
-        <Link href={RESELLER_ERP_PATH} className={`${erpBtnPrimary} mt-4 inline-flex`}>
-          ERP home
-        </Link>
-      </ResellerErpShell>
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+        Redirecting to Profile → DigiGold / DigiSilver…
+      </div>
     )
   }
 

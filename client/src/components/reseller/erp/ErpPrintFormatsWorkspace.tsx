@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import axios from '@/lib/axios'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, erpSelectedTileCls } from '@/components/reseller/erp/erp-ui'
+import {
+  erpBtnGhost,
+  erpBtnPrimary,
+  erpCardCls,
+  erpInputCls,
+  erpOptionSelected,
+} from '@/components/reseller/erp/erp-ui'
 import { ErpTemplateEditor } from '@/components/reseller/erp/ErpTemplateEditor'
 import {
   DEFAULT_BILL_TEMPLATE,
@@ -653,29 +659,29 @@ export function ErpPrintFormatsWorkspace() {
             <div className="grid gap-2 sm:grid-cols-2">
               <button
                 type="button"
-                className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm ${
+                className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
                   (pf.estimatePrintMode || 'rough') === 'rough'
-                    ? erpSelectedTileCls
-                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                    ? erpOptionSelected
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
                 }`}
                 onClick={() => setPf((p) => ({ ...p, estimatePrintMode: 'rough' }))}
               >
                 Rough estimate (legacy)
-                <span className="mt-0.5 block text-[11px] font-normal opacity-70">
+                <span className="mt-0.5 block text-[11px] font-normal !text-[#1a1814]/70">
                   Original + duplicate copy, item-wise purity/weight/GST
                 </span>
               </button>
               <button
                 type="button"
-                className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm ${
+                className={`min-h-[48px] rounded-xl border px-3 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
                   pf.estimatePrintMode === 'custom'
-                    ? erpSelectedTileCls
-                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                    ? erpOptionSelected
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
                 }`}
                 onClick={() => setPf((p) => ({ ...p, estimatePrintMode: 'custom' }))}
               >
                 Custom template
-                <span className="mt-0.5 block text-[11px] font-normal opacity-70">
+                <span className="mt-0.5 block text-[11px] font-normal !text-[#1a1814]/70">
                   Use gold/silver templates below — click placeholders to insert
                 </span>
               </button>

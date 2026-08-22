@@ -13,7 +13,7 @@ import {
   type ErpSerialSettings,
 } from '@/lib/erp-hardware'
 import { ErpWorkstationPanel, useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
-import { erpBtnPrimary, erpCardCls, erpInputCls, erpErr } from '@/components/reseller/erp/erp-ui'
+import { erpBtnPrimary, erpCardCls, erpInputCls, erpErr, erpMonoUrl } from '@/components/reseller/erp/erp-ui'
 import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
@@ -348,12 +348,12 @@ export function ErpHardwareWorkspace() {
           </button>
 
           <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-xs text-[var(--color-jewelry-black,#1a1814)]">
-            <p className="mb-1 font-semibold text-[var(--color-jewelry-black,#1a1814)]">Give Posh RFID these KC API details</p>
+            <p className="mb-1 font-semibold text-emerald-900">Give Posh RFID these KC API details</p>
             <p className="mb-2 text-[var(--color-jewelry-black,#1a1814)]/70">
               Posh connects to KC (inbound). Save API key &amp; store ID below first, then share this URL with your Posh
               developer.
             </p>
-            <p className="rounded-lg bg-white/90 px-2 py-1.5 font-mono text-[11px] font-semibold break-all text-[var(--color-jewelry-black,#1a1814)]">
+            <p className={erpMonoUrl}>
               {typeof window !== 'undefined'
                 ? `${window.location.origin}/api/external/posh-rfid/v1/inventory`
                 : 'https://kcjewellers.co.in/api/external/posh-rfid/v1/inventory'}
@@ -364,7 +364,7 @@ export function ErpHardwareWorkspace() {
             </p>
             <p className="mt-1 text-[var(--color-jewelry-black,#1a1814)]/55">
               Health check:{' '}
-              <span className="font-mono break-all text-[var(--color-jewelry-black,#1a1814)]">
+              <span className="font-mono break-all">
                 {typeof window !== 'undefined'
                   ? `${window.location.origin}/api/external/posh-rfid/v1/health`
                   : '/api/external/posh-rfid/v1/health'}

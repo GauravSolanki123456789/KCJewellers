@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import axios from '@/lib/axios'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, erpSelectedListCls } from '@/components/reseller/erp/erp-ui'
+import {
+  erpBtnGhost,
+  erpBtnPrimary,
+  erpCardCls,
+  erpErr,
+  erpInputCls,
+  erpListItemSelected,
+  erpListItemSelectedAlt,
+} from '@/components/reseller/erp/erp-ui'
 import { Layers, Loader2, Plus, Save, Download } from 'lucide-react'
 
 type DesignSku = {
@@ -230,9 +238,9 @@ export function ErpDesignMasterWorkspace() {
                 <li key={s.id}>
                   <button
                     type="button"
-                    className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                    className={`w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
                       selectedStyleId === s.id
-                        ? erpSelectedListCls
+                        ? erpListItemSelected
                         : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
                     }`}
                     onClick={() => {
@@ -269,9 +277,9 @@ export function ErpDesignMasterWorkspace() {
                   <li key={sk.id}>
                     <button
                       type="button"
-                      className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                      className={`w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
                         selectedSkuId === sk.id
-                          ? 'bg-amber-100 font-semibold text-[var(--color-jewelry-black,#1a1814)] ring-1 ring-inset ring-amber-600/25'
+                          ? erpListItemSelectedAlt
                           : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
                       }`}
                       onClick={() => setSelectedSkuId(sk.id)}

@@ -5,7 +5,6 @@ import {
   Calculator,
   CreditCard,
   FileText,
-  Gem,
   Layers,
   BookMarked,
   LayoutTemplate,
@@ -21,7 +20,6 @@ import {
   Tags,
   Truck,
   Users,
-  Wallet,
 } from 'lucide-react'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 
@@ -40,8 +38,6 @@ export type ResellerErpModuleId =
   | 'print-formats'
   | 'stock'
   | 'rol'
-  | 'digigold'
-  | 'digisilver'
   | 'gst'
   | 'slabs'
   | 'sales-reports'
@@ -177,24 +173,6 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     kind: 'workspace',
   },
   {
-    id: 'digigold',
-    title: 'DigiGold',
-    short: 'DigiGold',
-    description: '',
-    icon: Gem,
-    group: 'rates',
-    kind: 'workspace',
-  },
-  {
-    id: 'digisilver',
-    title: 'DigiSilver',
-    short: 'DigiSilver',
-    description: '',
-    icon: Wallet,
-    group: 'rates',
-    kind: 'workspace',
-  },
-  {
     id: 'rate-uncut',
     title: 'Rate uncut',
     short: 'Uncut rates',
@@ -326,7 +304,7 @@ export const RESELLER_ERP_GROUPS: { id: ResellerErpModule['group']; label: strin
   { id: 'sales', label: 'Sales & billing' },
   { id: 'crm', label: 'Customers' },
   { id: 'inventory', label: 'Stock & ROL' },
-  { id: 'rates', label: 'Rates & digi' },
+  { id: 'rates', label: 'Rates & slabs' },
   { id: 'compliance', label: 'GST & compliance' },
   { id: 'tools', label: 'Tags & scanners' },
 ]

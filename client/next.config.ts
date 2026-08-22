@@ -50,6 +50,15 @@ function uploadsRemotePatterns(): NonNullable<NextConfig["images"]>["remotePatte
 const nextConfig: NextConfig = {
   // Monorepo: root + client each have a lockfile; pin tracing to the repo root.
   outputFileTracingRoot: path.join(__dirname, ".."),
+  async rewrites() {
+    const apiBase = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
+    return [
+      {
+        source: "/api/external/posh-rfid/:path*",
+        destination: `${apiBase}/api/external/posh-rfid/:path*`,
+      },
+    ];
+  },
   images: {
     remotePatterns: uploadsRemotePatterns(),
     formats: ["image/avif", "image/webp"],

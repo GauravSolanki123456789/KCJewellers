@@ -68,9 +68,9 @@ type AdminUser = {
   reseller_erp_enabled?: boolean
   /** Admin enables Posh RFID in ERP (`users.reseller_rfid_enabled`). */
   reseller_rfid_enabled?: boolean
-  /** Admin enables DigiGold ERP tab (`users.reseller_digigold_enabled`). */
+  /** Admin enables DigiGold in Profile (`users.reseller_digigold_enabled`). */
   reseller_digigold_enabled?: boolean
-  /** Admin enables DigiSilver ERP tab (`users.reseller_digisilver_enabled`). */
+  /** Admin enables DigiSilver in Profile (`users.reseller_digisilver_enabled`). */
   reseller_digisilver_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio (`users.reseller_enhanced_pictures_enabled`). */
   reseller_enhanced_pictures_enabled?: boolean
@@ -1247,14 +1247,14 @@ function B2BAdminContent() {
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-200">DigiGold (ERP chit / savings)</p>
-                      <p className="mt-0.5 text-xs text-slate-500">Shows DigiGold tab in jewellery ERP for this reseller.</p>
+                      <p className="text-sm font-medium text-slate-200">DigiGold (Profile tab)</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Chit schemes, balances &amp; gold savings — not in ERP menu</p>
                     </div>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={resellerForm.reseller_digigold_enabled}
-                      aria-label="Enable DigiGold for reseller ERP"
+                      aria-label="Enable DigiGold for reseller"
                       onClick={() =>
                         setResellerForm((f) => ({
                           ...f,
@@ -1279,14 +1279,14 @@ function B2BAdminContent() {
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-200">DigiSilver (ERP chit / savings)</p>
-                      <p className="mt-0.5 text-xs text-slate-500">Shows DigiSilver tab in jewellery ERP for this reseller.</p>
+                      <p className="text-sm font-medium text-slate-200">DigiSilver (Profile tab)</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Silver chit schemes &amp; customer ledger in Profile</p>
                     </div>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={resellerForm.reseller_digisilver_enabled}
-                      aria-label="Enable DigiSilver for reseller ERP"
+                      aria-label="Enable DigiSilver for reseller"
                       onClick={() =>
                         setResellerForm((f) => ({
                           ...f,

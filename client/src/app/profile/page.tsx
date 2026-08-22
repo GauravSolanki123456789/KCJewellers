@@ -11,6 +11,7 @@ import {
   POLICY_TERMS_PATH,
   PROFILE_PATH,
   PROFILE_LEDGER_PATH,
+  PROFILE_DIGI_PATH,
   PROFILE_SIPS_PATH,
   RESELLER_PRODUCTS_PATH,
   RESELLER_RATES_PATH,
@@ -224,6 +225,13 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_erp_enabled?: boolean }).reseller_erp_enabled,
   )
+  const resellerDigiEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      ((auth.user as { reseller_digigold_enabled?: boolean }).reseller_digigold_enabled ||
+        (auth.user as { reseller_digisilver_enabled?: boolean }).reseller_digisilver_enabled),
+  )
   const resellerEnhancedPicturesEnabled = Boolean(
     auth.isAuthenticated &&
       isReseller &&
@@ -306,18 +314,28 @@ function ProfilePageContent() {
               resellerRatesEnabled ||
               resellerUploadSlabsEnabled ||
               resellerErpEnabled ||
+              resellerDigiEnabled ||
               resellerEnhancedPicturesEnabled ||
               resellerPricelistEnabled ||
               isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
+                {resellerDigiEnabled ? (
+                  <ProfileActionCard
+                    href={PROFILE_DIGI_PATH}
+                    icon={Wallet}
+                    title="DigiGold & DigiSilver"
+                    subtitle="Chit schemes, customer savings, balances & payment history — with or without Razorpay"
+                    primary={!resellerErpEnabled}
+                  />
+                ) : null}
                 {resellerErpEnabled ? (
                   <ProfileActionCard
                     href={RESELLER_ERP_PATH}
                     icon={LayoutGrid}
                     title="Jewellery ERP"
-                    subtitle="Billing, customers, stock & ROL, DigiGold / DigiSilver, GST, reports & more"
-                    primary
+                    subtitle="Billing, customers, stock & ROL, GST, reports & more"
+                    primary={!resellerDigiEnabled}
                   />
                 ) : null}
                 {resellerRatesEnabled ? (
