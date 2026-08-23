@@ -27,6 +27,8 @@ const {
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 const { registerDesignMasterRoutes } = require('./resellerErpDesignMaster');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
+const { erpGateWithOperator, registerOperatorRoutes } = require('./resellerErpOperators');
+const { registerShadowRoutes } = require('./resellerErpShadow');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
 const erpPrint = require('../scripts/erp-print-templates');
@@ -433,9 +435,13 @@ function registerResellerErpRoutes(app, deps) {
         deps.getPublicApiBaseUrl ||
         (() => process.env.PUBLIC_API_BASE_URL || process.env.BASE_URL || '');
     const uploadsRoot = deps.uploadsRoot || path.join(__dirname, '..', 'public', 'uploads');
-    const erpGate = requireResellerErp(query);
+    const erpTierGate = requireResellerErp(query);
+    const erpGate = erpGateWithOperator(erpTierGate);
 
     ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
+
+    registerOperatorRoutes(app, { query, pool, checkAuth, requireJson, erpGate, requireResellerErp });
+    registerShadowRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     registerStockPieceRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerDesignMasterRoutes(app, { query, pool, checkAuth, requireJson, erpGate });

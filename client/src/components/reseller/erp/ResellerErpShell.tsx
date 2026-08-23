@@ -7,6 +7,7 @@ import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
 import { CATALOG_PATH, PROFILE_PATH, RESELLER_ERP_PATH } from '@/lib/routes'
 import type { ReactNode } from 'react'
+import { ErpOperatorBar } from '@/components/reseller/erp/ErpOperatorLogin'
 
 export function useResellerErpAccess() {
   const auth = useAuth()
@@ -65,7 +66,12 @@ export function ResellerErpShell({
           {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
         </div>
       </div>
-      <div className="mx-auto max-w-6xl px-4 py-5 sm:py-6">{children}</div>
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:py-6">
+        <div className="mb-4">
+          <ErpOperatorBar />
+        </div>
+        {children}
+      </div>
     </div>
   )
 }

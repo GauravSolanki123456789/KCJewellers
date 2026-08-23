@@ -19,6 +19,9 @@ import { ErpDesignMasterWorkspace } from '@/components/reseller/erp/ErpDesignMas
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import { ErpFloorsWorkspace } from '@/components/reseller/erp/ErpFloorsWorkspace'
 import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
+import { ErpUsersWorkspace } from '@/components/reseller/erp/ErpUsersWorkspace'
+import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
 import {
   BillsWorkspace,
@@ -196,6 +199,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       )
     case 'tag-splitting':
       return <ErpTagSplitWorkspace rfidEnabled={rfidEnabled} />
+    case 'erp-users':
+      return <ErpUsersWorkspace />
     default:
       return <ErpFallbackPanel />
   }
@@ -204,6 +209,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
 function ModulePageContent() {
   const params = useParams()
   const router = useRouter()
+  const { canAccessModule } = useErpOperator()
   const raw = typeof params?.module === 'string' ? params.module : Array.isArray(params?.module) ? params.module[0] : ''
   const mod = useMemo(() => getResellerErpModule(raw), [raw])
 
@@ -231,6 +237,19 @@ function ModulePageContent() {
     )
   }
 
+  if (!canAccessModule(mod.id)) {
+    return (
+      <ResellerErpShell title="Access denied">
+        <p className="mb-4 text-sm text-[var(--color-jewelry-black,#1a1814)]/70">
+          Your ERP account does not have access to <strong>{mod.title}</strong>.
+        </p>
+        <Link href={RESELLER_ERP_PATH} className={erpBtnPrimary}>
+          Back to ERP home
+        </Link>
+      </ResellerErpShell>
+    )
+  }
+
   return (
     <ResellerErpShell title={mod.title}>
       <ModuleBody moduleId={mod.id} />
@@ -248,7 +267,9 @@ export default function ResellerErpModulePageClient() {
       }
     >
       <ResellerErpAccessGate>
-        <ModulePageContent />
+        <ErpOperatorGate>
+          <ModulePageContent />
+        </ErpOperatorGate>
       </ResellerErpAccessGate>
     </Suspense>
   )

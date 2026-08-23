@@ -12,6 +12,8 @@ import {
   resellerErpModulePath,
 } from '@/lib/reseller-erp-modules'
 import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
+import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 
 type ErpStatus = {
   enabled: boolean
@@ -26,6 +28,7 @@ type ErpStatus = {
 
 function ErpHubContent() {
   const [status, setStatus] = useState<ErpStatus | null>(null)
+  const { canAccessModule } = useErpOperator()
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +87,9 @@ function ErpHubContent() {
 
       <div className="space-y-7">
         {RESELLER_ERP_GROUPS.map((group) => {
-          const mods = RESELLER_ERP_MODULES.filter((m) => m.group === group.id)
+          const mods = RESELLER_ERP_MODULES.filter(
+            (m) => m.group === group.id && m.id !== 'shadow' && canAccessModule(m.id),
+          )
           if (!mods.length) return null
           return (
             <section key={group.id}>
@@ -131,7 +136,9 @@ export default function ResellerErpHubPageClient() {
       }
     >
       <ResellerErpAccessGate>
-        <ErpHubContent />
+        <ErpOperatorGate>
+          <ErpHubContent />
+        </ErpOperatorGate>
       </ResellerErpAccessGate>
     </Suspense>
   )

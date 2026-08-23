@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { Loader2, ArrowLeft, Save, Store, Upload, UserPlus, Users, Search, X } from 'lucide-react'
 import { ResellerApplicationsPanel } from '@/components/admin/ResellerApplicationsPanel'
 import ResellerLoginEmailsPanel from '@/components/admin/ResellerLoginEmailsPanel'
+import { ErpOperatorsAdminPanel } from '@/components/admin/ErpOperatorsAdminPanel'
 import { normalizeResellerInviteCode } from '@/lib/reseller-invite'
 import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
@@ -1212,6 +1213,10 @@ function B2BAdminContent() {
                     </button>
                   </div>
                 </div>
+
+                {resellerForm.reseller_erp_enabled && resellerModalUser?.id ? (
+                  <ErpOperatorsAdminPanel resellerUserId={resellerModalUser.id} />
+                ) : null}
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">

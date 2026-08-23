@@ -19,6 +19,7 @@ import {
   Split,
   Tags,
   Truck,
+  UserCog,
   Users,
 } from 'lucide-react'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
@@ -50,6 +51,8 @@ export type ResellerErpModuleId =
   | 'e-way'
   | 'tally'
   | 'integrations'
+  | 'erp-users'
+  | 'shadow'
 
 export type ResellerErpModule = {
   id: ResellerErpModuleId
@@ -297,6 +300,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     icon: Settings2,
     group: 'compliance',
     kind: 'settings',
+  },
+  {
+    id: 'erp-users',
+    title: 'ERP users',
+    short: 'Staff logins',
+    description: 'Usernames, passwords & tab access',
+    icon: UserCog,
+    group: 'tools',
+    kind: 'workspace',
   },
 ]
 
