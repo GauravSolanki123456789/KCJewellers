@@ -124,10 +124,10 @@ function requireShadowUnlocked() {
     return (req, res, next) => {
         const op = getSessionOperator(req);
         if (!op || op.role !== 'admin' || !op.shadowAccess) {
-            return res.status(403).json({ error: 'Shadow mode requires admin with shadow access' });
+            return res.status(403).json({ error: 'Access denied' });
         }
         if (!req.session?.shadowUnlocked) {
-            return res.status(403).json({ error: 'Shadow mode locked', code: 'SHADOW_LOCKED' });
+            return res.status(403).json({ error: 'Locked', code: 'INTERNAL_LOCKED' });
         }
         req.erpOperator = op;
         next();
@@ -170,7 +170,7 @@ function registerShadowRoutes(app, deps) {
         try {
             const op = getSessionOperator(req);
             if (!op || op.role !== 'admin' || !op.shadowAccess) {
-                return res.status(403).json({ error: 'Shadow access denied' });
+                return res.status(403).json({ error: 'Access denied' });
             }
             const sequence = String(req.body.sequence || '').trim();
             const settings = await loadShadowSettings(query, req.user.id);
@@ -337,7 +337,7 @@ function registerShadowRoutes(app, deps) {
             const rows = await query(sql, params);
             const bills = rows.map(mapShadowBill);
             const csv = billsToCsv(bills);
-            const filename = `shadow-${lane}-${from}${to !== from ? `_to_${to}` : ''}.csv`;
+            const filename = `ledger-${lane}-${from}${to !== from ? `_to_${to}` : ''}.csv`;
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
             res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
             res.send('\ufeff' + csv);
@@ -363,7 +363,7 @@ function registerShadowRoutes(app, deps) {
             const rows = await query(sql, params);
             const bills = rows.map(mapShadowBill);
             res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Content-Disposition', `attachment; filename="shadow-detail-${lane}-${from}.json"`);
+            res.setHeader('Content-Disposition', `attachment; filename="ledger-detail-${lane}-${from}.json"`);
             res.json({
                 exported_at: new Date().toISOString(),
                 lane,

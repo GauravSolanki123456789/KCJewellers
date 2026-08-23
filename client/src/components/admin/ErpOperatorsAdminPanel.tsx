@@ -18,7 +18,6 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [role, setRole] = useState<'admin' | 'staff'>('admin')
-  const [shadowAccess, setShadowAccess] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -36,8 +35,8 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
   }, [load])
 
   const add = async () => {
-    if (!username.trim() || password.length < 6) {
-      setMsg('Username and password (min 6 chars) required.')
+    if (!username.trim() || !password) {
+      setMsg('Username and password required.')
       return
     }
     setBusy(true)
@@ -49,7 +48,7 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
         display_name: displayName || username.trim(),
         role,
         full_access: role === 'admin',
-        shadow_access: shadowAccess,
+        shadow_access: role === 'admin',
       })
       setUsername('')
       setPassword('')
@@ -71,10 +70,10 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
   }
 
   return (
-    <div className="rounded-xl border border-violet-900/40 bg-violet-950/20 px-3 py-3">
-      <p className="text-sm font-medium text-violet-200">ERP staff logins</p>
-      <p className="mt-0.5 text-xs text-slate-500">
-        Usernames/passwords for Jewellery ERP (after Google sign-in). Create the first admin here.
+    <div className="rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-3">
+      <p className="text-sm font-semibold text-slate-100">ERP staff logins</p>
+      <p className="mt-0.5 text-xs leading-relaxed text-slate-400">
+        Usernames and passwords for Jewellery ERP (after Google sign-in). Create the first admin here.
       </p>
 
       {operators.length ? (
@@ -87,10 +86,7 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
               <span className="text-slate-200">
                 {op.displayName}{' '}
                 <span className="font-mono text-slate-500">@{op.username}</span>
-                <span className="ml-1 text-slate-500">
-                  · {op.role}
-                  {op.shadowAccess ? ' · shadow' : ''}
-                </span>
+                <span className="ml-1 text-slate-500">· {op.role === 'admin' ? 'Admin' : 'Employee'}</span>
               </span>
               <button
                 type="button"
@@ -120,7 +116,7 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
         <input
           type="password"
           className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-100 sm:col-span-2"
-          placeholder="Password (min 6 chars)"
+          placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -132,20 +128,16 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
           <option value="admin">Admin</option>
           <option value="staff">Employee</option>
         </select>
-        <label className="flex items-center gap-2 text-xs text-slate-400">
-          <input type="checkbox" checked={shadowAccess} onChange={(e) => setShadowAccess(e.target.checked)} />
-          Shadow mode access
-        </label>
       </div>
       <button
         type="button"
         disabled={busy}
         onClick={() => void add()}
-        className="mt-2 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-60"
+        className="mt-3 min-h-[44px] w-full rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-60 sm:w-auto"
       >
         Add ERP user
       </button>
-      {msg ? <p className="mt-2 text-xs text-slate-400">{msg}</p> : null}
+      {msg ? <p className="mt-2 text-xs text-slate-300">{msg}</p> : null}
     </div>
   )
 }

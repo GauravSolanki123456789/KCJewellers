@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import axios from '@/lib/axios'
-import { Download, Lock, Moon, Trash2, Upload } from 'lucide-react'
+import { Download, Lock, Trash2, Upload } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
@@ -124,7 +124,7 @@ export function ErpShadowWorkspace() {
           ? [{ barcode: billForm.barcode.trim(), lineTotalInr: total, qty: 1 }]
           : [{ description: 'Sale', lineTotalInr: total, qty: 1 }],
       })
-      setMsg('Shadow bill saved. Stock marked sold; bill stored in internal ledger only.')
+      setMsg('Bill saved.')
       setBillForm({
         customerName: '',
         customerGstin: '',
@@ -162,7 +162,7 @@ export function ErpShadowWorkspace() {
   if (!operator?.shadowAccess) {
     return (
       <ResellerErpShell title="Access denied" backHref={RESELLER_ERP_PATH}>
-        <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]">Shadow mode is not enabled for your account.</p>
+        <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]">You do not have access to this area.</p>
       </ResellerErpShell>
     )
   }
@@ -186,13 +186,6 @@ export function ErpShadowWorkspace() {
         </button>
       }
     >
-      <div className="mb-4 flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50/80 px-3 py-2 text-xs text-violet-950">
-        <Moon className="size-4 shrink-0" />
-        <span>
-          Internal mode — bills here are separate from public GST sales. Jainav (cash) can be exported and purged nightly.
-        </span>
-      </div>
-
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
           Business date

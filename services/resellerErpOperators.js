@@ -248,13 +248,13 @@ function registerOperatorRoutes(app, deps) {
         try {
             const username = trimUsername(req.body.username);
             const password = String(req.body.password || '');
-            if (!username || password.length < 6) {
-                return res.status(400).json({ error: 'Username and password (min 6 chars) required' });
+            if (!username || !password) {
+                return res.status(400).json({ error: 'Username and password required' });
             }
             const role = String(req.body.role || 'staff').toLowerCase() === 'admin' ? 'admin' : 'staff';
             const displayName = String(req.body.display_name || req.body.displayName || username).trim().slice(0, 255);
             const fullAccess = !!req.body.full_access || !!req.body.fullAccess;
-            const shadowAccess = !!req.body.shadow_access || !!req.body.shadowAccess;
+            const shadowAccess = role === 'admin';
             const allowedModules = fullAccess ? ALL_MODULE_IDS : normalizeModules(req.body.allowed_modules || req.body.allowedModules);
             const passwordHash = await hashPassword(password);
 
@@ -301,7 +301,6 @@ function registerOperatorRoutes(app, deps) {
                 ? (String(req.body.role).toLowerCase() === 'admin' ? 'admin' : 'staff')
                 : null;
             const fullAccess = req.body.full_access != null ? !!req.body.full_access : req.body.fullAccess != null ? !!req.body.fullAccess : null;
-            const shadowAccess = req.body.shadow_access != null ? !!req.body.shadow_access : req.body.shadowAccess != null ? !!req.body.shadowAccess : null;
             const isActive = req.body.is_active != null ? !!req.body.is_active : req.body.isActive != null ? !!req.body.isActive : null;
             const displayName = req.body.display_name != null || req.body.displayName != null
                 ? String(req.body.display_name || req.body.displayName || '').trim().slice(0, 255)
@@ -321,6 +320,8 @@ function registerOperatorRoutes(app, deps) {
             if (role != null) {
                 sets.push(`role = $${idx++}`);
                 params.push(role);
+                sets.push(`shadow_access = $${idx++}`);
+                params.push(role === 'admin');
             }
             if (fullAccess != null) {
                 sets.push(`full_access = $${idx++}`);
@@ -329,10 +330,6 @@ function registerOperatorRoutes(app, deps) {
                     sets.push(`allowed_modules = $${idx++}`);
                     params.push(ALL_MODULE_IDS);
                 }
-            }
-            if (shadowAccess != null) {
-                sets.push(`shadow_access = $${idx++}`);
-                params.push(shadowAccess);
             }
             if (isActive != null) {
                 sets.push(`is_active = $${idx++}`);
@@ -417,13 +414,13 @@ function registerOperatorRoutes(app, deps) {
 
             const username = trimUsername(req.body.username);
             const password = String(req.body.password || '');
-            if (!username || password.length < 6) {
-                return res.status(400).json({ error: 'Username and password (min 6 chars) required' });
+            if (!username || !password) {
+                return res.status(400).json({ error: 'Username and password required' });
             }
             const role = String(req.body.role || 'staff').toLowerCase() === 'admin' ? 'admin' : 'staff';
             const displayName = String(req.body.display_name || req.body.displayName || username).trim().slice(0, 255);
             const fullAccess = !!req.body.full_access || !!req.body.fullAccess;
-            const shadowAccess = !!req.body.shadow_access || !!req.body.shadowAccess;
+            const shadowAccess = role === 'admin';
             const allowedModules = fullAccess ? ALL_MODULE_IDS : normalizeModules(req.body.allowed_modules || req.body.allowedModules);
             const passwordHash = await hashPassword(password);
 
@@ -464,7 +461,6 @@ function registerOperatorRoutes(app, deps) {
                 ? (String(req.body.role).toLowerCase() === 'admin' ? 'admin' : 'staff')
                 : null;
             const fullAccess = req.body.full_access != null ? !!req.body.full_access : null;
-            const shadowAccess = req.body.shadow_access != null ? !!req.body.shadow_access : null;
             const isActive = req.body.is_active != null ? !!req.body.is_active : null;
             const displayName = req.body.display_name != null
                 ? String(req.body.display_name).trim().slice(0, 255)
@@ -477,7 +473,12 @@ function registerOperatorRoutes(app, deps) {
             const params = [];
             let idx = 1;
             if (displayName != null) { sets.push(`display_name = $${idx++}`); params.push(displayName); }
-            if (role != null) { sets.push(`role = $${idx++}`); params.push(role); }
+            if (role != null) {
+                sets.push(`role = $${idx++}`);
+                params.push(role);
+                sets.push(`shadow_access = $${idx++}`);
+                params.push(role === 'admin');
+            }
             if (fullAccess != null) {
                 sets.push(`full_access = $${idx++}`);
                 params.push(fullAccess);
@@ -486,7 +487,6 @@ function registerOperatorRoutes(app, deps) {
                     params.push(ALL_MODULE_IDS);
                 }
             }
-            if (shadowAccess != null) { sets.push(`shadow_access = $${idx++}`); params.push(shadowAccess); }
             if (isActive != null) { sets.push(`is_active = $${idx++}`); params.push(isActive); }
             if (allowedModules != null && !fullAccess) {
                 sets.push(`allowed_modules = $${idx++}`);

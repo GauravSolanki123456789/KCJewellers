@@ -303,7 +303,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
   },
   {
     id: 'erp-users',
-    title: 'ERP users',
+    title: 'ERP staff logins',
     short: 'Staff logins',
     description: 'Usernames, passwords & tab access',
     icon: UserCog,

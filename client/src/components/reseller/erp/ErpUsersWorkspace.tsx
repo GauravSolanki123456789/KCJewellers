@@ -25,7 +25,6 @@ export function ErpUsersWorkspace() {
     displayName: '',
     role: 'staff' as 'admin' | 'staff',
     fullAccess: false,
-    shadowAccess: false,
     allowedModules: [] as string[],
   })
 
@@ -56,7 +55,6 @@ export function ErpUsersWorkspace() {
       displayName: '',
       role: 'staff',
       fullAccess: false,
-      shadowAccess: false,
       allowedModules: [],
     })
     setFormOpen(false)
@@ -70,7 +68,6 @@ export function ErpUsersWorkspace() {
       displayName: op.displayName,
       role: op.role,
       fullAccess: op.fullAccess,
-      shadowAccess: op.shadowAccess,
       allowedModules: op.allowedModules || [],
     })
     setFormOpen(true)
@@ -86,15 +83,28 @@ export function ErpUsersWorkspace() {
   }
 
   const save = async () => {
+    const uname = form.username.trim()
+    if (!uname) {
+      setMsg('Username is required.')
+      return
+    }
+    if (!editId && !form.password) {
+      setMsg('Password is required for new users.')
+      return
+    }
+    if (!form.fullAccess && !editId && form.allowedModules.length === 0) {
+      setMsg('Select at least one module, or enable full access.')
+      return
+    }
     setBusy(true)
     setMsg(null)
     try {
       const body = {
-        username: form.username,
-        display_name: form.displayName || form.username,
+        username: uname,
+        display_name: form.displayName || uname,
         role: form.role,
         full_access: form.fullAccess,
-        shadow_access: form.shadowAccess,
+        shadow_access: form.role === 'admin',
         allowed_modules: form.fullAccess ? moduleIds : form.allowedModules,
         ...(form.password ? { password: form.password } : {}),
       }
@@ -102,10 +112,6 @@ export function ErpUsersWorkspace() {
         await axios.put(`/api/reseller/erp/operators/${editId}`, body)
         setMsg('User updated.')
       } else {
-        if (!form.password || form.password.length < 6) {
-          setMsg('Password must be at least 6 characters.')
-          return
-        }
         await axios.post('/api/reseller/erp/operators', body)
         setMsg('User created.')
       }
@@ -149,7 +155,11 @@ export function ErpUsersWorkspace() {
             value: operators.filter((o) => o.role === 'admin').length,
             tone: 'text-violet-700',
           },
-          { label: 'Shadow access', value: operators.filter((o) => o.shadowAccess).length, tone: 'text-amber-700' },
+          {
+            label: 'Employees',
+            value: operators.filter((o) => o.role === 'staff').length,
+            tone: 'text-[var(--color-jewelry-black,#1a1814)]/70',
+          },
         ].map((c) => (
           <div key={c.label} className={`${erpCardCls} py-3`}>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
@@ -239,22 +249,6 @@ export function ErpUsersWorkspace() {
                 </span>
               </span>
             </label>
-            <label className="flex min-h-[44px] cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-3">
-              <input
-                type="checkbox"
-                checked={form.shadowAccess}
-                onChange={(e) => setForm((f) => ({ ...f, shadowAccess: e.target.checked }))}
-                className="mt-1"
-              />
-              <span>
-                <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  Shadow mode access
-                </span>
-                <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                  Admin can unlock internal ledger with secret key (F9Rs* + Enter)
-                </span>
-              </span>
-            </label>
           </div>
 
           {!form.fullAccess ? (
@@ -312,7 +306,6 @@ export function ErpUsersWorkspace() {
                 <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                   {op.role === 'admin' ? 'Admin' : 'Employee'}
                   {op.fullAccess ? ' · Full access' : ` · ${op.allowedModules?.length || 0} modules`}
-                  {op.shadowAccess ? ' · Shadow' : ''}
                 </p>
               </div>
               <div className="flex gap-2">
