@@ -29,7 +29,7 @@ export type ErpScaleProfile = {
   id: string
   name: string
   serial: ErpSerialSettings
-  brand?: 'essae' | 'generic'
+  brand?: 'essae' | 'generic' | 'mettler_toledo'
   isDefault?: boolean
 }
 

@@ -202,8 +202,30 @@ export function resolvePrinterSerialSettings(
   return apiProfile?.serial || profile?.serial || DEFAULT_SERIAL
 }
 
-/** Parse Essae / generic scale stream — picks last stable decimal weight (e.g. 2.366). */
-export function parseScaleWeightChunk(text: string): number | null {
+/** Parse scale weight from serial stream — brand selects protocol. */
+export function parseScaleWeightChunk(
+  text: string,
+  brand: 'essae' | 'generic' | 'mettler_toledo' = 'generic',
+): number | null {
+  if (brand === 'mettler_toledo') {
+    const lines = text.split(/[\r\n]+/)
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i].trim()
+      if (!line) continue
+      // MT-SICS stable weight: "S S     12.450 g" or "S     +   12.45 g"
+      const mt = line.match(/^S\s+S?\s*[+-]?\s*([\d.]+)\s*g\b/i)
+      if (mt) {
+        const v = parseFloat(mt[1])
+        if (Number.isFinite(v) && v >= 0) return v
+      }
+      // SI immediate response: "S     12.450 g"
+      const si = line.match(/^SI?\s+[+-]?\s*([\d.]+)\s*g\b/i)
+      if (si) {
+        const v = parseFloat(si[1])
+        if (Number.isFinite(v) && v >= 0) return v
+      }
+    }
+  }
   const matches = text.match(/\d+\.\d{2,4}/g)
   if (!matches?.length) return null
   const last = parseFloat(matches[matches.length - 1])
@@ -219,7 +241,9 @@ export type ScaleReaderCallbacks = {
 export async function startScaleReader(
   port: SerialPortLike,
   callbacks: ScaleReaderCallbacks,
+  options?: { brand?: 'essae' | 'generic' | 'mettler_toledo' },
 ): Promise<() => void> {
+  const brand = options?.brand || 'generic'
   if (!port.readable) throw new Error('Serial port is not open for reading')
   const reader = port.readable.getReader()
   const decoder = new TextDecoder()
@@ -234,7 +258,7 @@ export async function startScaleReader(
         if (!value) continue
         buffer += decoder.decode(value, { stream: true })
         if (buffer.length > 512) buffer = buffer.slice(-256)
-        const w = parseScaleWeightChunk(buffer)
+        const w = parseScaleWeightChunk(buffer, brand)
         if (w != null) callbacks.onWeight(w)
       }
     } catch (e) {

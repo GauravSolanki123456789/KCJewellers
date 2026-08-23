@@ -24,6 +24,7 @@ import {
 } from '@/lib/erp-serial-device'
 import { checkLocalPrintAgent, printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
 import { printErpTestReceipt } from '@/lib/erp-billing-print'
+import { getKcApiBaseUrl, kcPoshRfidHealthUrl, kcPoshRfidInventoryUrl } from '@/lib/api-base'
 import { Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
 
 function SerialFields({
@@ -215,6 +216,41 @@ export function ErpHardwareWorkspace() {
     setHw((h) => ({ ...h, scaleProfiles: [...(h.scaleProfiles || []), p] }))
   }
 
+  const addMettlerScale = () => {
+    const p: ErpScaleProfile = {
+      id: newProfileId(),
+      name: 'Mettler Toledo JSB15005',
+      serial: { port: 'COM3', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
+      brand: 'mettler_toledo',
+      isDefault: !(hw.scaleProfiles?.length || 0),
+    }
+    setHw((h) => ({ ...h, scaleProfiles: [...(h.scaleProfiles || []), p] }))
+  }
+
+  const copyPoshBrief = async () => {
+    const key = hw.poshRfid?.apiKey || ''
+    const store = hw.poshRfid?.storeId || ''
+    const inv = kcPoshRfidInventoryUrl()
+    const health = kcPoshRfidHealthUrl()
+    const text = `KC Jewellers RFID inventory API (Posh connects inbound)
+
+Inventory URL: ${inv}
+Health check: ${health}
+
+Headers (required on every request):
+  X-Api-Key: ${key || '(set in ERP Hardware first)'}
+  X-Store-Id: ${store || '(set in ERP Hardware first)'}
+
+Method: GET
+Response: JSON with store_id, count, items[{ rfid_tag, barcode, sku, weight_gm, ... }]`
+    try {
+      await navigator.clipboard.writeText(text)
+      setTestMsg('Posh integration brief copied to clipboard.')
+    } catch {
+      setTestMsg(text)
+    }
+  }
+
   const removeScale = (id: string) => {
     setHw((h) => {
       const next = (h.scaleProfiles || []).filter((p) => p.id !== id)
@@ -284,14 +320,89 @@ export function ErpHardwareWorkspace() {
         <div className={erpCardCls}>
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             <Radio className="size-4 text-[var(--kc-accent,#c41e3a)]" />
-            RFID API
+            RFID — Posh integration
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
-              API base URL
+
+          <div className="mb-4 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3">
+            <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Step 1 — Your KC credentials (you create &amp; save here)
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65">
+              These two values authenticate Posh when their gun calls <strong>your</strong> API. You choose
+              them — Posh does not give you these.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+                KC API key (for Posh → you)
+                <input
+                  className={`${erpInputCls} mt-1 font-mono text-xs`}
+                  type="password"
+                  autoComplete="off"
+                  placeholder="e.g. bnmarlecha-8f3a9c2e1b7d4f6a"
+                  value={hw.poshRfid?.apiKey || ''}
+                  onChange={(e) =>
+                    setHw((h) => ({
+                      ...h,
+                      poshRfid: { ...(h.poshRfid || {}), apiKey: e.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+                Store / showroom ID
+                <input
+                  className={`${erpInputCls} mt-1 font-mono text-xs`}
+                  placeholder="e.g. BNMARLECHA-001"
+                  value={hw.poshRfid?.storeId || ''}
+                  onChange={(e) =>
+                    setHw((h) => ({
+                      ...h,
+                      poshRfid: { ...(h.poshRfid || {}), storeId: e.target.value },
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-xs text-[var(--color-jewelry-black,#1a1814)]">
+            <p className="mb-1 font-semibold text-emerald-900">Step 2 — Give Posh only these KC URLs</p>
+            <p className="mb-2 text-[var(--color-jewelry-black,#1a1814)]/70">
+              Posh RFID gun calls <strong>your backend</strong> at{' '}
+              <span className="font-mono">{getKcApiBaseUrl()}</span> — not the shop website{' '}
+              <span className="font-mono">kcjewellers.co.in</span>.
+            </p>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Inventory URL
+            </p>
+            <p className={erpMonoUrl}>{kcPoshRfidInventoryUrl()}</p>
+            <p className="mt-2 text-[var(--color-jewelry-black,#1a1814)]/65">
+              Headers: <span className="font-mono">X-Api-Key</span> ·{' '}
+              <span className="font-mono">X-Store-Id</span> (values from Step 1)
+            </p>
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Health check
+            </p>
+            <p className={`${erpMonoUrl} mt-1`}>{kcPoshRfidHealthUrl()}</p>
+            <button type="button" className={`${erpBtnPrimary} mt-3`} onClick={() => void copyPoshBrief()}>
+              Copy brief for Posh developer
+            </button>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3">
+            <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Optional — Posh cloud API (you → Posh)
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+              Fill this only if Posh gives <em>their</em> API URL for the &quot;Sync linked stock to RFID
+              gun&quot; button. Do <strong>not</strong> send this URL to Posh — they already have their own
+              server.
+            </p>
+            <label className="mt-2 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+              Posh API base URL
               <input
                 className={`${erpInputCls} mt-1 font-mono text-xs`}
-                placeholder="https://api.poshrfid.example/v1"
+                placeholder="https://api.poshrfid.example/v1 (from Posh team)"
                 value={hw.poshRfid?.apiUrl || ''}
                 onChange={(e) =>
                   setHw((h) => ({
@@ -301,75 +412,22 @@ export function ErpHardwareWorkspace() {
                 }
               />
             </label>
-            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
-              API key
-              <input
-                className={`${erpInputCls} mt-1 font-mono text-xs`}
-                type="password"
-                autoComplete="off"
-                value={hw.poshRfid?.apiKey || ''}
-                onChange={(e) =>
-                  setHw((h) => ({
-                    ...h,
-                    poshRfid: { ...(h.poshRfid || {}), apiKey: e.target.value },
-                  }))
-                }
-              />
-            </label>
-            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
-              Store / showroom ID
-              <input
-                className={`${erpInputCls} mt-1 font-mono text-xs`}
-                value={hw.poshRfid?.storeId || ''}
-                onChange={(e) =>
-                  setHw((h) => ({
-                    ...h,
-                    poshRfid: { ...(h.poshRfid || {}), storeId: e.target.value },
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            className={`${erpBtnPrimary} mt-3`}
-            disabled={rfidSyncBusy}
-            onClick={() => {
-              setRfidSyncBusy(true)
-              void axios
-                .post('/api/reseller/erp/rfid/sync-inventory')
-                .then(() => setTestMsg('RFID inventory synced to Posh.'))
-                .catch((e) => setTestMsg(erpErr(e)))
-                .finally(() => setRfidSyncBusy(false))
-            }}
-          >
-            {rfidSyncBusy ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
-            Sync linked stock to RFID gun
-          </button>
-
-          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-xs text-[var(--color-jewelry-black,#1a1814)]">
-            <p className="mb-1 font-semibold text-emerald-900">Give Posh RFID these KC API details</p>
-            <p className="mb-2 text-[var(--color-jewelry-black,#1a1814)]/70">
-              Posh connects to KC (inbound). Save API key &amp; store ID below first, then share this URL with your Posh
-              developer.
-            </p>
-            <p className={erpMonoUrl}>
-              {typeof window !== 'undefined'
-                ? `${window.location.origin}/api/external/posh-rfid/v1/inventory`
-                : 'https://kcjewellers.co.in/api/external/posh-rfid/v1/inventory'}
-            </p>
-            <p className="mt-2 text-[var(--color-jewelry-black,#1a1814)]/65">
-              Headers: <span className="font-mono">X-Api-Key</span> (above) ·{' '}
-              <span className="font-mono">X-Store-Id</span> (store / showroom ID)
-            </p>
-            <p className="mt-1 text-[var(--color-jewelry-black,#1a1814)]/55">
-              Health check:{' '}
-              <span className="font-mono break-all">
-                {typeof window !== 'undefined'
-                  ? `${window.location.origin}/api/external/posh-rfid/v1/health`
-                  : '/api/external/posh-rfid/v1/health'}
-              </span>
-            </p>
+            <button
+              type="button"
+              className={`${erpBtnPrimary} mt-3`}
+              disabled={rfidSyncBusy}
+              onClick={() => {
+                setRfidSyncBusy(true)
+                void axios
+                  .post('/api/reseller/erp/rfid/sync-inventory')
+                  .then(() => setTestMsg('RFID inventory synced to Posh.'))
+                  .catch((e) => setTestMsg(erpErr(e)))
+                  .finally(() => setRfidSyncBusy(false))
+              }}
+            >
+              {rfidSyncBusy ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
+              Sync linked stock to Posh gun
+            </button>
           </div>
 
           <div className="mt-5 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
@@ -648,11 +706,21 @@ export function ErpHardwareWorkspace() {
             <Scale className="size-4 text-[var(--kc-accent,#c41e3a)]" />
             Weighing machines
           </div>
-          <button type="button" className={erpBtnPrimary} onClick={addScale}>
-            <Plus className="size-4" />
-            Add scale
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={erpBtnPrimary} onClick={addMettlerScale}>
+              <Plus className="size-4" />
+              Mettler Toledo preset
+            </button>
+            <button type="button" className={erpBtnPrimary} onClick={addScale}>
+              <Plus className="size-4" />
+              Add scale
+            </button>
+          </div>
         </div>
+        <p className="mb-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+          Each PC picks its own scale in &quot;This workstation&quot; above. Use Essae on one counter and Mettler
+          Toledo JSB15005 on another — connect via USB‑serial, then choose the COM port in Chrome.
+        </p>
 
         <div className="space-y-4">
           {(hw.scaleProfiles || []).map((s) => (
@@ -704,9 +772,15 @@ export function ErpHardwareWorkspace() {
                   }
                 >
                   <option value="essae">Essae (continuous weight stream)</option>
+                  <option value="mettler_toledo">Mettler Toledo MT-SICS (JSB15005)</option>
                   <option value="generic">Generic decimal stream</option>
                 </select>
               </label>
+              {s.brand === 'mettler_toledo' ? (
+                <p className="mb-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Default 9600 8N1. Enable continuous output on the scale (Settings → Interface → RS232).
+                </p>
+              ) : null}
               <SerialFields
                 value={s.serial}
                 onChange={(serial) => updateScale(s.id, { serial })}

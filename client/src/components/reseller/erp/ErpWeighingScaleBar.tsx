@@ -89,7 +89,7 @@ export function ErpWeighingScaleBar({
       stopReadRef.current = await startScaleReader(port, {
         onWeight: (g) => setLiveWeight(g),
         onError: (m) => setError(m),
-      })
+      }, { brand: profile.brand || 'generic' })
       setConnected(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not connect to scale')
