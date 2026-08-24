@@ -20,7 +20,27 @@
       "headers": {
         "X-Api-Key": "{api_key configured in ERP Hardware}",
         "X-Store-Id": "{store_id configured in ERP Hardware}"
-      }
+      },
+      "response_example": {
+        "store_id": "BNMARLECHA-001",
+        "count": 2,
+        "data": [
+          {
+            "RFID": "B1238",
+            "Barcode": "FS001",
+            "sku": "PLAIN CHOMBU",
+            "product_name": "CHOMBU",
+            "weight_gm": 12.45,
+            "metal_type": "SILVER",
+            "status": "in_stock",
+            "store_id": "BNMARLECHA-001",
+            "floor_name": "Ground",
+            "box_code": "A1",
+            "Image": "https://api.kcjewellers.co.in/uploads/web_products/example.webp"
+          }
+        ]
+      },
+      "notes": "Image is included only when a product photo URL is available (Excel Image column or catalogue match)."
     },
     {
       "method": "GET",
@@ -99,8 +119,8 @@
   ],
   "sample_products": [
     {
-      "rfid_tag": "B0297",
-      "barcode": "AYAPPA-32843",
+      "RFID": "B0297",
+      "Barcode": "AYAPPA-32843",
       "sku": "DOLLAR",
       "product_name": "AYAPPA",
       "weight_gm": 6.788,
@@ -109,8 +129,8 @@
       "box_name": "DOLLAR BOX-1"
     },
     {
-      "rfid_tag": "B0142",
-      "barcode": "GANESH-67158",
+      "RFID": "B0142",
+      "Barcode": "GANESH-67158",
       "sku": "DOLLAR",
       "product_name": "GANESH",
       "weight_gm": 12.5,

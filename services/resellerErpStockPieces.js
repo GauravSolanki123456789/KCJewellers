@@ -123,7 +123,7 @@ const EXCEL_ALIASES = {
     stone_wt: ['StoneWt', 'stone_wt', 'Stone Wt', 'StoneWeight'],
     metal_type: ['MetalType', 'metal_type', 'Metal'],
     item_code: ['ItemCode', 'item_code'],
-    image_url: ['ImageUrl', 'image_url', 'Image'],
+    image_url: ['Image', 'ImageUrl', 'image_url'],
     attr_color: ['Attr:Color', 'attr_color', 'Color'],
     attr_stone: ['Attr:Stone', 'attr_stone', 'Stone'],
     fixed_price: ['FixedPrice', 'fixed_price', 'Price'],
@@ -139,7 +139,7 @@ const EXCEL_ALIASES = {
     metal_slab_r_pct: ['MetalSlabR%', 'MetalSlabR', 'metal_slab_r_pct', 'Metal Slab R %'],
     metal_slab_w_pct: ['MetalSlabW%', 'MetalSlabW', 'metal_slab_w_pct', 'Metal Slab W %'],
     metal_slab_f_pct: ['MetalSlabF%', 'MetalSlabF', 'metal_slab_f_pct', 'Metal Slab F %'],
-    rfid_tag: ['RFIDTag', 'RFID', 'rfid_tag', 'Rfid Tag', 'RfidTag', 'RFID Tag'],
+    rfid_tag: ['RFID', 'RFIDTag', 'rfid_tag', 'Rfid Tag', 'RfidTag', 'RFID Tag'],
 };
 
 function pickRowVal(row, keys) {

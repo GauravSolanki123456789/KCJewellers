@@ -85,7 +85,7 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'stone_wt', label: 'StoneWt', shortLabel: 'Stone Wt', type: 'number' },
   { key: 'metal_type', label: 'MetalType', shortLabel: 'Metal', type: 'text' },
   { key: 'item_code', label: 'ItemCode', type: 'text' },
-  { key: 'image_url', label: 'ImageUrl', type: 'text' },
+  { key: 'image_url', label: 'Image', type: 'text' },
   { key: 'attr_color', label: 'Attr:Color', type: 'text' },
   { key: 'attr_stone', label: 'Attr:Stone', type: 'text' },
   { key: 'fixed_price', label: 'FixedPrice', type: 'number' },

@@ -4,10 +4,20 @@
  */
 const poshRfid = require('./poshRfid');
 
+function resolvePublicImageUrl(raw) {
+    if (raw == null || String(raw).trim() === '') return null;
+    const s = String(raw).trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    const base = String(
+        process.env.PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'https://api.kcjewellers.co.in',
+    ).replace(/\/$/, '');
+    return s.startsWith('/') ? `${base}${s}` : `${base}/${s}`;
+}
+
 function piecePayload(row, storeId) {
-    return {
-        rfid_tag: poshRfid.normalizeRfidTag(row.rfid_tag),
-        barcode: String(row.barcode || '').trim(),
+    const payload = {
+        RFID: poshRfid.normalizeRfidTag(row.rfid_tag),
+        Barcode: String(row.barcode || '').trim(),
         sku: row.sku || null,
         product_name: row.product_name || row.item_code || null,
         item_code: row.item_code || null,
@@ -20,6 +30,9 @@ function piecePayload(row, storeId) {
         box_code: row.box_code || null,
         box_name: row.box_label || row.box_code || null,
     };
+    const image = resolvePublicImageUrl(row.image_url);
+    if (image) payload.Image = image;
+    return payload;
 }
 
 async function resolveResellerByPoshCredentials(query, apiKey, storeId) {
@@ -88,7 +101,7 @@ function registerPoshRfidInboundRoutes(app, { query }) {
             res.json({
                 store_id: req.poshStoreId,
                 count: rows.length,
-                items: rows.map((r) => piecePayload(r, req.poshStoreId)),
+                data: rows.map((r) => piecePayload(r, req.poshStoreId)),
             });
         } catch (e) {
             console.error('posh inbound inventory:', e);

@@ -33,6 +33,7 @@ const FIELD_ROWS: { key: keyof StockExcelBuilderDefaults; label: string; placeho
   { key: 'stone_charges', label: 'Stone charges' },
   { key: 'stone_wt', label: 'Stone Wt' },
   { key: 'metal_type', label: 'Metal', placeholder: 'SILVER' },
+  { key: 'image_url', label: 'Image', placeholder: 'https://…' },
   { key: 'bags', label: 'Bags' },
   { key: 'fixed_price', label: 'Fixed price' },
   { key: 'chain_wt_only', label: 'Chain' },

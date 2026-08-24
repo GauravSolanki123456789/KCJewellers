@@ -25,6 +25,8 @@ import {
 import { checkLocalPrintAgent, printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
 import { printErpTestReceipt } from '@/lib/erp-billing-print'
 import { kcPoshRfidHealthUrl, kcPoshRfidInventoryUrl } from '@/lib/api-base'
+import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
+import Image from 'next/image'
 import { Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
 
 function SerialFields({
@@ -418,7 +420,20 @@ export function ErpHardwareWorkspace() {
                     .
                   </p>
                 ) : (
-                  <div className="space-y-1.5 text-[var(--color-jewelry-black,#1a1814)]">
+                  <div className="flex gap-3">
+                    {rfidLookupResult.piece.image_url ? (
+                      <div className="relative size-16 shrink-0 overflow-hidden rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white sm:size-20">
+                        <Image
+                          src={normalizeCatalogImageSrc(rfidLookupResult.piece.image_url) || rfidLookupResult.piece.image_url}
+                          alt={rfidLookupResult.piece.product_name || 'Product'}
+                          fill
+                          className="object-cover"
+                          sizes="80px"
+                          unoptimized
+                        />
+                      </div>
+                    ) : null}
+                    <div className="min-w-0 flex-1 space-y-1.5 text-[var(--color-jewelry-black,#1a1814)]">
                     <p className="font-mono text-base font-bold tracking-wide">{rfidLookupResult.piece.barcode}</p>
                     <p className="text-sm font-semibold">
                       {rfidLookupResult.piece.product_name || rfidLookupResult.piece.item_code || '—'}
@@ -440,6 +455,7 @@ export function ErpHardwareWorkspace() {
                     ) : rfidLookupResult.lookup_by === 'barcode' ? (
                       <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">No RFID tag linked yet.</p>
                     ) : null}
+                    </div>
                   </div>
                 )}
               </div>

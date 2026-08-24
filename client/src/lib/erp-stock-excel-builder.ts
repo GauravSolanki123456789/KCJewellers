@@ -3,6 +3,7 @@
  * Barcodes are NOT included — generated on server when the file is uploaded.
  */
 export type StockExcelBuilderDefaults = {
+  barcode?: string
   rfid_tag?: string
   sku?: string
   style_code?: string
@@ -43,10 +44,11 @@ export type StockExcelBuilderBlock = {
 }
 
 const HEADERS = [
-  'RFIDTag',
+  'Barcode',
   'SKU',
   'StyleCode',
   'ProductName',
+  'RFID',
   'Size',
   'AvgWeight',
   'Purity',
@@ -65,7 +67,7 @@ const HEADERS = [
   'StoneWt',
   'MetalType',
   'ItemCode',
-  'ImageUrl',
+  'Image',
   'Attr:Color',
   'Attr:Stone',
   'FixedPrice',
@@ -84,10 +86,11 @@ function cell(v: string | number | undefined | null): string | number | '' {
 
 function rowFromDefaults(defaults: StockExcelBuilderDefaults): Record<string, string | number> {
   return {
-    RFIDTag: cell(defaults.rfid_tag),
-      SKU: cell(defaults.sku),
+    Barcode: cell(defaults.barcode),
+    SKU: cell(defaults.sku),
     StyleCode: cell(defaults.style_code),
     ProductName: cell(defaults.product_name),
+    RFID: cell(defaults.rfid_tag),
     Size: cell(defaults.size),
     AvgWeight: cell(defaults.avg_weight),
     Purity: cell(defaults.purity),
@@ -106,7 +109,7 @@ function rowFromDefaults(defaults: StockExcelBuilderDefaults): Record<string, st
     StoneWt: cell(defaults.stone_wt),
     MetalType: cell(defaults.metal_type) || 'SILVER',
     ItemCode: cell(defaults.item_code) || cell(defaults.product_name),
-    ImageUrl: cell(defaults.image_url),
+    Image: cell(defaults.image_url),
     'Attr:Color': cell(defaults.attr_color),
     'Attr:Stone': cell(defaults.attr_stone),
     FixedPrice: cell(defaults.fixed_price),
