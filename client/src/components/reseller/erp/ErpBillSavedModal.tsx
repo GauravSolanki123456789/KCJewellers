@@ -22,6 +22,7 @@ import {
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { ledgerLaneLabel } from '@/lib/erp-ledger-routing'
 import {
   downloadPdfBlob,
   printPdfBlob,
@@ -240,6 +241,9 @@ type ConfirmProps = {
   itemCount: number
   busy?: boolean
   onConfirm: () => void
+  /** When false, sale goes to Hitesh/Jainav ledger — no GST invoice. */
+  isOfficialGst?: boolean
+  ledgerLane?: 'hitesh' | 'jainav'
 }
 
 export function ErpSaveBillConfirmDialog({
@@ -250,16 +254,32 @@ export function ErpSaveBillConfirmDialog({
   itemCount,
   busy,
   onConfirm,
+  isOfficialGst = true,
+  ledgerLane = 'jainav',
 }: ConfirmProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="border-[var(--color-slate-700,#e8e4df)] bg-white sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="text-[var(--color-jewelry-black,#1a1814)]">Save &amp; generate bill?</DialogTitle>
+          <DialogTitle className="text-[var(--color-jewelry-black,#1a1814)]">
+            {isOfficialGst ? 'Save & generate bill?' : 'Save sale?'}
+          </DialogTitle>
           <DialogDescription className="text-[var(--color-jewelry-black,#1a1814)]/65">
-            This will save the sale, mark scanned items as sold, and generate a tax invoice PDF for{' '}
-            <span className="font-semibold">{customerName || 'walk-in customer'}</span> ({itemCount} item
-            {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}).
+            {isOfficialGst ? (
+              <>
+                This will save the sale, mark scanned items as sold, and generate a tax invoice PDF for{' '}
+                <span className="font-semibold">{customerName || 'walk-in customer'}</span> ({itemCount} item
+                {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}).
+              </>
+            ) : (
+              <>
+                This will mark items as sold for{' '}
+                <span className="font-semibold">{customerName || 'walk-in customer'}</span> ({itemCount} item
+                {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}). No GST invoice — sale is recorded under{' '}
+                <span className="font-semibold">{ledgerLaneLabel(ledgerLane)}</span> only (not in official sales
+                bills).
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-2">
@@ -267,8 +287,64 @@ export function ErpSaveBillConfirmDialog({
             Cancel
           </button>
           <button type="button" className={erpBtnPrimary} disabled={busy} onClick={onConfirm}>
-            Yes, save bill
+            {isOfficialGst ? 'Yes, save bill' : 'Yes, save sale'}
           </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+type LedgerSavedProps = {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  billNumber: string
+  customerName: string
+  netTotal: number
+  lane: 'hitesh' | 'jainav'
+  onDone: () => void
+}
+
+/** Shown after a no-GST sale — no PDF, no link to official sales list. */
+export function ErpLedgerBillSavedDialog({
+  open,
+  onOpenChange,
+  billNumber,
+  customerName,
+  netTotal,
+  lane,
+  onDone,
+}: LedgerSavedProps) {
+  const closeAndDone = () => {
+    onOpenChange(false)
+    onDone()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="border-[var(--color-slate-700,#e8e4df)] bg-white sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-[var(--color-jewelry-black,#1a1814)]">
+            <CheckCircle2 className="size-5 text-emerald-600" />
+            Sale recorded
+          </DialogTitle>
+          <DialogDescription className="text-[var(--color-jewelry-black,#1a1814)]/65">
+            <span className="font-mono font-semibold text-emerald-800">{billNumber}</span> ·{' '}
+            {customerName || 'Walk-in'} · {formatErpInr(netTotal)}
+          </DialogDescription>
+        </DialogHeader>
+        <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs leading-relaxed text-emerald-950">
+          Saved under <span className="font-semibold">{ledgerLaneLabel(lane)}</span>. Stock is marked sold. This
+          does not appear in official GST sales bills — export and purge from the day-close screen when ready.
+        </p>
+        <DialogFooter className="flex-col gap-2 sm:flex-col">
+          <button type="button" className={`${erpBtnPrimary} w-full`} onClick={closeAndDone}>
+            Done
+          </button>
+          <Link href={resellerErpModulePath('billing')} className={`${erpBtnGhost} w-full justify-center`}>
+            <Receipt className="size-4" />
+            Back to billing
+          </Link>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -27,8 +27,13 @@ const {
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 const { registerDesignMasterRoutes } = require('./resellerErpDesignMaster');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
-const { erpGateWithOperator, registerOperatorRoutes } = require('./resellerErpOperators');
-const { registerShadowRoutes } = require('./resellerErpShadow');
+const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator } = require('./resellerErpOperators');
+const {
+    registerShadowRoutes,
+    hasValidGstin,
+    createShadowBillFromBillingPayload,
+    markEstimateBilledViaLedger,
+} = require('./resellerErpShadow');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
 const erpPrint = require('../scripts/erp-print-templates');
@@ -778,6 +783,59 @@ function registerResellerErpRoutes(app, deps) {
             const status = statusRaw.toLowerCase();
             const sessionObj =
                 req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
+            if (
+                billType === 'sale' &&
+                ['completed', 'paid', 'final'].includes(status) &&
+                !hasValidGstin(sessionObj.customerGst)
+            ) {
+                if (billRatesUnfixedFromPayload(sessionObj, lines)) {
+                    return res.status(400).json({
+                        error: 'Cannot save a completed sales bill while rates are unfixed. Fix rates first, or save as an estimate.',
+                    });
+                }
+                try {
+                    const op = getSessionOperator(req);
+                    const { bill: shadowBill, lane } = await createShadowBillFromBillingPayload(
+                        query,
+                        req.user.id,
+                        req.body,
+                        op?.id || null,
+                    );
+                    const sourceEstimateId =
+                        req.body.source_estimate_id != null
+                            ? parseInt(String(req.body.source_estimate_id), 10)
+                            : null;
+                    if (Number.isFinite(sourceEstimateId) && sourceEstimateId > 0) {
+                        await markEstimateBilledViaLedger(query, req.user.id, sourceEstimateId);
+                    }
+                    return res.json({
+                        success: true,
+                        shadow: true,
+                        lane,
+                        bill: {
+                            id: shadowBill.id,
+                            bill_number: shadowBill.bill_number,
+                            bill_type: shadowBill.bill_type || 'sale',
+                            customer_id: shadowBill.customer_id,
+                            customer_name: shadowBill.customer_name,
+                            total_inr: shadowBill.total_inr,
+                            status: shadowBill.status,
+                            lines: shadowBill.lines,
+                            session: shadowBill.session,
+                            bill_date: shadowBill.bill_date,
+                            lane: shadowBill.lane,
+                        },
+                    });
+                } catch (se) {
+                    if (se.status === 409) {
+                        return res.status(409).json({
+                            error: se.message || 'One or more items are already sold',
+                            conflicts: se.conflicts,
+                        });
+                    }
+                    throw se;
+                }
+            }
             if (
                 billType === 'sale' &&
                 ['completed', 'paid', 'final'].includes(status) &&

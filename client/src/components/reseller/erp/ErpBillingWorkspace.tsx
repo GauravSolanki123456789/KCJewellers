@@ -20,12 +20,17 @@ import {
 import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, computeBillingDiscountSummary, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { cachedGet } from '@/lib/api-get-cache'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
+import {
+  hasValidGstin,
+  previewLedgerLane,
+  type ErpPaymentMethod,
+} from '@/lib/erp-ledger-routing'
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
-import { ErpBillSavedModal, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
+import { ErpBillSavedModal, ErpLedgerBillSavedDialog, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
 import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
@@ -92,6 +97,9 @@ type BillingDraft = {
   displayRates?: unknown
   advancePaidInr: string
   collectedAmountInr: string
+  paymentMethod: ErpPaymentMethod
+  cashAmountInr: string
+  onlineAmountInr: string
   editingBillId?: number | null
   editingBillNumber?: string | null
   editingBillType?: string | null
@@ -240,6 +248,9 @@ export function ErpBillingWorkspace() {
   const [editingBillStatus, setEditingBillStatus] = useState<string | null>(null)
   const [advancePaidInr, setAdvancePaidInr] = useState('')
   const [collectedAmountInr, setCollectedAmountInr] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState<ErpPaymentMethod>('cash')
+  const [cashAmountInr, setCashAmountInr] = useState('')
+  const [onlineAmountInr, setOnlineAmountInr] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
   const [customerPickIdx, setCustomerPickIdx] = useState(-1)
   const [duplicateHighlights, setDuplicateHighlights] = useState<Set<number>>(() => new Set())
@@ -251,6 +262,11 @@ export function ErpBillingWorkspace() {
   const [savedBillOpen, setSavedBillOpen] = useState(false)
   const [savedBill, setSavedBill] = useState<ErpBill | null>(null)
   const [savedPdfPayload, setSavedPdfPayload] = useState<PdfShareSheetPayload | null>(null)
+  const [ledgerSavedOpen, setLedgerSavedOpen] = useState(false)
+  const [ledgerSavedMeta, setLedgerSavedMeta] = useState<{
+    billNumber: string
+    lane: 'hitesh' | 'jainav'
+  } | null>(null)
   const [soldStockOpen, setSoldStockOpen] = useState(false)
   const [soldStockMessage, setSoldStockMessage] = useState('')
   const scanRef = useRef<HTMLInputElement>(null)
@@ -455,6 +471,9 @@ export function ErpBillingWorkspace() {
       if (d.displayRates) setDisplayRates(d.displayRates)
       if (d.advancePaidInr != null) setAdvancePaidInr(d.advancePaidInr)
       if (d.collectedAmountInr != null) setCollectedAmountInr(d.collectedAmountInr)
+      if (d.paymentMethod) setPaymentMethod(d.paymentMethod)
+      if (d.cashAmountInr != null) setCashAmountInr(d.cashAmountInr)
+      if (d.onlineAmountInr != null) setOnlineAmountInr(d.onlineAmountInr)
       if (d.editingBillId != null) setEditingBillId(d.editingBillId)
       if (d.editingBillNumber) setEditingBillNumber(d.editingBillNumber)
       if (d.editingBillType) setEditingBillType(d.editingBillType)
@@ -506,6 +525,9 @@ export function ErpBillingWorkspace() {
       setCollectedAmountInr(
         session.collectedAmountInr != null ? String(session.collectedAmountInr) : '',
       )
+      setPaymentMethod(session.paymentMethod || 'cash')
+      setCashAmountInr(session.cashAmountInr != null ? String(session.cashAmountInr) : '')
+      setOnlineAmountInr(session.onlineAmountInr != null ? String(session.onlineAmountInr) : '')
       if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
       const loadedLines = applyRatesUnfixed(bill.lines || [], session.ratesUnfixed)
       const mcMode = session.goldSlabRShowMc === false ? false : goldSlabRShowMc
@@ -530,6 +552,9 @@ export function ErpBillingWorkspace() {
         advancePaidInr: session.advancePaidInr != null ? String(session.advancePaidInr) : '',
         collectedAmountInr:
           session.collectedAmountInr != null ? String(session.collectedAmountInr) : '',
+        paymentMethod: session.paymentMethod || 'cash',
+        cashAmountInr: session.cashAmountInr != null ? String(session.cashAmountInr) : '',
+        onlineAmountInr: session.onlineAmountInr != null ? String(session.onlineAmountInr) : '',
         editingBillId: bill.id,
         editingBillNumber: bill.bill_number,
         editingBillType: bill.bill_type,
@@ -574,12 +599,15 @@ export function ErpBillingWorkspace() {
       displayRates,
       advancePaidInr,
       collectedAmountInr,
+      paymentMethod,
+      cashAmountInr,
+      onlineAmountInr,
       editingBillId,
       editingBillNumber,
       editingBillType,
       editingBillStatus,
     })
-  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus])
+  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, paymentMethod, cashAmountInr, onlineAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
@@ -881,6 +909,9 @@ export function ErpBillingWorkspace() {
     setEditingBillStatus(null)
     setAdvancePaidInr('')
     setCollectedAmountInr('')
+    setPaymentMethod('cash')
+    setCashAmountInr('')
+    setOnlineAmountInr('')
     clearDraftStorage()
     void loadDisplayRates()
     router.replace(resellerErpModulePath('billing'))
@@ -901,6 +932,8 @@ export function ErpBillingWorkspace() {
     [totals.net, parsedCollected, lines],
   )
   const balanceDue = Math.max(0, totals.net - parsedAdvance)
+  const isOfficialGstBill = hasValidGstin(customerGst)
+  const previewLane = previewLedgerLane(paymentMethod, cashAmountInr, onlineAmountInr)
 
   const buildPayload = (billType: 'sale' | 'estimate', status: string) => ({
     bill_type: billType,
@@ -924,6 +957,11 @@ export function ErpBillingWorkspace() {
       pan: customerPan,
       customerGst,
       collectedAmountInr: parsedCollected,
+      paymentMethod,
+      cashAmountInr:
+        paymentMethod === 'mixed' && cashAmountInr.trim() !== '' ? Number(cashAmountInr) : null,
+      onlineAmountInr:
+        paymentMethod === 'mixed' && onlineAmountInr.trim() !== '' ? Number(onlineAmountInr) : null,
       mcDiscountInr: discountSummary.mcDiscountInr,
       cashDiscountInr: discountSummary.cashDiscountInr,
       totalDiscountInr: discountSummary.totalDiscountInr,
@@ -950,8 +988,15 @@ export function ErpBillingWorkspace() {
         bill = res.data.bill
         setEditingBillStatus(bill.status || status)
       } else {
-        const res = await axios.post<{ bill: ErpBill }>('/api/reseller/erp/bills', payload)
+        const res = await axios.post<{ bill: ErpBill; shadow?: boolean; lane?: 'hitesh' | 'jainav' }>(
+          '/api/reseller/erp/bills',
+          payload,
+        )
         bill = res.data.bill
+        if (billType === 'sale' && res.data.shadow) {
+          ;(bill as ErpBill & { shadow?: boolean; lane?: string }).shadow = true
+          ;(bill as ErpBill & { lane?: string }).lane = res.data.lane
+        }
         if (billType === 'estimate') {
           setEditingBillId(bill.id)
           setEditingBillNumber(bill.bill_number)
@@ -961,10 +1006,12 @@ export function ErpBillingWorkspace() {
       if (billType === 'sale' && !opts?.skipReset) {
         resetBill()
       }
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
-        params: { bill_type: 'sale' },
-      })
-      setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
+      if (!(billType === 'sale' && (bill as ErpBill & { shadow?: boolean }).shadow)) {
+        const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
+          params: { bill_type: 'sale' },
+        })
+        setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
+      }
       return bill
     } catch (e) {
       const err = e as {
@@ -992,6 +1039,15 @@ export function ErpBillingWorkspace() {
     clearDuplicateState()
     const bill = await persistBill('sale', 'completed', { skipReset: true })
     if (!bill) return
+    const shadowBill = bill as ErpBill & { shadow?: boolean; lane?: 'hitesh' | 'jainav' }
+    if (shadowBill.shadow) {
+      setLedgerSavedMeta({
+        billNumber: bill.bill_number,
+        lane: shadowBill.lane || previewLane,
+      })
+      setLedgerSavedOpen(true)
+      return
+    }
     try {
       const payload = await buildErpSalesPdfPayload({
         bill,
@@ -1011,6 +1067,11 @@ export function ErpBillingWorkspace() {
       alert('Bill saved but invoice PDF could not be created.')
       resetBill()
     }
+  }
+
+  const onLedgerSavedDone = () => {
+    setLedgerSavedMeta(null)
+    resetBill()
   }
 
   const onSavedBillDone = () => {
@@ -1126,7 +1187,18 @@ export function ErpBillingWorkspace() {
         netTotal={totals.net}
         itemCount={lines.length}
         busy={saveBusy}
+        isOfficialGst={isOfficialGstBill}
+        ledgerLane={previewLane}
         onConfirm={() => void confirmSaveBill()}
+      />
+      <ErpLedgerBillSavedDialog
+        open={ledgerSavedOpen}
+        onOpenChange={setLedgerSavedOpen}
+        billNumber={ledgerSavedMeta?.billNumber || ''}
+        customerName={customerName}
+        netTotal={totals.net}
+        lane={ledgerSavedMeta?.lane || previewLane}
+        onDone={onLedgerSavedDone}
       />
       <ErpBillSavedModal
         open={savedBillOpen}
@@ -1315,6 +1387,62 @@ export function ErpBillingWorkspace() {
               placeholder="Amount received"
             />
           </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Payment
+            </label>
+            <select
+              className={erpInputCls}
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as ErpPaymentMethod)}
+            >
+              <option value="cash">Cash</option>
+              <option value="upi">UPI / GPay</option>
+              <option value="gpay">GPay</option>
+              <option value="card">Card</option>
+              <option value="bank">Bank transfer</option>
+              <option value="mixed">Cash + online (split)</option>
+            </select>
+          </div>
+          {paymentMethod === 'mixed' ? (
+            <>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Cash part (₹)
+                </label>
+                <input
+                  className={erpInputCls}
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={cashAmountInr}
+                  onChange={(e) => setCashAmountInr(e.target.value)}
+                  placeholder="Cash received"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Online part (₹)
+                </label>
+                <input
+                  className={erpInputCls}
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={onlineAmountInr}
+                  onChange={(e) => setOnlineAmountInr(e.target.value)}
+                  placeholder="GPay / UPI received"
+                />
+              </div>
+            </>
+          ) : null}
+          {!isOfficialGstBill && lines.length > 0 ? (
+            <div className="sm:col-span-2 rounded-xl border border-amber-200/90 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
+              No GSTIN — this sale will be saved under{' '}
+              <span className="font-semibold">{previewLane === 'hitesh' ? 'Hitesh' : 'Jainav'}</span> only (not in
+              official GST sales bills).
+            </div>
+          ) : null}
           <div>
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Discount (₹)

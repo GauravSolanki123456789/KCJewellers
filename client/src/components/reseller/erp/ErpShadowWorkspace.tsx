@@ -169,8 +169,8 @@ export function ErpShadowWorkspace() {
 
   return (
     <ResellerErpShell
-      title="Internal ledger"
-      subtitle="Hitesh · GST & online · Jainav · cash"
+      title="Hitesh & Jainav"
+      subtitle="Day close · export · purge"
       backHref={RESELLER_ERP_PATH}
       actions={
         <button
@@ -243,7 +243,7 @@ export function ErpShadowWorkspace() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className={erpCardCls}>
-          <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Quick bill (internal)</p>
+          <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Quick entry</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
               Customer name
@@ -257,9 +257,11 @@ export function ErpShadowWorkspace() {
               Payment
               <select className={`${erpInputCls} mt-1`} value={billForm.paymentMethod} onChange={(e) => setBillForm((f) => ({ ...f, paymentMethod: e.target.value }))}>
                 <option value="cash">Cash</option>
-                <option value="upi">UPI / online</option>
+                <option value="upi">UPI / GPay</option>
+                <option value="gpay">GPay</option>
                 <option value="card">Card</option>
                 <option value="bank">Bank</option>
+                <option value="mixed">Cash + online</option>
               </select>
             </label>
             <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
@@ -280,12 +282,16 @@ export function ErpShadowWorkspace() {
             </label>
           </div>
           <button type="button" className={`${erpBtnPrimary} mt-3`} disabled={busy} onClick={() => void saveBill()}>
-            Save internal bill
+            Save bill
           </button>
         </div>
 
         <div className={erpCardCls}>
           <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">End of day</p>
+          <p className="mb-3 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+            Plug in your phone or pen drive. Tap export — when the browser asks where to save, pick the USB drive or
+            phone folder. After files are safely copied, type PURGE below for Jainav cash bills.
+          </p>
           <div className="space-y-2">
             <button type="button" className={`${erpBtnPrimary} w-full justify-center`} onClick={() => void downloadExport('jainav')}>
               <Download className="size-4" />
@@ -362,7 +368,7 @@ export function ErpShadowWorkspace() {
             </li>
           ))}
           {!bills.length ? (
-            <li className="py-6 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/45">No internal bills for this date.</li>
+            <li className="py-6 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/45">No bills for this date.</li>
           ) : null}
         </ul>
       </div>

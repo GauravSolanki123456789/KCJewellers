@@ -1,5 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import type { ErpPaymentMethod } from '@/lib/erp-ledger-routing'
 
 export type ErpBillSession = {
   rateSlab?: ErpRateSlab
@@ -35,6 +36,12 @@ export type ErpBillSession = {
   billingDiscountInr?: number
   /** Slab R gold: MC pricing mode when saved (see printFormats.goldSlabRShowMc). */
   goldSlabRShowMc?: boolean
+  /** Payment method for ledger routing (no GSTIN sales). */
+  paymentMethod?: ErpPaymentMethod
+  cashAmountInr?: number
+  onlineAmountInr?: number
+  /** Estimate converted via ledger (no official SALE number). */
+  billedViaLedger?: boolean
 }
 
 export function buildErpBillSession(input: {
@@ -56,6 +63,9 @@ export function buildErpBillSession(input: {
   totalDiscountInr?: number | null
   netTotalInr?: number
   goldSlabRShowMc?: boolean
+  paymentMethod?: ErpPaymentMethod
+  cashAmountInr?: number | null
+  onlineAmountInr?: number | null
 }): ErpBillSession {
   const ratesUnfixed =
     input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
@@ -98,6 +108,15 @@ export function buildErpBillSession(input: {
     totalDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
     billingDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
     goldSlabRShowMc: input.goldSlabRShowMc === false ? false : undefined,
+    paymentMethod: input.paymentMethod || undefined,
+    cashAmountInr:
+      input.cashAmountInr != null && Number.isFinite(Number(input.cashAmountInr))
+        ? Number(input.cashAmountInr)
+        : undefined,
+    onlineAmountInr:
+      input.onlineAmountInr != null && Number.isFinite(Number(input.onlineAmountInr))
+        ? Number(input.onlineAmountInr)
+        : undefined,
   }
 }
 

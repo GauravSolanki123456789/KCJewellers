@@ -75,14 +75,130 @@ function mapShadowBill(row) {
     };
 }
 
-function classifyLane({ customerGstin, paymentMethod, laneOverride }) {
+function hasValidGstin(gst) {
+    const s = String(gst || '').trim().toUpperCase();
+    return /^[0-9]{2}[A-Z0-9]{13}$/.test(s);
+}
+
+function inferPaymentMethodFromSession(session, fallback) {
+    const explicit = session?.paymentMethod || session?.payment_method || fallback;
+    if (explicit) return String(explicit).trim().toLowerCase();
+    const cash = Number(session?.cashAmountInr);
+    const online = Number(session?.onlineAmountInr);
+    if (Number.isFinite(cash) && Number.isFinite(online) && cash > 0 && online > 0) return 'mixed';
+    if (Number.isFinite(online) && online > 0) return 'upi';
+    return 'cash';
+}
+
+function classifyLane({ customerGstin, paymentMethod, laneOverride, session }) {
     const lane = String(laneOverride || '').trim().toLowerCase();
     if (lane === 'hitesh' || lane === 'jainav') return lane;
-    const gst = trimStr(customerGstin, 20);
     const pay = String(paymentMethod || 'cash').trim().toLowerCase();
+    if (pay === 'mixed') {
+        const online = Number(session?.onlineAmountInr) || 0;
+        return online > 0 ? 'hitesh' : 'jainav';
+    }
     const online = ['upi', 'card', 'online', 'bank', 'neft', 'rtgs', 'cheque', 'gpay', 'phonepe', 'paytm'].includes(pay);
-    if (gst || online) return 'hitesh';
+    if (online) return 'hitesh';
     return 'jainav';
+}
+
+async function createShadowBillFromBillingPayload(query, resellerUserId, body, operatorId) {
+    const linesRaw = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
+    let total = Number(body.total_inr);
+    if (!Number.isFinite(total)) {
+        total = linesRaw.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
+    }
+    const sessionObj = body.session && typeof body.session === 'object' ? body.session : {};
+    const customerGstin = trimStr(sessionObj.customerGst || body.customer_gstin, 20);
+    const paymentMethod = inferPaymentMethodFromSession(sessionObj, body.payment_method);
+    const lane = classifyLane({
+        customerGstin,
+        paymentMethod,
+        laneOverride: body.lane,
+        session: sessionObj,
+    });
+    const statusRaw = trimStr(body.status, 32) || 'completed';
+    const status = statusRaw.toLowerCase();
+    const barcodes = linesRaw.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
+    const conflicts = await findSoldBarcodeConflicts(query, resellerUserId, barcodes);
+    if (conflicts.length) {
+        const err = new Error('One or more items are already sold');
+        err.status = 409;
+        err.conflicts = conflicts;
+        throw err;
+    }
+    const billNumber = await nextShadowBillNumber(query, resellerUserId, lane);
+    const sessionJson = JSON.stringify(sessionObj);
+    const rows = await query(
+        `INSERT INTO reseller_erp_shadow_bills (
+            reseller_user_id, bill_number, lane, bill_type, customer_id, customer_name,
+            customer_gstin, payment_method, total_inr, status, lines_json, session_json,
+            notes, bill_date, created_by_operator_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15)
+         RETURNING *`,
+        [
+            resellerUserId,
+            billNumber,
+            lane,
+            trimStr(body.bill_type, 32) || 'sale',
+            body.customer_id != null ? parseInt(String(body.customer_id), 10) || null : null,
+            trimStr(body.customer_name, 255),
+            customerGstin,
+            paymentMethod,
+            Math.round(total * 100) / 100,
+            trimStr(body.status, 32) || 'completed',
+            JSON.stringify(linesRaw),
+            sessionJson,
+            trimStr(body.notes, 2000),
+            parseDateOrNull(body.bill_date) || new Date().toISOString().slice(0, 10),
+            operatorId || null,
+        ],
+    );
+    const bill = mapShadowBill(rows[0]);
+    if (['completed', 'paid', 'final'].includes(status)) {
+        await markPiecesSold(query, resellerUserId, linesRaw, null);
+    }
+    return { bill, lane };
+}
+
+async function markEstimateBilledViaLedger(query, resellerUserId, sourceEstimateId) {
+    const sourceId = parseInt(String(sourceEstimateId), 10);
+    if (!Number.isFinite(sourceId) || sourceId <= 0) return;
+    const estRows = await query(
+        `SELECT id, bill_type, status, session_json FROM reseller_erp_bills
+         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+        [sourceId, resellerUserId],
+    );
+    if (
+        !estRows.length ||
+        String(estRows[0].bill_type || '').toLowerCase() !== 'estimate' ||
+        String(estRows[0].status || '').toLowerCase() === 'billed'
+    ) {
+        return;
+    }
+    let prevSession = estRows[0].session_json;
+    if (typeof prevSession === 'string') {
+        try {
+            prevSession = JSON.parse(prevSession);
+        } catch {
+            prevSession = {};
+        }
+    }
+    if (!prevSession || typeof prevSession !== 'object') prevSession = {};
+    const mergedSession = {
+        ...prevSession,
+        billedAt: new Date().toISOString(),
+        billedViaLedger: true,
+    };
+    await query(
+        `UPDATE reseller_erp_bills SET
+            status = 'billed',
+            session_json = $1::jsonb,
+            updated_at = NOW()
+         WHERE id = $2 AND reseller_user_id = $3`,
+        [JSON.stringify(mergedSession), sourceId, resellerUserId],
+    );
 }
 
 async function loadShadowSettings(query, resellerUserId) {
@@ -269,12 +385,18 @@ function registerShadowRoutes(app, deps) {
             if (!Number.isFinite(total)) {
                 total = linesRaw.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
             }
-            const customerGstin = trimStr(req.body.customer_gstin || req.body.customerGstin, 20);
-            const paymentMethod = trimStr(req.body.payment_method || req.body.paymentMethod, 32) || 'cash';
+            const sessionObj =
+                req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
+            const customerGstin = trimStr(req.body.customer_gstin || req.body.customerGstin || sessionObj.customerGst, 20);
+            const paymentMethod = inferPaymentMethodFromSession(
+                sessionObj,
+                trimStr(req.body.payment_method || req.body.paymentMethod, 32),
+            );
             const lane = classifyLane({
                 customerGstin,
                 paymentMethod,
                 laneOverride: req.body.lane,
+                session: sessionObj,
             });
             const barcodes = linesRaw.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
             const conflicts = await findSoldBarcodeConflicts(query, req.user.id, barcodes);
@@ -436,4 +558,8 @@ module.exports = {
     ensureShadowSchema,
     registerShadowRoutes,
     classifyLane,
+    hasValidGstin,
+    inferPaymentMethodFromSession,
+    createShadowBillFromBillingPayload,
+    markEstimateBilledViaLedger,
 };
