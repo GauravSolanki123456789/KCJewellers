@@ -165,40 +165,133 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
 async function markEstimateBilledViaLedger(query, resellerUserId, sourceEstimateId) {
     const sourceId = parseInt(String(sourceEstimateId), 10);
     if (!Number.isFinite(sourceId) || sourceId <= 0) return;
-    const estRows = await query(
-        `SELECT id, bill_type, status, session_json FROM reseller_erp_bills
-         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+    await query(
+        `DELETE FROM reseller_erp_bills
+         WHERE id = $1 AND reseller_user_id = $2 AND bill_type = 'estimate'`,
         [sourceId, resellerUserId],
     );
-    if (
-        !estRows.length ||
-        String(estRows[0].bill_type || '').toLowerCase() !== 'estimate' ||
-        String(estRows[0].status || '').toLowerCase() === 'billed'
-    ) {
-        return;
+}
+
+function parseSessionJson(raw) {
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return {};
     }
-    let prevSession = estRows[0].session_json;
-    if (typeof prevSession === 'string') {
+}
+
+function mapOfficialGstSaleToHiteshRow(row) {
+    const session = parseSessionJson(row.session_json);
+    let lines = row.lines_json;
+    if (typeof lines === 'string') {
         try {
-            prevSession = JSON.parse(prevSession);
+            lines = JSON.parse(lines);
         } catch {
-            prevSession = {};
+            lines = [];
         }
     }
-    if (!prevSession || typeof prevSession !== 'object') prevSession = {};
-    const mergedSession = {
-        ...prevSession,
-        billedAt: new Date().toISOString(),
-        billedViaLedger: true,
+    return {
+        id: `gst-${row.id}`,
+        bill_number: row.bill_number,
+        lane: 'hitesh',
+        bill_type: 'sale',
+        customer_id: row.customer_id,
+        customer_name: row.customer_name,
+        customer_gstin: trimStr(session.customerGst, 20),
+        payment_method: 'gst',
+        total_inr: Number(row.total_inr) || 0,
+        status: row.status,
+        lines: Array.isArray(lines) ? lines : [],
+        session,
+        notes: row.notes,
+        bill_date: row.bill_date,
+        created_at: row.created_at,
+        source: 'official_gst',
     };
-    await query(
-        `UPDATE reseller_erp_bills SET
-            status = 'billed',
-            session_json = $1::jsonb,
-            updated_at = NOW()
-         WHERE id = $2 AND reseller_user_id = $3`,
-        [JSON.stringify(mergedSession), sourceId, resellerUserId],
+}
+
+async function loadOfficialGstSalesAsHitesh(query, resellerUserId, from, to) {
+    const rows = await query(
+        `SELECT id, bill_number, bill_type, customer_id, customer_name, total_inr, status,
+                lines_json, session_json, notes, bill_date, created_at
+         FROM reseller_erp_bills
+         WHERE reseller_user_id = $1
+           AND bill_type = 'sale'
+           AND LOWER(status) IN ('completed', 'paid', 'final')
+           AND bill_date >= $2
+           AND bill_date <= $3
+         ORDER BY bill_date, id`,
+        [resellerUserId, from, to || from],
     );
+    return rows
+        .filter((row) => hasValidGstin(parseSessionJson(row.session_json).customerGst))
+        .map(mapOfficialGstSaleToHiteshRow);
+}
+
+async function loadUnifiedLaneBills(query, resellerUserId, { lane, from, to }) {
+    const dateFrom = from || new Date().toISOString().slice(0, 10);
+    const dateTo = to || dateFrom;
+    const params = [resellerUserId, dateFrom, dateTo];
+    let sql = `SELECT * FROM reseller_erp_shadow_bills
+               WHERE reseller_user_id = $1 AND bill_date >= $2 AND bill_date <= $3`;
+    if (lane === 'hitesh' || lane === 'jainav') {
+        params.push(lane);
+        sql += ` AND lane = $${params.length}`;
+    }
+    sql += ' ORDER BY bill_date, id';
+    const shadowRows = await query(sql, params);
+    const shadowBills = shadowRows.map(mapShadowBill);
+    if (lane === 'jainav') return shadowBills;
+    const gstBills = await loadOfficialGstSalesAsHitesh(query, resellerUserId, dateFrom, dateTo);
+    if (lane === 'hitesh') return [...gstBills, ...shadowBills.filter((b) => b.lane === 'hitesh')];
+    return [...gstBills, ...shadowBills];
+}
+
+async function loadUnifiedLaneSummary(query, resellerUserId, from) {
+    const dateFrom = from || new Date().toISOString().slice(0, 10);
+    const rows = await query(
+        `SELECT lane, COUNT(*)::int AS count, COALESCE(SUM(total_inr),0)::float AS total
+         FROM reseller_erp_shadow_bills
+         WHERE reseller_user_id = $1 AND bill_date = $2
+         GROUP BY lane`,
+        [resellerUserId, dateFrom],
+    );
+    const summary = { hitesh: { count: 0, total: 0 }, jainav: { count: 0, total: 0 } };
+    for (const r of rows) {
+        if (r.lane === 'hitesh' || r.lane === 'jainav') {
+            summary[r.lane] = { count: r.count, total: r.total };
+        }
+    }
+    const gstBills = await loadOfficialGstSalesAsHitesh(query, resellerUserId, dateFrom, dateFrom);
+    for (const b of gstBills) {
+        summary.hitesh.count += 1;
+        summary.hitesh.total += b.total_inr || 0;
+    }
+    return summary;
+}
+
+async function purgeLedgerLinkedEstimates(query, resellerUserId, from, to) {
+    const params = [resellerUserId, from];
+    let sql = `DELETE FROM reseller_erp_bills
+               WHERE reseller_user_id = $1
+                 AND bill_type = 'estimate'
+                 AND (
+                   COALESCE(session_json->>'billedViaLedger', '') = 'true'
+                   OR (
+                     LOWER(status) = 'billed'
+                     AND session_json->>'billedSaleBillNumber' IS NULL
+                     AND session_json->>'billedSaleBillId' IS NULL
+                   )
+                 )
+                 AND bill_date >= $2`;
+    if (to) {
+        params.push(to);
+        sql += ` AND bill_date <= $${params.length}`;
+    }
+    sql += ' RETURNING id';
+    return query(sql, params);
 }
 
 async function loadShadowSettings(query, resellerUserId) {
@@ -355,23 +448,12 @@ function registerShadowRoutes(app, deps) {
             const lane = String(req.query.lane || '').trim().toLowerCase();
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);
-            const params = [req.user.id];
-            let sql = `SELECT * FROM reseller_erp_shadow_bills WHERE reseller_user_id = $1`;
-            if (lane === 'hitesh' || lane === 'jainav') {
-                params.push(lane);
-                sql += ` AND lane = $${params.length}`;
-            }
-            if (from) {
-                params.push(from);
-                sql += ` AND bill_date >= $${params.length}`;
-            }
-            if (to) {
-                params.push(to);
-                sql += ` AND bill_date <= $${params.length}`;
-            }
-            sql += ' ORDER BY bill_date DESC, id DESC LIMIT 500';
-            const rows = await query(sql, params);
-            res.json({ bills: rows.map(mapShadowBill) });
+            const bills = await loadUnifiedLaneBills(query, req.user.id, {
+                lane: lane === 'hitesh' || lane === 'jainav' ? lane : '',
+                from: from || new Date().toISOString().slice(0, 10),
+                to: to || from || new Date().toISOString().slice(0, 10),
+            });
+            res.json({ bills: bills.slice(0, 500) });
         } catch (e) {
             console.error('shadow bills list:', e);
             res.status(500).json({ error: e.message || 'Failed to list shadow bills' });
@@ -448,16 +530,11 @@ function registerShadowRoutes(app, deps) {
             const lane = String(req.query.lane || 'both').trim().toLowerCase();
             const from = parseDateOrNull(req.query.from) || new Date().toISOString().slice(0, 10);
             const to = parseDateOrNull(req.query.to) || from;
-            const params = [req.user.id, from, to];
-            let sql = `SELECT * FROM reseller_erp_shadow_bills
-                       WHERE reseller_user_id = $1 AND bill_date >= $2 AND bill_date <= $3`;
-            if (lane === 'hitesh' || lane === 'jainav') {
-                params.push(lane);
-                sql += ` AND lane = $${params.length}`;
-            }
-            sql += ' ORDER BY lane, bill_date, id';
-            const rows = await query(sql, params);
-            const bills = rows.map(mapShadowBill);
+            const bills = await loadUnifiedLaneBills(query, req.user.id, {
+                lane: lane === 'hitesh' || lane === 'jainav' ? lane : '',
+                from,
+                to,
+            });
             const csv = billsToCsv(bills);
             const filename = `ledger-${lane}-${from}${to !== from ? `_to_${to}` : ''}.csv`;
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -474,16 +551,11 @@ function registerShadowRoutes(app, deps) {
             const lane = String(req.query.lane || 'both').trim().toLowerCase();
             const from = parseDateOrNull(req.query.from) || new Date().toISOString().slice(0, 10);
             const to = parseDateOrNull(req.query.to) || from;
-            const params = [req.user.id, from, to];
-            let sql = `SELECT * FROM reseller_erp_shadow_bills
-                       WHERE reseller_user_id = $1 AND bill_date >= $2 AND bill_date <= $3`;
-            if (lane === 'hitesh' || lane === 'jainav') {
-                params.push(lane);
-                sql += ` AND lane = $${params.length}`;
-            }
-            sql += ' ORDER BY lane, bill_date, id';
-            const rows = await query(sql, params);
-            const bills = rows.map(mapShadowBill);
+            const bills = await loadUnifiedLaneBills(query, req.user.id, {
+                lane: lane === 'hitesh' || lane === 'jainav' ? lane : '',
+                from,
+                to,
+            });
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Content-Disposition', `attachment; filename="ledger-detail-${lane}-${from}.json"`);
             res.json({
@@ -524,7 +596,12 @@ function registerShadowRoutes(app, deps) {
             }
             sql += ' RETURNING id';
             const deleted = await query(sql, params);
-            res.json({ success: true, deletedCount: deleted.length });
+            let estimatesDeleted = 0;
+            if (lane === 'jainav') {
+                const estDeleted = await purgeLedgerLinkedEstimates(query, req.user.id, from, to);
+                estimatesDeleted = estDeleted.length;
+            }
+            res.json({ success: true, deletedCount: deleted.length, estimatesDeleted });
         } catch (e) {
             console.error('shadow purge:', e);
             res.status(500).json({ error: e.message || 'Purge failed' });
@@ -534,19 +611,7 @@ function registerShadowRoutes(app, deps) {
     app.get('/api/reseller/erp/shadow/summary', checkAuth, erpGate, shadowGate, async (req, res) => {
         try {
             const from = parseDateOrNull(req.query.from) || new Date().toISOString().slice(0, 10);
-            const rows = await query(
-                `SELECT lane, COUNT(*)::int AS count, COALESCE(SUM(total_inr),0)::float AS total
-                 FROM reseller_erp_shadow_bills
-                 WHERE reseller_user_id = $1 AND bill_date = $2
-                 GROUP BY lane`,
-                [req.user.id, from],
-            );
-            const summary = { hitesh: { count: 0, total: 0 }, jainav: { count: 0, total: 0 } };
-            for (const r of rows) {
-                if (r.lane === 'hitesh' || r.lane === 'jainav') {
-                    summary[r.lane] = { count: r.count, total: r.total };
-                }
-            }
+            const summary = await loadUnifiedLaneSummary(query, req.user.id, from);
             res.json({ date: from, summary });
         } catch (e) {
             res.status(500).json({ error: e.message || 'Summary failed' });

@@ -25,7 +25,7 @@ export function formatEstimateStatusLabel(status: string): string {
 
 export function estimateStatusBadgeClass(status: string): string {
   const s = String(status || 'draft').toLowerCase()
-  if (s === 'billed') return 'border-emerald-300 bg-emerald-100 text-emerald-950'
+  if (s === 'billed') return 'border-emerald-700 bg-emerald-700 text-white'
   if (s === 'rate_unfix') return 'border-orange-200 bg-orange-50 text-orange-900'
   if (s === 'advance_paid') return 'border-emerald-200 bg-emerald-50 text-emerald-900'
   if (s === 'cancelled') return 'border-slate-300 bg-slate-100 text-slate-600'

@@ -22,7 +22,6 @@ import {
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { ledgerLaneLabel } from '@/lib/erp-ledger-routing'
 import {
   downloadPdfBlob,
   printPdfBlob,
@@ -146,16 +145,18 @@ export function ErpBillSavedModal({
           </DialogDescription>
         </DialogHeader>
 
-        <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs leading-relaxed text-emerald-950">
-          {isEinvoice
-            ? 'Your tax invoice PDF was downloaded automatically. Share or print it below.'
-            : isEway
-              ? 'E-way bill was generated successfully. You can share related documents below.'
-              : 'Your invoice PDF was downloaded automatically. You can print it or send it on WhatsApp below.'}
-          {complianceNote ? (
-            <span className="mt-2 block font-medium text-emerald-900">{complianceNote}</span>
-          ) : null}
-        </p>
+        {(isEinvoice || isEway || complianceNote) ? (
+          <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs leading-relaxed text-emerald-950">
+            {isEinvoice
+              ? 'Tax invoice PDF is ready below.'
+              : isEway
+                ? 'E-way bill was generated successfully.'
+                : null}
+            {complianceNote ? (
+              <span className="mt-2 block font-medium text-emerald-900">{complianceNote}</span>
+            ) : null}
+          </p>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-2">
           <button type="button" className={erpBtnGhost} onClick={handleDownload}>
@@ -243,7 +244,6 @@ type ConfirmProps = {
   onConfirm: () => void
   /** When false, sale goes to Hitesh/Jainav ledger — no GST invoice. */
   isOfficialGst?: boolean
-  ledgerLane?: 'hitesh' | 'jainav'
 }
 
 export function ErpSaveBillConfirmDialog({
@@ -255,7 +255,6 @@ export function ErpSaveBillConfirmDialog({
   busy,
   onConfirm,
   isOfficialGst = true,
-  ledgerLane = 'jainav',
 }: ConfirmProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -267,17 +266,15 @@ export function ErpSaveBillConfirmDialog({
           <DialogDescription className="text-[var(--color-jewelry-black,#1a1814)]/65">
             {isOfficialGst ? (
               <>
-                This will save the sale, mark scanned items as sold, and generate a tax invoice PDF for{' '}
+                Save the sale for{' '}
                 <span className="font-semibold">{customerName || 'walk-in customer'}</span> ({itemCount} item
                 {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}).
               </>
             ) : (
               <>
-                This will mark items as sold for{' '}
+                Save the sale for{' '}
                 <span className="font-semibold">{customerName || 'walk-in customer'}</span> ({itemCount} item
-                {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}). No GST invoice — sale is recorded under{' '}
-                <span className="font-semibold">{ledgerLaneLabel(ledgerLane)}</span> only (not in official sales
-                bills).
+                {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}).
               </>
             )}
           </DialogDescription>
@@ -334,8 +331,7 @@ export function ErpLedgerBillSavedDialog({
           </DialogDescription>
         </DialogHeader>
         <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs leading-relaxed text-emerald-950">
-          Saved under <span className="font-semibold">{ledgerLaneLabel(lane)}</span>. Stock is marked sold. This
-          does not appear in official GST sales bills — export and purge from the day-close screen when ready.
+          Items marked sold.
         </p>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           <button type="button" className={`${erpBtnPrimary} w-full`} onClick={closeAndDone}>

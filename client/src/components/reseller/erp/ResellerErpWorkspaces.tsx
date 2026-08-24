@@ -121,6 +121,35 @@ export function CustomersWorkspace() {
     anniversary_date: '',
     notes: '',
   })
+  const [editingId, setEditingId] = useState<number | null>(null)
+
+  const emptyForm = () => ({
+    name: '',
+    mobile: '',
+    email: '',
+    gstin: '',
+    pan: '',
+    address: '',
+    birthdate: '',
+    anniversary_date: '',
+    notes: '',
+  })
+
+  const loadCustomerIntoForm = (c: ErpCustomer) => {
+    setEditingId(c.id)
+    setForm({
+      name: c.name || '',
+      mobile: c.mobile || '',
+      email: c.email || '',
+      gstin: c.gstin || '',
+      pan: c.pan || '',
+      address: c.address || '',
+      birthdate: c.birthdate ? formatErpDateDdMmYyyy(c.birthdate) : '',
+      anniversary_date: c.anniversary_date ? formatErpDateDdMmYyyy(c.anniversary_date) : '',
+      notes: c.notes || '',
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   const load = useCallback(async () => {
     const [list, up] = await Promise.all([
@@ -141,19 +170,16 @@ export function CustomersWorkspace() {
     if (!form.name.trim() || busy) return
     setBusy(true)
     try {
-      await axios.post('/api/reseller/erp/customers', form)
-      setForm({
-        name: '',
-        mobile: '',
-        email: '',
-        gstin: '',
-        pan: '',
-        address: '',
-        birthdate: '',
-        anniversary_date: '',
-        notes: '',
-      })
+      const wasEdit = editingId
+      if (editingId) {
+        await axios.put(`/api/reseller/erp/customers/${editingId}`, form)
+      } else {
+        await axios.post('/api/reseller/erp/customers', form)
+      }
+      setForm(emptyForm())
+      setEditingId(null)
       await load()
+      setMsg(wasEdit ? 'Customer updated.' : 'Customer saved.')
     } catch (e) {
       alert(erpErr(e))
     } finally {
@@ -347,7 +373,23 @@ export function CustomersWorkspace() {
       ) : null}
 
       <div className={erpCardCls}>
-        <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Add customer</p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+            {editingId ? 'Edit customer' : 'Add customer'}
+          </p>
+          {editingId ? (
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() => {
+                setEditingId(null)
+                setForm(emptyForm())
+              }}
+            >
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <input className={erpInputCls} placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input className={erpInputCls} placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
@@ -367,7 +409,7 @@ export function CustomersWorkspace() {
         </div>
         <button type="button" className={`${erpBtnPrimary} mt-3`} disabled={busy || !form.name.trim()} onClick={() => void save()}>
           {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          Save customer
+          {editingId ? 'Save customer' : 'Save customer'}
         </button>
       </div>
 
@@ -380,20 +422,42 @@ export function CustomersWorkspace() {
           </li>
         ) : (
           customers.map((c) => (
-            <li key={c.id} className={`${erpCardCls} flex items-start justify-between gap-3 py-3.5`}>
-              <div className="min-w-0">
-                <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{c.name}</p>
-                <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                  {[c.mobile, c.gstin, c.pan, c.email].filter(Boolean).join(' · ') || '—'}
-                </p>
-                {(c.birthdate || c.anniversary_date) && (
-                  <p className="mt-1 text-[11px] text-[var(--kc-accent,#c41e3a)]">
-                    {[c.birthdate ? `Birthday ${formatErpDateDdMmYyyy(c.birthdate)}` : null, c.anniversary_date ? `Anniversary ${formatErpDateDdMmYyyy(c.anniversary_date)}` : null].filter(Boolean).join(' · ')}
+            <li key={c.id}>
+              <button
+                type="button"
+                className={`${erpCardCls} flex w-full items-start justify-between gap-3 py-3.5 text-left transition hover:border-[var(--kc-accent,#c41e3a)]/30`}
+                onClick={() => loadCustomerIntoForm(c)}
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{c.name}</p>
+                  <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                    {[c.mobile, c.gstin, c.pan, c.email].filter(Boolean).join(' · ') || '—'}
                   </p>
-                )}
-              </div>
-              <button type="button" className="rounded-lg p-2 text-[var(--color-jewelry-black,#1a1814)]/40 hover:bg-rose-50 hover:text-rose-600" onClick={() => void remove(c.id)} aria-label="Delete">
-                <Trash2 className="size-4" />
+                  {(c.birthdate || c.anniversary_date) && (
+                    <p className="mt-1 text-[11px] text-[var(--kc-accent,#c41e3a)]">
+                      {[c.birthdate ? `Birthday ${formatErpDateDdMmYyyy(c.birthdate)}` : null, c.anniversary_date ? `Anniversary ${formatErpDateDdMmYyyy(c.anniversary_date)}` : null].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                </div>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="rounded-lg p-2 text-[var(--color-jewelry-black,#1a1814)]/40 hover:bg-rose-50 hover:text-rose-600"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void remove(c.id)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      void remove(c.id)
+                    }
+                  }}
+                  aria-label="Delete"
+                >
+                  <Trash2 className="size-4" />
+                </span>
               </button>
             </li>
           ))

@@ -11,7 +11,7 @@ import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/res
 import { ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
 
 type ShadowBill = {
-  id: number
+  id: number | string
   bill_number: string
   lane: 'hitesh' | 'jainav'
   customer_name?: string
@@ -20,6 +20,7 @@ type ShadowBill = {
   total_inr: number
   bill_date: string
   status: string
+  source?: string
 }
 
 export function ErpShadowWorkspace() {
@@ -74,10 +75,38 @@ export function ErpShadowWorkspace() {
   }, [shadowUnlocked, load, router])
 
   const downloadExport = async (exportLane: 'hitesh' | 'jainav' | 'both', detail = false) => {
-    const path = detail ? '/api/reseller/erp/shadow/export-detail' : '/api/reseller/erp/shadow/export'
-    const url = `${path}?lane=${exportLane}&from=${date}&to=${date}`
-    window.open(url, '_blank')
-    setMsg(`Download started (${exportLane}). Save to pen drive or phone storage.`)
+    setBusy(true)
+    try {
+      const path = detail ? '/api/reseller/erp/shadow/export-detail' : '/api/reseller/erp/shadow/export'
+      if (detail) {
+        const res = await axios.get(path, {
+          params: { lane: exportLane, from: date, to: date },
+        })
+        const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `ledger-detail-${exportLane}-${date}.json`
+        a.click()
+        URL.revokeObjectURL(url)
+      } else {
+        const res = await axios.get(path, {
+          params: { lane: exportLane, from: date, to: date },
+          responseType: 'blob',
+        })
+        const url = URL.createObjectURL(res.data)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `ledger-${exportLane}-${date}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+      setMsg(`Downloaded ${exportLane} file — save it to your phone or pen drive.`)
+    } catch (e) {
+      setMsg(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const purgeJainav = async () => {
@@ -88,13 +117,17 @@ export function ErpShadowWorkspace() {
     if (!confirm('Permanently delete Jainav (cash) bills for this date? This cannot be undone.')) return
     setBusy(true)
     try {
-      const res = await axios.post<{ deletedCount: number }>('/api/reseller/erp/shadow/purge', {
+      const res = await axios.post<{ deletedCount: number; estimatesDeleted?: number }>('/api/reseller/erp/shadow/purge', {
         lane: 'jainav',
         from: date,
         to: date,
         confirm: 'PURGE',
       })
-      setMsg(`Purged ${res.data.deletedCount} Jainav bill(s). No trace left in database.`)
+      const estNote =
+        res.data.estimatesDeleted && res.data.estimatesDeleted > 0
+          ? ` · ${res.data.estimatesDeleted} linked estimate(s) removed`
+          : ''
+      setMsg(`Purged ${res.data.deletedCount} Jainav bill(s)${estNote}.`)
       setPurgeConfirm('')
       await load()
     } catch (e) {
@@ -355,7 +388,7 @@ export function ErpShadowWorkspace() {
               <div>
                 <span className="font-mono font-semibold text-[var(--color-jewelry-black,#1a1814)]">{b.bill_number}</span>
                 <span className="ml-2 rounded-full bg-[var(--color-slate-900,#f7f4ef)] px-2 py-0.5 text-[10px] font-semibold uppercase">
-                  {b.lane}
+                  {b.source === 'official_gst' ? 'GST' : b.lane}
                 </span>
                 <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                   {b.customer_name || 'Walk-in'} · {b.payment_method || 'cash'}

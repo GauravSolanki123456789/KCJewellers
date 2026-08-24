@@ -656,16 +656,22 @@ export function ErpBillingWorkspace() {
     }
     setCustomerSaveBusy(true)
     try {
-      const res = await axios.post<{ success: boolean; customer: ErpCustomer }>(
-        '/api/reseller/erp/customers',
-        {
-          name,
-          mobile: mobile.trim() || undefined,
-          address: address.trim() || undefined,
-          pan: customerPan.trim() || undefined,
-          gstin: customerGst.trim() || undefined,
-        },
-      )
+      const payload = {
+        name,
+        mobile: mobile.trim() || undefined,
+        address: address.trim() || undefined,
+        pan: customerPan.trim() || undefined,
+        gstin: customerGst.trim() || undefined,
+      }
+      const res = customerId
+        ? await axios.put<{ success: boolean; customer: ErpCustomer }>(
+            `/api/reseller/erp/customers/${customerId}`,
+            payload,
+          )
+        : await axios.post<{ success: boolean; customer: ErpCustomer }>(
+            '/api/reseller/erp/customers',
+            payload,
+          )
       selectCustomer(res.data.customer)
     } catch (e) {
       alert(erpErr(e))
@@ -1188,7 +1194,6 @@ export function ErpBillingWorkspace() {
         itemCount={lines.length}
         busy={saveBusy}
         isOfficialGst={isOfficialGstBill}
-        ledgerLane={previewLane}
         onConfirm={() => void confirmSaveBill()}
       />
       <ErpLedgerBillSavedDialog
@@ -1436,13 +1441,6 @@ export function ErpBillingWorkspace() {
               </div>
             </>
           ) : null}
-          {!isOfficialGstBill && lines.length > 0 ? (
-            <div className="sm:col-span-2 rounded-xl border border-amber-200/90 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
-              No GSTIN — this sale will be saved under{' '}
-              <span className="font-semibold">{previewLane === 'hitesh' ? 'Hitesh' : 'Jainav'}</span> only (not in
-              official GST sales bills).
-            </div>
-          ) : null}
           <div>
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Discount (₹)
@@ -1583,7 +1581,7 @@ export function ErpBillingWorkspace() {
             onClick={() => void saveCustomerQuick()}
           >
             {customerSaveBusy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
-            + Customer
+            {customerId ? 'Save customer' : '+ Customer'}
           </button>
           <button type="button" className={erpBtnGhost} onClick={resetBill}>
             <Receipt className="size-4" />
