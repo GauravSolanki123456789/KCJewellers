@@ -21,7 +21,12 @@ import { ErpFloorsWorkspace } from '@/components/reseller/erp/ErpFloorsWorkspace
 import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
 import { ErpUsersWorkspace } from '@/components/reseller/erp/ErpUsersWorkspace'
 import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
+import { ErpJainavGate } from '@/components/reseller/erp/ErpQuickNav'
+import { ErpShadowWorkspace } from '@/components/reseller/erp/ErpShadowWorkspace'
+import { ErpStockReportWorkspace } from '@/components/reseller/erp/ErpStockReportWorkspace'
+import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
+import { isJainavModule } from '@/lib/reseller-erp-modules'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
 import {
   BillsWorkspace,
@@ -201,6 +206,24 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpTagSplitWorkspace rfidEnabled={rfidEnabled} />
     case 'erp-users':
       return <ErpUsersWorkspace />
+    case 'jainav':
+      return (
+        <ErpJainavGate>
+          <ErpShadowWorkspace embedded />
+        </ErpJainavGate>
+      )
+    case 'stock-reports':
+      return (
+        <ErpJainavGate>
+          <ErpStockReportWorkspace />
+        </ErpJainavGate>
+      )
+    case 'jainav-ledger':
+      return (
+        <ErpJainavGate>
+          <ErpJainavLedgerWorkspace />
+        </ErpJainavGate>
+      )
     default:
       return <ErpFallbackPanel />
   }
@@ -209,15 +232,29 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
 function ModulePageContent() {
   const params = useParams()
   const router = useRouter()
-  const { canAccessModule } = useErpOperator()
+  const { canAccessModule, shadowUnlocked } = useErpOperator()
   const raw = typeof params?.module === 'string' ? params.module : Array.isArray(params?.module) ? params.module[0] : ''
   const mod = useMemo(() => getResellerErpModule(raw), [raw])
+
+  useEffect(() => {
+    if (raw === 'shadow') {
+      router.replace('/reseller/erp/jainav')
+    }
+  }, [raw, router])
 
   useEffect(() => {
     if (raw === 'digigold' || raw === 'digisilver') {
       router.replace(PROFILE_DIGI_PATH)
     }
   }, [raw, router])
+
+  if (raw === 'shadow') {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+        Redirecting…
+      </div>
+    )
+  }
 
   if (raw === 'digigold' || raw === 'digisilver') {
     return (
@@ -246,6 +283,16 @@ function ModulePageContent() {
         <Link href={RESELLER_ERP_PATH} className={erpBtnPrimary}>
           Back to ERP home
         </Link>
+      </ResellerErpShell>
+    )
+  }
+
+  if (isJainavModule(mod) && !shadowUnlocked) {
+    return (
+      <ResellerErpShell title={mod.title}>
+        <ErpJainavGate>
+          <span />
+        </ErpJainavGate>
       </ResellerErpShell>
     )
   }

@@ -21,6 +21,8 @@ import {
   Truck,
   UserCog,
   Users,
+  Vault,
+  Warehouse,
 } from 'lucide-react'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 
@@ -52,6 +54,10 @@ export type ResellerErpModuleId =
   | 'tally'
   | 'integrations'
   | 'erp-users'
+  | 'jainav'
+  | 'stock-reports'
+  | 'jainav-ledger'
+  /** @deprecated use jainav */
   | 'shadow'
 
 export type ResellerErpModule = {
@@ -60,10 +66,12 @@ export type ResellerErpModule = {
   short: string
   description: string
   icon: LucideIcon
-  group: 'sales' | 'inventory' | 'crm' | 'rates' | 'compliance' | 'tools'
+  group: 'sales' | 'inventory' | 'crm' | 'rates' | 'compliance' | 'tools' | 'jainav'
   /** Live CRUD / API workspace vs settings / guided workspace */
   kind: 'workspace' | 'settings' | 'link'
   href?: string
+  /** Visible only after Jainav mode unlock (F9Rs* + Enter) */
+  jainavOnly?: boolean
 }
 
 export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
@@ -310,7 +318,55 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     group: 'tools',
     kind: 'workspace',
   },
+  {
+    id: 'jainav',
+    title: 'Hitesh & Jainav',
+    short: 'Day close',
+    description: 'Lane billing · export · purge',
+    icon: Vault,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
+  {
+    id: 'stock-reports',
+    title: 'Stock reports',
+    short: 'Inventory',
+    description: 'Detailed or summary stock · PDF / Excel',
+    icon: Warehouse,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
+  {
+    id: 'jainav-ledger',
+    title: 'Jainav ledger',
+    short: 'Lane ledger',
+    description: 'Hitesh & Jainav bills ledger (separate from payment ledger)',
+    icon: BookMarked,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
 ]
+
+/** Primary tabs shown in Jainav mode quick navigation */
+export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
+  'billing',
+  'sales-bills',
+  'credit-bills',
+  'orders',
+  'estimations',
+  'sales-reports',
+  'sales-percentages',
+  'customers',
+  'ledger',
+  'jainav',
+  'stock-reports',
+  'jainav-ledger',
+]
+
+export const RESELLER_ERP_JAINAV_GROUP = { id: 'jainav' as const, label: 'Jainav mode' }
 
 export const RESELLER_ERP_GROUPS: { id: ResellerErpModule['group']; label: string }[] = [
   { id: 'sales', label: 'Sales & billing' },
@@ -323,7 +379,34 @@ export const RESELLER_ERP_GROUPS: { id: ResellerErpModule['group']; label: strin
 
 export function getResellerErpModule(id: string | undefined | null): ResellerErpModule | null {
   if (!id) return null
-  return RESELLER_ERP_MODULES.find((m) => m.id === id) ?? null
+  const normalized = id === 'shadow' ? 'jainav' : id
+  return RESELLER_ERP_MODULES.find((m) => m.id === normalized) ?? null
+}
+
+export function isJainavModule(mod: ResellerErpModule | null): boolean {
+  return !!mod?.jainavOnly
+}
+
+export function listErpModulesForHub(opts: {
+  canAccess: (id: ResellerErpModuleId | string) => boolean
+  jainavUnlocked: boolean
+}): ResellerErpModule[] {
+  return RESELLER_ERP_MODULES.filter((m) => {
+    if (m.id === 'shadow') return false
+    if (m.jainavOnly && !opts.jainavUnlocked) return false
+    return opts.canAccess(m.id)
+  })
+}
+
+export function listErpQuickNavModules(opts: {
+  canAccess: (id: ResellerErpModuleId | string) => boolean
+  jainavUnlocked: boolean
+}): ResellerErpModule[] {
+  return ERP_QUICK_NAV_IDS.map((id) => getResellerErpModule(id)).filter((m): m is ResellerErpModule => {
+    if (!m) return false
+    if (m.jainavOnly && !opts.jainavUnlocked) return false
+    return opts.canAccess(m.id)
+  })
 }
 
 export function resellerErpModulePath(id: ResellerErpModuleId | string): string {

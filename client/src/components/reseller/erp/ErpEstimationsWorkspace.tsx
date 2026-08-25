@@ -40,6 +40,20 @@ import {
 const STATUSES = ESTIMATE_STATUSES
 const FILTER_STATUSES = ESTIMATE_FILTER_STATUSES
 
+function estimateBillSeq(billNumber: string | undefined): number {
+  const m = String(billNumber || '').match(/(\d+)\s*$/)
+  return m ? parseInt(m[1], 10) : 0
+}
+
+function sortEstimatesAsc(list: ErpBill[]): ErpBill[] {
+  return [...list].sort((a, b) => {
+    const sa = estimateBillSeq(a.bill_number)
+    const sb = estimateBillSeq(b.bill_number)
+    if (sa !== sb) return sa - sb
+    return a.id - b.id
+  })
+}
+
 export function ErpEstimationsWorkspace() {
   const auth = useAuth()
   const brandLabel =
@@ -74,14 +88,16 @@ export function ErpEstimationsWorkspace() {
           : status === 'unbilled'
             ? list.filter((b) => !isEstimateBilled(b))
             : list
-      setBills(filtered)
+      setBills(sortEstimatesAsc(filtered))
       setSelected(new Set())
     } catch (e) {
       console.error('erp estimations load:', e)
       try {
         const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
         setBills(
-          (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'estimate'),
+          sortEstimatesAsc(
+            (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'estimate'),
+          ),
         )
         setSelected(new Set())
       } catch {

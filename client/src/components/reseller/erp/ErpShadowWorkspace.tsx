@@ -23,7 +23,7 @@ type ShadowBill = {
   source?: string
 }
 
-export function ErpShadowWorkspace() {
+export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter()
   const { shadowUnlocked, lockShadow, operator } = useErpOperator()
   const [lane, setLane] = useState<'hitesh' | 'jainav' | 'both'>('both')
@@ -68,11 +68,11 @@ export function ErpShadowWorkspace() {
 
   useEffect(() => {
     if (!shadowUnlocked) {
-      router.replace(RESELLER_ERP_PATH)
+      if (!embedded) router.replace(RESELLER_ERP_PATH)
       return
     }
     void load()
-  }, [shadowUnlocked, load, router])
+  }, [shadowUnlocked, load, router, embedded])
 
   const downloadExport = async (exportLane: 'hitesh' | 'jainav' | 'both', detail = false) => {
     setBusy(true)
@@ -193,6 +193,9 @@ export function ErpShadowWorkspace() {
   }
 
   if (!operator?.shadowAccess) {
+    if (embedded) {
+      return <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]">You do not have access to this area.</p>
+    }
     return (
       <ResellerErpShell title="Access denied" backHref={RESELLER_ERP_PATH}>
         <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]">You do not have access to this area.</p>
@@ -200,25 +203,8 @@ export function ErpShadowWorkspace() {
     )
   }
 
-  return (
-    <ResellerErpShell
-      title="Hitesh & Jainav"
-      subtitle="Day close · export · purge"
-      backHref={RESELLER_ERP_PATH}
-      actions={
-        <button
-          type="button"
-          className={erpBtnPrimary}
-          onClick={() => {
-            void lockShadow()
-            router.push(RESELLER_ERP_PATH)
-          }}
-        >
-          <Lock className="size-4" />
-          Lock & exit
-        </button>
-      }
-    >
+  const body = (
+    <>
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
           Business date
@@ -405,6 +391,31 @@ export function ErpShadowWorkspace() {
           ) : null}
         </ul>
       </div>
+    </>
+  )
+
+  if (embedded) return body
+
+  return (
+    <ResellerErpShell
+      title="Hitesh & Jainav"
+      subtitle="Day close · export · purge"
+      backHref={RESELLER_ERP_PATH}
+      actions={
+        <button
+          type="button"
+          className={erpBtnPrimary}
+          onClick={() => {
+            void lockShadow()
+            router.push(RESELLER_ERP_PATH)
+          }}
+        >
+          <Lock className="size-4" />
+          Lock & exit
+        </button>
+      }
+    >
+      {body}
     </ResellerErpShell>
   )
 }

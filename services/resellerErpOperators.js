@@ -12,6 +12,7 @@ const ALL_MODULE_IDS = [
     'rate-uncut', 'slabs', 'sales-reports', 'sales-percentages',
     'gst', 'e-invoice', 'e-way', 'tally', 'integrations',
     'barcoding', 'tag-splitting', 'scanner', 'hardware', 'print-formats', 'erp-users',
+    'jainav', 'stock-reports', 'jainav-ledger',
 ];
 
 const DEFAULT_SHADOW_SEQUENCE = 'F9Rs*';

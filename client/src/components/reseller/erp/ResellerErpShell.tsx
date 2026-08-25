@@ -8,6 +8,7 @@ import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
 import { CATALOG_PATH, PROFILE_PATH, RESELLER_ERP_PATH } from '@/lib/routes'
 import type { ReactNode } from 'react'
 import { ErpOperatorBar } from '@/components/reseller/erp/ErpOperatorLogin'
+import { ErpQuickNav } from '@/components/reseller/erp/ErpQuickNav'
 
 export function useResellerErpAccess() {
   const auth = useAuth()
@@ -70,6 +71,7 @@ export function ResellerErpShell({
         <div className="mb-4">
           <ErpOperatorBar />
         </div>
+        <ErpQuickNav />
         {children}
       </div>
     </div>

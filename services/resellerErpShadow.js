@@ -369,6 +369,187 @@ function billsToCsv(bills) {
     return [headers.join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\r\n');
 }
 
+const WEIGHT_RANGE_BUCKETS = [
+    { label: '0–50 g', min: 0, max: 50 },
+    { label: '50–100 g', min: 50, max: 100 },
+    { label: '100–200 g', min: 100, max: 200 },
+    { label: '200–500 g', min: 200, max: 500 },
+    { label: '500 g+', min: 500, max: Infinity },
+];
+
+function mapStockPieceRow(row) {
+    const w = Number(row.avg_weight) || 0;
+    return {
+        id: row.id,
+        barcode: row.barcode,
+        sku: row.sku || '',
+        style_code: row.style_code || '',
+        product_name: row.product_name || '',
+        size: row.size || '',
+        avg_weight: w,
+        gross_weight: row.gross_weight != null ? Number(row.gross_weight) : null,
+        purity: row.purity != null ? Number(row.purity) : null,
+        wastage_pct: row.wastage_pct != null ? Number(row.wastage_pct) : null,
+        mc_rate: row.mc_rate != null ? Number(row.mc_rate) : null,
+        mc_type: row.mc_type || '',
+        pcs: row.pcs != null ? Number(row.pcs) : 1,
+        metal_type: row.metal_type || '',
+        item_code: row.item_code || '',
+        status: row.status,
+        floor_id: row.floor_id || null,
+        box_id: row.box_id || null,
+        rfid_tag: row.rfid_tag || '',
+    };
+}
+
+async function loadStockPiecesForReport(query, resellerUserId, { styleCode, skus, status }) {
+    const params = [resellerUserId];
+    let sql = `SELECT id, barcode, sku, style_code, product_name, size, avg_weight, gross_weight,
+                      purity, wastage_pct, mc_rate, mc_type, pcs, metal_type, item_code, status,
+                      floor_id, box_id, rfid_tag
+               FROM reseller_erp_stock_pieces
+               WHERE reseller_user_id = $1`;
+    const st = String(status || 'in_stock').trim().toLowerCase();
+    if (st && st !== 'all') {
+        params.push(st);
+        sql += ` AND LOWER(status) = $${params.length}`;
+    }
+    if (styleCode) {
+        params.push(styleCode);
+        sql += ` AND UPPER(TRIM(style_code)) = UPPER(TRIM($${params.length}))`;
+    }
+    const skuList = Array.isArray(skus)
+        ? skus.map((s) => String(s || '').trim()).filter(Boolean)
+        : String(skus || '')
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+    if (skuList.length) {
+        params.push(skuList.map((s) => s.toUpperCase()));
+        sql += ` AND UPPER(TRIM(sku)) = ANY($${params.length})`;
+    }
+    sql += ` ORDER BY style_code NULLS LAST, sku NULLS LAST, barcode ASC`;
+    const rows = await query(sql, params);
+    return rows.map(mapStockPieceRow);
+}
+
+function buildStockSummary(pieces) {
+    const weights = pieces.map((p) => p.avg_weight || 0).filter((w) => w > 0);
+    const totalWeight = weights.reduce((s, w) => s + w, 0);
+    const totalPcs = pieces.reduce((s, p) => s + (p.pcs || 1), 0);
+    const byStyle = {};
+    const bySku = {};
+    for (const p of pieces) {
+        const style = p.style_code || '(no style)';
+        const sku = p.sku || '(no sku)';
+        if (!byStyle[style]) byStyle[style] = { style_code: style, count: 0, total_weight: 0, skus: new Set() };
+        byStyle[style].count += 1;
+        byStyle[style].total_weight += p.avg_weight || 0;
+        byStyle[style].skus.add(sku);
+        const skuKey = `${style}::${sku}`;
+        if (!bySku[skuKey]) bySku[skuKey] = { style_code: style, sku, count: 0, total_weight: 0 };
+        bySku[skuKey].count += 1;
+        bySku[skuKey].total_weight += p.avg_weight || 0;
+    }
+    const weightRanges = WEIGHT_RANGE_BUCKETS.map((b) => ({
+        label: b.label,
+        count: pieces.filter((p) => {
+            const w = p.avg_weight || 0;
+            return w >= b.min && (b.max === Infinity ? true : w < b.max);
+        }).length,
+    }));
+    return {
+        total_pieces: pieces.length,
+        total_pcs: totalPcs,
+        total_weight_g: Math.round(totalWeight * 1000) / 1000,
+        average_weight_g: pieces.length ? Math.round((totalWeight / pieces.length) * 1000) / 1000 : 0,
+        min_weight_g: weights.length ? Math.min(...weights) : 0,
+        max_weight_g: weights.length ? Math.max(...weights) : 0,
+        weight_ranges: weightRanges,
+        by_style: Object.values(byStyle).map((s) => ({
+            style_code: s.style_code,
+            count: s.count,
+            total_weight_g: Math.round(s.total_weight * 1000) / 1000,
+            avg_weight_g: s.count ? Math.round((s.total_weight / s.count) * 1000) / 1000 : 0,
+            sku_count: s.skus.size,
+        })).sort((a, b) => a.style_code.localeCompare(b.style_code)),
+        by_sku: Object.values(bySku).map((s) => ({
+            style_code: s.style_code,
+            sku: s.sku,
+            count: s.count,
+            total_weight_g: Math.round(s.total_weight * 1000) / 1000,
+            avg_weight_g: s.count ? Math.round((s.total_weight / s.count) * 1000) / 1000 : 0,
+        })).sort((a, b) => `${a.style_code}/${a.sku}`.localeCompare(`${b.style_code}/${b.sku}`)),
+    };
+}
+
+function stockReportHtml({ reportType, summary, pieces, filters, generatedAt }) {
+    const title = reportType === 'summary' ? 'Stock Summary Report' : 'Stock Detailed Report';
+    const filterLine = [
+        filters.styleCode ? `Style: ${filters.styleCode}` : null,
+        filters.skus?.length ? `SKU: ${filters.skus.join(', ')}` : null,
+        `Status: ${filters.status || 'in_stock'}`,
+    ].filter(Boolean).join(' · ');
+    let body = '';
+    if (reportType === 'summary' && summary) {
+        body += `<h2>Totals</h2><table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:12px">
+<tr><td>Pieces</td><td>${summary.total_pieces}</td></tr>
+<tr><td>Total weight (g)</td><td>${summary.total_weight_g}</td></tr>
+<tr><td>Average weight (g)</td><td>${summary.average_weight_g}</td></tr>
+<tr><td>Min / Max (g)</td><td>${summary.min_weight_g} / ${summary.max_weight_g}</td></tr>
+</table>`;
+        body += `<h2>Weight ranges</h2><table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:12px"><tr><th>Range</th><th>Count</th></tr>`;
+        for (const r of summary.weight_ranges) {
+            body += `<tr><td>${r.label}</td><td>${r.count}</td></tr>`;
+        }
+        body += '</table>';
+        body += `<h2>By style</h2><table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:11px"><tr><th>Style</th><th>Count</th><th>Total g</th><th>Avg g</th><th>SKUs</th></tr>`;
+        for (const s of summary.by_style) {
+            body += `<tr><td>${s.style_code}</td><td>${s.count}</td><td>${s.total_weight_g}</td><td>${s.avg_weight_g}</td><td>${s.sku_count}</td></tr>`;
+        }
+        body += '</table>';
+    } else {
+        body += `<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:10px"><tr>
+<th>Barcode</th><th>Style</th><th>SKU</th><th>Product</th><th>Size</th><th>Wt(g)</th><th>Purity</th><th>MC</th><th>Status</th></tr>`;
+        for (const p of pieces) {
+            body += `<tr><td>${p.barcode}</td><td>${p.style_code}</td><td>${p.sku}</td><td>${p.product_name}</td><td>${p.size}</td><td>${p.avg_weight}</td><td>${p.purity ?? ''}</td><td>${p.mc_rate ?? ''}</td><td>${p.status}</td></tr>`;
+        }
+        body += '</table>';
+    }
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>body{font-family:system-ui,sans-serif;padding:24px;color:#1a1814}h1{font-size:18px}h2{font-size:14px;margin-top:20px}table{margin-top:8px}</style></head>
+<body><h1>${title}</h1><p style="font-size:12px;color:#666">${filterLine}<br>Generated: ${generatedAt}</p>${body}</body></html>`;
+}
+
+function stockDetailCsv(pieces) {
+    const headers = ['barcode', 'style_code', 'sku', 'product_name', 'size', 'avg_weight_g', 'gross_weight_g', 'purity', 'wastage_pct', 'mc_rate', 'mc_type', 'pcs', 'metal_type', 'item_code', 'status', 'rfid_tag'];
+    const rows = pieces.map((p) => headers.map((h) => {
+        if (h === 'avg_weight_g') return p.avg_weight;
+        if (h === 'gross_weight_g') return p.gross_weight ?? '';
+        return p[h] ?? '';
+    }));
+    return [headers.join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\r\n');
+}
+
+function stockSummaryCsv(summary) {
+    const lines = ['Section,Key,Value'];
+    lines.push(`Totals,total_pieces,${summary.total_pieces}`);
+    lines.push(`Totals,total_weight_g,${summary.total_weight_g}`);
+    lines.push(`Totals,average_weight_g,${summary.average_weight_g}`);
+    lines.push(`Totals,min_weight_g,${summary.min_weight_g}`);
+    lines.push(`Totals,max_weight_g,${summary.max_weight_g}`);
+    for (const r of summary.weight_ranges) {
+        lines.push(`Weight range,${csvEscape(r.label)},${r.count}`);
+    }
+    for (const s of summary.by_style) {
+        lines.push(`By style,${csvEscape(s.style_code)},${s.count} pcs / ${s.total_weight_g} g avg ${s.avg_weight_g} g`);
+    }
+    for (const s of summary.by_sku) {
+        lines.push(`By SKU,${csvEscape(`${s.style_code}/${s.sku}`)},${s.count} pcs / ${s.total_weight_g} g`);
+    }
+    return lines.join('\r\n');
+}
+
 function registerShadowRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, erpGate } = deps;
     const shadowGate = requireShadowUnlocked();
@@ -615,6 +796,48 @@ function registerShadowRoutes(app, deps) {
             res.json({ date: from, summary });
         } catch (e) {
             res.status(500).json({ error: e.message || 'Summary failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/stock-report', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const reportType = String(req.query.type || 'detail').trim().toLowerCase() === 'summary' ? 'summary' : 'detail';
+            const format = String(req.query.format || 'json').trim().toLowerCase();
+            const styleCode = trimStr(req.query.style_code || req.query.style, 128);
+            const skusRaw = req.query.skus || req.query.sku || '';
+            const skus = String(skusRaw).split(',').map((s) => s.trim()).filter(Boolean);
+            const status = trimStr(req.query.status, 32) || 'in_stock';
+            const pieces = await loadStockPiecesForReport(query, req.user.id, { styleCode, skus, status });
+            const summary = buildStockSummary(pieces);
+            const filters = { styleCode: styleCode || null, skus, status };
+            const generatedAt = new Date().toISOString();
+
+            if (format === 'csv') {
+                const csv = reportType === 'summary' ? stockSummaryCsv(summary) : stockDetailCsv(pieces);
+                const fname = `stock-${reportType}-${new Date().toISOString().slice(0, 10)}.csv`;
+                res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+                res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+                return res.send('\ufeff' + csv);
+            }
+            if (format === 'html' || format === 'pdf') {
+                const html = stockReportHtml({ reportType, summary, pieces, filters, generatedAt });
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                if (format === 'pdf') {
+                    res.setHeader('Content-Disposition', 'inline; filename="stock-report.html"');
+                }
+                return res.send(html);
+            }
+            res.json({
+                reportType,
+                generatedAt,
+                filters,
+                summary,
+                pieces: reportType === 'summary' ? undefined : pieces,
+                pieceCount: pieces.length,
+            });
+        } catch (e) {
+            console.error('shadow stock report:', e);
+            res.status(500).json({ error: e.message || 'Stock report failed' });
         }
     });
 }

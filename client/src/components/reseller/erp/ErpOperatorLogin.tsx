@@ -134,7 +134,7 @@ export function useShadowKeyUnlock(enabled: boolean) {
         if (seq.length >= 3 && !unlockingRef.current) {
           unlockingRef.current = true
           void unlockShadow(seq)
-            .then(() => router.push('/reseller/erp/shadow'))
+            .then(() => router.push('/reseller/erp/jainav'))
             .catch(() => {})
             .finally(() => {
               unlockingRef.current = false

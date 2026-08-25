@@ -7,8 +7,9 @@ import { ChevronRight } from 'lucide-react'
 import { PROFILE_PATH } from '@/lib/routes'
 import {
   RESELLER_ERP_GROUPS,
-  RESELLER_ERP_MODULES,
+  RESELLER_ERP_JAINAV_GROUP,
   formatErpInr,
+  listErpModulesForHub,
   resellerErpModulePath,
 } from '@/lib/reseller-erp-modules'
 import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
@@ -28,7 +29,7 @@ type ErpStatus = {
 
 function ErpHubContent() {
   const [status, setStatus] = useState<ErpStatus | null>(null)
-  const { canAccessModule } = useErpOperator()
+  const { canAccessModule, shadowUnlocked } = useErpOperator()
 
   const load = useCallback(async () => {
     try {
@@ -86,10 +87,11 @@ function ErpHubContent() {
       </div>
 
       <div className="space-y-7">
-        {RESELLER_ERP_GROUPS.map((group) => {
-          const mods = RESELLER_ERP_MODULES.filter(
-            (m) => m.group === group.id && m.id !== 'shadow' && canAccessModule(m.id),
-          )
+        {[...RESELLER_ERP_GROUPS, ...(shadowUnlocked ? [RESELLER_ERP_JAINAV_GROUP] : [])].map((group) => {
+          const mods = listErpModulesForHub({
+            canAccess: canAccessModule,
+            jainavUnlocked: shadowUnlocked,
+          }).filter((m) => m.group === group.id)
           if (!mods.length) return null
           return (
             <section key={group.id}>

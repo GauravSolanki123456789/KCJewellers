@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import ErpShadowPageClient from './page-client'
 
 export const metadata: Metadata = {
-  title: 'Hitesh & Jainav · ERP',
+  title: 'Jainav · ERP',
   robots: { index: false, follow: false },
 }
 

@@ -1,24 +1,17 @@
 'use client'
 
-import { Suspense } from 'react'
-import { ResellerErpAccessGate } from '@/components/reseller/erp/ResellerErpShell'
-import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
-import { ErpShadowWorkspace } from '@/components/reseller/erp/ErpShadowWorkspace'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
-export default function ErpShadowPageClient() {
+/** Legacy URL — redirects to Jainav module inside ERP. */
+export default function ErpShadowRedirectPageClient() {
+  const router = useRouter()
+  useEffect(() => {
+    router.replace('/reseller/erp/jainav')
+  }, [router])
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[50vh] items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/60">
-          Loading…
-        </div>
-      }
-    >
-      <ResellerErpAccessGate>
-        <ErpOperatorGate>
-          <ErpShadowWorkspace />
-        </ErpOperatorGate>
-      </ResellerErpAccessGate>
-    </Suspense>
+    <div className="flex min-h-[50vh] items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/60">
+      Opening Jainav mode…
+    </div>
   )
 }

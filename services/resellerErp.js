@@ -741,7 +741,12 @@ function registerResellerErpRoutes(app, deps) {
                 searchSql += ')';
                 sql += searchSql;
             }
-            sql += ` ORDER BY created_at DESC, id DESC LIMIT 500`;
+            if (billType === 'estimate') {
+                sql += ` ORDER BY CAST(NULLIF(regexp_replace(bill_number, '\\D', '', 'g'), '') AS INTEGER) ASC NULLS LAST, id ASC`;
+            } else {
+                sql += ` ORDER BY created_at DESC, id DESC`;
+            }
+            sql += ' LIMIT 500';
             const rows = await query(sql, params);
             res.json({ bills: rows.map(mapBill) });
         } catch (e) {
