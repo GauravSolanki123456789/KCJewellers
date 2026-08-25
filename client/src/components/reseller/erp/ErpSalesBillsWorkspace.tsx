@@ -262,7 +262,7 @@ export function ErpSalesBillsWorkspace() {
     setBusy(true)
     try {
       const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
-      await downloadBillDetailExcel(res.data.bill, 'sale')
+      await downloadBillDetailExcel(res.data.bill, 'sale', auth.user)
     } catch (e) {
       alert(erpErr(e))
     } finally {

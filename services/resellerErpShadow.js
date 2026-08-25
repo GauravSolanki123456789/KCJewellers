@@ -411,8 +411,12 @@ async function loadStockPiecesForReport(query, resellerUserId, { styleCode, skus
                WHERE reseller_user_id = $1`;
     const st = String(status || 'in_stock').trim().toLowerCase();
     if (st && st !== 'all') {
-        params.push(st);
-        sql += ` AND LOWER(status) = $${params.length}`;
+        if (st === 'in_stock' || st === 'available') {
+            sql += ` AND status = 'in_stock'`;
+        } else {
+            params.push(st);
+            sql += ` AND LOWER(status) = $${params.length}`;
+        }
     }
     if (styleCode) {
         params.push(styleCode);
@@ -431,6 +435,35 @@ async function loadStockPiecesForReport(query, resellerUserId, { styleCode, skus
     sql += ` ORDER BY style_code NULLS LAST, sku NULLS LAST, barcode ASC`;
     const rows = await query(sql, params);
     return rows.map(mapStockPieceRow);
+}
+
+async function countLaneReservedForReport(query, resellerUserId, { styleCode, skus }) {
+    const params = [resellerUserId];
+    let sql = `SELECT COUNT(*)::int AS count,
+                      COALESCE(SUM(COALESCE(avg_weight, 0)), 0)::float AS total_weight
+               FROM reseller_erp_stock_pieces
+               WHERE reseller_user_id = $1 AND status = 'lane'`;
+    if (styleCode) {
+        params.push(styleCode);
+        sql += ` AND UPPER(TRIM(style_code)) = UPPER(TRIM($${params.length}))`;
+    }
+    const skuList = Array.isArray(skus)
+        ? skus.map((s) => String(s || '').trim()).filter(Boolean)
+        : String(skus || '')
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+    if (skuList.length) {
+        params.push(skuList.map((s) => s.toUpperCase()));
+        sql += ` AND UPPER(TRIM(sku)) = ANY($${params.length})`;
+    }
+    const rows = await query(sql, params);
+    const count = rows[0]?.count ?? 0;
+    const totalWeight = Number(rows[0]?.total_weight) || 0;
+    return {
+        count,
+        total_weight_g: Math.round(totalWeight * 1000) / 1000,
+    };
 }
 
 function buildStockSummary(pieces) {
@@ -573,7 +606,11 @@ function stockSummaryCsv(summary, meta = {}) {
 
     push(['Overview']);
     push(['Metric', 'Value']);
-    push(['Total pcs', summary.total_pieces]);
+    push(['Available pcs (in stock)', summary.total_pieces]);
+    if (summary.lane_reserved_count != null) {
+        push(['Lane reserved (Jainav, not in available count)', summary.lane_reserved_count]);
+        push(['Lane reserved weight (g)', summary.lane_reserved_weight_g ?? 0]);
+    }
     push(['Total weight (g)', summary.total_weight_g]);
     push(['Average weight (g)', summary.average_weight_g]);
     push(['Min weight (g)', summary.min_weight_g]);
@@ -854,6 +891,10 @@ function registerShadowRoutes(app, deps) {
             const status = trimStr(req.query.status, 32) || 'in_stock';
             const pieces = await loadStockPiecesForReport(query, req.user.id, { styleCode, skus, status });
             const summary = buildStockSummary(pieces);
+            const laneReserved = await countLaneReservedForReport(query, req.user.id, { styleCode, skus });
+            summary.lane_reserved_count = laneReserved.count;
+            summary.lane_reserved_weight_g = laneReserved.total_weight_g;
+            summary.available_count = summary.total_pieces;
             const filters = { styleCode: styleCode || null, skus, status };
             const generatedAt = new Date().toISOString();
 

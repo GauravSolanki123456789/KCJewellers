@@ -639,14 +639,14 @@ async function markPiecesShadowLane(query, resellerUserId, lines) {
     const linked = await query(
         `SELECT barcode, rfid_tag FROM reseller_erp_stock_pieces
          WHERE reseller_user_id = $1 AND barcode = ANY($2::text[])
-           AND status = 'in_stock' AND rfid_tag IS NOT NULL`,
+           AND rfid_tag IS NOT NULL`,
         [resellerUserId, barcodes],
     );
 
     await query(
         `UPDATE reseller_erp_stock_pieces SET
             status = 'lane', sold_bill_id = NULL, rfid_tag = NULL, updated_at = NOW()
-         WHERE reseller_user_id = $2 AND barcode = ANY($3::text[]) AND status = 'in_stock'`,
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND status = 'in_stock'`,
         [resellerUserId, barcodes],
     );
 

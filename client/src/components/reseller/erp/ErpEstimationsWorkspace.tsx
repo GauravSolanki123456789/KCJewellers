@@ -226,7 +226,7 @@ export function ErpEstimationsWorkspace() {
     setBusy(true)
     try {
       const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
-      await downloadBillDetailExcel(res.data.bill, 'estimate')
+      await downloadBillDetailExcel(res.data.bill, 'estimate', auth.user)
     } catch (e) {
       alert(erpErr(e))
     } finally {

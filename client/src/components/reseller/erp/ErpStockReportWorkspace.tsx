@@ -19,6 +19,9 @@ type StockSummary = {
   average_weight_g: number
   min_weight_g: number
   max_weight_g: number
+  lane_reserved_count?: number
+  lane_reserved_weight_g?: number
+  available_count?: number
   weight_ranges: { label: string; count: number }[]
   by_style: { style_code: string; count: number; total_weight_g: number; avg_weight_g: number; sku_count: number }[]
   by_sku: { style_code: string; sku: string; count: number; total_weight_g: number; avg_weight_g: number }[]
@@ -173,10 +176,10 @@ export function ErpStockReportWorkspace() {
           <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
             Status
             <select className={`${erpInputCls} mt-1`} value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="in_stock">In stock</option>
-              <option value="sold">Sold</option>
-              <option value="reserved">Reserved</option>
-              <option value="all">All</option>
+              <option value="in_stock">In stock (available)</option>
+              <option value="lane">Lane reserved (Jainav)</option>
+              <option value="sold">Sold (official)</option>
+              <option value="all">All statuses</option>
             </select>
           </label>
         </div>
@@ -245,7 +248,10 @@ export function ErpStockReportWorkspace() {
           <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Summary preview</p>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
-              { l: 'Pieces', v: String(summary.total_pieces) },
+              { l: 'Available', v: String(summary.total_pieces) },
+              ...(summary.lane_reserved_count
+                ? [{ l: 'Lane reserved', v: String(summary.lane_reserved_count) }]
+                : []),
               { l: 'Total weight', v: `${summary.total_weight_g} g` },
               { l: 'Avg weight', v: `${summary.average_weight_g} g` },
               { l: 'Min / Max', v: `${summary.min_weight_g} / ${summary.max_weight_g} g` },
