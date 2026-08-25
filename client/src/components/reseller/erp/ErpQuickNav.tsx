@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Lock, Vault } from 'lucide-react'
+import { Lock } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import {
   listErpQuickNavModules,
@@ -31,22 +31,7 @@ export function ErpQuickNav() {
   if (!operator || !mods.length) return null
 
   return (
-    <div className="mb-4 space-y-2">
-      {shadowUnlocked ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/80 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-950">
-          <Vault className="size-4 shrink-0 text-emerald-700" aria-hidden />
-          <span className="font-semibold">Jainav mode</span>
-          <span className="text-emerald-900/70">— extra tabs unlocked</span>
-          <button
-            type="button"
-            className="ml-auto inline-flex min-h-[32px] items-center gap-1 rounded-lg border border-emerald-400/60 bg-white px-2.5 py-1 font-medium text-emerald-900 transition hover:bg-emerald-100/60"
-            onClick={() => void lockShadow()}
-          >
-            <Lock className="size-3.5" />
-            Lock
-          </button>
-        </div>
-      ) : null}
+    <div className="mb-4">
       <nav
         className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin"
         aria-label="ERP modules"
@@ -82,6 +67,17 @@ export function ErpQuickNav() {
             </Link>
           )
         })}
+        {shadowUnlocked ? (
+          <button
+            type="button"
+            className="ml-auto shrink-0 inline-flex min-h-[36px] items-center gap-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)] transition hover:bg-[var(--color-slate-900,#f7f4ef)]"
+            onClick={() => void lockShadow()}
+            title="Lock extra tabs"
+          >
+            <Lock className="size-3.5" />
+            Lock
+          </button>
+        ) : null}
       </nav>
     </div>
   )
@@ -93,7 +89,7 @@ export function ErpJainavGate({ children }: { children: React.ReactNode }) {
   if (!operator?.shadowAccess) {
     return (
       <p className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-6 text-sm text-[var(--color-jewelry-black,#1a1814)]/70">
-        You do not have access to Jainav mode.
+        You do not have access to this area.
       </p>
     )
   }
@@ -101,7 +97,7 @@ export function ErpJainavGate({ children }: { children: React.ReactNode }) {
   if (!shadowUnlocked) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-6 text-sm text-amber-950">
-        <p className="font-semibold">Jainav mode is locked</p>
+        <p className="font-semibold">This section is locked</p>
         <p className="mt-1 text-xs leading-relaxed text-amber-900/80">
           Sign in as admin, then type your secret key (default <span className="font-mono">F9Rs*</span>){' '}
           and press Enter from any ERP screen.

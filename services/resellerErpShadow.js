@@ -508,6 +508,11 @@ function stockReportHtml({ reportType, summary, pieces, filters, generatedAt }) 
             body += `<tr><td>${s.style_code}</td><td>${s.count}</td><td>${s.total_weight_g}</td><td>${s.avg_weight_g}</td><td>${s.sku_count}</td></tr>`;
         }
         body += '</table>';
+        body += `<h2>By SKU</h2><table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:11px"><tr><th>Style</th><th>SKU</th><th>Count</th><th>Total g</th><th>Avg g</th></tr>`;
+        for (const s of summary.by_sku) {
+            body += `<tr><td>${s.style_code}</td><td>${s.sku}</td><td>${s.count}</td><td>${s.total_weight_g}</td><td>${s.avg_weight_g}</td></tr>`;
+        }
+        body += '</table>';
     } else {
         body += `<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:10px"><tr>
 <th>Barcode</th><th>Style</th><th>SKU</th><th>Product</th><th>Size</th><th>Wt(g)</th><th>Purity</th><th>MC</th><th>Status</th></tr>`;
@@ -531,22 +536,50 @@ function stockDetailCsv(pieces) {
     return [headers.join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\r\n');
 }
 
-function stockSummaryCsv(summary) {
-    const lines = ['Section,Key,Value'];
-    lines.push(`Totals,total_pieces,${summary.total_pieces}`);
-    lines.push(`Totals,total_weight_g,${summary.total_weight_g}`);
-    lines.push(`Totals,average_weight_g,${summary.average_weight_g}`);
-    lines.push(`Totals,min_weight_g,${summary.min_weight_g}`);
-    lines.push(`Totals,max_weight_g,${summary.max_weight_g}`);
+function stockSummaryCsv(summary, meta = {}) {
+    const lines = [];
+    const push = (row) => lines.push(row.map(csvEscape).join(','));
+    const blank = () => lines.push('');
+
+    push(['Stock Summary Report']);
+    if (meta.generatedAt) push(['Generated', meta.generatedAt]);
+    if (meta.filters) {
+        if (meta.filters.styleCode) push(['Style', meta.filters.styleCode]);
+        if (meta.filters.skus?.length) push(['SKUs', meta.filters.skus.join('; ')]);
+        if (meta.filters.status) push(['Status', meta.filters.status]);
+    }
+    blank();
+
+    push(['Overview']);
+    push(['Metric', 'Value']);
+    push(['Total pieces', summary.total_pieces]);
+    push(['Total pcs', summary.total_pcs]);
+    push(['Total weight (g)', summary.total_weight_g]);
+    push(['Average weight (g)', summary.average_weight_g]);
+    push(['Min weight (g)', summary.min_weight_g]);
+    push(['Max weight (g)', summary.max_weight_g]);
+    blank();
+
+    push(['Weight ranges']);
+    push(['Range', 'Count']);
     for (const r of summary.weight_ranges) {
-        lines.push(`Weight range,${csvEscape(r.label)},${r.count}`);
+        push([r.label, r.count]);
     }
+    blank();
+
+    push(['By style']);
+    push(['Style', 'Count', 'Total weight (g)', 'Average weight (g)', 'SKU count']);
     for (const s of summary.by_style) {
-        lines.push(`By style,${csvEscape(s.style_code)},${s.count} pcs / ${s.total_weight_g} g avg ${s.avg_weight_g} g`);
+        push([s.style_code, s.count, s.total_weight_g, s.avg_weight_g, s.sku_count]);
     }
+    blank();
+
+    push(['By SKU']);
+    push(['Style', 'SKU', 'Count', 'Total weight (g)', 'Average weight (g)']);
     for (const s of summary.by_sku) {
-        lines.push(`By SKU,${csvEscape(`${s.style_code}/${s.sku}`)},${s.count} pcs / ${s.total_weight_g} g`);
+        push([s.style_code, s.sku, s.count, s.total_weight_g, s.avg_weight_g]);
     }
+
     return lines.join('\r\n');
 }
 
@@ -813,7 +846,9 @@ function registerShadowRoutes(app, deps) {
             const generatedAt = new Date().toISOString();
 
             if (format === 'csv') {
-                const csv = reportType === 'summary' ? stockSummaryCsv(summary) : stockDetailCsv(pieces);
+                const csv = reportType === 'summary'
+                    ? stockSummaryCsv(summary, { generatedAt, filters })
+                    : stockDetailCsv(pieces);
                 const fname = `stock-${reportType}-${new Date().toISOString().slice(0, 10)}.csv`;
                 res.setHeader('Content-Type', 'text/csv; charset=utf-8');
                 res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);

@@ -215,9 +215,6 @@ export function ErpStockReportWorkspace() {
                 )
               })}
             </div>
-            <p className="mt-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-              Leave none selected to include all SKUs in the style.
-            </p>
           </div>
         ) : null}
 
@@ -287,6 +284,35 @@ export function ErpStockReportWorkspace() {
                   </tbody>
                 </table>
               </div>
+              {summary.by_sku.length ? (
+                <>
+                  <p className="mb-2 mt-4 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">By SKU</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
+                          <th className="py-2 pr-2">Style</th>
+                          <th className="py-2 pr-2">SKU</th>
+                          <th className="py-2 pr-2">Count</th>
+                          <th className="py-2 pr-2">Total g</th>
+                          <th className="py-2">Avg g</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.by_sku.map((s) => (
+                          <tr key={`${s.style_code}-${s.sku}`} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
+                            <td className="py-2 pr-2 font-medium">{s.style_code}</td>
+                            <td className="py-2 pr-2">{s.sku}</td>
+                            <td className="py-2 pr-2 tabular-nums">{s.count}</td>
+                            <td className="py-2 pr-2 tabular-nums">{s.total_weight_g}</td>
+                            <td className="py-2 tabular-nums">{s.avg_weight_g}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : null}
             </>
           ) : pieces.length ? (
             <div className="overflow-x-auto">

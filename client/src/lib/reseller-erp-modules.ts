@@ -358,7 +358,6 @@ export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
   'orders',
   'estimations',
   'sales-reports',
-  'sales-percentages',
   'customers',
   'ledger',
   'jainav',
