@@ -3,7 +3,7 @@
  */
 
 const { DEFAULT_SHADOW_SEQUENCE, getSessionOperator, requireErpOperatorAdmin } = require('./resellerErpOperators');
-const { markPiecesSold, findSoldBarcodeConflicts } = require('./resellerErpStockPieces');
+const { markPiecesSold, markPiecesShadowLane, findSoldBarcodeConflicts } = require('./resellerErpStockPieces');
 
 async function ensureShadowSchema(pool) {
     await pool.query(`
@@ -157,7 +157,7 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     );
     const bill = mapShadowBill(rows[0]);
     if (['completed', 'paid', 'final'].includes(status)) {
-        await markPiecesSold(query, resellerUserId, linesRaw, null);
+        await markPiecesShadowLane(query, resellerUserId, linesRaw);
     }
     return { bill, lane };
 }
@@ -743,7 +743,7 @@ function registerShadowRoutes(app, deps) {
                 ],
             );
             const bill = mapShadowBill(rows[0]);
-            await markPiecesSold(query, req.user.id, linesRaw, null);
+            await markPiecesShadowLane(query, req.user.id, linesRaw);
             res.json({ success: true, bill });
         } catch (e) {
             console.error('shadow bill create:', e);

@@ -76,7 +76,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     entry_type: 'payment_in' as string,
     amount_inr: '',
     customer_id: '',
-    payment_mode: 'upi' as string,
+    payment_mode: 'neft' as string,
     reference_no: '',
     bank_name: '',
     counterparty_name: '',
@@ -178,7 +178,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         entry_type: 'payment_in',
         amount_inr: '',
         customer_id: '',
-        payment_mode: 'upi',
+        payment_mode: 'neft',
         reference_no: '',
         bank_name: '',
         counterparty_name: '',
@@ -350,6 +350,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
       {(tab === 'entries' || tab === 'suspense') && (
         <div className={`${erpCardCls} space-y-3`}>
+          <div>
+            <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Payment entries</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+              Bank receipts, UPI/NEFT payments, and suspense items for the date range below. Sales bills appear in the
+              customer account above; this table is for money received or paid out.
+            </p>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               From

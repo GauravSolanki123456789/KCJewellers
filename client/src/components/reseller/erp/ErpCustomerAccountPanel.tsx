@@ -5,6 +5,7 @@ import axios from '@/lib/axios'
 import { Download, FileText, Loader2, Search } from 'lucide-react'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
 
 export type CustomerAccountTx = {
   date: string
@@ -104,34 +105,29 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
     }
   }
 
-  const exportAccount = async (format: 'csv' | 'html') => {
-    if (!selected) return
+  const exportAccount = async (format: 'csv' | 'pdf') => {
+    if (!selected || !account) return
     setBusy(true)
     try {
-      const path = laneMode
-        ? '/api/reseller/erp/shadow/customer-account/export'
-        : '/api/reseller/erp/ledger/customer-account/export'
-      const res = await axios.get(path, {
-        params: { customer_id: selected.id, from, to, format },
-        responseType: format === 'csv' ? 'blob' : 'text',
-      })
-      if (format === 'html') {
-        const w = window.open('', '_blank')
-        if (w) {
-          w.document.write(typeof res.data === 'string' ? res.data : '')
-          w.document.close()
-          w.focus()
-          setTimeout(() => w.print(), 400)
-        }
+      if (format === 'pdf') {
+        await downloadCustomerAccountPdf(account)
+        setMsg('PDF downloaded.')
       } else {
+        const path = laneMode
+          ? '/api/reseller/erp/shadow/customer-account/export'
+          : '/api/reseller/erp/ledger/customer-account/export'
+        const res = await axios.get(path, {
+          params: { customer_id: selected.id, from, to, format: 'csv' },
+          responseType: 'blob',
+        })
         const url = URL.createObjectURL(res.data)
         const a = document.createElement('a')
         a.href = url
         a.download = `ledger-${selected.name.replace(/\W+/g, '_')}.csv`
         a.click()
         URL.revokeObjectURL(url)
+        setMsg('Excel (CSV) downloaded.')
       }
-      setMsg('Download started.')
     } catch (e) {
       setMsg(erpErr(e))
     } finally {
@@ -224,9 +220,9 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
               <Download className="size-4" />
               Excel (CSV)
             </button>
-            <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void exportAccount('html')}>
+            <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void exportAccount('pdf')}>
               <FileText className="size-4" />
-              PDF (print)
+              PDF download
             </button>
           </div>
           <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">

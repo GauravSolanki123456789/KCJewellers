@@ -99,6 +99,8 @@ export type ErpStockPiece = {
   bag_wt?: number | null
   status: string
   sold_bill_id?: number | null
+  /** Server-side reserved (lane) — shown as in stock but not editable. */
+  locked?: boolean
   rfid_tag?: string | null
 }
 

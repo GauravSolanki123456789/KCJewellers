@@ -249,7 +249,7 @@ export function ErpBillingWorkspace() {
   const [editingBillStatus, setEditingBillStatus] = useState<string | null>(null)
   const [advancePaidInr, setAdvancePaidInr] = useState('')
   const [collectedAmountInr, setCollectedAmountInr] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<ErpPaymentMethod>('cash')
+  const [paymentMethod, setPaymentMethod] = useState<ErpPaymentMethod>('bank')
   const [cashAmountInr, setCashAmountInr] = useState('')
   const [onlineAmountInr, setOnlineAmountInr] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
@@ -526,7 +526,7 @@ export function ErpBillingWorkspace() {
       setCollectedAmountInr(
         session.collectedAmountInr != null ? String(session.collectedAmountInr) : '',
       )
-      setPaymentMethod(session.paymentMethod || 'cash')
+      setPaymentMethod(session.paymentMethod || 'bank')
       setCashAmountInr(session.cashAmountInr != null ? String(session.cashAmountInr) : '')
       setOnlineAmountInr(session.onlineAmountInr != null ? String(session.onlineAmountInr) : '')
       if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
@@ -553,7 +553,7 @@ export function ErpBillingWorkspace() {
         advancePaidInr: session.advancePaidInr != null ? String(session.advancePaidInr) : '',
         collectedAmountInr:
           session.collectedAmountInr != null ? String(session.collectedAmountInr) : '',
-        paymentMethod: session.paymentMethod || 'cash',
+        paymentMethod: session.paymentMethod || 'bank',
         cashAmountInr: session.cashAmountInr != null ? String(session.cashAmountInr) : '',
         onlineAmountInr: session.onlineAmountInr != null ? String(session.onlineAmountInr) : '',
         editingBillId: bill.id,

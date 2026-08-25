@@ -548,6 +548,11 @@ async function ensureStockPiecesSchema(pool) {
         ALTER TABLE reseller_erp_stock_pieces
             ADD COLUMN IF NOT EXISTS import_batch_id UUID REFERENCES reseller_erp_stock_import_batches(id) ON DELETE SET NULL;
     `);
+    await pool.query(`
+        UPDATE reseller_erp_stock_pieces
+        SET status = 'lane'
+        WHERE status = 'sold' AND sold_bill_id IS NULL
+    `).catch(() => {});
 }
 
 async function syncStockAlertCounts(query, resellerUserId, itemCode) {
@@ -622,6 +627,48 @@ async function markPiecesSold(query, resellerUserId, lines, billId) {
     for (const row of itemCodes) {
         await syncStockAlertCounts(query, resellerUserId, row.item_code);
     }
+}
+
+/** Jainav / lane billing — reserve stock without showing as sold in normal ERP views. */
+async function markPiecesShadowLane(query, resellerUserId, lines) {
+    const barcodes = (lines || [])
+        .map((l) => (l.barcode || l.code || '').trim())
+        .filter(Boolean);
+    if (!barcodes.length) return;
+
+    const linked = await query(
+        `SELECT barcode, rfid_tag FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[])
+           AND status = 'in_stock' AND rfid_tag IS NOT NULL`,
+        [resellerUserId, barcodes],
+    );
+
+    await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            status = 'lane', sold_bill_id = NULL, rfid_tag = NULL, updated_at = NOW()
+         WHERE reseller_user_id = $2 AND barcode = ANY($3::text[]) AND status = 'in_stock'`,
+        [resellerUserId, barcodes],
+    );
+
+    await unlinkRfidRows(query, resellerUserId, linked);
+
+    const itemCodes = await query(
+        `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
+        [resellerUserId, barcodes],
+    );
+    for (const row of itemCodes) {
+        await syncStockAlertCounts(query, resellerUserId, row.item_code);
+    }
+}
+
+function mapPieceForClient(row, opts = {}) {
+    const maskLane = opts.maskLane !== false;
+    const p = mapPiece(row);
+    if (maskLane && p.status === 'lane') {
+        return { ...p, status: 'in_stock', locked: true };
+    }
+    return p;
 }
 
 async function lookupStockPiece(query, resellerUserId, code) {
@@ -708,7 +755,7 @@ async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, exclude
          LEFT JOIN reseller_erp_bills b ON b.id = p.sold_bill_id AND b.reseller_user_id = p.reseller_user_id
          WHERE p.reseller_user_id = $1
            AND lower(trim(p.barcode)) = ANY($2::text[])
-           AND p.status = 'sold'`,
+           AND p.status IN ('sold', 'lane')`,
         [resellerUserId, normalized],
     );
     for (const row of stockRows) {
@@ -717,6 +764,15 @@ async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, exclude
         if (!key || seen.has(key)) continue;
         if (excludeBillId && row.sold_bill_id === excludeBillId) continue;
         seen.add(key);
+        if (row.status === 'lane') {
+            conflicts.push({
+                barcode: bc,
+                source: 'stock_piece',
+                sold_bill: null,
+                lane_reserved: true,
+            });
+            continue;
+        }
         conflicts.push({
             barcode: bc,
             source: 'stock_piece',
@@ -842,7 +898,7 @@ function registerStockPieceRoutes(app, deps) {
                  ORDER BY id ASC`,
                 [batchId, req.user.id],
             );
-            res.json({ batch: batchRows[0], pieces: pieces.map(mapPiece) });
+            res.json({ batch: batchRows[0], pieces: pieces.map((r) => mapPieceForClient(r)) });
         } catch (e) {
             console.error('erp stock batch detail:', e);
             res.status(500).json({ error: e.message || 'Failed to load batch' });
@@ -2106,7 +2162,7 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
-    return { lookupStockPiece, markPiecesSold, syncStockAlertCounts, mapPiece, parseExcelRowToPiece, findSoldBarcodeConflicts };
+    return { lookupStockPiece, markPiecesSold, markPiecesShadowLane, syncStockAlertCounts, mapPiece, mapPieceForClient, parseExcelRowToPiece, findSoldBarcodeConflicts };
 }
 
 module.exports = {
@@ -2114,7 +2170,9 @@ module.exports = {
     registerStockPieceRoutes,
     lookupStockPiece,
     markPiecesSold,
+    markPiecesShadowLane,
     mapPiece,
+    mapPieceForClient,
     parseExcelRowToPiece,
     findSoldBarcodeConflicts,
 };

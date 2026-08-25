@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { downloadStockSummaryPdf } from '@/lib/erp-stock-summary-pdf'
 
 type DesignTree = {
   id: number
@@ -71,23 +72,25 @@ export function ErpStockReportWorkspace() {
     setSelectedSkus(styleSkus.map((s) => s.sku))
   }
 
+  const fetchSummary = useCallback(async () => {
+    const params: Record<string, string> = { type: reportType, status }
+    if (styleCode) params.style_code = styleCode
+    if (selectedSkus.length) params.skus = selectedSkus.join(',')
+    const res = await axios.get<{ summary: StockSummary; pieces?: StockPiece[]; pieceCount: number }>(
+      '/api/reseller/erp/shadow/stock-report',
+      { params },
+    )
+    return res.data
+  }, [reportType, styleCode, selectedSkus, status])
+
   const loadPreview = useCallback(async () => {
     setBusy(true)
     setMsg(null)
     try {
-      const params: Record<string, string> = {
-        type: reportType,
-        status,
-      }
-      if (styleCode) params.style_code = styleCode
-      if (selectedSkus.length) params.skus = selectedSkus.join(',')
-      const res = await axios.get<{ summary: StockSummary; pieces?: StockPiece[]; pieceCount: number }>(
-        '/api/reseller/erp/shadow/stock-report',
-        { params },
-      )
-      setSummary(res.data.summary)
-      setPieces(res.data.pieces || [])
-      setMsg(`Loaded ${res.data.pieceCount} piece(s).`)
+      const data = await fetchSummary()
+      setSummary(data.summary)
+      setPieces(data.pieces || [])
+      setMsg(`Loaded ${data.pieceCount} piece(s).`)
     } catch (e) {
       setMsg(erpErr(e))
       setSummary(null)
@@ -95,9 +98,23 @@ export function ErpStockReportWorkspace() {
     } finally {
       setBusy(false)
     }
-  }, [reportType, styleCode, selectedSkus, status])
+  }, [fetchSummary])
 
-  const download = async (format: 'csv' | 'html') => {
+  const downloadPdf = async () => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const data = summary ? { summary } : await fetchSummary().then((d) => ({ summary: d.summary }))
+      await downloadStockSummaryPdf(data.summary)
+      setMsg('PDF downloaded.')
+    } catch (e) {
+      setMsg(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const download = async (format: 'csv') => {
     setBusy(true)
     try {
       const params: Record<string, string> = {
@@ -109,27 +126,16 @@ export function ErpStockReportWorkspace() {
       if (selectedSkus.length) params.skus = selectedSkus.join(',')
       const res = await axios.get('/api/reseller/erp/shadow/stock-report', {
         params,
-        responseType: format === 'csv' ? 'blob' : 'text',
+        responseType: 'blob',
       })
-      if (format === 'html') {
-        const w = window.open('', '_blank')
-        if (w) {
-          w.document.write(typeof res.data === 'string' ? res.data : '')
-          w.document.close()
-          w.focus()
-          setTimeout(() => w.print(), 400)
-        }
-        setMsg('Print dialog opened — choose Save as PDF if needed.')
-      } else {
-        const blob = res.data instanceof Blob ? res.data : new Blob([String(res.data)])
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `stock-${reportType}-${new Date().toISOString().slice(0, 10)}.csv`
-        a.click()
-        URL.revokeObjectURL(url)
-        setMsg('Excel/CSV downloaded.')
-      }
+      const blob = res.data instanceof Blob ? res.data : new Blob([String(res.data)])
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `stock-${reportType}-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      setMsg('Excel/CSV downloaded.')
     } catch (e) {
       setMsg(erpErr(e))
     } finally {
@@ -226,9 +232,9 @@ export function ErpStockReportWorkspace() {
             <FileSpreadsheet className="size-4" />
             Download Excel (CSV)
           </button>
-          <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void download('html')}>
+          <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void downloadPdf()}>
             <FileText className="size-4" />
-            PDF (print)
+            PDF download
           </button>
         </div>
         {msg ? <p className="mt-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">{msg}</p> : null}

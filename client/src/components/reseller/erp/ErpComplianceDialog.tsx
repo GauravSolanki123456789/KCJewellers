@@ -111,13 +111,6 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
             Bill <span className="font-semibold text-emerald-800">{bill.bill_number}</span> ·{' '}
             {bill.customer_name || 'Customer'}
           </p>
-          {!showDownloadOnly ? (
-            <p className="break-words rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-2 text-xs leading-relaxed text-amber-950">
-              GST details from your ERP GST settings will be validated and sent to GSTZen
-              {isEinvoice ? ' e-invoice API' : ' e-way bill API'}. Use sandbox token in E-invoice settings for
-              testing.
-            </p>
-          ) : null}
           {isEinvoice && existingIrn ? (
             <p className="break-all text-xs font-medium text-emerald-700">Already generated — IRN: {existingIrn}</p>
           ) : null}

@@ -220,7 +220,7 @@ export function ErpStockExcelEditor({
   const tryAutofillFromDesignMaster = useCallback(
     async (rowId: number) => {
       const row = drafts.find((d) => d.id === rowId)
-      if (!row || row.status === 'sold') return
+      if (!row || row.status === 'sold' || row.locked) return
       const style = row.values.style_code.trim()
       const sku = row.values.sku.trim()
       if (!style || !sku) return
@@ -340,7 +340,7 @@ export function ErpStockExcelEditor({
       return
     }
     const targetIds =
-      selected.size > 0 ? selected : new Set(drafts.filter((d) => d.status !== 'sold').map((d) => d.id))
+      selected.size > 0 ? selected : new Set(drafts.filter((d) => d.status !== 'sold' && !d.locked).map((d) => d.id))
     if (!targetIds.size) {
       setError('No rows to update')
       return
@@ -377,7 +377,7 @@ export function ErpStockExcelEditor({
       const idx = drafts.findIndex((d) => d.id === fromRowId)
       if (idx < 0) return null
       for (let i = idx + 1; i < drafts.length; i++) {
-        if (drafts[i].status !== 'sold') return drafts[i].id
+        if (drafts[i].status !== 'sold' && !drafts[i].locked) return drafts[i].id
       }
       return null
     },
@@ -438,7 +438,7 @@ export function ErpStockExcelEditor({
     async (rowId: number, field: StockEditableField, advanceRow: boolean) => {
       if (printingLabel) return
       const row = drafts.find((d) => d.id === rowId)
-      if (!row || row.status === 'sold') return
+      if (!row || row.status === 'sold' || row.locked) return
 
       let values = { ...row.values }
       for (const f of WEIGHT_TAB_ORDER) {
@@ -557,7 +557,7 @@ export function ErpStockExcelEditor({
   }
 
   const toggleAll = () => {
-    const deletable = drafts.filter((d) => d.status !== 'sold').map((d) => d.id)
+    const deletable = drafts.filter((d) => d.status !== 'sold' && !d.locked).map((d) => d.id)
     if (selected.size === deletable.length) setSelected(new Set())
     else setSelected(new Set(deletable))
   }
@@ -628,6 +628,7 @@ export function ErpStockExcelEditor({
     const count = pieces.filter(
       (p) =>
         p.status !== 'sold' &&
+        !p.locked &&
         (p.item_code === name || p.product_name === name),
     ).length
     if (!count) {
@@ -651,7 +652,7 @@ export function ErpStockExcelEditor({
   }
 
   const deleteTag = async (row: StockRowDraft) => {
-    if (row.status === 'sold' || deleting) return
+    if (row.status === 'sold' || row.locked || deleting) return
     const tag = row.values.barcode?.trim() || `#${row.id}`
     if (
       !confirm(
@@ -680,7 +681,7 @@ export function ErpStockExcelEditor({
   }
 
   const openRfidDialog = (row: StockRowDraft) => {
-    if (row.status === 'sold') return
+    if (row.status === 'sold' || row.locked) return
     setRfidTargetRowId(row.id)
     setRfidInput(row.rfid_tag?.trim() || '')
     setRfidDialogOpen(true)
@@ -697,7 +698,7 @@ export function ErpStockExcelEditor({
     const tag = rfidInput.trim().toUpperCase()
     if (!tag) return
     const row = drafts.find((d) => d.id === rfidTargetRowId)
-    if (!row || row.status === 'sold') return
+    if (!row || row.status === 'sold' || row.locked) return
 
     setRfidLinkBusy(true)
     setError(null)
@@ -749,7 +750,7 @@ export function ErpStockExcelEditor({
   const applyScaleWeight = (grams: number) => {
     const targetId =
       scaleFocus?.rowId ??
-      (selected.size === 1 ? Array.from(selected)[0] : drafts.find((d) => d.status !== 'sold')?.id)
+      (selected.size === 1 ? Array.from(selected)[0] : drafts.find((d) => d.status !== 'sold' && !d.locked)?.id)
     const field = scaleFocus?.field ?? 'avg_weight'
     if (!targetId) {
       alert('Click a weight cell (Wt, Gross, Chain, etc.) or select a row first.')
@@ -935,7 +936,7 @@ export function ErpStockExcelEditor({
               <th className="sticky left-0 z-10 bg-[var(--color-slate-900,#faf8f4)] px-2 py-2">
                 <input
                   type="checkbox"
-                  checked={selected.size > 0 && selected.size === drafts.filter((d) => d.status !== 'sold').length}
+                  checked={selected.size > 0 && selected.size === drafts.filter((d) => d.status !== 'sold' && !d.locked).length}
                   onChange={toggleAll}
                   aria-label="Select all"
                 />
@@ -957,7 +958,7 @@ export function ErpStockExcelEditor({
           <tbody>
             {drafts.map((row, idx) => {
               const isDirty = baseline[idx] && !draftsEqual(row, baseline[idx])
-              const readOnly = row.status === 'sold'
+              const readOnly = row.status === 'sold' || !!row.locked
               return (
                 <tr
                   key={row.id}

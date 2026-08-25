@@ -1320,6 +1320,12 @@ function registerResellerErpRoutes(app, deps) {
             const stockHit = await lookupStockPiece(query, req.user.id, code);
             if (stockHit?.piece) {
                 const p = stockHit.piece;
+                if (p.status === 'lane') {
+                    return res.status(409).json({
+                        error: 'This item is not available',
+                        availability: stockHit.availability,
+                    });
+                }
                 if (p.status === 'sold') {
                     const conflicts = await findSoldBarcodeConflicts(query, req.user.id, [code]);
                     const soldBill = conflicts[0]?.sold_bill || null;

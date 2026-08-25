@@ -15,6 +15,7 @@ import { ErpQuotePdfButton } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
@@ -221,6 +222,18 @@ export function ErpEstimationsWorkspace() {
     }
   }
 
+  const downloadBillExcel = async (id: number) => {
+    setBusy(true)
+    try {
+      const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
+      await downloadBillDetailExcel(res.data.bill, 'estimate')
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -395,6 +408,14 @@ export function ErpEstimationsWorkspace() {
                         onClick={() => void openPreview(b.id)}
                       >
                         <Eye className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex size-9 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                        title="Download Excel report"
+                        onClick={() => void downloadBillExcel(b.id)}
+                      >
+                        <FileSpreadsheet className="size-4" />
                       </button>
                       <ErpQuotePdfButton
                         bill={b}
