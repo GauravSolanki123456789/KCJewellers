@@ -542,7 +542,7 @@ function stockSummaryCsv(summary, meta = {}) {
     const blank = () => lines.push('');
 
     push(['Stock Summary Report']);
-    if (meta.generatedAt) push(['Generated', meta.generatedAt]);
+    if (meta.generatedAt) push(['Generated', String(meta.generatedAt).slice(0, 10)]);
     if (meta.filters) {
         if (meta.filters.styleCode) push(['Style', meta.filters.styleCode]);
         if (meta.filters.skus?.length) push(['SKUs', meta.filters.skus.join('; ')]);
@@ -550,20 +550,10 @@ function stockSummaryCsv(summary, meta = {}) {
     }
     blank();
 
-    push(['Overview']);
-    push(['Metric', 'Value']);
-    push(['Total pieces', summary.total_pieces]);
-    push(['Total pcs', summary.total_pcs]);
-    push(['Total weight (g)', summary.total_weight_g]);
-    push(['Average weight (g)', summary.average_weight_g]);
-    push(['Min weight (g)', summary.min_weight_g]);
-    push(['Max weight (g)', summary.max_weight_g]);
-    blank();
-
-    push(['Weight ranges']);
-    push(['Range', 'Count']);
-    for (const r of summary.weight_ranges) {
-        push([r.label, r.count]);
+    push(['By SKU']);
+    push(['Style', 'SKU', 'Count', 'Total weight (g)', 'Average weight (g)']);
+    for (const s of summary.by_sku) {
+        push([s.style_code, s.sku, s.count, s.total_weight_g, s.avg_weight_g]);
     }
     blank();
 
@@ -574,13 +564,35 @@ function stockSummaryCsv(summary, meta = {}) {
     }
     blank();
 
-    push(['By SKU']);
-    push(['Style', 'SKU', 'Count', 'Total weight (g)', 'Average weight (g)']);
-    for (const s of summary.by_sku) {
-        push([s.style_code, s.sku, s.count, s.total_weight_g, s.avg_weight_g]);
+    push(['Weight ranges']);
+    push(['Range', 'Count']);
+    for (const r of summary.weight_ranges) {
+        push([r.label, r.count]);
     }
+    blank();
+
+    push(['Overview']);
+    push(['Metric', 'Value']);
+    push(['Total pcs', summary.total_pieces]);
+    push(['Total weight (g)', summary.total_weight_g]);
+    push(['Average weight (g)', summary.average_weight_g]);
+    push(['Min weight (g)', summary.min_weight_g]);
+    push(['Max weight (g)', summary.max_weight_g]);
 
     return lines.join('\r\n');
+}
+
+function shouldRouteSaleToShadowLedger(sessionObj) {
+    if (!sessionObj || typeof sessionObj !== 'object') return true;
+    if (!hasValidGstin(sessionObj.customerGst)) return true;
+    const paymentMethod = inferPaymentMethodFromSession(sessionObj);
+    const pay = String(paymentMethod || 'cash').trim().toLowerCase();
+    if (pay === 'cash') return true;
+    if (pay === 'mixed') {
+        const online = Number(sessionObj.onlineAmountInr) || 0;
+        return online <= 0;
+    }
+    return false;
 }
 
 function registerShadowRoutes(app, deps) {
@@ -875,6 +887,60 @@ function registerShadowRoutes(app, deps) {
             res.status(500).json({ error: e.message || 'Stock report failed' });
         }
     });
+
+    app.get('/api/reseller/erp/shadow/customer-account', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');
+            const customerId = parseInt(String(req.query.customer_id || ''), 10);
+            const account = await buildCustomerAccount(query, req.user.id, {
+                customerId,
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                includeShadow: true,
+            });
+            res.json(account);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            console.error('shadow customer-account:', e);
+            res.status(500).json({ error: e.message || 'Failed to load account' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/customer-account/export', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');
+            const customerId = parseInt(String(req.query.customer_id || ''), 10);
+            const format = String(req.query.format || 'csv').toLowerCase();
+            const account = await buildCustomerAccount(query, req.user.id, {
+                customerId,
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                includeShadow: true,
+            });
+            if (format === 'html') {
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                const rows = account.transactions
+                    .map(
+                        (t) =>
+                            `<tr><td>${t.date}</td><td>${t.kind}</td><td>${t.ref}</td><td>${t.description}</td><td>${t.debit || ''}</td><td>${t.credit || ''}</td><td>${t.balance_inr}</td></tr>`,
+                    )
+                    .join('');
+                return res.send(
+                    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lane ledger</title></head><body><h1>${account.customer.name}</h1><p>Balance due: ₹${account.summary.balance_due_inr}</p><table border="1" cellpadding="4"><tr><th>Date</th><th>Type</th><th>Ref</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>${rows}</table></body></html>`,
+                );
+            }
+            const csv = customerAccountToCsv(account);
+            const fname = `lane-ledger-${account.customer.name.replace(/\W+/g, '_')}-${new Date().toISOString().slice(0, 10)}.csv`;
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            res.send('\ufeff' + csv);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            res.status(500).json({ error: e.message || 'Export failed' });
+        }
+    });
 }
 
 module.exports = {
@@ -885,4 +951,5 @@ module.exports = {
     inferPaymentMethodFromSession,
     createShadowBillFromBillingPayload,
     markEstimateBilledViaLedger,
+    shouldRouteSaleToShadowLedger,
 };

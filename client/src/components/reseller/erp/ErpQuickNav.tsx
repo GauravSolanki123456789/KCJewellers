@@ -95,15 +95,7 @@ export function ErpJainavGate({ children }: { children: React.ReactNode }) {
   }
 
   if (!shadowUnlocked) {
-    return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-6 text-sm text-amber-950">
-        <p className="font-semibold">This section is locked</p>
-        <p className="mt-1 text-xs leading-relaxed text-amber-900/80">
-          Sign in as admin, then type your secret key (default <span className="font-mono">F9Rs*</span>){' '}
-          and press Enter from any ERP screen.
-        </p>
-      </div>
-    )
+    return null
   }
 
   return <>{children}</>

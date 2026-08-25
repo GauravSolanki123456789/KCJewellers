@@ -252,42 +252,10 @@ export function ErpStockReportWorkspace() {
           </div>
           {reportType === 'summary' ? (
             <>
-              <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Weight ranges</p>
-              <ul className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {summary.weight_ranges.map((r) => (
-                  <li key={r.label} className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] px-2 py-1.5 text-xs">
-                    <span className="font-medium">{r.label}</span>
-                    <span className="ml-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]/70">{r.count}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">By style</p>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[420px] text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
-                      <th className="py-2 pr-2">Style</th>
-                      <th className="py-2 pr-2">Count</th>
-                      <th className="py-2 pr-2">Total g</th>
-                      <th className="py-2">Avg g</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.by_style.map((s) => (
-                      <tr key={s.style_code} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
-                        <td className="py-2 pr-2 font-medium">{s.style_code}</td>
-                        <td className="py-2 pr-2 tabular-nums">{s.count}</td>
-                        <td className="py-2 pr-2 tabular-nums">{s.total_weight_g}</td>
-                        <td className="py-2 tabular-nums">{s.avg_weight_g}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
               {summary.by_sku.length ? (
                 <>
-                  <p className="mb-2 mt-4 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">By SKU</p>
-                  <div className="overflow-x-auto">
+                  <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">By SKU</p>
+                  <div className="mb-4 overflow-x-auto">
                     <table className="w-full min-w-[480px] text-left text-xs">
                       <thead>
                         <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -313,6 +281,38 @@ export function ErpStockReportWorkspace() {
                   </div>
                 </>
               ) : null}
+              <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">By style</p>
+              <div className="mb-4 overflow-x-auto">
+                <table className="w-full min-w-[420px] text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
+                      <th className="py-2 pr-2">Style</th>
+                      <th className="py-2 pr-2">Count</th>
+                      <th className="py-2 pr-2">Total g</th>
+                      <th className="py-2">Avg g</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.by_style.map((s) => (
+                      <tr key={s.style_code} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
+                        <td className="py-2 pr-2 font-medium">{s.style_code}</td>
+                        <td className="py-2 pr-2 tabular-nums">{s.count}</td>
+                        <td className="py-2 pr-2 tabular-nums">{s.total_weight_g}</td>
+                        <td className="py-2 tabular-nums">{s.avg_weight_g}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Weight ranges</p>
+              <ul className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {summary.weight_ranges.map((r) => (
+                  <li key={r.label} className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] px-2 py-1.5 text-xs">
+                    <span className="font-medium">{r.label}</span>
+                    <span className="ml-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]/70">{r.count}</span>
+                  </li>
+                ))}
+              </ul>
             </>
           ) : pieces.length ? (
             <div className="overflow-x-auto">

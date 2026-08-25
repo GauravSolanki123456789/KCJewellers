@@ -20,6 +20,14 @@ export function previewLedgerLane(
   return 'jainav'
 }
 
-export function ledgerLaneLabel(lane: 'hitesh' | 'jainav'): string {
-  return lane === 'hitesh' ? 'Hitesh (online)' : 'Jainav (cash)'
+export function shouldRouteSaleToShadow(session: {
+  customerGst?: string | null
+  paymentMethod?: string | null
+  onlineAmountInr?: number | string | null
+}): boolean {
+  if (!hasValidGstin(session.customerGst)) return true
+  const pay = String(session.paymentMethod || 'cash').trim().toLowerCase()
+  if (pay === 'cash') return true
+  if (pay === 'mixed') return !(Number(session.onlineAmountInr) > 0)
+  return false
 }

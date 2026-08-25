@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import axios from '@/lib/axios'
 import {
   BookMarked,
@@ -8,6 +8,7 @@ import {
   Loader2,
   Plus,
   Trash2,
+  Search,
   Upload,
   Wallet,
 } from 'lucide-react'
@@ -22,6 +23,7 @@ import {
   type ErpLedgerEntry,
 } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 
 type LedgerSummary = {
   received_inr: number
@@ -56,7 +58,7 @@ function firstOfMonthIso() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-export function ErpLedgerWorkspace() {
+export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean }) {
   const [tab, setTab] = useState<'entries' | 'add' | 'import' | 'suspense' | 'report'>('entries')
   const [entries, setEntries] = useState<ErpLedgerEntry[]>([])
   const [customers, setCustomers] = useState<ErpCustomer[]>([])
@@ -83,6 +85,24 @@ export function ErpLedgerWorkspace() {
   })
 
   const [resolveCustomerId, setResolveCustomerId] = useState<Record<number, string>>({})
+  const [payCustomerQ, setPayCustomerQ] = useState('')
+  const [payCustomerResults, setPayCustomerResults] = useState<ErpCustomer[]>([])
+  const [payCustomerPickIdx, setPayCustomerPickIdx] = useState(-1)
+  const [payCustomerLabel, setPayCustomerLabel] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!payCustomerQ.trim()) {
+        setPayCustomerResults([])
+        return
+      }
+      void axios
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params: { q: payCustomerQ.trim() } })
+        .then((r) => setPayCustomerResults(r.data.customers || []))
+        .catch(() => setPayCustomerResults([]))
+    }, 200)
+    return () => clearTimeout(t)
+  }, [payCustomerQ])
 
   const loadCustomers = useCallback(async () => {
     const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
@@ -165,6 +185,9 @@ export function ErpLedgerWorkspace() {
         narration: '',
         is_suspense: false,
       })
+      setPayCustomerQ('')
+      setPayCustomerLabel('')
+      setPayCustomerResults([])
       setMsg('Payment recorded.')
       setTab('entries')
       await reload()
@@ -318,6 +341,13 @@ export function ErpLedgerWorkspace() {
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
       ) : null}
 
+      <ErpCustomerAccountPanel
+        laneMode={laneMode}
+        from={from}
+        to={to}
+        onCustomerSelected={(id) => setCustomerFilter(id ? String(id) : '')}
+      />
+
       {(tab === 'entries' || tab === 'suspense') && (
         <div className={`${erpCardCls} space-y-3`}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -330,19 +360,13 @@ export function ErpLedgerWorkspace() {
               <ErpDateInput className={`${erpInputCls} mt-1`} value={to} onChange={setTo} />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
-              Customer
-              <select
+              Customer filter
+              <input
                 className={`${erpInputCls} mt-1`}
+                placeholder="Set via customer search above, or type customer id"
                 value={customerFilter}
-                onChange={(e) => setCustomerFilter(e.target.value)}
-              >
-                <option value="">All customers</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(e) => setCustomerFilter(e.target.value.replace(/\D/g, ''))}
+              />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Search
@@ -503,20 +527,67 @@ export function ErpLedgerWorkspace() {
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
               Customer
-              <select
-                className={`${erpInputCls} mt-1`}
-                value={form.customer_id}
-                onChange={(e) => setForm({ ...form, customer_id: e.target.value, is_suspense: false })}
-                disabled={form.is_suspense}
-              >
-                <option value="">— Select customer —</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.name}
-                    {c.mobile ? ` · ${c.mobile}` : ''}
-                  </option>
-                ))}
-              </select>
+              <div className="relative mt-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-jewelry-black,#1a1814)]/40" />
+                <input
+                  className={`${erpInputCls} pl-9`}
+                  placeholder="Search by name or mobile…"
+                  value={payCustomerQ}
+                  disabled={form.is_suspense}
+                  onChange={(e) => {
+                    setPayCustomerQ(e.target.value)
+                    setPayCustomerPickIdx(-1)
+                    if (!e.target.value.trim()) {
+                      setForm({ ...form, customer_id: '' })
+                      setPayCustomerLabel('')
+                    }
+                  }}
+                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                    const list = payCustomerResults.slice(0, 8)
+                    if (!list.length) return
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setPayCustomerPickIdx((i) => Math.min(i + 1, list.length - 1))
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setPayCustomerPickIdx((i) => Math.max(i - 1, 0))
+                    } else if (e.key === 'Enter' && payCustomerPickIdx >= 0) {
+                      e.preventDefault()
+                      const c = list[payCustomerPickIdx]
+                      setForm({ ...form, customer_id: String(c.id), is_suspense: false })
+                      setPayCustomerQ(c.name)
+                      setPayCustomerLabel(c.mobile ? `${c.name} · ${c.mobile}` : c.name)
+                      setPayCustomerResults([])
+                    }
+                  }}
+                />
+                {payCustomerResults.length > 0 && payCustomerQ.trim() && !form.customer_id ? (
+                  <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
+                    {payCustomerResults.slice(0, 8).map((c, i) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className={`block w-full px-3 py-2.5 text-left text-sm ${
+                            i === payCustomerPickIdx ? 'bg-[var(--kc-accent,#c41e3a)]/10' : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
+                          }`}
+                          onClick={() => {
+                            setForm({ ...form, customer_id: String(c.id), is_suspense: false })
+                            setPayCustomerQ(c.name)
+                            setPayCustomerLabel(c.mobile ? `${c.name} · ${c.mobile}` : c.name)
+                            setPayCustomerResults([])
+                          }}
+                        >
+                          <span className="font-medium">{c.name}</span>
+                          {c.mobile ? <span className="ml-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">{c.mobile}</span> : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              {payCustomerLabel ? (
+                <p className="mt-1 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">{payCustomerLabel}</p>
+              ) : null}
             </label>
             <input
               className={erpInputCls}

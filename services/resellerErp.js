@@ -33,6 +33,7 @@ const {
     hasValidGstin,
     createShadowBillFromBillingPayload,
     markEstimateBilledViaLedger,
+    shouldRouteSaleToShadowLedger,
 } = require('./resellerErpShadow');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
@@ -788,10 +789,10 @@ function registerResellerErpRoutes(app, deps) {
             const status = statusRaw.toLowerCase();
             const sessionObj =
                 req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
-            if (
+    if (
                 billType === 'sale' &&
                 ['completed', 'paid', 'final'].includes(status) &&
-                !hasValidGstin(sessionObj.customerGst)
+                shouldRouteSaleToShadowLedger(sessionObj)
             ) {
                 if (billRatesUnfixedFromPayload(sessionObj, lines)) {
                     return res.status(400).json({

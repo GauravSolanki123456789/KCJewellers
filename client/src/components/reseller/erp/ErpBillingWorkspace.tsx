@@ -23,6 +23,7 @@ import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/l
 import {
   hasValidGstin,
   previewLedgerLane,
+  shouldRouteSaleToShadow,
   type ErpPaymentMethod,
 } from '@/lib/erp-ledger-routing'
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
@@ -938,7 +939,11 @@ export function ErpBillingWorkspace() {
     [totals.net, parsedCollected, lines],
   )
   const balanceDue = Math.max(0, totals.net - parsedAdvance)
-  const isOfficialGstBill = hasValidGstin(customerGst)
+  const isOfficialGstBill = !shouldRouteSaleToShadow({
+    customerGst,
+    paymentMethod,
+    onlineAmountInr,
+  })
   const previewLane = previewLedgerLane(paymentMethod, cashAmountInr, onlineAmountInr)
 
   const buildPayload = (billType: 'sale' | 'estimate', status: string) => ({

@@ -10,7 +10,7 @@ const LEDGER_ENTRY_TYPES = new Set([
     'adjustment',
 ]);
 
-const PAYMENT_MODES = new Set(['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other']);
+const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -497,6 +497,58 @@ function registerResellerErpLedgerRoutes(app, deps) {
         } catch (e) {
             console.error('erp ledger import:', e);
             res.status(500).json({ error: e.message || 'Import failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/customer-account', checkAuth, erpGate, async (req, res) => {
+        try {
+            const customerId = parseInt(String(req.query.customer_id || ''), 10);
+            const account = await buildCustomerAccount(query, req.user.id, {
+                customerId,
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                includeShadow: false,
+            });
+            res.json(account);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            console.error('erp ledger customer-account:', e);
+            res.status(500).json({ error: e.message || 'Failed to load account' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/customer-account/export', checkAuth, erpGate, async (req, res) => {
+        try {
+            const customerId = parseInt(String(req.query.customer_id || ''), 10);
+            const format = String(req.query.format || 'csv').toLowerCase();
+            const account = await buildCustomerAccount(query, req.user.id, {
+                customerId,
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                includeShadow: false,
+            });
+            const csv = customerAccountToCsv(account);
+            const fname = `ledger-${account.customer.name.replace(/\W+/g, '_')}-${new Date().toISOString().slice(0, 10)}.csv`;
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            if (format === 'html') {
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                const rows = account.transactions
+                    .map(
+                        (t) =>
+                            `<tr><td>${t.date}</td><td>${t.kind}</td><td>${t.ref}</td><td>${t.description}</td><td>${t.debit || ''}</td><td>${t.credit || ''}</td><td>${t.balance_inr}</td></tr>`,
+                    )
+                    .join('');
+                return res.send(
+                    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ledger</title></head><body><h1>${account.customer.name}</h1><p>Balance due: ₹${account.summary.balance_due_inr}</p><table border="1" cellpadding="4"><tr><th>Date</th><th>Type</th><th>Ref</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>${rows}</table></body></html>`,
+                );
+            }
+            res.send('\ufeff' + csv);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            res.status(500).json({ error: e.message || 'Export failed' });
         }
     });
 }
