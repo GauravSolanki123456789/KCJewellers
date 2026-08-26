@@ -2597,6 +2597,9 @@ async function checkAndMigrateResellerWhiteLabel() {
         await dbPool.query(
             'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS hide_prices BOOLEAN NOT NULL DEFAULT false',
         );
+        await dbPool.query(
+            'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        );
         await dbPool.query(`
             CREATE UNIQUE INDEX IF NOT EXISTS idx_users_custom_domain_lower
             ON users (LOWER(TRIM(custom_domain)))

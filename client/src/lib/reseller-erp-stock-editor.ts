@@ -261,7 +261,9 @@ export function downloadStockPiecesExcel(
 ): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const XLSX = require('xlsx') as typeof import('xlsx')
-  const headers = STOCK_EDITOR_COLUMNS.map((c) => c.label)
+  const headers = [...STOCK_EDITOR_COLUMNS.map((c) => c.label)]
+  const hasRfid = pieces.some((p) => p.rfid_tag && String(p.rfid_tag).trim())
+  if (hasRfid) headers.push('RfidTag')
   const rows = pieces.map((p) => {
     const row: Record<string, string | number | null> = {}
     for (const col of STOCK_EDITOR_COLUMNS) {
@@ -357,6 +359,9 @@ export function downloadStockPiecesExcel(
         default:
           row[label] = ''
       }
+    }
+    if (hasRfid) {
+      row.RfidTag = p.rfid_tag?.trim() || ''
     }
     return row
   })

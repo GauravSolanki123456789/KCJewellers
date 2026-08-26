@@ -9,6 +9,8 @@ import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
+import { ErpNavVisibilityPanel } from '@/components/reseller/erp/ErpNavVisibilityPanel'
+import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
 
 type ShadowBill = {
   id: number | string
@@ -26,6 +28,7 @@ type ShadowBill = {
 export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter()
   const { shadowUnlocked, lockShadow, operator } = useErpOperator()
+  const { reload: reloadNavVisibility } = useErpNavVisibility()
   const [lane, setLane] = useState<'hitesh' | 'jainav' | 'both'>('both')
   const [bills, setBills] = useState<ShadowBill[]>([])
   const [summary, setSummary] = useState<{ hitesh: { count: number; total: number }; jainav: { count: number; total: number } } | null>(null)
@@ -360,6 +363,8 @@ export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean })
           </div>
         </div>
       </div>
+
+      <ErpNavVisibilityPanel onSaved={() => void reloadNavVisibility()} />
 
       <div className={`${erpCardCls} mt-4`}>
         <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">

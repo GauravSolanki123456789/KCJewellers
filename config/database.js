@@ -665,6 +665,10 @@ async function initSchema() {
                 updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
             )
         `);
+        await pool.query(`
+            ALTER TABLE shared_catalogs
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        `);
     } catch (error) {
         console.warn('shared_catalogs init:', error.message);
     }

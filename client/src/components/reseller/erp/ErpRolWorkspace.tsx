@@ -11,7 +11,8 @@ import {
   erpListItemSelected,
   erpListItemSelectedAlt,
 } from '@/components/reseller/erp/erp-ui'
-import { Download, Loader2, Plus, Save, Tags, Trash2, Wand2 } from 'lucide-react'
+import { Download, FileText, Loader2, Plus, Save, Tags, Trash2, Wand2 } from 'lucide-react'
+import { downloadRolReportPdf } from '@/lib/erp-rol-report-pdf'
 
 type DesignSku = { id: number; sku: string }
 type DesignStyle = { id: number; style_code: string; skus: DesignSku[] }
@@ -191,6 +192,16 @@ export function ErpRolWorkspace() {
     a.download = `rol-report-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(a.href)
+  }
+
+  const downloadReportPdf = async () => {
+    if (!report.length) return
+    try {
+      await downloadRolReportPdf(report)
+      setMsg('ROL report PDF downloaded.')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'PDF download failed')
+    }
   }
 
   const summaryRequired = useMemo(
@@ -405,10 +416,16 @@ export function ErpRolWorkspace() {
               {report.length} SKU(s) · {summaryRequired} piece(s) required to order
             </p>
           </div>
-          <button type="button" className={erpBtnGhost} onClick={() => void downloadReport()}>
-            <Download className="size-4" />
-            Download CSV
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={erpBtnGhost} onClick={() => void downloadReport()}>
+              <Download className="size-4" />
+              Download CSV
+            </button>
+            <button type="button" className={erpBtnGhost} disabled={!report.length} onClick={() => void downloadReportPdf()}>
+              <FileText className="size-4" />
+              Download PDF
+            </button>
+          </div>
         </div>
         {report.length === 0 ? (
           <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">

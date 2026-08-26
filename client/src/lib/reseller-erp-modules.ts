@@ -25,6 +25,13 @@ import {
   Warehouse,
 } from 'lucide-react'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
+import {
+  DEFAULT_ERP_NAV_VISIBILITY,
+  moduleRequiresJainavUnlock,
+  orderNavModuleIds,
+  resolveVisibleNavModuleIds,
+  type ErpNavVisibility,
+} from '@/lib/erp-nav-visibility'
 
 export type ResellerErpModuleId =
   | 'billing'
@@ -383,14 +390,30 @@ export function getResellerErpModule(id: string | undefined | null): ResellerErp
   return RESELLER_ERP_MODULES.find((m) => m.id === normalized) ?? null
 }
 
-export function isJainavModule(mod: ResellerErpModule | null): boolean {
-  return !!mod?.jainavOnly
+export function isJainavModule(mod: ResellerErpModule | null, navVisibility?: ErpNavVisibility | null): boolean {
+  if (!mod) return false
+  return moduleRequiresJainavUnlock(mod.id, navVisibility)
 }
 
 export function listErpModulesForHub(opts: {
   canAccess: (id: ResellerErpModuleId | string) => boolean
   jainavUnlocked: boolean
+  isAdminOperator?: boolean
+  navVisibility?: ErpNavVisibility | null
 }): ResellerErpModule[] {
+  const isAdmin = opts.isAdminOperator === true
+  if (isAdmin) {
+    const visible = resolveVisibleNavModuleIds({
+      jainavUnlocked: opts.jainavUnlocked,
+      isAdminOperator: true,
+      navVisibility: opts.navVisibility,
+    })
+    return RESELLER_ERP_MODULES.filter((m) => {
+      if (m.id === 'shadow') return false
+      if (!visible.has(m.id)) return false
+      return opts.canAccess(m.id)
+    })
+  }
   return RESELLER_ERP_MODULES.filter((m) => {
     if (m.id === 'shadow') return false
     if (m.jainavOnly && !opts.jainavUnlocked) return false
@@ -401,7 +424,23 @@ export function listErpModulesForHub(opts: {
 export function listErpQuickNavModules(opts: {
   canAccess: (id: ResellerErpModuleId | string) => boolean
   jainavUnlocked: boolean
+  isAdminOperator?: boolean
+  navVisibility?: ErpNavVisibility | null
 }): ResellerErpModule[] {
+  const isAdmin = opts.isAdminOperator === true
+  if (isAdmin) {
+    const visible = resolveVisibleNavModuleIds({
+      jainavUnlocked: opts.jainavUnlocked,
+      isAdminOperator: true,
+      navVisibility: opts.navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY,
+    })
+    return orderNavModuleIds(visible)
+      .map((id) => getResellerErpModule(id))
+      .filter((m): m is ResellerErpModule => {
+        if (!m) return false
+        return opts.canAccess(m.id)
+      })
+  }
   return ERP_QUICK_NAV_IDS.map((id) => getResellerErpModule(id)).filter((m): m is ResellerErpModule => {
     if (!m) return false
     if (m.jainavOnly && !opts.jainavUnlocked) return false

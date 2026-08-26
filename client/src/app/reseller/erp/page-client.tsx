@@ -5,6 +5,7 @@ import Link from 'next/link'
 import axios from '@/lib/axios'
 import { ChevronRight } from 'lucide-react'
 import { PROFILE_PATH } from '@/lib/routes'
+import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
 import {
   RESELLER_ERP_GROUPS,
   RESELLER_ERP_JAINAV_GROUP,
@@ -29,7 +30,8 @@ type ErpStatus = {
 
 function ErpHubContent() {
   const [status, setStatus] = useState<ErpStatus | null>(null)
-  const { canAccessModule, shadowUnlocked } = useErpOperator()
+  const { canAccessModule, shadowUnlocked, operator } = useErpOperator()
+  const { navVisibility } = useErpNavVisibility()
 
   const load = useCallback(async () => {
     try {
@@ -91,6 +93,8 @@ function ErpHubContent() {
           const mods = listErpModulesForHub({
             canAccess: canAccessModule,
             jainavUnlocked: shadowUnlocked,
+            isAdminOperator: operator?.role === 'admin',
+            navVisibility,
           }).filter((m) => m.group === group.id)
           if (!mods.length) return null
           return (

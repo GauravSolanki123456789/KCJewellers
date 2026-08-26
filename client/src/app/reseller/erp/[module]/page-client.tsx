@@ -27,6 +27,8 @@ import { ErpStockReportWorkspace } from '@/components/reseller/erp/ErpStockRepor
 import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { isJainavModule } from '@/lib/reseller-erp-modules'
+import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
+import { moduleRequiresJainavUnlock } from '@/lib/erp-nav-visibility'
 import { ErpGstInvoiceItemsPanel } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { ErpRolWorkspace } from '@/components/reseller/erp/ErpRolWorkspace'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
@@ -235,7 +237,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
 function ModulePageContent() {
   const params = useParams()
   const router = useRouter()
-  const { canAccessModule, shadowUnlocked } = useErpOperator()
+  const { canAccessModule, shadowUnlocked, operator } = useErpOperator()
+  const { navVisibility } = useErpNavVisibility()
   const raw = typeof params?.module === 'string' ? params.module : Array.isArray(params?.module) ? params.module[0] : ''
   const mod = useMemo(() => getResellerErpModule(raw), [raw])
 
@@ -290,7 +293,7 @@ function ModulePageContent() {
     )
   }
 
-  if (isJainavModule(mod) && !shadowUnlocked) {
+  if (mod && moduleRequiresJainavUnlock(mod.id, navVisibility) && !shadowUnlocked) {
     return (
       <ResellerErpShell title={mod.title}>
         <ErpJainavGate>
