@@ -428,11 +428,11 @@ function adminAccessGate(req, res, next) {
     if (req.method === 'POST' && pathFull.includes('/api/admin/shared-catalog')) {
         return next();
     }
-    // Resellers append products to their own active shared catalogue links.
+    // Resellers append products or update wholesale rates on their own shared catalogue links.
     if (
         req.method === 'PATCH' &&
         pathFull.includes('/api/admin/shared-catalog/') &&
-        pathFull.endsWith('/products')
+        (pathFull.endsWith('/products') || pathFull.endsWith('/pricing'))
     ) {
         return next();
     }

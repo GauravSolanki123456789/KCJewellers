@@ -760,6 +760,22 @@ export function ErpStockExcelEditor({
     setMessage(`Weight ${grams.toFixed(3)} g applied — click Save edits.`)
   }
 
+  const handleScalePrint = useCallback(
+    (grams: number) => {
+      const targetId =
+        scaleFocus?.rowId ??
+        (selected.size === 1 ? Array.from(selected)[0] : drafts.find((d) => d.status !== 'sold' && !d.locked)?.id)
+      const field = scaleFocus?.field ?? 'avg_weight'
+      if (!targetId) {
+        setError('Click a weight cell first, then press Print on the scale.')
+        return
+      }
+      setCell(targetId, field, grams.toFixed(3))
+      void printLabelAtRow(targetId, field, true)
+    },
+    [drafts, printLabelAtRow, scaleFocus, selected, setCell],
+  )
+
   const displayCellValue = (row: StockRowDraft, field: StockEditableField) => {
     const saved = row.values[field]
     if (field === 'bag_wt') return saved
@@ -779,6 +795,7 @@ export function ErpStockExcelEditor({
         onApplyWeight={applyScaleWeight}
         onLiveWeight={setLiveWeight}
         onConnectionChange={setScaleConnected}
+        onScalePrint={handleScalePrint}
       />
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className={erpBtnPrimary} disabled={saving || dirtyCount === 0} onClick={() => void save()}>

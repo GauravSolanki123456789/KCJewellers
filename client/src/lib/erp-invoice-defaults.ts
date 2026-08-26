@@ -1,3 +1,5 @@
+import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
+
 export function defaultInvoiceItemName(metalType?: string | null, productName?: string | null): string {
   const m = (metalType || '').toLowerCase()
   if (m.includes('gold')) return 'GOLD JEWELLERY'
@@ -16,6 +18,35 @@ export function defaultHsnCode(metalType?: string | null): string {
   if (m.includes('gold')) return '711319'
   if (m.includes('bullion')) return '710692'
   return '711311'
+}
+
+/** Group bill lines by invoice item + HSN for tax invoice table rows. */
+export function groupInvoiceLinesForTax(lines: ErpBillLine[]): ErpBillLine[] {
+  const map = new Map<string, ErpBillLine>()
+  for (const line of lines) {
+    const itemName = (line.invoice_item_name || line.name || 'JEWELLERY').trim().toUpperCase()
+    const hsn = (line.hsn_code || defaultHsnCode(line.metal_type)).trim()
+    const purityKey = line.purity != null ? String(line.purity) : ''
+    const rateKey = line.ratePerGram != null && !line.rateLocked ? String(line.ratePerGram) : ''
+    const key = `${itemName}|${hsn}|${purityKey}|${rateKey}`
+    const existing = map.get(key)
+    if (existing) {
+      existing.qty = (Number(existing.qty) || 1) + (Number(line.qty) || 1)
+      existing.weightGm = (Number(existing.weightGm) || 0) + (Number(line.weightGm) || 0)
+      existing.lineTotalInr = (Number(existing.lineTotalInr) || 0) + (Number(line.lineTotalInr) || 0)
+    } else {
+      map.set(key, {
+        ...line,
+        invoice_item_name: itemName,
+        hsn_code: hsn,
+        name: itemName,
+        qty: line.qty ?? 1,
+        weightGm: line.weightGm ?? 0,
+        lineTotalInr: line.lineTotalInr ?? 0,
+      })
+    }
+  }
+  return Array.from(map.values())
 }
 
 export type SoldBillConflict = {

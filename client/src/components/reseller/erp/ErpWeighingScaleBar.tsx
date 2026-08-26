@@ -10,6 +10,7 @@ import {
 } from '@/lib/erp-hardware'
 import {
   closeSerialPort,
+  getGrantedSerialPorts,
   openSerialPort,
   requestUserSerialPort,
   startScaleReader,
@@ -24,6 +25,8 @@ type Props = {
   onApplyWeight?: (grams: number) => void
   onLiveWeight?: (grams: number | null) => void
   onConnectionChange?: (connected: boolean) => void
+  /** Mettler Toledo Print key → auto print label for focused weight row */
+  onScalePrint?: (grams: number) => void
 }
 
 export function ErpWeighingScaleBar({
@@ -31,6 +34,7 @@ export function ErpWeighingScaleBar({
   onApplyWeight,
   onLiveWeight,
   onConnectionChange,
+  onScalePrint,
 }: Props) {
   const [hw, setHw] = useState<ErpHardwareSettings | null>(null)
   const [connected, setConnected] = useState(false)
@@ -83,12 +87,15 @@ export function ErpWeighingScaleBar({
     }
     try {
       await disconnect()
-      const port = await requestUserSerialPort()
+      const granted = await getGrantedSerialPorts()
+      const port =
+        granted.length === 1 ? granted[0] : await requestUserSerialPort()
       await openSerialPort(port, profile.serial)
       portRef.current = port
       stopReadRef.current = await startScaleReader(port, {
         onWeight: (g) => setLiveWeight(g),
         onError: (m) => setError(m),
+        onPrint: onScalePrint,
       }, { brand: profile.brand || 'generic' })
       setConnected(true)
     } catch (e) {
@@ -110,7 +117,7 @@ export function ErpWeighingScaleBar({
             {liveWeight != null ? `${liveWeight.toFixed(3)} g` : '—'}
           </span>
           <span className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
-            Weight cell → scale → Enter next row · F1 print label &amp; next row
+            Click Wt cell → weight from scale → Print on scale or F1 to print label
           </span>
           {onApplyWeight && liveWeight != null ? (
             <button type="button" className={erpBtnPrimary} onClick={() => onApplyWeight(liveWeight)}>

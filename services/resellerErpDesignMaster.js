@@ -36,10 +36,16 @@ async function ensureDesignMasterSchema(pool) {
             metal_slab_w_pct NUMERIC(8, 4),
             metal_slab_f_pct NUMERIC(8, 4),
             mc_type VARCHAR(32),
+            invoice_item_name VARCHAR(255),
+            hsn_code VARCHAR(32),
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (reseller_user_id, style_id, sku)
         );
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS invoice_item_name VARCHAR(255);
+        ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(32);
     `);
 }
 
@@ -63,6 +69,8 @@ function mapDesignSku(row) {
         metal_slab_w_pct: row.metal_slab_w_pct != null ? Number(row.metal_slab_w_pct) : null,
         metal_slab_f_pct: row.metal_slab_f_pct != null ? Number(row.metal_slab_f_pct) : null,
         mc_type: row.mc_type,
+        invoice_item_name: row.invoice_item_name,
+        hsn_code: row.hsn_code,
     };
 }
 
@@ -74,7 +82,8 @@ async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
         `SELECT ds.id AS style_id, ds.style_code, ds.style_name,
                 sk.id, sk.sku, sk.product_name, sk.purity, sk.metal_type,
                 sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
-                sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type
+                sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
+                sk.invoice_item_name, sk.hsn_code
          FROM reseller_erp_design_styles ds
          JOIN reseller_erp_design_skus sk ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
          WHERE ds.reseller_user_id = $1
@@ -104,6 +113,8 @@ function applyDesignDefaultsToPiece(piece, defaults) {
     fill('metal_slab_w_pct', defaults.metal_slab_w_pct);
     fill('metal_slab_f_pct', defaults.metal_slab_f_pct);
     fill('mc_type', defaults.mc_type);
+    fill('invoice_item_name', defaults.invoice_item_name);
+    fill('hsn_code', defaults.hsn_code);
     return piece;
 }
 
@@ -297,7 +308,8 @@ function registerDesignMasterRoutes(app, deps) {
             const skus = await query(
                 `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.purity, sk.metal_type,
                         sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
-                        sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type
+                        sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
+                sk.invoice_item_name, sk.hsn_code
                  FROM reseller_erp_design_skus sk
                  WHERE sk.reseller_user_id = $1
                  ORDER BY sk.sku`,
@@ -360,8 +372,11 @@ function registerDesignMasterRoutes(app, deps) {
                     purity = $2, metal_type = $3, wastage_pct = $4,
                     mc_rate = $5, mc_rate_slab_r = $6, mc_rate_slab_w = $7, mc_rate_slab_f = $8,
                     metal_slab_r_pct = $9, metal_slab_w_pct = $10, metal_slab_f_pct = $11,
-                    mc_type = $12, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $13 AND reseller_user_id = $14
+                    mc_type = $12,
+                    invoice_item_name = COALESCE($13, invoice_item_name),
+                    hsn_code = COALESCE($14, hsn_code),
+                    updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $15 AND reseller_user_id = $16
                  RETURNING *`,
                 [
                     body.product_name != null ? String(body.product_name).slice(0, 255) : null,
@@ -376,6 +391,8 @@ function registerDesignMasterRoutes(app, deps) {
                     num('metal_slab_w_pct'),
                     num('metal_slab_f_pct'),
                     body.mc_type != null ? String(body.mc_type).slice(0, 32) : null,
+                    body.invoice_item_name != null ? String(body.invoice_item_name).slice(0, 255) : null,
+                    body.hsn_code != null ? String(body.hsn_code).slice(0, 32) : null,
                     id,
                     req.user.id,
                 ],

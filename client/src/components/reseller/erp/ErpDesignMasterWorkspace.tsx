@@ -11,6 +11,7 @@ import {
   erpListItemSelected,
   erpListItemSelectedAlt,
 } from '@/components/reseller/erp/erp-ui'
+import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { Layers, Loader2, Plus, Save, Download } from 'lucide-react'
 
 type DesignSku = {
@@ -30,6 +31,8 @@ type DesignSku = {
   metal_slab_w_pct?: number | null
   metal_slab_f_pct?: number | null
   mc_type?: string | null
+  invoice_item_name?: string | null
+  hsn_code?: string | null
 }
 
 type DesignStyle = {
@@ -61,6 +64,7 @@ export function ErpDesignMasterWorkspace() {
   const [newStyleCode, setNewStyleCode] = useState('')
   const [newSku, setNewSku] = useState('')
   const [seedBusy, setSeedBusy] = useState(false)
+  const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -84,6 +88,10 @@ export function ErpDesignMasterWorkspace() {
   const selectedSku = selectedStyle?.skus.find((s) => s.id === selectedSkuId) || null
 
   useEffect(() => {
+    void fetchGstInvoiceItems().then(setInvoiceItems)
+  }, [])
+
+  useEffect(() => {
     if (selectedSku) {
       setDraft({
         product_name: selectedSku.product_name ?? '',
@@ -98,6 +106,8 @@ export function ErpDesignMasterWorkspace() {
         metal_slab_w_pct: selectedSku.metal_slab_w_pct != null ? String(selectedSku.metal_slab_w_pct) : '',
         metal_slab_f_pct: selectedSku.metal_slab_f_pct != null ? String(selectedSku.metal_slab_f_pct) : '',
         mc_type: selectedSku.mc_type ?? '',
+        invoice_item_name: selectedSku.invoice_item_name ?? '',
+        hsn_code: selectedSku.hsn_code ?? '',
       })
     } else {
       setDraft({})
@@ -301,6 +311,37 @@ export function ErpDesignMasterWorkspace() {
           </p>
           {selectedSku ? (
             <div className="space-y-2">
+              <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                Invoice item (GST)
+                <select
+                  className={`${erpInputCls} mt-0.5 text-xs`}
+                  value={draft.invoice_item_name ?? ''}
+                  onChange={(e) => {
+                    const name = e.target.value
+                    const item = invoiceItems.find((it) => it.name === name)
+                    setDraft((d) => ({
+                      ...d,
+                      invoice_item_name: name,
+                      hsn_code: item?.hsn ?? d.hsn_code ?? '',
+                    }))
+                  }}
+                >
+                  <option value="">— Default from metal —</option>
+                  {invoiceItems.map((it) => (
+                    <option key={it.id} value={it.name}>
+                      {it.name} ({it.hsn})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                HSN code
+                <input
+                  className={`${erpInputCls} mt-0.5 text-xs`}
+                  value={draft.hsn_code ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, hsn_code: e.target.value }))}
+                />
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 {NUM_FIELDS.map(({ key, label }) => (
                   <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">

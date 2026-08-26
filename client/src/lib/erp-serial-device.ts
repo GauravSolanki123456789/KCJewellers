@@ -34,7 +34,15 @@ export async function requestUserSerialPort(): Promise<SerialPortLike> {
   if (!webSerialSupported()) {
     throw new Error('Web Serial is not supported in this browser. Use Chrome or Edge on this PC.')
   }
-  return navSerial().requestPort()
+  try {
+    return await navSerial().requestPort()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/no port selected|notfound|cancel/i.test(msg)) {
+      throw new Error('No COM port selected — choose your scale (e.g. COM1) in the browser popup.')
+    }
+    throw e instanceof Error ? e : new Error(msg)
+  }
 }
 
 export async function getGrantedSerialPorts(): Promise<SerialPortLike[]> {
@@ -224,6 +232,12 @@ export function parseScaleWeightChunk(
         const v = parseFloat(si[1])
         if (Number.isFinite(v) && v >= 0) return v
       }
+      // Some JSB models send net weight on print key as "N     12.450 g"
+      const net = line.match(/^N\s+[+-]?\s*([\d.]+)\s*g\b/i)
+      if (net) {
+        const v = parseFloat(net[1])
+        if (Number.isFinite(v) && v >= 0) return v
+      }
     }
   }
   const matches = text.match(/\d+\.\d{2,4}/g)
@@ -232,9 +246,25 @@ export function parseScaleWeightChunk(
   return Number.isFinite(last) && last >= 0 ? last : null
 }
 
+/** Mettler Toledo: detect Print key / transfer-to-host events in MT-SICS stream. */
+export function detectMettlerPrintTrigger(text: string): boolean {
+  const lines = text.split(/[\r\n]+/)
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i].trim()
+    if (!line) continue
+    if (/^P\s*$/i.test(line)) return true
+    if (/^P\s+[+-]?\s*[\d.]+\s*g\b/i.test(line)) return true
+    if (/^Print\b/i.test(line)) return true
+    if (/^T\s+[+-]?\s*[\d.]+\s*g\b/i.test(line)) return true
+  }
+  return false
+}
+
 export type ScaleReaderCallbacks = {
   onWeight: (grams: number) => void
   onError?: (message: string) => void
+  /** Mettler Toledo: fired when Print is pressed on the scale (uses last stable weight). */
+  onPrint?: (grams: number) => void
 }
 
 /** Read scale continuously from an open serial port. Returns stop function. */
@@ -249,6 +279,7 @@ export async function startScaleReader(
   const decoder = new TextDecoder()
   let buffer = ''
   let stopped = false
+  let lastStableWeight: number | null = null
 
   void (async () => {
     try {
@@ -259,7 +290,17 @@ export async function startScaleReader(
         buffer += decoder.decode(value, { stream: true })
         if (buffer.length > 512) buffer = buffer.slice(-256)
         const w = parseScaleWeightChunk(buffer, brand)
-        if (w != null) callbacks.onWeight(w)
+        if (w != null) {
+          lastStableWeight = w
+          callbacks.onWeight(w)
+        }
+        if (brand === 'mettler_toledo' && callbacks.onPrint && detectMettlerPrintTrigger(buffer)) {
+          const printWt = w ?? lastStableWeight
+          if (printWt != null && printWt > 0) {
+            callbacks.onPrint(printWt)
+            buffer = ''
+          }
+        }
       }
     } catch (e) {
       if (!stopped) {

@@ -182,6 +182,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     icon: Tags,
     group: 'inventory',
     kind: 'workspace',
+    jainavOnly: true,
   },
   {
     id: 'rate-uncut',

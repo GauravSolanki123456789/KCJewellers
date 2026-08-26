@@ -166,8 +166,9 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     stock_piece_id: p.id,
     availability: null,
     lineTotalInr: null,
-    invoice_item_name: defaultInvoiceItemName(metal, p.product_name || p.name),
-    hsn_code: defaultHsnCode(metal),
+    invoice_item_name: (p as ErpProductHit & { invoice_item_name?: string }).invoice_item_name
+      || defaultInvoiceItemName(metal, p.product_name || p.name),
+    hsn_code: (p as ErpProductHit & { hsn_code?: string }).hsn_code || defaultHsnCode(metal),
   }
   return applyPieceSlabToLine(base, slab)
 }
@@ -916,7 +917,7 @@ export function ErpBillingWorkspace() {
     setEditingBillStatus(null)
     setAdvancePaidInr('')
     setCollectedAmountInr('')
-    setPaymentMethod('cash')
+    setPaymentMethod('bank')
     setCashAmountInr('')
     setOnlineAmountInr('')
     clearDraftStorage()
@@ -1406,11 +1407,11 @@ export function ErpBillingWorkspace() {
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value as ErpPaymentMethod)}
             >
+              <option value="bank">Bank transfer</option>
               <option value="cash">Cash</option>
               <option value="upi">UPI / GPay</option>
               <option value="gpay">GPay</option>
               <option value="card">Card</option>
-              <option value="bank">Bank transfer</option>
               <option value="mixed">Cash + online (split)</option>
             </select>
           </div>

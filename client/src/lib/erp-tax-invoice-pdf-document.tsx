@@ -3,6 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
+import { groupInvoiceLinesForTax } from '@/lib/erp-invoice-defaults'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
 export type ErpGstSettings = {
@@ -467,7 +468,7 @@ function InvoiceCopyPage({
 }
 
 export function ErpTaxInvoicePdfDocument(props: ErpTaxInvoicePdfDocumentProps) {
-  const lines = props.bill.lines ?? []
+  const lines = groupInvoiceLinesForTax(props.bill.lines ?? [])
   const pageProps = useMemo(() => ({ ...props, lines }), [props, lines])
 
   return (

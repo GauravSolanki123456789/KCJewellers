@@ -43,7 +43,7 @@ const PAYMENT_MODES = ['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other']
 
 const ENTRY_LABELS: Record<string, string> = {
   payment_in: 'Payment received',
-  payment_out: 'Payment out',
+  payment_out: 'Payment made (out)',
   suspense_in: 'Suspense',
   bill_advance: 'Bill advance',
   adjustment: 'Adjustment',
@@ -514,7 +514,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 disabled={form.is_suspense}
               >
                 <option value="payment_in">Payment received</option>
-                <option value="payment_out">Payment out</option>
+                <option value="payment_out">Payment made (to party / supplier)</option>
                 <option value="adjustment">Adjustment</option>
               </select>
             </label>

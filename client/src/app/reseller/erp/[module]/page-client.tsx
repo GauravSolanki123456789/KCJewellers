@@ -27,6 +27,8 @@ import { ErpStockReportWorkspace } from '@/components/reseller/erp/ErpStockRepor
 import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { isJainavModule } from '@/lib/reseller-erp-modules'
+import { ErpGstInvoiceItemsPanel } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { ErpRolWorkspace } from '@/components/reseller/erp/ErpRolWorkspace'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
 import {
   BillsWorkspace,
@@ -76,7 +78,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'stock':
       return <StockWorkspace />
     case 'rol':
-      return <StockWorkspace rolOnly />
+      return <ErpRolWorkspace />
     case 'sales-reports':
       return <ReportsWorkspace />
     case 'sales-percentages':
@@ -105,6 +107,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
               { key: 'placeOfSupply', label: 'Place of supply' },
             ]}
           />
+          <ErpGstInvoiceItemsPanel />
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
               Payment details (on invoice)

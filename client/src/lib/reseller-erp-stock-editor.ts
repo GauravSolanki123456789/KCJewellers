@@ -254,6 +254,118 @@ export function parseStockExcelRows(buffer: ArrayBuffer): Record<string, unknown
   return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null })
 }
 
+/** Download current batch pieces as Excel (same column layout as upload). */
+export function downloadStockPiecesExcel(
+  pieces: ErpStockPiece[],
+  filename: string,
+): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSX = require('xlsx') as typeof import('xlsx')
+  const headers = STOCK_EDITOR_COLUMNS.map((c) => c.label)
+  const rows = pieces.map((p) => {
+    const row: Record<string, string | number | null> = {}
+    for (const col of STOCK_EDITOR_COLUMNS) {
+      const label = col.label
+      switch (col.key) {
+        case 'barcode':
+          row[label] = p.barcode ?? ''
+          break
+        case 'sku':
+          row[label] = p.sku ?? ''
+          break
+        case 'style_code':
+          row[label] = p.style_code ?? ''
+          break
+        case 'product_name':
+          row[label] = p.product_name ?? ''
+          break
+        case 'size':
+          row[label] = p.size ?? ''
+          break
+        case 'avg_weight':
+          row[label] = p.avg_weight ?? null
+          break
+        case 'gross_weight':
+          row[label] = p.gross_weight ?? null
+          break
+        case 'bag_wt':
+          row[label] = p.bag_wt ?? null
+          break
+        case 'purity':
+          row[label] = p.purity ?? null
+          break
+        case 'wastage_pct':
+          row[label] = p.wastage_pct ?? null
+          break
+        case 'mc_rate':
+          row[label] = p.mc_rate ?? null
+          break
+        case 'mc_type':
+          row[label] = p.mc_type ?? ''
+          break
+        case 'pcs':
+          row[label] = p.pcs ?? 1
+          break
+        case 'box_charges':
+          row[label] = p.box_charges ?? null
+          break
+        case 'stone_charges':
+          row[label] = p.stone_charges ?? null
+          break
+        case 'stone_wt':
+          row[label] = p.stone_wt ?? null
+          break
+        case 'metal_type':
+          row[label] = p.metal_type ?? ''
+          break
+        case 'item_code':
+          row[label] = p.item_code ?? ''
+          break
+        case 'image_url':
+          row[label] = p.image_url ?? ''
+          break
+        case 'attr_color':
+          row[label] = p.attr_color ?? ''
+          break
+        case 'attr_stone':
+          row[label] = p.attr_stone ?? ''
+          break
+        case 'fixed_price':
+          row[label] = p.fixed_price ?? null
+          break
+        case 'mc_rate_slab_r':
+          row[label] = p.mc_rate_slab_r ?? null
+          break
+        case 'mc_rate_slab_w':
+          row[label] = p.mc_rate_slab_w ?? null
+          break
+        case 'mc_rate_slab_f':
+          row[label] = p.mc_rate_slab_f ?? null
+          break
+        case 'metal_slab_r_pct':
+          row[label] = p.metal_slab_r_pct ?? null
+          break
+        case 'metal_slab_w_pct':
+          row[label] = p.metal_slab_w_pct ?? null
+          break
+        case 'metal_slab_f_pct':
+          row[label] = p.metal_slab_f_pct ?? null
+          break
+        case 'bags':
+          row[label] = p.bags ?? ''
+          break
+        default:
+          row[label] = ''
+      }
+    }
+    return row
+  })
+  const ws = XLSX.utils.json_to_sheet(rows, { header: headers })
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock')
+  XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`)
+}
+
 /** Map PRN {{variables}} to ERP product columns (Excel upload / editor). */
 export const LABEL_VAR_TO_ERP_COLUMN: Record<string, string> = {
   barcode: 'Barcode',

@@ -25,7 +25,8 @@ const {
     createBillAdvanceLedgerEntry,
 } = require('./resellerErpLedger');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
-const { registerDesignMasterRoutes } = require('./resellerErpDesignMaster');
+const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./resellerErpDesignMaster');
+const { registerRolRoutes, ensureRolSchema } = require('./resellerErpRol');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
 const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator } = require('./resellerErpOperators');
 const {
@@ -141,6 +142,7 @@ async function ensureResellerErpSchema(pool) {
             ADD COLUMN IF NOT EXISTS order_media_json JSONB NOT NULL DEFAULT '{}'::jsonb;
     `);
     await ensureStockPiecesSchema(pool);
+    await ensureRolSchema(pool);
 }
 
 async function resellerErpEnabled(query, userId) {
@@ -451,6 +453,7 @@ function registerResellerErpRoutes(app, deps) {
 
     registerStockPieceRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerDesignMasterRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerRolRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerPoshRfidInboundRoutes(app, { query });
     registerFloorRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
@@ -775,7 +778,16 @@ function registerResellerErpRoutes(app, deps) {
     app.post('/api/reseller/erp/bills', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const billType = String(req.body.bill_type || 'sale').trim().toLowerCase();
-            const allowed = ['sale', 'credit', 'estimate', 'order'];
+            const allowed = [
+                'sale',
+                'credit',
+                'estimate',
+                'order',
+                'job_work_issue',
+                'job_work_receipt',
+                'mfg_issue',
+                'mfg_receipt',
+            ];
             if (!allowed.includes(billType)) {
                 return res.status(400).json({ error: 'Invalid bill type' });
             }
@@ -1351,6 +1363,12 @@ function registerResellerErpRoutes(app, deps) {
                         metal_type: p.metal_type,
                     });
                 }
+                const designDefaults = await lookupDesignDefaults(
+                    query,
+                    req.user.id,
+                    p.style_code,
+                    p.sku,
+                );
                 return res.json({
                     source: 'stock_piece',
                     product: {
@@ -1360,6 +1378,8 @@ function registerResellerErpRoutes(app, deps) {
                         style_code: p.style_code,
                         name: p.product_name,
                         product_name: p.product_name,
+                        invoice_item_name: designDefaults?.invoice_item_name || null,
+                        hsn_code: designDefaults?.hsn_code || null,
                         size: p.size,
                         net_weight: p.avg_weight,
                         gross_weight: p.gross_weight != null ? Number(p.gross_weight) : p.avg_weight,

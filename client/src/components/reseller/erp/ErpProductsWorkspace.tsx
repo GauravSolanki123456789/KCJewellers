@@ -13,9 +13,9 @@ import {
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
 import { printStockLabels } from '@/lib/erp-print-labels'
-import { parseStockExcelRows } from '@/lib/reseller-erp-stock-editor'
+import { parseStockExcelRows, downloadStockPiecesExcel } from '@/lib/reseller-erp-stock-editor'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
-import { ArrowLeft, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, Download, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
 
 type Batch = {
   id: string
@@ -233,6 +233,18 @@ export function ErpProductsWorkspace() {
     }
   }
 
+  const downloadBatchExcel = () => {
+    if (!activeBatch || !pieces.length) {
+      setMsgTone('err')
+      setMsg('No pieces in this batch to download.')
+      return
+    }
+    const safe = (activeBatch.batch_label || 'stock').replace(/[^\w.-]+/g, '_')
+    downloadStockPiecesExcel(pieces, `${safe}-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    setMsgTone('ok')
+    setMsg(`Downloaded ${pieces.length} row(s) as Excel.`)
+  }
+
   const deleteBatch = async () => {
     if (!activeBatchId || deleting) return
     if (!confirm(`Delete entire batch "${activeBatch?.batch_label}"? This cannot be undone.`)) return
@@ -301,6 +313,10 @@ export function ErpProductsWorkspace() {
             {appendBusy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
             Add Excel to batch
           </label>
+          <button type="button" className={erpBtnGhost} disabled={!pieces.length} onClick={downloadBatchExcel}>
+            <Download className="size-4" />
+            Download Excel
+          </button>
           <button type="button" className={erpBtnPrimary} disabled={printing} onClick={() => void printBarcodes()}>
             {printing ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
             Generate barcodes

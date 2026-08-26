@@ -553,6 +553,13 @@ async function ensureStockPiecesSchema(pool) {
         SET status = 'lane'
         WHERE status = 'sold' AND sold_bill_id IS NULL
     `).catch(() => {});
+    await pool.query(`
+        ALTER TABLE reseller_erp_stock_pieces
+            DROP CONSTRAINT IF EXISTS reseller_erp_stock_pieces_status_chk;
+        ALTER TABLE reseller_erp_stock_pieces
+            ADD CONSTRAINT reseller_erp_stock_pieces_status_chk
+            CHECK (status IN ('in_stock', 'sold', 'reserved', 'cancelled', 'lane'));
+    `).catch(() => {});
 }
 
 async function syncStockAlertCounts(query, resellerUserId, itemCode) {
