@@ -267,81 +267,94 @@ export function ErpProductsWorkspace() {
   if (activeBatchId && activeBatch) {
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={erpBtnGhost}
-            onClick={() => {
-              setActiveBatchId(null)
-              setPieces([])
-              setImports([])
-            }}
-          >
-            <ArrowLeft className="size-4" />
-            All batches
-          </button>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <input
-              className={`${erpInputCls} min-w-[140px] max-w-xs text-sm font-semibold`}
-              value={renameLabel}
-              onChange={(e) => setRenameLabel(e.target.value)}
-              aria-label="Batch name"
-            />
+        {/* Batch header */}
+        <div className={`${erpCardCls} space-y-3`}>
+          <div className="flex flex-wrap items-start gap-3">
             <button
               type="button"
               className={erpBtnGhost}
-              disabled={renaming || !renameLabel.trim() || renameLabel.trim() === activeBatch.batch_label}
-              onClick={() => void renameBatch()}
+              onClick={() => {
+                setActiveBatchId(null)
+                setPieces([])
+                setImports([])
+              }}
             >
-              {renaming ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
-              Rename
+              <ArrowLeft className="size-4" />
+              All batches
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  className={`${erpInputCls} min-w-[120px] max-w-sm text-base font-semibold`}
+                  value={renameLabel}
+                  onChange={(e) => setRenameLabel(e.target.value)}
+                  aria-label="Batch name"
+                />
+                <button
+                  type="button"
+                  className={erpBtnGhost}
+                  disabled={renaming || !renameLabel.trim() || renameLabel.trim() === activeBatch.batch_label}
+                  onClick={() => void renameBatch()}
+                >
+                  {renaming ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
+                  Rename
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                {pieces.length} piece(s) in this batch
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
+            <label className={`${erpBtnPrimary} cursor-pointer`}>
+              <input
+                ref={appendFileRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                disabled={appendBusy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f && activeBatchId) void onFile(f, activeBatchId)
+                }}
+              />
+              {appendBusy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              Add Excel
+            </label>
+            <button type="button" className={erpBtnGhost} disabled={!pieces.length} onClick={downloadBatchExcel}>
+              <Download className="size-4" />
+              Download Excel
+            </button>
+            <button type="button" className={erpBtnPrimary} disabled={printing} onClick={() => void printBarcodes()}>
+              {printing ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
+              Generate barcodes
+            </button>
+            <button
+              type="button"
+              className="ml-auto inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
+              disabled={deleting}
+              onClick={() => void deleteBatch()}
+            >
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              Delete batch
             </button>
           </div>
-          <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">{pieces.length} pieces</span>
-          <label className={`${erpBtnPrimary} ml-auto cursor-pointer`}>
-            <input
-              ref={appendFileRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              disabled={appendBusy}
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f && activeBatchId) void onFile(f, activeBatchId)
-              }}
-            />
-            {appendBusy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-            Add Excel to batch
-          </label>
-          <button type="button" className={erpBtnGhost} disabled={!pieces.length} onClick={downloadBatchExcel}>
-            <Download className="size-4" />
-            Download Excel
-          </button>
-          <button type="button" className={erpBtnPrimary} disabled={printing} onClick={() => void printBarcodes()}>
-            {printing ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
-            Generate barcodes
-          </button>
-          <button
-            type="button"
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
-            disabled={deleting}
-            onClick={() => void deleteBatch()}
-          >
-            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            Delete batch
-          </button>
         </div>
+
         {imports.length > 0 || importsLoading ? (
-          <div className={`${erpCardCls} space-y-2`}>
-            <p className="text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-              Excel uploads in this batch
-            </p>
-            {importsLoading ? (
-              <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">Loading uploads…</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {imports.map((imp) => (
-                  <li
+          <details className={`${erpCardCls} group`} open={imports.length <= 3}>
+            <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55 marker:content-none">
+              <span className="inline-flex items-center gap-1">
+                Excel uploads ({imports.length || '…'})
+              </span>
+            </summary>
+            <div className="mt-2 space-y-1.5">
+              {importsLoading ? (
+                <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">Loading uploads…</p>
+              ) : (
+                imports.map((imp) => (
+                  <div
                     key={imp.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
                   >
@@ -364,16 +377,25 @@ export function ErpProductsWorkspace() {
                       ) : (
                         <Trash2 className="size-3.5" />
                       )}
-                      Delete upload
+                      Delete
                     </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </details>
         ) : null}
+
         {msg ? (
-          <p className={`text-xs font-medium ${msgTone === 'err' ? 'text-red-600' : 'text-emerald-700'}`}>{msg}</p>
+          <p
+            className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+              msgTone === 'err'
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            }`}
+          >
+            {msg}
+          </p>
         ) : null}
         <ErpStockExcelEditor
           batchId={activeBatchId}

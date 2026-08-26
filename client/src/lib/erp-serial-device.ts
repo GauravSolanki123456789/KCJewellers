@@ -72,7 +72,13 @@ export async function openSerialPort(port: SerialPortLike, settings: ErpSerialSe
     })
   } catch (e) {
     if (e instanceof DOMException && e.name === 'InvalidStateError') return
-    throw e
+    const raw = e instanceof Error ? e.message : String(e)
+    if (/failed to open serial port|networkerror|access denied/i.test(raw)) {
+      throw new Error(
+        'Could not open COM port — close other apps using this port, unplug and replug the USB cable, then pick the port again in the browser popup.',
+      )
+    }
+    throw e instanceof Error ? e : new Error(raw)
   }
 }
 

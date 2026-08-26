@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Loader2, Lock, LogOut, UserCircle2 } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { erpBtnPrimary, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { RESELLER_ERP_PATH } from '@/lib/routes'
 
 export function ErpOperatorLogin() {
   const { login } = useErpOperator()
@@ -134,7 +135,7 @@ export function useShadowKeyUnlock(enabled: boolean) {
         if (seq.length >= 3 && !unlockingRef.current) {
           unlockingRef.current = true
           void unlockShadow(seq)
-            .then(() => router.push('/reseller/erp/jainav'))
+            .then(() => router.push(RESELLER_ERP_PATH))
             .catch(() => {})
             .finally(() => {
               unlockingRef.current = false

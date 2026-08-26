@@ -1,15 +1,12 @@
 import type { ResellerErpModuleId } from '@/lib/reseller-erp-modules'
-import { ERP_QUICK_NAV_IDS, RESELLER_ERP_MODULES } from '@/lib/reseller-erp-modules'
 
+/** Single list: tabs hidden in admin mode until Jainav unlock (F9Rs* + Enter). */
 export type ErpNavVisibility = {
-  /** Tabs visible when admin is logged in (before F9Rs* unlock) */
-  adminTabs: ResellerErpModuleId[]
-  /** Extra tabs visible only after F9Rs* unlock */
-  jainavTabs: ResellerErpModuleId[]
+  jainavUnlockTabs: ResellerErpModuleId[]
 }
 
-/** Default quick-nav tabs for normal admin mode */
-export const DEFAULT_ERP_ADMIN_TABS: ResellerErpModuleId[] = [
+/** All ERP workspace modules shown in quick-nav / hub (excludes removed modules). */
+export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
   'billing',
   'sales-bills',
   'credit-bills',
@@ -21,13 +18,34 @@ export const DEFAULT_ERP_ADMIN_TABS: ResellerErpModuleId[] = [
   'products',
   'design-master',
   'floors',
-  'hardware',
+  'rol',
+  'slabs',
   'gst',
-  'stock',
+  'hardware',
+  'print-formats',
+  'erp-users',
+  'jainav',
+  'stock-reports',
+  'jainav-ledger',
 ]
 
-/** Default tabs that appear only after F9Rs* unlock */
-export const DEFAULT_ERP_JAINAV_TABS: ResellerErpModuleId[] = [
+/** Primary tabs for staff quick navigation */
+export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
+  'billing',
+  'sales-bills',
+  'credit-bills',
+  'orders',
+  'estimations',
+  'sales-reports',
+  'customers',
+  'ledger',
+  'jainav',
+  'stock-reports',
+  'jainav-ledger',
+]
+
+/** Default: these tabs require Jainav unlock for admin */
+export const DEFAULT_ERP_JAINAV_UNLOCK_TABS: ResellerErpModuleId[] = [
   'jainav',
   'stock-reports',
   'jainav-ledger',
@@ -35,28 +53,34 @@ export const DEFAULT_ERP_JAINAV_TABS: ResellerErpModuleId[] = [
 ]
 
 export const DEFAULT_ERP_NAV_VISIBILITY: ErpNavVisibility = {
-  adminTabs: DEFAULT_ERP_ADMIN_TABS,
-  jainavTabs: DEFAULT_ERP_JAINAV_TABS,
+  jainavUnlockTabs: DEFAULT_ERP_JAINAV_UNLOCK_TABS,
 }
 
-export const ERP_NAV_PICKER_MODULES = RESELLER_ERP_MODULES.filter(
-  (m) => m.id !== 'shadow' && m.kind === 'workspace',
-)
+const VALID_NAV_IDS = new Set<string>(ERP_NAV_MODULE_ORDER)
 
 export function normalizeErpNavVisibility(raw: unknown): ErpNavVisibility {
-  const validIds = new Set(RESELLER_ERP_MODULES.map((m) => m.id))
-  const pick = (arr: unknown, fallback: ResellerErpModuleId[]) => {
-    if (!Array.isArray(arr)) return fallback
-    const ids = arr
-      .map((x) => String(x))
-      .filter((id): id is ResellerErpModuleId => validIds.has(id as ResellerErpModuleId))
-    return ids.length ? ids : fallback
-  }
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
-  return {
-    adminTabs: pick(obj.adminTabs, DEFAULT_ERP_ADMIN_TABS),
-    jainavTabs: pick(obj.jainavTabs, DEFAULT_ERP_JAINAV_TABS),
+
+  const pick = (arr: unknown): ResellerErpModuleId[] => {
+    if (!Array.isArray(arr)) return []
+    return arr
+      .map((x) => String(x))
+      .filter((id): id is ResellerErpModuleId => VALID_NAV_IDS.has(id))
   }
+
+  // New format: { jainavUnlockTabs: [...] }
+  if (Array.isArray(obj.jainavUnlockTabs)) {
+    const ids = pick(obj.jainavUnlockTabs)
+    return { jainavUnlockTabs: ids.length ? ids : DEFAULT_ERP_JAINAV_UNLOCK_TABS }
+  }
+
+  // Legacy format: { adminTabs, jainavTabs } — only jainavTabs defines unlock-only tabs
+  if (Array.isArray(obj.jainavTabs)) {
+    const ids = pick(obj.jainavTabs)
+    return { jainavUnlockTabs: ids.length ? ids : DEFAULT_ERP_JAINAV_UNLOCK_TABS }
+  }
+
+  return DEFAULT_ERP_NAV_VISIBILITY
 }
 
 export function resolveVisibleNavModuleIds(opts: {
@@ -67,26 +91,29 @@ export function resolveVisibleNavModuleIds(opts: {
   if (!opts.isAdminOperator) {
     return new Set(ERP_QUICK_NAV_IDS)
   }
+
   const vis = opts.navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY
-  const ids = new Set<string>(vis.adminTabs)
-  if (opts.jainavUnlocked) {
-    for (const id of vis.jainavTabs) ids.add(id)
+  const hidden = new Set<string>(vis.jainavUnlockTabs)
+  const visible = new Set<string>(ERP_NAV_MODULE_ORDER)
+
+  if (!opts.jainavUnlocked) {
+    for (const id of hidden) visible.delete(id)
   }
-  return ids
+
+  return visible
 }
 
+/** True when this tab is hidden until Jainav unlock (admin-configured only). */
 export function moduleRequiresJainavUnlock(
   moduleId: string,
   navVisibility?: ErpNavVisibility | null,
 ): boolean {
   const vis = navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY
-  if (vis.jainavTabs.includes(moduleId as ResellerErpModuleId)) return true
-  const mod = RESELLER_ERP_MODULES.find((m) => m.id === moduleId)
-  return !!mod?.jainavOnly
+  return vis.jainavUnlockTabs.includes(moduleId as ResellerErpModuleId)
 }
 
 export function orderNavModuleIds(ids: Set<string>): ResellerErpModuleId[] {
-  const ordered: ResellerErpModuleId[] = ERP_QUICK_NAV_IDS.filter((id) => ids.has(id))
+  const ordered: ResellerErpModuleId[] = ERP_NAV_MODULE_ORDER.filter((id) => ids.has(id))
   for (const id of ids) {
     if (!ordered.includes(id as ResellerErpModuleId)) ordered.push(id as ResellerErpModuleId)
   }

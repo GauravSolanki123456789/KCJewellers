@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Lock } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
@@ -11,6 +11,7 @@ import {
 } from '@/lib/reseller-erp-modules'
 import { moduleRequiresJainavUnlock } from '@/lib/erp-nav-visibility'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
+import { erpBtnGhost } from '@/components/reseller/erp/erp-ui'
 
 function activeModuleId(pathname: string): string | null {
   if (!pathname.startsWith('/reseller/erp')) return null
@@ -23,6 +24,7 @@ function activeModuleId(pathname: string): string | null {
 
 export function ErpQuickNav() {
   const pathname = usePathname() || ''
+  const router = useRouter()
   const { shadowUnlocked, lockShadow, operator, canAccessModule } = useErpOperator()
   const { navVisibility } = useErpNavVisibility()
   const active = activeModuleId(pathname)
@@ -34,10 +36,15 @@ export function ErpQuickNav() {
     navVisibility,
   })
 
+  const handleLock = async () => {
+    await lockShadow()
+    router.push(RESELLER_ERP_PATH)
+  }
+
   if (!operator || !mods.length) return null
 
   return (
-    <div className="mb-4">
+    <div className="mb-4 space-y-2">
       <nav
         className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin"
         aria-label="ERP modules"
@@ -55,17 +62,18 @@ export function ErpQuickNav() {
         {mods.map((mod) => {
           const href = resellerErpModulePath(mod.id)
           const isActive = active === mod.id
+          const jainavTab = isAdmin && moduleRequiresJainavUnlock(mod.id, navVisibility)
           return (
             <Link
               key={mod.id}
               href={href}
               className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
                 isActive
-                  ? moduleRequiresJainavUnlock(mod.id, navVisibility)
+                  ? jainavTab
                     ? 'border-emerald-700 bg-emerald-700 text-white'
                     : 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/10 text-[var(--kc-accent,#c41e3a)]'
-                  : moduleRequiresJainavUnlock(mod.id, navVisibility)
-                    ? 'border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:border-emerald-400'
+                  : jainavTab
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-950 hover:border-emerald-400'
                     : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-[var(--kc-accent,#c41e3a)]/30'
               }`}
             >
@@ -73,18 +81,20 @@ export function ErpQuickNav() {
             </Link>
           )
         })}
-        {shadowUnlocked ? (
+      </nav>
+      {shadowUnlocked ? (
+        <div className="flex justify-end">
           <button
             type="button"
-            className="ml-auto shrink-0 inline-flex min-h-[36px] items-center gap-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)] transition hover:bg-[var(--color-slate-900,#f7f4ef)]"
-            onClick={() => void lockShadow()}
-            title="Lock extra tabs"
+            className={`${erpBtnGhost} min-h-[40px] gap-1.5 px-4 text-xs font-semibold`}
+            onClick={() => void handleLock()}
+            title="Lock Jainav mode and return to ERP home"
           >
             <Lock className="size-3.5" />
-            Lock
+            Lock Jainav mode
           </button>
-        ) : null}
-      </nav>
+        </div>
+      ) : null}
     </div>
   )
 }

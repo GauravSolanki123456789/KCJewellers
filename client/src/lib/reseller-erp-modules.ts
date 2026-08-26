@@ -25,12 +25,13 @@ import {
   Warehouse,
 } from 'lucide-react'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
+import type { ErpNavVisibility } from '@/lib/erp-nav-visibility'
 import {
   DEFAULT_ERP_NAV_VISIBILITY,
+  ERP_QUICK_NAV_IDS,
   moduleRequiresJainavUnlock,
   orderNavModuleIds,
   resolveVisibleNavModuleIds,
-  type ErpNavVisibility,
 } from '@/lib/erp-nav-visibility'
 
 export type ResellerErpModuleId =
@@ -46,12 +47,10 @@ export type ResellerErpModuleId =
   | 'floors'
   | 'hardware'
   | 'print-formats'
-  | 'stock'
   | 'rol'
   | 'gst'
   | 'slabs'
   | 'sales-reports'
-  | 'sales-percentages'
   | 'barcoding'
   | 'tag-splitting'
   | 'scanner'
@@ -173,15 +172,6 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     kind: 'workspace',
   },
   {
-    id: 'stock',
-    title: 'Stock management',
-    short: 'Stock',
-    description: '',
-    icon: Package,
-    group: 'inventory',
-    kind: 'workspace',
-  },
-  {
     id: 'rol',
     title: 'Reorder levels (ROL)',
     short: 'ROL',
@@ -215,15 +205,6 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Reports',
     description: '',
     icon: BarChart3,
-    group: 'sales',
-    kind: 'workspace',
-  },
-  {
-    id: 'sales-percentages',
-    title: 'Sales percentages',
-    short: 'Mix %',
-    description: '',
-    icon: Percent,
     group: 'sales',
     kind: 'workspace',
   },
@@ -358,20 +339,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
   },
 ]
 
-/** Primary tabs shown in Jainav mode quick navigation */
-export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
-  'billing',
-  'sales-bills',
-  'credit-bills',
-  'orders',
-  'estimations',
-  'sales-reports',
-  'customers',
-  'ledger',
-  'jainav',
-  'stock-reports',
-  'jainav-ledger',
-]
+export { ERP_QUICK_NAV_IDS } from '@/lib/erp-nav-visibility'
 
 export const RESELLER_ERP_JAINAV_GROUP = { id: 'jainav' as const, label: 'Jainav mode' }
 
@@ -392,7 +360,7 @@ export function getResellerErpModule(id: string | undefined | null): ResellerErp
 
 export function isJainavModule(mod: ResellerErpModule | null, navVisibility?: ErpNavVisibility | null): boolean {
   if (!mod) return false
-  return moduleRequiresJainavUnlock(mod.id, navVisibility)
+  return moduleRequiresJainavUnlock(mod.id, navVisibility) || !!mod.jainavOnly
 }
 
 export function listErpModulesForHub(opts: {

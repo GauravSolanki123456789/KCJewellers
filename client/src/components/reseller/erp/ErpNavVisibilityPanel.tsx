@@ -4,13 +4,17 @@ import { useCallback, useEffect, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   DEFAULT_ERP_NAV_VISIBILITY,
-  ERP_NAV_PICKER_MODULES,
   normalizeErpNavVisibility,
   type ErpNavVisibility,
 } from '@/lib/erp-nav-visibility'
+import { RESELLER_ERP_MODULES } from '@/lib/reseller-erp-modules'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import type { ResellerErpModuleId } from '@/lib/reseller-erp-modules'
 import { Loader2, Save, Settings2 } from 'lucide-react'
+
+const PICKER_MODULES = RESELLER_ERP_MODULES.filter(
+  (m) => m.id !== 'shadow' && m.kind === 'workspace',
+)
 
 type Props = {
   onSaved?: () => void
@@ -39,12 +43,12 @@ export function ErpNavVisibilityPanel({ onSaved }: Props) {
     void load()
   }, [load])
 
-  const toggle = (list: 'adminTabs' | 'jainavTabs', id: ResellerErpModuleId) => {
+  const toggle = (id: ResellerErpModuleId) => {
     setDraft((prev) => {
-      const cur = new Set(prev[list])
+      const cur = new Set(prev.jainavUnlockTabs)
       if (cur.has(id)) cur.delete(id)
       else cur.add(id)
-      return { ...prev, [list]: Array.from(cur) }
+      return { jainavUnlockTabs: Array.from(cur) }
     })
   }
 
@@ -58,7 +62,7 @@ export function ErpNavVisibilityPanel({ onSaved }: Props) {
       await axios.put('/api/reseller/erp/settings', {
         settings: { ...settings, navVisibility: draft },
       })
-      setMsg('Tab visibility saved. Lock and re-unlock F9Rs* if tabs look stale.')
+      setMsg('Tab layout saved. Lock and re-unlock Jainav if tabs look stale.')
       onSaved?.()
     } catch (e) {
       setErr(erpErr(e))
@@ -83,54 +87,34 @@ export function ErpNavVisibilityPanel({ onSaved }: Props) {
           <Settings2 className="size-4 text-emerald-700" />
           ERP tab visibility
         </p>
-        <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          Choose which tabs appear when you log in as admin vs only after F9Rs* unlock. Staff logins use their own
-          allowed modules.
+        <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65">
+          All tabs are visible when you log in as admin. Check a tab below to hide it until you unlock Jainav mode
+          (F9Rs* + Enter). Unchecked tabs stay available in normal admin mode.
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
-            Admin mode tabs
-          </p>
-          <ul className="max-h-56 space-y-1 overflow-y-auto">
-            {ERP_NAV_PICKER_MODULES.map((m) => (
-              <li key={`admin-${m.id}`}>
-                <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-white">
+      <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/70">
+          Jainav unlock only
+        </p>
+        <ul className="grid max-h-72 gap-1 overflow-y-auto sm:grid-cols-2">
+          {PICKER_MODULES.map((m) => {
+            const checked = draft.jainavUnlockTabs.includes(m.id)
+            return (
+              <li key={m.id}>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-2 text-sm transition hover:border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]">
                   <input
                     type="checkbox"
-                    className="size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
-                    checked={draft.adminTabs.includes(m.id)}
-                    onChange={() => toggle('adminTabs', m.id)}
+                    className="size-4 shrink-0 rounded border-[var(--color-slate-700,#cbd5e1)] accent-emerald-700"
+                    checked={checked}
+                    onChange={() => toggle(m.id)}
                   />
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]">{m.short || m.title}</span>
+                  <span className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{m.short || m.title}</span>
                 </label>
               </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-900/70">
-            F9Rs* unlock only
-          </p>
-          <ul className="max-h-56 space-y-1 overflow-y-auto">
-            {ERP_NAV_PICKER_MODULES.map((m) => (
-              <li key={`jainav-${m.id}`}>
-                <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-white/80">
-                  <input
-                    type="checkbox"
-                    className="size-4 rounded border-emerald-300"
-                    checked={draft.jainavTabs.includes(m.id)}
-                    onChange={() => toggle('jainavTabs', m.id)}
-                  />
-                  <span className="text-emerald-950">{m.short || m.title}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        </div>
+            )
+          })}
+        </ul>
       </div>
 
       <div className="flex flex-wrap gap-2">

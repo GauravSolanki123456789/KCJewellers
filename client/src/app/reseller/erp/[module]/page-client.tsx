@@ -41,7 +41,6 @@ import {
   ScannerWorkspace,
   SettingsWorkspace,
   SlabsLinkPanel,
-  StockWorkspace,
 } from '@/components/reseller/erp/ResellerErpWorkspaces'
 
 function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
@@ -77,14 +76,10 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpOrderManagementWorkspace />
     case 'estimations':
       return <ErpEstimationsWorkspace />
-    case 'stock':
-      return <StockWorkspace />
     case 'rol':
       return <ErpRolWorkspace />
     case 'sales-reports':
       return <ReportsWorkspace />
-    case 'sales-percentages':
-      return <ReportsWorkspace percentagesOnly />
     case 'slabs':
       return <SlabsLinkPanel />
     case 'scanner':
@@ -293,7 +288,7 @@ function ModulePageContent() {
     )
   }
 
-  if (mod && moduleRequiresJainavUnlock(mod.id, navVisibility) && !shadowUnlocked) {
+  if (mod && (operator?.role === 'admin' ? moduleRequiresJainavUnlock(mod.id, navVisibility) : mod.jainavOnly) && !shadowUnlocked) {
     return (
       <ResellerErpShell title={mod.title}>
         <ErpJainavGate>

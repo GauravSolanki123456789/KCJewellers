@@ -718,34 +718,45 @@ export function ErpStockExcelEditor({
       }
 
       await refreshPieces()
+      setRfidDialogOpen(false)
+      setRfidTargetRowId(null)
       setRfidInput('')
-
-      const nextId = nextScaleRow(rfidTargetRowId, 'avg_weight')
-      if (nextId != null) {
-        focusCell(nextId, 'avg_weight')
-        setRfidTargetRowId(nextId)
-        setRfidDialogOpen(true)
-        setMessage(`${result.message} · RFID ${tag} linked — next piece.`)
-      } else {
-        setRfidDialogOpen(false)
-        setRfidTargetRowId(null)
-        setScaleFocus(null)
-        setMessage(`${result.message} · RFID ${tag} linked.`)
-      }
+      setScaleFocus(null)
+      setMessage(`${result.message} · RFID ${tag} linked.`)
     } catch (e) {
       setError(erpErr(e))
     } finally {
       setRfidLinkBusy(false)
     }
-  }, [
-    focusCell,
-    nextScaleRow,
-    printerProfileId,
-    rfidInput,
-    rfidLinkBusy,
-    rfidTargetRowId,
-    drafts,
-  ])
+  }, [printerProfileId, rfidInput, rfidLinkBusy, rfidTargetRowId, drafts])
+
+  const linkRfidOnly = useCallback(async () => {
+    if (!rfidTargetRowId || rfidLinkBusy) return
+    const tag = rfidInput.trim().toUpperCase()
+    if (!tag) return
+    const rowId = rfidTargetRowId
+    const row = drafts.find((d) => d.id === rowId)
+    if (!row || row.status === 'sold' || row.locked) return
+
+    setRfidLinkBusy(true)
+    setError(null)
+    try {
+      await axios.post(`/api/reseller/erp/stock-pieces/${rowId}/link-rfid`, {
+        rfid_tag: tag,
+      })
+      await refreshPieces()
+      setRfidDialogOpen(false)
+      setRfidTargetRowId(null)
+      setRfidInput('')
+      focusCell(rowId, 'avg_weight')
+      setScaleFocus({ rowId, field: 'avg_weight' })
+      setMessage(`RFID ${tag} linked — place piece on scale and press Print on the device.`)
+    } catch (e) {
+      setError(erpErr(e))
+    } finally {
+      setRfidLinkBusy(false)
+    }
+  }, [focusCell, rfidInput, rfidLinkBusy, rfidTargetRowId, drafts])
 
   const applyScaleWeight = (grams: number) => {
     const targetId =
@@ -797,74 +808,75 @@ export function ErpStockExcelEditor({
         onConnectionChange={setScaleConnected}
         onScalePrint={handleScalePrint}
       />
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={erpBtnPrimary} disabled={saving || dirtyCount === 0} onClick={() => void save()}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          Save edits {dirtyCount > 0 ? `(${dirtyCount})` : ''}
-        </button>
-        <button
-          type="button"
-          className={erpBtnGhost}
-          onClick={addRow}
-        >
-          <Plus className="size-4" />
-          Add row
-        </button>
-        <button
-          type="button"
-          className={erpBtnGhost}
-          onClick={resetAll}
-          disabled={dirtyCount === 0}
-        >
-          <RotateCcw className="size-4" />
-          Reset
-        </button>
-        <button
-          type="button"
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 disabled:opacity-50"
-          disabled={deleting || selected.size === 0}
-          onClick={() => void deleteSelected()}
-        >
-          {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-          Delete selected tags {selected.size > 0 ? `(${selected.size})` : ''}
-        </button>
-        {message ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
-            <Check className="size-3.5" />
-            {message}
-          </span>
-        ) : null}
-        {printingLabel ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/55">
-            <Loader2 className="size-3.5 animate-spin" />
-            Printing label…
-          </span>
-        ) : null}
-        {error ? <span className="text-xs font-medium text-rose-600">{error}</span> : null}
-        <span className="hidden h-6 w-px bg-black/10 sm:inline" aria-hidden />
-        <label className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-          <span className="whitespace-nowrap font-semibold uppercase tracking-wide">Set column</span>
-          <select
-            className={`${erpInputCls} !min-h-[36px] max-w-[140px] py-1 text-xs`}
-            value={bulkField}
-            onChange={(e) => setBulkField(e.target.value as StockEditableField)}
+
+      <div className={`${erpCardCls} space-y-3`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={erpBtnPrimary} disabled={saving || dirtyCount === 0} onClick={() => void save()}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+            Save edits {dirtyCount > 0 ? `(${dirtyCount})` : ''}
+          </button>
+          <button type="button" className={erpBtnGhost} onClick={addRow}>
+            <Plus className="size-4" />
+            Add row
+          </button>
+          <button type="button" className={erpBtnGhost} onClick={resetAll} disabled={dirtyCount === 0}>
+            <RotateCcw className="size-4" />
+            Reset
+          </button>
+          <button
+            type="button"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 disabled:opacity-50"
+            disabled={deleting || selected.size === 0}
+            onClick={() => void deleteSelected()}
           >
-            {STOCK_EDITOR_COLUMNS.filter((c) => c.key !== 'barcode' && c.key !== 'image_url').map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.shortLabel || c.label}
-              </option>
-            ))}
-          </select>
-          <input
-            className={`${erpInputCls} !min-h-[36px] min-w-[72px] max-w-[120px] py-1 text-xs`}
-            placeholder="Value"
-            value={bulkValue}
-            onChange={(e) => setBulkValue(e.target.value)}
-          />
-          <button type="button" className={erpBtnGhost} onClick={applyBulkColumn}>
+            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            Delete selected {selected.size > 0 ? `(${selected.size})` : ''}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
+          <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+            Set column
+            <select
+              className={`${erpInputCls} !min-h-[40px] min-w-[120px] py-1.5 text-xs`}
+              value={bulkField}
+              onChange={(e) => setBulkField(e.target.value as StockEditableField)}
+            >
+              {STOCK_EDITOR_COLUMNS.filter((c) => c.key !== 'barcode' && c.key !== 'image_url').map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.shortLabel || c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+            Value
+            <input
+              className={`${erpInputCls} !min-h-[40px] min-w-[100px] max-w-[140px] py-1.5 text-xs`}
+              placeholder="Value"
+              value={bulkValue}
+              onChange={(e) => setBulkValue(e.target.value)}
+            />
+          </label>
+          <button type="button" className={`${erpBtnGhost} mb-0.5`} onClick={applyBulkColumn}>
             Apply all
           </button>
-        </label>
+        </div>
+
+        {message ? (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+            {message}
+          </p>
+        ) : null}
+        {printingLabel ? (
+          <p className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/55">
+            <Loader2 className="mr-1 inline size-3.5 animate-spin" />
+            Printing label…
+          </p>
+        ) : null}
+        {error ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">{error}</p>
+        ) : null}
       </div>
 
       <div className={`${erpCardCls} flex flex-wrap items-end gap-2`}>
@@ -1085,6 +1097,7 @@ export function ErpStockExcelEditor({
           onRfidInputChange={setRfidInput}
           busy={rfidLinkBusy}
           onConfirm={linkRfidAndPrint}
+          onLinkOnly={linkRfidOnly}
         />
       ) : null}
     </div>
