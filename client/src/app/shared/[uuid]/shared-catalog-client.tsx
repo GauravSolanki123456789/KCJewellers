@@ -133,15 +133,9 @@ function isLoadedBrochure(
   )
 }
 
-function totalSelectedPieces(
-  selections: Map<string, number>,
-  makeOnOrderByKey?: Map<string, number>,
-): number {
+function totalSelectedPieces(selections: Map<string, number>): number {
   let n = 0
   for (const q of selections.values()) n += q
-  if (makeOnOrderByKey) {
-    for (const q of makeOnOrderByKey.values()) n += q
-  }
   return n
 }
 
@@ -179,13 +173,8 @@ export default function SharedCatalogClient({
   const [payload, setPayload] = useState<SharedCatalogPublicResponse | null>(null)
   /** key → quantity (only keys present are shortlisted) */
   const [selections, setSelections] = useState<Map<string, number>>(() => new Map())
-  /** key → extra pieces beyond live stock (make on order) */
+  /** key → make-on-order quantity (above live stock) */
   const [makeOnOrderByKey, setMakeOnOrderByKey] = useState<Map<string, number>>(() => new Map())
-  const [makeOnOrderOpenByKey, setMakeOnOrderOpenByKey] = useState<Map<string, boolean>>(
-    () => new Map(),
-  )
-  const makeOnOrderRef = useRef(makeOnOrderByKey)
-  makeOnOrderRef.current = makeOnOrderByKey
   const [pdfBusy, setPdfBusy] = useState(false)
   const [waBusy, setWaBusy] = useState(false)
   const shareInFlightRef = useRef(false)
@@ -446,18 +435,22 @@ export default function SharedCatalogClient({
     return m
   }, [rows, rowKeys])
 
-  const showLiveStock = isLoadedBrochure(payload) && !!payload.showLiveStock
+  const showLiveStock = useMemo(() => {
+    if (isLoadedBrochure(payload) && 'showLiveStock' in payload) {
+      return !!payload.showLiveStock
+    }
+    return !!initialBranding?.showLiveStock
+  }, [payload, initialBranding])
 
   const stockByKey = useMemo(() => {
-    if (!showLiveStock) return new Map<string, number>()
     const m = new Map<string, number>()
     for (const row of rows) {
       const key = rowKeyByRow.get(row)
       if (!key) continue
-      m.set(key, parseProductStockQty(row.product.quantity ?? row.item.pcs))
+      m.set(key, parseProductStockQty(row.product.quantity ?? row.product.pcs))
     }
     return m
-  }, [rows, rowKeyByRow, showLiveStock])
+  }, [rows, rowKeyByRow])
 
   const selectedBarcodeSet = useMemo(() => {
     if (!isLoadedBrochure(payload)) return new Set<string>()
@@ -545,37 +538,28 @@ export default function SharedCatalogClient({
     [rowKeys, rows],
   )
 
-  const toggleKey = useCallback(
-    (key: string) => {
-      const stock = showLiveStock ? (stockByKey.get(key) ?? 0) : null
-      const mtoPrev = makeOnOrderRef.current
-      const mtoQty = mtoPrev.get(key) ?? 0
-      setSelections((prev) => {
-        const had = prev.has(key) || mtoQty > 0
-        if (had) {
-          setMakeOnOrderByKey((m) => {
-            const next = new Map(m)
-            next.delete(key)
-            return next
-          })
-          setMakeOnOrderOpenByKey((m) => {
-            const next = new Map(m)
-            next.delete(key)
-            return next
-          })
-          const next = new Map(prev)
-          next.delete(key)
-          return next
+  const toggleKey = useCallback((key: string) => {
+    setSelections((prev) => {
+      const next = new Map(prev)
+      if (next.has(key)) {
+        next.delete(key)
+        setMakeOnOrderByKey((m) => {
+          if (!m.has(key)) return m
+          const cleared = new Map(m)
+          cleared.delete(key)
+          return cleared
+        })
+      } else {
+        const stock = stockByKey.get(key) ?? MAX_PIECE_QTY
+        if (showLiveStock) {
+          next.set(key, stock > 0 ? 1 : 0)
+        } else {
+          next.set(key, 1)
         }
-        if (showLiveStock && stock === 0) {
-          setMakeOnOrderByKey((m) => new Map(m).set(key, 1))
-          return prev
-        }
-        return new Map(prev).set(key, 1)
-      })
-    },
-    [showLiveStock, stockByKey],
-  )
+      }
+      return next
+    })
+  }, [showLiveStock, stockByKey])
 
   const guardedToggleKey = useCallback(
     (key: string) => {
@@ -613,34 +597,45 @@ export default function SharedCatalogClient({
     rowKeyByRow,
   ])
 
-  const setQty = useCallback(
-    (key: string, qty: number) => {
-      if (!canShortlist) {
-        requireSignIn({ key })
-        return
-      }
-      const stockCap = showLiveStock ? (stockByKey.get(key) ?? 0) : null
-      let q = Math.max(1, Math.floor(qty))
-      if (showLiveStock && stockCap != null) {
-        if (stockCap <= 0) return
-        q = Math.min(q, stockCap)
-      } else {
-        q = Math.min(q, MAX_PIECE_QTY)
-      }
-      setSelections((prev) => {
-        if (!prev.has(key)) return prev
-        const next = new Map(prev)
-        next.set(key, q)
-        return next
-      })
-    },
-    [canShortlist, requireSignIn, showLiveStock, stockByKey],
-  )
+  const setQty = useCallback((key: string, qty: number) => {
+    if (!canShortlist) {
+      requireSignIn({ key })
+      return
+    }
+    const stock = showLiveStock ? (stockByKey.get(key) ?? 0) : MAX_PIECE_QTY
+    const maxInStock = showLiveStock ? Math.min(MAX_PIECE_QTY, Math.max(0, stock)) : MAX_PIECE_QTY
+    const q = showLiveStock && maxInStock <= 0
+      ? 0
+      : Math.max(1, Math.min(maxInStock, Math.floor(qty)))
+    setSelections((prev) => {
+      if (!prev.has(key)) return prev
+      const next = new Map(prev)
+      next.set(key, q)
+      return next
+    })
+  }, [canShortlist, requireSignIn, showLiveStock, stockByKey])
 
   const setMakeOnOrderQty = useCallback((key: string, qty: number) => {
-    const q = Math.max(1, Math.min(MAX_PIECE_QTY, Math.floor(qty)))
-    setMakeOnOrderByKey((prev) => new Map(prev).set(key, q))
-  }, [])
+    if (!canShortlist) {
+      requireSignIn({ key })
+      return
+    }
+    const q = Math.max(0, Math.min(MAX_PIECE_QTY, Math.floor(qty)))
+    setMakeOnOrderByKey((prev) => {
+      const next = new Map(prev)
+      if (q <= 0) next.delete(key)
+      else next.set(key, q)
+      return next
+    })
+    if (q > 0) {
+      setSelections((prev) => {
+        if (prev.has(key)) return prev
+        const next = new Map(prev)
+        next.set(key, 0)
+        return next
+      })
+    }
+  }, [canShortlist, requireSignIn])
 
   const selectAll = useCallback(() => {
     if (!requireSignIn({ selectAll: true })) return
@@ -657,15 +652,9 @@ export default function SharedCatalogClient({
 
   const clearSelection = useCallback(() => {
     setSelections(new Map())
-    setMakeOnOrderByKey(new Map())
-    setMakeOnOrderOpenByKey(new Map())
   }, [])
 
-  const selectedCount =
-    selections.size +
-    [...makeOnOrderByKey.entries()].filter(([k, q]) => q > 0 && !selections.has(k)).length
-  const totalPieces = totalSelectedPieces(selections, makeOnOrderByKey)
-
+  const selectedCount = selections.size
   const selectionPicks = useMemo(
     () =>
       buildSharedCatalogSelectionPicks(
@@ -676,6 +665,10 @@ export default function SharedCatalogClient({
         makeOnOrderByKey,
       ),
     [groupedRows, rowKeyByRow, selections, includeBoxByKey, makeOnOrderByKey],
+  )
+  const totalPieces = useMemo(
+    () => summarizeSharedCatalogPicks(selectionPicks).totalPieces,
+    [selectionPicks],
   )
 
   const buildInquiryPayload = useCallback(
@@ -1139,24 +1132,21 @@ export default function SharedCatalogClient({
               const activeRow = resolveActiveVariant(group)
               if (!activeRow) return null
               const key = rowKeyByRow.get(activeRow) ?? group.groupKey
-              const stockQty = showLiveStock ? (stockByKey.get(key) ?? 0) : null
               const qty = selections.get(key) ?? 0
-              const mtoQty = makeOnOrderByKey.get(key) ?? 0
-              const selected = qty > 0 || mtoQty > 0
-              const stockLabel =
-                showLiveStock && stockQty != null ? formatLiveStockLabel(stockQty) : null
-              const mtoOpen = makeOnOrderOpenByKey.get(key) ?? mtoQty > 0
+              const selected = selections.has(key)
+              const stockQty = stockByKey.get(key) ?? 0
+              const makeOnOrderQty = makeOnOrderByKey.get(key) ?? 0
+              const stockLabel = showLiveStock ? formatLiveStockLabel(stockQty) : null
+              const inStockCap = showLiveStock ? Math.max(0, stockQty) : MAX_PIECE_QTY
               const anySelected = group.variants.some((v) => {
                 const k = rowKeyByRow.get(v)
-                if (!k) return false
-                return selections.has(k) || (makeOnOrderByKey.get(k) ?? 0) > 0
+                return k ? selections.has(k) : false
               })
               const shortlistedKeys = (() => {
                 const set = new Set<string>()
                 for (const v of group.variants) {
                   const k = rowKeyByRow.get(v)
-                  if (!k) continue
-                  if (!selections.has(k) && (makeOnOrderByKey.get(k) ?? 0) <= 0) continue
+                  if (!k || !selections.has(k)) continue
                   const itemKey = getProductSelectionKey(v.item)
                   if (itemKey) set.add(itemKey)
                 }
@@ -1332,11 +1322,11 @@ export default function SharedCatalogClient({
                         <p
                           className={cn(
                             'text-[10px] font-semibold sm:text-[11px]',
-                            stockQty != null && stockQty <= 0
+                            stockQty <= 0
                               ? 'text-amber-700'
-                              : stockQty != null && stockQty <= 3
+                              : stockQty <= 3
                                 ? 'text-amber-600'
-                                : 'text-emerald-600',
+                                : 'text-emerald-700',
                           )}
                         >
                           {stockLabel}
@@ -1432,52 +1422,15 @@ export default function SharedCatalogClient({
                         ) : null}
                         {selected ? (
                           <div
-                            className="kc-qty-stepper flex-col items-stretch gap-2"
+                            className="space-y-2"
                             data-no-card-toggle
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => e.stopPropagation()}
                           >
-                            {showLiveStock && stockQty === 0 ? (
-                              <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-2 py-2">
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">
-                                  Make on order
-                                </p>
-                                <div className="mt-1.5 flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    className="kc-qty-stepper-btn"
-                                    aria-label="Decrease make-on-order quantity"
-                                    disabled={mtoQty <= 1}
-                                    onClick={() => setMakeOnOrderQty(key, mtoQty - 1)}
-                                  >
-                                    <Minus className="size-4 stroke-[2.5]" aria-hidden />
-                                  </button>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={MAX_PIECE_QTY}
-                                    value={mtoQty}
-                                    aria-label="Make on order quantity"
-                                    onChange={(e) =>
-                                      setMakeOnOrderQty(key, parseInt(e.target.value, 10) || 1)
-                                    }
-                                    className="kc-qty-stepper-value w-12 rounded-md border border-slate-600 bg-slate-900 px-1 text-center text-sm tabular-nums text-slate-100"
-                                  />
-                                  <button
-                                    type="button"
-                                    className="kc-qty-stepper-btn"
-                                    aria-label="Increase make-on-order quantity"
-                                    disabled={mtoQty >= MAX_PIECE_QTY}
-                                    onClick={() => setMakeOnOrderQty(key, mtoQty + 1)}
-                                  >
-                                    <Plus className="size-4 stroke-[2.5]" aria-hidden />
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
+                            {inStockCap > 0 ? (
+                              <div className="kc-qty-stepper">
+                                <span className="kc-qty-stepper-label">Qty</span>
                                 <div className="flex items-center gap-1.5">
-                                  <span className="kc-qty-stepper-label">Qty</span>
                                   <button
                                     type="button"
                                     className="kc-qty-stepper-btn"
@@ -1487,90 +1440,46 @@ export default function SharedCatalogClient({
                                   >
                                     <Minus className="size-4 stroke-[2.5]" aria-hidden />
                                   </button>
-                                  <span className="kc-qty-stepper-value">{qty}</span>
+                                  <span className="kc-qty-stepper-value">{Math.max(qty, 1)}</span>
                                   <button
                                     type="button"
                                     className="kc-qty-stepper-btn"
                                     aria-label="Increase quantity"
-                                    disabled={
-                                      showLiveStock && stockQty != null && stockQty > 0
-                                        ? qty >= stockQty && !mtoOpen
-                                        : qty >= MAX_PIECE_QTY
-                                    }
-                                    onClick={() => {
-                                      if (
-                                        showLiveStock &&
-                                        stockQty != null &&
-                                        stockQty > 0 &&
-                                        qty >= stockQty
-                                      ) {
-                                        setMakeOnOrderOpenByKey((m) => new Map(m).set(key, true))
-                                        setMakeOnOrderByKey((m) =>
-                                          new Map(m).set(key, m.get(key) ?? 1),
-                                        )
-                                        return
-                                      }
-                                      setQty(key, qty + 1)
-                                    }}
+                                    disabled={qty >= inStockCap}
+                                    onClick={() => setQty(key, qty + 1)}
                                   >
                                     <Plus className="size-4 stroke-[2.5]" aria-hidden />
                                   </button>
                                 </div>
-                                {showLiveStock && stockQty != null && stockQty > 0 && qty >= stockQty ? (
-                                  mtoOpen ? (
-                                    <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-2 py-2">
-                                      <p className="text-[10px] font-semibold text-amber-600">
-                                        Make on order (extra)
-                                      </p>
-                                      <div className="mt-1.5 flex items-center gap-1.5">
-                                        <button
-                                          type="button"
-                                          className="kc-qty-stepper-btn"
-                                          aria-label="Decrease make-on-order quantity"
-                                          disabled={mtoQty <= 1}
-                                          onClick={() => setMakeOnOrderQty(key, mtoQty - 1)}
-                                        >
-                                          <Minus className="size-4 stroke-[2.5]" aria-hidden />
-                                        </button>
-                                        <input
-                                          type="number"
-                                          min={1}
-                                          max={MAX_PIECE_QTY}
-                                          value={mtoQty}
-                                          aria-label="Make on order quantity"
-                                          onChange={(e) =>
-                                            setMakeOnOrderQty(
-                                              key,
-                                              parseInt(e.target.value, 10) || 1,
-                                            )
-                                          }
-                                          className="kc-qty-stepper-value w-12 rounded-md border border-slate-600 bg-slate-900 px-1 text-center text-sm tabular-nums text-slate-100"
-                                        />
-                                        <button
-                                          type="button"
-                                          className="kc-qty-stepper-btn"
-                                          aria-label="Increase make-on-order quantity"
-                                          disabled={mtoQty >= MAX_PIECE_QTY}
-                                          onClick={() => setMakeOnOrderQty(key, mtoQty + 1)}
-                                        >
-                                          <Plus className="size-4 stroke-[2.5]" aria-hidden />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      className="text-left text-[10px] font-semibold text-amber-600 underline-offset-2 hover:underline"
-                                      onClick={() =>
-                                        setMakeOnOrderOpenByKey((m) => new Map(m).set(key, true))
+                              </div>
+                            ) : null}
+                            {showLiveStock && (inStockCap <= 0 || qty >= inStockCap) ? (
+                              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
+                                <label className="block text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                  Make on order
+                                </label>
+                                <div className="mt-1.5 flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={MAX_PIECE_QTY}
+                                    inputMode="numeric"
+                                    value={makeOnOrderQty > 0 ? makeOnOrderQty : ''}
+                                    placeholder="Qty"
+                                    onChange={(e) => {
+                                      const raw = e.target.value
+                                      if (raw === '') {
+                                        setMakeOnOrderQty(key, 0)
+                                        return
                                       }
-                                    >
-                                      Need more? Make on order
-                                    </button>
-                                  )
-                                ) : null}
-                              </>
-                            )}
+                                      setMakeOnOrderQty(key, parseInt(raw, 10) || 0)
+                                    }}
+                                    className="w-full min-w-0 rounded-md border border-amber-500/40 bg-white px-2 py-1.5 text-sm font-semibold tabular-nums text-slate-900 outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-500/40"
+                                  />
+                                  <span className="shrink-0 text-[10px] font-medium text-amber-800">pcs</span>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>

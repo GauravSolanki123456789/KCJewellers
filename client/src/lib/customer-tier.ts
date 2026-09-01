@@ -27,8 +27,6 @@ export type WholesaleUserFields = {
   mobile_number?: string | null
   /** Admin toggle: shared catalogue links/PDFs show weight only (matches `users.reseller_hide_prices`). */
   reseller_hide_prices?: boolean
-  /** Admin toggle: show PCS stock on product cards and cap shared-catalogue qty. */
-  reseller_show_live_stock?: boolean
   /** Admin enables staff product uploads at `/reseller/products`. */
   reseller_product_uploads_enabled?: boolean
   /** Admin enables staff to edit live (approved) products without re-review. */

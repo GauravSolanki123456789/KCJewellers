@@ -55,7 +55,7 @@ type AdminUser = {
   kc_theme_id?: string | null
   /** Admin toggle: shared catalogue links/PDFs show weight only (matches `users.reseller_hide_prices`). */
   reseller_hide_prices?: boolean
-  /** Admin toggle: show PCS stock on product cards and cap shared-catalogue qty. */
+  /** Admin toggle: show live PCS stock on catalog + shared catalogues. */
   reseller_show_live_stock?: boolean
   /** Admin enables reseller staff product uploads (`users.reseller_product_uploads_enabled`). */
   reseller_product_uploads_enabled?: boolean
@@ -973,14 +973,14 @@ function B2BAdminContent() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Show live stock</p>
                       <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-                        Customers see available PCS on product cards. Shared catalogues cap qty to stock; extra pieces can be marked make on order.
+                        Product cards show available PCS; shared catalogues cap quantity and offer make-on-order above stock.
                       </p>
                     </div>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={resellerForm.reseller_show_live_stock}
-                      aria-label="Show live stock on product cards"
+                      aria-label="Show live stock on catalogues"
                       onClick={() =>
                         setResellerForm((f) => ({
                           ...f,

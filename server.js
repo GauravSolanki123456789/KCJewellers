@@ -3013,14 +3013,10 @@ app.get('/api/products', async (req, res) => {
                 ws.slug  AS subcategory_slug,
                 wc.id    AS category_id,
                 wc.name  AS style_code,
-                wc.slug  AS category_slug,
-                COALESCE(wp.quantity, 1)::int AS quantity,
-                COALESCE(u.reseller_hide_prices, false) AS reseller_hide_prices,
-                COALESCE(u.reseller_show_live_stock, false) AS reseller_show_live_stock
+                wc.slug  AS category_slug
             FROM web_products wp
             LEFT JOIN web_subcategories ws ON wp.subcategory_id = ws.id
             LEFT JOIN web_categories    wc ON ws.category_id    = wc.id
-            LEFT JOIN users u ON u.id = wp.submitted_by_user_id
         `;
 
         const baseCount = `
@@ -3028,7 +3024,6 @@ app.get('/api/products', async (req, res) => {
             FROM web_products wp
             LEFT JOIN web_subcategories ws ON wp.subcategory_id = ws.id
             LEFT JOIN web_categories    wc ON ws.category_id    = wc.id
-            LEFT JOIN users u ON u.id = wp.submitted_by_user_id
         `;
 
         let whereClauses = ['1=1'];
@@ -6932,10 +6927,10 @@ app.get('/api/catalog', async (req, res) => {
             for (const s of subs) {
                 const products = await query(`
                     SELECT
-                        id, sku, barcode, name, size, image_url, secondary_image_url,
+                        wp.id, wp.sku, wp.barcode, wp.name, wp.size, wp.image_url, wp.secondary_image_url,
                         box_image_url, video_url, subcategory_id,
-                        gross_weight::float AS gross_weight,
-                        net_weight::float   AS net_weight,
+                        wp.gross_weight::float AS gross_weight,
+                        wp.net_weight::float   AS net_weight,
                         weight_display,
                         wastage_pct::float AS wastage_pct,
                         chain_weight::float AS chain_weight,
@@ -7331,7 +7326,7 @@ async function resellerHidePricesForUser(userId) {
     return !!rows[0].reseller_hide_prices;
 }
 
-/** RESELLER accounts with admin `reseller_show_live_stock` — snapshot on shared_catalogs.show_live_stock. */
+/** RESELLER accounts with admin `reseller_show_live_stock` — snapshot on shared_catalogs.show_live_stock at link creation. */
 async function resellerShowLiveStockForUser(userId) {
     const uid = parseInt(String(userId), 10);
     if (!Number.isFinite(uid) || uid <= 0) return false;
@@ -7580,23 +7575,16 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             );
         } catch (insErr) {
             const msg = String(insErr.message || '');
-            if (msg.includes('uploaded_mc_slab') || msg.includes('show_live_stock')) {
-                if (msg.includes('show_live_stock')) {
-                    await pool.query(
-                        'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS show_live_stock BOOLEAN NOT NULL DEFAULT false',
-                    );
-                }
-                if (msg.includes('uploaded_mc_slab')) {
-                    await ensureMcSlabColumns(pool);
-                }
+            if (msg.includes('uploaded_mc_slab')) {
+                await ensureMcSlabColumns(pool);
                 await query(
                     `INSERT INTO shared_catalogs (
                         id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
-                        rates_snapshot, hide_prices, hide_pdf, show_live_stock, pricing_slab, slab_wholesale_gold_rate_per_g,
+                        rates_snapshot, hide_prices, hide_pdf, pricing_slab, slab_wholesale_gold_rate_per_g,
                         slab_wholesale_silver_rate_per_g, slab_settings_snapshot,
                         uploaded_mc_slab_key, uploaded_mc_slab_rows_snapshot
                      )
-                     VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16::jsonb)`,
+                     VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb)`,
                     [
                         id,
                         sortedIds,
@@ -7607,7 +7595,6 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                         JSON.stringify(ratesSnapshot),
                         hidePrices,
                         hidePdf,
-                        showLiveStock,
                         slabKind,
                         wholesaleGold,
                         wholesaleSilver,
@@ -8138,13 +8125,13 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                 COALESCE(wp.with_box_charges_only, false) AS with_box_charges_only,
                 COALESCE(wp.mrp_rate_behind_box, 0)::float AS mrp_rate_behind_box,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
+                COALESCE(wp.quantity, 1)::int AS quantity,
                 wp.size,
                 wp.design_group,
                 wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,
                 COALESCE(wp.discount_percentage, 0)::float AS product_discount_percentage,
                 COALESCE(wc.discount_percentage, 0)::float AS category_discount_percentage,
                 COALESCE(wc.discount_by_metal, '{}'::jsonb) AS category_discount_by_metal,
-                COALESCE(wp.quantity, 1)::int AS quantity,
                 wc.name AS style_name,
                 ws.id AS subcategory_id,
                 ws.name AS subcategory_name,

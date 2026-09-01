@@ -70,6 +70,8 @@ export function CatalogDataProvider({
   initialRates?: unknown[];
 }) {
   const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+  const hasUsableSsrSnapshot =
+    Array.isArray(initialCategories) && initialCategories.length > 0;
   const serverSeeded = initialCategories !== undefined;
   const [rawCategories, setRawCategories] = useState<CatalogTreeCategory[]>(
     () => initialCategories ?? [],
@@ -77,7 +79,7 @@ export function CatalogDataProvider({
   const [rates, setRates] = useState<unknown[]>(() =>
     Array.isArray(initialRates) ? initialRates : [],
   );
-  const [isBootstrapping, setIsBootstrapping] = useState(!serverSeeded);
+  const [isBootstrapping, setIsBootstrapping] = useState(!hasUsableSsrSnapshot);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [retailBrowseByMetal, setRetailBrowseByMetal] = useState<CatalogRetailBrowseByMetal>(
     () => ({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }),
@@ -159,18 +161,17 @@ export function CatalogDataProvider({
   }, [url, applyRetailSettings]);
 
   useEffect(() => {
-    if (serverSeeded) {
-      const retailUrl = `${url}/api/public/catalog-retail-settings`;
-      cachedGet(retailUrl, () => axios.get(retailUrl))
-        .then((res) => applyRetailSettings(res.data ?? {}))
-        .catch(() => setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }));
-    }
-  }, [url, serverSeeded, applyRetailSettings]);
+    if (!hasUsableSsrSnapshot) return;
+    const retailUrl = `${url}/api/public/catalog-retail-settings`;
+    cachedGet(retailUrl, () => axios.get(retailUrl))
+      .then((res) => applyRetailSettings(res.data ?? {}))
+      .catch(() => setRetailBrowseByMetal({ ...DEFAULT_CATALOG_RETAIL_BROWSE_BY_METAL }));
+  }, [url, hasUsableSsrSnapshot, applyRetailSettings]);
 
   useEffect(() => {
-    if (serverSeeded) return;
+    if (hasUsableSsrSnapshot) return;
     bootstrap();
-  }, [bootstrap, serverSeeded]);
+  }, [bootstrap, hasUsableSsrSnapshot]);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
