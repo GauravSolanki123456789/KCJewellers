@@ -240,6 +240,12 @@ function normalizeSyncItem(item) {
                 : item.video_url != null
                   ? String(item.video_url)
                   : '',
+        quantity: (() => {
+            const raw = item.quantity ?? item.pcs ?? item.PCS;
+            if (raw == null || String(raw).trim() === '') return 1;
+            const n = parseInt(String(raw), 10);
+            return Number.isFinite(n) && n >= 0 ? n : 1;
+        })(),
     };
 }
 
@@ -379,14 +385,15 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
              wastage_pct, chain_weight, pendant_weight, earring_weight,
              purity, mc_rate, mc_type, metal_type,
              fixed_price, stone_charges, box_charges, with_box_charges_only, mrp_rate_behind_box,
-             design_group, image_url, secondary_image_url,
+             design_group, quantity, image_url, secondary_image_url,
              box_image_url, video_url,
              submitted_by_user_id, reseller_submission_id, is_active, last_synced_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                CASE WHEN $24::boolean THEN $25::text ELSE NULL END,
-                CASE WHEN $26::boolean THEN $27::text ELSE NULL END,
-                CASE WHEN $28::boolean THEN $29::text ELSE NULL END,
-                $30, $31, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                $24,
+                CASE WHEN $25::boolean THEN $26::text ELSE NULL END,
+                CASE WHEN $27::boolean THEN $28::text ELSE NULL END,
+                CASE WHEN $29::boolean THEN $30::text ELSE NULL END,
+                $31, $32, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (sku) DO UPDATE SET
             subcategory_id  = EXCLUDED.subcategory_id,
             barcode         = COALESCE(EXCLUDED.barcode, web_products.barcode),
@@ -409,10 +416,11 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             with_box_charges_only = EXCLUDED.with_box_charges_only,
             mrp_rate_behind_box = COALESCE(EXCLUDED.mrp_rate_behind_box, web_products.mrp_rate_behind_box),
             design_group    = EXCLUDED.design_group,
-            image_url       = CASE WHEN $32::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
-            secondary_image_url = CASE WHEN $24::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
-            box_image_url   = CASE WHEN $26::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
-            video_url       = CASE WHEN $28::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
+            quantity        = EXCLUDED.quantity,
+            image_url       = CASE WHEN $33::boolean THEN EXCLUDED.image_url ELSE web_products.image_url END,
+            secondary_image_url = CASE WHEN $25::boolean THEN EXCLUDED.secondary_image_url ELSE web_products.secondary_image_url END,
+            box_image_url   = CASE WHEN $27::boolean THEN EXCLUDED.box_image_url ELSE web_products.box_image_url END,
+            video_url       = CASE WHEN $29::boolean THEN EXCLUDED.video_url ELSE web_products.video_url END,
             submitted_by_user_id = COALESCE(EXCLUDED.submitted_by_user_id, web_products.submitted_by_user_id),
             reseller_submission_id = COALESCE(EXCLUDED.reseller_submission_id, web_products.reseller_submission_id),
             is_active       = true,
@@ -442,6 +450,7 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
         !!norm.withBoxChargesOnly,
         norm.mrpRateBehindBox,
         norm.designGroup,
+        norm.quantity,
         imageUrl,
         secondaryTouch,
         secondaryVal,
@@ -468,7 +477,8 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             msg.includes('weight_display') ||
             msg.includes('mc_type') ||
             msg.includes('with_box_charges_only') ||
-            msg.includes('mrp_rate_behind_box')
+            msg.includes('mrp_rate_behind_box') ||
+            msg.includes('quantity')
         ) {
             if (msg.includes('submitted_by_user_id') || msg.includes('reseller_submission_id')) {
                 await pool.query(
@@ -504,6 +514,11 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
             if (msg.includes('mrp_rate_behind_box')) {
                 await pool.query(
                     'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS mrp_rate_behind_box NUMERIC(12, 2)',
+                );
+            }
+            if (msg.includes('quantity')) {
+                await pool.query(
+                    'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1',
                 );
             }
             await query(upsertSql, upsertParams);

@@ -13,6 +13,8 @@ export type SharedCatalogSelectionPick = {
   row: SharedCatalogPricingRow
   key: string
   qty: number
+  /** Extra pieces requested beyond live stock (make on order). */
+  makeOnOrderQty?: number
   includeBox: boolean
   displayTitle: string
   sizeLabel: string | null
@@ -26,6 +28,7 @@ export function buildSharedCatalogSelectionPicks(
   rowKeyByRow: Map<SharedCatalogPricingRow, string>,
   selections: Map<string, number>,
   includeBoxByKey: Map<string, boolean>,
+  makeOnOrderByKey?: Map<string, number>,
 ): SharedCatalogSelectionPick[] {
   const picks: SharedCatalogSelectionPick[] = []
 
@@ -33,8 +36,9 @@ export function buildSharedCatalogSelectionPicks(
     for (const variant of group.variants) {
       const key = rowKeyByRow.get(variant)
       if (!key) continue
-      const qty = selections.get(key)
-      if (!qty) continue
+      const inStockQty = selections.get(key) ?? 0
+      const makeOnOrderQty = makeOnOrderByKey?.get(key) ?? 0
+      if (inStockQty <= 0 && makeOnOrderQty <= 0) continue
 
       const item = variant.item
       const includeBox = effectiveIncludeBox(
@@ -43,12 +47,14 @@ export function buildSharedCatalogSelectionPicks(
       )
       const boxAdd = includeBox && productHasBoxOption(item) ? getProductBoxCharges(item) : 0
       const unitTotalInr = variant.unitTotalInr + boxAdd
-      const lineTotalInr = unitTotalInr * qty
+      const billableQty = inStockQty > 0 ? inStockQty : 0
+      const lineTotalInr = unitTotalInr * billableQty
 
       picks.push({
         row: variant,
         key,
-        qty,
+        qty: inStockQty,
+        makeOnOrderQty,
         includeBox,
         displayTitle: group.displayTitle,
         sizeLabel: getCustomerDisplaySize(item),
@@ -69,12 +75,19 @@ export function sharedCatalogPickToWhatsAppLine(
 ): SharedCatalogPickLineForWhatsApp {
   const code = String(pick.row.product.barcode || pick.row.product.sku || pick.key)
   const item = sharedCatalogProductToItem(pick.row.product)
+  const mto = Math.max(0, pick.makeOnOrderQty ?? 0)
+  const inStock = pick.qty
   return {
-    name: pick.displayTitle,
+    name:
+      mto > 0
+        ? inStock > 0
+          ? `${pick.displayTitle} (Make on order +${mto})`
+          : `${pick.displayTitle} (Make on order: ${mto} pcs)`
+        : pick.displayTitle,
     skuOrBarcode: code,
     priceInr: pick.unitTotalInr,
     compareAtInr: pick.row.unitCompareAtInr,
-    qty: pick.qty,
+    qty: pick.qty + mto,
     sizeLabel: pick.sizeLabel,
     weightLabel: pick.weightLabel,
     metalSpecSummary: formatProductMetalSpecSummary(item, rates),
@@ -126,7 +139,7 @@ export function summarizeSharedCatalogPicks(
   let totalPieces = 0
   let orderTotalInr = 0
   for (const pick of picks) {
-    totalPieces += pick.qty
+    totalPieces += pick.qty + Math.max(0, pick.makeOnOrderQty ?? 0)
     orderTotalInr += pick.lineTotalInr
   }
   return {

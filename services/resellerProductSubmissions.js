@@ -318,6 +318,84 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
     };
 }
 
+function normStrCompare(a, b) {
+    return String(a ?? '')
+        .trim()
+        .toLowerCase() === String(b ?? '')
+        .trim()
+        .toLowerCase();
+}
+
+function normNumCompare(a, b) {
+    const na = a == null || a === '' ? null : Number(a);
+    const nb = b == null || b === '' ? null : Number(b);
+    if (na == null && nb == null) return true;
+    if (na == null || nb == null) return false;
+    if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+    return Math.abs(na - nb) < 0.0001;
+}
+
+/** True when every catalog field matches except quantity (PCS). */
+function submissionFieldsMatchForReimport(existing, incoming) {
+    return (
+        normStrCompare(existing.style_code, incoming.style_code) &&
+        normStrCompare(existing.sku, incoming.sku) &&
+        normStrCompare(existing.product_name, incoming.product_name) &&
+        normStrCompare(existing.design_group, incoming.design_group) &&
+        normStrCompare(existing.size, incoming.size) &&
+        normStrCompare(existing.metal_type, incoming.metal_type) &&
+        normNumCompare(existing.purity, incoming.purity) &&
+        normNumCompare(existing.net_weight, incoming.net_weight) &&
+        normNumCompare(existing.gross_weight, incoming.gross_weight) &&
+        normNumCompare(existing.mc_rate, incoming.mc_rate) &&
+        normStrCompare(existing.mc_type, incoming.mc_type) &&
+        normNumCompare(existing.fixed_price, incoming.fixed_price) &&
+        normNumCompare(existing.stone_charges, incoming.stone_charges) &&
+        normNumCompare(existing.box_charges, incoming.box_charges) &&
+        normNumCompare(existing.wastage_pct, incoming.wastage_pct) &&
+        normStrCompare(existing.attr_color, incoming.attr_color) &&
+        normStrCompare(existing.attr_stone, incoming.attr_stone)
+    );
+}
+
+async function findExistingSubmissionForReimport(query, userId, prodSku) {
+    if (!prodSku) return null;
+    const rows = await query(
+        `SELECT * FROM reseller_product_submissions
+         WHERE submitted_by_user_id = $1
+           AND web_product_sku IS NOT NULL
+           AND LOWER(TRIM(web_product_sku)) = LOWER(TRIM($2))
+           AND submission_status IN ('draft', 'pending', 'approved')
+         ORDER BY
+           CASE submission_status WHEN 'approved' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+           updated_at DESC
+         LIMIT 1`,
+        [userId, prodSku],
+    );
+    return rows[0] || null;
+}
+
+async function updateSubmissionQuantity(query, submissionId, newQty) {
+    await query(
+        `UPDATE reseller_product_submissions
+         SET quantity = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [submissionId, newQty],
+    );
+}
+
+async function syncLiveProductQuantity(query, webProductSku, newQty, submissionId) {
+    const sku = String(webProductSku || '').trim();
+    if (!sku) return;
+    await query(
+        `UPDATE web_products
+         SET quantity = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE (LOWER(TRIM(sku)) = LOWER($1) OR reseller_submission_id = $3)
+           AND (is_active IS NULL OR is_active = true)`,
+        [sku, newQty, submissionId],
+    );
+}
+
 /** When size/barcode changes, retire the previous live `web_products` row so only one variant shows. */
 async function deactivateSupersededWebProductSku(query, oldSku, newSku) {
     const prev = String(oldSku || '').trim();
@@ -903,10 +981,12 @@ function registerResellerProductRoutes(app, deps) {
         try {
             const products = Array.isArray(req.body?.products) ? req.body.products : [];
             if (!products.length) return res.status(400).json({ error: 'products array is required' });
-            const batchId = randomUUID();
+            let batchId = null;
             const created = [];
             const errors = [];
             const seenSkus = new Map();
+            let quantityUpdatedCount = 0;
+            let quantityUnchangedCount = 0;
             const parsedItems = products.map((raw) => excelRowToSyncItem(raw) || raw);
             const gpPairedBases = detectGpPairedBases(parsedItems);
             for (let i = 0; i < parsedItems.length; i++) {
@@ -925,6 +1005,41 @@ function registerResellerProductRoutes(app, deps) {
                         );
                     }
                     seenSkus.set(skuKey, i);
+
+                    const incomingFields = buildSubmissionFieldsFromItem(item, req.user.id, null);
+                    const existing = await findExistingSubmissionForReimport(
+                        query,
+                        req.user.id,
+                        incomingFields.web_product_sku,
+                    );
+
+                    if (existing && submissionFieldsMatchForReimport(existing, incomingFields)) {
+                        const newQty = incomingFields.quantity ?? 1;
+                        const oldQty = parseInt(String(existing.quantity ?? 1), 10) || 1;
+                        if (newQty !== oldQty) {
+                            await updateSubmissionQuantity(query, existing.id, newQty);
+                            if (existing.submission_status === 'approved') {
+                                await syncLiveProductQuantity(
+                                    query,
+                                    existing.web_product_sku || incomingFields.web_product_sku,
+                                    newQty,
+                                    existing.id,
+                                );
+                            }
+                            quantityUpdatedCount += 1;
+                        } else {
+                            quantityUnchangedCount += 1;
+                        }
+                        continue;
+                    }
+
+                    if (existing && !submissionFieldsMatchForReimport(existing, incomingFields)) {
+                        throw new Error(
+                            `Product id "${resolved.prodSku}" already exists with different specs — check weight, purity, MC, or metal type.`,
+                        );
+                    }
+
+                    if (!batchId) batchId = randomUUID();
                     const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
                     fields.submission_status = 'draft';
                     fields.batch_label =
@@ -948,9 +1063,11 @@ function registerResellerProductRoutes(app, deps) {
                 }
             }
             res.status(201).json({
-                success: created.length > 0,
+                success: created.length > 0 || quantityUpdatedCount > 0,
                 batch_id: batchId,
                 created_count: created.length,
+                quantity_updated_count: quantityUpdatedCount,
+                quantity_unchanged_count: quantityUnchangedCount,
                 expected_count: products.length,
                 style_summary: summarizeImportByStyle(created),
                 submissions: created,

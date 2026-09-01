@@ -31,6 +31,8 @@ export type EffectiveResellerBranding = {
   showMrpBehindBox: boolean
   /** Weight-only storefront — hide prices & cart (admin `reseller_hide_prices`). */
   hidePrices: boolean
+  /** Show live PCS on product cards (admin `reseller_show_live_stock`). */
+  showLiveStock: boolean
 }
 
 const defaultBranding: EffectiveResellerBranding = {
@@ -45,6 +47,7 @@ const defaultBranding: EffectiveResellerBranding = {
   storefrontMarginPct: 0,
   showMrpBehindBox: false,
   hidePrices: false,
+  showLiveStock: false,
 }
 
 const Ctx = createContext<EffectiveResellerBranding>(defaultBranding)
@@ -77,6 +80,7 @@ export function ResellerBrandingProvider({
         storefrontMarginPct: initialFromHost.storefrontMarginPct ?? 0,
         showMrpBehindBox: initialFromHost.showMrpBehindBox ?? false,
         hidePrices: initialFromHost.hidePrices ?? false,
+        showLiveStock: initialFromHost.showLiveStock ?? false,
       }
     }
     if (customerTier === CUSTOMER_TIER.RESELLER && auth.isAuthenticated && user) {
@@ -97,6 +101,7 @@ export function ResellerBrandingProvider({
           storefrontMarginPct: 0,
           showMrpBehindBox: false,
           hidePrices: false,
+          showLiveStock: false,
         }
       }
     }
@@ -112,6 +117,7 @@ export function ResellerBrandingProvider({
       storefrontMarginPct: 0,
       showMrpBehindBox: false,
       hidePrices: false,
+      showLiveStock: false,
     }
   }, [initialFromHost, customDomainHost, customerTier, auth.isAuthenticated, user])
 

@@ -25,6 +25,8 @@ export type PublicResellerBranding = {
   showMrpBehindBox: boolean;
   /** Weight-only storefront — no prices on catalog cards. */
   hidePrices: boolean;
+  /** Show live PCS stock on product cards and cap shared-catalogue qty. */
+  showLiveStock: boolean;
 };
 
 function apiBase(): string {
@@ -54,6 +56,7 @@ export async function fetchPublicResellerBranding(
       storefront_margin_pct?: number;
       show_mrp_behind_box?: boolean;
       reseller_hide_prices?: boolean;
+      reseller_show_live_stock?: boolean;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -77,6 +80,7 @@ export async function fetchPublicResellerBranding(
       storefrontMarginPct: Math.max(0, Math.min(1000, Number(data?.storefront_margin_pct) || 0)),
       showMrpBehindBox: !!data?.show_mrp_behind_box,
       hidePrices: !!data?.reseller_hide_prices,
+      showLiveStock: !!data?.reseller_show_live_stock,
     };
   } catch {
     return null;

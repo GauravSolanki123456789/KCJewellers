@@ -38,6 +38,7 @@ import {
   variantDisplayTitle,
   type ItemWithVariants,
 } from '@/lib/product-variants'
+import { formatLiveStockLabel, parseProductStockQty } from '@/lib/live-stock'
 
 type ProductCardProps = {
   product: ItemWithVariants
@@ -103,8 +104,8 @@ export default function ProductCard({
   const cart = useCart()
   const catalogBuilder = useCatalogBuilderOptional()
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier()
-  const { customDomainHost, storefrontMarginPct, showMrpBehindBox, hidePrices } = useResellerBranding()
-  const weightOnlyCatalog = hidePrices
+  const { customDomainHost, storefrontMarginPct, showMrpBehindBox, hidePrices, showLiveStock: storefrontShowLiveStock } = useResellerBranding()
+  const storefrontWeightOnly = hidePrices
   const { pricingOptions } = useCatalogPricingSettings()
 
   const variants = useMemo(() => getAttachedVariants(product), [product])
@@ -120,11 +121,16 @@ export default function ProductCard({
 
   useEffect(() => {
     setActiveVariant(variants[0] ?? product)
-    setIncludeBox(weightOnlyCatalog && productHasBoxOption(variants[0] ?? product))
+    setIncludeBox(storefrontWeightOnly && productHasBoxOption(variants[0] ?? product))
     setGalleryScrollIdx(null)
-  }, [product, variants, weightOnlyCatalog])
+  }, [product, variants, storefrontWeightOnly])
 
   const active = hasVariants ? activeVariant : product
+  const productHidePrices = !!(product.reseller_hide_prices ?? active.reseller_hide_prices)
+  const hidePriceDisplay = storefrontWeightOnly || productHidePrices
+  const showLiveStock = !!(product.reseller_show_live_stock ?? active.reseller_show_live_stock ?? storefrontShowLiveStock)
+  const stockQty = parseProductStockQty(active.quantity ?? active.pcs ?? product.quantity ?? product.pcs)
+  const stockLabel = showLiveStock ? formatLiveStockLabel(stockQty) : null
   const hasBox = productHasBoxOption(active)
   const boxSlideIdx = boxImageSlideIndex(active)
   const resolvedIncludeBox = effectiveIncludeBox(active, includeBox)
@@ -137,7 +143,7 @@ export default function ProductCard({
       : `/products/${encodeURIComponent(barcode)}`
 
   const imageSrc = normalizeCatalogImageSrc(
-    weightOnlyCatalog && hasBox && resolvedIncludeBox && String(active.box_image_url ?? '').trim()
+    hidePriceDisplay && hasBox && resolvedIncludeBox && String(active.box_image_url ?? '').trim()
       ? active.box_image_url
       : active.image_url || product.image_url,
   )
@@ -257,7 +263,7 @@ export default function ProductCard({
           fetchPriority={fetchPriority}
           scrollToIndex={galleryScrollIdx}
           onActiveIndexChange={(idx) => {
-            if (weightOnlyCatalog) return
+            if (hidePriceDisplay) return
             if (boxSlideIdx != null && idx === boxSlideIdx) setIncludeBox(true)
             else if (hasBox) setIncludeBox(false)
           }}
@@ -290,6 +296,20 @@ export default function ProductCard({
       {weightLabel ? (
         <span className="kc-product-card-weight">{weightLabel}</span>
       ) : null}
+      {stockLabel ? (
+        <span
+          className={cn(
+            'text-[10px] font-semibold sm:text-[11px]',
+            stockQty <= 0
+              ? 'text-amber-700'
+              : stockQty <= 3
+                ? 'text-amber-600'
+                : 'text-emerald-700',
+          )}
+        >
+          {stockLabel}
+        </span>
+      ) : null}
       <ProductMetalSpecExtras item={active} rates={rates} breakdown={breakdown} density="card" />
       {hasVariants ? (
         <div
@@ -314,7 +334,7 @@ export default function ProductCard({
       ) : null}
 
       {hasBox ? (
-        weightOnlyCatalog ? (
+        hidePriceDisplay ? (
           <WithBoxLabel className="mt-1" density="card" />
         ) : (
           <BoxOptionToggle
@@ -332,7 +352,7 @@ export default function ProductCard({
 
       {showMrpBehindBox ? <MrpBehindBoxNote item={active} className="mt-1" /> : null}
 
-      {!weightOnlyCatalog ? (
+      {!hidePriceDisplay ? (
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">
         {showWholesale ? (
           <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-600">
@@ -376,7 +396,7 @@ export default function ProductCard({
         <p className="mt-2 text-center text-[10px] font-medium text-slate-500">
           {builderSelected ? 'Tap to remove' : 'Tap to select'}
         </p>
-      ) : !weightOnlyCatalog ? (
+      ) : !storefrontWeightOnly ? (
         <button
           className="mt-2 w-full"
           onClick={(e) => {
@@ -385,7 +405,9 @@ export default function ProductCard({
             cart.add({ ...active, include_box: resolvedIncludeBox })
           }}
         >
-          <span className="kc-btn-cart">Add to Cart</span>
+          <span className="kc-btn-cart">
+            {showLiveStock && stockQty <= 0 ? 'Make on order' : 'Add to Cart'}
+          </span>
         </button>
       ) : null}
     </div>

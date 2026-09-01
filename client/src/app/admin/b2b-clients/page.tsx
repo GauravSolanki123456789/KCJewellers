@@ -55,6 +55,8 @@ type AdminUser = {
   kc_theme_id?: string | null
   /** Admin toggle: shared catalogue links/PDFs show weight only (matches `users.reseller_hide_prices`). */
   reseller_hide_prices?: boolean
+  /** Admin toggle: show PCS stock on product cards and cap shared-catalogue qty. */
+  reseller_show_live_stock?: boolean
   /** Admin enables reseller staff product uploads (`users.reseller_product_uploads_enabled`). */
   reseller_product_uploads_enabled?: boolean
   /** Admin enables live product edits without re-review (`users.reseller_product_edits_enabled`). */
@@ -179,6 +181,7 @@ function B2BAdminContent() {
     contact_mobile: '',
     kc_theme_id: '',
     reseller_hide_prices: false,
+    reseller_show_live_stock: false,
     reseller_product_uploads_enabled: false,
     reseller_product_edits_enabled: false,
     reseller_hide_shared_catalog_pdf: false,
@@ -265,6 +268,7 @@ function B2BAdminContent() {
             ? String(resellerModalUser.kc_theme_id).trim()
             : '',
         reseller_hide_prices: !!resellerModalUser.reseller_hide_prices,
+        reseller_show_live_stock: !!resellerModalUser.reseller_show_live_stock,
         reseller_product_uploads_enabled: !!resellerModalUser.reseller_product_uploads_enabled,
         reseller_product_edits_enabled: !!resellerModalUser.reseller_product_edits_enabled,
         reseller_hide_shared_catalog_pdf: !!resellerModalUser.reseller_hide_shared_catalog_pdf,
@@ -374,6 +378,7 @@ function B2BAdminContent() {
         mobile_number: rawMob ? mobDigits : null,
         kc_theme_id: resellerForm.kc_theme_id.trim() ? resellerForm.kc_theme_id.trim() : null,
         reseller_hide_prices: resellerForm.reseller_hide_prices,
+        reseller_show_live_stock: resellerForm.reseller_show_live_stock,
         reseller_product_uploads_enabled: resellerForm.reseller_product_uploads_enabled,
         reseller_product_edits_enabled: resellerForm.reseller_product_edits_enabled,
         reseller_hide_shared_catalog_pdf: resellerForm.reseller_hide_shared_catalog_pdf,
@@ -958,6 +963,39 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_hide_prices ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Show live stock</p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                        Customers see available PCS on product cards. Shared catalogues cap qty to stock; extra pieces can be marked make on order.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_show_live_stock}
+                      aria-label="Show live stock on product cards"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_show_live_stock: !f.reseller_show_live_stock,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_show_live_stock
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_show_live_stock ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

@@ -162,6 +162,8 @@ export type SharedCatalogPublicProduct = {
   subcategory_name?: string | null
   subcategory_slug?: string | null
   subcategory_sort_order?: number | null
+  quantity?: number
+  pcs?: number
   [key: string]: unknown
 }
 
@@ -206,6 +208,8 @@ export type SharedCatalogPublicResponse =
       discountPercentage?: number
       /** Snapshot from `shared_catalogs.hide_prices` — weight-only brochure (no prices). */
       hidePrices?: boolean
+      /** Snapshot from `shared_catalogs.show_live_stock` — cap qty to PCS. */
+      showLiveStock?: boolean
       /** Reseller creator toggle — show MRP (behind box) on product cards. */
       showMrpBehindBox?: boolean
       /** Snapshot from `shared_catalogs.hide_pdf` — customers can use WhatsApp text only. */

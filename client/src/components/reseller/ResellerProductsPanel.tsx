@@ -327,12 +327,16 @@ export function ResellerProductsPanel({
       }
       const res = await axios.post<{
         created_count: number
+        quantity_updated_count?: number
+        quantity_unchanged_count?: number
         expected_count?: number
-        batch_id?: string
+        batch_id?: string | null
         style_summary?: Record<string, number>
         errors?: { row: number; error: string; styleCode?: string; barcode?: string }[]
       }>('/api/reseller/product-submissions/bulk', { products })
       const n = res.data.created_count ?? 0
+      const qtyUpdated = res.data.quantity_updated_count ?? 0
+      const qtyUnchanged = res.data.quantity_unchanged_count ?? 0
       const expected = res.data.expected_count ?? products.length
       const errs = res.data.errors ?? []
       const errN = errs.length
@@ -341,13 +345,22 @@ export function ResellerProductsPanel({
         const label = [e.styleCode, e.barcode].filter(Boolean).join(' · ')
         return `Row ${rowNo}${label ? ` (${label})` : ''}: ${e.error}`
       }
-      if (n === 0) {
+      if (n === 0 && qtyUpdated === 0) {
         const first = errs[0] ? formatRowErr(errs[0]) : null
         setError(
           first
             ? `No rows imported — ${first}${errN > 1 ? ` — and ${errN - 1} more` : ''}`
-            : 'No rows imported. Check Barcode, StyleCode, and MetalType (use gifting for gift items).',
+            : qtyUnchanged > 0
+              ? `${qtyUnchanged} existing product${qtyUnchanged === 1 ? '' : 's'} already had the same stock — nothing new to import.`
+              : 'No rows imported. Check Barcode, StyleCode, and MetalType (use gifting for gift items).',
         )
+        return
+      }
+      if (n === 0 && qtyUpdated > 0) {
+        setBulkResult(
+          `${qtyUpdated} stock count${qtyUpdated === 1 ? '' : 's'} updated${qtyUnchanged ? ` · ${qtyUnchanged} already correct` : ''}.`,
+        )
+        void loadBatches()
         return
       }
       const partialHint =
@@ -357,8 +370,12 @@ export function ResellerProductsPanel({
             ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)`
             : ''
       const styleHint = formatStyleSummary(res.data.style_summary)
+      const qtyHint =
+        qtyUpdated > 0 || qtyUnchanged > 0
+          ? ` ${qtyUpdated} stock update${qtyUpdated === 1 ? '' : 's'}${qtyUnchanged ? ` · ${qtyUnchanged} already correct` : ''}.`
+          : ''
       setBulkResult(
-        `${n} product${n === 1 ? '' : 's'} imported${styleHint ? ` — ${styleHint}` : ''}. Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,
+        `${n} new product${n === 1 ? '' : 's'} added to batch${styleHint ? ` — ${styleHint}` : ''}.${qtyHint} Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,
       )
       if (res.data.batch_id) {
         setExpandedBatchId(res.data.batch_id)

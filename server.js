@@ -1291,6 +1291,7 @@ app.get('/api/public/reseller-branding', async (req, res) => {
                     COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                     COALESCE(reseller_show_mrp_behind_box, false) AS reseller_show_mrp_behind_box,
                     COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                    COALESCE(reseller_show_live_stock, false) AS reseller_show_live_stock,
                     COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
              FROM users
              WHERE customer_tier = 'RESELLER'
@@ -1338,6 +1339,7 @@ app.get('/api/public/reseller-branding', async (req, res) => {
             storefront_margin_pct: storefrontMarginPct,
             show_mrp_behind_box: !!rows[0].reseller_show_mrp_behind_box,
             reseller_hide_prices: !!rows[0].reseller_hide_prices,
+            reseller_show_live_stock: !!rows[0].reseller_show_live_stock,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -2595,7 +2597,13 @@ async function checkAndMigrateResellerWhiteLabel() {
             'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_hide_prices BOOLEAN NOT NULL DEFAULT false',
         );
         await dbPool.query(
+            'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_show_live_stock BOOLEAN NOT NULL DEFAULT false',
+        );
+        await dbPool.query(
             'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS hide_prices BOOLEAN NOT NULL DEFAULT false',
+        );
+        await dbPool.query(
+            'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS show_live_stock BOOLEAN NOT NULL DEFAULT false',
         );
         await dbPool.query(
             'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP',
@@ -3005,10 +3013,14 @@ app.get('/api/products', async (req, res) => {
                 ws.slug  AS subcategory_slug,
                 wc.id    AS category_id,
                 wc.name  AS style_code,
-                wc.slug  AS category_slug
+                wc.slug  AS category_slug,
+                COALESCE(wp.quantity, 1)::int AS quantity,
+                COALESCE(u.reseller_hide_prices, false) AS reseller_hide_prices,
+                COALESCE(u.reseller_show_live_stock, false) AS reseller_show_live_stock
             FROM web_products wp
             LEFT JOIN web_subcategories ws ON wp.subcategory_id = ws.id
             LEFT JOIN web_categories    wc ON ws.category_id    = wc.id
+            LEFT JOIN users u ON u.id = wp.submitted_by_user_id
         `;
 
         const baseCount = `
@@ -3016,6 +3028,7 @@ app.get('/api/products', async (req, res) => {
             FROM web_products wp
             LEFT JOIN web_subcategories ws ON wp.subcategory_id = ws.id
             LEFT JOIN web_categories    wc ON ws.category_id    = wc.id
+            LEFT JOIN users u ON u.id = wp.submitted_by_user_id
         `;
 
         let whereClauses = ['1=1'];
@@ -4165,6 +4178,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
                        kc_theme_id,
                        COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                       COALESCE(reseller_show_live_stock, false) AS reseller_show_live_stock,
                        COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
                        COALESCE(reseller_product_edits_enabled, false) AS reseller_product_edits_enabled,
                        COALESCE(reseller_hide_shared_catalog_pdf, false) AS reseller_hide_shared_catalog_pdf,
@@ -4602,6 +4616,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (reseller_hide_prices !== undefined) {
             updates.push(`reseller_hide_prices = $${paramIndex++}`);
             params.push(!!reseller_hide_prices);
+        }
+
+        if (req.body.reseller_show_live_stock !== undefined) {
+            updates.push(`reseller_show_live_stock = $${paramIndex++}`);
+            params.push(!!req.body.reseller_show_live_stock);
         }
 
         if (req.body.reseller_product_uploads_enabled !== undefined) {
@@ -6933,8 +6952,12 @@ app.get('/api/catalog', async (req, res) => {
                         design_group,
                         COALESCE(metal_type, 'silver') AS metal_type,
                         diamond_carat, diamond_cut, diamond_color, diamond_clarity, certificate_url,
+                        COALESCE(wp.quantity, 1)::int AS quantity,
+                        COALESCE(u.reseller_hide_prices, false) AS reseller_hide_prices,
+                        COALESCE(u.reseller_show_live_stock, false) AS reseller_show_live_stock,
                         wp.updated_at
                     FROM web_products wp
+                    LEFT JOIN users u ON u.id = wp.submitted_by_user_id
                     WHERE wp.subcategory_id = $1 AND (wp.is_active IS NULL OR wp.is_active = true)
                 `, [s.id]);
                 const dgOrder = normalizeDesignGroupOrder(s.design_group_order);
@@ -7308,6 +7331,31 @@ async function resellerHidePricesForUser(userId) {
     return !!rows[0].reseller_hide_prices;
 }
 
+/** RESELLER accounts with admin `reseller_show_live_stock` — snapshot on shared_catalogs.show_live_stock. */
+async function resellerShowLiveStockForUser(userId) {
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid) || uid <= 0) return false;
+    try {
+        const rows = await query(
+            `SELECT customer_tier, COALESCE(reseller_show_live_stock, false) AS reseller_show_live_stock
+             FROM users WHERE id = $1`,
+            [uid],
+        );
+        if (!rows.length) return false;
+        if (String(rows[0].customer_tier || '').toUpperCase() !== 'RESELLER') return false;
+        return !!rows[0].reseller_show_live_stock;
+    } catch (e) {
+        const msg = String(e.message || '');
+        if (msg.includes('reseller_show_live_stock')) {
+            await pool.query(
+                'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_show_live_stock BOOLEAN NOT NULL DEFAULT false',
+            );
+            return resellerShowLiveStockForUser(userId);
+        }
+        throw e;
+    }
+}
+
 /** RESELLER accounts with admin `reseller_hide_shared_catalog_pdf` — snapshot on shared_catalogs.hide_pdf. */
 async function resellerHideSharedCatalogPdfForUser(userId) {
     const uid = parseInt(String(userId), 10);
@@ -7459,6 +7507,10 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHidePricesForUser(creatorUid)
                 : false;
+        const showLiveStock =
+            Number.isFinite(creatorUid) && creatorUid > 0
+                ? await resellerShowLiveStockForUser(creatorUid)
+                : false;
         const hidePdf =
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHideSharedCatalogPdfForUser(creatorUid)
@@ -7502,11 +7554,11 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             await query(
                 `INSERT INTO shared_catalogs (
                     id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
-                    rates_snapshot, hide_prices, hide_pdf, pricing_slab, slab_wholesale_gold_rate_per_g,
+                    rates_snapshot, hide_prices, hide_pdf, show_live_stock, pricing_slab, slab_wholesale_gold_rate_per_g,
                     slab_wholesale_silver_rate_per_g, slab_settings_snapshot,
                     uploaded_mc_slab_key, uploaded_mc_slab_rows_snapshot
                  )
-                 VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb)`,
+                 VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16::jsonb)`,
                 [
                     id,
                     sortedIds,
@@ -7517,6 +7569,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                     JSON.stringify(ratesSnapshot),
                     hidePrices,
                     hidePdf,
+                    showLiveStock,
                     slabKind,
                     wholesaleGold,
                     wholesaleSilver,
@@ -7527,16 +7580,23 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             );
         } catch (insErr) {
             const msg = String(insErr.message || '');
-            if (msg.includes('uploaded_mc_slab')) {
-                await ensureMcSlabColumns(pool);
+            if (msg.includes('uploaded_mc_slab') || msg.includes('show_live_stock')) {
+                if (msg.includes('show_live_stock')) {
+                    await pool.query(
+                        'ALTER TABLE shared_catalogs ADD COLUMN IF NOT EXISTS show_live_stock BOOLEAN NOT NULL DEFAULT false',
+                    );
+                }
+                if (msg.includes('uploaded_mc_slab')) {
+                    await ensureMcSlabColumns(pool);
+                }
                 await query(
                     `INSERT INTO shared_catalogs (
                         id, product_ids, markup_percentage, discount_percentage, expires_at, created_by_user_id,
-                        rates_snapshot, hide_prices, hide_pdf, pricing_slab, slab_wholesale_gold_rate_per_g,
+                        rates_snapshot, hide_prices, hide_pdf, show_live_stock, pricing_slab, slab_wholesale_gold_rate_per_g,
                         slab_wholesale_silver_rate_per_g, slab_settings_snapshot,
                         uploaded_mc_slab_key, uploaded_mc_slab_rows_snapshot
                      )
-                     VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb)`,
+                     VALUES ($1::uuid, $2::text[], $3::float8, $4::float8, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16::jsonb)`,
                     [
                         id,
                         sortedIds,
@@ -7547,6 +7607,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
                         JSON.stringify(ratesSnapshot),
                         hidePrices,
                         hidePdf,
+                        showLiveStock,
                         slabKind,
                         wholesaleGold,
                         wholesaleSilver,
@@ -7949,6 +8010,7 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                     sc.created_by_user_id, sc.rates_snapshot,
                     COALESCE(sc.hide_prices, false) AS hide_prices,
                     COALESCE(sc.hide_pdf, false) AS hide_pdf,
+                    COALESCE(sc.show_live_stock, false) AS show_live_stock,
                     COALESCE(sc.pricing_slab, 'standard') AS pricing_slab,
                     sc.slab_wholesale_gold_rate_per_g,
                     sc.slab_wholesale_silver_rate_per_g,
@@ -7981,6 +8043,7 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
         const shared_catalog_otp_configured = otpMeta.otpConfigured ?? true;
         const hidePrices = !!row.hide_prices;
         const hidePdf = !!row.hide_pdf;
+        const showLiveStock = !!row.show_live_stock;
         const showMrpBehindBox = !!row.show_mrp_behind_box;
         const slabFields = sharedCatalogSlabJsonFields(row);
         const markupPctJson = parseSharedMarkupPct(row.markup_percentage);
@@ -8007,6 +8070,7 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                 discountPercentage: discountPctJson,
                 hidePrices,
                 hidePdf,
+                showLiveStock,
                 showMrpBehindBox,
                 creatorWholesalePricing: cwPricing,
                 products: [],
@@ -8037,6 +8101,7 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                 discountPercentage: discountPctJson,
                 hidePrices,
                 hidePdf,
+                showLiveStock,
                 showMrpBehindBox,
                 creatorWholesalePricing: cwPricing,
                 selectionWhatsAppDigits,
@@ -8079,6 +8144,7 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                 COALESCE(wp.discount_percentage, 0)::float AS product_discount_percentage,
                 COALESCE(wc.discount_percentage, 0)::float AS category_discount_percentage,
                 COALESCE(wc.discount_by_metal, '{}'::jsonb) AS category_discount_by_metal,
+                COALESCE(wp.quantity, 1)::int AS quantity,
                 wc.name AS style_name,
                 ws.id AS subcategory_id,
                 ws.name AS subcategory_name,
@@ -8132,6 +8198,7 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
             discountPercentage: discountPctJson,
             hidePrices,
             hidePdf,
+            showLiveStock,
             showMrpBehindBox,
             creatorWholesalePricing: cwPricing,
             selectionWhatsAppDigits,
