@@ -216,6 +216,97 @@ export function resolvePrinterSerialSettings(
   return apiProfile?.serial || profile?.serial || DEFAULT_SERIAL
 }
 
+export async function sendSerialCommand(port: SerialPortLike, command: string): Promise<void> {
+  if (!port.writable) throw new Error('Serial port is not open for writing')
+  const writer = port.writable.getWriter()
+  try {
+    const body = command.trim()
+    const cmd = body ? (body.endsWith('\r\n') ? body : `${body}\r\n`) : '\r\n'
+    await writer.write(new TextEncoder().encode(cmd))
+    await writer.ready
+  } finally {
+    writer.releaseLock()
+  }
+}
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Wake Mettler Toledo JSB / MT-SICS scales and enable host print key transfer. */
+export async function initMettlerToledoScale(port: SerialPortLike): Promise<void> {
+  if (!port.writable) return
+  await sendSerialCommand(port, '')
+  await delay(120)
+  try {
+    await sendSerialCommand(port, 'I4')
+    await delay(120)
+  } catch {
+    /* identify optional */
+  }
+  try {
+    // Print key → send stable weight to host interface (works on most JSB / Excellence models).
+    await sendSerialCommand(port, 'M24 2')
+    await delay(120)
+  } catch {
+    /* some firmware rejects M24 — shop may configure on device */
+  }
+}
+
+export type MettlerParsedLine = {
+  grams: number
+  stable: boolean
+  isPrintLine: boolean
+}
+
+/** Parse one MT-SICS response line (S / SI / ST / print channel). */
+export function parseMettlerLine(line: string): MettlerParsedLine | null {
+  const t = line.trim()
+  if (!t || /^ES\b|^@/i.test(t)) return null
+
+  const isPrintLine = /^(P|ST|T)\b/i.test(t) || /^Print\b/i.test(t)
+
+  // MT-SICS stable/dynamic: "S S     15.400 g" · "S D     15.4 g" · "SI S     12.45 g"
+  const sics = t.match(
+    /^(?:SI|ST|SN|SR|SIR|SU|[SP])?\s*([SDIN])\s+([SDIN])?\s+([+-]?\d[\d.]*)\s*([gG]|kg|lb)?/i,
+  )
+  if (sics) {
+    const status2 = (sics[2] || sics[1] || '').toUpperCase()
+    const grams = parseFloat(String(sics[3]).replace(/\s+/g, ''))
+    if (Number.isFinite(grams) && grams >= 0) {
+      return {
+        grams,
+        stable: status2 === 'S' || status2 === 'M' || /\sS\s+S\s/i.test(t),
+        isPrintLine,
+      }
+    }
+  }
+
+  // Compact: "15.4g" / "15.400 G" (print channel or legacy)
+  const compact = t.match(/([+-]?\d+\.\d+|\d+)\s*([gG])\b/i)
+  if (compact) {
+    const grams = parseFloat(compact[1])
+    if (Number.isFinite(grams) && grams >= 0) {
+      return {
+        grams,
+        stable: /\sS\s+S\s/i.test(t) || isPrintLine,
+        isPrintLine,
+      }
+    }
+  }
+
+  // Generic decimal fallback within MT-SICS context
+  if (/^[SPN]/i.test(t) || isPrintLine) {
+    const nums = t.match(/\d+\.\d+|\d+/g)
+    if (nums?.length) {
+      const grams = parseFloat(nums[nums.length - 1])
+      if (Number.isFinite(grams) && grams >= 0) {
+        return { grams, stable: /\sS\s+S\s/i.test(t), isPrintLine }
+      }
+    }
+  }
+
+  return null
+}
+
 /** Parse scale weight from serial stream — brand selects protocol. */
 export function parseScaleWeightChunk(
   text: string,
@@ -224,26 +315,8 @@ export function parseScaleWeightChunk(
   if (brand === 'mettler_toledo') {
     const lines = text.split(/[\r\n]+/)
     for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const line = lines[i].trim()
-      if (!line) continue
-      // MT-SICS stable weight: "S S     12.450 g" or "S     +   12.45 g"
-      const mt = line.match(/^S\s+S?\s*[+-]?\s*([\d.]+)\s*g\b/i)
-      if (mt) {
-        const v = parseFloat(mt[1])
-        if (Number.isFinite(v) && v >= 0) return v
-      }
-      // SI immediate response: "S     12.450 g"
-      const si = line.match(/^SI?\s+[+-]?\s*([\d.]+)\s*g\b/i)
-      if (si) {
-        const v = parseFloat(si[1])
-        if (Number.isFinite(v) && v >= 0) return v
-      }
-      // Some JSB models send net weight on print key as "N     12.450 g"
-      const net = line.match(/^N\s+[+-]?\s*([\d.]+)\s*g\b/i)
-      if (net) {
-        const v = parseFloat(net[1])
-        if (Number.isFinite(v) && v >= 0) return v
-      }
+      const parsed = parseMettlerLine(lines[i])
+      if (parsed) return parsed.grams
     }
   }
   const matches = text.match(/\d+\.\d{2,4}/g)
@@ -261,7 +334,10 @@ export function detectMettlerPrintTrigger(text: string): boolean {
     if (/^P\s*$/i.test(line)) return true
     if (/^P\s+[+-]?\s*[\d.]+\s*g\b/i.test(line)) return true
     if (/^Print\b/i.test(line)) return true
+    if (/^ST\s/i.test(line)) return true
     if (/^T\s+[+-]?\s*[\d.]+\s*g\b/i.test(line)) return true
+    const parsed = parseMettlerLine(line)
+    if (parsed?.isPrintLine && parsed.grams > 0) return true
   }
   return false
 }
@@ -281,11 +357,69 @@ export async function startScaleReader(
 ): Promise<() => void> {
   const brand = options?.brand || 'generic'
   if (!port.readable) throw new Error('Serial port is not open for reading')
+
+  if (brand === 'mettler_toledo') {
+    try {
+      await initMettlerToledoScale(port)
+    } catch {
+      /* init is best-effort */
+    }
+  }
+
   const reader = port.readable.getReader()
   const decoder = new TextDecoder()
-  let buffer = ''
+  let lineBuffer = ''
   let stopped = false
   let lastStableWeight: number | null = null
+  let lastPollAt = 0
+  let lastPrintAt = 0
+  const connectGraceUntil = Date.now() + 1500
+  let pollTimer: ReturnType<typeof setInterval> | null = null
+  let sirFallbackSent = false
+
+  const processMettlerLines = (chunk: string) => {
+    lineBuffer += chunk
+    const parts = lineBuffer.split(/[\r\n]+/)
+    lineBuffer = parts.pop() || ''
+    if (lineBuffer.length > 400) lineBuffer = lineBuffer.slice(-200)
+
+    for (const raw of parts) {
+      const parsed = parseMettlerLine(raw)
+      if (!parsed) continue
+
+      lastStableWeight = parsed.grams
+      callbacks.onWeight(parsed.grams)
+
+      if (!callbacks.onPrint || parsed.grams <= 0) continue
+
+      const now = Date.now()
+      const sincePoll = now - lastPollAt
+      const unsolicited = sincePoll > 220 || parsed.isPrintLine || detectMettlerPrintTrigger(raw)
+      if (
+        now > connectGraceUntil &&
+        now - lastPrintAt > 900 &&
+        unsolicited &&
+        (parsed.stable || parsed.isPrintLine)
+      ) {
+        lastPrintAt = now
+        callbacks.onPrint(parsed.grams)
+      }
+    }
+  }
+
+  if (brand === 'mettler_toledo') {
+    pollTimer = setInterval(() => {
+      if (stopped) return
+      if (!sirFallbackSent && Date.now() > connectGraceUntil + 2500 && lastStableWeight == null) {
+        sirFallbackSent = true
+        void sendSerialCommand(port, 'SIR').catch(() => {})
+      }
+      lastPollAt = Date.now()
+      void sendSerialCommand(port, 'SI').catch(() => {})
+    }, 350)
+    lastPollAt = Date.now()
+    void sendSerialCommand(port, 'SI').catch(() => {})
+  }
 
   void (async () => {
     try {
@@ -293,19 +427,17 @@ export async function startScaleReader(
         const { value, done } = await reader.read()
         if (done) break
         if (!value) continue
-        buffer += decoder.decode(value, { stream: true })
-        if (buffer.length > 512) buffer = buffer.slice(-256)
-        const w = parseScaleWeightChunk(buffer, brand)
+        const chunk = decoder.decode(value, { stream: true })
+
+        if (brand === 'mettler_toledo') {
+          processMettlerLines(chunk)
+          continue
+        }
+
+        const w = parseScaleWeightChunk(chunk, brand)
         if (w != null) {
           lastStableWeight = w
           callbacks.onWeight(w)
-        }
-        if (brand === 'mettler_toledo' && callbacks.onPrint && detectMettlerPrintTrigger(buffer)) {
-          const printWt = w ?? lastStableWeight
-          if (printWt != null && printWt > 0) {
-            callbacks.onPrint(printWt)
-            buffer = ''
-          }
         }
       }
     } catch (e) {
@@ -313,6 +445,7 @@ export async function startScaleReader(
         callbacks.onError?.(e instanceof Error ? e.message : 'Scale read failed')
       }
     } finally {
+      if (pollTimer) clearInterval(pollTimer)
       try {
         reader.releaseLock()
       } catch {
@@ -323,6 +456,7 @@ export async function startScaleReader(
 
   return () => {
     stopped = true
+    if (pollTimer) clearInterval(pollTimer)
     void reader.cancel().catch(() => {})
   }
 }

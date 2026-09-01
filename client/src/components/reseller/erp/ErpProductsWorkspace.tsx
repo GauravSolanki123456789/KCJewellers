@@ -57,6 +57,35 @@ export function ErpProductsWorkspace() {
   const [imports, setImports] = useState<ImportBatch[]>([])
   const [importsLoading, setImportsLoading] = useState(false)
   const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
+  const [designStyles, setDesignStyles] = useState<string[]>([])
+  const [designSkus, setDesignSkus] = useState<string[]>([])
+  const [designProducts, setDesignProducts] = useState<string[]>([])
+
+  useEffect(() => {
+    void axios
+      .get<{ tree: { style_code: string; skus: { sku: string; product_name?: string | null }[] }[] }>(
+        '/api/reseller/erp/design-master/tree',
+      )
+      .then((res) => {
+        const tree = res.data.tree || []
+        setDesignStyles(tree.map((s) => s.style_code))
+        const skus = new Set<string>()
+        const products = new Set<string>()
+        for (const s of tree) {
+          for (const sk of s.skus || []) {
+            if (sk.sku) skus.add(sk.sku)
+            if (sk.product_name) products.add(sk.product_name)
+          }
+        }
+        setDesignSkus(Array.from(skus).sort())
+        setDesignProducts(Array.from(products).sort())
+      })
+      .catch(() => {
+        setDesignStyles([])
+        setDesignSkus([])
+        setDesignProducts([])
+      })
+  }, [])
 
   useEffect(() => {
     void axios
@@ -459,7 +488,11 @@ export function ErpProductsWorkspace() {
           </p>
         ) : null}
       </div>
-      <ErpStockExcelBuilder />
+      <ErpStockExcelBuilder
+        existingStyles={designStyles}
+        existingSkus={designSkus}
+        existingProducts={designProducts}
+      />
       <div className={erpCardCls}>
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <FileSpreadsheet className="size-4 text-[var(--kc-accent,#c41e3a)]" />

@@ -340,6 +340,66 @@ function registerDesignMasterRoutes(app, deps) {
         }
     });
 
+    /** Styles + SKUs filtered by invoice item name (billing A/S/B shortcuts). */
+    app.get('/api/reseller/erp/design-master/billing-catalog', checkAuth, erpGate, async (req, res) => {
+        try {
+            const invoiceItem = String(req.query.invoice_item || req.query.invoiceItem || '').trim();
+            if (!invoiceItem) return res.status(400).json({ error: 'invoice_item required' });
+            const norm = invoiceItem.toUpperCase();
+            const rows = await query(
+                `SELECT ds.style_code, sk.sku, sk.product_name, sk.invoice_item_name
+                 FROM reseller_erp_design_styles ds
+                 JOIN reseller_erp_design_skus sk
+                   ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
+                 WHERE ds.reseller_user_id = $1
+                   AND upper(trim(coalesce(sk.invoice_item_name, ''))) = $2
+                 ORDER BY ds.style_code, sk.sku`,
+                [req.user.id, norm],
+            );
+            const byStyle = Object.create(null);
+            for (const r of rows) {
+                const code = r.style_code;
+                if (!byStyle[code]) byStyle[code] = { style_code: code, skus: [] };
+                byStyle[code].skus.push({ sku: r.sku, product_name: r.product_name });
+            }
+            res.json({ styles: Object.values(byStyle) });
+        } catch (e) {
+            console.error('design master billing-catalog:', e);
+            res.status(500).json({ error: e.message || 'Failed to load billing catalog' });
+        }
+    });
+
+    /** Apply invoice item + HSN to every SKU under a style. */
+    app.put('/api/reseller/erp/design-master/styles/:id/invoice-item', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const styleId = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(styleId)) return res.status(400).json({ error: 'Invalid style id' });
+            const invoiceItemName = req.body.invoice_item_name != null
+                ? String(req.body.invoice_item_name).trim().slice(0, 255)
+                : '';
+            const hsnCode = req.body.hsn_code != null ? String(req.body.hsn_code).trim().slice(0, 32) : '';
+            if (!invoiceItemName) return res.status(400).json({ error: 'invoice_item_name required' });
+            const styleRows = await query(
+                `SELECT id FROM reseller_erp_design_styles WHERE id = $1 AND reseller_user_id = $2`,
+                [styleId, req.user.id],
+            );
+            if (!styleRows.length) return res.status(404).json({ error: 'Style not found' });
+            const updated = await query(
+                `UPDATE reseller_erp_design_skus SET
+                    invoice_item_name = $1,
+                    hsn_code = COALESCE(NULLIF($2, ''), hsn_code),
+                    updated_at = CURRENT_TIMESTAMP
+                 WHERE style_id = $3 AND reseller_user_id = $4
+                 RETURNING id`,
+                [invoiceItemName, hsnCode, styleId, req.user.id],
+            );
+            res.json({ updated: updated.length });
+        } catch (e) {
+            console.error('design master style invoice-item:', e);
+            res.status(500).json({ error: e.message || 'Failed to update style invoice item' });
+        }
+    });
+
     app.post('/api/reseller/erp/design-master/styles', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const code = String(req.body.style_code || '').trim().slice(0, 128);

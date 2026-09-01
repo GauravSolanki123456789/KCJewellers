@@ -161,6 +161,9 @@ export type ErpBillLine = {
   invoice_item_name?: string | null
   /** HSN code for tax invoice */
   hsn_code?: string | null
+  /** Manual billing row (A/S/B shortcut — no barcode) */
+  manualEntry?: boolean
+  manualCategory?: 'articles' | 'jewellery' | 'bullion'
   /** Per-line karigar tracking (orders only) */
   lineKey?: string
   lineStatus?: ErpOrderLineStatus

@@ -24,7 +24,8 @@ function newId() {
 }
 
 export function ErpGstInvoiceItemsPanel() {
-  const [items, setItems] = useState<GstInvoiceItem[]>(DEFAULT_ITEMS)
+  const [items, setItems] = useState<GstInvoiceItem[]>([])
+  const [mounted, setMounted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<string | null>(null)
@@ -39,12 +40,18 @@ export function ErpGstInvoiceItemsPanel() {
       const saved = res.data.settings?.gst?.invoiceItems
       if (Array.isArray(saved) && saved.length) {
         setItems(saved.map((it) => ({ id: it.id || newId(), name: it.name || '', hsn: it.hsn || '' })))
+      } else {
+        setItems(DEFAULT_ITEMS)
       }
     } catch {
       /* keep defaults */
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    setMounted(true)
   }, [])
 
   useEffect(() => {
@@ -88,7 +95,7 @@ export function ErpGstInvoiceItemsPanel() {
     setItems((prev) => prev.filter((it) => it.id !== id))
   }
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <div className={`${erpCardCls} flex items-center gap-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/55`}>
         <Loader2 className="size-4 animate-spin" />

@@ -128,61 +128,86 @@ export function ErpStockExcelBuilder({ existingSkus = [], existingStyles = [], e
     key: keyof StockExcelBuilderDefaults,
     label: string,
     placeholder?: string,
-  ) => (
-    <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-      {label}
-      {key === 'sku' && existingSkus.length ? (
-        <select
-          className={`${erpInputCls} mt-1 text-xs`}
-          value={String(block.defaults.sku ?? '')}
-          onChange={(e) => setBlockField(block.id, 'sku', e.target.value)}
-        >
-          <option value="">Type new…</option>
-          {existingSkus.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      ) : key === 'style_code' && existingStyles.length ? (
-        <select
-          className={`${erpInputCls} mt-1 text-xs`}
-          value={String(block.defaults.style_code ?? '')}
-          onChange={(e) => setBlockField(block.id, 'style_code', e.target.value)}
-        >
-          <option value="">Type new…</option>
-          {existingStyles.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      ) : key === 'product_name' && existingProducts.length ? (
-        <select
-          className={`${erpInputCls} mt-1 text-xs`}
-          value={String(block.defaults.product_name ?? '')}
-          onChange={(e) => {
-            setBlockField(block.id, 'product_name', e.target.value)
-            if (!block.defaults.item_code) setBlockField(block.id, 'item_code', e.target.value)
-          }}
-        >
-          <option value="">Type new…</option>
-          {existingProducts.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      ) : (
+  ) => {
+    const listId = `${block.id}-${key}-list`
+    const value = String(block.defaults[key] ?? '')
+
+    if (key === 'sku' && existingSkus.length) {
+      return (
+        <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+          {label}
+          <input
+            className={`${erpInputCls} mt-1 text-xs`}
+            list={listId}
+            placeholder={placeholder || 'Type or pick SKU…'}
+            value={value}
+            onChange={(e) => setBlockField(block.id, 'sku', e.target.value.toUpperCase())}
+          />
+          <datalist id={listId}>
+            {existingSkus.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </label>
+      )
+    }
+
+    if (key === 'style_code' && existingStyles.length) {
+      return (
+        <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+          {label}
+          <input
+            className={`${erpInputCls} mt-1 text-xs`}
+            list={listId}
+            placeholder={placeholder || 'Type or pick style…'}
+            value={value}
+            onChange={(e) => setBlockField(block.id, 'style_code', e.target.value.toUpperCase())}
+          />
+          <datalist id={listId}>
+            {existingStyles.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </label>
+      )
+    }
+
+    if (key === 'product_name' && existingProducts.length) {
+      return (
+        <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+          {label}
+          <input
+            className={`${erpInputCls} mt-1 text-xs`}
+            list={listId}
+            placeholder={placeholder || 'Type or pick product…'}
+            value={value}
+            onChange={(e) => {
+              const v = e.target.value
+              setBlockField(block.id, 'product_name', v)
+              if (!block.defaults.item_code) setBlockField(block.id, 'item_code', v)
+            }}
+          />
+          <datalist id={listId}>
+            {existingProducts.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </label>
+      )
+    }
+
+    return (
+      <label key={key} className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+        {label}
         <input
           className={`${erpInputCls} mt-1 text-xs`}
           placeholder={placeholder}
-          value={String(block.defaults[key] ?? '')}
+          value={value}
           onChange={(e) => setBlockField(block.id, key, e.target.value)}
         />
-      )}
-    </label>
-  )
+      </label>
+    )
+  }
 
   return (
     <div className={erpCardCls}>

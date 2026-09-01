@@ -40,8 +40,11 @@ export function ErpWeighingScaleBar({
   const [liveWeight, setLiveWeight] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [signalWaiting, setSignalWaiting] = useState(false)
   const portRef = useRef<SerialPortLike | null>(null)
   const stopReadRef = useRef<(() => void) | null>(null)
+  const lastWeightAtRef = useRef(0)
+  const connectStartedRef = useRef(0)
 
   useEffect(() => {
     void axios
@@ -57,6 +60,19 @@ export function ErpWeighingScaleBar({
   useEffect(() => {
     onConnectionChange?.(connected)
   }, [connected, onConnectionChange])
+
+  useEffect(() => {
+    if (!connected) {
+      setSignalWaiting(false)
+      return
+    }
+    const t = window.setInterval(() => {
+      const stale = lastWeightAtRef.current > 0 && Date.now() - lastWeightAtRef.current > 4000
+      const never = lastWeightAtRef.current === 0 && Date.now() - connectStartedRef.current > 3500
+      setSignalWaiting(stale || never)
+    }, 500)
+    return () => window.clearInterval(t)
+  }, [connected])
 
   const disconnect = useCallback(async () => {
     stopReadRef.current?.()
@@ -86,6 +102,8 @@ export function ErpWeighingScaleBar({
       return
     }
     setConnecting(true)
+    connectStartedRef.current = Date.now()
+    lastWeightAtRef.current = 0
     try {
       await disconnect()
       const port = await requestUserSerialPort()
@@ -99,7 +117,11 @@ export function ErpWeighingScaleBar({
       stopReadRef.current = await startScaleReader(
         port,
         {
-          onWeight: (g) => setLiveWeight(g),
+          onWeight: (g) => {
+            lastWeightAtRef.current = Date.now()
+            setLiveWeight(g)
+            setSignalWaiting(false)
+          },
           onError: (m) => setError(m),
           onPrint: onScalePrint,
         },
@@ -155,10 +177,16 @@ export function ErpWeighingScaleBar({
       <p className="text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
         {connected
           ? isMettler
-            ? 'Click a weight cell, place the piece on the scale, then press Print on the Mettler device to print the label.'
+            ? 'Click a weight cell, place the piece on the scale, then press Print on the Mettler device to fill weight and print the label. Start KC Label Print Service on this PC for USB printing.'
             : 'Click a weight cell — live weight fills in. Press F1 or use Generate barcodes to print.'
-          : 'Chrome will ask you to pick the COM port (e.g. USB-Serial Controller COM1). Use the same port as in Hardware settings.'}
+          : 'Chrome will ask you to pick the COM port (e.g. COM1). Match baud rate in Hardware settings (9600 8N1 for Mettler JSB).'}
       </p>
+      {connected && signalWaiting ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Connected but no weight yet — check the USB‑serial cable, pick the correct COM port, and confirm 9600 8N1 in
+          Hardware. Place an item on the pan; weight should update within a few seconds.
+        </p>
+      ) : null}
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</p>
       ) : null}

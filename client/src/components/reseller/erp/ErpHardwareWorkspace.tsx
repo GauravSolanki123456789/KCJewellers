@@ -741,7 +741,8 @@ export function ErpHardwareWorkspace() {
               </label>
               {s.brand === 'mettler_toledo' ? (
                 <p className="mb-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
-                  Default 9600 8N1. Enable continuous output on the scale (Settings → Interface → RS232).
+                  Default 9600 8N1 on COM1. Connect the PC to the scale&apos;s host RS232 (not the printer port). ERP
+                  polls the scale automatically — no manual RS232 setting needed on the device.
                 </p>
               ) : null}
               <SerialFields

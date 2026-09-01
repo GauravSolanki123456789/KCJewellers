@@ -65,6 +65,7 @@ export function ErpDesignMasterWorkspace() {
   const [newSku, setNewSku] = useState('')
   const [seedBusy, setSeedBusy] = useState(false)
   const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
+  const [styleInvoiceDraft, setStyleInvoiceDraft] = useState({ name: '', hsn: '' })
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -113,6 +114,33 @@ export function ErpDesignMasterWorkspace() {
       setDraft({})
     }
   }, [selectedSku])
+
+  useEffect(() => {
+    if (selectedStyle) {
+      setStyleInvoiceDraft({ name: '', hsn: '' })
+    }
+  }, [selectedStyleId, selectedStyle?.style_code])
+
+  const applyStyleInvoiceItem = async () => {
+    if (!selectedStyle?.id || !styleInvoiceDraft.name) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const res = await axios.put<{ updated: number }>(
+        `/api/reseller/erp/design-master/styles/${selectedStyle.id}/invoice-item`,
+        {
+          invoice_item_name: styleInvoiceDraft.name,
+          hsn_code: styleInvoiceDraft.hsn,
+        },
+      )
+      setMsg(`Applied "${styleInvoiceDraft.name}" to ${res.data.updated} SKU(s).`)
+      await reload()
+    } catch (e) {
+      setMsg(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const saveSku = async () => {
     if (!selectedSku?.id) return
@@ -271,6 +299,38 @@ export function ErpDesignMasterWorkspace() {
           <p className="mb-2 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">SKUs</p>
           {selectedStyle ? (
             <>
+              <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase text-emerald-900/70">
+                  Style invoice item (all SKUs)
+                </p>
+                <select
+                  className={`${erpInputCls} text-xs`}
+                  value={styleInvoiceDraft.name}
+                  onChange={(e) => {
+                    const name = e.target.value
+                    const item = invoiceItems.find((it) => it.name === name)
+                    setStyleInvoiceDraft({
+                      name,
+                      hsn: item?.hsn ?? styleInvoiceDraft.hsn,
+                    })
+                  }}
+                >
+                  <option value="">— Select for all SKUs —</option>
+                  {invoiceItems.map((it) => (
+                    <option key={it.id} value={it.name}>
+                      {it.name} ({it.hsn})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className={`${erpBtnGhost} mt-2 w-full text-xs`}
+                  disabled={busy || !styleInvoiceDraft.name}
+                  onClick={() => void applyStyleInvoiceItem()}
+                >
+                  Apply to all SKUs in {selectedStyle.style_code}
+                </button>
+              </div>
               <div className="mb-2 flex gap-1">
                 <input
                   className={`${erpInputCls} flex-1 text-xs`}

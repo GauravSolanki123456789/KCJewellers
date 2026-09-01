@@ -52,6 +52,19 @@ import {
   type SoldBillConflict,
 } from '@/lib/erp-invoice-defaults'
 import {
+  createManualBillLine,
+  filterSkusForStyle,
+  findInvoiceItemForCategory,
+  nextManualEntryField,
+  resolveBillingScanShortcut,
+  type DesignBillingStyle,
+} from '@/lib/erp-billing-shortcuts'
+import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import {
+  ErpBillingStyleSkuCell,
+  styleOptionsForCatalog,
+} from '@/components/reseller/erp/ErpBillingStyleSkuCell'
+import {
   erpBtnGhost,
   erpBtnPrimary,
   erpCardCls,
@@ -107,7 +120,9 @@ type BillingDraft = {
   editingBillStatus?: string | null
 }
 
-const TABLE_COLS = [
+type BillTableCol = { key: string; label: string; w: string; edit?: boolean }
+
+const TABLE_COLS: BillTableCol[] = [
   { key: 'barcode', label: 'Barcode', w: 'min-w-[110px]' },
   { key: 'sku', label: 'SKU', w: 'min-w-[80px]' },
   { key: 'style_code', label: 'StyleCode', w: 'min-w-[80px]' },
@@ -127,7 +142,13 @@ const TABLE_COLS = [
   { key: 'metal_type', label: 'Metal', w: 'min-w-[64px]' },
   { key: 'fixed_price', label: 'Fixed', w: 'min-w-[64px]', edit: true },
   { key: 'amount', label: 'Amount', w: 'min-w-[72px]' },
-] as const
+]
+
+const MANUAL_EXTRA_COLS: BillTableCol[] = [
+  { key: 'gross_weight', label: 'Gross', w: 'min-w-[56px]', edit: true },
+  { key: 'bags', label: 'Bags', w: 'min-w-[52px]', edit: true },
+  { key: 'bag_wt', label: 'BagWt', w: 'min-w-[56px]', edit: true },
+]
 
 function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'): ErpBillLine {
   const wt = p.net_weight ?? p.gross_weight ?? null
@@ -283,6 +304,10 @@ export function ErpBillingWorkspace() {
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
   const [pdfLayoutMode, setPdfLayoutMode] = useState<'detailed' | 'summary'>('detailed')
+  const [gstInvoiceItems, setGstInvoiceItems] = useState<GstInvoiceItem[]>([])
+  const [billingCatalogs, setBillingCatalogs] = useState<Record<string, DesignBillingStyle[]>>({})
+  const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: keyof ErpBillLine } | null>(null)
+  const manualCellRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const quoteOutputMode = useMemo(
     () => resolveQuoteOutputModeForSlab(rateSlab, workstation.quoteOutputMode, shopQuoteOutputMode),
@@ -297,6 +322,38 @@ export function ErpBillingWorkspace() {
     if (quoteOutputMode === 'both') return `${prefix}quote (PDF + Epson)`
     return `${prefix}PDF quote`
   }, [editingBillId, quoteOutputMode, rateSlab])
+
+  const tableCols = useMemo(() => {
+    const hasManual = lines.some((l) => l.manualEntry)
+    if (!hasManual) return TABLE_COLS
+    const cols = [...TABLE_COLS]
+    const wtIdx = cols.findIndex((c) => c.key === 'weightGm')
+    if (wtIdx >= 0) cols.splice(wtIdx + 1, 0, ...MANUAL_EXTRA_COLS)
+    return cols
+  }, [lines])
+
+  useEffect(() => {
+    void fetchGstInvoiceItems().then(setGstInvoiceItems)
+  }, [])
+
+  useEffect(() => {
+    if (!manualFocus) return
+    const refKey = `${manualFocus.lineKey}-${String(manualFocus.field)}`
+    const t = window.setTimeout(() => manualCellRefs.current[refKey]?.focus(), 40)
+    return () => window.clearTimeout(t)
+  }, [manualFocus, lines])
+
+  const loadBillingCatalog = useCallback(async (invoiceItemName: string) => {
+    const res = await axios.get<{ styles: DesignBillingStyle[] }>(
+      '/api/reseller/erp/design-master/billing-catalog',
+      { params: { invoice_item: invoiceItemName } },
+    )
+    return res.data.styles || []
+  }, [])
+
+  const focusManualCell = useCallback((lineKey: string, field: keyof ErpBillLine) => {
+    setManualFocus({ lineKey, field })
+  }, [])
 
   const recalcLine = useCallback(
     (
@@ -726,8 +783,38 @@ export function ErpBillingWorkspace() {
     const code = rawCode.trim()
     if (!code || scanBusy) return
 
+    const shortcut = resolveBillingScanShortcut(code)
+    if (shortcut) {
+      const invoiceItem = findInvoiceItemForCategory(shortcut, gstInvoiceItems)
+      if (!invoiceItem) {
+        setScanErrorMsg('Configure invoice item categories in GST settings first (A/S/B shortcuts).')
+        setScanCode('')
+        scanRef.current?.focus()
+        return
+      }
+      setScanBusy(true)
+      setScanErrorMsg(null)
+      try {
+        if (!billingCatalogs[invoiceItem.name]) {
+          const catalog = await loadBillingCatalog(invoiceItem.name)
+          setBillingCatalogs((prev) => ({ ...prev, [invoiceItem.name]: catalog }))
+        }
+        const line = recalcLine(createManualBillLine(shortcut, invoiceItem, rateSlab))
+        setLines((prev) => [...prev, line])
+        setScanCode('')
+        focusManualCell(line.code || `manual-${Date.now()}`, 'style_code')
+      } catch (e) {
+        setScanErrorMsg(erpErr(e))
+        setScanCode('')
+        scanRef.current?.focus()
+      } finally {
+        setScanBusy(false)
+      }
+      return
+    }
+
     const dupIdx = lines.findIndex(
-      (l) => (l.barcode || l.code || '').trim().toLowerCase() === code.toLowerCase(),
+      (l) => (l.barcode || '').trim().toLowerCase() === code.toLowerCase(),
     )
     if (dupIdx >= 0) {
       scrollToDuplicateRow(dupIdx)
@@ -784,6 +871,95 @@ export function ErpBillingWorkspace() {
       }),
     )
   }
+
+  const applyManualWeightPatch = (line: ErpBillLine, patch: Partial<ErpBillLine>): Partial<ErpBillLine> => {
+    const merged = { ...line, ...patch }
+    const gross = merged.gross_weight
+    const bagWt = merged.bag_wt
+    if (gross != null && Number.isFinite(Number(gross))) {
+      const stone = merged.stone_wt != null && Number.isFinite(Number(merged.stone_wt)) ? Number(merged.stone_wt) : 0
+      const bag = bagWt != null && Number.isFinite(Number(bagWt)) ? Number(bagWt) : 0
+      const net = Number(gross) - bag - stone
+      if (Number.isFinite(net) && net >= 0) {
+        return { ...patch, weightGm: Math.round(net * 1000) / 1000 }
+      }
+    }
+    return patch
+  }
+
+  const updateManualLine = (idx: number, patch: Partial<ErpBillLine>) => {
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== idx) return l
+        const weightPatch =
+          l.manualEntry &&
+          ('gross_weight' in patch || 'bag_wt' in patch || 'bags' in patch)
+            ? applyManualWeightPatch(l, patch)
+            : patch
+        return recalcLine({ ...l, ...weightPatch })
+      }),
+    )
+  }
+
+  const applyDesignDefaults = useCallback(
+    async (lineIdx: number, styleCode: string, sku: string) => {
+      try {
+        const res = await axios.get<{ defaults: Record<string, unknown> | null }>(
+          '/api/reseller/erp/design-master/lookup',
+          { params: { style_code: styleCode, sku } },
+        )
+        const d = res.data.defaults
+        if (!d) {
+          updateLine(lineIdx, { style_code: styleCode, sku, name: sku })
+          return
+        }
+        setLines((prev) =>
+          prev.map((l, i) => {
+            if (i !== lineIdx) return l
+            const num = (k: string) => {
+              const v = d[k]
+              return v != null && v !== '' ? Number(v) : null
+            }
+            return recalcLine({
+              ...l,
+              style_code: styleCode,
+              sku,
+              name: String(d.product_name || l.name || sku),
+              purity: num('purity') ?? l.purity,
+              metal_type: String(d.metal_type || l.metal_type || 'silver'),
+              wastage_pct: num('wastage_pct') ?? l.wastage_pct,
+              mc_rate: num('mc_rate') ?? l.mc_rate,
+              mc_type: (d.mc_type as string) ?? l.mc_type,
+              mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
+              mc_rate_slab_w: num('mc_rate_slab_w') ?? l.mc_rate_slab_w,
+              mc_rate_slab_f: num('mc_rate_slab_f') ?? l.mc_rate_slab_f,
+              metal_slab_r_pct: num('metal_slab_r_pct') ?? l.metal_slab_r_pct,
+              metal_slab_w_pct: num('metal_slab_w_pct') ?? l.metal_slab_w_pct,
+              metal_slab_f_pct: num('metal_slab_f_pct') ?? l.metal_slab_f_pct,
+              invoice_item_name: (d.invoice_item_name as string) || l.invoice_item_name,
+              hsn_code: (d.hsn_code as string) || l.hsn_code,
+            })
+          }),
+        )
+      } catch {
+        updateLine(lineIdx, { style_code: styleCode, sku, name: sku })
+      }
+    },
+    [recalcLine],
+  )
+
+  const advanceManualField = useCallback(
+    (lineKey: string, field: keyof ErpBillLine) => {
+      const next = nextManualEntryField(field)
+      if (next) {
+        focusManualCell(lineKey, next)
+      } else {
+        setManualFocus(null)
+        scanRef.current?.focus()
+      }
+    },
+    [focusManualCell],
+  )
 
   const unlockLineRates = (list: ErpBillLine[]) =>
     list.map((l) => ({ ...l, rateLocked: false }))
@@ -1162,6 +1338,12 @@ export function ErpBillingWorkspace() {
         return line.size || '—'
       case 'weightGm':
         return line.weightGm ?? ''
+      case 'gross_weight':
+        return line.gross_weight ?? ''
+      case 'bags':
+        return line.bags ?? ''
+      case 'bag_wt':
+        return line.bag_wt ?? ''
       case 'purity':
         return line.purity ?? ''
       case 'wastage_pct':
@@ -1652,7 +1834,10 @@ export function ErpBillingWorkspace() {
               </button>
             </div>
             <p className="mt-2 text-[10px] text-blue-900/55">
-              USB scanner, type &amp; Enter, or tap the camera icon on phone/laptop.
+              USB scanner, type &amp; Enter, or tap the camera icon. Shortcuts:{' '}
+              <span className="font-semibold">A</span> = Silver Articles,{' '}
+              <span className="font-semibold">S</span> = Silver Jewellery,{' '}
+              <span className="font-semibold">B</span> = Silver Bullion.
             </p>
             {(duplicateScanMsg || scanErrorMsg) ? (
               <div
@@ -1747,7 +1932,7 @@ export function ErpBillingWorkspace() {
               <thead>
                 <tr className="border-b border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/55">
                   <th className="px-2 py-2">#</th>
-                  {TABLE_COLS.map((c) => (
+                  {tableCols.map((c) => (
                     <th key={c.key} className={`whitespace-nowrap px-2 py-2 text-left font-semibold ${c.w}`}>
                       {c.label}
                     </th>
@@ -1758,23 +1943,31 @@ export function ErpBillingWorkspace() {
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td colSpan={TABLE_COLS.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Scan a barcode to add items
+                    <td colSpan={tableCols.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                      Scan a barcode or press A / S / B for manual entry
                     </td>
                   </tr>
                 ) : (
-                  lines.map((line, idx) => (
+                  lines.map((line, idx) => {
+                    const lineKey = line.code || line.barcode || `row-${idx}`
+                    const catalog = line.invoice_item_name
+                      ? billingCatalogs[line.invoice_item_name] || []
+                      : []
+                    const styleDraft = String(line.style_code || '')
+                    const skuDraft = String(line.sku || '')
+
+                    return (
                     <tr
-                      key={`${line.barcode}-${idx}`}
+                      key={lineKey}
                       ref={(el) => {
                         rowRefs.current[idx] = el
                       }}
                       className={`border-b border-[var(--color-slate-700,#e8e4df)]/50 transition-colors ${
                         duplicateHighlights.has(idx) ? 'bg-amber-100 ring-2 ring-amber-400 ring-inset' : ''
-                      }`}
+                      } ${line.manualEntry ? 'bg-emerald-50/30' : ''}`}
                     >
                       <td className="px-2 py-2 tabular-nums">{idx + 1}</td>
-                      {TABLE_COLS.map((col) => {
+                      {tableCols.map((col) => {
                         if (col.key === 'amount') {
                           return (
                             <td key={col.key} className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
@@ -1782,18 +1975,90 @@ export function ErpBillingWorkspace() {
                             </td>
                           )
                         }
+
+                        if (line.manualEntry && col.key === 'style_code') {
+                          const refKey = `${lineKey}-style_code`
+                          return (
+                            <td key={col.key} className="px-1 py-1">
+                              <ErpBillingStyleSkuCell
+                                value={styleDraft === '—' ? '' : styleDraft}
+                                placeholder="Style…"
+                                options={styleOptionsForCatalog(catalog, styleDraft)}
+                                autoFocus={manualFocus?.lineKey === lineKey && manualFocus.field === 'style_code'}
+                                inputRef={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                onChange={(v) => updateLine(idx, { style_code: v || undefined, sku: undefined })}
+                                onCommit={(v) => {
+                                  if (!v) return
+                                  updateLine(idx, { style_code: v, sku: undefined })
+                                  advanceManualField(lineKey, 'style_code')
+                                }}
+                              />
+                            </td>
+                          )
+                        }
+
+                        if (line.manualEntry && col.key === 'sku') {
+                          const refKey = `${lineKey}-sku`
+                          const skuOptions = line.style_code
+                            ? filterSkusForStyle(catalog, String(line.style_code), skuDraft)
+                            : []
+                          return (
+                            <td key={col.key} className="px-1 py-1">
+                              <ErpBillingStyleSkuCell
+                                value={skuDraft === '—' ? '' : skuDraft}
+                                placeholder={line.style_code ? 'SKU…' : 'Pick style first'}
+                                options={skuOptions}
+                                autoFocus={manualFocus?.lineKey === lineKey && manualFocus.field === 'sku'}
+                                inputRef={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                onChange={(v) => updateLine(idx, { sku: v || undefined })}
+                                onCommit={(v) => {
+                                  if (!v || !line.style_code) return
+                                  void applyDesignDefaults(idx, String(line.style_code), v).then(() => {
+                                    advanceManualField(lineKey, 'sku')
+                                  })
+                                }}
+                              />
+                            </td>
+                          )
+                        }
+
                         if ('edit' in col && col.edit) {
                           const k = col.key as keyof ErpBillLine
                           const goldSlabRField =
                             isGoldSlabRLine(line, rateSlab) &&
                             (k === 'wastage_pct' || k === 'mc_rate')
                           const mcHint = k === 'mc_rate' ? billingMcDiscountHint(line, rateSlab, goldSlabRShowMc) : null
+                          const refKey = `${lineKey}-${String(k)}`
+                          const isManualFocused = line.manualEntry && manualFocus?.lineKey === lineKey && manualFocus.field === k
+                          const numKeys = [
+                            'weightGm',
+                            'gross_weight',
+                            'bag_wt',
+                            'purity',
+                            'wastage_pct',
+                            'ratePerGram',
+                            'mc_rate',
+                            'qty',
+                            'box_charges',
+                            'stone_charges',
+                            'fixed_price',
+                          ]
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <input
-                                className={`w-full min-w-[52px] rounded border border-[var(--color-slate-700,#e8e4df)] px-1 py-1 tabular-nums ${
-                                  goldSlabRField ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/70' : ''
-                                }`}
+                                ref={(el) => {
+                                  if (line.manualEntry) manualCellRefs.current[refKey] = el
+                                }}
+                                autoFocus={isManualFocused}
+                                className={`w-full min-w-[52px] rounded border px-1 py-1 tabular-nums ${
+                                  line.manualEntry
+                                    ? 'border-emerald-300 bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                                    : 'border-[var(--color-slate-700,#e8e4df)]'
+                                } ${goldSlabRField ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/70' : ''}`}
                                 readOnly={goldSlabRField}
                                 title={
                                   goldSlabRField
@@ -1804,14 +2069,29 @@ export function ErpBillingWorkspace() {
                                 onChange={(e) => {
                                   if (goldSlabRField) return
                                   const v = e.target.value
-                                  const numKeys = ['weightGm', 'purity', 'wastage_pct', 'ratePerGram', 'mc_rate', 'qty', 'box_charges', 'stone_charges', 'fixed_price']
                                   const patch: Partial<ErpBillLine> = {
-                                    [k]: numKeys.includes(k) ? (v === '' ? null : Number(v)) : v,
+                                    [k]:
+                                      k === 'bags'
+                                        ? v || null
+                                        : numKeys.includes(k)
+                                          ? v === ''
+                                            ? null
+                                            : Number(v)
+                                          : v,
                                   } as Partial<ErpBillLine>
                                   if (k === 'ratePerGram') {
                                     patch.rateLocked = v !== ''
                                   }
-                                  updateLine(idx, patch)
+                                  if (line.manualEntry) {
+                                    updateManualLine(idx, patch)
+                                  } else {
+                                    updateLine(idx, patch)
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (!line.manualEntry || e.key !== 'Enter') return
+                                  e.preventDefault()
+                                  advanceManualField(lineKey, k)
                                 }}
                               />
                               {mcHint ? (
@@ -1834,7 +2114,8 @@ export function ErpBillingWorkspace() {
                         </button>
                       </td>
                     </tr>
-                  ))
+                    )
+                  })
                 )}
               </tbody>
             </table>
