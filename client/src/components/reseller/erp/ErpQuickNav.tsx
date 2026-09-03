@@ -7,10 +7,10 @@ import { Lock } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
 import {
+  isJainavModule,
   listErpQuickNavModules,
   resellerErpModulePath,
 } from '@/lib/reseller-erp-modules'
-import { moduleRequiresJainavUnlock } from '@/lib/erp-nav-visibility'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { erpBtnGhost } from '@/components/reseller/erp/erp-ui'
 
@@ -84,7 +84,7 @@ export function ErpQuickNav() {
         {mods.map((mod) => {
           const href = resellerErpModulePath(mod.id)
           const isActive = active === mod.id
-          const jainavTab = isAdmin && moduleRequiresJainavUnlock(mod.id, navVisibility)
+          const jainavTab = shadowUnlocked && isJainavModule(mod, navVisibility)
           return (
             <Link
               key={mod.id}
@@ -93,10 +93,10 @@ export function ErpQuickNav() {
               className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
                 isActive
                   ? jainavTab
-                    ? 'border-emerald-700 bg-emerald-700 text-white'
+                    ? 'border-emerald-800 bg-emerald-800 !text-white shadow-sm'
                     : 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/10 text-[var(--kc-accent,#c41e3a)]'
                   : jainavTab
-                    ? 'border-emerald-300 bg-emerald-50 text-emerald-950 hover:border-emerald-500'
+                    ? 'border-emerald-600 bg-white !text-[#1a1814] shadow-sm ring-1 ring-emerald-200 hover:border-emerald-700 hover:bg-emerald-50'
                     : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-[var(--kc-accent,#c41e3a)]/30'
               }`}
             >

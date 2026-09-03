@@ -689,7 +689,7 @@ function registerResellerErpRoutes(app, deps) {
             const onDate = parseDateOrNull(req.query.on);
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);
-            const hasExplicitRange = !!(onDate || from || to || q.trim());
+            const hasExplicitRange = !!(onDate || from || to || q);
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_bills WHERE reseller_user_id = $1`;
             if (billType) {

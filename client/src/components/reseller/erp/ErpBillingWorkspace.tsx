@@ -1194,7 +1194,7 @@ export function ErpBillingWorkspace() {
       if (billType === 'sale' && !opts?.skipReset) {
         resetBill()
       }
-      if (!(billType === 'sale' && (bill as ErpBill & { shadow?: boolean }).shadow)) {
+      if (billType === 'sale' && !(bill as ErpBill & { shadow?: boolean }).shadow) {
         const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
           params: { bill_type: 'sale' },
         })
