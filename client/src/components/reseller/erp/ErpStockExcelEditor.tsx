@@ -991,7 +991,7 @@ export function ErpStockExcelEditor({
               return (
                 <tr
                   key={row.id}
-                  className={`border-b border-[var(--color-slate-700,#e8e4df)]/60 ${isDirty ? 'bg-[var(--kc-accent,#c41e3a)]/[0.04]' : ''} ${readOnly ? 'opacity-60' : ''}`}
+                  className={`border-b border-[var(--color-slate-700,#e8e4df)]/60 ${isDirty ? 'bg-[var(--kc-accent,#c41e3a)]/[0.04]' : ''} ${row.status === 'sold' ? 'opacity-60' : ''}`}
                 >
                   <td className="sticky left-0 z-10 bg-white px-2 py-1">
                     {!readOnly ? (

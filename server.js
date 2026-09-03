@@ -47,6 +47,7 @@ const {
     getPool
 } = require('./config/database');
 const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict, requireB2BWholesale, requireSharedCatalogCreator } = require('./middleware/auth');
+const { antiScrapeMiddleware } = require('./middleware/antiScrape');
 const {
     resolveUserRole,
     hasWholesaleCatalogAccess,
@@ -443,6 +444,9 @@ app.use('/api/admin', adminLimiter, adminRequireJson, strictAdminOrigin, adminAc
 
 // SECURITY: Apply security headers to all requests
 app.use(securityHeaders);
+
+// SECURITY: Block common scrapers on public/catalog routes (before rate limits)
+app.use(antiScrapeMiddleware);
 
 // SECURITY: Global input sanitation and baseline rate limit
 app.use(sanitizeMiddleware());

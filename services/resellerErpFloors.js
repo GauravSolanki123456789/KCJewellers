@@ -10,6 +10,12 @@ function trimCode(raw, max = 128) {
         .slice(0, max);
 }
 
+/** Canonical floor label for RFID / POSH (avoids Gold vs GOLD splits). */
+function normalizeFloorName(name) {
+    const s = trimCode(name, 255);
+    return s ? s.toUpperCase() : null;
+}
+
 function floorQrPayload(floorId) {
     return `KCERP|FLOOR|${floorId}`;
 }
@@ -123,10 +129,23 @@ function registerFloorRoutes(app, deps) {
 
     app.post('/api/reseller/erp/floors', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
-            const name = trimCode(req.body.name, 255);
+            const name = normalizeFloorName(req.body.name) || trimCode(req.body.name, 255);
             let code = trimCode(req.body.code, 64);
             if (!name) return res.status(400).json({ error: 'Floor name required' });
             if (!code) code = name.replace(/\s+/g, '-').toUpperCase().slice(0, 64);
+            else code = code.toUpperCase();
+            const existing = await query(
+                `SELECT id, name, code FROM reseller_erp_floors
+                 WHERE reseller_user_id = $1 AND (lower(name) = lower($2) OR lower(code) = lower($3))
+                 LIMIT 1`,
+                [req.user.id, name, code],
+            );
+            if (existing.length) {
+                return res.status(409).json({
+                    error: 'Floor already exists',
+                    floor: { ...existing[0], qr_payload: floorQrPayload(existing[0].id) },
+                });
+            }
             const id = randomUUID();
             await query(
                 `INSERT INTO reseller_erp_floors (id, reseller_user_id, name, code, notes)
@@ -146,8 +165,8 @@ function registerFloorRoutes(app, deps) {
     app.put('/api/reseller/erp/floors/:floorId', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const floorId = String(req.params.floorId || '').trim();
-            const name = req.body.name != null ? trimCode(req.body.name, 255) : null;
-            const code = req.body.code != null ? trimCode(req.body.code, 64) : null;
+            const name = req.body.name != null ? normalizeFloorName(req.body.name) || trimCode(req.body.name, 255) : null;
+            const code = req.body.code != null ? trimCode(req.body.code, 64).toUpperCase() : null;
             if (!name && !code) return res.status(400).json({ error: 'name or code required' });
             const rows = await query(
                 `UPDATE reseller_erp_floors SET
@@ -346,7 +365,7 @@ function registerFloorRoutes(app, deps) {
                         `SELECT id, barcode, product_name, avg_weight, gross_weight, metal_type, box_id
                          FROM reseller_erp_stock_pieces
                          WHERE reseller_user_id = $1 AND floor_id = $2::uuid AND status = 'in_stock'
-                         ORDER BY barcode LIMIT 200`,
+                         ORDER BY barcode LIMIT 500`,
                         [req.user.id, floorId],
                     );
                     return res.json({
@@ -372,7 +391,7 @@ function registerFloorRoutes(app, deps) {
                         `SELECT id, barcode, product_name, avg_weight, gross_weight, metal_type
                          FROM reseller_erp_stock_pieces
                          WHERE reseller_user_id = $1 AND box_id = $2::uuid AND status = 'in_stock'
-                         ORDER BY barcode LIMIT 200`,
+                         ORDER BY barcode LIMIT 500`,
                         [req.user.id, boxId],
                     );
                     return res.json({ found: true, kind: 'box', box: rows[0], stats, pieces });
@@ -393,7 +412,7 @@ function registerFloorRoutes(app, deps) {
                     `SELECT id, barcode, product_name, avg_weight, gross_weight, metal_type
                      FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND box_id = $2::uuid AND status = 'in_stock'
-                     ORDER BY barcode LIMIT 200`,
+                     ORDER BY barcode LIMIT 500`,
                     [req.user.id, boxId],
                 );
                 return res.json({ found: true, kind: 'box', box: boxRows[0], stats, pieces });
@@ -411,7 +430,7 @@ function registerFloorRoutes(app, deps) {
                     `SELECT id, barcode, product_name, avg_weight, gross_weight, metal_type, box_id
                      FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND floor_id = $2::uuid AND status = 'in_stock'
-                     ORDER BY barcode LIMIT 200`,
+                     ORDER BY barcode LIMIT 500`,
                     [req.user.id, floorId],
                 );
                 return res.json({ found: true, kind: 'floor', floor: floorRows[0], stats, pieces });

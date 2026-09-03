@@ -686,8 +686,10 @@ function registerResellerErpRoutes(app, deps) {
             const billType = trimStrLower(req.query.bill_type, 32);
             const status = trimStrLower(req.query.status, 32);
             const q = trimStr(req.query.q, 200);
+            const onDate = parseDateOrNull(req.query.on);
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);
+            const hasExplicitRange = !!(onDate || from || to || q.trim());
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_bills WHERE reseller_user_id = $1`;
             if (billType) {
@@ -725,13 +727,24 @@ function registerResellerErpRoutes(app, deps) {
                     sql += ` AND LOWER(status) = $${params.length}`;
                 }
             }
-            if (from) {
-                params.push(from);
+            if (onDate) {
+                params.push(onDate);
+                sql += ` AND bill_date = $${params.length}::date`;
+            } else if (!hasExplicitRange) {
+                const today = new Date();
+                const fromDefault = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2);
+                const fromIso = `${fromDefault.getFullYear()}-${String(fromDefault.getMonth() + 1).padStart(2, '0')}-${String(fromDefault.getDate()).padStart(2, '0')}`;
+                params.push(fromIso);
                 sql += ` AND bill_date >= $${params.length}::date`;
-            }
-            if (to) {
-                params.push(to);
-                sql += ` AND bill_date <= $${params.length}::date`;
+            } else {
+                if (from) {
+                    params.push(from);
+                    sql += ` AND bill_date >= $${params.length}::date`;
+                }
+                if (to) {
+                    params.push(to);
+                    sql += ` AND bill_date <= $${params.length}::date`;
+                }
             }
             if (q) {
                 params.push(`%${q}%`);
@@ -745,8 +758,8 @@ function registerResellerErpRoutes(app, deps) {
                 searchSql += ')';
                 sql += searchSql;
             }
-            if (billType === 'estimate') {
-                sql += ` ORDER BY CAST(NULLIF(regexp_replace(bill_number, '\\D', '', 'g'), '') AS INTEGER) ASC NULLS LAST, id ASC`;
+            if (billType === 'estimate' || billType === 'sale') {
+                sql += ` ORDER BY CAST(NULLIF(regexp_replace(bill_number, '\\D', '', 'g'), '') AS INTEGER) DESC NULLS LAST, id DESC`;
             } else {
                 sql += ` ORDER BY created_at DESC, id DESC`;
             }

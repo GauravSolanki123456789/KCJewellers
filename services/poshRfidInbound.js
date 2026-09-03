@@ -26,7 +26,7 @@ function piecePayload(row, storeId) {
         metal_type: row.metal_type || null,
         status: 'in_stock',
         store_id: storeId,
-        floor_name: row.floor_name || null,
+        floor_name: poshRfid.normalizeFloorName(row.floor_name),
         box_code: row.box_code || null,
         box_name: row.box_label || row.box_code || null,
     };

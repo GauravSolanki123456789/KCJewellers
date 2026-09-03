@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useRef } from 'react'
 import { Lock } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
@@ -12,6 +13,8 @@ import {
 import { moduleRequiresJainavUnlock } from '@/lib/erp-nav-visibility'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { erpBtnGhost } from '@/components/reseller/erp/erp-ui'
+
+const NAV_SCROLL_KEY = 'erp-quick-nav-scroll-left'
 
 function activeModuleId(pathname: string): string | null {
   if (!pathname.startsWith('/reseller/erp')) return null
@@ -25,6 +28,7 @@ function activeModuleId(pathname: string): string | null {
 export function ErpQuickNav() {
   const pathname = usePathname() || ''
   const router = useRouter()
+  const navRef = useRef<HTMLElement>(null)
   const { shadowUnlocked, lockShadow, operator, canAccessModule } = useErpOperator()
   const { navVisibility } = useErpNavVisibility()
   const active = activeModuleId(pathname)
@@ -36,6 +40,21 @@ export function ErpQuickNav() {
     navVisibility,
   })
 
+  useEffect(() => {
+    const el = navRef.current
+    if (!el) return
+    const saved = sessionStorage.getItem(NAV_SCROLL_KEY)
+    if (saved != null && saved !== '') {
+      el.scrollLeft = Number(saved) || 0
+    }
+  }, [pathname])
+
+  const persistScroll = () => {
+    const el = navRef.current
+    if (!el) return
+    sessionStorage.setItem(NAV_SCROLL_KEY, String(el.scrollLeft))
+  }
+
   const handleLock = async () => {
     await lockShadow()
     router.push(RESELLER_ERP_PATH)
@@ -46,11 +65,14 @@ export function ErpQuickNav() {
   return (
     <div className="mb-4 space-y-2">
       <nav
-        className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin"
+        ref={navRef}
+        className="-mx-1 flex gap-1.5 overflow-x-auto overscroll-x-contain scroll-smooth pb-1 pr-4 [scrollbar-width:thin]"
         aria-label="ERP modules"
+        onScroll={persistScroll}
       >
         <Link
           href={RESELLER_ERP_PATH}
+          onClick={persistScroll}
           className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
             active === 'hub'
               ? 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/10 text-[var(--kc-accent,#c41e3a)]'
@@ -67,13 +89,14 @@ export function ErpQuickNav() {
             <Link
               key={mod.id}
               href={href}
+              onClick={persistScroll}
               className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
                 isActive
                   ? jainavTab
                     ? 'border-emerald-700 bg-emerald-700 text-white'
                     : 'border-[var(--kc-accent,#c41e3a)] bg-[var(--kc-accent,#c41e3a)]/10 text-[var(--kc-accent,#c41e3a)]'
                   : jainavTab
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-950 hover:border-emerald-400'
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-950 hover:border-emerald-500'
                     : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-[var(--kc-accent,#c41e3a)]/30'
               }`}
             >

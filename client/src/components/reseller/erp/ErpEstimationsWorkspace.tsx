@@ -16,7 +16,8 @@ import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewMod
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
-import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
+import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
@@ -41,18 +42,8 @@ import {
 const STATUSES = ESTIMATE_STATUSES
 const FILTER_STATUSES = ESTIMATE_FILTER_STATUSES
 
-function estimateBillSeq(billNumber: string | undefined): number {
-  const m = String(billNumber || '').match(/(\d+)\s*$/)
-  return m ? parseInt(m[1], 10) : 0
-}
-
-function sortEstimatesAsc(list: ErpBill[]): ErpBill[] {
-  return [...list].sort((a, b) => {
-    const sa = estimateBillSeq(a.bill_number)
-    const sb = estimateBillSeq(b.bill_number)
-    if (sa !== sb) return sa - sb
-    return a.id - b.id
-  })
+function sortEstimatesDesc(list: ErpBill[]): ErpBill[] {
+  return sortErpBillsDesc(list)
 }
 
 export function ErpEstimationsWorkspace() {
@@ -64,8 +55,9 @@ export function ErpEstimationsWorkspace() {
   const [busy, setBusy] = useState(false)
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('')
-  const [from, setFrom] = useState('')
+  const [from, setFrom] = useState(() => isoToDdMmYyyyInput(erpDefaultHistoryFromIso()))
   const [to, setTo] = useState('')
+  const [onDate, setOnDate] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [previewBill, setPreviewBill] = useState<ErpBill | null>(null)
   const [statusBusyId, setStatusBusyId] = useState<number | null>(null)
@@ -74,10 +66,14 @@ export function ErpEstimationsWorkspace() {
     const params: Record<string, string> = { bill_type: 'estimate' }
     if (q.trim()) params.q = q.trim()
     if (status) params.status = status
-    const fromIso = erpDateFilterToIso(from)
-    const toIso = erpDateFilterToIso(to)
-    if (fromIso) params.from = fromIso
-    if (toIso) params.to = toIso
+    const onIso = erpDateFilterToIso(onDate)
+    if (onIso) params.on = onIso
+    else {
+      const fromIso = erpDateFilterToIso(from)
+      const toIso = erpDateFilterToIso(to)
+      if (fromIso) params.from = fromIso
+      if (toIso) params.to = toIso
+    }
     try {
       const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params })
       const list = (res.data.bills || []).filter(
@@ -89,14 +85,14 @@ export function ErpEstimationsWorkspace() {
           : status === 'unbilled'
             ? list.filter((b) => !isEstimateBilled(b))
             : list
-      setBills(sortEstimatesAsc(filtered))
+      setBills(sortEstimatesDesc(filtered))
       setSelected(new Set())
     } catch (e) {
       console.error('erp estimations load:', e)
       try {
         const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
         setBills(
-          sortEstimatesAsc(
+          sortEstimatesDesc(
             (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'estimate'),
           ),
         )
@@ -105,7 +101,7 @@ export function ErpEstimationsWorkspace() {
         setBills([])
       }
     }
-  }, [q, status, from, to])
+  }, [q, status, from, to, onDate])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -263,7 +259,7 @@ export function ErpEstimationsWorkspace() {
         </div>
       </div>
 
-      <div className={`${erpCardCls} grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
+      <div className={`${erpCardCls} grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5`}>
         <input
           className={erpInputCls}
           placeholder="Search quote no, customer, customer number…"
@@ -280,11 +276,39 @@ export function ErpEstimationsWorkspace() {
         </select>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
           From (dd/mm/yyyy)
-          <ErpDateInput className={`${erpInputCls} mt-1`} value={from} onChange={setFrom} />
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={from}
+            onChange={(v) => {
+              setFrom(v)
+              if (v.trim()) setOnDate('')
+            }}
+          />
         </label>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
           To (dd/mm/yyyy)
-          <ErpDateInput className={`${erpInputCls} mt-1`} value={to} onChange={setTo} />
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={to}
+            onChange={(v) => {
+              setTo(v)
+              if (v.trim()) setOnDate('')
+            }}
+          />
+        </label>
+        <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+          On date (dd/mm/yyyy)
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={onDate}
+            onChange={(v) => {
+              setOnDate(v)
+              if (v.trim()) {
+                setFrom('')
+                setTo('')
+              }
+            }}
+          />
         </label>
       </div>
 

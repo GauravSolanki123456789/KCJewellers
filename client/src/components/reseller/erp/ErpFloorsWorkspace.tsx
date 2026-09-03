@@ -454,7 +454,7 @@ export function ErpFloorsWorkspace() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="max-h-80 space-y-2 overflow-y-auto">
                   <p className="font-semibold">
                     {lookupResult.kind === 'box'
                       ? lookupResult.box?.label || lookupResult.box?.code
@@ -464,11 +464,16 @@ export function ErpFloorsWorkspace() {
                     {lookupResult.stats?.piece_count ?? 0} pieces · net {lookupResult.stats?.net_weight_gm ?? 0} g ·
                     gross {lookupResult.stats?.gross_weight_gm ?? 0} g
                   </p>
-                  {(lookupResult.pieces || []).slice(0, 20).map((p) => (
+                  {(lookupResult.pieces || []).map((p) => (
                     <p key={p.barcode} className="text-xs font-mono text-[var(--color-jewelry-black,#1a1814)]/75">
                       {p.barcode} · {p.product_name || '—'} · {p.avg_weight ?? '—'} g
                     </p>
                   ))}
+                  {(lookupResult.pieces?.length ?? 0) > 0 ? (
+                    <p className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                      Showing all {lookupResult.pieces?.length ?? 0} piece(s)
+                    </p>
+                  ) : null}
                 </div>
               )}
             </div>

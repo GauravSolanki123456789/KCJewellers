@@ -21,7 +21,8 @@ import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
-import { erpDateFilterToIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
+import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { Download, Eye, FileCheck, FileSpreadsheet, Loader2, Receipt, Trash2, Truck } from 'lucide-react'
 
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
@@ -37,8 +38,9 @@ export function ErpSalesBillsWorkspace() {
   const [busy, setBusy] = useState(false)
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('')
-  const [from, setFrom] = useState('')
+  const [from, setFrom] = useState(() => isoToDdMmYyyyInput(erpDefaultHistoryFromIso()))
   const [to, setTo] = useState('')
+  const [onDate, setOnDate] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [viewBill, setViewBill] = useState<ErpBill | null>(null)
   const [complianceBill, setComplianceBill] = useState<ErpBill | null>(null)
@@ -55,26 +57,34 @@ export function ErpSalesBillsWorkspace() {
     const params: Record<string, string> = { bill_type: 'sale' }
     if (q.trim()) params.q = q.trim()
     if (status) params.status = status
-    const fromIso = erpDateFilterToIso(from)
-    const toIso = erpDateFilterToIso(to)
-    if (fromIso) params.from = fromIso
-    if (toIso) params.to = toIso
+    const onIso = erpDateFilterToIso(onDate)
+    if (onIso) params.on = onIso
+    else {
+      const fromIso = erpDateFilterToIso(from)
+      const toIso = erpDateFilterToIso(to)
+      if (fromIso) params.from = fromIso
+      if (toIso) params.to = toIso
+    }
     try {
       const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params })
       const list = (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'sale')
-      setBills(list)
+      setBills(sortErpBillsDesc(list))
       setSelected(new Set())
     } catch (e) {
       console.error('erp sales bills load:', e)
       try {
         const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills')
-        setBills((res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'sale'))
+        setBills(
+          sortErpBillsDesc(
+            (res.data.bills || []).filter((b) => String(b.bill_type || '').toLowerCase() === 'sale'),
+          ),
+        )
         setSelected(new Set())
       } catch {
         setBills([])
       }
     }
-  }, [q, status, from, to])
+  }, [q, status, from, to, onDate])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -299,7 +309,7 @@ export function ErpSalesBillsWorkspace() {
         </div>
       </div>
 
-      <div className={`${erpCardCls} grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
+      <div className={`${erpCardCls} grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5`}>
         <input className={erpInputCls} placeholder="Search bill no, customer…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className={erpInputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
@@ -311,11 +321,39 @@ export function ErpSalesBillsWorkspace() {
         </select>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
           From (dd/mm/yyyy)
-          <ErpDateInput className={`${erpInputCls} mt-1`} value={from} onChange={setFrom} />
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={from}
+            onChange={(v) => {
+              setFrom(v)
+              if (v.trim()) setOnDate('')
+            }}
+          />
         </label>
         <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
           To (dd/mm/yyyy)
-          <ErpDateInput className={`${erpInputCls} mt-1`} value={to} onChange={setTo} />
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={to}
+            onChange={(v) => {
+              setTo(v)
+              if (v.trim()) setOnDate('')
+            }}
+          />
+        </label>
+        <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+          On date (dd/mm/yyyy)
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={onDate}
+            onChange={(v) => {
+              setOnDate(v)
+              if (v.trim()) {
+                setFrom('')
+                setTo('')
+              }
+            }}
+          />
         </label>
       </div>
 

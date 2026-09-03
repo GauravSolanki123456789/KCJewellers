@@ -315,18 +315,24 @@ async function loadShadowSettings(query, resellerUserId) {
 
 async function nextShadowBillNumber(query, resellerUserId, lane) {
     const prefix = lane === 'hitesh' ? 'SH-H' : 'SH-J';
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yy = String(now.getFullYear() % 100).padStart(2, '0');
+    const datePart = `${dd}${mm}${yy}`;
+    const billPrefix = `${prefix}${datePart}`;
     const rows = await query(
         `SELECT bill_number FROM reseller_erp_shadow_bills
          WHERE reseller_user_id = $1 AND bill_number LIKE $2
          ORDER BY id DESC LIMIT 1`,
-        [resellerUserId, `${prefix}-%`],
+        [resellerUserId, `${billPrefix}-%`],
     );
     let seq = 1;
     if (rows.length) {
-        const m = String(rows[0].bill_number).match(/(\d+)$/);
+        const m = String(rows[0].bill_number).match(/-(\d+)$/);
         if (m) seq = parseInt(m[1], 10) + 1;
     }
-    return `${prefix}-${String(seq).padStart(5, '0')}`;
+    return `${billPrefix}-${String(seq).padStart(5, '0')}`;
 }
 
 function requireShadowUnlocked() {

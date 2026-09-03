@@ -14,6 +14,11 @@ function normalizeRfidTag(raw) {
         .replace(/[^A-Z0-9-]/g, '');
 }
 
+function normalizeFloorName(raw) {
+    const s = String(raw || '').trim();
+    return s ? s.toUpperCase() : null;
+}
+
 function getPoshConfigFromSettings(settings) {
     const hw = settings?.hardware || {};
     const pf = settings?.poshRfid || hw.poshRfid || {};
@@ -127,7 +132,7 @@ function pieceToPoshPayload(piece) {
         status: piece.status === 'sold' || piece.status === 'lane' ? 'sold' : 'in_stock',
         store_id: piece.store_id || null,
         floor_id: piece.floor_id || null,
-        floor_name: piece.floor_name || null,
+        floor_name: normalizeFloorName(piece.floor_name),
         floor_code: piece.floor_code || null,
         box_id: piece.box_id || null,
         box_code: piece.box_code || null,
@@ -191,6 +196,7 @@ async function syncBulkInventory(query, resellerUserId) {
 
 module.exports = {
     normalizeRfidTag,
+    normalizeFloorName,
     getPoshConfigFromSettings,
     loadPoshConfig,
     syncPieceLinked,

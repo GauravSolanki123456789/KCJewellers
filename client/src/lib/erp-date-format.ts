@@ -45,6 +45,25 @@ export function parseDdMmYyyyToIso(input: string): string | null {
   return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
 }
 
+/** ISO yyyy-mm-dd for today in local timezone. */
+export function erpTodayIso(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** ISO yyyy-mm-dd for N calendar days ago (0 = today). */
+export function erpDaysAgoIso(daysAgo: number): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() - Math.max(0, daysAgo))
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Default ERP history window: today and previous two days (3 calendar days). */
+export function erpDefaultHistoryFromIso(): string {
+  return erpDaysAgoIso(2)
+}
+
 /** Filter dates for API: accept dd/mm/yyyy display or ISO. */
 export function erpDateFilterToIso(input: string): string {
   if (!input.trim()) return ''

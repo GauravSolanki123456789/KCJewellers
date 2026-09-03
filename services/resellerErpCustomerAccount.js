@@ -116,7 +116,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
                 sort_id: s.id,
                 kind: 'shadow_sale',
                 ref: s.bill_number,
-                description: `${s.lane === 'hitesh' ? 'Hitesh' : 'Jainav'} · ${s.payment_method || 'cash'}`,
+                description: s.lane === 'hitesh' ? 'Hitesh' : 'Jainav',
                 debit: Number(s.total_inr) || 0,
                 credit: 0,
                 lane: s.lane,

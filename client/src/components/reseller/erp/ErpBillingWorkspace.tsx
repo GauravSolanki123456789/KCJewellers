@@ -1229,11 +1229,7 @@ export function ErpBillingWorkspace() {
     if (!bill) return
     const shadowBill = bill as ErpBill & { shadow?: boolean; lane?: 'hitesh' | 'jainav' }
     if (shadowBill.shadow) {
-      setLedgerSavedMeta({
-        billNumber: bill.bill_number,
-        lane: shadowBill.lane || previewLane,
-      })
-      setLedgerSavedOpen(true)
+      resetBill()
       return
     }
     try {

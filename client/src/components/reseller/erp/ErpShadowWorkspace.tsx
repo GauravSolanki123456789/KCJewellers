@@ -382,7 +382,7 @@ export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean })
                   {b.source === 'official_gst' ? 'GST' : b.lane}
                 </span>
                 <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                  {b.customer_name || 'Walk-in'} · {b.payment_method || 'cash'}
+                  {b.customer_name || 'Walk-in'}
                   {b.customer_gstin ? ` · ${b.customer_gstin}` : ''}
                 </p>
               </div>
