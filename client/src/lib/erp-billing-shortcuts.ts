@@ -88,6 +88,7 @@ export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'purity',
   'wastage_pct',
   'mc_rate',
+  'mc_type',
   'qty',
   'box_charges',
   'stone_charges',

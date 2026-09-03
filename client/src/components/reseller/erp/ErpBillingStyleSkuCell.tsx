@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useId } from 'react'
 import type { DesignBillingStyle } from '@/lib/erp-billing-shortcuts'
 
 type Props = {
@@ -22,7 +22,12 @@ export function ErpBillingStyleSkuCell({
   onCommit,
   inputRef,
 }: Props) {
-  const listId = useMemo(() => `billing-ac-${Math.random().toString(36).slice(2, 9)}`, [])
+  const listId = useId()
+
+  const commitCurrent = () => {
+    const v = value.trim().toUpperCase()
+    if (v) onCommit(v)
+  }
 
   return (
     <>
@@ -37,11 +42,11 @@ export function ErpBillingStyleSkuCell({
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
-            onCommit(value.trim().toUpperCase())
+            commitCurrent()
+          } else if (e.key === 'Tab' && !e.shiftKey) {
+            e.preventDefault()
+            commitCurrent()
           }
-        }}
-        onBlur={() => {
-          if (value.trim()) onCommit(value.trim().toUpperCase())
         }}
       />
       <datalist id={listId}>
@@ -58,4 +63,17 @@ export function styleOptionsForCatalog(catalog: DesignBillingStyle[], query: str
   const codes = catalog.map((s) => s.style_code)
   if (!q) return codes
   return codes.filter((c) => c.toUpperCase().includes(q))
+}
+
+export function filterSkusForStyle(
+  catalog: DesignBillingStyle[],
+  styleCode: string,
+  query: string,
+): string[] {
+  const style = catalog.find((s) => s.style_code.toUpperCase() === styleCode.trim().toUpperCase())
+  if (!style) return []
+  const q = query.trim().toUpperCase()
+  const skus = style.skus.map((s) => s.sku)
+  if (!q) return skus
+  return skus.filter((sku) => sku.toUpperCase().includes(q))
 }

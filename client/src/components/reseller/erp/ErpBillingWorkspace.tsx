@@ -307,6 +307,7 @@ export function ErpBillingWorkspace() {
   const [gstInvoiceItems, setGstInvoiceItems] = useState<GstInvoiceItem[]>([])
   const [billingCatalogs, setBillingCatalogs] = useState<Record<string, DesignBillingStyle[]>>({})
   const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: keyof ErpBillLine } | null>(null)
+  const [manualEditingCell, setManualEditingCell] = useState<string | null>(null)
   const manualCellRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const quoteOutputMode = useMemo(
@@ -341,7 +342,7 @@ export function ErpBillingWorkspace() {
     const refKey = `${manualFocus.lineKey}-${String(manualFocus.field)}`
     const t = window.setTimeout(() => manualCellRefs.current[refKey]?.focus(), 40)
     return () => window.clearTimeout(t)
-  }, [manualFocus, lines])
+  }, [manualFocus])
 
   const loadBillingCatalog = useCallback(async (invoiceItemName: string) => {
     const res = await axios.get<{ styles: DesignBillingStyle[] }>(
@@ -875,11 +876,22 @@ export function ErpBillingWorkspace() {
   const applyManualWeightPatch = (line: ErpBillLine, patch: Partial<ErpBillLine>): Partial<ErpBillLine> => {
     const merged = { ...line, ...patch }
     const gross = merged.gross_weight
-    const bagWt = merged.bag_wt
     if (gross != null && Number.isFinite(Number(gross))) {
-      const stone = merged.stone_wt != null && Number.isFinite(Number(merged.stone_wt)) ? Number(merged.stone_wt) : 0
-      const bag = bagWt != null && Number.isFinite(Number(bagWt)) ? Number(bagWt) : 0
-      const net = Number(gross) - bag - stone
+      const stone =
+        merged.stone_wt != null && Number.isFinite(Number(merged.stone_wt)) ? Number(merged.stone_wt) : 0
+      const bagCount =
+        merged.bags != null && String(merged.bags).trim() !== '' && Number.isFinite(Number(merged.bags))
+          ? Math.max(0, Number(merged.bags))
+          : 0
+      const bagUnitWt =
+        merged.bag_wt != null && Number.isFinite(Number(merged.bag_wt)) ? Number(merged.bag_wt) : 0
+      let bagDeduction = 0
+      if (bagCount > 0 && bagUnitWt > 0) {
+        bagDeduction = bagCount * bagUnitWt
+      } else if (bagUnitWt > 0) {
+        bagDeduction = bagUnitWt
+      }
+      const net = Number(gross) - bagDeduction - stone
       if (Number.isFinite(net) && net >= 0) {
         return { ...patch, weightGm: Math.round(net * 1000) / 1000 }
       }
@@ -1365,6 +1377,23 @@ export function ErpBillingWorkspace() {
       default:
         return ''
     }
+  }
+
+  const manualInputDisplayValue = (lineKey: string, key: string, line: ErpBillLine): string => {
+    const refKey = `${lineKey}-${key}`
+    const raw = cellVal(line, key)
+    if (manualEditingCell === refKey) {
+      if (raw === 0 || raw === '0') return ''
+    }
+    return String(raw ?? '')
+  }
+
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+        Loading billing…
+      </div>
+    )
   }
 
   return (
@@ -2043,6 +2072,7 @@ export function ErpBillingWorkspace() {
                             'stone_charges',
                             'fixed_price',
                           ]
+                          const isNumericManual = line.manualEntry && numKeys.includes(String(k))
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <input
@@ -2050,6 +2080,8 @@ export function ErpBillingWorkspace() {
                                   if (line.manualEntry) manualCellRefs.current[refKey] = el
                                 }}
                                 autoFocus={isManualFocused}
+                                type={isNumericManual ? 'text' : 'text'}
+                                inputMode={isNumericManual ? 'decimal' : 'text'}
                                 className={`w-full min-w-[52px] rounded border px-1 py-1 tabular-nums ${
                                   line.manualEntry
                                     ? 'border-emerald-300 bg-white text-[var(--color-jewelry-black,#1a1814)]'
@@ -2061,13 +2093,23 @@ export function ErpBillingWorkspace() {
                                     ? mcHint || 'Slab R gold — wastage is shown as making charges (auto)'
                                     : undefined
                                 }
-                                value={String(cellVal(line, col.key) ?? '')}
+                                value={
+                                  line.manualEntry
+                                    ? manualInputDisplayValue(lineKey, String(k), line)
+                                    : String(cellVal(line, col.key) ?? '')
+                                }
+                                onFocus={() => {
+                                  if (line.manualEntry) setManualEditingCell(refKey)
+                                }}
+                                onBlur={() => {
+                                  if (manualEditingCell === refKey) setManualEditingCell(null)
+                                }}
                                 onChange={(e) => {
                                   if (goldSlabRField) return
                                   const v = e.target.value
                                   const patch: Partial<ErpBillLine> = {
                                     [k]:
-                                      k === 'bags'
+                                      k === 'bags' || k === 'mc_type'
                                         ? v || null
                                         : numKeys.includes(k)
                                           ? v === ''
@@ -2085,9 +2127,14 @@ export function ErpBillingWorkspace() {
                                   }
                                 }}
                                 onKeyDown={(e) => {
-                                  if (!line.manualEntry || e.key !== 'Enter') return
-                                  e.preventDefault()
-                                  advanceManualField(lineKey, k)
+                                  if (!line.manualEntry) return
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    advanceManualField(lineKey, k)
+                                  } else if (e.key === 'Tab' && !e.shiftKey) {
+                                    e.preventDefault()
+                                    advanceManualField(lineKey, k)
+                                  }
                                 }}
                               />
                               {mcHint ? (

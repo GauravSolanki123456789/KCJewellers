@@ -2460,9 +2460,9 @@ async function loadResellerEnhancedBootstrap(query, pool, userId, { jobLimit = 1
                           image_url, secondary_image_url, submission_status, batch_id, mrp_rate_behind_box
                    FROM reseller_product_submissions
                    WHERE submitted_by_user_id = $1
-                     AND submission_status IN ('draft', 'pending')
+                     AND submission_status IN ('draft', 'pending', 'approved')
                    ORDER BY updated_at DESC NULLS LAST, created_at DESC
-                   LIMIT 200`,
+                   LIMIT 5000`,
                   [userId],
               )
             : Promise.resolve([]),
@@ -2573,7 +2573,7 @@ async function findSubmissionByStem(query, resellerUserId, stem) {
            CASE submission_status WHEN 'draft' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
            updated_at DESC NULLS LAST,
            created_at DESC
-         LIMIT 500`,
+         LIMIT 5000`,
         [resellerUserId],
     );
     for (const row of rows) {
@@ -3927,9 +3927,9 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
                         image_url, secondary_image_url, submission_status, batch_id, mrp_rate_behind_box
                  FROM reseller_product_submissions
                  WHERE submitted_by_user_id = $1
-                   AND submission_status IN ('draft', 'pending')
+                   AND submission_status IN ('draft', 'pending', 'approved')
                  ORDER BY updated_at DESC NULLS LAST, created_at DESC
-                 LIMIT 200`,
+                 LIMIT 5000`,
                 [req.user.id],
             );
             const hints = mapBarcodeHintRows(rows);

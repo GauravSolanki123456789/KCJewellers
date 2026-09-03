@@ -120,6 +120,20 @@ export function scoreBarcodeHint(h: EnhancedBarcodeHint, query: string): number 
     const fl = field.toLowerCase()
     const cf = compactSearchKey(field)
 
+    // SFIDOL numeric segment: "040" should rank SFIDOL040-* above SFIDOL604-* (substring false positive).
+    const sfidolSegMatch = field.match(/SFIDOL[\s\-_]*(\d+)/i)
+    if (sfidolSegMatch && cq) {
+      const segCompact = compactSearchKey(sfidolSegMatch[1] || '')
+      if (segCompact === cq) {
+        best = Math.max(best, 980)
+        continue
+      }
+      if (segCompact.startsWith(cq) && cq.length >= 2) {
+        best = Math.max(best, 960 - Math.min(40, segCompact.length - cq.length))
+        continue
+      }
+    }
+
     if (fl === ql || cf === cq) {
       best = Math.max(best, 1000)
       continue

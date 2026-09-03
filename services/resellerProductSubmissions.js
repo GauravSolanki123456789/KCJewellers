@@ -412,29 +412,61 @@ function findMatchingSubmission(existingRows, fields) {
     return null;
 }
 
+/** Match by barcode / web_product_sku when Excel row differs slightly (weight, MC) but same product id. */
+function findMatchingSubmissionByProductId(existingRows, productId) {
+    const key = String(productId || '')
+        .trim()
+        .toLowerCase();
+    if (!key) return null;
+    const statusPriority = { approved: 0, pending: 1, draft: 2 };
+    let best = null;
+    let bestPri = 999;
+    for (const row of existingRows || []) {
+        const ids = [row.web_product_sku, row.barcode]
+            .map((x) => String(x || '').trim().toLowerCase())
+            .filter(Boolean);
+        if (!ids.includes(key)) continue;
+        const pri = statusPriority[String(row.submission_status || '').toLowerCase()] ?? 3;
+        if (pri < bestPri) {
+            best = row;
+            bestPri = pri;
+        }
+    }
+    return best;
+}
+
+async function syncWebProductQuantity(query, sku, qty, userId) {
+    const id = String(sku || '').trim();
+    const uid = parseInt(String(userId), 10);
+    if (!id || !Number.isFinite(uid) || uid <= 0) return;
+    await query(
+        `UPDATE web_products
+         SET quantity = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE (LOWER(TRIM(sku)) = LOWER($1) OR LOWER(TRIM(barcode)) = LOWER($1))
+           AND submitted_by_user_id = $3
+           AND (is_active IS NULL OR is_active = true)`,
+        [id, qty, uid],
+    );
+}
+
 async function updateExistingSubmissionQuantity(query, row, newQty) {
     const qty = Math.max(1, parseInt(String(newQty), 10) || 1);
     const prevQty = Math.max(1, parseInt(String(row.quantity), 10) || 1);
-    if (prevQty === qty) return { changed: false, quantity: qty };
-    await query(
-        `UPDATE reseller_product_submissions
-         SET quantity = $2, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [row.id, qty],
-    );
-    row.quantity = qty;
     const sku = String(row.web_product_sku || row.barcode || '').trim();
-    if (String(row.submission_status || '').toLowerCase() === 'approved' && sku) {
+    const submissionChanged = prevQty !== qty;
+    if (submissionChanged) {
         await query(
-            `UPDATE web_products
+            `UPDATE reseller_product_submissions
              SET quantity = $2, updated_at = CURRENT_TIMESTAMP
-             WHERE (sku = $1 OR barcode = $1)
-               AND submitted_by_user_id = $3
-               AND (is_active IS NULL OR is_active = true)`,
-            [sku, qty, row.submitted_by_user_id],
+             WHERE id = $1`,
+            [row.id, qty],
         );
+        row.quantity = qty;
     }
-    return { changed: true, quantity: qty };
+    if (sku) {
+        await syncWebProductQuantity(query, sku, qty, row.submitted_by_user_id);
+    }
+    return { changed: submissionChanged, quantity: qty };
 }
 
 /** When size/barcode changes, retire the previous live `web_products` row so only one variant shows. */
@@ -1043,7 +1075,13 @@ function registerResellerProductRoutes(app, deps) {
                     }
                     const skuKey = String(resolved.prodSku).trim().toLowerCase();
                     const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
-                    const existingMatch = findMatchingSubmission(existingSubmissions, fields);
+                    let existingMatch = findMatchingSubmission(existingSubmissions, fields);
+                    if (!existingMatch && resolved.prodSku) {
+                        existingMatch = findMatchingSubmissionByProductId(
+                            existingSubmissions,
+                            resolved.prodSku,
+                        );
+                    }
                     if (existingMatch) {
                         const qtyResult = await updateExistingSubmissionQuantity(
                             query,
