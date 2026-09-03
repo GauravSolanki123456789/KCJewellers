@@ -23,7 +23,7 @@ function piecePayload(row, storeId) {
         item_code: row.item_code || null,
         weight_gm: row.avg_weight != null ? Number(row.avg_weight) : null,
         gross_weight_gm: row.gross_weight != null ? Number(row.gross_weight) : null,
-        metal_type: row.metal_type || null,
+        metal_type: poshRfid.normalizeMetalType(row.metal_type),
         status: 'in_stock',
         store_id: storeId,
         floor_name: poshRfid.normalizeFloorName(row.floor_name),

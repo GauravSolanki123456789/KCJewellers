@@ -19,6 +19,11 @@ function normalizeFloorName(raw) {
     return s ? s.toUpperCase() : null;
 }
 
+function normalizeMetalType(raw) {
+    const s = String(raw || '').trim();
+    return s ? s.toUpperCase() : null;
+}
+
 function getPoshConfigFromSettings(settings) {
     const hw = settings?.hardware || {};
     const pf = settings?.poshRfid || hw.poshRfid || {};
@@ -126,7 +131,7 @@ function pieceToPoshPayload(piece) {
         gross_weight_gm: piece.gross_weight != null ? Number(piece.gross_weight) : null,
         purity: piece.purity != null ? Number(piece.purity) : null,
         wastage_pct: piece.wastage_pct != null ? Number(piece.wastage_pct) : null,
-        metal_type: piece.metal_type || null,
+        metal_type: normalizeMetalType(piece.metal_type),
         mc_rate: piece.mc_rate != null ? Number(piece.mc_rate) : null,
         stone_charges: piece.stone_charges != null ? Number(piece.stone_charges) : null,
         status: piece.status === 'sold' || piece.status === 'lane' ? 'sold' : 'in_stock',
@@ -197,6 +202,7 @@ async function syncBulkInventory(query, resellerUserId) {
 module.exports = {
     normalizeRfidTag,
     normalizeFloorName,
+    normalizeMetalType,
     getPoshConfigFromSettings,
     loadPoshConfig,
     syncPieceLinked,

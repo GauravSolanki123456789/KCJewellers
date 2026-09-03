@@ -53,6 +53,61 @@ async function ensureFloorsSchema(pool) {
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS floor_id UUID;
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS box_id UUID;
     `);
+    await mergeDuplicateFloors(pool);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_floors_name_ci
+            ON reseller_erp_floors (reseller_user_id, lower(trim(name)));
+    `);
+}
+
+/** Merge case-insensitive duplicate floors (e.g. Gold + GOLD → GOLD). */
+async function mergeDuplicateFloors(pool) {
+    const groups = await pool.query(
+        `SELECT reseller_user_id,
+                lower(trim(name)) AS lname,
+                array_agg(id ORDER BY
+                    CASE WHEN trim(name) = upper(trim(name)) THEN 0 ELSE 1 END,
+                    created_at ASC
+                ) AS ids
+         FROM reseller_erp_floors
+         GROUP BY reseller_user_id, lower(trim(name))
+         HAVING count(*) > 1`,
+    );
+    for (const g of groups.rows) {
+        const keepId = g.ids[0];
+        for (let i = 1; i < g.ids.length; i++) {
+            const dropId = g.ids[i];
+            await pool.query(
+                `UPDATE reseller_erp_stock_pieces SET floor_id = $1::uuid, updated_at = NOW()
+                 WHERE floor_id = $2::uuid`,
+                [keepId, dropId],
+            );
+            await pool.query(
+                `UPDATE reseller_erp_boxes SET floor_id = $1::uuid, updated_at = NOW()
+                 WHERE floor_id = $2::uuid`,
+                [keepId, dropId],
+            );
+            await pool.query(`DELETE FROM reseller_erp_floors WHERE id = $1::uuid`, [dropId]);
+        }
+        await pool.query(
+            `UPDATE reseller_erp_floors
+             SET name = upper(trim(name)), code = upper(trim(code)), updated_at = NOW()
+             WHERE id = $1::uuid`,
+            [keepId],
+        );
+    }
+    await pool.query(
+        `UPDATE reseller_erp_floors
+         SET name = upper(trim(name)), code = upper(trim(code)), updated_at = NOW()
+         WHERE name IS DISTINCT FROM upper(trim(name))
+            OR code IS DISTINCT FROM upper(trim(code))`,
+    );
+    await pool.query(
+        `UPDATE reseller_erp_stock_pieces
+         SET metal_type = upper(trim(metal_type)), updated_at = NOW()
+         WHERE metal_type IS NOT NULL
+           AND metal_type IS DISTINCT FROM upper(trim(metal_type))`,
+    );
 }
 
 async function pieceStatsForLocation(query, resellerUserId, { floorId, boxId }) {

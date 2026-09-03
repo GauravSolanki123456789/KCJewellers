@@ -331,7 +331,7 @@ function parseExcelRowToPiece(row) {
         stone_charges: num(EXCEL_ALIASES.stone_charges) ?? 0,
         stone_wt: num(EXCEL_ALIASES.stone_wt),
         metal_type: pickRowVal(row, EXCEL_ALIASES.metal_type)
-            ? String(pickRowVal(row, EXCEL_ALIASES.metal_type)).trim().slice(0, 64)
+            ? String(pickRowVal(row, EXCEL_ALIASES.metal_type)).trim().toUpperCase().slice(0, 64)
             : null,
         item_code: itemCode ? String(itemCode).trim().slice(0, 128) : null,
         image_url: pickRowVal(row, EXCEL_ALIASES.image_url)
