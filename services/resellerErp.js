@@ -494,18 +494,27 @@ function registerResellerErpRoutes(app, deps) {
             if (!enabled) {
                 return res.json({ enabled: false, summary: null });
             }
+            const today = new Date();
+            const fromDefault = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2);
+            const fromIso = `${fromDefault.getFullYear()}-${String(fromDefault.getMonth() + 1).padStart(2, '0')}-${String(fromDefault.getDate()).padStart(2, '0')}`;
             const [cust, bills, stock, below, pieces] = await Promise.all([
                 query(
                     `SELECT COUNT(*)::int AS n FROM reseller_erp_customers WHERE reseller_user_id = $1`,
                     [req.user.id],
                 ),
                 query(
-                    `SELECT COUNT(*)::int AS n,
-                            COALESCE(SUM(total_inr) FILTER (
-                                WHERE status <> 'cancelled' AND bill_type <> 'order'
-                            ), 0)::float AS total
+                    `SELECT COUNT(*) FILTER (
+                            WHERE bill_type IN ('sale', 'estimate')
+                              AND LOWER(COALESCE(status, 'draft')) <> 'cancelled'
+                              AND bill_date >= $2::date
+                        )::int AS n,
+                        COALESCE(SUM(total_inr) FILTER (
+                            WHERE bill_type = 'sale'
+                              AND LOWER(COALESCE(status, 'draft')) IN ('completed', 'paid', 'final')
+                              AND bill_date >= $2::date
+                        ), 0)::float AS total
                      FROM reseller_erp_bills WHERE reseller_user_id = $1`,
-                    [req.user.id],
+                    [req.user.id, fromIso],
                 ),
                 query(
                     `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_alerts WHERE reseller_user_id = $1`,

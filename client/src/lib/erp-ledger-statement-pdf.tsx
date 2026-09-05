@@ -1,6 +1,7 @@
 import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer'
 import { downloadPdfBlob } from '@/lib/pdf-share'
 import type { CustomerAccountData } from '@/components/reseller/erp/ErpCustomerAccountPanel'
+import { formatLedgerTransactionKind, formatPdfInr } from '@/lib/erp-ledger-labels'
 
 const styles = StyleSheet.create({
   page: { padding: 32, fontSize: 9, fontFamily: 'Helvetica' },
@@ -36,15 +37,15 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
         {account.customer.mobile ? <Text style={styles.sub}>Mobile: {account.customer.mobile}</Text> : null}
         <View style={styles.row}>
           <Text style={styles.label}>Total billed</Text>
-          <Text>₹{account.summary.total_billed_inr}</Text>
+          <Text>{formatPdfInr(account.summary.total_billed_inr)}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>Total paid</Text>
-          <Text>₹{account.summary.total_paid_inr}</Text>
+          <Text>{formatPdfInr(account.summary.total_paid_inr)}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>Balance due</Text>
-          <Text>₹{account.summary.balance_due_inr}</Text>
+          <Text>{formatPdfInr(account.summary.balance_due_inr)}</Text>
         </View>
         <View style={styles.tableHeader}>
           <Text style={styles.c1}>Date</Text>
@@ -58,12 +59,12 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
         {account.transactions.map((t, i) => (
           <View key={`${t.ref}-${i}`} style={styles.tableRow}>
             <Text style={styles.c1}>{t.date}</Text>
-            <Text style={styles.c2}>{t.kind}</Text>
+            <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
             <Text style={styles.c3}>{t.ref || '—'}</Text>
             <Text style={styles.c4}>{t.description}</Text>
-            <Text style={styles.c5}>{t.debit ? `₹${t.debit}` : '—'}</Text>
-            <Text style={styles.c6}>{t.credit ? `₹${t.credit}` : '—'}</Text>
-            <Text style={styles.c7}>₹{t.balance_inr}</Text>
+            <Text style={styles.c5}>{t.debit ? formatPdfInr(t.debit) : '—'}</Text>
+            <Text style={styles.c6}>{t.credit ? formatPdfInr(t.credit) : '—'}</Text>
+            <Text style={styles.c7}>{formatPdfInr(t.balance_inr)}</Text>
           </View>
         ))}
       </Page>

@@ -1,5 +1,13 @@
 import type { ResellerErpModuleId } from '@/lib/reseller-erp-modules'
 
+/** Always hidden until Jainav unlock — not overridable by tab layout save. */
+export const JAINAV_ONLY_MODULE_IDS: ResellerErpModuleId[] = [
+  'rol',
+  'jainav',
+  'stock-reports',
+  'jainav-ledger',
+]
+
 /** Single list: tabs hidden in admin mode until Jainav unlock (F9Rs* + Enter). */
 export type ErpNavVisibility = {
   jainavUnlockTabs: ResellerErpModuleId[]
@@ -68,19 +76,31 @@ export function normalizeErpNavVisibility(raw: unknown): ErpNavVisibility {
       .filter((id): id is ResellerErpModuleId => VALID_NAV_IDS.has(id))
   }
 
+  const mergeMandatory = (ids: ResellerErpModuleId[]) => {
+    const set = new Set<ResellerErpModuleId>(ids)
+    for (const id of JAINAV_ONLY_MODULE_IDS) set.add(id)
+    return Array.from(set).filter((id) => VALID_NAV_IDS.has(id))
+  }
+
   // New format: { jainavUnlockTabs: [...] }
   if (Array.isArray(obj.jainavUnlockTabs)) {
     const ids = pick(obj.jainavUnlockTabs)
-    return { jainavUnlockTabs: ids.length ? ids : DEFAULT_ERP_JAINAV_UNLOCK_TABS }
+    return {
+      jainavUnlockTabs: mergeMandatory(ids.length ? ids : DEFAULT_ERP_JAINAV_UNLOCK_TABS),
+    }
   }
 
   // Legacy format: { adminTabs, jainavTabs } — only jainavTabs defines unlock-only tabs
   if (Array.isArray(obj.jainavTabs)) {
     const ids = pick(obj.jainavTabs)
-    return { jainavUnlockTabs: ids.length ? ids : DEFAULT_ERP_JAINAV_UNLOCK_TABS }
+    return {
+      jainavUnlockTabs: mergeMandatory(ids.length ? ids : DEFAULT_ERP_JAINAV_UNLOCK_TABS),
+    }
   }
 
-  return DEFAULT_ERP_NAV_VISIBILITY
+  return {
+    jainavUnlockTabs: mergeMandatory(DEFAULT_ERP_JAINAV_UNLOCK_TABS),
+  }
 }
 
 export function resolveVisibleNavModuleIds(opts: {
@@ -93,7 +113,7 @@ export function resolveVisibleNavModuleIds(opts: {
   }
 
   const vis = opts.navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY
-  const hidden = new Set<string>(vis.jainavUnlockTabs)
+  const hidden = new Set<string>([...vis.jainavUnlockTabs, ...JAINAV_ONLY_MODULE_IDS])
   const visible = new Set<string>(ERP_NAV_MODULE_ORDER)
 
   if (!opts.jainavUnlocked) {
@@ -109,6 +129,7 @@ export function moduleRequiresJainavUnlock(
   navVisibility?: ErpNavVisibility | null,
 ): boolean {
   const vis = navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY
+  if (JAINAV_ONLY_MODULE_IDS.includes(moduleId as ResellerErpModuleId)) return true
   return vis.jainavUnlockTabs.includes(moduleId as ResellerErpModuleId)
 }
 

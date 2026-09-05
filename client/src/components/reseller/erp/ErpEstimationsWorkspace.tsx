@@ -18,6 +18,7 @@ import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
+import { summarizeBillsMetalTotals } from '@/lib/erp-bill-metal-totals'
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
@@ -127,6 +128,14 @@ export function ErpEstimationsWorkspace() {
     }
     return { total: bills.length, totalValue, monthCount, todayCount }
   }, [bills])
+
+  const metal = useMemo(() => summarizeBillsMetalTotals(bills), [bills])
+
+  const periodMetalLabel = onDate.trim()
+    ? `On ${onDate.trim()}`
+    : from.trim() || to.trim()
+      ? 'Selected period'
+      : 'Last 3 days'
 
   const toggleAll = () => {
     if (selected.size === bills.length) setSelected(new Set())
@@ -324,6 +333,32 @@ export function ErpEstimationsWorkspace() {
             <p className="mt-1 text-lg font-bold tabular-nums">{c.value}</p>
           </div>
         ))}
+      </div>
+
+      <div className={`${erpCardCls} space-y-2`}>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+          Metal summary · {periodMetalLabel} (GST estimates only)
+        </p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { label: 'Gold weight', value: `${metal.goldWeightGm.toFixed(3)} g` },
+            { label: 'Silver weight', value: `${metal.silverWeightGm.toFixed(3)} g` },
+            { label: 'Gold value', value: formatErpInr(metal.goldValueInr) },
+            { label: 'Silver value', value: formatErpInr(metal.silverValueInr) },
+          ].map((c) => (
+            <div
+              key={c.label}
+              className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2.5"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                {c.label}
+              </p>
+              <p className="mt-0.5 text-sm font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                {c.value}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className={`${erpCardCls} overflow-x-auto p-0`}>

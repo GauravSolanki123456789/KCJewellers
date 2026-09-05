@@ -6,6 +6,7 @@ import { Download, FileText, Loader2, Search } from 'lucide-react'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
+import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 
 export type CustomerAccountTx = {
   date: string
@@ -242,7 +243,7 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
                 {account.transactions.map((t, i) => (
                   <tr key={`${t.date}-${t.ref}-${i}`} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
                     <td className="whitespace-nowrap px-3 py-2">{t.date}</td>
-                    <td className="px-3 py-2 capitalize">{t.kind.replace(/_/g, ' ')}</td>
+                    <td className="px-3 py-2">{formatLedgerTransactionKind(t.kind)}</td>
                     <td className="px-3 py-2 font-mono">{t.ref || '—'}</td>
                     <td className="max-w-[140px] truncate px-3 py-2">{t.description}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{t.debit ? formatErpInr(t.debit) : '—'}</td>

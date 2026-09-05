@@ -114,9 +114,9 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             rows.push({
                 date: normDate(s.bill_date),
                 sort_id: s.id,
-                kind: 'shadow_sale',
+                kind: 'sale',
                 ref: s.bill_number,
-                description: `(V NO: ${s.bill_number}) SALES A/C -`,
+                description: s.lane === 'jainav' ? 'Jainav' : s.lane === 'hitesh' ? 'Hitesh' : 'Sale',
                 debit: Number(s.total_inr) || 0,
                 credit: 0,
                 lane: s.lane,
@@ -205,7 +205,7 @@ function customerAccountToCsv(account) {
     push(['DATE', 'PARTICULARS', 'REF. DATE', 'DEBIT', 'CREDIT', 'BALANCE']);
     for (const t of account.transactions) {
         const particulars =
-            t.kind === 'sale' || t.kind === 'shadow_sale'
+            t.kind === 'sale'
                 ? `(V NO: ${t.ref}) SALES A/C -`
                 : t.description || t.kind;
         push([
