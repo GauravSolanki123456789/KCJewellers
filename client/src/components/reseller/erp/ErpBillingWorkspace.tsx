@@ -246,6 +246,8 @@ export function ErpBillingWorkspace() {
   const [address, setAddress] = useState('')
   const [customerPan, setCustomerPan] = useState('')
   const [customerGst, setCustomerGst] = useState('')
+  const [placeOfSupply, setPlaceOfSupply] = useState('')
+  const [defaultPlaceOfSupply, setDefaultPlaceOfSupply] = useState('')
   const [rateSlab, setRateSlab] = useState<ErpRateSlab>('R')
   const [lines, setLines] = useState<ErpBillLine[]>([])
   const [displayRates, setDisplayRates] = useState<unknown>([])
@@ -500,13 +502,20 @@ export function ErpBillingWorkspace() {
       })
       .catch(() => setBills([]))
     void axios
-      .get<{ settings?: { printFormats?: unknown } }>('/api/reseller/erp/settings')
+      .get<{ settings?: { printFormats?: unknown; gst?: { placeOfSupply?: string } } }>(
+        '/api/reseller/erp/settings',
+      )
       .then((res) => {
         const pf = migratePrintFormats(
           res.data.settings?.printFormats as Parameters<typeof migratePrintFormats>[0],
         )
         setShopQuoteOutputMode(normalizeQuoteOutputMode(pf.defaultQuoteOutputMode))
         setGoldSlabRShowMc(pf.goldSlabRShowMc !== false)
+        const pos = String(res.data.settings?.gst?.placeOfSupply || '').trim()
+        if (pos) {
+          setDefaultPlaceOfSupply(pos)
+          setPlaceOfSupply((cur) => cur || pos)
+        }
       })
       .catch(() => {})
   }, [loadDisplayRates])
@@ -572,6 +581,7 @@ export function ErpBillingWorkspace() {
       setAddress(session.address || '')
       setCustomerPan(session.pan || '')
       setCustomerGst(session.customerGst || '')
+      setPlaceOfSupply(session.placeOfSupply || defaultPlaceOfSupply || '')
       setRateSlab(restoredSlab)
       if (session.wholesaleGold != null) setWholesaleGold(session.wholesaleGold)
       if (session.wholesaleSilver != null) setWholesaleSilver(session.wholesaleSilver)
@@ -1117,6 +1127,7 @@ export function ErpBillingWorkspace() {
     setAddress('')
     setCustomerPan('')
     setCustomerGst('')
+    setPlaceOfSupply(defaultPlaceOfSupply)
     setSelectedCustomer(null)
     setRateSlab('R')
     setWholesaleGold(null)
@@ -1157,12 +1168,17 @@ export function ErpBillingWorkspace() {
   })
   const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr)
 
-  const buildPayload = (billType: 'sale' | 'estimate', status: string) => ({
+  const buildPayload = (
+    billType: 'sale' | 'estimate',
+    status: string,
+    extra?: { bill_number?: string; placeOfSupply?: string },
+  ) => ({
     bill_type: billType,
     customer_id: customerId,
     customer_name: customerName,
     total_inr: totals.net,
     status,
+    ...(extra?.bill_number ? { bill_number: extra.bill_number } : {}),
     notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
     lines: lines.map((l) => ({ ...l, lineTotalInr: l.lineTotalInr ?? 0 })),
     session: buildErpBillSession({
@@ -1178,6 +1194,7 @@ export function ErpBillingWorkspace() {
       advancePaidInr: parsedAdvance,
       pan: customerPan,
       customerGst,
+      placeOfSupply: extra?.placeOfSupply ?? placeOfSupply,
       collectedAmountInr: parsedCollected,
       paymentMethod,
       cashAmountInr:
@@ -1198,12 +1215,15 @@ export function ErpBillingWorkspace() {
   const persistBill = async (
     billType: 'sale' | 'estimate',
     status: string,
-    opts?: { skipReset?: boolean },
+    opts?: { skipReset?: boolean; bill_number?: string; placeOfSupply?: string },
   ): Promise<ErpBill | null> => {
     if (saveBusy || lines.length === 0) return null
     setSaveBusy(true)
     try {
-      const payload = buildPayload(billType, status)
+      const payload = buildPayload(billType, status, {
+        bill_number: opts?.bill_number,
+        placeOfSupply: opts?.placeOfSupply,
+      })
       let bill: ErpBill
       if (editingBillId && billType === 'estimate') {
         const res = await axios.put<{ bill: ErpBill }>(`/api/reseller/erp/bills/${editingBillId}`, payload)
@@ -1251,7 +1271,7 @@ export function ErpBillingWorkspace() {
     }
   }
 
-  const confirmSaveBill = async () => {
+  const confirmSaveBill = async (opts: { billNumber: string; placeOfSupply: string }) => {
     if (ratesUnfixed) {
       setSaveConfirmOpen(false)
       alert('Rates are unfixed. Fix rates before saving a completed sales bill — use Generate quote for rate-unfix estimates.')
@@ -1259,7 +1279,11 @@ export function ErpBillingWorkspace() {
     }
     setSaveConfirmOpen(false)
     clearDuplicateState()
-    const bill = await persistBill('sale', 'completed', { skipReset: true })
+    const bill = await persistBill('sale', 'completed', {
+      skipReset: true,
+      bill_number: opts.billNumber || undefined,
+      placeOfSupply: opts.placeOfSupply || placeOfSupply,
+    })
     if (!bill) return
     const shadowBill = bill as ErpBill & { shadow?: boolean; lane?: 'hitesh' | 'jainav' }
     if (shadowBill.shadow) {
@@ -1429,7 +1453,9 @@ export function ErpBillingWorkspace() {
         itemCount={lines.length}
         busy={saveBusy}
         isOfficialGst={isOfficialGstBill}
-        onConfirm={() => void confirmSaveBill()}
+        customerGst={customerGst}
+        defaultPlaceOfSupply={placeOfSupply || defaultPlaceOfSupply}
+        onConfirm={(opts) => void confirmSaveBill(opts)}
       />
       <ErpLedgerBillSavedDialog
         open={ledgerSavedOpen}
@@ -1733,6 +1759,27 @@ export function ErpBillingWorkspace() {
               onChange={(e) => setCustomerGst(e.target.value.toUpperCase())}
             />
           </div>
+          {isOfficialGstBill ? (
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                Place of supply
+              </label>
+              <input
+                className={erpInputCls}
+                placeholder="e.g. 37 - Andhra Pradesh"
+                value={placeOfSupply}
+                onChange={(e) => setPlaceOfSupply(e.target.value)}
+                list="erp-billing-place-of-supply"
+              />
+              <datalist id="erp-billing-place-of-supply">
+                <option value="33 - Tamil Nadu" />
+                <option value="37 - Andhra Pradesh" />
+                <option value="29 - Karnataka" />
+                <option value="36 - Telangana" />
+                <option value="27 - Maharashtra" />
+              </datalist>
+            </div>
+          ) : null}
         </div>
         {customerName ? (
           <div className="mt-2 rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-1.5">

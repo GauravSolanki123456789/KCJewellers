@@ -67,6 +67,8 @@ export type ErpSettingsBundle = {
     placeOfSupply?: string
     address?: string
     phone?: string
+    email?: string
+    invoiceTemplate?: string
   }
   bank?: {
     bankName?: string

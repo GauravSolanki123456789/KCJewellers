@@ -50,6 +50,18 @@ async function loadErpSettings(query, resellerUserId) {
     return settings && typeof settings === 'object' ? settings : {};
 }
 
+function validateGstin(gstin, label = 'GST number') {
+    const s = String(gstin || '').trim().toUpperCase();
+    if (!s) return { ok: true, gstin: '' };
+    if (!GSTIN_RE.test(s)) {
+        return {
+            ok: false,
+            error: `${label} is invalid. Enter a valid 15-character GSTIN (e.g. 33AAAHB1074R1ZB).`,
+        };
+    }
+    return { ok: true, gstin: s };
+}
+
 function validateGstSettings(gst) {
     const errors = [];
     const gstin = String(gst?.gstin || '')
@@ -347,6 +359,24 @@ async function generateEinvoiceForBill({ query, bill, resellerUserId, customer }
         throw err;
     }
 
+    let session = bill.session || {};
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch {
+            session = {};
+        }
+    }
+    const buyerGstRaw = String(session.customerGst || customer?.gstin || '').trim().toUpperCase();
+    if (buyerGstRaw && buyerGstRaw !== 'URP') {
+        const buyerCheck = validateGstin(buyerGstRaw, 'Customer GST number');
+        if (!buyerCheck.ok) {
+            const err = new Error(buyerCheck.error);
+            err.status = 400;
+            throw err;
+        }
+    }
+
     const cfg = resolveEinvoiceConfig(settings);
     if (!cfg.url || !cfg.token) {
         const err = new Error('E-invoice API URL and token are required in E-invoice settings.');
@@ -443,6 +473,7 @@ module.exports = {
     GSTZEN_EWAY_CREATE_URL_DEFAULT,
     loadErpSettings,
     validateGstSettings,
+    validateGstin,
     resolveEinvoiceConfig,
     resolveEwayConfig,
     parseCompliance,

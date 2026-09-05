@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import axios from '@/lib/axios'
 import { printErpBillThermal } from '@/lib/erp-billing-print'
 import {
   CheckCircle2,
   Download,
+  Loader2,
   MessageCircle,
   Printer,
   Receipt,
@@ -22,6 +24,7 @@ import {
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { validateGstin } from '@/lib/erp-gstin'
 import {
   downloadPdfBlob,
   printPdfBlob,
@@ -241,10 +244,14 @@ type ConfirmProps = {
   netTotal: number
   itemCount: number
   busy?: boolean
-  onConfirm: () => void
+  onConfirm: (opts: { billNumber: string; placeOfSupply: string }) => void
   /** When false, sale goes to Hitesh/Jainav ledger — no GST invoice. */
   isOfficialGst?: boolean
+  customerGst?: string
+  defaultPlaceOfSupply?: string
 }
+
+const MANUAL_BILL_VALUE = '__manual__'
 
 export function ErpSaveBillConfirmDialog({
   open,
@@ -255,35 +262,139 @@ export function ErpSaveBillConfirmDialog({
   busy,
   onConfirm,
   isOfficialGst = true,
+  customerGst = '',
+  defaultPlaceOfSupply = '',
 }: ConfirmProps) {
+  const [autoNumber, setAutoNumber] = useState('')
+  const [billChoice, setBillChoice] = useState('')
+  const [manualBillNumber, setManualBillNumber] = useState('')
+  const [placeOfSupply, setPlaceOfSupply] = useState('')
+  const [localErr, setLocalErr] = useState('')
+
+  useEffect(() => {
+    if (!open || !isOfficialGst) return
+    setPlaceOfSupply(defaultPlaceOfSupply)
+    setLocalErr('')
+    void axios
+      .get<{ bill_number: string }>('/api/reseller/erp/bills/next-number', { params: { bill_type: 'sale' } })
+      .then((res) => {
+        const n = res.data.bill_number || 'SCB001'
+        setAutoNumber(n)
+        setBillChoice(n)
+        setManualBillNumber('')
+      })
+      .catch(() => {
+        setAutoNumber('SCB001')
+        setBillChoice('SCB001')
+      })
+  }, [open, isOfficialGst, defaultPlaceOfSupply])
+
+  const handleConfirm = () => {
+    setLocalErr('')
+    if (isOfficialGst) {
+      const gstCheck = validateGstin(customerGst, 'Customer GST number')
+      if (!gstCheck.ok) {
+        setLocalErr(gstCheck.error)
+        return
+      }
+      let billNumber = billChoice
+      if (billChoice === MANUAL_BILL_VALUE) {
+        billNumber = manualBillNumber.trim().toUpperCase()
+        if (!billNumber) {
+          setLocalErr('Enter a bill number (e.g. SA1362).')
+          return
+        }
+        if (!/^[A-Z0-9][A-Z0-9\-./]{0,62}$/i.test(billNumber)) {
+          setLocalErr('Bill number has invalid characters.')
+          return
+        }
+      }
+      if (!placeOfSupply.trim()) {
+        setLocalErr('Place of supply is required for GST bills.')
+        return
+      }
+      onConfirm({ billNumber, placeOfSupply: placeOfSupply.trim() })
+      return
+    }
+    onConfirm({ billNumber: '', placeOfSupply: '' })
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-[var(--color-slate-700,#e8e4df)] bg-white sm:max-w-sm">
+      <DialogContent className="max-h-[90vh] overflow-y-auto border-[var(--color-slate-700,#e8e4df)] bg-white sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[var(--color-jewelry-black,#1a1814)]">
             {isOfficialGst ? 'Save & generate bill?' : 'Save sale?'}
           </DialogTitle>
           <DialogDescription className="text-[var(--color-jewelry-black,#1a1814)]/65">
-            {isOfficialGst ? (
-              <>
-                Save the sale for{' '}
-                <span className="font-semibold">{customerName || 'walk-in customer'}</span> ({itemCount} item
-                {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}).
-              </>
-            ) : (
-              <>
-                Save the sale for{' '}
-                <span className="font-semibold">{customerName || 'walk-in customer'}</span> ({itemCount} item
-                {itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}).
-              </>
-            )}
+            Save the sale for{' '}
+            <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              {customerName || 'walk-in customer'}
+            </span>{' '}
+            ({itemCount} item{itemCount !== 1 ? 's' : ''}, {formatErpInr(netTotal)}).
           </DialogDescription>
         </DialogHeader>
+
+        {isOfficialGst ? (
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
+              Bill number
+              <select
+                className={`${erpInputCls} mt-1`}
+                value={billChoice}
+                onChange={(e) => setBillChoice(e.target.value)}
+                disabled={busy}
+              >
+                {autoNumber ? <option value={autoNumber}>Auto — {autoNumber}</option> : null}
+                <option value={MANUAL_BILL_VALUE}>Enter bill number manually…</option>
+              </select>
+            </label>
+            {billChoice === MANUAL_BILL_VALUE ? (
+              <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
+                Manual bill no
+                <input
+                  className={`${erpInputCls} mt-1 font-mono uppercase`}
+                  placeholder="e.g. SA1362"
+                  value={manualBillNumber}
+                  onChange={(e) => setManualBillNumber(e.target.value.toUpperCase())}
+                  disabled={busy}
+                />
+              </label>
+            ) : null}
+            <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
+              Place of supply
+              <input
+                className={`${erpInputCls} mt-1`}
+                placeholder="e.g. 37 - Andhra Pradesh"
+                value={placeOfSupply}
+                onChange={(e) => setPlaceOfSupply(e.target.value)}
+                disabled={busy}
+                list="erp-place-of-supply-states"
+              />
+              <datalist id="erp-place-of-supply-states">
+                <option value="33 - Tamil Nadu" />
+                <option value="37 - Andhra Pradesh" />
+                <option value="29 - Karnataka" />
+                <option value="36 - Telangana" />
+                <option value="27 - Maharashtra" />
+                <option value="07 - Delhi" />
+                <option value="32 - Kerala" />
+                <option value="09 - Uttar Pradesh" />
+              </datalist>
+            </label>
+          </div>
+        ) : null}
+
+        {localErr ? (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{localErr}</p>
+        ) : null}
+
         <DialogFooter className="gap-2 sm:gap-2">
           <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </button>
-          <button type="button" className={erpBtnPrimary} disabled={busy} onClick={onConfirm}>
+          <button type="button" className={erpBtnPrimary} disabled={busy} onClick={handleConfirm}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : null}
             {isOfficialGst ? 'Yes, save bill' : 'Yes, save sale'}
           </button>
         </DialogFooter>

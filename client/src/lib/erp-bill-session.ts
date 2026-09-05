@@ -42,6 +42,10 @@ export type ErpBillSession = {
   onlineAmountInr?: number
   /** Estimate converted via ledger (no official SALE number). */
   billedViaLedger?: boolean
+  /** Place of supply for this bill (overrides GST settings default). */
+  placeOfSupply?: string
+  /** Invoice template hint for PDF (future: per-reseller upload). */
+  invoiceTemplate?: string
 }
 
 export function buildErpBillSession(input: {
@@ -57,6 +61,7 @@ export function buildErpBillSession(input: {
   advancePaidInr?: number | null
   pan?: string
   customerGst?: string
+  placeOfSupply?: string
   collectedAmountInr?: number | null
   mcDiscountInr?: number | null
   cashDiscountInr?: number | null
@@ -101,6 +106,7 @@ export function buildErpBillSession(input: {
     advancePaidInr: advance > 0 ? advance : undefined,
     pan: input.pan?.trim() || undefined,
     customerGst: input.customerGst?.trim() || undefined,
+    placeOfSupply: input.placeOfSupply?.trim() || undefined,
     collectedAmountInr: collected != null ? collected : undefined,
     mcDiscountInr: mcDiscount > 0 ? mcDiscount : undefined,
     cashDiscountInr:

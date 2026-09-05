@@ -101,7 +101,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
                 multiline: true,
               },
               { key: 'phone', label: 'Phone / contact', placeholder: '044-43593474' },
-              { key: 'placeOfSupply', label: 'Place of supply' },
+              { key: 'email', label: 'E-mail (on invoice)', placeholder: 'bnmarlechasilver@gmail.com' },
+              { key: 'placeOfSupply', label: 'Default place of supply (optional — enter per bill in billing)' },
             ]}
           />
           <ErpGstInvoiceItemsPanel />

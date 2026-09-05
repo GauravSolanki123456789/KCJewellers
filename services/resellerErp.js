@@ -815,6 +815,17 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
+    app.get('/api/reseller/erp/bills/next-number', checkAuth, erpGate, async (req, res) => {
+        try {
+            const billType = trimStrLower(req.query.bill_type, 32) || 'sale';
+            const billNumber = await nextBillNumber(query, req.user.id, billType);
+            res.json({ bill_type: billType, bill_number: billNumber });
+        } catch (e) {
+            console.error('erp next bill number:', e);
+            res.status(500).json({ error: e.message || 'Failed to suggest bill number' });
+        }
+    });
+
     app.post('/api/reseller/erp/bills', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const billType = String(req.body.bill_type || 'sale').trim().toLowerCase();
@@ -917,6 +928,18 @@ function registerResellerErpRoutes(app, deps) {
             const billNumber =
                 trimStr(req.body.bill_number, 64) ||
                 (await nextBillNumber(query, req.user.id, billType));
+            if (trimStr(req.body.bill_number, 64)) {
+                const dup = await query(
+                    `SELECT id FROM reseller_erp_bills
+                     WHERE reseller_user_id = $1 AND bill_number = $2 LIMIT 1`,
+                    [req.user.id, billNumber],
+                );
+                if (dup.length) {
+                    return res.status(409).json({
+                        error: `Bill number ${billNumber} already exists. Choose another number.`,
+                    });
+                }
+            }
             const sessionJson =
                 req.body.session && typeof req.body.session === 'object'
                     ? JSON.stringify(req.body.session)

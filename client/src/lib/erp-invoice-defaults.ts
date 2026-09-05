@@ -49,6 +49,37 @@ export function groupInvoiceLinesForTax(lines: ErpBillLine[]): ErpBillLine[] {
   return Array.from(map.values())
 }
 
+/** Marlecha challan — one row per invoice item + HSN (merge all lines in category). */
+export function groupMarlechaInvoiceLines(lines: ErpBillLine[]): ErpBillLine[] {
+  const map = new Map<string, ErpBillLine>()
+  for (const line of lines) {
+    const itemName = (line.invoice_item_name || line.name || 'JEWELLERY').trim().toUpperCase()
+    const hsn = (line.hsn_code || defaultHsnCode(line.metal_type)).trim()
+    const key = `${itemName}|${hsn}`
+    const existing = map.get(key)
+    if (existing) {
+      existing.qty = (Number(existing.qty) || 1) + (Number(line.qty) || 1)
+      existing.weightGm = (Number(existing.weightGm) || 0) + (Number(line.weightGm) || 0)
+      existing.gross_weight =
+        (Number(existing.gross_weight) || Number(existing.weightGm) || 0) +
+        (Number(line.gross_weight) || Number(line.weightGm) || 0)
+      existing.lineTotalInr = (Number(existing.lineTotalInr) || 0) + (Number(line.lineTotalInr) || 0)
+    } else {
+      map.set(key, {
+        ...line,
+        invoice_item_name: itemName,
+        hsn_code: hsn,
+        name: itemName,
+        qty: line.qty ?? 1,
+        weightGm: line.weightGm ?? 0,
+        gross_weight: line.gross_weight ?? line.weightGm ?? 0,
+        lineTotalInr: line.lineTotalInr ?? 0,
+      })
+    }
+  }
+  return Array.from(map.values())
+}
+
 export type SoldBillConflict = {
   barcode: string
   source?: string

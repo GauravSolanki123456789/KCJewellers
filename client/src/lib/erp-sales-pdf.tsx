@@ -1,16 +1,17 @@
 import { pdf } from '@react-pdf/renderer'
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { ErpTaxInvoicePdfDocument, type ErpTaxInvoiceCompliance } from '@/lib/erp-tax-invoice-pdf-document'
+import { ErpMarlechaTaxInvoicePdfDocument } from '@/lib/erp-marlecha-invoice-pdf'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import {
   buildErpQuotePdfFilename,
-  billRatesUnfixed,
   computeErpQuoteTotals,
   erpCustomerWhatsAppHref,
 } from '@/lib/erp-quote-pdf'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { loadErpSettingsBundle, resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
+import { resolveInvoiceTemplateId } from '@/lib/erp-invoice-template'
 
 export function buildErpSalesWhatsAppMessage(params: {
   brandLabel: string
@@ -54,12 +55,14 @@ export async function buildErpSalesPdfPayload(params: {
   }
 
   const settings = await loadErpSettingsBundle()
+  const session = (params.bill.session || {}) as ErpBillSession
   const gst = {
     gstin: params.gstin ?? settings.gst?.gstin ?? null,
     legalName: settings.gst?.legalName ?? null,
     address: settings.gst?.address ?? null,
     phone: settings.gst?.phone ?? null,
-    placeOfSupply: settings.gst?.placeOfSupply ?? null,
+    email: settings.gst?.email ?? null,
+    placeOfSupply: session.placeOfSupply ?? settings.gst?.placeOfSupply ?? null,
   }
   const bank = {
     bankName: settings.bank?.bankName ?? null,
@@ -69,7 +72,6 @@ export async function buildErpSalesPdfPayload(params: {
     branch: settings.bank?.branch ?? null,
   }
 
-  const session = (params.bill.session || {}) as ErpBillSession
   const totals = computeErpQuoteTotals(params.bill, params.slabSettingsRaw)
   const brandLabel = params.brandLabel.trim() || gst.legalName?.trim() || 'Our store'
 
@@ -87,20 +89,31 @@ export async function buildErpSalesPdfPayload(params: {
     }
   }
 
+  const template = resolveInvoiceTemplateId(
+    brandLabel,
+    gst.legalName,
+    settings.gst?.invoiceTemplate,
+  )
+  const docProps = {
+    bill: params.bill,
+    brandName: brandLabel,
+    totals,
+    gst,
+    bank,
+    customerName: params.customerName ?? params.bill.customer_name,
+    customerAddress: params.customerAddress ?? session.address ?? null,
+    customerMobile: params.mobile ?? session.mobile ?? null,
+    customerPan: params.customerPan ?? session.pan ?? null,
+    customerGst: params.customerGst ?? session.customerGst ?? null,
+    compliance,
+  }
+
   const blob = await pdf(
-    <ErpTaxInvoicePdfDocument
-      bill={params.bill}
-      brandName={brandLabel}
-      totals={totals}
-      gst={gst}
-      bank={bank}
-      customerName={params.customerName ?? params.bill.customer_name}
-      customerAddress={params.customerAddress ?? session.address ?? null}
-      customerMobile={params.mobile ?? session.mobile ?? null}
-      customerPan={params.customerPan ?? session.pan ?? null}
-      customerGst={params.customerGst ?? session.customerGst ?? null}
-      compliance={compliance}
-    />,
+    template === 'marlecha' ? (
+      <ErpMarlechaTaxInvoicePdfDocument {...docProps} />
+    ) : (
+      <ErpTaxInvoicePdfDocument {...docProps} />
+    ),
   ).toBlob()
 
   const filename = buildErpQuotePdfFilename({
@@ -123,7 +136,7 @@ export async function buildErpSalesPdfPayload(params: {
     title: `${brandLabel} — ${params.taxInvoiceMode ? 'Tax invoice' : 'Invoice'} ${params.bill.bill_number}`,
     text,
     fallbackWhatsAppText: text,
-    fallbackWhatsAppHref: erpCustomerWhatsAppHref(params.mobile, text),
+    fallbackWhatsAppHref: erpCustomerWhatsAppHref(params.mobile ?? session.mobile, text),
     brandLabel,
   }
 }
