@@ -1,6 +1,7 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import type { ErpPaymentMethod } from '@/lib/erp-ledger-routing'
+import type { ErpInvoicePrintOverrides } from '@/lib/erp-sales-invoice-template'
 
 export type ErpBillSession = {
   rateSlab?: ErpRateSlab
@@ -46,6 +47,8 @@ export type ErpBillSession = {
   placeOfSupply?: string
   /** Invoice template hint for PDF (future: per-reseller upload). */
   invoiceTemplate?: string
+  /** Per-bill overrides for A4 tax invoice PDF (copy labels, terms, etc.). */
+  invoicePrintOverrides?: ErpInvoicePrintOverrides
 }
 
 export function buildErpBillSession(input: {

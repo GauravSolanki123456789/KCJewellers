@@ -3,15 +3,16 @@ import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { ErpTaxInvoicePdfDocument, type ErpTaxInvoiceCompliance } from '@/lib/erp-tax-invoice-pdf-document'
 import { ErpMarlechaTaxInvoicePdfDocument } from '@/lib/erp-marlecha-invoice-pdf'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
-import {
-  buildErpQuotePdfFilename,
-  computeErpQuoteTotals,
-  erpCustomerWhatsAppHref,
-} from '@/lib/erp-quote-pdf'
+import { computeErpQuoteTotals, erpCustomerWhatsAppHref } from '@/lib/erp-quote-pdf'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { loadErpSettingsBundle, resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { resolveInvoiceTemplateId } from '@/lib/erp-invoice-template'
+import {
+  buildErpSalesPdfFilename,
+  mergeInvoiceTemplate,
+  type ErpInvoicePrintOverrides,
+} from '@/lib/erp-sales-invoice-template'
 
 export function buildErpSalesWhatsAppMessage(params: {
   brandLabel: string
@@ -89,11 +90,18 @@ export async function buildErpSalesPdfPayload(params: {
     }
   }
 
-  const template = resolveInvoiceTemplateId(
+  const templateId = resolveInvoiceTemplateId(
     brandLabel,
     gst.legalName,
     settings.gst?.invoiceTemplate,
   )
+  const printOverrides = (session as ErpBillSession & { invoicePrintOverrides?: ErpInvoicePrintOverrides })
+    .invoicePrintOverrides
+  const salesTemplate = mergeInvoiceTemplate(
+    (settings as { salesInvoiceTemplate?: unknown }).salesInvoiceTemplate,
+    printOverrides,
+  )
+  const useMarlechaLayout = templateId === 'marlecha' || !!(settings as { salesInvoiceTemplate?: unknown }).salesInvoiceTemplate
   const docProps = {
     bill: params.bill,
     brandName: brandLabel,
@@ -109,18 +117,14 @@ export async function buildErpSalesPdfPayload(params: {
   }
 
   const blob = await pdf(
-    template === 'marlecha' ? (
-      <ErpMarlechaTaxInvoicePdfDocument {...docProps} />
+    useMarlechaLayout ? (
+      <ErpMarlechaTaxInvoicePdfDocument {...docProps} template={salesTemplate} />
     ) : (
       <ErpTaxInvoicePdfDocument {...docProps} />
     ),
   ).toBlob()
 
-  const filename = buildErpQuotePdfFilename({
-    billNumber: params.bill.bill_number,
-    customerName: params.customerName ?? params.bill.customer_name,
-    createdAt: params.bill.created_at ?? null,
-  }).replace(/quote/i, params.taxInvoiceMode ? 'tax-invoice' : 'invoice')
+  const filename = buildErpSalesPdfFilename(params.bill.bill_number, params.taxInvoiceMode)
 
   const text = buildErpSalesWhatsAppMessage({
     brandLabel,

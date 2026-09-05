@@ -751,7 +751,7 @@ function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R', printFormats = n
         const fixed =
             line.fixed_price != null && Number(line.fixed_price) > 0
                 ? String(Math.round(Number(line.fixed_price)))
-                : '';
+                  : '';
         const amt =
             line.lineTotalInr != null && Number.isFinite(Number(line.lineTotalInr))
                 ? Math.round(Number(line.lineTotalInr))

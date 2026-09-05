@@ -542,6 +542,9 @@ export function ErpSalesBillsWorkspace() {
         variant={complianceSuccessVariant}
         complianceNote={complianceSuccessNote}
         autoDownload={!!complianceSuccessPdf}
+        brandLabel={brandLabel}
+        slabSettingsRaw={auth.user}
+        taxInvoiceMode={complianceSuccessVariant === 'e-invoice'}
         onDone={onComplianceSuccessDone}
       />
     </div>
