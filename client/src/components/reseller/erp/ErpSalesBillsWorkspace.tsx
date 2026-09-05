@@ -231,7 +231,22 @@ export function ErpSalesBillsWorkspace() {
         )
       }
     } else {
-      setComplianceSuccessPdf(null)
+      try {
+        const payload = await buildErpSalesPdfPayload({
+          bill,
+          brandLabel,
+          customerName: bill.customer_name,
+          mobile: session.mobile,
+          customerAddress: session.address,
+          customerPan: session.pan,
+          customerGst: session.customerGst,
+          slabSettingsRaw: auth.user,
+          ewayBillNo: meta?.ewb_no || bill.compliance?.eway?.ewb_no || null,
+        })
+        setComplianceSuccessPdf(payload)
+      } catch (e) {
+        console.error(e)
+      }
       setComplianceSuccessOpen(true)
     }
   }
@@ -542,9 +557,6 @@ export function ErpSalesBillsWorkspace() {
         variant={complianceSuccessVariant}
         complianceNote={complianceSuccessNote}
         autoDownload={!!complianceSuccessPdf}
-        brandLabel={brandLabel}
-        slabSettingsRaw={auth.user}
-        taxInvoiceMode={complianceSuccessVariant === 'e-invoice'}
         onDone={onComplianceSuccessDone}
       />
     </div>

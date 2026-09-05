@@ -40,31 +40,6 @@ const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedi
 const labelPrinter = require('../scripts/label-printer');
 const erpPrint = require('../scripts/erp-print-templates');
 const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
-
-function createInvoiceTemplateUploadMulter(uploadsRoot, userId) {
-    const dir = path.join(uploadsRoot, 'erp_invoice_templates', String(userId));
-    fs.mkdirSync(dir, { recursive: true });
-    return multer({
-        storage: multer.diskStorage({
-            destination: (_req, _file, cb) => cb(null, dir),
-            filename: (_req, file, cb) => {
-                const ext = path.extname(String(file.originalname || '')).toLowerCase() || '.jpg';
-                const safe = ext.replace(/[^a-z0-9.]/g, '') || '.jpg';
-                cb(null, `ref-${Date.now()}${safe}`);
-            },
-        }),
-        limits: { fileSize: 8 * 1024 * 1024 },
-        fileFilter: (_req, file, cb) => {
-            const ok =
-                /^image\/(jpeg|png|webp)$/i.test(file.mimetype) ||
-                file.mimetype === 'application/pdf' ||
-                /\.(jpe?g|png|webp|pdf)$/i.test(String(file.originalname || ''));
-            cb(ok ? null : new Error('Only JPG, PNG, WebP, or PDF allowed'), ok);
-        },
-    }).single('file');
-}
 
 async function ensureResellerErpSchema(pool) {
     await pool.query(`
@@ -1409,24 +1384,6 @@ function registerResellerErpRoutes(app, deps) {
             console.error('erp settings put:', e);
             res.status(500).json({ error: e.message || 'Failed to save settings' });
         }
-    });
-
-    app.post('/api/reseller/erp/invoice-template/upload', checkAuth, erpGate, (req, res) => {
-        const upload = createInvoiceTemplateUploadMulter(uploadsRoot, req.user.id);
-        upload(req, res, (err) => {
-            if (err) {
-                const msg = err.message || 'Upload failed';
-                return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: msg });
-            }
-            if (!req.file) return res.status(400).json({ error: 'file required' });
-            const rel = `uploads/erp_invoice_templates/${req.user.id}/${req.file.filename}`;
-            const url = `${getPublicApiBaseUrl()}/${rel}`.replace(/([^:]\/)\/+/g, '$1');
-            res.json({
-                success: true,
-                url,
-                fileName: req.file.originalname || req.file.filename,
-            });
-        });
     });
 
     // ——— Product lookup (barcode / SKU from live catalogue) ———

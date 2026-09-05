@@ -31,7 +31,6 @@ import {
   sharePdfFileNative,
   type PdfShareSheetPayload,
 } from '@/lib/pdf-share'
-import { ErpInvoicePrintOverridesEditor } from '@/components/reseller/erp/ErpInvoicePrintOverridesEditor'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 
@@ -46,9 +45,6 @@ type Props = {
   variant?: 'saved' | 'e-invoice' | 'e-way'
   complianceNote?: string | null
   autoDownload?: boolean
-  brandLabel?: string
-  slabSettingsRaw?: unknown
-  taxInvoiceMode?: boolean
 }
 
 export function ErpBillSavedModal({
@@ -61,18 +57,10 @@ export function ErpBillSavedModal({
   variant = 'saved',
   complianceNote = null,
   autoDownload = true,
-  brandLabel = '',
-  slabSettingsRaw,
-  taxInvoiceMode = false,
 }: Props) {
   const [mobile, setMobile] = useState(defaultMobile)
   const [autoDownloaded, setAutoDownloaded] = useState(false)
   const [thermalBusy, setThermalBusy] = useState(false)
-  const [localPdfPayload, setLocalPdfPayload] = useState<PdfShareSheetPayload | null>(pdfPayload)
-
-  useEffect(() => {
-    setLocalPdfPayload(pdfPayload)
-  }, [pdfPayload])
 
   useEffect(() => {
     if (open) {
@@ -82,42 +70,40 @@ export function ErpBillSavedModal({
   }, [open, defaultMobile])
 
   useEffect(() => {
-    if (!open || !localPdfPayload || autoDownload === false || autoDownloaded) return
-    downloadPdfBlob(localPdfPayload.blob, localPdfPayload.filename)
+    if (!open || !pdfPayload || autoDownload === false || autoDownloaded) return
+    downloadPdfBlob(pdfPayload.blob, pdfPayload.filename)
     setAutoDownloaded(true)
-  }, [open, localPdfPayload, autoDownloaded, autoDownload])
-
-  const activePayload = localPdfPayload
+  }, [open, pdfPayload, autoDownloaded, autoDownload])
 
   const handlePrint = useCallback(() => {
-    if (!activePayload) return
-    printPdfBlob(activePayload.blob)
-  }, [activePayload])
+    if (!pdfPayload) return
+    printPdfBlob(pdfPayload.blob)
+  }, [pdfPayload])
 
   const handleDownload = useCallback(() => {
-    if (!activePayload) return
-    downloadPdfBlob(activePayload.blob, activePayload.filename)
-  }, [activePayload])
+    if (!pdfPayload) return
+    downloadPdfBlob(pdfPayload.blob, pdfPayload.filename)
+  }, [pdfPayload])
 
   const handleWhatsApp = useCallback(() => {
-    if (!activePayload) return
-    const text = activePayload.fallbackWhatsAppText
+    if (!pdfPayload) return
+    const text = pdfPayload.fallbackWhatsAppText
     const href = customerWhatsAppHref(mobile.trim() || null, text)
     if (href) {
       openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
     }
-  }, [activePayload, mobile])
+  }, [pdfPayload, mobile])
 
   const handleShare = useCallback(async () => {
-    if (!activePayload) return
-    const result = await sharePdfFileNative(activePayload.blob, activePayload.filename, {
-      title: activePayload.title,
-      text: activePayload.text,
+    if (!pdfPayload) return
+    const result = await sharePdfFileNative(pdfPayload.blob, pdfPayload.filename, {
+      title: pdfPayload.title,
+      text: pdfPayload.text,
     })
     if (result === 'unsupported' || result === 'failed') {
       handleDownload()
     }
-  }, [activePayload, handleDownload])
+  }, [pdfPayload, handleDownload])
 
   const printThermalReceipt = useCallback(async () => {
     if (!bill?.id) return
@@ -175,19 +161,6 @@ export function ErpBillSavedModal({
           </p>
         ) : null}
 
-        {bill && brandLabel ? (
-          <ErpInvoicePrintOverridesEditor
-            bill={bill}
-            brandLabel={brandLabel}
-            slabSettingsRaw={slabSettingsRaw}
-            taxInvoiceMode={taxInvoiceMode || variant === 'e-invoice'}
-            onRegenerated={(payload) => {
-              setLocalPdfPayload(payload)
-              downloadPdfBlob(payload.blob, payload.filename)
-            }}
-          />
-        ) : null}
-
         <div className="grid grid-cols-2 gap-2">
           <button type="button" className={erpBtnGhost} onClick={handleDownload}>
             <Download className="size-4" />
@@ -233,7 +206,7 @@ export function ErpBillSavedModal({
             type="button"
             className={`${erpBtnPrimary} mt-3 w-full`}
             onClick={handleWhatsApp}
-            disabled={!activePayload}
+            disabled={!pdfPayload}
           >
             <MessageCircle className="size-4" />
             Send bill on WhatsApp

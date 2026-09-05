@@ -47,7 +47,7 @@ export type ErpBillSession = {
   placeOfSupply?: string
   /** Invoice template hint for PDF (future: per-reseller upload). */
   invoiceTemplate?: string
-  /** Per-bill overrides for A4 tax invoice PDF (copy labels, terms, etc.). */
+  /** Per-bill PDF layout overrides (copy labels, terms, etc.) */
   invoicePrintOverrides?: ErpInvoicePrintOverrides
 }
 

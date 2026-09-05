@@ -1472,8 +1472,6 @@ export function ErpBillingWorkspace() {
         bill={savedBill}
         pdfPayload={savedPdfPayload}
         defaultMobile={mobile}
-        brandLabel={brandLabel}
-        slabSettingsRaw={auth.user}
         onDone={onSavedBillDone}
       />
       <ErpCameraScannerModal

@@ -39,13 +39,7 @@ import {
   normalizeQuoteOutputMode,
   type ErpQuoteOutputMode,
 } from '@/lib/erp-quote-output'
-import { ChevronDown, ChevronUp, FileText, Loader2, Plus, RotateCcw, Save, Tag, Trash2, Upload, Wand2, FileStack } from 'lucide-react'
-import { ErpSalesInvoiceTemplatePanel } from '@/components/reseller/erp/ErpSalesInvoiceTemplatePanel'
-import {
-  DEFAULT_MARLECHA_SALES_INVOICE_TEMPLATE,
-  normalizeSalesInvoiceTemplate,
-  type ErpSalesInvoiceTemplateConfig,
-} from '@/lib/erp-sales-invoice-template'
+import { ChevronDown, ChevronUp, FileText, Loader2, Plus, RotateCcw, Save, Tag, Trash2, Upload, Wand2 } from 'lucide-react'
 
 function ShopHeaderPanel({
   pf,
@@ -110,11 +104,7 @@ export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'label' | 'bill' | 'estimate' | 'invoice-pdf'>('label')
-  const [invoiceTemplate, setInvoiceTemplate] = useState<ErpSalesInvoiceTemplateConfig>(() => ({
-    ...DEFAULT_MARLECHA_SALES_INVOICE_TEMPLATE,
-  }))
-  const [invoiceSaved, setInvoiceSaved] = useState(false)
+  const [tab, setTab] = useState<'label' | 'bill' | 'estimate'>('label')
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const ruleFileRef = useRef<HTMLInputElement>(null)
@@ -122,33 +112,10 @@ export function ErpPrintFormatsWorkspace() {
 
   useEffect(() => {
     void axios
-      .get<{ settings: { printFormats?: ErpPrintFormatsSettings; salesInvoiceTemplate?: unknown } }>(
-        '/api/reseller/erp/settings',
-      )
-      .then((res) => {
-        setPf(migratePrintFormats(res.data.settings?.printFormats))
-        setInvoiceTemplate(normalizeSalesInvoiceTemplate(res.data.settings?.salesInvoiceTemplate))
-      })
+      .get<{ settings: { printFormats?: ErpPrintFormatsSettings } }>('/api/reseller/erp/settings')
+      .then((res) => setPf(migratePrintFormats(res.data.settings?.printFormats)))
       .catch(() => {})
   }, [])
-
-  const saveInvoiceTemplate = async () => {
-    setBusy(true)
-    setInvoiceSaved(false)
-    try {
-      await axios.put('/api/reseller/erp/settings', {
-        settings: {
-          salesInvoiceTemplate: invoiceTemplate,
-          gst: { invoiceTemplate: 'marlecha' },
-        },
-      })
-      setInvoiceSaved(true)
-    } catch {
-      alert('Could not save invoice format')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const save = async () => {
     setBusy(true)
@@ -319,30 +286,10 @@ export function ErpPrintFormatsWorkspace() {
             <FileText className="mr-1 inline size-4" />
             Estimate (Epson)
           </button>
-          <button
-            type="button"
-            className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
-              tab === 'invoice-pdf'
-                ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
-                : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
-            }`}
-            onClick={() => setTab('invoice-pdf')}
-          >
-            <FileStack className="mr-1 inline size-4" />
-            Tax invoice PDF
-          </button>
         </div>
       </div>
 
-      {tab === 'invoice-pdf' ? (
-        <ErpSalesInvoiceTemplatePanel
-          value={invoiceTemplate}
-          onChange={setInvoiceTemplate}
-          onSave={saveInvoiceTemplate}
-          busy={busy}
-          saved={invoiceSaved}
-        />
-      ) : tab === 'label' ? (
+      {tab === 'label' ? (
         <>
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -809,7 +756,6 @@ export function ErpPrintFormatsWorkspace() {
         </>
       )}
 
-      {tab !== 'invoice-pdf' ? (
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void save()}>
           {busy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
@@ -817,7 +763,6 @@ export function ErpPrintFormatsWorkspace() {
         </button>
         {saved ? <span className="text-xs font-medium text-emerald-600">Saved</span> : null}
       </div>
-      ) : null}
     </div>
   )
 }

@@ -19,11 +19,13 @@
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
+    "pdfjs-dist": "^6.3.289",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.4.0",
+    "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

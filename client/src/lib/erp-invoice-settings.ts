@@ -60,8 +60,6 @@ function blobToDataUri(blob: Blob): Promise<string> {
   })
 }
 
-import type { ErpSalesInvoiceTemplateConfig } from '@/lib/erp-sales-invoice-template'
-
 export type ErpSettingsBundle = {
   gst?: {
     gstin?: string
@@ -79,7 +77,7 @@ export type ErpSettingsBundle = {
     ifsc?: string
     branch?: string
   }
-  salesInvoiceTemplate?: ErpSalesInvoiceTemplateConfig | null
+  taxInvoiceTemplate?: import('@/lib/erp-tax-invoice-template').ErpTaxInvoiceTemplateConfig
 }
 
 export async function loadErpSettingsBundle(): Promise<ErpSettingsBundle> {

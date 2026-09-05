@@ -30,6 +30,7 @@ import { isJainavModule } from '@/lib/reseller-erp-modules'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
 import { moduleRequiresJainavUnlock } from '@/lib/erp-nav-visibility'
 import { ErpGstInvoiceItemsPanel } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { ErpTaxInvoiceTemplatePanel } from '@/components/reseller/erp/ErpTaxInvoiceTemplatePanel'
 import { ErpRolWorkspace } from '@/components/reseller/erp/ErpRolWorkspace'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
 import {
@@ -105,6 +106,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
               { key: 'placeOfSupply', label: 'Default place of supply (optional — enter per bill in billing)' },
             ]}
           />
+          <ErpTaxInvoiceTemplatePanel variant="bill" />
           <ErpGstInvoiceItemsPanel />
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -147,6 +149,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
               { key: 'useSandbox', label: 'Use sandbox mode (yes/no)', placeholder: 'yes' },
             ]}
           />
+          <ErpTaxInvoiceTemplatePanel variant="e-invoice" compact />
         </div>
       )
     case 'e-way':
@@ -168,6 +171,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
               { key: 'gstin', label: 'Transporter GSTIN' },
             ]}
           />
+          <ErpTaxInvoiceTemplatePanel variant="e-way" compact />
         </div>
       )
     case 'tally':

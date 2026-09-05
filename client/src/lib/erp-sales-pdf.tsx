@@ -1,18 +1,14 @@
 import { pdf } from '@react-pdf/renderer'
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { ErpTaxInvoicePdfDocument, type ErpTaxInvoiceCompliance } from '@/lib/erp-tax-invoice-pdf-document'
-import { ErpMarlechaTaxInvoicePdfDocument } from '@/lib/erp-marlecha-invoice-pdf'
+import { ErpConfigurableTaxInvoicePdfDocument } from '@/lib/erp-marlecha-invoice-pdf'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import { computeErpQuoteTotals, erpCustomerWhatsAppHref } from '@/lib/erp-quote-pdf'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { loadErpSettingsBundle, resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { resolveInvoiceTemplateId } from '@/lib/erp-invoice-template'
-import {
-  buildErpSalesPdfFilename,
-  mergeInvoiceTemplate,
-  type ErpInvoicePrintOverrides,
-} from '@/lib/erp-sales-invoice-template'
+import { normalizeTaxInvoiceTemplate } from '@/lib/erp-tax-invoice-template'
 
 export function buildErpSalesWhatsAppMessage(params: {
   brandLabel: string
@@ -49,6 +45,8 @@ export async function buildErpSalesPdfPayload(params: {
   gstin?: string | null
   /** When true, include IRN / ACK / QR from bill compliance */
   taxInvoiceMode?: boolean
+  /** E-way bill number for e-way PDF variant */
+  ewayBillNo?: string | null
 }): Promise<PdfShareSheetPayload> {
   const lines = params.bill.lines ?? []
   if (!lines.length) {
@@ -90,18 +88,13 @@ export async function buildErpSalesPdfPayload(params: {
     }
   }
 
-  const templateId = resolveInvoiceTemplateId(
+  const template = resolveInvoiceTemplateId(
     brandLabel,
     gst.legalName,
     settings.gst?.invoiceTemplate,
   )
-  const printOverrides = (session as ErpBillSession & { invoicePrintOverrides?: ErpInvoicePrintOverrides })
-    .invoicePrintOverrides
-  const salesTemplate = mergeInvoiceTemplate(
-    (settings as { salesInvoiceTemplate?: unknown }).salesInvoiceTemplate,
-    printOverrides,
-  )
-  const useMarlechaLayout = templateId === 'marlecha' || !!(settings as { salesInvoiceTemplate?: unknown }).salesInvoiceTemplate
+  const templateConfig = normalizeTaxInvoiceTemplate(settings.taxInvoiceTemplate)
+  const useChallanTemplate = template === 'marlecha' || !!settings.taxInvoiceTemplate
   const docProps = {
     bill: params.bill,
     brandName: brandLabel,
@@ -114,17 +107,23 @@ export async function buildErpSalesPdfPayload(params: {
     customerPan: params.customerPan ?? session.pan ?? null,
     customerGst: params.customerGst ?? session.customerGst ?? null,
     compliance,
+    ewayBillNo: params.ewayBillNo ?? params.bill.compliance?.eway?.ewb_no ?? null,
   }
 
   const blob = await pdf(
-    useMarlechaLayout ? (
-      <ErpMarlechaTaxInvoicePdfDocument {...docProps} template={salesTemplate} />
+    useChallanTemplate ? (
+      <ErpConfigurableTaxInvoicePdfDocument {...docProps} templateConfig={templateConfig} />
     ) : (
       <ErpTaxInvoicePdfDocument {...docProps} />
     ),
   ).toBlob()
 
-  const filename = buildErpSalesPdfFilename(params.bill.bill_number, params.taxInvoiceMode)
+  const safeBillNo = params.bill.bill_number.replace(/[^\w.-]+/g, '-')
+  const filename = params.ewayBillNo || params.bill.compliance?.eway?.ewb_no
+    ? `${safeBillNo}-eway.pdf`
+    : params.taxInvoiceMode
+      ? `${safeBillNo}-tax-invoice.pdf`
+      : `${safeBillNo}-invoice.pdf`
 
   const text = buildErpSalesWhatsAppMessage({
     brandLabel,

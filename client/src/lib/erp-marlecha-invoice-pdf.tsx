@@ -8,106 +8,82 @@ import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
 import {
   isInterstateSupply,
-  panFromGstin,
   paymentMethodInvoiceLabel,
 } from '@/lib/erp-invoice-template'
-import type { ErpSalesInvoiceTemplateConfig } from '@/lib/erp-sales-invoice-template'
-import { DEFAULT_MARLECHA_SALES_INVOICE_TEMPLATE } from '@/lib/erp-sales-invoice-template'
 import type {
   ErpBankSettings,
   ErpGstSettings,
   ErpTaxInvoiceCompliance,
   ErpTaxInvoicePdfDocumentProps,
 } from '@/lib/erp-tax-invoice-pdf-document'
+import {
+  DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE,
+  mergeTemplateWithGstSettings,
+  normalizeTaxInvoiceTemplate,
+  type ErpTaxInvoiceTemplateConfig,
+} from '@/lib/erp-tax-invoice-template'
 
-export type ErpMarlechaPdfProps = ErpTaxInvoicePdfDocumentProps & {
-  template?: ErpSalesInvoiceTemplateConfig | null
+export type { ErpTaxInvoicePdfDocumentProps }
+
+export type ConfigurableTaxInvoiceProps = ErpTaxInvoicePdfDocumentProps & {
+  templateConfig?: ErpTaxInvoiceTemplateConfig | null
+  /** e-way bill number when rendering e-way variant */
+  ewayBillNo?: string | null
 }
 
-const BORDER = '#111'
+const COL_W = ['5%', '28%', '10%', '12%', '12%', '14%', '19%'] as const
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 18,
-    paddingBottom: 14,
-    paddingHorizontal: 16,
+    padding: 18,
     fontFamily: 'Helvetica',
-    fontSize: 7.5,
-    color: '#111',
+    fontSize: 8,
+    color: '#000',
+    lineHeight: 1.25,
   },
-  outerFrame: {
+  headerBox: {
     borderWidth: 1.5,
-    borderColor: BORDER,
-    padding: 6,
-    flex: 1,
+    borderColor: '#000',
+    paddingHorizontal: 8,
+    paddingTop: 4,
+    paddingBottom: 6,
+    marginBottom: 0,
   },
   copyTag: {
-    position: 'absolute',
-    top: 8,
-    right: 18,
     fontSize: 7,
     fontWeight: 'bold',
     textAlign: 'right',
-    maxWidth: 130,
+    marginBottom: 2,
   },
-  headerBox: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    marginBottom: 0,
-  },
-  docTitle: {
+  title: {
     fontSize: 10,
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 4,
-    letterSpacing: 0.3,
   },
   shopName: {
     fontSize: 11,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginBottom: 2,
+    marginBottom: 3,
   },
-  centerLine: { fontSize: 7.5, textAlign: 'center', lineHeight: 1.35 },
-  panGstRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 5,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: BORDER,
-    fontSize: 7.5,
-    fontWeight: 'bold',
-  },
-  splitRow: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderTopWidth: 0,
-    borderColor: BORDER,
-    minHeight: 78,
-  },
-  splitLeft: {
-    width: '58%',
-    borderRightWidth: 1,
-    borderRightColor: BORDER,
-    padding: 6,
-  },
-  splitRight: { width: '42%', padding: 6 },
-  billingHead: {
-    fontSize: 7.5,
-    fontWeight: 'bold',
-    textDecoration: 'underline',
-    marginBottom: 4,
-  },
-  table: { borderWidth: 1, borderTopWidth: 0, borderColor: BORDER },
-  tableHead: {
-    flexDirection: 'row',
+  centerLine: { fontSize: 7.5, textAlign: 'center', lineHeight: 1.3 },
+  taxIdLine: { fontSize: 8, fontWeight: 'bold', textAlign: 'center', marginTop: 2 },
+  billingBox: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 78 },
+  billingLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000' },
+  billingRight: { width: '42%', padding: 6, paddingTop: 8 },
+  billingBar: {
+    backgroundColor: '#e8e8e8',
+    paddingVertical: 3,
+    paddingHorizontal: 6,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-    backgroundColor: '#fafafa',
+    borderBottomColor: '#000',
+    fontSize: 7.5,
+    fontWeight: 'bold',
   },
+  billingBody: { padding: 6, fontSize: 7.5, lineHeight: 1.35 },
+  table: { borderWidth: 1, borderTopWidth: 0, borderColor: '#000' },
+  tableHead: { flexDirection: 'row', backgroundColor: '#e8e8e8', borderBottomWidth: 1, borderBottomColor: '#000' },
   headCell: {
     paddingVertical: 4,
     paddingHorizontal: 2,
@@ -115,141 +91,103 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     borderRightWidth: 1,
-    borderRightColor: BORDER,
+    borderRightColor: '#000',
   },
   bodyCell: {
     paddingVertical: 5,
     paddingHorizontal: 2,
     fontSize: 7,
-    textAlign: 'center',
     borderRightWidth: 1,
-    borderRightColor: BORDER,
+    borderRightColor: '#000',
     borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
-    minHeight: 16,
+    borderBottomColor: '#ccc',
   },
-  summaryRow: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderTopWidth: 0,
-    borderColor: BORDER,
-    minHeight: 72,
-  },
-  summaryLeft: {
-    width: '58%',
-    borderRightWidth: 1,
-    borderRightColor: BORDER,
-    padding: 6,
-    justifyContent: 'space-between',
-  },
-  totalsBox: { width: '42%', padding: 0 },
-  totalLine: {
+  summaryRow: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 72 },
+  summaryLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000', padding: 8, justifyContent: 'space-between' },
+  summaryRight: { width: '42%' },
+  totalCell: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
+    borderBottomColor: '#000',
     fontSize: 7.5,
   },
-  netLine: {
+  totalCellEmpty: { paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#000', minHeight: 14 },
+  netCell: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
     fontWeight: 'bold',
     fontSize: 8.5,
-    backgroundColor: '#f5f5f5',
   },
-  termsBlock: { marginTop: 6, paddingHorizontal: 4, fontSize: 6.5, lineHeight: 1.4 },
-  bankBlock: { marginTop: 5, fontSize: 7, textAlign: 'center', lineHeight: 1.45 },
-  bottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginTop: 8,
-    paddingHorizontal: 4,
-  },
-  signBlock: { width: '45%', textAlign: 'center', fontSize: 7.5 },
-  signLine: {
-    borderTopWidth: 1,
-    borderTopColor: BORDER,
-    marginTop: 28,
-    paddingTop: 3,
-    textAlign: 'center',
-  },
-  complianceBox: {
-    marginBottom: 4,
+  footerRow: { flexDirection: 'row', marginTop: 6, minHeight: 64 },
+  termsCol: { width: '50%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 6 },
+  bankCol: { width: '28%', fontSize: 7, lineHeight: 1.4, paddingTop: 2 },
+  signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-end' },
+  signLine: { borderTopWidth: 1, borderTopColor: '#000', marginTop: 28, paddingTop: 3, textAlign: 'center' },
+  eRef: { marginTop: 6, fontSize: 7 },
+  eInvoiceRow: {
     flexDirection: 'row',
     borderWidth: 1,
     borderColor: '#666',
+    marginBottom: 4,
     padding: 4,
     gap: 6,
   },
   qr: { width: 56, height: 56, objectFit: 'contain' },
 })
 
-const COL = {
-  sl: '5%',
-  desc: '27%',
-  hsn: '10%',
-  gross: '12%',
-  net: '12%',
-  rate: '14%',
-  amt: '20%',
-} as const
-
 function formatBillDate(bill: ErpBill): string {
   return formatErpDateDdMmYyyy(bill.bill_date || bill.created_at)
 }
 
 function gmToKg(gm: number): number {
-  return Math.round(gm * 1000) / 1000000
+  return (Number(gm) || 0) / 1000
 }
 
 function lineRatePerKg(line: ErpBillLine): number {
-  const wtKg = gmToKg(Number(line.weightGm) || 0)
+  const wtKg = (Number(line.weightGm) || 0) / 1000
   const amt = Number(line.lineTotalInr) || 0
   if (wtKg <= 0) return 0
   return amt / wtKg
 }
 
-function capitalizeWords(s: string): string {
-  return s.replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-type PageProps = Omit<ErpMarlechaPdfProps, 'copyLabel'> & {
-  lines: ErpBillLine[]
-  session: Record<string, unknown>
-  pageCopyLabel: string
-  template: ErpSalesInvoiceTemplateConfig
-}
-
-function MarlechaChallanPage({
+function InvoicePage({
+  copyLabel,
+  template,
   bill,
-  brandName,
   totals,
   gst,
-  bank,
   customerName,
   customerAddress,
   customerMobile,
-  customerPan,
-  customerGst,
   compliance,
   lines,
   session,
-  pageCopyLabel,
-  template,
-}: PageProps) {
-  const shopDisplay = gst.legalName?.trim() || brandName
-  const sellerPan = panFromGstin(gst.gstin)
+  ewayBillNo,
+}: {
+  copyLabel: string
+  template: ErpTaxInvoiceTemplateConfig
+  bill: ErpBill
+  totals: ErpQuoteTotals
+  gst: ErpGstSettings
+  customerName?: string | null
+  customerAddress?: string | null
+  customerMobile?: string | null
+  compliance?: ErpTaxInvoiceCompliance | null
+  lines: ErpBillLine[]
+  session: Record<string, unknown>
+  ewayBillNo?: string | null
+}) {
   const placeOfSupply =
     String(session.placeOfSupply || gst.placeOfSupply || '').trim() || 'Tamil Nadu'
   const interstate = isInterstateSupply({
     sellerGstin: gst.gstin,
     placeOfSupply,
-    buyerGstin: customerGst,
+    buyerGstin: String(session.customerGst || ''),
   })
   const taxable = totals.subtotal
   const gstAmt = totals.gst
@@ -260,238 +198,211 @@ function MarlechaChallanPage({
   const roundedTotal = Math.round(rawTotal)
   const roundOff = Math.round((roundedTotal - rawTotal) * 100) / 100
   const payLabel = paymentMethodInvoiceLabel(String(session.paymentMethod || ''))
-  const emptyRows = Math.max(0, template.minTableRows - lines.length)
-  const words = capitalizeWords(amountInWordsInr(roundedTotal))
-  const showEinvoice = !!compliance?.irn
+  const shopDisplay = template.shopName || gst.legalName || 'Shop'
 
   return (
     <Page size="A4" style={styles.page}>
-      <Text style={styles.copyTag}>{pageCopyLabel}</Text>
-
-      <View style={styles.outerFrame}>
-        <View style={styles.headerBox}>
-          <Text style={styles.docTitle}>{sanitizePdfText(template.documentTitle)}</Text>
-          <Text style={styles.shopName}>{sanitizePdfText(shopDisplay)}</Text>
-          {gst.address ? <Text style={styles.centerLine}>{sanitizePdfText(gst.address)}</Text> : null}
-          {gst.phone ? (
-            <Text style={styles.centerLine}>
-              Ph : {sanitizePdfText(gst.phone)}
-              {gst.email ? ` , E-mail Id : ${sanitizePdfText(gst.email)}` : ''}
-            </Text>
-          ) : null}
-          <View style={styles.panGstRow}>
-            <Text>PAN : {sanitizePdfText(sellerPan || '—')}</Text>
-            <Text>GSTIN : {sanitizePdfText(gst.gstin || '—')}</Text>
+      {compliance?.irn ? (
+        <View style={styles.eInvoiceRow}>
+          <View style={{ flex: 1, fontSize: 6.5 }}>
+            <Text style={{ fontWeight: 'bold' }}>e-Invoice</Text>
+            <Text>IRN: {sanitizePdfText(compliance.irn)}</Text>
+            {compliance.ack_no ? <Text>Ack No.: {sanitizePdfText(compliance.ack_no)}</Text> : null}
+            {compliance.ack_date ? <Text>Ack Date: {sanitizePdfText(compliance.ack_date)}</Text> : null}
           </View>
+          {compliance.qrImageSrc ? <Image style={styles.qr} src={compliance.qrImageSrc} /> : null}
         </View>
+      ) : null}
 
-        {showEinvoice ? (
-          <View style={styles.complianceBox}>
-            <View style={{ flex: 1, fontSize: 6.5 }}>
-              <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>e-Invoice</Text>
-              <Text>IRN: {sanitizePdfText(compliance!.irn!)}</Text>
-              {compliance!.ack_no ? <Text>Ack No.: {sanitizePdfText(compliance!.ack_no)}</Text> : null}
-              {compliance!.ack_date ? <Text>Ack Date: {sanitizePdfText(compliance!.ack_date)}</Text> : null}
-            </View>
-            {compliance!.qrImageSrc ? <Image style={styles.qr} src={compliance!.qrImageSrc} /> : null}
-          </View>
+      <View style={styles.headerBox}>
+        <Text style={styles.copyTag}>{copyLabel}</Text>
+        <Text style={styles.title}>{sanitizePdfText(template.headerTitle)}</Text>
+        <Text style={styles.shopName}>{sanitizePdfText(shopDisplay)}</Text>
+        {template.addressLines.map((line, i) => (
+          <Text key={`addr-${i}`} style={styles.centerLine}>
+            {sanitizePdfText(line)}
+          </Text>
+        ))}
+        {template.phoneEmailLine ? (
+          <Text style={styles.centerLine}>{sanitizePdfText(template.phoneEmailLine)}</Text>
         ) : null}
+        <Text style={styles.taxIdLine}>{sanitizePdfText(template.panLine)}</Text>
+        <Text style={styles.taxIdLine}>{sanitizePdfText(template.gstinLine)}</Text>
+      </View>
 
-        <View style={styles.splitRow}>
-          <View style={styles.splitLeft}>
-            <Text style={styles.billingHead}>Billing Address</Text>
-            <Text style={{ fontSize: 7, marginBottom: 2 }}>To</Text>
-            <Text style={{ fontSize: 7.5, fontWeight: 'bold' }}>
+      <View style={styles.billingBox}>
+        <View style={styles.billingLeft}>
+          <Text style={styles.billingBar}>{sanitizePdfText(template.billingAddressLabel)}</Text>
+          <View style={styles.billingBody}>
+            <Text>{sanitizePdfText(template.toLabel)}</Text>
+            <Text style={{ fontWeight: 'bold', marginTop: 2 }}>
               {sanitizePdfText(customerName || bill.customer_name || 'Walk-in')}
             </Text>
             {customerAddress ? (
-              <Text style={{ fontSize: 7, marginTop: 3, lineHeight: 1.35 }}>
-                {sanitizePdfText(customerAddress)}
-              </Text>
+              <Text style={{ marginTop: 3 }}>{sanitizePdfText(customerAddress)}</Text>
             ) : null}
-            {customerMobile ? (
-              <Text style={{ fontSize: 7, marginTop: 2 }}>Mob: {sanitizePdfText(customerMobile)}</Text>
-            ) : null}
-            {customerPan ? <Text style={{ fontSize: 7 }}>PAN: {sanitizePdfText(customerPan)}</Text> : null}
-            {customerGst ? <Text style={{ fontSize: 7 }}>GSTIN: {sanitizePdfText(customerGst)}</Text> : null}
-          </View>
-          <View style={styles.splitRight}>
-            <Text style={{ fontSize: 8, marginBottom: 4 }}>
-              <Text style={{ fontWeight: 'bold' }}>Bill No : </Text>
-              {sanitizePdfText(bill.bill_number)}
-            </Text>
-            <Text style={{ fontSize: 8, marginBottom: 6 }}>
-              <Text style={{ fontWeight: 'bold' }}>Date : </Text>
-              {formatBillDate(bill)}
-            </Text>
-            <Text style={{ fontSize: 8, fontWeight: 'bold' }}>Place Of Supply</Text>
-            <Text style={{ fontSize: 8, marginTop: 2 }}>{sanitizePdfText(placeOfSupply)}</Text>
+            {customerMobile ? <Text style={{ marginTop: 2 }}>Mob: {sanitizePdfText(customerMobile)}</Text> : null}
           </View>
         </View>
-
-        <View style={styles.table}>
-          <View style={styles.tableHead}>
-            {[
-              { w: COL.sl, t: 'SlNo' },
-              { w: COL.desc, t: 'Description of Goods' },
-              { w: COL.hsn, t: 'HSN Code' },
-              { w: COL.gross, t: 'Gross Wt.\nin-Kgs' },
-              { w: COL.net, t: 'Net Wt.\nin-Kgs' },
-              { w: COL.rate, t: 'Rate' },
-              { w: COL.amt, t: 'Amount\n( in Rs. )' },
-            ].map((c, idx) => (
-              <Text
-                key={c.t}
-                style={[styles.headCell, { width: c.w, borderRightWidth: idx === 6 ? 0 : 1 }]}
-              >
-                {c.t}
-              </Text>
-            ))}
-          </View>
-          {lines.map((line, i) => {
-            const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
-            const netKg = gmToKg(Number(line.weightGm) || 0)
-            const rate = lineRatePerKg(line)
-            const amt = Number(line.lineTotalInr) || 0
-            return (
-              <View key={`row-${i}`} style={{ flexDirection: 'row' }}>
-                <Text style={[styles.bodyCell, { width: COL.sl }]}>{i + 1}.</Text>
-                <Text style={[styles.bodyCell, { width: COL.desc, textAlign: 'left' }]}>
-                  {sanitizePdfText(line.invoice_item_name || line.name || 'JEWELLERY')}
-                </Text>
-                <Text style={[styles.bodyCell, { width: COL.hsn }]}>
-                  {sanitizePdfText(line.hsn_code || '711411')}
-                </Text>
-                <Text style={[styles.bodyCell, { width: COL.gross, textAlign: 'right' }]}>
-                  {grossKg.toFixed(3)}
-                </Text>
-                <Text style={[styles.bodyCell, { width: COL.net, textAlign: 'right' }]}>
-                  {netKg.toFixed(3)}
-                </Text>
-                <Text style={[styles.bodyCell, { width: COL.rate, textAlign: 'right' }]}>
-                  {rate > 0 ? rate.toFixed(2) : ''}
-                </Text>
-                <Text
-                  style={[styles.bodyCell, { width: COL.amt, textAlign: 'right', borderRightWidth: 0 }]}
-                >
-                  {amt > 0 ? amt.toFixed(2) : ''}
-                </Text>
-              </View>
-            )
-          })}
-          {Array.from({ length: emptyRows }).map((_, i) => (
-            <View key={`empty-${i}`} style={{ flexDirection: 'row' }}>
-              {[COL.sl, COL.desc, COL.hsn, COL.gross, COL.net, COL.rate, COL.amt].map((w, ci) => (
-                <Text
-                  key={`e-${i}-${ci}`}
-                  style={[styles.bodyCell, { width: w, borderRightWidth: ci === 6 ? 0 : 1 }]}
-                >
-                  {' '}
-                </Text>
-              ))}
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryLeft}>
-            <View>
-              <Text style={{ fontSize: 7.5, fontWeight: 'bold', lineHeight: 1.4 }}>{words}</Text>
-              <Text style={{ fontSize: 8, marginTop: 8, fontWeight: 'bold' }}>{payLabel}</Text>
-            </View>
-            <View style={styles.signLine}>
-              <Text>Party Signature</Text>
-            </View>
-          </View>
-          <View style={styles.totalsBox}>
-            <View style={styles.totalLine}>
-              <Text>Total</Text>
-              <Text>{taxable.toFixed(2)}</Text>
-            </View>
-            {interstate ? (
-              <View style={styles.totalLine}>
-                <Text>IGST 3.00%</Text>
-                <Text>{igst.toFixed(2)}</Text>
-              </View>
-            ) : (
-              <>
-                <View style={styles.totalLine}>
-                  <Text>CGST 1.50%</Text>
-                  <Text>{cgst.toFixed(2)}</Text>
-                </View>
-                <View style={styles.totalLine}>
-                  <Text>SGST 1.50%</Text>
-                  <Text>{sgst.toFixed(2)}</Text>
-                </View>
-              </>
-            )}
-            <View style={styles.totalLine}>
-              <Text>Round Off</Text>
-              <Text>{roundOff.toFixed(2)}</Text>
-            </View>
-            <View style={styles.netLine}>
-              <Text>Net Amount</Text>
-              <Text>{roundedTotal.toFixed(2)}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.termsBlock}>
-          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>Terms &amp; Conditions</Text>
-          {template.terms.map((t, i) => (
-            <Text key={`term-${i}`}>
-              {i + 1}. {t}
-            </Text>
-          ))}
-        </View>
-
-        {(bank.bankName || bank.accountNo) ? (
-          <View style={styles.bankBlock}>
-            {bank.bankName ? <Text>Bank : {sanitizePdfText(bank.bankName)}</Text> : null}
-            {bank.branch ? <Text>Branch : {sanitizePdfText(bank.branch)}</Text> : null}
-            {bank.ifsc ? <Text>IFSC : {sanitizePdfText(bank.ifsc)}</Text> : null}
-            {bank.accountNo ? <Text>A/C No : {sanitizePdfText(bank.accountNo)}</Text> : null}
-          </View>
-        ) : null}
-
-        <View style={styles.bottomRow}>
-          <Text style={{ fontSize: 7, width: '50%' }}>
-            {template.electronicRefLabel}{' '}
-            {showEinvoice ? sanitizePdfText(compliance!.irn!) : ''}
+        <View style={styles.billingRight}>
+          <Text style={{ fontSize: 8, marginBottom: 4 }}>
+            {sanitizePdfText(template.billNoLabel)} {sanitizePdfText(bill.bill_number)}
           </Text>
-          <View style={styles.signBlock}>
-            <Text style={{ fontWeight: 'bold' }}>for {sanitizePdfText(shopDisplay)}</Text>
-            <View style={styles.signLine}>
-              <Text>Authorised Signatory</Text>
+          <Text style={{ fontSize: 8, marginBottom: 12 }}>
+            {sanitizePdfText(template.dateLabel)} {formatBillDate(bill)}
+          </Text>
+          {ewayBillNo ? (
+            <Text style={{ fontSize: 8, marginBottom: 8 }}>E-Way Bill : {sanitizePdfText(ewayBillNo)}</Text>
+          ) : null}
+          <Text style={{ fontSize: 7, marginBottom: 2 }}>{sanitizePdfText(template.placeOfSupplyLabel)}</Text>
+          <Text style={{ fontSize: 8, fontWeight: 'bold' }}>{sanitizePdfText(placeOfSupply)}</Text>
+        </View>
+      </View>
+
+      <View style={styles.table}>
+        <View style={styles.tableHead}>
+          {template.tableColumns.map((label, i) => (
+            <Text
+              key={`h-${i}`}
+              style={[styles.headCell, { width: COL_W[i] || '10%', borderRightWidth: i === 6 ? 0 : 1 }]}
+            >
+              {sanitizePdfText(label.replace(/\\n/g, '\n'))}
+            </Text>
+          ))}
+        </View>
+        {lines.map((line, i) => {
+          const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
+          const netKg = gmToKg(Number(line.weightGm) || 0)
+          const rate = lineRatePerKg(line)
+          const amt = Number(line.lineTotalInr) || 0
+          return (
+            <View key={`row-${i}`} style={{ flexDirection: 'row' }}>
+              <Text style={[styles.bodyCell, { width: COL_W[0], textAlign: 'center' }]}>{i + 1}.</Text>
+              <Text style={[styles.bodyCell, { width: COL_W[1], textAlign: 'left' }]}>
+                {sanitizePdfText(line.invoice_item_name || line.name || 'JEWELLERY')}
+              </Text>
+              <Text style={[styles.bodyCell, { width: COL_W[2], textAlign: 'center' }]}>
+                {sanitizePdfText(line.hsn_code || '711311')}
+              </Text>
+              <Text style={[styles.bodyCell, { width: COL_W[3], textAlign: 'right' }]}>{grossKg.toFixed(3)}</Text>
+              <Text style={[styles.bodyCell, { width: COL_W[4], textAlign: 'right' }]}>{netKg.toFixed(3)}</Text>
+              <Text style={[styles.bodyCell, { width: COL_W[5], textAlign: 'right' }]}>
+                {rate > 0 ? rate.toFixed(2) : '—'}
+              </Text>
+              <Text style={[styles.bodyCell, { width: COL_W[6], textAlign: 'right', borderRightWidth: 0 }]}>
+                {amt.toFixed(2)}
+              </Text>
             </View>
+          )
+        })}
+      </View>
+
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryLeft}>
+          <View>
+            <Text style={{ fontWeight: 'bold', fontSize: 8 }}>{amountInWordsInr(roundedTotal)}</Text>
+            <Text style={{ marginTop: 6, fontSize: 8 }}>{payLabel}</Text>
+          </View>
+          <Text style={{ fontSize: 7.5, marginTop: 8 }}>{sanitizePdfText(template.partySignatureLabel)}</Text>
+        </View>
+        <View style={styles.summaryRight}>
+          <View style={styles.totalCell}>
+            <Text>{template.totalsLabels.total}</Text>
+            <Text>{taxable.toFixed(2)}</Text>
+          </View>
+          {interstate ? (
+            <View style={styles.totalCell}>
+              <Text>{template.totalsLabels.igst}</Text>
+              <Text>{igst.toFixed(2)}</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.totalCell}>
+                <Text>{template.totalsLabels.cgst}</Text>
+                <Text>{cgst.toFixed(2)}</Text>
+              </View>
+              <View style={styles.totalCell}>
+                <Text>{template.totalsLabels.sgst}</Text>
+                <Text>{sgst.toFixed(2)}</Text>
+              </View>
+            </>
+          )}
+          <View style={styles.totalCellEmpty} />
+          <View style={styles.totalCell}>
+            <Text>{template.totalsLabels.roundOff}</Text>
+            <Text>{roundOff.toFixed(2)}</Text>
+          </View>
+          <View style={styles.netCell}>
+            <Text>{template.totalsLabels.netAmount}</Text>
+            <Text>{roundedTotal.toFixed(2)}</Text>
           </View>
         </View>
       </View>
+
+      <View style={styles.footerRow}>
+        <View style={styles.termsCol}>
+          <Text style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: 3 }}>
+            {sanitizePdfText(template.termsTitle)}
+          </Text>
+          {template.termsLines.map((t, i) => (
+            <Text key={`term-${i}`}>
+              {i + 1}. {sanitizePdfText(t)}
+            </Text>
+          ))}
+          <Text style={{ marginTop: 4, fontStyle: 'italic' }}>{sanitizePdfText(template.jurisdictionLine)}</Text>
+        </View>
+        <View style={styles.bankCol}>
+          {template.bankLines.map((line, i) => (
+            <Text key={`bank-${i}`}>{sanitizePdfText(line)}</Text>
+          ))}
+        </View>
+        <View style={styles.signCol}>
+          <Text style={{ fontWeight: 'bold' }}>
+            {template.authorisedForPrefix} {sanitizePdfText(shopDisplay)}
+          </Text>
+          <View style={styles.signLine}>
+            <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {compliance?.irn || ewayBillNo ? (
+        <Text style={styles.eRef}>
+          {sanitizePdfText(template.electronicRefLabel)}{' '}
+          {sanitizePdfText(compliance?.irn || ewayBillNo || '')}
+        </Text>
+      ) : (
+        <Text style={styles.eRef}>{sanitizePdfText(template.electronicRefLabel)}</Text>
+      )}
     </Page>
   )
 }
 
-export function ErpMarlechaTaxInvoicePdfDocument(props: ErpMarlechaPdfProps) {
+export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoiceProps) {
   const lines = useMemo(() => groupMarlechaInvoiceLines(props.bill.lines ?? []), [props.bill.lines])
   const session = (props.bill.session && typeof props.bill.session === 'object'
     ? props.bill.session
     : {}) as Record<string, unknown>
-  const template = props.template ?? DEFAULT_MARLECHA_SALES_INVOICE_TEMPLATE
+
+  const template = useMemo(() => {
+    const raw = props.templateConfig
+      ? normalizeTaxInvoiceTemplate(props.templateConfig)
+      : DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE
+    return mergeTemplateWithGstSettings(raw, props.gst, props.bank)
+  }, [props.templateConfig, props.gst, props.bank])
+
+  const pageProps = { ...props, lines, session, template }
 
   return (
     <Document>
-      {template.copyLabels.map((pageCopyLabel, idx) => (
-        <MarlechaChallanPage
-          key={`copy-${idx}`}
-          {...props}
-          lines={lines}
-          session={session}
-          pageCopyLabel={pageCopyLabel}
-          template={template}
-        />
-      ))}
+      <InvoicePage copyLabel={template.copyLabels[0]} {...pageProps} />
+      <InvoicePage copyLabel={template.copyLabels[1]} {...pageProps} />
+      <InvoicePage copyLabel={template.copyLabels[2]} {...pageProps} />
     </Document>
   )
 }
 
-export type { ErpTaxInvoicePdfDocumentProps }
+/** @deprecated use ErpConfigurableTaxInvoicePdfDocument */
+export function ErpMarlechaTaxInvoicePdfDocument(props: ErpTaxInvoicePdfDocumentProps & { templateConfig?: ErpTaxInvoiceTemplateConfig | null }) {
+  return <ErpConfigurableTaxInvoicePdfDocument {...props} />
+}
