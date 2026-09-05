@@ -77,10 +77,10 @@ export function createManualBillLine(
   return applyPieceSlabToLine(base, slab)
 }
 
-/** Tab order for manual entry rows after SKU is chosen */
+/** Tab order for manual entry rows — SKU first after A/S/B shortcut */
 export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
-  'style_code',
   'sku',
+  'style_code',
   'weightGm',
   'gross_weight',
   'bags',
@@ -93,6 +93,26 @@ export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'box_charges',
   'stone_charges',
 ]
+
+export function flatSkusFromCatalog(
+  catalog: DesignBillingStyle[],
+): { sku: string; style_code: string; product_name?: string | null }[] {
+  const out: { sku: string; style_code: string; product_name?: string | null }[] = []
+  for (const s of catalog) {
+    for (const sk of s.skus) {
+      out.push({ sku: sk.sku, style_code: s.style_code, product_name: sk.product_name })
+    }
+  }
+  return out.sort((a, b) => a.sku.localeCompare(b.sku))
+}
+
+export function findStyleForSku(catalog: DesignBillingStyle[], sku: string): string | null {
+  const q = sku.trim().toUpperCase()
+  for (const s of catalog) {
+    if (s.skus.some((sk) => sk.sku.toUpperCase() === q)) return s.style_code
+  }
+  return null
+}
 
 export function nextManualEntryField(current: keyof ErpBillLine): keyof ErpBillLine | null {
   const idx = MANUAL_ENTRY_FIELD_ORDER.indexOf(current)

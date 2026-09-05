@@ -123,7 +123,7 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
         const url = URL.createObjectURL(res.data)
         const a = document.createElement('a')
         a.href = url
-        a.download = `ledger-${selected.name.replace(/\W+/g, '_')}.csv`
+        a.download = `payment ledger-${selected.name.replace(/\W+/g, '_')}.csv`
         a.click()
         URL.revokeObjectURL(url)
         setMsg('Excel (CSV) downloaded.')
@@ -145,7 +145,7 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
   return (
     <div className={`${erpCardCls} space-y-3`}>
       <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-        {laneMode ? 'Customer lane ledger' : 'Customer account'}
+        {laneMode ? 'Customer payment ledger' : 'Customer payment ledger'}
       </p>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-jewelry-black,#1a1814)]/40" />

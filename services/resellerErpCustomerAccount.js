@@ -102,7 +102,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             sort_id: s.id,
             kind: 'sale',
             ref: s.bill_number,
-            description: 'GST sale',
+            description: `(V NO: ${s.bill_number}) SALES A/C -`,
             debit: Number(s.total_inr) || 0,
             credit: 0,
             lane: 'gst',
@@ -116,7 +116,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
                 sort_id: s.id,
                 kind: 'shadow_sale',
                 ref: s.bill_number,
-                description: s.lane === 'hitesh' ? 'Hitesh' : 'Jainav',
+                description: `(V NO: ${s.bill_number}) SALES A/C -`,
                 debit: Number(s.total_inr) || 0,
                 credit: 0,
                 lane: s.lane,
@@ -183,10 +183,17 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     };
 }
 
+function fmtLedgerDate(iso) {
+    if (!iso) return '';
+    const parts = String(iso).slice(0, 10).split('-');
+    if (parts.length !== 3) return iso;
+    return `${parts[2]}-${parts[1]}-${parts[0].slice(2)}`;
+}
+
 function customerAccountToCsv(account) {
     const lines = [];
     const push = (row) => lines.push(row.map(accountCsvEscape).join(','));
-    push(['Customer account statement']);
+    push(['Payment ledger']);
     push(['Customer', account.customer.name]);
     if (account.customer.mobile) push(['Mobile', account.customer.mobile]);
     if (account.customer.gstin) push(['GSTIN', account.customer.gstin]);
@@ -195,16 +202,19 @@ function customerAccountToCsv(account) {
     push(['Total paid', account.summary.total_paid_inr]);
     push(['Balance due', account.summary.balance_due_inr]);
     lines.push('');
-    push(['Date', 'Type', 'Reference', 'Description', 'Debit', 'Credit', 'Balance']);
+    push(['DATE', 'PARTICULARS', 'REF. DATE', 'DEBIT', 'CREDIT', 'BALANCE']);
     for (const t of account.transactions) {
+        const particulars =
+            t.kind === 'sale' || t.kind === 'shadow_sale'
+                ? `(V NO: ${t.ref}) SALES A/C -`
+                : t.description || t.kind;
         push([
-            t.date,
-            t.kind,
-            t.ref,
-            t.description,
-            t.debit || '',
-            t.credit || '',
-            t.balance_inr,
+            fmtLedgerDate(t.date),
+            particulars,
+            t.credit > 0 ? fmtLedgerDate(t.date) : '',
+            t.debit ? Number(t.debit).toFixed(2) : '',
+            t.credit ? Number(t.credit).toFixed(2) : '',
+            Number(t.balance_inr).toFixed(2),
         ]);
     }
     return lines.join('\r\n');

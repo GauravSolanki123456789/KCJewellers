@@ -90,16 +90,16 @@ function inferPaymentMethodFromSession(session, fallback) {
     return 'cash';
 }
 
-function classifyLane({ customerGstin, paymentMethod, laneOverride, session }) {
+function classifyLane({ paymentMethod, laneOverride, session }) {
     const lane = String(laneOverride || '').trim().toLowerCase();
-    if (lane === 'hitesh' || lane === 'jainav') return lane;
+    if (lane === 'jainav') return 'jainav';
     const pay = String(paymentMethod || 'cash').trim().toLowerCase();
-    if (pay === 'mixed') {
-        const online = Number(session?.onlineAmountInr) || 0;
-        return online > 0 ? 'hitesh' : 'jainav';
+    if (pay === 'cash') {
+        const collected = session?.collectedAmountInr;
+        if (collected != null && String(collected).trim() !== '' && Number.isFinite(Number(collected))) {
+            return 'jainav';
+        }
     }
-    const online = ['upi', 'card', 'online', 'bank', 'neft', 'rtgs', 'cheque', 'gpay', 'phonepe', 'paytm'].includes(pay);
-    if (online) return 'hitesh';
     return 'jainav';
 }
 
@@ -113,7 +113,6 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     const customerGstin = trimStr(sessionObj.customerGst || body.customer_gstin, 20);
     const paymentMethod = inferPaymentMethodFromSession(sessionObj, body.payment_method);
     const lane = classifyLane({
-        customerGstin,
         paymentMethod,
         laneOverride: body.lane,
         session: sessionObj,
@@ -128,7 +127,7 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
         err.conflicts = conflicts;
         throw err;
     }
-    const billNumber = await nextShadowBillNumber(query, resellerUserId, lane);
+    const billNumber = await nextShadowBillNumber(query, resellerUserId);
     const sessionJson = JSON.stringify(sessionObj);
     const rows = await query(
         `INSERT INTO reseller_erp_shadow_bills (
@@ -225,9 +224,7 @@ async function loadOfficialGstSalesAsHitesh(query, resellerUserId, from, to) {
          ORDER BY bill_date, id`,
         [resellerUserId, from, to || from],
     );
-    return rows
-        .filter((row) => hasValidGstin(parseSessionJson(row.session_json).customerGst))
-        .map(mapOfficialGstSaleToHiteshRow);
+    return rows.map(mapOfficialGstSaleToHiteshRow);
 }
 
 async function loadUnifiedLaneBills(query, resellerUserId, { lane, from, to }) {
@@ -313,26 +310,23 @@ async function loadShadowSettings(query, resellerUserId) {
     };
 }
 
-async function nextShadowBillNumber(query, resellerUserId, lane) {
-    const prefix = lane === 'hitesh' ? 'SH-H' : 'SH-J';
+async function nextShadowBillNumber(query, resellerUserId) {
     const now = new Date();
-    const dd = String(now.getDate()).padStart(2, '0');
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const yy = String(now.getFullYear() % 100).padStart(2, '0');
-    const datePart = `${dd}${mm}${yy}`;
-    const billPrefix = `${prefix}${datePart}`;
+    const billPrefix = `SCB${mm}${yy}-`;
     const rows = await query(
         `SELECT bill_number FROM reseller_erp_shadow_bills
          WHERE reseller_user_id = $1 AND bill_number LIKE $2
          ORDER BY id DESC LIMIT 1`,
-        [resellerUserId, `${billPrefix}-%`],
+        [resellerUserId, `${billPrefix}%`],
     );
     let seq = 1;
     if (rows.length) {
         const m = String(rows[0].bill_number).match(/-(\d+)$/);
         if (m) seq = parseInt(m[1], 10) + 1;
     }
-    return `${billPrefix}-${String(seq).padStart(5, '0')}`;
+    return `${billPrefix}${seq}`;
 }
 
 function requireShadowUnlocked() {
@@ -626,16 +620,15 @@ function stockSummaryCsv(summary, meta = {}) {
 }
 
 function shouldRouteSaleToShadowLedger(sessionObj) {
-    if (!sessionObj || typeof sessionObj !== 'object') return true;
-    if (!hasValidGstin(sessionObj.customerGst)) return true;
-    const paymentMethod = inferPaymentMethodFromSession(sessionObj);
-    const pay = String(paymentMethod || 'cash').trim().toLowerCase();
-    if (pay === 'cash') return true;
-    if (pay === 'mixed') {
-        const online = Number(sessionObj.onlineAmountInr) || 0;
-        return online <= 0;
-    }
-    return false;
+    if (!sessionObj || typeof sessionObj !== 'object') return false;
+    const pay = String(sessionObj.paymentMethod || sessionObj.payment_method || 'bank')
+        .trim()
+        .toLowerCase();
+    if (pay !== 'cash') return false;
+    const collected = sessionObj.collectedAmountInr ?? sessionObj.collected_amount_inr;
+    if (collected == null || String(collected).trim() === '') return false;
+    const n = Number(collected);
+    return Number.isFinite(n) && n >= 0;
 }
 
 function registerShadowRoutes(app, deps) {
@@ -754,7 +747,7 @@ function registerShadowRoutes(app, deps) {
             if (conflicts.length) {
                 return res.status(409).json({ error: 'One or more items are already sold', conflicts });
             }
-            const billNumber = await nextShadowBillNumber(query, req.user.id, lane);
+            const billNumber = await nextShadowBillNumber(query, req.user.id);
             const op = getSessionOperator(req);
             const sessionJson = req.body.session && typeof req.body.session === 'object'
                 ? JSON.stringify(req.body.session)

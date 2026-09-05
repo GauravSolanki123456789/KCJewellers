@@ -322,11 +322,28 @@ function billTypePrefix(billType) {
     if (billType === 'estimate') return 'ESTIMATE';
     if (billType === 'credit') return 'CREDIT';
     if (billType === 'order') return 'ORDER';
-    return 'SALE';
+    return 'SCB';
 }
 
 async function nextBillNumber(query, userId, billType) {
     const prefix = billTypePrefix(billType);
+    if (billType === 'sale') {
+        const rows = await query(
+            `SELECT bill_number FROM reseller_erp_bills
+             WHERE reseller_user_id = $1 AND bill_type = 'sale'
+               AND bill_number ~ '^SCB[0-9]+$'`,
+            [userId],
+        );
+        const used = new Set();
+        const re = /^SCB(\d+)$/;
+        for (const row of rows) {
+            const m = re.exec(String(row.bill_number || '').trim());
+            if (m) used.add(parseInt(m[1], 10));
+        }
+        let n = 1;
+        while (used.has(n)) n += 1;
+        return `SCB${String(n).padStart(3, '0')}`;
+    }
     const rows = await query(
         `SELECT bill_number FROM reseller_erp_bills
          WHERE reseller_user_id = $1 AND bill_type = $2 AND bill_number ~ $3`,
@@ -340,7 +357,8 @@ async function nextBillNumber(query, userId, billType) {
     }
     let n = 1;
     while (used.has(n)) n += 1;
-    return `${prefix}-${String(n).padStart(4, '0')}`;
+    const pad = billType === 'estimate' ? 3 : 4;
+    return `${prefix}-${String(n).padStart(pad, '0')}`;
 }
 
 function mapCustomer(row) {

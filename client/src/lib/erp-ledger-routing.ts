@@ -9,25 +9,27 @@ export function hasValidGstin(gst: string | null | undefined): boolean {
 
 export function previewLedgerLane(
   paymentMethod: ErpPaymentMethod,
-  cashAmountInr?: string | number | null,
-  onlineAmountInr?: string | number | null,
+  collectedAmountInr?: string | number | null,
 ): 'hitesh' | 'jainav' {
-  if (paymentMethod === 'mixed') {
-    const online = Number(onlineAmountInr) || 0
-    return online > 0 ? 'hitesh' : 'jainav'
+  if (paymentMethod === 'cash') {
+    const n = Number(collectedAmountInr)
+    if (Number.isFinite(n) && collectedAmountInr != null && String(collectedAmountInr).trim() !== '') {
+      return 'jainav'
+    }
   }
-  if (['upi', 'gpay', 'card', 'bank'].includes(paymentMethod)) return 'hitesh'
-  return 'jainav'
+  return 'hitesh'
 }
 
+/** Cash bills with amount received go to Jainav ledger; all other payments → official GST (SCB001…). */
 export function shouldRouteSaleToShadow(session: {
   customerGst?: string | null
   paymentMethod?: string | null
-  onlineAmountInr?: number | string | null
+  collectedAmountInr?: number | string | null
 }): boolean {
-  if (!hasValidGstin(session.customerGst)) return true
-  const pay = String(session.paymentMethod || 'cash').trim().toLowerCase()
-  if (pay === 'cash') return true
-  if (pay === 'mixed') return !(Number(session.onlineAmountInr) > 0)
-  return false
+  const pay = String(session.paymentMethod || 'bank').trim().toLowerCase()
+  if (pay !== 'cash') return false
+  const collected = session.collectedAmountInr
+  if (collected == null || String(collected).trim() === '') return false
+  const n = Number(collected)
+  return Number.isFinite(n) && n >= 0
 }

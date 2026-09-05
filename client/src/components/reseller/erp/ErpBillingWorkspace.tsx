@@ -55,6 +55,8 @@ import {
   createManualBillLine,
   filterSkusForStyle,
   findInvoiceItemForCategory,
+  findStyleForSku,
+  flatSkusFromCatalog,
   nextManualEntryField,
   resolveBillingScanShortcut,
   type DesignBillingStyle,
@@ -803,7 +805,22 @@ export function ErpBillingWorkspace() {
         const line = recalcLine(createManualBillLine(shortcut, invoiceItem, rateSlab))
         setLines((prev) => [...prev, line])
         setScanCode('')
-        focusManualCell(line.code || `manual-${Date.now()}`, 'style_code')
+        const lineKey = line.code || `manual-${Date.now()}`
+        void loadDisplayRates().then((rates) => {
+          const pg = displayRatesToPerGram(rates)
+          setLines((prev) =>
+            prev.map((l) =>
+              l.code === lineKey
+                ? recalcLine(l, {
+                    rates,
+                    goldPerG: pg.gold,
+                    silverPerG: pg.silver,
+                  })
+                : l,
+            ),
+          )
+        })
+        focusManualCell(lineKey, 'sku')
       } catch (e) {
         setScanErrorMsg(erpErr(e))
         setScanCode('')
@@ -914,7 +931,7 @@ export function ErpBillingWorkspace() {
   }
 
   const applyDesignDefaults = useCallback(
-    async (lineIdx: number, styleCode: string, sku: string) => {
+    async (lineIdx: number, styleCode: string, sku: string, afterApply?: () => void) => {
       try {
         const res = await axios.get<{ defaults: Record<string, unknown> | null }>(
           '/api/reseller/erp/design-master/lookup',
@@ -923,6 +940,7 @@ export function ErpBillingWorkspace() {
         const d = res.data.defaults
         if (!d) {
           updateLine(lineIdx, { style_code: styleCode, sku, name: sku })
+          afterApply?.()
           return
         }
         setLines((prev) =>
@@ -930,7 +948,9 @@ export function ErpBillingWorkspace() {
             if (i !== lineIdx) return l
             const num = (k: string) => {
               const v = d[k]
-              return v != null && v !== '' ? Number(v) : null
+              if (v == null || v === '') return null
+              const n = Number(v)
+              return Number.isFinite(n) ? n : null
             }
             return recalcLine({
               ...l,
@@ -953,8 +973,10 @@ export function ErpBillingWorkspace() {
             })
           }),
         )
+        afterApply?.()
       } catch {
         updateLine(lineIdx, { style_code: styleCode, sku, name: sku })
+        afterApply?.()
       }
     },
     [recalcLine],
@@ -1131,9 +1153,9 @@ export function ErpBillingWorkspace() {
   const isOfficialGstBill = !shouldRouteSaleToShadow({
     customerGst,
     paymentMethod,
-    onlineAmountInr,
+    collectedAmountInr: parsedCollected,
   })
-  const previewLane = previewLedgerLane(paymentMethod, cashAmountInr, onlineAmountInr)
+  const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr)
 
   const buildPayload = (billType: 'sale' | 'estimate', status: string) => ({
     bill_type: billType,
@@ -1345,15 +1367,15 @@ export function ErpBillingWorkspace() {
       case 'size':
         return line.size || '—'
       case 'weightGm':
-        return line.weightGm ?? ''
+        return line.weightGm != null && Number.isFinite(Number(line.weightGm)) ? line.weightGm : ''
       case 'gross_weight':
-        return line.gross_weight ?? ''
+        return line.gross_weight != null && Number.isFinite(Number(line.gross_weight)) ? line.gross_weight : ''
       case 'bags':
         return line.bags ?? ''
       case 'bag_wt':
-        return line.bag_wt ?? ''
+        return line.bag_wt != null && Number.isFinite(Number(line.bag_wt)) ? line.bag_wt : ''
       case 'purity':
-        return line.purity ?? ''
+        return line.purity != null && Number.isFinite(Number(line.purity)) ? line.purity : ''
       case 'wastage_pct':
         return billingWastageDisplay(line, rateSlab, goldSlabRShowMc)
       case 'ratePerGram':
@@ -1858,12 +1880,6 @@ export function ErpBillingWorkspace() {
                 {scanBusy ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
               </button>
             </div>
-            <p className="mt-2 text-[10px] text-blue-900/55">
-              USB scanner, type &amp; Enter, or tap the camera icon. Shortcuts:{' '}
-              <span className="font-semibold">A</span> = Silver Articles,{' '}
-              <span className="font-semibold">S</span> = Silver Jewellery,{' '}
-              <span className="font-semibold">B</span> = Silver Bullion.
-            </p>
             {(duplicateScanMsg || scanErrorMsg) ? (
               <div
                 ref={duplicateBannerRef}
@@ -2013,11 +2029,18 @@ export function ErpBillingWorkspace() {
                                 inputRef={(el) => {
                                   manualCellRefs.current[refKey] = el
                                 }}
-                                onChange={(v) => updateLine(idx, { style_code: v || undefined, sku: undefined })}
+                                onChange={(v) => updateLine(idx, { style_code: v || undefined })}
                                 onCommit={(v) => {
                                   if (!v) return
-                                  updateLine(idx, { style_code: v, sku: undefined })
-                                  advanceManualField(lineKey, 'style_code')
+                                  const style = v.trim().toUpperCase()
+                                  if (line.sku) {
+                                    void applyDesignDefaults(idx, style, String(line.sku), () => {
+                                      focusManualCell(lineKey, 'weightGm')
+                                    })
+                                    return
+                                  }
+                                  updateLine(idx, { style_code: style })
+                                  focusManualCell(lineKey, 'sku')
                                 }}
                               />
                             </td>
@@ -2026,14 +2049,15 @@ export function ErpBillingWorkspace() {
 
                         if (line.manualEntry && col.key === 'sku') {
                           const refKey = `${lineKey}-sku`
+                          const flatSkus = flatSkusFromCatalog(catalog)
                           const skuOptions = line.style_code
                             ? filterSkusForStyle(catalog, String(line.style_code), skuDraft)
-                            : []
+                            : flatSkus.map((x) => x.sku)
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <ErpBillingStyleSkuCell
                                 value={skuDraft === '—' ? '' : skuDraft}
-                                placeholder={line.style_code ? 'SKU…' : 'Pick style first'}
+                                placeholder="SKU…"
                                 options={skuOptions}
                                 autoFocus={manualFocus?.lineKey === lineKey && manualFocus.field === 'sku'}
                                 inputRef={(el) => {
@@ -2041,9 +2065,13 @@ export function ErpBillingWorkspace() {
                                 }}
                                 onChange={(v) => updateLine(idx, { sku: v || undefined })}
                                 onCommit={(v) => {
-                                  if (!v || !line.style_code) return
-                                  void applyDesignDefaults(idx, String(line.style_code), v).then(() => {
-                                    advanceManualField(lineKey, 'sku')
+                                  if (!v) return
+                                  const sku = v.trim().toUpperCase()
+                                  const styleCode =
+                                    findStyleForSku(catalog, sku) || String(line.style_code || '')
+                                  if (!styleCode) return
+                                  void applyDesignDefaults(idx, styleCode, sku, () => {
+                                    focusManualCell(lineKey, 'weightGm')
                                   })
                                 }}
                               />
@@ -2114,7 +2142,10 @@ export function ErpBillingWorkspace() {
                                         : numKeys.includes(k)
                                           ? v === ''
                                             ? null
-                                            : Number(v)
+                                            : (() => {
+                                                const n = parseFloat(v)
+                                                return Number.isFinite(n) ? n : null
+                                              })()
                                           : v,
                                   } as Partial<ErpBillLine>
                                   if (k === 'ratePerGram') {
