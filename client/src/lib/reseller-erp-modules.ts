@@ -219,9 +219,9 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
   },
   {
     id: 'e-invoice',
-    title: 'E-invoice API',
+    title: 'E-invoice format & API',
     short: 'E-invoice',
-    description: '',
+    description: 'Upload e-invoice PDF layout + GSTZen API',
     icon: Building2,
     group: 'compliance',
     kind: 'settings',

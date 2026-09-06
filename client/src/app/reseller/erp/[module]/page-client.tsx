@@ -90,6 +90,14 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'gst':
       return (
         <div className="space-y-4">
+          <p className="rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs leading-relaxed text-blue-950">
+            <span className="font-semibold">Sales bill PDF (3 pages):</span> upload your sample below. For{' '}
+            <span className="font-semibold">e-invoice PDF (1 page + IRN/QR)</span>, use{' '}
+            <Link href="/reseller/erp/e-invoice" className="font-semibold underline">
+              ERP → E-invoice format &amp; API
+            </Link>
+            .
+          </p>
           <SettingsWorkspace
             settingsKey="gst"
             fields={[
@@ -128,6 +136,14 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'e-invoice':
       return (
         <div className="space-y-3">
+          <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50/80 px-4 py-3">
+            <p className="text-sm font-semibold text-emerald-950">Upload e-invoice PDF format</p>
+            <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
+              Upload your sample e-invoice receipt (e.g. Receipt with IRN &amp; QR). We scan it and match the layout for
+              all e-invoice PDF downloads from Completed sales.
+            </p>
+          </div>
+          <ErpTaxInvoiceTemplatePanel variant="e-invoice" />
           <p className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950">
             <span className="font-semibold">GSTZen sandbox:</span> Leave API key empty to use the demo token. Default URL:{' '}
             <span className="font-mono text-[11px]">my.gstzen.in/.../einvoice-json/</span>
@@ -149,7 +165,6 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
               { key: 'useSandbox', label: 'Use sandbox mode (yes/no)', placeholder: 'yes' },
             ]}
           />
-          <ErpTaxInvoiceTemplatePanel variant="e-invoice" compact />
         </div>
       )
     case 'e-way':

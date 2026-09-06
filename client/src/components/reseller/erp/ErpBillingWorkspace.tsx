@@ -313,6 +313,7 @@ export function ErpBillingWorkspace() {
   const [billingCatalogs, setBillingCatalogs] = useState<Record<string, DesignBillingStyle[]>>({})
   const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: keyof ErpBillLine } | null>(null)
   const [manualEditingCell, setManualEditingCell] = useState<string | null>(null)
+  const [numericCellDrafts, setNumericCellDrafts] = useState<Record<string, string>>({})
   const manualCellRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const quoteOutputMode = useMemo(
@@ -1456,6 +1457,58 @@ export function ErpBillingWorkspace() {
     return String(raw ?? '')
   }
 
+  const DECIMAL_NUMERIC_KEYS = new Set([
+    'weightGm',
+    'gross_weight',
+    'bag_wt',
+    'purity',
+    'wastage_pct',
+    'ratePerGram',
+    'mc_rate',
+    'qty',
+    'box_charges',
+    'stone_charges',
+    'fixed_price',
+  ])
+
+  const numericCellRefKey = (rowIdx: number, key: string) => `${rowIdx}-${key}`
+
+  const getNumericCellDisplay = (rowIdx: number, key: string, line: ErpBillLine, lineKey: string): string => {
+    const refKey = numericCellRefKey(rowIdx, key)
+    if (refKey in numericCellDrafts) return numericCellDrafts[refKey]
+    if (line.manualEntry) return manualInputDisplayValue(lineKey, key, line)
+    const raw = cellVal(line, key)
+    return raw === null || raw === undefined ? '' : String(raw)
+  }
+
+  const commitNumericCell = (rowIdx: number, key: keyof ErpBillLine, line: ErpBillLine) => {
+    const refKey = numericCellRefKey(rowIdx, String(key))
+    if (!(refKey in numericCellDrafts)) return
+    const v = numericCellDrafts[refKey].trim()
+    const patch: Partial<ErpBillLine> = {
+      [key]:
+        v === ''
+          ? null
+          : (() => {
+              const n = parseFloat(v)
+              return Number.isFinite(n) ? n : null
+            })(),
+    } as Partial<ErpBillLine>
+    if (key === 'ratePerGram') {
+      patch.rateLocked = v !== ''
+    }
+    if (line.manualEntry) {
+      updateManualLine(rowIdx, patch)
+    } else {
+      updateLine(rowIdx, patch)
+    }
+    setNumericCellDrafts((p) => {
+      const next = { ...p }
+      delete next[refKey]
+      return next
+    })
+  }
+
   if (!hydrated) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -2156,20 +2209,7 @@ export function ErpBillingWorkspace() {
                           const mcHint = k === 'mc_rate' ? billingMcDiscountHint(line, rateSlab, goldSlabRShowMc) : null
                           const refKey = `${lineKey}-${String(k)}`
                           const isManualFocused = line.manualEntry && manualFocus?.lineKey === lineKey && manualFocus.field === k
-                          const numKeys = [
-                            'weightGm',
-                            'gross_weight',
-                            'bag_wt',
-                            'purity',
-                            'wastage_pct',
-                            'ratePerGram',
-                            'mc_rate',
-                            'qty',
-                            'box_charges',
-                            'stone_charges',
-                            'fixed_price',
-                          ]
-                          const isNumericManual = line.manualEntry && numKeys.includes(String(k))
+                          const isNumericField = DECIMAL_NUMERIC_KEYS.has(String(k))
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <input
@@ -2177,8 +2217,8 @@ export function ErpBillingWorkspace() {
                                   if (line.manualEntry) manualCellRefs.current[refKey] = el
                                 }}
                                 autoFocus={isManualFocused}
-                                type={isNumericManual ? 'text' : 'text'}
-                                inputMode={isNumericManual ? 'decimal' : 'text'}
+                                type="text"
+                                inputMode={isNumericField ? 'decimal' : 'text'}
                                 className={`w-full min-w-[52px] rounded border px-1 py-1 tabular-nums ${
                                   line.manualEntry
                                     ? 'border-emerald-300 bg-white text-[var(--color-jewelry-black,#1a1814)]'
@@ -2191,35 +2231,46 @@ export function ErpBillingWorkspace() {
                                     : undefined
                                 }
                                 value={
-                                  line.manualEntry
-                                    ? manualInputDisplayValue(lineKey, String(k), line)
-                                    : String(cellVal(line, col.key) ?? '')
+                                  isNumericField
+                                    ? getNumericCellDisplay(idx, String(k), line, lineKey)
+                                    : line.manualEntry
+                                      ? manualInputDisplayValue(lineKey, String(k), line)
+                                      : String(cellVal(line, col.key) ?? '')
                                 }
                                 onFocus={() => {
+                                  if (isNumericField) {
+                                    const draftKey = numericCellRefKey(idx, String(k))
+                                    const raw = cellVal(line, k)
+                                    setNumericCellDrafts((p) => ({
+                                      ...p,
+                                      [draftKey]: raw === null || raw === undefined ? '' : String(raw),
+                                    }))
+                                  }
                                   if (line.manualEntry) setManualEditingCell(refKey)
                                 }}
                                 onBlur={() => {
+                                  if (isNumericField) commitNumericCell(idx, k as keyof ErpBillLine, line)
                                   if (manualEditingCell === refKey) setManualEditingCell(null)
                                 }}
                                 onChange={(e) => {
                                   if (goldSlabRField) return
                                   const v = e.target.value
+                                  const kStr = String(k)
+                                  if (isNumericField) {
+                                    if (v === '' || /^-?\d*\.?\d*$/.test(v)) {
+                                      setNumericCellDrafts((p) => ({
+                                        ...p,
+                                        [numericCellRefKey(idx, kStr)]: v,
+                                      }))
+                                    }
+                                    return
+                                  }
                                   const patch: Partial<ErpBillLine> = {
                                     [k]:
                                       k === 'bags' || k === 'mc_type'
                                         ? v || null
-                                        : numKeys.includes(k)
-                                          ? v === ''
-                                            ? null
-                                            : (() => {
-                                                const n = parseFloat(v)
-                                                return Number.isFinite(n) ? n : null
-                                              })()
-                                          : v,
+                                        : v,
                                   } as Partial<ErpBillLine>
-                                  if (k === 'ratePerGram') {
-                                    patch.rateLocked = v !== ''
-                                  }
                                   if (line.manualEntry) {
                                     updateManualLine(idx, patch)
                                   } else {
