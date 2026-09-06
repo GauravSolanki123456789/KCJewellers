@@ -14,7 +14,7 @@ import {
   resolveErpSilverMetalRatePerG,
   pieceSlabMcRate,
 } from '@/lib/erp-piece-slab-pricing'
-import type { Item } from '@/lib/pricing'
+import type { Item, PriceBreakdown } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
 export type ErpRateSlab = 'R' | 'W' | 'F'
@@ -138,6 +138,25 @@ export function resolveLineDisplayRates(
   return base
 }
 
+/** Gift / MRP / fixed piece-rate rows (qty × fixed price, no weight-based metal math). */
+export function isPiecePricedBillLine(line: ErpBillLine): boolean {
+  if (line.mrpMode || line.manualCategory === 'gift') return true
+  const pieceRate = Number(line.unitInr ?? line.fixed_price ?? 0)
+  const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0)
+  return pieceRate > 0 && wt <= 0
+}
+
+export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
+  const qty = Math.max(1, Number(line.qty) || 1)
+  const pieceRate = Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram) || 0
+  return {
+    ...line,
+    qty,
+    unitInr: pieceRate > 0 ? pieceRate : line.unitInr,
+    lineTotalInr: Math.round(qty * pieceRate * 100) / 100,
+  }
+}
+
 export function computeLineBreakdown(
   line: ErpBillLine,
   displayRates: unknown,
@@ -149,6 +168,23 @@ export function computeLineBreakdown(
   silverPerG = 0,
   goldSlabRShowMc = true,
 ) {
+  if (isPiecePricedBillLine(line)) {
+    const priced = applyPiecePricedLineCalc(line)
+    const total = Number(priced.lineTotalInr) || 0
+    const gstPct = 3
+    const taxable = total / (1 + gstPct / 100)
+    const gstAmt = total - taxable
+    return {
+      metal: 0,
+      mc: 0,
+      stone: 0,
+      cgst: gstAmt / 2,
+      sgst: gstAmt / 2,
+      taxable,
+      total,
+    } satisfies PriceBreakdown
+  }
+
   const metal = String(line.metal_type || '').toLowerCase()
   if (lineHasPieceSlabFields(line) && metal.startsWith('silver')) {
     const adjusted = applyPieceSlabToLine(line, slab)

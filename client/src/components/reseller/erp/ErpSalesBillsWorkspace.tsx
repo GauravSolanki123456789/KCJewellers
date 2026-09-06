@@ -306,17 +306,6 @@ export function ErpSalesBillsWorkspace() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2.5 text-xs leading-relaxed text-blue-950">
-        <span className="font-semibold">Invoice PDF formats:</span> Upload your sample{' '}
-        <Link href={resellerErpModulePath('gst')} className="font-semibold underline">
-          sales bill layout (GST)
-        </Link>{' '}
-        and{' '}
-        <Link href={resellerErpModulePath('e-invoice')} className="font-semibold underline">
-          e-invoice PDF format (1 page + IRN/QR)
-        </Link>{' '}
-        so downloaded PDFs match your receipts.
-      </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <Receipt className="size-4 text-emerald-700" />

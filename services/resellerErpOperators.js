@@ -76,7 +76,8 @@ function operatorCanAccessModule(op, moduleId) {
     if (!op) return false;
     if (op.role === 'admin' || op.fullAccess) return true;
     if (moduleId === 'erp-users') return op.role === 'admin';
-    return (op.allowedModules || []).includes(moduleId);
+    const target = normalizeModuleId(moduleId);
+    return (op.allowedModules || []).some((m) => normalizeModuleId(m) === target);
 }
 
 function requireErpOperatorSession() {
@@ -139,9 +140,26 @@ function trimUsername(v) {
         .slice(0, 64);
 }
 
+const MODULE_ALIASES = {
+    einvoice: 'e-invoice',
+    eway: 'e-way',
+    'rate-uncut': 'rol',
+};
+
+function normalizeModuleId(id) {
+    const raw = String(id || '').trim();
+    return MODULE_ALIASES[raw] || raw;
+}
+
 function normalizeModules(list) {
     if (!Array.isArray(list)) return [];
-    return [...new Set(list.map((m) => String(m || '').trim()).filter((m) => ALL_MODULE_IDS.includes(m)))];
+    return [
+        ...new Set(
+            list
+                .map((m) => normalizeModuleId(m))
+                .filter((m) => ALL_MODULE_IDS.includes(m)),
+        ),
+    ];
 }
 
 async function hashPassword(password) {

@@ -35,15 +35,9 @@ import {
 type Variant = 'bill' | 'e-invoice' | 'e-way'
 
 const VARIANT_HINT: Record<Variant, string> = {
-  bill: 'Sales bill PDF — 3 A4 pages (Original / Duplicate / Triplicate)',
-  'e-invoice': 'E-invoice PDF — 1 page with IRN, ACK & QR code block',
-  'e-way': 'E-way PDF — same layout + E-Way Bill number',
-}
-
-const VARIANT_TITLE: Record<Variant, string> = {
-  bill: 'Sales bill PDF format',
-  'e-invoice': 'E-invoice PDF format',
-  'e-way': 'E-way bill PDF format',
+  bill: 'Sales bill PDF (3 A4 pages)',
+  'e-invoice': 'E-invoice PDF uses the same layout + IRN / QR block',
+  'e-way': 'E-way PDF uses the same layout + E-Way Bill number',
 }
 
 type Props = {
@@ -156,7 +150,6 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
           customerAddress={(bill.session as { address?: string })?.address}
           templateConfig={templateConfig}
           ewayBillNo={variant === 'e-way' ? '123456789012' : null}
-          variant={variant === 'e-invoice' ? 'einvoice' : 'bill'}
           compliance={
             variant === 'e-invoice'
               ? {
@@ -215,16 +208,12 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-              {VARIANT_TITLE[variant]}
+              Tax invoice PDF format
             </p>
             <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
               {VARIANT_HINT[variant]}. Upload a sample invoice photo or PDF — we scan it line by line, then you
-              edit the layout like a notepad.
-              {variant === 'bill'
-                ? ' Output is 3 A4 pages: Original → Duplicate → Triplicate.'
-                : variant === 'e-invoice'
-                  ? ' Output is a single A4 page with IRN / QR.'
-                  : ' Output matches your bill layout with e-way details.'}
+              edit the layout like a notepad. Same format applies to bills, e-invoice, and e-way PDFs. Output is
+              3 A4 pages: Original → Duplicate → Triplicate.
             </p>
           </div>
           <button type="button" className={erpBtnGhost} onClick={applyMarlechaDefault}>
@@ -257,7 +246,7 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
           </button>
           <button type="button" className={erpBtnGhost} disabled={previewBusy} onClick={() => void runPreview()}>
             {previewBusy ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
-            Preview {variant === 'e-invoice' ? '1-page' : '3-page'} PDF
+            Preview 3-page PDF
           </button>
           <button type="button" className={erpBtnPrimary} disabled={saveBusy} onClick={() => void save()}>
             {saveBusy ? <Loader2 className="size-4 animate-spin" /> : saved ? <Check className="size-4" /> : <Save className="size-4" />}

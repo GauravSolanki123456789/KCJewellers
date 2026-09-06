@@ -77,7 +77,7 @@ export function createManualBillLine(
     hsn_code: invoiceItem.hsn,
     manualEntry: true,
     manualCategory: category,
-    mrpMode: isGiftOrMrp || undefined,
+    mrpMode: isGiftOrMrp ? true : undefined,
   }
   if (isGiftOrMrp) return base
   return applyPieceSlabToLine(base, slab)

@@ -37,6 +37,23 @@ type ErpOperatorContextValue = {
 
 const ErpOperatorContext = createContext<ErpOperatorContextValue | null>(null)
 
+/** Legacy module keys saved before ids were normalized (e.g. einvoice → e-invoice). */
+const ERP_MODULE_ALIASES: Record<string, string> = {
+  einvoice: 'e-invoice',
+  eway: 'e-way',
+  'rate-uncut': 'rol',
+}
+
+function normalizeErpModuleId(moduleId: string): string {
+  const id = String(moduleId || '').trim()
+  return ERP_MODULE_ALIASES[id] || id
+}
+
+function operatorHasModule(allowedModules: string[], moduleId: string): boolean {
+  const target = normalizeErpModuleId(moduleId)
+  return allowedModules.some((m) => normalizeErpModuleId(m) === target)
+}
+
 export function ErpOperatorProvider({ children }: { children: ReactNode }) {
   const [operator, setOperator] = useState<ErpOperator | null>(null)
   const [shadowUnlocked, setShadowUnlocked] = useState(false)
@@ -91,7 +108,7 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
       if (!operator) return false
       if (moduleId === 'erp-users') return operator.role === 'admin'
       if (operator.role === 'admin' || operator.fullAccess) return true
-      return operator.allowedModules.includes(moduleId)
+      return operatorHasModule(operator.allowedModules, moduleId)
     },
     [operator],
   )

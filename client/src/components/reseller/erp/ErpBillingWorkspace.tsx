@@ -7,9 +7,11 @@ import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
+  applyPiecePricedLineCalc,
   applyPieceSlabToLine,
   computeLineBreakdown,
   displayRatesToPerGram,
+  isPiecePricedBillLine,
   lineHasPieceSlabFields,
   parseRateSlabFromNotes,
   parseSlabSettingsFromUser,
@@ -152,6 +154,31 @@ const MANUAL_EXTRA_COLS: BillTableCol[] = [
   { key: 'bags', label: 'Bags', w: 'min-w-[52px]', edit: true },
   { key: 'bag_wt', label: 'BagWt', w: 'min-w-[56px]', edit: true },
 ]
+
+const NUMERIC_EDIT_KEYS: (keyof ErpBillLine)[] = [
+  'weightGm',
+  'gross_weight',
+  'bag_wt',
+  'bags',
+  'purity',
+  'wastage_pct',
+  'ratePerGram',
+  'mc_rate',
+  'qty',
+  'box_charges',
+  'stone_charges',
+  'fixed_price',
+]
+
+function isPartialDecimalInput(v: string): boolean {
+  return v === '' || v === '.' || /^-?\d*\.?\d*$/.test(v)
+}
+
+function parseNumericCellValue(v: string): number | null {
+  if (v === '' || v === '.' || v === '-') return null
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : null
+}
 
 function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'): ErpBillLine {
   const wt = p.net_weight ?? p.gross_weight ?? null
@@ -313,7 +340,7 @@ export function ErpBillingWorkspace() {
   const [billingCatalogs, setBillingCatalogs] = useState<Record<string, DesignBillingStyle[]>>({})
   const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: keyof ErpBillLine } | null>(null)
   const [manualEditingCell, setManualEditingCell] = useState<string | null>(null)
-  const [numericCellDrafts, setNumericCellDrafts] = useState<Record<string, string>>({})
+  const [cellDrafts, setCellDrafts] = useState<Record<string, string>>({})
   const manualCellRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const quoteOutputMode = useMemo(
@@ -375,15 +402,8 @@ export function ErpBillingWorkspace() {
         wholesaleSilver?: number | null
       },
     ): ErpBillLine => {
-      if (line.mrpMode || line.manualCategory === 'gift') {
-        const qty = Math.max(1, Number(line.qty) || 1)
-        const pieceRate = Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram) || 0
-        return {
-          ...line,
-          qty,
-          unitInr: pieceRate || line.unitInr,
-          lineTotalInr: Math.round(qty * pieceRate * 100) / 100,
-        }
+      if (isPiecePricedBillLine(line)) {
+        return applyPiecePricedLineCalc(line)
       }
       const slab = opts?.slab ?? rateSlab
       const rates = opts?.rates ?? displayRates
@@ -1448,8 +1468,9 @@ export function ErpBillingWorkspace() {
     }
   }
 
-  const manualInputDisplayValue = (lineKey: string, key: string, line: ErpBillLine): string => {
+  const cellInputDisplayValue = (lineKey: string, key: string, line: ErpBillLine): string => {
     const refKey = `${lineKey}-${key}`
+    if (cellDrafts[refKey] !== undefined) return cellDrafts[refKey]
     const raw = cellVal(line, key)
     if (manualEditingCell === refKey) {
       if (raw === 0 || raw === '0') return ''
@@ -1457,56 +1478,22 @@ export function ErpBillingWorkspace() {
     return String(raw ?? '')
   }
 
-  const DECIMAL_NUMERIC_KEYS = new Set([
-    'weightGm',
-    'gross_weight',
-    'bag_wt',
-    'purity',
-    'wastage_pct',
-    'ratePerGram',
-    'mc_rate',
-    'qty',
-    'box_charges',
-    'stone_charges',
-    'fixed_price',
-  ])
-
-  const numericCellRefKey = (rowIdx: number, key: string) => `${rowIdx}-${key}`
-
-  const getNumericCellDisplay = (rowIdx: number, key: string, line: ErpBillLine, lineKey: string): string => {
-    const refKey = numericCellRefKey(rowIdx, key)
-    if (refKey in numericCellDrafts) return numericCellDrafts[refKey]
-    if (line.manualEntry) return manualInputDisplayValue(lineKey, key, line)
-    const raw = cellVal(line, key)
-    return raw === null || raw === undefined ? '' : String(raw)
-  }
-
-  const commitNumericCell = (rowIdx: number, key: keyof ErpBillLine, line: ErpBillLine) => {
-    const refKey = numericCellRefKey(rowIdx, String(key))
-    if (!(refKey in numericCellDrafts)) return
-    const v = numericCellDrafts[refKey].trim()
+  const commitNumericCell = (idx: number, line: ErpBillLine, k: keyof ErpBillLine, raw: string) => {
     const patch: Partial<ErpBillLine> = {
-      [key]:
-        v === ''
-          ? null
-          : (() => {
-              const n = parseFloat(v)
-              return Number.isFinite(n) ? n : null
-            })(),
+      [k]: parseNumericCellValue(raw),
     } as Partial<ErpBillLine>
-    if (key === 'ratePerGram') {
-      patch.rateLocked = v !== ''
+    if (k === 'ratePerGram') {
+      patch.rateLocked = raw !== ''
+    }
+    if (k === 'fixed_price' && isPiecePricedBillLine({ ...line, ...patch })) {
+      const rate = parseNumericCellValue(raw)
+      if (rate != null) patch.unitInr = rate
     }
     if (line.manualEntry) {
-      updateManualLine(rowIdx, patch)
+      updateManualLine(idx, patch)
     } else {
-      updateLine(rowIdx, patch)
+      updateLine(idx, patch)
     }
-    setNumericCellDrafts((p) => {
-      const next = { ...p }
-      delete next[refKey]
-      return next
-    })
   }
 
   if (!hydrated) {
@@ -2209,7 +2196,7 @@ export function ErpBillingWorkspace() {
                           const mcHint = k === 'mc_rate' ? billingMcDiscountHint(line, rateSlab, goldSlabRShowMc) : null
                           const refKey = `${lineKey}-${String(k)}`
                           const isManualFocused = line.manualEntry && manualFocus?.lineKey === lineKey && manualFocus.field === k
-                          const isNumericField = DECIMAL_NUMERIC_KEYS.has(String(k))
+                          const isNumericField = NUMERIC_EDIT_KEYS.includes(k)
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <input
@@ -2232,44 +2219,50 @@ export function ErpBillingWorkspace() {
                                 }
                                 value={
                                   isNumericField
-                                    ? getNumericCellDisplay(idx, String(k), line, lineKey)
-                                    : line.manualEntry
-                                      ? manualInputDisplayValue(lineKey, String(k), line)
-                                      : String(cellVal(line, col.key) ?? '')
+                                    ? cellInputDisplayValue(lineKey, String(k), line)
+                                    : String(cellVal(line, col.key) ?? '')
                                 }
                                 onFocus={() => {
+                                  if (line.manualEntry) setManualEditingCell(refKey)
                                   if (isNumericField) {
-                                    const draftKey = numericCellRefKey(idx, String(k))
-                                    const raw = cellVal(line, k)
-                                    setNumericCellDrafts((p) => ({
-                                      ...p,
-                                      [draftKey]: raw === null || raw === undefined ? '' : String(raw),
+                                    const current = cellVal(line, String(k))
+                                    setCellDrafts((prev) => ({
+                                      ...prev,
+                                      [refKey]:
+                                        prev[refKey] ??
+                                        (current === 0 || current === '0' ? '' : String(current ?? '')),
                                     }))
                                   }
-                                  if (line.manualEntry) setManualEditingCell(refKey)
                                 }}
                                 onBlur={() => {
-                                  if (isNumericField) commitNumericCell(idx, k as keyof ErpBillLine, line)
                                   if (manualEditingCell === refKey) setManualEditingCell(null)
+                                  if (isNumericField) {
+                                    const draft = cellDrafts[refKey]
+                                    if (draft !== undefined) {
+                                      commitNumericCell(idx, line, k, draft)
+                                      setCellDrafts((prev) => {
+                                        const next = { ...prev }
+                                        delete next[refKey]
+                                        return next
+                                      })
+                                    }
+                                  }
                                 }}
                                 onChange={(e) => {
                                   if (goldSlabRField) return
                                   const v = e.target.value
-                                  const kStr = String(k)
                                   if (isNumericField) {
-                                    if (v === '' || /^-?\d*\.?\d*$/.test(v)) {
-                                      setNumericCellDrafts((p) => ({
-                                        ...p,
-                                        [numericCellRefKey(idx, kStr)]: v,
-                                      }))
+                                    if (!isPartialDecimalInput(v)) return
+                                    setCellDrafts((prev) => ({ ...prev, [refKey]: v }))
+                                    if (v !== '' && v !== '.' && !v.endsWith('.')) {
+                                      commitNumericCell(idx, line, k, v)
+                                    } else if (v === '') {
+                                      commitNumericCell(idx, line, k, v)
                                     }
                                     return
                                   }
                                   const patch: Partial<ErpBillLine> = {
-                                    [k]:
-                                      k === 'bags' || k === 'mc_type'
-                                        ? v || null
-                                        : v,
+                                    [k]: v || null,
                                   } as Partial<ErpBillLine>
                                   if (line.manualEntry) {
                                     updateManualLine(idx, patch)

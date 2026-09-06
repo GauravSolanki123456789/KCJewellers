@@ -28,6 +28,7 @@ import { RESELLER_ERP_PATH } from '@/lib/routes'
 import type { ErpNavVisibility } from '@/lib/erp-nav-visibility'
 import {
   DEFAULT_ERP_NAV_VISIBILITY,
+  ERP_NAV_MODULE_ORDER,
   ERP_QUICK_NAV_IDS,
   moduleRequiresJainavUnlock,
   orderNavModuleIds,
@@ -219,9 +220,9 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
   },
   {
     id: 'e-invoice',
-    title: 'E-invoice format & API',
+    title: 'E-invoice API',
     short: 'E-invoice',
-    description: 'Upload e-invoice PDF layout + GSTZen API',
+    description: '',
     icon: Building2,
     group: 'compliance',
     kind: 'settings',
@@ -409,11 +410,18 @@ export function listErpQuickNavModules(opts: {
         return opts.canAccess(m.id)
       })
   }
-  return ERP_QUICK_NAV_IDS.map((id) => getResellerErpModule(id)).filter((m): m is ResellerErpModule => {
-    if (!m) return false
-    if (m.jainavOnly && !opts.jainavUnlocked) return false
-    return opts.canAccess(m.id)
-  })
+  const staffIds = new Set<string>()
+  for (const id of ERP_NAV_MODULE_ORDER) {
+    if (id === 'erp-users') continue
+    if (!opts.canAccess(id)) continue
+    const mod = getResellerErpModule(id)
+    if (!mod) continue
+    if (mod.jainavOnly && !opts.jainavUnlocked) continue
+    staffIds.add(id)
+  }
+  return orderNavModuleIds(staffIds)
+    .map((id) => getResellerErpModule(id))
+    .filter((m): m is ResellerErpModule => !!m)
 }
 
 export function resellerErpModulePath(id: ResellerErpModuleId | string): string {

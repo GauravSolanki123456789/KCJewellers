@@ -271,27 +271,36 @@ export function ErpSaveBillConfirmDialog({
   const [manualBillNumber, setManualBillNumber] = useState('')
   const [placeOfSupply, setPlaceOfSupply] = useState('')
   const [localErr, setLocalErr] = useState('')
+  const [numberLoadErr, setNumberLoadErr] = useState('')
 
   useEffect(() => {
     if (!open || !isOfficialGst) return
     setPlaceOfSupply(defaultPlaceOfSupply)
     setLocalErr('')
+    setNumberLoadErr('')
     void axios
       .get<{ bill_number: string; manual_suggestion?: string | null }>(
         '/api/reseller/erp/bills/next-number',
         { params: { bill_type: 'sale' } },
       )
       .then((res) => {
-        const n = res.data.bill_number || 'SCB001'
+        const n = res.data.bill_number || ''
         const manual = res.data.manual_suggestion || ''
+        if (!n) {
+          setNumberLoadErr('Could not load the next bill number. Refresh and try again.')
+          setAutoNumber('')
+          setBillChoice('')
+          return
+        }
         setAutoNumber(n)
         setBillChoice(n)
         setManualSuggestion(manual)
         setManualBillNumber(manual)
       })
       .catch(() => {
-        setAutoNumber('SCB001')
-        setBillChoice('SCB001')
+        setNumberLoadErr('Could not load the next bill number. Check your connection and try again.')
+        setAutoNumber('')
+        setBillChoice('')
       })
   }, [open, isOfficialGst, defaultPlaceOfSupply])
 
@@ -304,6 +313,10 @@ export function ErpSaveBillConfirmDialog({
         return
       }
       let billNumber = billChoice
+      if (!billNumber && billChoice !== MANUAL_BILL_VALUE) {
+        setLocalErr(numberLoadErr || 'Next bill number is not loaded yet.')
+        return
+      }
       if (billChoice === MANUAL_BILL_VALUE) {
         billNumber = manualBillNumber.trim().toUpperCase()
         if (!billNumber) {
@@ -343,13 +356,18 @@ export function ErpSaveBillConfirmDialog({
 
         {isOfficialGst ? (
           <div className="space-y-3">
+            {numberLoadErr ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {numberLoadErr}
+              </p>
+            ) : null}
             <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
               Bill number
               <select
                 className={`${erpInputCls} mt-1`}
                 value={billChoice}
                 onChange={(e) => setBillChoice(e.target.value)}
-                disabled={busy}
+                disabled={busy || !autoNumber}
               >
                 {autoNumber ? <option value={autoNumber}>Auto — {autoNumber} (next available)</option> : null}
                 <option value={MANUAL_BILL_VALUE}>Enter bill number manually…</option>

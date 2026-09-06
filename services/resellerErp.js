@@ -340,13 +340,14 @@ async function nextBillNumber(query, userId, billType) {
     if (billType === 'sale') {
         const rows = await query(
             `SELECT bill_number FROM reseller_erp_bills
-             WHERE reseller_user_id = $1 AND LOWER(bill_type) = 'sale'`,
+             WHERE reseller_user_id = $1 AND bill_type = 'sale'
+               AND UPPER(bill_number) ~ '^SCB[0-9]+$'`,
             [userId],
         );
         const used = new Set();
-        const re = /^SCB[- ]?(\d+)$/i;
+        const re = /^SCB(\d+)$/i;
         for (const row of rows) {
-            const m = re.exec(String(row.bill_number || '').trim());
+            const m = re.exec(String(row.bill_number || '').trim().toUpperCase());
             if (m) used.add(parseInt(m[1], 10));
         }
         const { n, width } = nextGapNumber(used, 3);
@@ -354,13 +355,13 @@ async function nextBillNumber(query, userId, billType) {
     }
     const rows = await query(
         `SELECT bill_number FROM reseller_erp_bills
-         WHERE reseller_user_id = $1 AND LOWER(bill_type) = LOWER($2)`,
-        [userId, billType],
+         WHERE reseller_user_id = $1 AND bill_type = $2 AND UPPER(bill_number) ~ $3`,
+        [userId, billType, `^${prefix}-[0-9]+$`],
     );
     const used = new Set();
-    const re = new RegExp(`^${prefix}[- ]?(\\d+)$`, 'i');
+    const re = new RegExp(`^${prefix}-(\\d+)$`, 'i');
     for (const row of rows) {
-        const m = re.exec(String(row.bill_number || '').trim());
+        const m = re.exec(String(row.bill_number || '').trim().toUpperCase());
         if (m) used.add(parseInt(m[1], 10));
     }
     const pad = billType === 'estimate' ? 3 : 4;
