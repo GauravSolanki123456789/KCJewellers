@@ -3,18 +3,20 @@ import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { applyPieceSlabToLine, type ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 /** Scanner shortcut keys in billing → invoice item category */
-export type BillingManualCategory = 'articles' | 'jewellery' | 'bullion'
+export type BillingManualCategory = 'articles' | 'jewellery' | 'bullion' | 'gift'
 
 const CATEGORY_LABELS: Record<BillingManualCategory, string[]> = {
   articles: ['SILVER ARTICLES', 'SILVER ARTICLE'],
   jewellery: ['SILVER JEWELLERY', 'SILVER JEWELRY'],
   bullion: ['SILVER BAR', 'GRAINS', 'SILVER BULLION'],
+  gift: ['GIFT ITEMS', 'GIFT ITEM'],
 }
 
 export const BILLING_SCAN_SHORTCUTS: Record<string, BillingManualCategory> = {
   A: 'articles',
   S: 'jewellery',
   B: 'bullion',
+  G: 'gift',
 }
 
 export function resolveBillingScanShortcut(code: string): BillingManualCategory | null {
@@ -45,6 +47,7 @@ export function createManualBillLine(
   slab: ErpRateSlab = 'R',
 ): ErpBillLine {
   const lineId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const isGiftOrMrp = category === 'gift' || !!invoiceItem.mrp
   const base: ErpBillLine = {
     name: invoiceItem.name,
     code: lineId,
@@ -54,7 +57,7 @@ export function createManualBillLine(
     size: null,
     qty: 1,
     originalWeightGm: null,
-    weightGm: null,
+    weightGm: isGiftOrMrp ? null : null,
     gross_weight: null,
     bag_wt: null,
     bags: null,
@@ -67,15 +70,21 @@ export function createManualBillLine(
     stone_charges: 0,
     metal_type: 'silver',
     fixed_price: null,
+    unitInr: null,
     stock_piece_id: null,
     lineTotalInr: null,
     invoice_item_name: invoiceItem.name,
     hsn_code: invoiceItem.hsn,
     manualEntry: true,
     manualCategory: category,
+    mrpMode: isGiftOrMrp || undefined,
   }
+  if (isGiftOrMrp) return base
   return applyPieceSlabToLine(base, slab)
 }
+
+/** Tab order for gift/MRP rows — qty then piece rate */
+export const GIFT_MRP_FIELD_ORDER: (keyof ErpBillLine)[] = ['qty', 'unitInr']
 
 /** Tab order for manual entry rows — SKU first after A/S/B shortcut */
 export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [

@@ -266,6 +266,7 @@ export function ErpSaveBillConfirmDialog({
   defaultPlaceOfSupply = '',
 }: ConfirmProps) {
   const [autoNumber, setAutoNumber] = useState('')
+  const [manualSuggestion, setManualSuggestion] = useState('')
   const [billChoice, setBillChoice] = useState('')
   const [manualBillNumber, setManualBillNumber] = useState('')
   const [placeOfSupply, setPlaceOfSupply] = useState('')
@@ -276,12 +277,17 @@ export function ErpSaveBillConfirmDialog({
     setPlaceOfSupply(defaultPlaceOfSupply)
     setLocalErr('')
     void axios
-      .get<{ bill_number: string }>('/api/reseller/erp/bills/next-number', { params: { bill_type: 'sale' } })
+      .get<{ bill_number: string; manual_suggestion?: string | null }>(
+        '/api/reseller/erp/bills/next-number',
+        { params: { bill_type: 'sale' } },
+      )
       .then((res) => {
         const n = res.data.bill_number || 'SCB001'
+        const manual = res.data.manual_suggestion || ''
         setAutoNumber(n)
         setBillChoice(n)
-        setManualBillNumber('')
+        setManualSuggestion(manual)
+        setManualBillNumber(manual)
       })
       .catch(() => {
         setAutoNumber('SCB001')
@@ -345,20 +351,28 @@ export function ErpSaveBillConfirmDialog({
                 onChange={(e) => setBillChoice(e.target.value)}
                 disabled={busy}
               >
-                {autoNumber ? <option value={autoNumber}>Auto — {autoNumber}</option> : null}
+                {autoNumber ? <option value={autoNumber}>Auto — {autoNumber} (next available)</option> : null}
                 <option value={MANUAL_BILL_VALUE}>Enter bill number manually…</option>
               </select>
+              <p className="mt-1 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
+                Reuses deleted numbers (e.g. if SCB001 is deleted, Auto suggests SCB001 again).
+              </p>
             </label>
             {billChoice === MANUAL_BILL_VALUE ? (
               <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
                 Manual bill no
                 <input
                   className={`${erpInputCls} mt-1 font-mono uppercase`}
-                  placeholder="e.g. SA1362"
+                  placeholder={manualSuggestion ? `Suggested: ${manualSuggestion}` : 'e.g. SA1362'}
                   value={manualBillNumber}
                   onChange={(e) => setManualBillNumber(e.target.value.toUpperCase())}
                   disabled={busy}
                 />
+                {manualSuggestion ? (
+                  <p className="mt-1 text-[10px] text-emerald-700">
+                    Suggested next: <span className="font-mono font-semibold">{manualSuggestion}</span>
+                  </p>
+                ) : null}
               </label>
             ) : null}
             <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">

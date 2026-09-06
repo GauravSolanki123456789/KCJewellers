@@ -7,8 +7,8 @@ import { computeErpQuoteTotals, erpCustomerWhatsAppHref } from '@/lib/erp-quote-
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { loadErpSettingsBundle, resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
-import { resolveInvoiceTemplateId } from '@/lib/erp-invoice-template'
 import { normalizeTaxInvoiceTemplate } from '@/lib/erp-tax-invoice-template'
+import { mrpInvoiceItemNames, fetchGstInvoiceItems } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 
 export function buildErpSalesWhatsAppMessage(params: {
   brandLabel: string
@@ -88,13 +88,13 @@ export async function buildErpSalesPdfPayload(params: {
     }
   }
 
-  const template = resolveInvoiceTemplateId(
-    brandLabel,
-    gst.legalName,
-    settings.gst?.invoiceTemplate,
+  const invoiceLayout = settings.gst?.invoiceTemplate || 'marlecha'
+  const useChallanTemplate = invoiceLayout !== 'standard'
+  const billTemplateConfig = normalizeTaxInvoiceTemplate(settings.taxInvoiceTemplate)
+  const einvoiceTemplateConfig = normalizeTaxInvoiceTemplate(
+    settings.einvoiceTaxInvoiceTemplate || settings.taxInvoiceTemplate,
   )
-  const templateConfig = normalizeTaxInvoiceTemplate(settings.taxInvoiceTemplate)
-  const useChallanTemplate = template === 'marlecha' || !!settings.taxInvoiceTemplate
+  const mrpNames = mrpInvoiceItemNames(await fetchGstInvoiceItems())
   const docProps = {
     bill: params.bill,
     brandName: brandLabel,
@@ -108,11 +108,18 @@ export async function buildErpSalesPdfPayload(params: {
     customerGst: params.customerGst ?? session.customerGst ?? null,
     compliance,
     ewayBillNo: params.ewayBillNo ?? params.bill.compliance?.eway?.ewb_no ?? null,
+    mrpItemNames: mrpNames,
   }
+
+  const isEinvoicePdf = params.taxInvoiceMode && !!compliance?.irn
 
   const blob = await pdf(
     useChallanTemplate ? (
-      <ErpConfigurableTaxInvoicePdfDocument {...docProps} templateConfig={templateConfig} />
+      <ErpConfigurableTaxInvoicePdfDocument
+        {...docProps}
+        templateConfig={isEinvoicePdf ? einvoiceTemplateConfig : billTemplateConfig}
+        variant={isEinvoicePdf ? 'einvoice' : 'bill'}
+      />
     ) : (
       <ErpTaxInvoicePdfDocument {...docProps} />
     ),

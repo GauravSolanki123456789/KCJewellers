@@ -60,9 +60,12 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
 
   useEffect(() => {
     void axios
-      .get<{ settings: { taxInvoiceTemplate?: unknown } }>('/api/reseller/erp/settings')
+      .get<{ settings: { taxInvoiceTemplate?: unknown; einvoiceTaxInvoiceTemplate?: unknown } }>(
+        '/api/reseller/erp/settings',
+      )
       .then((res) => {
-        const raw = res.data.settings?.taxInvoiceTemplate
+        const key = variant === 'e-invoice' ? 'einvoiceTaxInvoiceTemplate' : 'taxInvoiceTemplate'
+        const raw = res.data.settings?.[key] ?? res.data.settings?.taxInvoiceTemplate
         if (raw) {
           const cfg = normalizeTaxInvoiceTemplate(raw)
           setEditText(cfg.sourceText?.trim() || templateConfigToEditableText(cfg))
@@ -70,7 +73,7 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
       })
       .catch(() => {})
       .finally(() => setLoadBusy(false))
-  }, [])
+  }, [variant])
 
   useEffect(() => {
     return () => {
@@ -176,9 +179,10 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
       const config = buildConfig()
       const toSave = { ...config }
       delete toSave.referenceImage
+      const settingsKey = variant === 'e-invoice' ? 'einvoiceTaxInvoiceTemplate' : 'taxInvoiceTemplate'
       await axios.put('/api/reseller/erp/settings', {
         settings: {
-          taxInvoiceTemplate: toSave,
+          [settingsKey]: toSave,
         },
       })
       setSaved(true)

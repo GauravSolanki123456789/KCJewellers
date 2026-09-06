@@ -62,6 +62,8 @@ async function ensureResellerErpSchema(pool) {
         );
         ALTER TABLE reseller_erp_customers
             ADD COLUMN IF NOT EXISTS pan VARCHAR(20);
+        ALTER TABLE reseller_erp_customers
+            ADD COLUMN IF NOT EXISTS state VARCHAR(64);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_customers_reseller
             ON reseller_erp_customers (reseller_user_id, created_at DESC);
 
@@ -325,6 +327,14 @@ function billTypePrefix(billType) {
     return 'SCB';
 }
 
+function nextGapNumber(usedSet, padLen = 3) {
+    let n = 1;
+    while (usedSet.has(n)) n += 1;
+    const maxUsed = usedSet.size ? Math.max(...usedSet) : 0;
+    const width = Math.max(padLen, String(maxUsed + 1).length);
+    return { n, width };
+}
+
 async function nextBillNumber(query, userId, billType) {
     const prefix = billTypePrefix(billType);
     if (billType === 'sale') {
@@ -335,14 +345,13 @@ async function nextBillNumber(query, userId, billType) {
             [userId],
         );
         const used = new Set();
-        const re = /^SCB(\d+)$/;
+        const re = /^SCB(\d+)$/i;
         for (const row of rows) {
             const m = re.exec(String(row.bill_number || '').trim());
             if (m) used.add(parseInt(m[1], 10));
         }
-        let n = 1;
-        while (used.has(n)) n += 1;
-        return `SCB${String(n).padStart(3, '0')}`;
+        const { n, width } = nextGapNumber(used, 3);
+        return `SCB${String(n).padStart(width, '0')}`;
     }
     const rows = await query(
         `SELECT bill_number FROM reseller_erp_bills
@@ -350,15 +359,92 @@ async function nextBillNumber(query, userId, billType) {
         [userId, billType, `^${prefix}-[0-9]+$`],
     );
     const used = new Set();
-    const re = new RegExp(`^${prefix}-(\\d+)$`);
+    const re = new RegExp(`^${prefix}-(\\d+)$`, 'i');
     for (const row of rows) {
         const m = re.exec(String(row.bill_number || '').trim());
         if (m) used.add(parseInt(m[1], 10));
     }
-    let n = 1;
-    while (used.has(n)) n += 1;
     const pad = billType === 'estimate' ? 3 : 4;
-    return `${prefix}-${String(n).padStart(pad, '0')}`;
+    const { n, width } = nextGapNumber(used, pad);
+    return `${prefix}-${String(n).padStart(width, '0')}`;
+}
+
+const AUTO_BILL_PREFIXES = new Set(['SCB', 'ESTIMATE', 'CREDIT', 'ORDER']);
+
+async function suggestManualBillNumber(query, userId, preferredPrefix) {
+    const rows = await query(
+        `SELECT bill_number FROM reseller_erp_bills WHERE reseller_user_id = $1`,
+        [userId],
+    );
+    const prefixMap = new Map();
+    for (const row of rows) {
+        const bn = String(row.bill_number || '').trim().toUpperCase();
+        const m = /^([A-Z]+)(\d+)$/.exec(bn);
+        if (!m || AUTO_BILL_PREFIXES.has(m[1])) continue;
+        const p = m[1];
+        const num = parseInt(m[2], 10);
+        if (!Number.isFinite(num)) continue;
+        if (!prefixMap.has(p)) prefixMap.set(p, new Set());
+        prefixMap.get(p).add(num);
+    }
+    let prefix = String(preferredPrefix || '').trim().toUpperCase();
+    if (!prefix) {
+        const settingsRows = await query(
+            `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+            [userId],
+        );
+        let settings = settingsRows[0]?.settings ?? {};
+        if (typeof settings === 'string') {
+            try {
+                settings = JSON.parse(settings);
+            } catch {
+                settings = {};
+            }
+        }
+        prefix = String(settings?.billing?.lastManualBillPrefix || '').trim().toUpperCase();
+    }
+    if (!prefix || !prefixMap.has(prefix)) {
+        const prefixes = [...prefixMap.keys()].sort();
+        if (prefixes.length) prefix = prefixes[prefixes.length - 1];
+    }
+    if (!prefix) return null;
+    const used = prefixMap.get(prefix) || new Set();
+    const { n, width } = nextGapNumber(used, Math.max(3, String([...used].sort((a, b) => b - a)[0] || 0).length));
+    return `${prefix}${String(n).padStart(width, '0')}`;
+}
+
+async function rememberManualBillPrefix(query, userId, billNumber) {
+    const bn = String(billNumber || '').trim().toUpperCase();
+    const m = /^([A-Z]+)(\d+)$/.exec(bn);
+    if (!m || AUTO_BILL_PREFIXES.has(m[1])) return;
+    const prefix = m[1];
+    const existing = await query(
+        `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
+        [userId],
+    );
+    let prev = existing[0]?.settings ?? {};
+    if (typeof prev === 'string') {
+        try {
+            prev = JSON.parse(prev);
+        } catch {
+            prev = {};
+        }
+    }
+    const merged = {
+        ...(prev && typeof prev === 'object' ? prev : {}),
+        billing: {
+            ...(prev?.billing && typeof prev.billing === 'object' ? prev.billing : {}),
+            lastManualBillPrefix: prefix,
+            lastManualBillNumber: bn,
+        },
+    };
+    await query(
+        `INSERT INTO reseller_erp_settings (reseller_user_id, settings, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (reseller_user_id) DO UPDATE
+         SET settings = $2::jsonb, updated_at = NOW()`,
+        [userId, JSON.stringify(merged)],
+    );
 }
 
 function mapCustomer(row) {
@@ -371,6 +457,7 @@ function mapCustomer(row) {
         gstin: row.gstin,
         pan: row.pan || null,
         address: row.address,
+        state: row.state || null,
         birthdate: row.birthdate,
         anniversary_date: row.anniversary_date,
         notes: row.notes,
@@ -576,9 +663,9 @@ function registerResellerErpRoutes(app, deps) {
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const rows = await query(
                 `INSERT INTO reseller_erp_customers (
-                    reseller_user_id, name, mobile, email, gstin, pan, address,
+                    reseller_user_id, name, mobile, email, gstin, pan, address, state,
                     birthdate, anniversary_date, notes
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -588,6 +675,7 @@ function registerResellerErpRoutes(app, deps) {
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
                     trimStr(req.body.address, 2000),
+                    trimStr(req.body.state, 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
@@ -610,9 +698,9 @@ function registerResellerErpRoutes(app, deps) {
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const rows = await query(
                 `UPDATE reseller_erp_customers SET
-                    name = $1, mobile = $2, email = $3, gstin = $4, pan = $5, address = $6,
-                    birthdate = $7, anniversary_date = $8, notes = $9, updated_at = NOW()
-                 WHERE id = $10 AND reseller_user_id = $11
+                    name = $1, mobile = $2, email = $3, gstin = $4, pan = $5, address = $6, state = $7,
+                    birthdate = $8, anniversary_date = $9, notes = $10, updated_at = NOW()
+                 WHERE id = $11 AND reseller_user_id = $12
                  RETURNING *`,
                 [
                     name,
@@ -621,6 +709,7 @@ function registerResellerErpRoutes(app, deps) {
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
                     trimStr(req.body.address, 2000),
+                    trimStr(req.body.state, 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
@@ -819,7 +908,16 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const billType = trimStrLower(req.query.bill_type, 32) || 'sale';
             const billNumber = await nextBillNumber(query, req.user.id, billType);
-            res.json({ bill_type: billType, bill_number: billNumber });
+            const manualSuggestion = await suggestManualBillNumber(
+                query,
+                req.user.id,
+                trimStr(req.query.manual_prefix, 16),
+            );
+            res.json({
+                bill_type: billType,
+                bill_number: billNumber,
+                manual_suggestion: manualSuggestion,
+            });
         } catch (e) {
             console.error('erp next bill number:', e);
             res.status(500).json({ error: e.message || 'Failed to suggest bill number' });
@@ -966,6 +1064,9 @@ function registerResellerErpRoutes(app, deps) {
                 ],
             );
             const bill = mapBill(rows[0]);
+            if (trimStr(req.body.bill_number, 64) && billType === 'sale' && !/^SCB\d+$/i.test(billNumber)) {
+                await rememberManualBillPrefix(query, req.user.id, billNumber);
+            }
             if (['completed', 'paid', 'final'].includes(status)) {
                 await markPiecesSold(query, req.user.id, lines, bill.id);
             }

@@ -50,19 +50,34 @@ export function groupInvoiceLinesForTax(lines: ErpBillLine[]): ErpBillLine[] {
 }
 
 /** Marlecha challan — one row per invoice item + HSN (merge all lines in category). */
-export function groupMarlechaInvoiceLines(lines: ErpBillLine[]): ErpBillLine[] {
+export function isMrpInvoiceLine(
+  line: ErpBillLine,
+  mrpItemNames?: Set<string> | null,
+): boolean {
+  if (line.mrpMode || line.manualCategory === 'gift') return true
+  const name = (line.invoice_item_name || line.name || '').trim().toUpperCase()
+  return !!mrpItemNames?.has(name)
+}
+
+export function groupMarlechaInvoiceLines(
+  lines: ErpBillLine[],
+  mrpItemNames?: Set<string> | null,
+): ErpBillLine[] {
   const map = new Map<string, ErpBillLine>()
   for (const line of lines) {
     const itemName = (line.invoice_item_name || line.name || 'JEWELLERY').trim().toUpperCase()
     const hsn = (line.hsn_code || defaultHsnCode(line.metal_type)).trim()
-    const key = `${itemName}|${hsn}`
+    const mrp = isMrpInvoiceLine(line, mrpItemNames)
+    const key = `${itemName}|${hsn}|${mrp ? 'MRP' : 'WT'}`
     const existing = map.get(key)
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + (Number(line.qty) || 1)
-      existing.weightGm = (Number(existing.weightGm) || 0) + (Number(line.weightGm) || 0)
-      existing.gross_weight =
-        (Number(existing.gross_weight) || Number(existing.weightGm) || 0) +
-        (Number(line.gross_weight) || Number(line.weightGm) || 0)
+      if (!mrp) {
+        existing.weightGm = (Number(existing.weightGm) || 0) + (Number(line.weightGm) || 0)
+        existing.gross_weight =
+          (Number(existing.gross_weight) || Number(existing.weightGm) || 0) +
+          (Number(line.gross_weight) || Number(line.weightGm) || 0)
+      }
       existing.lineTotalInr = (Number(existing.lineTotalInr) || 0) + (Number(line.lineTotalInr) || 0)
     } else {
       map.set(key, {
@@ -71,9 +86,10 @@ export function groupMarlechaInvoiceLines(lines: ErpBillLine[]): ErpBillLine[] {
         hsn_code: hsn,
         name: itemName,
         qty: line.qty ?? 1,
-        weightGm: line.weightGm ?? 0,
-        gross_weight: line.gross_weight ?? line.weightGm ?? 0,
+        weightGm: mrp ? null : line.weightGm ?? 0,
+        gross_weight: mrp ? null : line.gross_weight ?? line.weightGm ?? 0,
         lineTotalInr: line.lineTotalInr ?? 0,
+        mrpMode: mrp || undefined,
       })
     }
   }

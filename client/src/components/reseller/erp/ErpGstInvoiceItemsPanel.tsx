@@ -9,6 +9,8 @@ export type GstInvoiceItem = {
   id: string
   name: string
   hsn: string
+  /** Bill by MRP / piece rate — no kg columns on tax invoice */
+  mrp?: boolean
 }
 
 const DEFAULT_ITEMS: GstInvoiceItem[] = [
@@ -17,6 +19,7 @@ const DEFAULT_ITEMS: GstInvoiceItem[] = [
   { id: 'silver-articles', name: 'SILVER ARTICLES', hsn: '711411' },
   { id: 'gift-items', name: 'GIFT ITEMS', hsn: '711311' },
   { id: 'grains', name: 'GRAINS', hsn: '710692' },
+  { id: 'mix-silver-god', name: 'MIX SILVER GOD IMAGES', hsn: '711411', mrp: true },
 ]
 
 function newId() {
@@ -39,7 +42,7 @@ export function ErpGstInvoiceItemsPanel() {
       )
       const saved = res.data.settings?.gst?.invoiceItems
       if (Array.isArray(saved) && saved.length) {
-        setItems(saved.map((it) => ({ id: it.id || newId(), name: it.name || '', hsn: it.hsn || '' })))
+        setItems(saved.map((it) => ({ id: it.id || newId(), name: it.name || '', hsn: it.hsn || '', mrp: !!it.mrp })))
       } else {
         setItems(DEFAULT_ITEMS)
       }
@@ -71,7 +74,12 @@ export function ErpGstInvoiceItemsPanel() {
           ...settings,
           gst: {
             ...gst,
-            invoiceItems: items.filter((it) => it.name.trim() && it.hsn.trim()),
+            invoiceItems: items.filter((it) => it.name.trim() && it.hsn.trim()).map((it) => ({
+              id: it.id,
+              name: it.name.trim(),
+              hsn: it.hsn.trim(),
+              mrp: !!it.mrp,
+            })),
           },
         },
       })
@@ -119,6 +127,7 @@ export function ErpGstInvoiceItemsPanel() {
             <tr className="border-b border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] text-left text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
               <th className="px-3 py-2">Item name (on invoice)</th>
               <th className="px-3 py-2 w-28">HSN</th>
+              <th className="px-3 py-2 w-24 text-center">MRP</th>
               <th className="px-3 py-2 w-12" />
             </tr>
           </thead>
@@ -139,6 +148,15 @@ export function ErpGstInvoiceItemsPanel() {
                     value={it.hsn}
                     placeholder="711311"
                     onChange={(e) => updateRow(it.id, { hsn: e.target.value.trim() })}
+                  />
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-[var(--kc-accent,#c41e3a)]"
+                    checked={!!it.mrp}
+                    title="MRP / piece rate — no kg on invoice"
+                    onChange={(e) => updateRow(it.id, { mrp: e.target.checked })}
                   />
                 </td>
                 <td className="px-2 py-1.5">
@@ -178,9 +196,13 @@ export async function fetchGstInvoiceItems(): Promise<GstInvoiceItem[]> {
       '/api/reseller/erp/settings',
     )
     const saved = res.data.settings?.gst?.invoiceItems
-    if (Array.isArray(saved) && saved.length) return saved
+    if (Array.isArray(saved) && saved.length) return saved.map((it) => ({ ...it, mrp: !!it.mrp }))
   } catch {
     /* ignore */
   }
   return DEFAULT_ITEMS
+}
+
+export function mrpInvoiceItemNames(items: GstInvoiceItem[]): Set<string> {
+  return new Set(items.filter((it) => it.mrp).map((it) => it.name.trim().toUpperCase()))
 }

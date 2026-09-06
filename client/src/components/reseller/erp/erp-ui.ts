@@ -161,9 +161,11 @@ export type ErpBillLine = {
   invoice_item_name?: string | null
   /** HSN code for tax invoice */
   hsn_code?: string | null
-  /** Manual billing row (A/S/B shortcut — no barcode) */
+  /** Manual billing row (A/S/B/G shortcut — no barcode) */
   manualEntry?: boolean
-  manualCategory?: 'articles' | 'jewellery' | 'bullion'
+  manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift'
+  /** MRP / piece-rate line (no weight in kgs on invoice) */
+  mrpMode?: boolean
   /** Per-line karigar tracking (orders only) */
   lineKey?: string
   lineStatus?: ErpOrderLineStatus
@@ -210,6 +212,7 @@ export type ErpCustomer = {
   gstin?: string | null
   pan?: string | null
   address?: string | null
+  state?: string | null
   birthdate?: string | null
   anniversary_date?: string | null
   notes?: string | null

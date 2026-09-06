@@ -5,6 +5,7 @@ import Link from 'next/link'
 import axios from '@/lib/axios'
 import { Loader2, MessageCircle, Plus, Search, Trash2, ScanLine, Download, Upload, FileSpreadsheet, ClipboardList } from 'lucide-react'
 import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
+import { GST_STATE_OPTIONS } from '@/lib/erp-place-of-supply'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
@@ -117,6 +118,7 @@ export function CustomersWorkspace() {
     gstin: '',
     pan: '',
     address: '',
+    state: '',
     birthdate: '',
     anniversary_date: '',
     notes: '',
@@ -130,6 +132,7 @@ export function CustomersWorkspace() {
     gstin: '',
     pan: '',
     address: '',
+    state: '',
     birthdate: '',
     anniversary_date: '',
     notes: '',
@@ -144,6 +147,7 @@ export function CustomersWorkspace() {
       gstin: c.gstin || '',
       pan: c.pan || '',
       address: c.address || '',
+      state: c.state || '',
       birthdate: c.birthdate ? formatErpDateDdMmYyyy(c.birthdate) : '',
       anniversary_date: c.anniversary_date ? formatErpDateDdMmYyyy(c.anniversary_date) : '',
       notes: c.notes || '',
@@ -397,6 +401,18 @@ export function CustomersWorkspace() {
           <input className={erpInputCls} placeholder="GSTIN" value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} />
           <input className={erpInputCls} placeholder="PAN" value={form.pan} onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })} />
           <input className={erpInputCls} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          <select
+            className={erpInputCls}
+            value={form.state}
+            onChange={(e) => setForm({ ...form, state: e.target.value })}
+          >
+            <option value="">State (for place of supply)</option>
+            {GST_STATE_OPTIONS.map((s) => (
+              <option key={s.code} value={s.name}>
+                {s.name}
+              </option>
+            ))}
+          </select>
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
             Birthday (dd/mm/yyyy)
             <ErpDateInput className={`${erpInputCls} mt-1`} value={form.birthdate} onChange={(v) => setForm({ ...form, birthdate: v })} />

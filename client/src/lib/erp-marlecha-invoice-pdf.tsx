@@ -3,7 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
-import { groupMarlechaInvoiceLines } from '@/lib/erp-invoice-defaults'
+import { groupMarlechaInvoiceLines, isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
 import {
@@ -29,6 +29,9 @@ export type ConfigurableTaxInvoiceProps = ErpTaxInvoicePdfDocumentProps & {
   templateConfig?: ErpTaxInvoiceTemplateConfig | null
   /** e-way bill number when rendering e-way variant */
   ewayBillNo?: string | null
+  /** bill = 3 copies; einvoice = single page with IRN/QR */
+  variant?: 'bill' | 'einvoice'
+  mrpItemNames?: Set<string>
 }
 
 const COL_W = ['5%', '28%', '10%', '12%', '12%', '14%', '19%'] as const
@@ -94,16 +97,19 @@ const styles = StyleSheet.create({
     borderRightColor: '#000',
   },
   bodyCell: {
-    paddingVertical: 5,
+    paddingVertical: 4,
     paddingHorizontal: 2,
     fontSize: 7,
     borderRightWidth: 1,
     borderRightColor: '#000',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomWidth: 0,
   },
-  summaryRow: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 72 },
-  summaryLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000', padding: 8, justifyContent: 'space-between' },
+  tableBody: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+  },
+  summaryRow: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 88 },
+  summaryLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000', padding: 8, paddingBottom: 12, justifyContent: 'space-between' },
   summaryRight: { width: '42%' },
   totalCell: {
     flexDirection: 'row',
@@ -123,7 +129,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 8.5,
   },
-  footerRow: { flexDirection: 'row', marginTop: 6, minHeight: 64 },
+  footerRow: { flexDirection: 'row', marginTop: 8, minHeight: 72 },
   termsCol: { width: '50%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 6 },
   bankCol: { width: '28%', fontSize: 7, lineHeight: 1.4, paddingTop: 2 },
   signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-end' },
@@ -149,10 +155,16 @@ function gmToKg(gm: number): number {
 }
 
 function lineRatePerKg(line: ErpBillLine): number {
-  const wtKg = (Number(line.weightGm) || 0) / 1000
+  const wtKg = gmToKg(Number(line.weightGm) || 0)
   const amt = Number(line.lineTotalInr) || 0
   if (wtKg <= 0) return 0
   return amt / wtKg
+}
+
+function linePieceRate(line: ErpBillLine): number {
+  const qty = Math.max(1, Number(line.qty) || 1)
+  const amt = Number(line.lineTotalInr) || 0
+  return amt / qty
 }
 
 function InvoicePage({
@@ -168,6 +180,8 @@ function InvoicePage({
   lines,
   session,
   ewayBillNo,
+  mrpItemNames,
+  variant = 'bill',
 }: {
   copyLabel: string
   template: ErpTaxInvoiceTemplateConfig
@@ -181,6 +195,8 @@ function InvoicePage({
   lines: ErpBillLine[]
   session: Record<string, unknown>
   ewayBillNo?: string | null
+  mrpItemNames?: Set<string>
+  variant?: 'bill' | 'einvoice'
 }) {
   const placeOfSupply =
     String(session.placeOfSupply || gst.placeOfSupply || '').trim() || 'Tamil Nadu'
@@ -215,7 +231,7 @@ function InvoicePage({
       ) : null}
 
       <View style={styles.headerBox}>
-        <Text style={styles.copyTag}>{copyLabel}</Text>
+        {copyLabel ? <Text style={styles.copyTag}>{copyLabel}</Text> : null}
         <Text style={styles.title}>{sanitizePdfText(template.headerTitle)}</Text>
         <Text style={styles.shopName}>{sanitizePdfText(shopDisplay)}</Text>
         {template.addressLines.map((line, i) => (
@@ -271,12 +287,14 @@ function InvoicePage({
           ))}
         </View>
         {lines.map((line, i) => {
+          const mrp = isMrpInvoiceLine(line, mrpItemNames)
           const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
           const netKg = gmToKg(Number(line.weightGm) || 0)
-          const rate = lineRatePerKg(line)
+          const rate = mrp ? linePieceRate(line) : lineRatePerKg(line)
           const amt = Number(line.lineTotalInr) || 0
+          const isLast = i === lines.length - 1
           return (
-            <View key={`row-${i}`} style={{ flexDirection: 'row' }}>
+            <View key={`row-${i}`} style={{ flexDirection: 'row', ...(isLast ? styles.tableBody : {}) }}>
               <Text style={[styles.bodyCell, { width: COL_W[0], textAlign: 'center' }]}>{i + 1}.</Text>
               <Text style={[styles.bodyCell, { width: COL_W[1], textAlign: 'left' }]}>
                 {sanitizePdfText(line.invoice_item_name || line.name || 'JEWELLERY')}
@@ -284,8 +302,12 @@ function InvoicePage({
               <Text style={[styles.bodyCell, { width: COL_W[2], textAlign: 'center' }]}>
                 {sanitizePdfText(line.hsn_code || '711311')}
               </Text>
-              <Text style={[styles.bodyCell, { width: COL_W[3], textAlign: 'right' }]}>{grossKg.toFixed(3)}</Text>
-              <Text style={[styles.bodyCell, { width: COL_W[4], textAlign: 'right' }]}>{netKg.toFixed(3)}</Text>
+              <Text style={[styles.bodyCell, { width: COL_W[3], textAlign: 'right' }]}>
+                {mrp ? String(Math.round(Number(line.qty) || 1)) : grossKg.toFixed(4)}
+              </Text>
+              <Text style={[styles.bodyCell, { width: COL_W[4], textAlign: 'right' }]}>
+                {mrp ? '—' : netKg.toFixed(4)}
+              </Text>
               <Text style={[styles.bodyCell, { width: COL_W[5], textAlign: 'right' }]}>
                 {rate > 0 ? rate.toFixed(2) : '—'}
               </Text>
@@ -379,7 +401,11 @@ function InvoicePage({
 }
 
 export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoiceProps) {
-  const lines = useMemo(() => groupMarlechaInvoiceLines(props.bill.lines ?? []), [props.bill.lines])
+  const mrpNames = props.mrpItemNames || new Set<string>()
+  const lines = useMemo(
+    () => groupMarlechaInvoiceLines(props.bill.lines ?? [], mrpNames),
+    [props.bill.lines, mrpNames],
+  )
   const session = (props.bill.session && typeof props.bill.session === 'object'
     ? props.bill.session
     : {}) as Record<string, unknown>
@@ -391,7 +417,15 @@ export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoi
     return mergeTemplateWithGstSettings(raw, props.gst, props.bank)
   }, [props.templateConfig, props.gst, props.bank])
 
-  const pageProps = { ...props, lines, session, template }
+  const pageProps = { ...props, lines, session, template, mrpItemNames: mrpNames }
+
+  if (props.variant === 'einvoice') {
+    return (
+      <Document>
+        <InvoicePage copyLabel="" {...pageProps} variant="einvoice" />
+      </Document>
+    )
+  }
 
   return (
     <Document>

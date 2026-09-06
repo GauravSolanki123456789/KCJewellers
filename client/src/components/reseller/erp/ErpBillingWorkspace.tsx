@@ -61,7 +61,8 @@ import {
   resolveBillingScanShortcut,
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
-import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { resolveCustomerPlaceOfSupply } from '@/lib/erp-place-of-supply'
 import {
   ErpBillingStyleSkuCell,
   styleOptionsForCatalog,
@@ -373,6 +374,16 @@ export function ErpBillingWorkspace() {
         wholesaleSilver?: number | null
       },
     ): ErpBillLine => {
+      if (line.mrpMode || line.manualCategory === 'gift') {
+        const qty = Math.max(1, Number(line.qty) || 1)
+        const pieceRate = Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram) || 0
+        return {
+          ...line,
+          qty,
+          unitInr: pieceRate || line.unitInr,
+          lineTotalInr: Math.round(qty * pieceRate * 100) / 100,
+        }
+      }
       const slab = opts?.slab ?? rateSlab
       const rates = opts?.rates ?? displayRates
       const g = opts?.goldPerG ?? goldPerG
@@ -708,6 +719,13 @@ export function ErpBillingWorkspace() {
     setAddress(c.address || '')
     setCustomerGst(c.gstin || '')
     setCustomerPan(c.pan || '')
+    setPlaceOfSupply(
+      resolveCustomerPlaceOfSupply({
+        customerState: c.state,
+        customerGstin: c.gstin,
+        resellerDefault: defaultPlaceOfSupply,
+      }),
+    )
     setSelectedCustomer(c)
     setCustomerQ('')
     setCustomerPickIdx(-1)
@@ -797,10 +815,10 @@ export function ErpBillingWorkspace() {
     if (!code || scanBusy) return
 
     const shortcut = resolveBillingScanShortcut(code)
-    if (shortcut) {
+      if (shortcut) {
       const invoiceItem = findInvoiceItemForCategory(shortcut, gstInvoiceItems)
       if (!invoiceItem) {
-        setScanErrorMsg('Configure invoice item categories in GST settings first (A/S/B shortcuts).')
+        setScanErrorMsg('Configure invoice item categories in GST settings first (A / S / B / G shortcuts).')
         setScanCode('')
         scanRef.current?.focus()
         return
@@ -830,7 +848,7 @@ export function ErpBillingWorkspace() {
             ),
           )
         })
-        focusManualCell(lineKey, 'sku')
+        focusManualCell(lineKey, shortcut === 'gift' ? 'qty' : 'sku')
       } catch (e) {
         setScanErrorMsg(erpErr(e))
         setScanCode('')
@@ -860,6 +878,10 @@ export function ErpBillingWorkspace() {
       )
       let line = productToLine(res.data.product, code, rateSlab)
       if (res.data.availability?.label) line.availability = res.data.availability.label
+      const mrpNames = mrpInvoiceItemNames(gstInvoiceItems)
+      if (mrpNames.has(String(line.invoice_item_name || line.name || '').trim().toUpperCase())) {
+        line = { ...line, mrpMode: true }
+      }
       line = recalcLine(line)
       setLines((prev) => [...prev, line])
       setScanCode('')

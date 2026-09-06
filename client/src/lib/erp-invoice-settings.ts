@@ -78,6 +78,7 @@ export type ErpSettingsBundle = {
     branch?: string
   }
   taxInvoiceTemplate?: import('@/lib/erp-tax-invoice-template').ErpTaxInvoiceTemplateConfig
+  einvoiceTaxInvoiceTemplate?: import('@/lib/erp-tax-invoice-template').ErpTaxInvoiceTemplateConfig
 }
 
 export async function loadErpSettingsBundle(): Promise<ErpSettingsBundle> {
