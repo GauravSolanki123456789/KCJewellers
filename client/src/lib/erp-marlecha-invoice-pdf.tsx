@@ -43,6 +43,11 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: '#000',
     lineHeight: 1.25,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  pageBody: {
+    flexGrow: 1,
   },
   headerBox: {
     borderWidth: 1.5,
@@ -85,7 +90,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   billingBody: { padding: 6, fontSize: 7.5, lineHeight: 1.35 },
-  table: { borderWidth: 1, borderTopWidth: 0, borderColor: '#000' },
+  table: { borderWidth: 1, borderTopWidth: 0, borderColor: '#000', flexGrow: 1, display: 'flex', flexDirection: 'column' },
   tableHead: { flexDirection: 'row', backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#000' },
   headCell: {
     paddingVertical: 4,
@@ -110,7 +115,8 @@ const styles = StyleSheet.create({
     minHeight: 100,
   },
   tableSpacer: {
-    minHeight: 72,
+    flexGrow: 1,
+    minHeight: 48,
     borderBottomWidth: 1,
     borderBottomColor: '#000',
   },
@@ -135,7 +141,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 8.5,
   },
-  footerRow: { flexDirection: 'row', marginTop: 8, minHeight: 72 },
+  footerRow: { flexDirection: 'row', marginTop: 6, minHeight: 88, paddingTop: 4 },
   termsCol: { width: '50%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 6 },
   bankCol: { width: '28%', fontSize: 7, lineHeight: 1.4, paddingTop: 2 },
   signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-end' },
@@ -236,6 +242,7 @@ function InvoicePage({
         </View>
       ) : null}
 
+      <View style={styles.pageBody}>
       <View style={styles.headerBox}>
         {copyLabel ? <Text style={styles.copyTag}>{copyLabel}</Text> : null}
         <Text style={styles.title}>{sanitizePdfText(template.headerTitle)}</Text>
@@ -325,6 +332,7 @@ function InvoicePage({
         })}
         <View style={styles.tableSpacer} />
       </View>
+      </View>
 
       <View style={styles.summaryRow}>
         <View style={styles.summaryLeft}>
@@ -354,9 +362,9 @@ function InvoicePage({
                 <Text>{template.totalsLabels.sgst}</Text>
                 <Text>{sgst.toFixed(2)}</Text>
               </View>
+              <View style={styles.totalCellEmpty} />
             </>
           )}
-          <View style={styles.totalCellEmpty} />
           <View style={styles.totalCell}>
             <Text>{template.totalsLabels.roundOff}</Text>
             <Text>{roundOff.toFixed(2)}</Text>

@@ -909,12 +909,23 @@ function registerResellerErpRoutes(app, deps) {
     app.get('/api/reseller/erp/bills/next-number', checkAuth, erpGate, async (req, res) => {
         try {
             const billType = trimStrLower(req.query.bill_type, 32) || 'sale';
-            const billNumber = await nextBillNumber(query, req.user.id, billType);
-            const manualSuggestion = await suggestManualBillNumber(
-                query,
-                req.user.id,
-                trimStr(req.query.manual_prefix, 16),
-            );
+            let billNumber = '';
+            let manualSuggestion = null;
+            try {
+                billNumber = await nextBillNumber(query, req.user.id, billType);
+            } catch (inner) {
+                console.error('erp next bill number (auto):', inner);
+                billNumber = billType === 'sale' ? 'SCB001' : `${billTypePrefix(billType)}-0001`;
+            }
+            try {
+                manualSuggestion = await suggestManualBillNumber(
+                    query,
+                    req.user.id,
+                    trimStr(req.query.manual_prefix, 16),
+                );
+            } catch (inner) {
+                console.error('erp next bill number (manual suggest):', inner);
+            }
             res.json({
                 bill_type: billType,
                 bill_number: billNumber,

@@ -278,6 +278,8 @@ export function ErpSaveBillConfirmDialog({
     setPlaceOfSupply(defaultPlaceOfSupply)
     setLocalErr('')
     setNumberLoadErr('')
+    setBillChoice(MANUAL_BILL_VALUE)
+    setManualBillNumber('')
     void axios
       .get<{ bill_number: string; manual_suggestion?: string | null }>(
         '/api/reseller/erp/bills/next-number',
@@ -286,21 +288,23 @@ export function ErpSaveBillConfirmDialog({
       .then((res) => {
         const n = res.data.bill_number || ''
         const manual = res.data.manual_suggestion || ''
-        if (!n) {
-          setNumberLoadErr('Could not load the next bill number. Refresh and try again.')
-          setAutoNumber('')
-          setBillChoice('')
-          return
+        if (manual) {
+          setManualSuggestion(manual)
+          setManualBillNumber(manual)
         }
-        setAutoNumber(n)
-        setBillChoice(n)
-        setManualSuggestion(manual)
-        setManualBillNumber(manual)
+        if (n) {
+          setAutoNumber(n)
+          setBillChoice(n)
+          setNumberLoadErr('')
+        } else {
+          setAutoNumber('')
+          setNumberLoadErr('Auto bill number unavailable — enter your bill number below.')
+        }
       })
       .catch(() => {
-        setNumberLoadErr('Could not load the next bill number. Check your connection and try again.')
         setAutoNumber('')
-        setBillChoice('')
+        setBillChoice(MANUAL_BILL_VALUE)
+        setNumberLoadErr('Auto bill number unavailable — enter your bill number below.')
       })
   }, [open, isOfficialGst, defaultPlaceOfSupply])
 
@@ -313,10 +317,6 @@ export function ErpSaveBillConfirmDialog({
         return
       }
       let billNumber = billChoice
-      if (!billNumber && billChoice !== MANUAL_BILL_VALUE) {
-        setLocalErr(numberLoadErr || 'Next bill number is not loaded yet.')
-        return
-      }
       if (billChoice === MANUAL_BILL_VALUE) {
         billNumber = manualBillNumber.trim().toUpperCase()
         if (!billNumber) {
@@ -327,6 +327,9 @@ export function ErpSaveBillConfirmDialog({
           setLocalErr('Bill number has invalid characters.')
           return
         }
+      } else if (!billNumber) {
+        setLocalErr('Select a bill number or enter one manually.')
+        return
       }
       if (!placeOfSupply.trim()) {
         setLocalErr('Place of supply is required for GST bills.')
@@ -367,16 +370,13 @@ export function ErpSaveBillConfirmDialog({
                 className={`${erpInputCls} mt-1`}
                 value={billChoice}
                 onChange={(e) => setBillChoice(e.target.value)}
-                disabled={busy || !autoNumber}
+                disabled={busy}
               >
                 {autoNumber ? <option value={autoNumber}>Auto — {autoNumber} (next available)</option> : null}
                 <option value={MANUAL_BILL_VALUE}>Enter bill number manually…</option>
               </select>
-              <p className="mt-1 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/50">
-                Reuses deleted numbers (e.g. if SCB001 is deleted, Auto suggests SCB001 again).
-              </p>
             </label>
-            {billChoice === MANUAL_BILL_VALUE ? (
+            {billChoice === MANUAL_BILL_VALUE || !autoNumber ? (
               <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
                 Manual bill no
                 <input
