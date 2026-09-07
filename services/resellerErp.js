@@ -26,6 +26,7 @@ const {
 } = require('./resellerErpLedger');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./resellerErpDesignMaster');
+const { registerStockCheckRoutes } = require('./resellerErpStockCheck');
 const { registerRolRoutes, ensureRolSchema } = require('./resellerErpRol');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
 const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator } = require('./resellerErpOperators');
@@ -561,6 +562,7 @@ function registerResellerErpRoutes(app, deps) {
     registerRolRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerPoshRfidInboundRoutes(app, { query });
     registerFloorRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerStockCheckRoutes(app, { query, checkAuth, erpGate });
     registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });

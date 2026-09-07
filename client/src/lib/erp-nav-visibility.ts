@@ -5,6 +5,7 @@ export const JAINAV_ONLY_MODULE_IDS: ResellerErpModuleId[] = [
   'rol',
   'jainav',
   'stock-reports',
+  'stock-check',
   'jainav-ledger',
 ]
 
@@ -38,6 +39,7 @@ export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
   'erp-users',
   'jainav',
   'stock-reports',
+  'stock-check',
   'jainav-ledger',
 ]
 
@@ -53,6 +55,7 @@ export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
   'ledger',
   'jainav',
   'stock-reports',
+  'stock-check',
   'jainav-ledger',
 ]
 

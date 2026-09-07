@@ -14,6 +14,7 @@ import {
   QrCode,
   Receipt,
   ScanLine,
+  ClipboardCheck,
   Settings2,
   ShoppingBag,
   Split,
@@ -63,6 +64,7 @@ export type ResellerErpModuleId =
   | 'erp-users'
   | 'jainav'
   | 'stock-reports'
+  | 'stock-check'
   | 'jainav-ledger'
   /** @deprecated use jainav */
   | 'shadow'
@@ -324,6 +326,16 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Inventory',
     description: 'Detailed or summary stock · PDF / Excel',
     icon: Warehouse,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
+  {
+    id: 'stock-check',
+    title: 'Stock checking',
+    short: 'Stock scan',
+    description: 'Floor/box scope · continuous barcode scan · export report',
+    icon: ClipboardCheck,
     group: 'jainav',
     kind: 'workspace',
     jainavOnly: true,

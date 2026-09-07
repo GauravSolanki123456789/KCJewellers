@@ -64,7 +64,10 @@ import {
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { nextBillTableField } from '@/lib/erp-billing-table-nav'
+import { giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
 import { resolveCustomerPlaceOfSupply } from '@/lib/erp-place-of-supply'
+import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import {
   ErpBillingStyleSkuCell,
   styleOptionsForCatalog,
@@ -82,6 +85,8 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import {
   Camera,
+  ChevronDown,
+  ChevronUp,
   FileText,
   Loader2,
   Plus,
@@ -128,32 +133,31 @@ type BillingDraft = {
 type BillTableCol = { key: string; label: string; w: string; edit?: boolean }
 
 const TABLE_COLS: BillTableCol[] = [
-  { key: 'barcode', label: 'Barcode', w: 'min-w-[110px]' },
-  { key: 'sku', label: 'SKU', w: 'min-w-[80px]' },
-  { key: 'style_code', label: 'StyleCode', w: 'min-w-[80px]' },
-  { key: 'name', label: 'ProductName', w: 'min-w-[100px]' },
-  { key: 'invoice_item_name', label: 'Invoice item', w: 'min-w-[120px]', edit: true },
-  { key: 'hsn_code', label: 'HSN', w: 'min-w-[72px]', edit: true },
-  { key: 'size', label: 'Size', w: 'min-w-[56px]' },
-  { key: 'weightGm', label: 'AvgWeight', w: 'min-w-[64px]', edit: true },
-  { key: 'purity', label: 'Purity', w: 'min-w-[52px]', edit: true },
-  { key: 'wastage_pct', label: 'Wast%', w: 'min-w-[52px]', edit: true },
-  { key: 'ratePerGram', label: 'Rate', w: 'min-w-[64px]', edit: true },
-  { key: 'mc_rate', label: 'MCRate', w: 'min-w-[64px]', edit: true },
-  { key: 'mc_type', label: 'MCType', w: 'min-w-[64px]', edit: true },
-  { key: 'qty', label: 'PCS', w: 'min-w-[48px]', edit: true },
-  { key: 'box_charges', label: 'Box', w: 'min-w-[56px]', edit: true },
-  { key: 'stone_charges', label: 'Stone', w: 'min-w-[56px]', edit: true },
-  { key: 'metal_type', label: 'Metal', w: 'min-w-[64px]' },
-  { key: 'fixed_price', label: 'Fixed', w: 'min-w-[64px]', edit: true },
-  { key: 'amount', label: 'Amount', w: 'min-w-[72px]' },
+  { key: 'barcode', label: 'Barcode', w: 'w-[7%]' },
+  { key: 'sku', label: 'SKU', w: 'w-[5%]' },
+  { key: 'style_code', label: 'Style', w: 'w-[5%]' },
+  { key: 'name', label: 'Product', w: 'w-[7%]' },
+  { key: 'invoice_item_name', label: 'Inv.item', w: 'w-[7%]', edit: true },
+  { key: 'hsn_code', label: 'HSN', w: 'w-[4%]', edit: true },
+  { key: 'size', label: 'Size', w: 'w-[5%]', edit: true },
+  { key: 'weightGm', label: 'NetWt', w: 'w-[4%]', edit: true },
+  { key: 'gross_weight', label: 'Gross', w: 'w-[4%]', edit: true },
+  { key: 'bags', label: 'Bags', w: 'w-[3%]', edit: true },
+  { key: 'bag_wt', label: 'BagWt', w: 'w-[4%]', edit: true },
+  { key: 'purity', label: 'Purity', w: 'w-[4%]', edit: true },
+  { key: 'wastage_pct', label: 'Wast%', w: 'w-[3%]', edit: true },
+  { key: 'ratePerGram', label: 'Rate', w: 'w-[4%]', edit: true },
+  { key: 'mc_rate', label: 'MC', w: 'w-[4%]', edit: true },
+  { key: 'mc_type', label: 'MCType', w: 'w-[4%]', edit: true },
+  { key: 'qty', label: 'PCS', w: 'w-[3%]', edit: true },
+  { key: 'box_charges', label: 'Box', w: 'w-[3%]', edit: true },
+  { key: 'stone_charges', label: 'Stone', w: 'w-[3%]', edit: true },
+  { key: 'metal_type', label: 'Metal', w: 'w-[4%]' },
+  { key: 'fixed_price', label: 'Fixed', w: 'w-[4%]', edit: true },
+  { key: 'amount', label: 'Amt', w: 'w-[5%]' },
 ]
 
-const MANUAL_EXTRA_COLS: BillTableCol[] = [
-  { key: 'gross_weight', label: 'Gross', w: 'min-w-[56px]', edit: true },
-  { key: 'bags', label: 'Bags', w: 'min-w-[52px]', edit: true },
-  { key: 'bag_wt', label: 'BagWt', w: 'min-w-[56px]', edit: true },
-]
+const MANUAL_EXTRA_COLS: BillTableCol[] = []
 
 const NUMERIC_EDIT_KEYS: (keyof ErpBillLine)[] = [
   'weightGm',
@@ -295,7 +299,10 @@ export function ErpBillingWorkspace() {
   const [cameraOpen, setCameraOpen] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [customerSaveBusy, setCustomerSaveBusy] = useState(false)
-  const [bills, setBills] = useState<ErpBill[]>([])
+  const [customerMoreOpen, setCustomerMoreOpen] = useState(false)
+  const [customerBirthdate, setCustomerBirthdate] = useState('')
+  const [customerAnniversary, setCustomerAnniversary] = useState('')
+  const [customerNotes, setCustomerNotes] = useState('')
   const [hydrated, setHydrated] = useState(false)
   const [editingBillId, setEditingBillId] = useState<number | null>(null)
   const [editingBillNumber, setEditingBillNumber] = useState<string | null>(null)
@@ -357,14 +364,7 @@ export function ErpBillingWorkspace() {
     return `${prefix}PDF quote`
   }, [editingBillId, quoteOutputMode, rateSlab])
 
-  const tableCols = useMemo(() => {
-    const hasManual = lines.some((l) => l.manualEntry)
-    if (!hasManual) return TABLE_COLS
-    const cols = [...TABLE_COLS]
-    const wtIdx = cols.findIndex((c) => c.key === 'weightGm')
-    if (wtIdx >= 0) cols.splice(wtIdx + 1, 0, ...MANUAL_EXTRA_COLS)
-    return cols
-  }, [lines])
+  const tableCols = useMemo(() => TABLE_COLS, [])
 
   useEffect(() => {
     void fetchGstInvoiceItems().then(setGstInvoiceItems)
@@ -527,12 +527,6 @@ export function ErpBillingWorkspace() {
 
   useEffect(() => {
     void loadDisplayRates()
-    void axios
-      .get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params: { bill_type: 'sale' } })
-      .then((res) => {
-        setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
-      })
-      .catch(() => setBills([]))
     void axios
       .get<{ settings?: { printFormats?: unknown; gst?: { placeOfSupply?: string } } }>(
         '/api/reseller/erp/settings',
@@ -748,6 +742,9 @@ export function ErpBillingWorkspace() {
       }),
     )
     setSelectedCustomer(c)
+    setCustomerBirthdate(c.birthdate ? formatErpDateDdMmYyyy(c.birthdate) : '')
+    setCustomerAnniversary(c.anniversary_date ? formatErpDateDdMmYyyy(c.anniversary_date) : '')
+    setCustomerNotes(c.notes || '')
     setCustomerQ('')
     setCustomerPickIdx(-1)
   }
@@ -773,6 +770,9 @@ export function ErpBillingWorkspace() {
         address: address.trim() || undefined,
         pan: customerPan.trim() || undefined,
         gstin: customerGst.trim() || undefined,
+        birthdate: customerBirthdate.trim() || undefined,
+        anniversary_date: customerAnniversary.trim() || undefined,
+        notes: customerNotes.trim() || undefined,
       }
       const res = customerId
         ? await axios.put<{ success: boolean; customer: ErpCustomer }>(
@@ -938,7 +938,11 @@ export function ErpBillingWorkspace() {
     setLines((prev) =>
       prev.map((l, i) => {
         if (i !== idx) return l
-        return recalcLine({ ...l, ...patch })
+        const weightPatch =
+          'gross_weight' in patch || 'bag_wt' in patch || 'bags' in patch
+            ? applyManualWeightPatch(l, patch)
+            : patch
+        return recalcLine({ ...l, ...weightPatch })
       }),
     )
   }
@@ -1005,6 +1009,18 @@ export function ErpBillingWorkspace() {
               const n = Number(v)
               return Number.isFinite(n) ? n : null
             }
+            const sizeVariants = Array.isArray((d as { size_variants?: unknown }).size_variants)
+              ? ((d as { size_variants: { size_label: string; fixed_price_mrp: number | null }[] }).size_variants)
+              : undefined
+            const isGift =
+              l.manualCategory === 'gift' ||
+              String(d.invoice_item_name || '').toUpperCase().includes('GIFT')
+            let fixedPrice = num('fixed_price') ?? l.fixed_price
+            let mrpList: number | null = null
+            if (isGift && fixedPrice != null && fixedPrice > 0) {
+              mrpList = fixedPrice
+              fixedPrice = giftMrpSlabPrice(fixedPrice, rateSlab, slabSettings)
+            }
             return recalcLine({
               ...l,
               style_code: styleCode,
@@ -1023,6 +1039,11 @@ export function ErpBillingWorkspace() {
               metal_slab_f_pct: num('metal_slab_f_pct') ?? l.metal_slab_f_pct,
               invoice_item_name: (d.invoice_item_name as string) || l.invoice_item_name,
               hsn_code: (d.hsn_code as string) || l.hsn_code,
+              designSizeOptions: sizeVariants,
+              mrpMode: isGift ? true : l.mrpMode,
+              mrpListPrice: mrpList,
+              fixed_price: fixedPrice,
+              unitInr: isGift && fixedPrice ? fixedPrice : l.unitInr,
             })
           }),
         )
@@ -1032,20 +1053,20 @@ export function ErpBillingWorkspace() {
         afterApply?.()
       }
     },
-    [recalcLine],
+    [recalcLine, rateSlab, slabSettings],
   )
 
-  const advanceManualField = useCallback(
-    (lineKey: string, field: keyof ErpBillLine) => {
-      const next = nextManualEntryField(field)
-      if (next) {
-        focusManualCell(lineKey, next)
+  const advanceBillField = useCallback(
+    (lineKey: string, field: keyof ErpBillLine, line: ErpBillLine) => {
+      const nextKey = nextBillTableField(tableCols, String(field), line)
+      if (nextKey) {
+        focusManualCell(lineKey, nextKey as keyof ErpBillLine)
       } else {
         setManualFocus(null)
         scanRef.current?.focus()
       }
     },
-    [focusManualCell],
+    [focusManualCell, tableCols],
   )
 
   const unlockLineRates = (list: ErpBillLine[]) =>
@@ -1290,12 +1311,6 @@ export function ErpBillingWorkspace() {
       }
       if (billType === 'sale' && !opts?.skipReset) {
         resetBill()
-      }
-      if (billType === 'sale' && !(bill as ErpBill & { shadow?: boolean }).shadow) {
-        const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
-          params: { bill_type: 'sale' },
-        })
-        setBills((res.data.bills || []).filter((b) => b.bill_type === 'sale'))
       }
       return bill
     } catch (e) {
@@ -1629,14 +1644,14 @@ export function ErpBillingWorkspace() {
         </div>
       ) : null}
 
-      <div className={erpCardCls}>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="relative sm:col-span-2">
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+      <div className={`${erpCardCls} py-3`}>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="relative sm:col-span-2 lg:col-span-2">
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Customer
             </label>
             <input
-              className={erpInputCls}
+              className={`${erpInputCls} py-2 text-sm`}
               placeholder="Search or type name"
               value={customerName || customerQ}
               onChange={(e) => {
@@ -1669,233 +1684,132 @@ export function ErpBillingWorkspace() {
             ) : null}
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Mobile
             </label>
-            <input className={erpInputCls} value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="10-digit" />
+            <input className={`${erpInputCls} py-2 text-sm`} value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="10-digit" />
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-              Rate slab
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Slab
             </label>
-            <select
-              className={erpInputCls}
-              value={rateSlab}
-              onChange={(e) => onSlabChange(e.target.value as ErpRateSlab)}
-            >
+            <select className={`${erpInputCls} py-2 text-sm`} value={rateSlab} onChange={(e) => onSlabChange(e.target.value as ErpRateSlab)}>
               <option value="R">R</option>
               <option value="W">W</option>
               <option value="F">F</option>
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-              Advance paid (₹)
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Advance (₹)
             </label>
             <input
-              className={erpInputCls}
-              type="number"
-              min={0}
-              step={1}
+              className={`${erpInputCls} py-2 text-sm tabular-nums`}
+              inputMode="decimal"
               value={advancePaidInr}
-              onChange={(e) => setAdvancePaidInr(e.target.value)}
+              onChange={(e) => setAdvancePaidInr(e.target.value.replace(/[^\d.]/g, ''))}
               placeholder="0"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Collected (₹)
             </label>
             <input
-              className={erpInputCls}
-              type="number"
-              step={1}
+              className={`${erpInputCls} py-2 text-sm tabular-nums`}
+              inputMode="decimal"
               value={collectedAmountInr}
-              onChange={(e) => setCollectedAmountInr(e.target.value)}
-              placeholder="Amount received"
+              onChange={(e) => setCollectedAmountInr(e.target.value.replace(/[^\d.]/g, ''))}
+              placeholder="Received"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Payment
             </label>
-            <select
-              className={erpInputCls}
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value as ErpPaymentMethod)}
-            >
-              <option value="bank">Bank transfer</option>
+            <select className={`${erpInputCls} py-2 text-sm`} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as ErpPaymentMethod)}>
+              <option value="bank">Bank</option>
               <option value="cash">Cash</option>
-              <option value="upi">UPI / GPay</option>
+              <option value="upi">UPI</option>
               <option value="gpay">GPay</option>
               <option value="card">Card</option>
-              <option value="mixed">Cash + online (split)</option>
+              <option value="mixed">Mixed</option>
             </select>
           </div>
-          {paymentMethod === 'mixed' ? (
-            <>
-              <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-                  Cash part (₹)
-                </label>
-                <input
-                  className={erpInputCls}
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={cashAmountInr}
-                  onChange={(e) => setCashAmountInr(e.target.value)}
-                  placeholder="Cash received"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-                  Online part (₹)
-                </label>
-                <input
-                  className={erpInputCls}
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={onlineAmountInr}
-                  onChange={(e) => setOnlineAmountInr(e.target.value)}
-                  placeholder="GPay / UPI received"
-                />
-              </div>
-            </>
-          ) : null}
-          <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-              Discount (₹)
-            </label>
-            <input
-              className={`${erpInputCls} bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/80`}
-              readOnly
-              value={
-                discountSummary.totalDiscountInr !== 0
-                  ? String(discountSummary.totalDiscountInr)
-                  : ''
-              }
-              placeholder="Auto (MC + cash)"
-              title={
-                discountSummary.mcDiscountInr > 0
-                  ? `MC discount ₹${discountSummary.mcDiscountInr.toLocaleString('en-IN')}${
-                      parsedCollected != null
-                        ? ` + cash ₹${discountSummary.cashDiscountInr.toLocaleString('en-IN')}`
-                        : ''
-                    }`
-                  : 'Net total minus collected amount'
-              }
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-              Customer address
-            </label>
-            <textarea
-              className={`${erpInputCls} min-h-[72px] py-2.5`}
-              placeholder="Address for tax invoice"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-              PAN
-            </label>
-            <input
-              className={erpInputCls}
-              placeholder="Customer PAN"
-              value={customerPan}
-              onChange={(e) => setCustomerPan(e.target.value.toUpperCase())}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-              GST no
-            </label>
-            <input
-              className={erpInputCls}
-              placeholder="Customer GSTIN"
-              value={customerGst}
-              onChange={(e) => setCustomerGst(e.target.value.toUpperCase())}
-            />
-          </div>
-          {isOfficialGstBill ? (
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-                Place of supply
-              </label>
-              <input
-                className={erpInputCls}
-                placeholder="e.g. 37 - Andhra Pradesh"
-                value={placeOfSupply}
-                onChange={(e) => setPlaceOfSupply(e.target.value)}
-                list="erp-billing-place-of-supply"
-              />
-              <datalist id="erp-billing-place-of-supply">
-                <option value="33 - Tamil Nadu" />
-                <option value="37 - Andhra Pradesh" />
-                <option value="29 - Karnataka" />
-                <option value="36 - Telangana" />
-                <option value="27 - Maharashtra" />
-              </datalist>
-            </div>
-          ) : null}
         </div>
-        {customerName ? (
-          <div className="mt-2 rounded-lg border border-amber-200/70 bg-amber-50/60 px-2.5 py-1.5">
-            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-snug text-[var(--color-jewelry-black,#1a1814)]/75">
-              <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{customerName}</span>
-              <span className="rounded bg-amber-200/70 px-1.5 py-px text-[9px] font-bold uppercase text-amber-900">
-                Slab {rateSlab}
-              </span>
-              {mobile ? (
-                <>
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span>{mobile}</span>
-                </>
-              ) : null}
-              {selectedCustomer?.email ? (
-                <>
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span className="max-w-[180px] truncate">{selectedCustomer.email}</span>
-                </>
-              ) : null}
-              {selectedCustomer?.gstin ? (
-                <>
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span>GST {selectedCustomer.gstin}</span>
-                </>
-              ) : null}
-              {(address || selectedCustomer?.address) ? (
-                <>
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span className="max-w-[220px] truncate">{address || selectedCustomer?.address}</span>
-                </>
-              ) : null}
-              {selectedCustomer?.birthdate ? (
-                <>
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span>Bday {formatErpDateDdMmYyyy(selectedCustomer.birthdate)}</span>
-                </>
-              ) : null}
-              {selectedCustomer?.anniversary_date ? (
-                <>
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span>Anniv {formatErpDateDdMmYyyy(selectedCustomer.anniversary_date)}</span>
-                </>
-              ) : null}
-              {selectedCustomer?.notes ? (
-                <>
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/35">·</span>
-                  <span className="max-w-[200px] truncate italic">{selectedCustomer.notes}</span>
-                </>
-              ) : null}
+
+        {paymentMethod === 'mixed' ? (
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Cash (₹)</label>
+              <input className={`${erpInputCls} py-2 text-sm`} value={cashAmountInr} onChange={(e) => setCashAmountInr(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Online (₹)</label>
+              <input className={`${erpInputCls} py-2 text-sm`} value={onlineAmountInr} onChange={(e) => setOnlineAmountInr(e.target.value)} />
             </div>
           </div>
         ) : null}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={`${erpBtnGhost} min-h-[36px] px-2.5 py-1.5 text-xs`}
+            onClick={() => setCustomerMoreOpen((o) => !o)}
+          >
+            {customerMoreOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            More
+          </button>
+          {customerName ? (
+            <span className="truncate text-[11px] text-[var(--color-jewelry-black,#1a1814)]/70">
+              {customerName} · Slab {rateSlab}
+              {mobile ? ` · ${mobile}` : ''}
+              {customerGst ? ` · GST ${customerGst}` : ''}
+            </span>
+          ) : null}
+        </div>
+
+        {customerMoreOpen ? (
+          <div className="mt-2 grid gap-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="sm:col-span-2">
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Address</label>
+              <textarea className={`${erpInputCls} min-h-[52px] py-2 text-sm`} value={address} onChange={(e) => setAddress(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">PAN</label>
+              <input className={`${erpInputCls} py-2 text-sm`} value={customerPan} onChange={(e) => setCustomerPan(e.target.value.toUpperCase())} />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST no</label>
+              <input className={`${erpInputCls} py-2 text-sm`} value={customerGst} onChange={(e) => setCustomerGst(e.target.value.toUpperCase())} />
+            </div>
+            {isOfficialGstBill ? (
+              <div className="sm:col-span-2">
+                <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Place of supply</label>
+                <input className={`${erpInputCls} py-2 text-sm`} value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value)} list="erp-billing-place-of-supply" />
+                <datalist id="erp-billing-place-of-supply">
+                  <option value="33 - Tamil Nadu" />
+                  <option value="37 - Andhra Pradesh" />
+                  <option value="29 - Karnataka" />
+                </datalist>
+              </div>
+            ) : null}
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Birthday</label>
+              <ErpDateInput className={`${erpInputCls} py-2 text-sm`} value={customerBirthdate} onChange={setCustomerBirthdate} />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Anniversary</label>
+              <ErpDateInput className={`${erpInputCls} py-2 text-sm`} value={customerAnniversary} onChange={setCustomerAnniversary} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Notes</label>
+              <input className={`${erpInputCls} py-2 text-sm`} value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           {(rateSlab === 'W' || rateSlab === 'F') ? (
             <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
@@ -2077,17 +1991,17 @@ export function ErpBillingWorkspace() {
             <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">{lines.length} items</span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1200px] text-xs">
-              <thead>
-                <tr className="border-b border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/55">
-                  <th className="px-2 py-2">#</th>
+          <div className="max-h-[min(560px,calc(100vh-16rem))] overflow-y-auto overflow-x-hidden">
+            <table className="w-full table-fixed text-[10px] leading-tight">
+              <thead className="sticky top-0 z-10 bg-[var(--color-slate-900,#faf8f4)] shadow-sm">
+                <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
+                  <th className="w-[3%] px-1 py-1.5">#</th>
                   {tableCols.map((c) => (
-                    <th key={c.key} className={`whitespace-nowrap px-2 py-2 text-left font-semibold ${c.w}`}>
+                    <th key={c.key} className={`px-0.5 py-1.5 text-left font-semibold ${c.w}`}>
                       {c.label}
                     </th>
                   ))}
-                  <th className="px-2 py-2" />
+                  <th className="w-[3%] px-1 py-1.5" />
                 </tr>
               </thead>
               <tbody>
@@ -2188,6 +2102,49 @@ export function ErpBillingWorkspace() {
                           )
                         }
 
+                        if (col.key === 'size' && line.designSizeOptions?.length) {
+                          const refKey = `${lineKey}-size`
+                          const sizeOpts = line.designSizeOptions
+                          return (
+                            <td key={col.key} className="px-0.5 py-0.5">
+                              <input
+                                ref={(el) => { manualCellRefs.current[refKey] = el }}
+                                list={`size-list-${lineKey}`}
+                                className="w-full rounded border border-emerald-300 bg-white px-0.5 py-0.5 text-[10px]"
+                                value={String(line.size ?? '')}
+                                onChange={(e) => {
+                                  const label = e.target.value
+                                  const hit = sizeOpts.find((s) => s.size_label === label)
+                                  let patch: Partial<ErpBillLine> = { size: label || null }
+                                  if (hit?.fixed_price_mrp != null) {
+                                    const mrp = hit.fixed_price_mrp
+                                    const slabPrice = giftMrpSlabPrice(mrp, rateSlab, slabSettings)
+                                    patch = {
+                                      ...patch,
+                                      mrpListPrice: mrp,
+                                      fixed_price: slabPrice,
+                                      unitInr: slabPrice,
+                                      mrpMode: true,
+                                    }
+                                  }
+                                  updateLine(idx, patch)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                                    e.preventDefault()
+                                    advanceBillField(lineKey, 'size', line)
+                                  }
+                                }}
+                              />
+                              <datalist id={`size-list-${lineKey}`}>
+                                {sizeOpts.map((s) => (
+                                  <option key={s.size_label} value={s.size_label} />
+                                ))}
+                              </datalist>
+                            </td>
+                          )
+                        }
+
                         if ('edit' in col && col.edit) {
                           const k = col.key as keyof ErpBillLine
                           const goldSlabRField =
@@ -2195,21 +2152,21 @@ export function ErpBillingWorkspace() {
                             (k === 'wastage_pct' || k === 'mc_rate')
                           const mcHint = k === 'mc_rate' ? billingMcDiscountHint(line, rateSlab, goldSlabRShowMc) : null
                           const refKey = `${lineKey}-${String(k)}`
-                          const isManualFocused = line.manualEntry && manualFocus?.lineKey === lineKey && manualFocus.field === k
+                          const isManualFocused = manualFocus?.lineKey === lineKey && manualFocus.field === k
                           const isNumericField = NUMERIC_EDIT_KEYS.includes(k)
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <input
                                 ref={(el) => {
-                                  if (line.manualEntry) manualCellRefs.current[refKey] = el
+                                  manualCellRefs.current[refKey] = el
                                 }}
                                 autoFocus={isManualFocused}
                                 type="text"
                                 inputMode={isNumericField ? 'decimal' : 'text'}
-                                className={`w-full min-w-[52px] rounded border px-1 py-1 tabular-nums ${
+                                className={`w-full rounded border px-0.5 py-0.5 tabular-nums text-[10px] ${
                                   line.manualEntry
                                     ? 'border-emerald-300 bg-white text-[var(--color-jewelry-black,#1a1814)]'
-                                    : 'border-[var(--color-slate-700,#e8e4df)]'
+                                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
                                 } ${goldSlabRField ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/70' : ''}`}
                                 readOnly={goldSlabRField}
                                 title={
@@ -2223,7 +2180,7 @@ export function ErpBillingWorkspace() {
                                     : String(cellVal(line, col.key) ?? '')
                                 }
                                 onFocus={() => {
-                                  if (line.manualEntry) setManualEditingCell(refKey)
+                                  setManualEditingCell(refKey)
                                   if (isNumericField) {
                                     const current = cellVal(line, String(k))
                                     setCellDrafts((prev) => ({
@@ -2271,13 +2228,12 @@ export function ErpBillingWorkspace() {
                                   }
                                 }}
                                 onKeyDown={(e) => {
-                                  if (!line.manualEntry) return
                                   if (e.key === 'Enter') {
                                     e.preventDefault()
-                                    advanceManualField(lineKey, k)
+                                    advanceBillField(lineKey, k, line)
                                   } else if (e.key === 'Tab' && !e.shiftKey) {
                                     e.preventDefault()
-                                    advanceManualField(lineKey, k)
+                                    advanceBillField(lineKey, k, line)
                                   }
                                 }}
                               />
@@ -2326,16 +2282,18 @@ export function ErpBillingWorkspace() {
                 <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST (3%)</p>
                 <p className="font-semibold tabular-nums text-blue-700">{formatErpInr(totals.gst)}</p>
               </div>
-              {parsedAdvance > 0 ? (
+              {parsedAdvance > 0 || advancePaidInr.trim() ? (
                 <>
                   <div>
                     <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Advance paid</p>
                     <p className="font-semibold tabular-nums text-emerald-700">{formatErpInr(parsedAdvance)}</p>
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Amount to pay</p>
-                    <p className="font-semibold tabular-nums text-amber-800">{formatErpInr(balanceDue)}</p>
-                  </div>
+                  {parsedAdvance > 0 ? (
+                    <div>
+                      <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Amount to pay</p>
+                      <p className="font-semibold tabular-nums text-amber-800">{formatErpInr(balanceDue)}</p>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
               {discountSummary.totalDiscountInr !== 0 ? (
@@ -2370,23 +2328,6 @@ export function ErpBillingWorkspace() {
           ) : null}
         </div>
       </div>
-
-      {bills.length > 0 ? (
-        <div className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">Recent bills</h3>
-          {bills.slice(0, 5).map((b) => (
-            <div key={b.id} className={`${erpCardCls} flex flex-wrap items-center justify-between gap-2 py-3`}>
-              <div>
-                <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{b.bill_number}</p>
-                <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                  {b.customer_name || '—'} · {b.status}
-                </p>
-              </div>
-              <p className="font-semibold tabular-nums text-[var(--kc-accent,#c41e3a)]">{formatErpInr(b.total_inr)}</p>
-            </div>
-          ))}
-        </div>
-      ) : null}
     </div>
   )
 }

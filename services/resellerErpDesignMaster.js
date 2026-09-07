@@ -46,6 +46,20 @@ async function ensureDesignMasterSchema(pool) {
     await pool.query(`
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS invoice_item_name VARCHAR(255);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(32);
+        ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS fixed_price NUMERIC(12, 2);
+        CREATE TABLE IF NOT EXISTS reseller_erp_design_sku_sizes (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sku_id INTEGER NOT NULL REFERENCES reseller_erp_design_skus(id) ON DELETE CASCADE,
+            size_label VARCHAR(128) NOT NULL,
+            fixed_price_mrp NUMERIC(12, 2),
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (sku_id, size_label)
+        );
+        CREATE INDEX IF NOT EXISTS idx_reseller_erp_design_sku_sizes_sku
+            ON reseller_erp_design_sku_sizes (sku_id);
     `);
 }
 
@@ -71,7 +85,25 @@ function mapDesignSku(row) {
         mc_type: row.mc_type,
         invoice_item_name: row.invoice_item_name,
         hsn_code: row.hsn_code,
+        fixed_price: row.fixed_price != null ? Number(row.fixed_price) : null,
+        size_variants: row.size_variants || undefined,
     };
+}
+
+async function loadSkuSizes(query, skuId, resellerUserId) {
+    const rows = await query(
+        `SELECT id, size_label, fixed_price_mrp, sort_order
+         FROM reseller_erp_design_sku_sizes
+         WHERE sku_id = $1 AND reseller_user_id = $2
+         ORDER BY sort_order, id`,
+        [skuId, resellerUserId],
+    );
+    return rows.map((r) => ({
+        id: r.id,
+        size_label: r.size_label,
+        fixed_price_mrp: r.fixed_price_mrp != null ? Number(r.fixed_price_mrp) : null,
+        sort_order: r.sort_order,
+    }));
 }
 
 async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
@@ -83,7 +115,7 @@ async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
                 sk.id, sk.sku, sk.product_name, sk.purity, sk.metal_type,
                 sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
                 sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
-                sk.invoice_item_name, sk.hsn_code
+                sk.invoice_item_name, sk.hsn_code, sk.fixed_price
          FROM reseller_erp_design_styles ds
          JOIN reseller_erp_design_skus sk ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
          WHERE ds.reseller_user_id = $1
@@ -92,7 +124,10 @@ async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
          LIMIT 1`,
         [resellerUserId, sc, sk],
     );
-    return mapDesignSku(rows[0]);
+    if (!rows.length) return null;
+    const mapped = mapDesignSku(rows[0]);
+    mapped.size_variants = await loadSkuSizes(query, mapped.id, resellerUserId);
+    return mapped;
 }
 
 function applyDesignDefaultsToPiece(piece, defaults) {
@@ -309,18 +344,36 @@ function registerDesignMasterRoutes(app, deps) {
                 `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.purity, sk.metal_type,
                         sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
                         sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
-                sk.invoice_item_name, sk.hsn_code
+                        sk.invoice_item_name, sk.hsn_code, sk.fixed_price
                  FROM reseller_erp_design_skus sk
                  WHERE sk.reseller_user_id = $1
                  ORDER BY sk.sku`,
                 [req.user.id],
             );
+            const sizeRows = await query(
+                `SELECT sku_id, size_label, fixed_price_mrp, sort_order
+                 FROM reseller_erp_design_sku_sizes
+                 WHERE reseller_user_id = $1
+                 ORDER BY sku_id, sort_order`,
+                [req.user.id],
+            );
+            const sizesBySku = Object.create(null);
+            for (const r of sizeRows) {
+                if (!sizesBySku[r.sku_id]) sizesBySku[r.sku_id] = [];
+                sizesBySku[r.sku_id].push({
+                    size_label: r.size_label,
+                    fixed_price_mrp: r.fixed_price_mrp != null ? Number(r.fixed_price_mrp) : null,
+                });
+            }
             const byStyle = Object.create(null);
             for (const s of styles) {
                 byStyle[s.id] = { ...s, skus: [] };
             }
             for (const sk of skus) {
-                if (byStyle[sk.style_id]) byStyle[sk.style_id].skus.push(mapDesignSku(sk));
+                if (!byStyle[sk.style_id]) continue;
+                const mapped = mapDesignSku(sk);
+                mapped.size_variants = sizesBySku[sk.id] || [];
+                byStyle[sk.style_id].skus.push(mapped);
             }
             res.json({ tree: styles.map((s) => byStyle[s.id]) });
         } catch (e) {
@@ -426,19 +479,23 @@ function registerDesignMasterRoutes(app, deps) {
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
             const body = req.body || {};
             const num = (k) => (body[k] != null && body[k] !== '' ? Number(body[k]) : null);
+            const newSku = body.sku != null ? String(body.sku).trim().slice(0, 128) : null;
             const rows = await query(
                 `UPDATE reseller_erp_design_skus SET
-                    product_name = COALESCE($1, product_name),
-                    purity = $2, metal_type = $3, wastage_pct = $4,
-                    mc_rate = $5, mc_rate_slab_r = $6, mc_rate_slab_w = $7, mc_rate_slab_f = $8,
-                    metal_slab_r_pct = $9, metal_slab_w_pct = $10, metal_slab_f_pct = $11,
-                    mc_type = $12,
-                    invoice_item_name = COALESCE($13, invoice_item_name),
-                    hsn_code = COALESCE($14, hsn_code),
+                    sku = COALESCE($1, sku),
+                    product_name = COALESCE($2, product_name),
+                    purity = $3, metal_type = $4, wastage_pct = $5,
+                    mc_rate = $6, mc_rate_slab_r = $7, mc_rate_slab_w = $8, mc_rate_slab_f = $9,
+                    metal_slab_r_pct = $10, metal_slab_w_pct = $11, metal_slab_f_pct = $12,
+                    mc_type = $13,
+                    invoice_item_name = COALESCE($14, invoice_item_name),
+                    hsn_code = COALESCE($15, hsn_code),
+                    fixed_price = $16,
                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $15 AND reseller_user_id = $16
+                 WHERE id = $17 AND reseller_user_id = $18
                  RETURNING *`,
                 [
+                    newSku,
                     body.product_name != null ? String(body.product_name).slice(0, 255) : null,
                     num('purity'),
                     body.metal_type != null ? String(body.metal_type).slice(0, 64) : null,
@@ -453,13 +510,36 @@ function registerDesignMasterRoutes(app, deps) {
                     body.mc_type != null ? String(body.mc_type).slice(0, 32) : null,
                     body.invoice_item_name != null ? String(body.invoice_item_name).slice(0, 255) : null,
                     body.hsn_code != null ? String(body.hsn_code).slice(0, 32) : null,
+                    num('fixed_price'),
                     id,
                     req.user.id,
                 ],
             );
             if (!rows.length) return res.status(404).json({ error: 'SKU not found' });
+            if (Array.isArray(body.size_variants)) {
+                await query(
+                    `DELETE FROM reseller_erp_design_sku_sizes WHERE sku_id = $1 AND reseller_user_id = $2`,
+                    [id, req.user.id],
+                );
+                let sort = 0;
+                for (const sv of body.size_variants.slice(0, 50)) {
+                    const label = String(sv.size_label || sv.label || '').trim().slice(0, 128);
+                    if (!label) continue;
+                    const mrp = sv.fixed_price_mrp != null && sv.fixed_price_mrp !== ''
+                        ? Number(sv.fixed_price_mrp)
+                        : null;
+                    await query(
+                        `INSERT INTO reseller_erp_design_sku_sizes
+                            (reseller_user_id, sku_id, size_label, fixed_price_mrp, sort_order)
+                         VALUES ($1,$2,$3,$4,$5)`,
+                        [req.user.id, id, label, Number.isFinite(mrp) ? mrp : null, sort++],
+                    );
+                }
+            }
             const updatedStock = await propagateDesignSkuToStock(query, req.user.id, id);
-            res.json({ sku: mapDesignSku({ ...rows[0], style_code: body.style_code }), stockPiecesUpdated: updatedStock });
+            const skuOut = mapDesignSku({ ...rows[0], style_code: body.style_code });
+            skuOut.size_variants = await loadSkuSizes(query, id, req.user.id);
+            res.json({ sku: skuOut, stockPiecesUpdated: updatedStock });
         } catch (e) {
             res.status(500).json({ error: e.message || 'Failed to update SKU' });
         }
@@ -535,12 +615,61 @@ function registerDesignMasterRoutes(app, deps) {
         try {
             const id = parseInt(String(req.params.id), 10);
             await query(
+                `DELETE FROM reseller_erp_design_sku_sizes WHERE sku_id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            await query(
                 `DELETE FROM reseller_erp_design_skus WHERE id = $1 AND reseller_user_id = $2`,
                 [id, req.user.id],
             );
             res.json({ success: true });
         } catch (e) {
             res.status(500).json({ error: e.message || 'Failed to delete SKU' });
+        }
+    });
+
+    app.put('/api/reseller/erp/design-master/styles/:id', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            const code = String(req.body.style_code || '').trim().slice(0, 128);
+            const name = String(req.body.style_name || code).trim().slice(0, 255);
+            if (!code) return res.status(400).json({ error: 'style_code required' });
+            const rows = await query(
+                `UPDATE reseller_erp_design_styles SET style_code = $1, style_name = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3 AND reseller_user_id = $4 RETURNING *`,
+                [code, name, id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Style not found' });
+            res.json({ style: rows[0] });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to update style' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/design-master/styles/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            const skus = await query(
+                `SELECT id FROM reseller_erp_design_skus WHERE style_id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            for (const sk of skus) {
+                await query(
+                    `DELETE FROM reseller_erp_design_sku_sizes WHERE sku_id = $1 AND reseller_user_id = $2`,
+                    [sk.id, req.user.id],
+                );
+            }
+            await query(
+                `DELETE FROM reseller_erp_design_skus WHERE style_id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            await query(
+                `DELETE FROM reseller_erp_design_styles WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            res.json({ success: true });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to delete style' });
         }
     });
 

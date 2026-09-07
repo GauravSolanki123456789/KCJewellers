@@ -12,7 +12,12 @@ import {
   erpListItemSelectedAlt,
 } from '@/components/reseller/erp/erp-ui'
 import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
-import { Layers, Loader2, Plus, Save, Download } from 'lucide-react'
+import { Layers, Loader2, Pencil, Plus, Save, Download, Trash2, X, Check } from 'lucide-react'
+
+type SizeVariant = {
+  size_label: string
+  fixed_price_mrp: number | null
+}
 
 type DesignSku = {
   id: number
@@ -33,6 +38,8 @@ type DesignSku = {
   mc_type?: string | null
   invoice_item_name?: string | null
   hsn_code?: string | null
+  fixed_price?: number | null
+  size_variants?: SizeVariant[]
 }
 
 type DesignStyle = {
@@ -66,6 +73,11 @@ export function ErpDesignMasterWorkspace() {
   const [seedBusy, setSeedBusy] = useState(false)
   const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
   const [styleInvoiceDraft, setStyleInvoiceDraft] = useState({ name: '', hsn: '' })
+  const [sizeVariants, setSizeVariants] = useState<SizeVariant[]>([])
+  const [editingStyleId, setEditingStyleId] = useState<number | null>(null)
+  const [styleRenameDraft, setStyleRenameDraft] = useState('')
+  const [editingSkuId, setEditingSkuId] = useState<number | null>(null)
+  const [skuRenameDraft, setSkuRenameDraft] = useState('')
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -109,9 +121,17 @@ export function ErpDesignMasterWorkspace() {
         mc_type: selectedSku.mc_type ?? '',
         invoice_item_name: selectedSku.invoice_item_name ?? '',
         hsn_code: selectedSku.hsn_code ?? '',
+        fixed_price: selectedSku.fixed_price != null ? String(selectedSku.fixed_price) : '',
       })
+      setSizeVariants(
+        (selectedSku.size_variants || []).map((sv) => ({
+          size_label: sv.size_label,
+          fixed_price_mrp: sv.fixed_price_mrp ?? null,
+        })),
+      )
     } else {
       setDraft({})
+      setSizeVariants([])
     }
   }, [selectedSku])
 
@@ -147,7 +167,16 @@ export function ErpDesignMasterWorkspace() {
     setBusy(true)
     setMsg('')
     try {
-      const res = await axios.put(`/api/reseller/erp/design-master/skus/${selectedSku.id}`, draft)
+      const payload = {
+        ...draft,
+        size_variants: sizeVariants
+          .filter((sv) => sv.size_label.trim())
+          .map((sv) => ({
+            size_label: sv.size_label.trim(),
+            fixed_price_mrp: sv.fixed_price_mrp,
+          })),
+      }
+      const res = await axios.put(`/api/reseller/erp/design-master/skus/${selectedSku.id}`, payload)
       setMsg(
         res.data.stockPiecesUpdated
           ? `Saved — ${res.data.stockPiecesUpdated} stock piece(s) updated.`
@@ -159,6 +188,84 @@ export function ErpDesignMasterWorkspace() {
     } finally {
       setBusy(false)
     }
+  }
+
+  const renameStyle = async (styleId: number) => {
+    const code = styleRenameDraft.trim().toUpperCase()
+    if (!code) return
+    setBusy(true)
+    try {
+      await axios.put(`/api/reseller/erp/design-master/styles/${styleId}`, {
+        style_code: code,
+        style_name: code,
+      })
+      setEditingStyleId(null)
+      setStyleRenameDraft('')
+      await reload()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deleteStyle = async (style: DesignStyle) => {
+    if (!window.confirm(`Delete style "${style.style_code}" and all its SKUs?`)) return
+    setBusy(true)
+    try {
+      await axios.delete(`/api/reseller/erp/design-master/styles/${style.id}`)
+      if (selectedStyleId === style.id) {
+        setSelectedStyleId(null)
+        setSelectedSkuId(null)
+      }
+      await reload()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const renameSku = async (skuId: number) => {
+    const sku = skuRenameDraft.trim().toUpperCase()
+    if (!sku) return
+    setBusy(true)
+    try {
+      await axios.put(`/api/reseller/erp/design-master/skus/${skuId}`, { sku })
+      setEditingSkuId(null)
+      setSkuRenameDraft('')
+      await reload()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deleteSku = async (sku: DesignSku) => {
+    if (!window.confirm(`Delete SKU "${sku.sku}"?`)) return
+    setBusy(true)
+    try {
+      await axios.delete(`/api/reseller/erp/design-master/skus/${sku.id}`)
+      if (selectedSkuId === sku.id) setSelectedSkuId(null)
+      await reload()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const addSizeVariant = () => {
+    setSizeVariants((prev) => [...prev, { size_label: '', fixed_price_mrp: null }])
+  }
+
+  const updateSizeVariant = (idx: number, patch: Partial<SizeVariant>) => {
+    setSizeVariants((prev) => prev.map((sv, i) => (i === idx ? { ...sv, ...patch } : sv)))
+  }
+
+  const removeSizeVariant = (idx: number) => {
+    setSizeVariants((prev) => prev.filter((_, i) => i !== idx))
   }
 
   const seedFromStock = async (overwrite = false) => {
@@ -274,21 +381,65 @@ export function ErpDesignMasterWorkspace() {
             ) : (
               tree.map((s) => (
                 <li key={s.id}>
-                  <button
-                    type="button"
-                    className={`w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
-                      selectedStyleId === s.id
-                        ? erpListItemSelected
-                        : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
-                    }`}
-                    onClick={() => {
-                      setSelectedStyleId(s.id)
-                      setSelectedSkuId(null)
-                    }}
-                  >
-                    {s.style_code}
-                    <span className="ml-1 text-[10px] opacity-60">({s.skus.length} SKU)</span>
-                  </button>
+                  {editingStyleId === s.id ? (
+                    <div className="flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5">
+                      <input
+                        className={`${erpInputCls} flex-1 text-xs`}
+                        value={styleRenameDraft}
+                        onChange={(e) => setStyleRenameDraft(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void renameStyle(s.id)
+                          if (e.key === 'Escape') setEditingStyleId(null)
+                        }}
+                        autoFocus
+                      />
+                      <button type="button" className={erpBtnGhost} onClick={() => void renameStyle(s.id)}>
+                        <Check className="size-3.5" />
+                      </button>
+                      <button type="button" className={erpBtnGhost} onClick={() => setEditingStyleId(null)}>
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className={`flex items-center gap-1 rounded-lg px-1 py-0.5 ${
+                        selectedStyleId === s.id ? erpListItemSelected : ''
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
+                          selectedStyleId === s.id ? '' : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
+                        }`}
+                        onClick={() => {
+                          setSelectedStyleId(s.id)
+                          setSelectedSkuId(null)
+                        }}
+                      >
+                        {s.style_code}
+                        <span className="ml-1 text-[10px] opacity-60">({s.skus.length} SKU)</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={erpBtnGhost}
+                        title="Rename style"
+                        onClick={() => {
+                          setEditingStyleId(s.id)
+                          setStyleRenameDraft(s.style_code)
+                        }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`${erpBtnGhost} text-red-700`}
+                        title="Delete style"
+                        onClick={() => void deleteStyle(s)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))
             )}
@@ -345,17 +496,61 @@ export function ErpDesignMasterWorkspace() {
               <ul className="max-h-[380px] space-y-1 overflow-y-auto">
                 {selectedStyle.skus.map((sk) => (
                   <li key={sk.id}>
-                    <button
-                      type="button"
-                      className={`w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
-                        selectedSkuId === sk.id
-                          ? erpListItemSelectedAlt
-                          : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
-                      }`}
-                      onClick={() => setSelectedSkuId(sk.id)}
-                    >
-                      {sk.sku}
-                    </button>
+                    {editingSkuId === sk.id ? (
+                      <div className="flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5">
+                        <input
+                          className={`${erpInputCls} flex-1 text-xs`}
+                          value={skuRenameDraft}
+                          onChange={(e) => setSkuRenameDraft(e.target.value.toUpperCase())}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void renameSku(sk.id)
+                            if (e.key === 'Escape') setEditingSkuId(null)
+                          }}
+                          autoFocus
+                        />
+                        <button type="button" className={erpBtnGhost} onClick={() => void renameSku(sk.id)}>
+                          <Check className="size-3.5" />
+                        </button>
+                        <button type="button" className={erpBtnGhost} onClick={() => setEditingSkuId(null)}>
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        className={`flex items-center gap-1 rounded-lg px-1 py-0.5 ${
+                          selectedSkuId === sk.id ? erpListItemSelectedAlt : ''
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
+                            selectedSkuId === sk.id ? '' : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
+                          }`}
+                          onClick={() => setSelectedSkuId(sk.id)}
+                        >
+                          {sk.sku}
+                        </button>
+                        <button
+                          type="button"
+                          className={erpBtnGhost}
+                          title="Rename SKU"
+                          onClick={() => {
+                            setEditingSkuId(sk.id)
+                            setSkuRenameDraft(sk.sku)
+                          }}
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className={`${erpBtnGhost} text-red-700`}
+                          title="Delete SKU"
+                          onClick={() => void deleteSku(sk)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -430,6 +625,65 @@ export function ErpDesignMasterWorkspace() {
                     onChange={(e) => setDraft((d) => ({ ...d, purity: e.target.value }))}
                   />
                 </label>
+                <label className="col-span-2 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Fixed price (₹) — gift / MRP base when no size
+                  <input
+                    className={`${erpInputCls} mt-0.5 text-xs`}
+                    inputMode="decimal"
+                    placeholder="e.g. 90"
+                    value={draft.fixed_price ?? ''}
+                    onChange={(e) => setDraft((d) => ({ ...d, fixed_price: e.target.value }))}
+                  />
+                </label>
+              </div>
+
+              <div className="rounded-lg border border-[var(--color-slate-900,#e8e4dc)] p-2">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                    Size variants (label + MRP)
+                  </p>
+                  <button type="button" className={erpBtnGhost} onClick={addSizeVariant}>
+                    <Plus className="size-3.5" />
+                    Size
+                  </button>
+                </div>
+                {sizeVariants.length === 0 ? (
+                  <p className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                    Add sizes like No1 stand / 3x2.5 in with different MRPs. Slab R/W/F discounts apply at billing.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {sizeVariants.map((sv, idx) => (
+                      <div key={`sv-${idx}`} className="grid grid-cols-[1fr_88px_28px] gap-1">
+                        <input
+                          className={`${erpInputCls} text-xs`}
+                          placeholder="Size label"
+                          value={sv.size_label}
+                          onChange={(e) => updateSizeVariant(idx, { size_label: e.target.value })}
+                        />
+                        <input
+                          className={`${erpInputCls} text-xs`}
+                          inputMode="decimal"
+                          placeholder="MRP ₹"
+                          value={sv.fixed_price_mrp != null ? String(sv.fixed_price_mrp) : ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            updateSizeVariant(idx, {
+                              fixed_price_mrp: v === '' ? null : Number(v),
+                            })
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className={`${erpBtnGhost} text-red-700`}
+                          onClick={() => removeSizeVariant(idx)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {msg ? <p className="text-xs text-emerald-800">{msg}</p> : null}
               <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void saveSku()}>

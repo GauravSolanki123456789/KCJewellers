@@ -24,6 +24,7 @@ import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
 import { ErpJainavGate } from '@/components/reseller/erp/ErpQuickNav'
 import { ErpShadowWorkspace } from '@/components/reseller/erp/ErpShadowWorkspace'
 import { ErpStockReportWorkspace } from '@/components/reseller/erp/ErpStockReportWorkspace'
+import { ErpStockCheckWorkspace } from '@/components/reseller/erp/ErpStockCheckWorkspace'
 import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { isJainavModule } from '@/lib/reseller-erp-modules'
@@ -221,6 +222,12 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return (
         <ErpJainavGate>
           <ErpStockReportWorkspace />
+        </ErpJainavGate>
+      )
+    case 'stock-check':
+      return (
+        <ErpJainavGate>
+          <ErpStockCheckWorkspace />
         </ErpJainavGate>
       )
     case 'jainav-ledger':

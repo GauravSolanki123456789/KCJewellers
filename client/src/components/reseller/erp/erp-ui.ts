@@ -166,6 +166,10 @@ export type ErpBillLine = {
   manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift'
   /** MRP / piece-rate line (no weight in kgs on invoice) */
   mrpMode?: boolean
+  /** Size variants from design master (gift SKUs) */
+  designSizeOptions?: { size_label: string; fixed_price_mrp: number | null }[]
+  /** MRP before slab discount (display only) */
+  mrpListPrice?: number | null
   /** Per-line karigar tracking (orders only) */
   lineKey?: string
   lineStatus?: ErpOrderLineStatus

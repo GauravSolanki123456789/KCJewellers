@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
   billingLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000' },
   billingRight: { width: '42%', padding: 6, paddingTop: 8 },
   billingBar: {
-    backgroundColor: '#e8e8e8',
+    backgroundColor: '#ffffff',
     paddingVertical: 3,
     paddingHorizontal: 6,
     borderBottomWidth: 1,
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
   },
   billingBody: { padding: 6, fontSize: 7.5, lineHeight: 1.35 },
   table: { borderWidth: 1, borderTopWidth: 0, borderColor: '#000' },
-  tableHead: { flexDirection: 'row', backgroundColor: '#e8e8e8', borderBottomWidth: 1, borderBottomColor: '#000' },
+  tableHead: { flexDirection: 'row', backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#000' },
   headCell: {
     paddingVertical: 4,
     paddingHorizontal: 2,
@@ -105,6 +105,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   tableBody: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    minHeight: 100,
+  },
+  tableSpacer: {
+    minHeight: 72,
     borderBottomWidth: 1,
     borderBottomColor: '#000',
   },
@@ -317,6 +323,7 @@ function InvoicePage({
             </View>
           )
         })}
+        <View style={styles.tableSpacer} />
       </View>
 
       <View style={styles.summaryRow}>
