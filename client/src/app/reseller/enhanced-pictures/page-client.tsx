@@ -1264,8 +1264,8 @@ export default function ResellerEnhancedPicturesPageClient() {
             <p className="mt-1 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Crafting studio quality photo
             </p>
-            <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-              {batchMessage ||
+              <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
+                {batchMessage ||
                 (phase === 'batch'
                   ? 'Economy batch mode — usually a few minutes.'
                   : activeRenderQuality?.key === '4k'
@@ -1304,12 +1304,12 @@ export default function ResellerEnhancedPicturesPageClient() {
               <span className="absolute left-2 top-2 z-10 rounded-full bg-amber-400/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-950">
                 Studio grade output
               </span>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={resultUrl}
-                alt="Studio result"
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={resultUrl}
+              alt="Studio result"
                 className="mx-auto max-h-[420px] w-full object-contain"
-              />
+            />
             </div>
             {attachMsg ? (
               <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{attachMsg}</p>

@@ -469,9 +469,9 @@ export function ErpBillingWorkspace() {
             silverOffset,
           )
         } else {
-          const r = bd.rate_per_gram
-          next.ratePerGram =
-            r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
+        const r = bd.rate_per_gram
+        next.ratePerGram =
+          r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
         }
       }
       return next
@@ -920,7 +920,7 @@ export function ErpBillingWorkspace() {
         setSoldStockOpen(true)
         setScanErrorMsg(null)
       } else {
-        setScanErrorMsg(erpErr(e))
+      setScanErrorMsg(erpErr(e))
       }
       setScanCode('')
       scanRef.current?.focus()
@@ -1305,7 +1305,7 @@ export function ErpBillingWorkspace() {
         setSoldStockMessage(formatSoldStockMessage(err.response.data.conflicts))
         setSoldStockOpen(true)
       } else {
-        alert(erpErr(e))
+      alert(erpErr(e))
       }
       return null
     } finally {
@@ -1397,18 +1397,18 @@ export function ErpBillingWorkspace() {
       }
 
       if (wantsPdf) {
-        await shareErpQuotePdf({
-          bill,
-          brandLabel,
-          customerName,
-          mobile,
-          slabSettingsRaw: auth.user,
+      await shareErpQuotePdf({
+        bill,
+        brandLabel,
+        customerName,
+        mobile,
+        slabSettingsRaw: auth.user,
           layoutMode: pdfLayoutMode,
-          onSheet: (payload) => {
-            setPdfSharePayload(payload)
-            setPdfShareOpen(true)
-          },
-        })
+        onSheet: (payload) => {
+          setPdfSharePayload(payload)
+          setPdfShareOpen(true)
+        },
+      })
       }
     } catch (e) {
       console.error(e)
@@ -1737,7 +1737,7 @@ export function ErpBillingWorkspace() {
               onChange={(e) => setCollectedAmountInr(e.target.value.replace(/[^\d.]/g, ''))}
               placeholder="Received"
             />
-          </div>
+        </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Payment
@@ -1775,13 +1775,13 @@ export function ErpBillingWorkspace() {
             {customerMoreOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
             More
           </button>
-          {customerName ? (
+        {customerName ? (
             <span className="truncate text-[11px] text-[var(--color-jewelry-black,#1a1814)]/70">
               {customerName} · Slab {rateSlab}
               {mobile ? ` · ${mobile}` : ''}
               {customerGst ? ` · GST ${customerGst}` : ''}
-            </span>
-          ) : null}
+              </span>
+              ) : null}
         </div>
 
         {customerMoreOpen ? (
@@ -1808,7 +1808,7 @@ export function ErpBillingWorkspace() {
                   <option value="29 - Karnataka" />
                 </datalist>
               </div>
-            ) : null}
+              ) : null}
             <div>
               <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Birthday</label>
               <ErpDateInput className={`${erpInputCls} py-2 text-sm`} value={customerBirthdate} onChange={setCustomerBirthdate} />
@@ -1966,7 +1966,7 @@ export function ErpBillingWorkspace() {
             {(rateSlab === 'W' || rateSlab === 'F') && (wholesaleGold || wholesaleSilver) ? (
               <div className="mt-2 space-y-1">
                 <p className="text-[10px] text-emerald-700">
-                  Wholesale:
+                Wholesale:
                 {wholesaleGold ? ` Gold ${formatErpInr(wholesaleGold)}/g` : ''}
                 {wholesaleGold && wholesaleSilver ? ' ·' : ''}
                 {wholesaleSilver ? ` Silver ${formatErpInr(wholesaleSilver)}/g` : ''}
@@ -2234,7 +2234,7 @@ export function ErpBillingWorkspace() {
                                   if (line.manualEntry) {
                                     updateManualLine(idx, patch)
                                   } else {
-                                    updateLine(idx, patch)
+                                  updateLine(idx, patch)
                                   }
                                 }}
                                 onKeyDown={(e) => {
@@ -2299,10 +2299,10 @@ export function ErpBillingWorkspace() {
                     <p className="font-semibold tabular-nums text-emerald-700">{formatErpInr(parsedAdvance)}</p>
                   </div>
                   {parsedAdvance > 0 ? (
-                    <div>
-                      <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Amount to pay</p>
-                      <p className="font-semibold tabular-nums text-amber-800">{formatErpInr(balanceDue)}</p>
-                    </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Amount to pay</p>
+                    <p className="font-semibold tabular-nums text-amber-800">{formatErpInr(balanceDue)}</p>
+                  </div>
                   ) : null}
                 </>
               ) : null}

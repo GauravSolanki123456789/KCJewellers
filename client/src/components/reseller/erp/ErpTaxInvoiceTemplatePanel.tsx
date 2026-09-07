@@ -11,6 +11,7 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { ErpConfigurableTaxInvoicePdfDocument } from '@/lib/erp-marlecha-invoice-pdf'
 import { computeErpQuoteTotals } from '@/lib/erp-quote-pdf'
+import { resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
 import { sampleBillForTaxInvoicePreview } from '@/lib/erp-tax-invoice-sample'
 import { fileToImageDataUrl, runOcrOnImage } from '@/lib/erp-tax-invoice-ocr'
 import {
@@ -127,6 +128,9 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
       const bill = sampleBillForTaxInvoicePreview()
       const totals = computeErpQuoteTotals(bill, null)
       const templateConfig = buildConfig()
+      const sampleIrn = 'SAMPLE-IRN-FOR-PREVIEW-ONLY-0123456789ABCDEF'
+      const previewQr =
+        variant === 'e-invoice' ? await resolveEinvoiceQrImageSrc({ irn: sampleIrn }) : null
       const blob = await pdf(
         <ErpConfigurableTaxInvoicePdfDocument
           bill={bill}
@@ -150,14 +154,15 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
           customerName={bill.customer_name}
           customerAddress={(bill.session as { address?: string })?.address}
           templateConfig={templateConfig}
+          variant={variant === 'e-invoice' ? 'einvoice' : 'bill'}
           ewayBillNo={variant === 'e-way' ? '123456789012' : null}
           compliance={
             variant === 'e-invoice'
               ? {
-                  irn: 'SAMPLE-IRN-FOR-PREVIEW-ONLY',
+                  irn: sampleIrn,
                   ack_no: '012345678901234',
                   ack_date: '05-09-2026',
-                  qrImageSrc: null,
+                  qrImageSrc: previewQr,
                   sandbox: true,
                 }
               : null
@@ -247,7 +252,7 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
           </button>
           <button type="button" className={erpBtnGhost} disabled={previewBusy} onClick={() => void runPreview()}>
             {previewBusy ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
-            Preview 3-page PDF
+            Preview {variant === 'e-invoice' ? 'e-invoice' : '3-page'} PDF
           </button>
           <button type="button" className={erpBtnPrimary} disabled={saveBusy} onClick={() => void save()}>
             {saveBusy ? <Loader2 className="size-4 animate-spin" /> : saved ? <Check className="size-4" /> : <Save className="size-4" />}

@@ -50,6 +50,8 @@ const styles = StyleSheet.create({
   },
   pageBody: {
     flexGrow: 1,
+    display: 'flex',
+    flexDirection: 'column',
   },
   headerBox: {
     borderWidth: 1.5,
@@ -93,34 +95,48 @@ const styles = StyleSheet.create({
   },
   billingBody: { padding: 6, fontSize: 7.5, lineHeight: 1.35 },
   table: { borderWidth: 1, borderTopWidth: 0, borderColor: '#000', flexGrow: 1, display: 'flex', flexDirection: 'column' },
-  tableHead: { flexDirection: 'row', backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#000' },
+  tableColumnsRow: { flexDirection: 'row', alignSelf: 'stretch', flexGrow: 1, minHeight: 56 },
+  tableColumnsRowFixed: { flexDirection: 'row', alignSelf: 'stretch' },
+  tableColumn: {
+    flexDirection: 'column',
+    borderRightWidth: 1,
+    borderRightColor: '#000',
+  },
+  tableColumnLast: { borderRightWidth: 0 },
   headCell: {
     paddingVertical: 4,
     paddingHorizontal: 2,
+    borderRightWidth: 1,
+    borderRightColor: '#000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+  },
+  colHeadCell: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    width: '100%',
+  },
+  headCellText: {
     fontSize: 6.5,
     fontWeight: 'bold',
     textAlign: 'center',
-    borderRightWidth: 1,
-    borderRightColor: '#000',
   },
   bodyCell: {
     paddingVertical: 4,
     paddingHorizontal: 2,
-    fontSize: 7,
     borderRightWidth: 1,
     borderRightColor: '#000',
-    borderBottomWidth: 0,
   },
-  tableBody: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#000',
-    minHeight: 100,
+  colBodyCell: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    width: '100%',
   },
-  tableSpacer: {
-    flexGrow: 1,
-    minHeight: 48,
-    borderBottomWidth: 1,
-    borderBottomColor: '#000',
+  colSpacer: { flexGrow: 1, minHeight: 40 },
+  bodyCellText: {
+    fontSize: 7,
   },
   summaryRow: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 88 },
   summaryLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000', padding: 8, paddingBottom: 12, justifyContent: 'space-between' },
@@ -181,6 +197,70 @@ function linePieceRate(line: ErpBillLine): number {
   return amt / qty
 }
 
+type ColumnAlign = 'left' | 'center' | 'right'
+
+function columnAlignments(count: number, kind: 'weight' | 'mrp'): ColumnAlign[] {
+  if (kind === 'mrp') {
+    return (['center', 'left', 'center', 'right', 'right', 'right'] as ColumnAlign[]).slice(0, count)
+  }
+  return (['center', 'left', 'center', 'right', 'right', 'right', 'right'] as ColumnAlign[]).slice(0, count)
+}
+
+/** Column-based table — vertical borders run full height including empty spacer area. */
+function renderColumnTable(
+  tableKey: string,
+  columns: string[],
+  widths: readonly string[],
+  rows: string[][],
+  opts?: { fillRemaining?: boolean },
+) {
+  const kind: 'weight' | 'mrp' = widths.length >= 7 ? 'weight' : 'mrp'
+  const aligns = columnAlignments(widths.length, kind)
+  const last = widths.length - 1
+  const rowStyle = opts?.fillRemaining ? styles.tableColumnsRow : styles.tableColumnsRowFixed
+
+  return (
+    <View style={rowStyle}>
+      {widths.map((w, colIdx) => (
+        <View
+          key={`${tableKey}-col-${colIdx}`}
+          style={[
+            styles.tableColumn,
+            { width: w },
+            ...(colIdx === last ? [styles.tableColumnLast] : []),
+          ]}
+        >
+          <View style={styles.colHeadCell}>
+            <Text style={styles.headCellText}>
+              {sanitizePdfText((columns[colIdx] || '').replace(/\\n/g, '\n'))}
+            </Text>
+          </View>
+          {rows.map((row, rowIdx) => (
+            <View key={`${tableKey}-row-${rowIdx}`} style={styles.colBodyCell}>
+              <Text
+                style={[
+                  styles.bodyCellText,
+                  {
+                    textAlign:
+                      aligns[colIdx] === 'left'
+                        ? 'left'
+                        : aligns[colIdx] === 'center'
+                          ? 'center'
+                          : 'right',
+                  },
+                ]}
+              >
+                {sanitizePdfText(row[colIdx] || '')}
+              </Text>
+            </View>
+          ))}
+          {opts?.fillRemaining ? <View style={styles.colSpacer} /> : null}
+        </View>
+      ))}
+    </View>
+  )
+}
+
 function InvoicePage({
   copyLabel,
   template,
@@ -235,18 +315,37 @@ function InvoicePage({
   const mrpCols = mrpTableColumns()
   let slNo = 0
 
-  const renderHead = (cols: string[], widths: readonly string[]) => (
-    <View style={styles.tableHead}>
-      {cols.map((label, i) => (
-        <Text
-          key={`h-${label}-${i}`}
-          style={[styles.headCell, { width: widths[i] || '10%', borderRightWidth: i === cols.length - 1 ? 0 : 1 }]}
-        >
-          {sanitizePdfText(label.replace(/\\n/g, '\n'))}
-        </Text>
-      ))}
-    </View>
-  )
+  const weightRows: string[][] = weightLines.map((line) => {
+    slNo += 1
+    const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
+    const netKg = gmToKg(Number(line.weightGm) || 0)
+    const rate = lineRatePerKg(line)
+    const amt = Number(line.lineTotalInr) || 0
+    return [
+      `${slNo}.`,
+      line.invoice_item_name || line.name || 'JEWELLERY',
+      line.hsn_code || '711311',
+      grossKg.toFixed(4),
+      netKg.toFixed(4),
+      rate > 0 ? rate.toFixed(2) : '—',
+      amt.toFixed(2),
+    ]
+  })
+
+  const mrpRows: string[][] = mrpLines.map((line) => {
+    slNo += 1
+    const qty = Math.max(1, Number(line.qty) || 1)
+    const rate = linePieceRate(line)
+    const amt = Number(line.lineTotalInr) || 0
+    return [
+      `${slNo}.`,
+      line.invoice_item_name || line.name || 'GIFT ITEMS',
+      line.hsn_code || '711311',
+      String(qty),
+      rate > 0 ? rate.toFixed(2) : '—',
+      amt.toFixed(2),
+    ]
+  })
 
   return (
     <Page size="A4" style={styles.page}>
@@ -309,65 +408,14 @@ function InvoicePage({
       </View>
 
       <View style={styles.table}>
-        {weightLines.length > 0 ? renderHead(weightCols, WEIGHT_COL_W) : null}
-        {weightLines.map((line) => {
-          slNo += 1
-          const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
-          const netKg = gmToKg(Number(line.weightGm) || 0)
-          const rate = lineRatePerKg(line)
-          const amt = Number(line.lineTotalInr) || 0
-          return (
-            <View key={`wt-${slNo}`} style={{ flexDirection: 'row' }}>
-              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[0], textAlign: 'center' }]}>{slNo}.</Text>
-              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[1], textAlign: 'left' }]}>
-                {sanitizePdfText(line.invoice_item_name || line.name || 'JEWELLERY')}
-              </Text>
-              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[2], textAlign: 'center' }]}>
-                {sanitizePdfText(line.hsn_code || '711311')}
-              </Text>
-              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[3], textAlign: 'right' }]}>
-                {grossKg.toFixed(4)}
-              </Text>
-              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[4], textAlign: 'right' }]}>
-                {netKg.toFixed(4)}
-              </Text>
-              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[5], textAlign: 'right' }]}>
-                {rate > 0 ? rate.toFixed(2) : '—'}
-              </Text>
-              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[6], textAlign: 'right', borderRightWidth: 0 }]}>
-                {amt.toFixed(2)}
-              </Text>
-            </View>
-          )
-        })}
-        {mrpLines.length > 0 ? renderHead(mrpCols, MRP_COL_W) : null}
-        {mrpLines.map((line) => {
-          slNo += 1
-          const qty = Math.max(1, Number(line.qty) || 1)
-          const rate = linePieceRate(line)
-          const amt = Number(line.lineTotalInr) || 0
-          return (
-            <View key={`mrp-${slNo}`} style={{ flexDirection: 'row' }}>
-              <Text style={[styles.bodyCell, { width: MRP_COL_W[0], textAlign: 'center' }]}>{slNo}.</Text>
-              <Text style={[styles.bodyCell, { width: MRP_COL_W[1], textAlign: 'left' }]}>
-                {sanitizePdfText(line.invoice_item_name || line.name || 'GIFT ITEMS')}
-              </Text>
-              <Text style={[styles.bodyCell, { width: MRP_COL_W[2], textAlign: 'center' }]}>
-                {sanitizePdfText(line.hsn_code || '711311')}
-              </Text>
-              <Text style={[styles.bodyCell, { width: MRP_COL_W[3], textAlign: 'right' }]}>
-                {String(qty)}
-              </Text>
-              <Text style={[styles.bodyCell, { width: MRP_COL_W[4], textAlign: 'right' }]}>
-                {rate > 0 ? rate.toFixed(2) : '—'}
-              </Text>
-              <Text style={[styles.bodyCell, { width: MRP_COL_W[5], textAlign: 'right', borderRightWidth: 0 }]}>
-                {amt.toFixed(2)}
-              </Text>
-            </View>
-          )
-        })}
-        <View style={styles.tableSpacer} />
+        {weightRows.length > 0
+          ? renderColumnTable('wt', weightCols, WEIGHT_COL_W, weightRows, {
+              fillRemaining: mrpRows.length === 0,
+            })
+          : null}
+        {mrpRows.length > 0
+          ? renderColumnTable('mrp', mrpCols, MRP_COL_W, mrpRows, { fillRemaining: true })
+          : null}
       </View>
       </View>
 

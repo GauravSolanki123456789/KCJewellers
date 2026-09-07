@@ -85,6 +85,5 @@ export function buildErpSalesPdfFilename(billNumber: string, taxInvoiceMode?: bo
     .replace(/[^\w.-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
-  if (taxInvoiceMode) return `${num || 'invoice'}-e-invoice.pdf`
   return `${num || 'invoice'}.pdf`
 }

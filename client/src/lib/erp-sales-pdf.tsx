@@ -7,6 +7,7 @@ import { computeErpQuoteTotals, erpCustomerWhatsAppHref } from '@/lib/erp-quote-
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { loadErpSettingsBundle, resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
+import { buildErpSalesPdfFilename } from '@/lib/erp-sales-invoice-template'
 import { normalizeTaxInvoiceTemplate } from '@/lib/erp-tax-invoice-template'
 import { mrpInvoiceItemNames, fetchGstInvoiceItems } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 
@@ -125,12 +126,9 @@ export async function buildErpSalesPdfPayload(params: {
     ),
   ).toBlob()
 
-  const safeBillNo = params.bill.bill_number.replace(/[^\w.-]+/g, '-')
   const filename = params.ewayBillNo || params.bill.compliance?.eway?.ewb_no
-    ? `${safeBillNo}-eway.pdf`
-    : params.taxInvoiceMode
-      ? `${safeBillNo}-tax-invoice.pdf`
-      : `${safeBillNo}-invoice.pdf`
+    ? `${params.bill.bill_number.replace(/[^\w.-]+/g, '-')}-eway.pdf`
+    : buildErpSalesPdfFilename(params.bill.bill_number, params.taxInvoiceMode)
 
   const text = buildErpSalesWhatsAppMessage({
     brandLabel,

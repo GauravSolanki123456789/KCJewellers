@@ -16,9 +16,11 @@ export async function resolveEinvoiceQrImageSrc(params: {
   if (signedQr && typeof signedQr === 'string') {
     const trimmed = signedQr.trim()
     if (trimmed.startsWith('data:image')) return trimmed
-    if (/^[A-Za-z0-9+/=]+$/.test(trimmed.slice(0, 80))) {
+    if (/^[A-Za-z0-9+/=]+$/.test(trimmed.slice(0, 80)) && trimmed.length > 120) {
       return `data:image/png;base64,${trimmed}`
     }
+    const qrFromSigned = await fetchQrDataUri(trimmed)
+    if (qrFromSigned) return qrFromSigned
   }
 
   const qrUrl =
@@ -40,15 +42,26 @@ export async function resolveEinvoiceQrImageSrc(params: {
   const irn = params.irn?.trim()
   if (!irn) return null
 
-  try {
-    const url = `https://quickchart.io/qr?size=200&margin=1&text=${encodeURIComponent(irn)}`
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const blob = await res.blob()
-    return await blobToDataUri(blob)
-  } catch {
-    return null
+  return fetchQrDataUri(irn)
+}
+
+async function fetchQrDataUri(text: string): Promise<string | null> {
+  const payload = encodeURIComponent(text)
+  const urls = [
+    `https://quickchart.io/qr?size=200&margin=1&text=${payload}`,
+    `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${payload}`,
+  ]
+  for (const url of urls) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const blob = await res.blob()
+      return await blobToDataUri(blob)
+    } catch {
+      /* try next provider */
+    }
   }
+  return null
 }
 
 function blobToDataUri(blob: Blob): Promise<string> {
