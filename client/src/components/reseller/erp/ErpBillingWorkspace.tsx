@@ -348,6 +348,8 @@ export function ErpBillingWorkspace() {
   const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: keyof ErpBillLine } | null>(null)
   const [manualEditingCell, setManualEditingCell] = useState<string | null>(null)
   const [cellDrafts, setCellDrafts] = useState<Record<string, string>>({})
+  const cellDraftsRef = useRef<Record<string, string>>({})
+  cellDraftsRef.current = cellDrafts
   const manualCellRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const quoteOutputMode = useMemo(
@@ -851,24 +853,19 @@ export function ErpBillingWorkspace() {
           const catalog = await loadBillingCatalog(invoiceItem.name)
           setBillingCatalogs((prev) => ({ ...prev, [invoiceItem.name]: catalog }))
         }
-        const line = recalcLine(createManualBillLine(shortcut, invoiceItem, rateSlab))
+        const rates =
+          Array.isArray(displayRates) && displayRates.length
+            ? displayRates
+            : await loadDisplayRates()
+        const pg = displayRatesToPerGram(rates)
+        const line = recalcLine(createManualBillLine(shortcut, invoiceItem, rateSlab), {
+          rates,
+          goldPerG: pg.gold,
+          silverPerG: pg.silver,
+        })
         setLines((prev) => [...prev, line])
         setScanCode('')
         const lineKey = line.code || `manual-${Date.now()}`
-        void loadDisplayRates().then((rates) => {
-          const pg = displayRatesToPerGram(rates)
-          setLines((prev) =>
-            prev.map((l) =>
-              l.code === lineKey
-                ? recalcLine(l, {
-                    rates,
-                    goldPerG: pg.gold,
-                    silverPerG: pg.silver,
-                  })
-                : l,
-            ),
-          )
-        })
         focusManualCell(lineKey, shortcut === 'gift' ? 'qty' : 'sku')
       } catch (e) {
         setScanErrorMsg(erpErr(e))
@@ -1054,19 +1051,6 @@ export function ErpBillingWorkspace() {
       }
     },
     [recalcLine, rateSlab, slabSettings],
-  )
-
-  const advanceBillField = useCallback(
-    (lineKey: string, field: keyof ErpBillLine, line: ErpBillLine) => {
-      const nextKey = nextBillTableField(tableCols, String(field), line)
-      if (nextKey) {
-        focusManualCell(lineKey, nextKey as keyof ErpBillLine)
-      } else {
-        setManualFocus(null)
-        scanRef.current?.focus()
-      }
-    },
-    [focusManualCell, tableCols],
   )
 
   const unlockLineRates = (list: ErpBillLine[]) =>
@@ -1510,6 +1494,37 @@ export function ErpBillingWorkspace() {
       updateLine(idx, patch)
     }
   }
+
+  const flushNumericDraft = useCallback(
+    (lineKey: string, idx: number, line: ErpBillLine, k: keyof ErpBillLine) => {
+      const refKey = `${lineKey}-${String(k)}`
+      const draft = cellDraftsRef.current[refKey]
+      if (draft === undefined) return
+      commitNumericCell(idx, line, k, draft)
+      setCellDrafts((prev) => {
+        const next = { ...prev }
+        delete next[refKey]
+        return next
+      })
+    },
+    [],
+  )
+
+  const advanceBillField = useCallback(
+    (lineKey: string, field: keyof ErpBillLine, line: ErpBillLine, idx: number) => {
+      if (NUMERIC_EDIT_KEYS.includes(field)) {
+        flushNumericDraft(lineKey, idx, line, field)
+      }
+      const nextKey = nextBillTableField(tableCols, String(field), line)
+      if (nextKey) {
+        focusManualCell(lineKey, nextKey as keyof ErpBillLine)
+      } else {
+        setManualFocus(null)
+        scanRef.current?.focus()
+      }
+    },
+    [focusManualCell, tableCols, flushNumericDraft],
+  )
 
   if (!hydrated) {
     return (
@@ -2132,7 +2147,7 @@ export function ErpBillingWorkspace() {
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
                                     e.preventDefault()
-                                    advanceBillField(lineKey, 'size', line)
+                                    advanceBillField(lineKey, 'size', line, idx)
                                   }
                                 }}
                               />
@@ -2194,7 +2209,7 @@ export function ErpBillingWorkspace() {
                                 onBlur={() => {
                                   if (manualEditingCell === refKey) setManualEditingCell(null)
                                   if (isNumericField) {
-                                    const draft = cellDrafts[refKey]
+                                    const draft = cellDraftsRef.current[refKey]
                                     if (draft !== undefined) {
                                       commitNumericCell(idx, line, k, draft)
                                       setCellDrafts((prev) => {
@@ -2211,11 +2226,6 @@ export function ErpBillingWorkspace() {
                                   if (isNumericField) {
                                     if (!isPartialDecimalInput(v)) return
                                     setCellDrafts((prev) => ({ ...prev, [refKey]: v }))
-                                    if (v !== '' && v !== '.' && !v.endsWith('.')) {
-                                      commitNumericCell(idx, line, k, v)
-                                    } else if (v === '') {
-                                      commitNumericCell(idx, line, k, v)
-                                    }
                                     return
                                   }
                                   const patch: Partial<ErpBillLine> = {
@@ -2230,10 +2240,10 @@ export function ErpBillingWorkspace() {
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     e.preventDefault()
-                                    advanceBillField(lineKey, k, line)
+                                    advanceBillField(lineKey, k, line, idx)
                                   } else if (e.key === 'Tab' && !e.shiftKey) {
                                     e.preventDefault()
-                                    advanceBillField(lineKey, k, line)
+                                    advanceBillField(lineKey, k, line, idx)
                                   }
                                 }}
                               />

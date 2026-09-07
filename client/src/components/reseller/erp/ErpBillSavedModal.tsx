@@ -24,6 +24,10 @@ import {
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import {
+  nextScbBillNumberFromList,
+  suggestManualBillNumberFromList,
+} from '@/lib/erp-next-bill-number'
 import { validateGstin } from '@/lib/erp-gstin'
 import {
   downloadPdfBlob,
@@ -302,9 +306,27 @@ export function ErpSaveBillConfirmDialog({
         }
       })
       .catch(() => {
-        setAutoNumber('')
-        setBillChoice(MANUAL_BILL_VALUE)
-        setNumberLoadErr('Auto bill number unavailable — enter your bill number below.')
+        void axios
+          .get<{ bills: { bill_number: string }[] }>('/api/reseller/erp/bills', {
+            params: { bill_type: 'sale', from: '2020-01-01' },
+          })
+          .then((listRes) => {
+            const numbers = (listRes.data.bills || []).map((b) => b.bill_number)
+            const n = nextScbBillNumberFromList(numbers)
+            const manual = suggestManualBillNumberFromList(numbers)
+            setAutoNumber(n)
+            setBillChoice(n)
+            setNumberLoadErr('')
+            if (manual) {
+              setManualSuggestion(manual)
+              setManualBillNumber(manual)
+            }
+          })
+          .catch(() => {
+            setAutoNumber('SCB001')
+            setBillChoice('SCB001')
+            setNumberLoadErr('Auto bill number unavailable — enter your bill number below.')
+          })
       })
   }, [open, isOfficialGst, defaultPlaceOfSupply])
 

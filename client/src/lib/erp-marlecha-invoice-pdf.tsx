@@ -19,6 +19,7 @@ import type {
 import {
   DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE,
   mergeTemplateWithGstSettings,
+  mrpTableColumns,
   normalizeTaxInvoiceTemplate,
   type ErpTaxInvoiceTemplateConfig,
 } from '@/lib/erp-tax-invoice-template'
@@ -34,7 +35,8 @@ export type ConfigurableTaxInvoiceProps = ErpTaxInvoicePdfDocumentProps & {
   mrpItemNames?: Set<string>
 }
 
-const COL_W = ['5%', '28%', '10%', '12%', '12%', '14%', '19%'] as const
+const WEIGHT_COL_W = ['5%', '28%', '10%', '12%', '12%', '14%', '19%'] as const
+const MRP_COL_W = ['5%', '34%', '12%', '10%', '14%', '25%'] as const
 
 const styles = StyleSheet.create({
   page: {
@@ -227,6 +229,24 @@ function InvoicePage({
   const roundOff = Math.round((roundedTotal - rawTotal) * 100) / 100
   const payLabel = paymentMethodInvoiceLabel(String(session.paymentMethod || ''))
   const shopDisplay = template.shopName || gst.legalName || 'Shop'
+  const weightLines = lines.filter((l) => !isMrpInvoiceLine(l, mrpItemNames))
+  const mrpLines = lines.filter((l) => isMrpInvoiceLine(l, mrpItemNames))
+  const weightCols = template.tableColumns.length >= 7 ? template.tableColumns : DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE.tableColumns
+  const mrpCols = mrpTableColumns()
+  let slNo = 0
+
+  const renderHead = (cols: string[], widths: readonly string[]) => (
+    <View style={styles.tableHead}>
+      {cols.map((label, i) => (
+        <Text
+          key={`h-${label}-${i}`}
+          style={[styles.headCell, { width: widths[i] || '10%', borderRightWidth: i === cols.length - 1 ? 0 : 1 }]}
+        >
+          {sanitizePdfText(label.replace(/\\n/g, '\n'))}
+        </Text>
+      ))}
+    </View>
+  )
 
   return (
     <Page size="A4" style={styles.page}>
@@ -289,42 +309,59 @@ function InvoicePage({
       </View>
 
       <View style={styles.table}>
-        <View style={styles.tableHead}>
-          {template.tableColumns.map((label, i) => (
-            <Text
-              key={`h-${i}`}
-              style={[styles.headCell, { width: COL_W[i] || '10%', borderRightWidth: i === 6 ? 0 : 1 }]}
-            >
-              {sanitizePdfText(label.replace(/\\n/g, '\n'))}
-            </Text>
-          ))}
-        </View>
-        {lines.map((line, i) => {
-          const mrp = isMrpInvoiceLine(line, mrpItemNames)
+        {weightLines.length > 0 ? renderHead(weightCols, WEIGHT_COL_W) : null}
+        {weightLines.map((line) => {
+          slNo += 1
           const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
           const netKg = gmToKg(Number(line.weightGm) || 0)
-          const rate = mrp ? linePieceRate(line) : lineRatePerKg(line)
+          const rate = lineRatePerKg(line)
           const amt = Number(line.lineTotalInr) || 0
-          const isLast = i === lines.length - 1
           return (
-            <View key={`row-${i}`} style={{ flexDirection: 'row', ...(isLast ? styles.tableBody : {}) }}>
-              <Text style={[styles.bodyCell, { width: COL_W[0], textAlign: 'center' }]}>{i + 1}.</Text>
-              <Text style={[styles.bodyCell, { width: COL_W[1], textAlign: 'left' }]}>
+            <View key={`wt-${slNo}`} style={{ flexDirection: 'row' }}>
+              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[0], textAlign: 'center' }]}>{slNo}.</Text>
+              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[1], textAlign: 'left' }]}>
                 {sanitizePdfText(line.invoice_item_name || line.name || 'JEWELLERY')}
               </Text>
-              <Text style={[styles.bodyCell, { width: COL_W[2], textAlign: 'center' }]}>
+              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[2], textAlign: 'center' }]}>
                 {sanitizePdfText(line.hsn_code || '711311')}
               </Text>
-              <Text style={[styles.bodyCell, { width: COL_W[3], textAlign: 'right' }]}>
-                {mrp ? String(Math.round(Number(line.qty) || 1)) : grossKg.toFixed(4)}
+              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[3], textAlign: 'right' }]}>
+                {grossKg.toFixed(4)}
               </Text>
-              <Text style={[styles.bodyCell, { width: COL_W[4], textAlign: 'right' }]}>
-                {mrp ? '—' : netKg.toFixed(4)}
+              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[4], textAlign: 'right' }]}>
+                {netKg.toFixed(4)}
               </Text>
-              <Text style={[styles.bodyCell, { width: COL_W[5], textAlign: 'right' }]}>
+              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[5], textAlign: 'right' }]}>
                 {rate > 0 ? rate.toFixed(2) : '—'}
               </Text>
-              <Text style={[styles.bodyCell, { width: COL_W[6], textAlign: 'right', borderRightWidth: 0 }]}>
+              <Text style={[styles.bodyCell, { width: WEIGHT_COL_W[6], textAlign: 'right', borderRightWidth: 0 }]}>
+                {amt.toFixed(2)}
+              </Text>
+            </View>
+          )
+        })}
+        {mrpLines.length > 0 ? renderHead(mrpCols, MRP_COL_W) : null}
+        {mrpLines.map((line) => {
+          slNo += 1
+          const qty = Math.max(1, Number(line.qty) || 1)
+          const rate = linePieceRate(line)
+          const amt = Number(line.lineTotalInr) || 0
+          return (
+            <View key={`mrp-${slNo}`} style={{ flexDirection: 'row' }}>
+              <Text style={[styles.bodyCell, { width: MRP_COL_W[0], textAlign: 'center' }]}>{slNo}.</Text>
+              <Text style={[styles.bodyCell, { width: MRP_COL_W[1], textAlign: 'left' }]}>
+                {sanitizePdfText(line.invoice_item_name || line.name || 'GIFT ITEMS')}
+              </Text>
+              <Text style={[styles.bodyCell, { width: MRP_COL_W[2], textAlign: 'center' }]}>
+                {sanitizePdfText(line.hsn_code || '711311')}
+              </Text>
+              <Text style={[styles.bodyCell, { width: MRP_COL_W[3], textAlign: 'right' }]}>
+                {String(qty)}
+              </Text>
+              <Text style={[styles.bodyCell, { width: MRP_COL_W[4], textAlign: 'right' }]}>
+                {rate > 0 ? rate.toFixed(2) : '—'}
+              </Text>
+              <Text style={[styles.bodyCell, { width: MRP_COL_W[5], textAlign: 'right', borderRightWidth: 0 }]}>
                 {amt.toFixed(2)}
               </Text>
             </View>

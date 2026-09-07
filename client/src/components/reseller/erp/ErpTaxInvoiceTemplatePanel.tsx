@@ -18,6 +18,7 @@ import {
   normalizeTaxInvoiceTemplate,
   ocrTextToEditableTemplate,
   parseEditableTextToTemplate,
+  sanitizeTaxInvoiceTemplate,
   templateConfigToEditableText,
   type ErpTaxInvoiceTemplateConfig,
 } from '@/lib/erp-tax-invoice-template'
@@ -67,8 +68,8 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
         const key = variant === 'e-invoice' ? 'einvoiceTaxInvoiceTemplate' : 'taxInvoiceTemplate'
         const raw = res.data.settings?.[key] ?? res.data.settings?.taxInvoiceTemplate
         if (raw) {
-          const cfg = normalizeTaxInvoiceTemplate(raw)
-          setEditText(cfg.sourceText?.trim() || templateConfigToEditableText(cfg))
+          const cfg = sanitizeTaxInvoiceTemplate(normalizeTaxInvoiceTemplate(raw))
+          setEditText(templateConfigToEditableText(cfg))
         }
       })
       .catch(() => {})
@@ -83,9 +84,8 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
 
   const buildConfig = useCallback((): ErpTaxInvoiceTemplateConfig => {
     const parsed = parseEditableTextToTemplate(editText, DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE)
-    parsed.sourceText = editText
     parsed.updatedAt = new Date().toISOString()
-    return parsed
+    return sanitizeTaxInvoiceTemplate(parsed)
   }, [editText])
 
   const handleUpload = async (file: File | null) => {
@@ -113,7 +113,8 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
   }
 
   const applyMarlechaDefault = () => {
-    setEditText(templateConfigToEditableText(DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE))
+    const clean = templateConfigToEditableText(DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE)
+    setEditText(clean)
     setSaved(false)
   }
 

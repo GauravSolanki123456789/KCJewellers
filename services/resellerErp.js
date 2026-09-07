@@ -890,22 +890,6 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
-    app.get('/api/reseller/erp/bills/:id', checkAuth, erpGate, async (req, res) => {
-        try {
-            const id = parseInt(String(req.params.id), 10);
-            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
-            const rows = await query(
-                `SELECT * FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
-                [id, req.user.id],
-            );
-            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
-            res.json({ bill: mapBill(rows[0]) });
-        } catch (e) {
-            console.error('erp bill get:', e);
-            res.status(500).json({ error: e.message || 'Failed to load bill' });
-        }
-    });
-
     app.get('/api/reseller/erp/bills/next-number', checkAuth, erpGate, async (req, res) => {
         try {
             const billType = trimStrLower(req.query.bill_type, 32) || 'sale';
@@ -934,6 +918,22 @@ function registerResellerErpRoutes(app, deps) {
         } catch (e) {
             console.error('erp next bill number:', e);
             res.status(500).json({ error: e.message || 'Failed to suggest bill number' });
+        }
+    });
+
+    app.get('/api/reseller/erp/bills/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            res.json({ bill: mapBill(rows[0]) });
+        } catch (e) {
+            console.error('erp bill get:', e);
+            res.status(500).json({ error: e.message || 'Failed to load bill' });
         }
     });
 

@@ -92,6 +92,68 @@ export const DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE: ErpTaxInvoiceTemplateConfig 
   electronicRefLabel: 'Electronic Ref No :',
 }
 
+const MRP_TABLE_COLUMNS = [
+  'SlNo',
+  'Description of Goods',
+  'HSN Code',
+  'Qty',
+  'Rate',
+  'Amount ( in Rs. )',
+]
+
+function stripTemplatePlaceholders(s: string): string {
+  return s
+    .replace(/\{\{shop_name\}\}/gi, '')
+    .replace(/\{\{[^}]+\}\}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function dedupeLines(lines: string[], max = 8): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of lines) {
+    const line = stripTemplatePlaceholders(String(raw || ''))
+    if (!line) continue
+    const key = line.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(line)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+/** Clean OCR / save artifacts — dedupe address, terms, bank; never leak placeholders. */
+export function sanitizeTaxInvoiceTemplate(
+  cfg: ErpTaxInvoiceTemplateConfig,
+): ErpTaxInvoiceTemplateConfig {
+  const base = DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE
+  return {
+    ...cfg,
+    copyLabels: [
+      stripTemplatePlaceholders(cfg.copyLabels[0] || base.copyLabels[0]),
+      stripTemplatePlaceholders(cfg.copyLabels[1] || base.copyLabels[1]),
+      stripTemplatePlaceholders(cfg.copyLabels[2] || base.copyLabels[2]),
+    ] as ErpTaxInvoiceCopyLabels,
+    headerTitle: stripTemplatePlaceholders(cfg.headerTitle || base.headerTitle),
+    shopName: stripTemplatePlaceholders(cfg.shopName || base.shopName),
+    addressLines: dedupeLines(cfg.addressLines, 3),
+    phoneEmailLine: stripTemplatePlaceholders(cfg.phoneEmailLine || base.phoneEmailLine),
+    panLine: stripTemplatePlaceholders(cfg.panLine || base.panLine),
+    gstinLine: stripTemplatePlaceholders(cfg.gstinLine || base.gstinLine),
+    termsLines: dedupeLines(cfg.termsLines, 4),
+    bankLines: dedupeLines(cfg.bankLines, 4),
+    tableColumns: dedupeLines(cfg.tableColumns, 7),
+    authorisedForPrefix: 'for',
+    sourceText: null,
+  }
+}
+
+export function mrpTableColumns(): string[] {
+  return [...MRP_TABLE_COLUMNS]
+}
+
 export function templateConfigToEditableText(cfg: ErpTaxInvoiceTemplateConfig): string {
   const lines: string[] = [
     `[COPY 1] ${cfg.copyLabels[0]}`,
@@ -122,7 +184,7 @@ export function templateConfigToEditableText(cfg: ErpTaxInvoiceTemplateConfig): 
     '',
     ...cfg.bankLines,
     '',
-    `${cfg.authorisedForPrefix} {{shop_name}}`,
+    `${cfg.authorisedForPrefix} ${cfg.shopName}`,
     cfg.authorisedSignatoryLabel,
     cfg.electronicRefLabel,
   ]
@@ -173,45 +235,77 @@ export function parseEditableTextToTemplate(
     else if (line === 'Authorised Signatory') next.authorisedSignatoryLabel = line
     else if (line.startsWith('Electronic Ref')) next.electronicRefLabel = line
     else if (line.startsWith('for ')) next.authorisedForPrefix = 'for'
-    else if (line.includes('MARLECHA') || line.includes('SILVER')) next.shopName = line
+    else if (line.includes('{{shop_name}}')) next.authorisedForPrefix = 'for'
+    else if (line.includes('MARLECHA') || line.includes('SILVER')) next.shopName = stripTemplatePlaceholders(line)
     else if (line.startsWith('No :') || line.includes('Vijay Complex') || line.includes('Sowcarpet')) {
-      if (!next.addressLines.includes(line)) next.addressLines.push(line)
+      const cleaned = stripTemplatePlaceholders(line)
+      if (cleaned && !next.addressLines.some((x) => x.toLowerCase() === cleaned.toLowerCase())) {
+        next.addressLines.push(cleaned)
+      }
     }
   }
 
-  if (copyLabels[0]) next.copyLabels[0] = copyLabels[0]
-  if (copyLabels[1]) next.copyLabels[1] = copyLabels[1]
-  if (copyLabels[2]) next.copyLabels[2] = copyLabels[2]
+  if (copyLabels[0]) next.copyLabels[0] = stripTemplatePlaceholders(copyLabels[0])
+  if (copyLabels[1]) next.copyLabels[1] = stripTemplatePlaceholders(copyLabels[1])
+  if (copyLabels[2]) next.copyLabels[2] = stripTemplatePlaceholders(copyLabels[2])
   if (tableCols?.length) next.tableColumns = tableCols
-  if (terms.length) next.termsLines = terms
-  if (bank.length) next.bankLines = bank
-  next.sourceText = text
-  next.updatedAt = new Date().toISOString()
-  return next
+  if (terms.length) next.termsLines = dedupeLines(terms, 4)
+  if (bank.length) next.bankLines = dedupeLines(bank, 4)
+  return sanitizeTaxInvoiceTemplate({
+    ...next,
+    updatedAt: new Date().toISOString(),
+  })
+}
+
+export function isCorruptedTemplateSource(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (t.includes('{{shop_name}}')) return true
+  if (t.includes('[COPY 2]') && !t.includes('\n[COPY 2]') && !t.startsWith('[COPY 2]')) return true
+  if (t.includes('[TABLE]') && !t.includes('\n[TABLE]') && !t.startsWith('[TABLE]')) return true
+  return false
 }
 
 export function normalizeTaxInvoiceTemplate(raw: unknown): ErpTaxInvoiceTemplateConfig {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE }
   const o = raw as Record<string, unknown>
   const base = DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE
+
+  const hasStructuredFields =
+    typeof o.headerTitle === 'string' ||
+    typeof o.shopName === 'string' ||
+    Array.isArray(o.addressLines) ||
+    Array.isArray(o.tableColumns)
+
+  if (hasStructuredFields) {
+    return sanitizeTaxInvoiceTemplate({
+      ...base,
+      ...o,
+      copyLabels: Array.isArray(o.copyLabels) && o.copyLabels.length === 3
+        ? [String(o.copyLabels[0]), String(o.copyLabels[1]), String(o.copyLabels[2])]
+        : base.copyLabels,
+      addressLines: Array.isArray(o.addressLines) ? o.addressLines.map(String) : base.addressLines,
+      tableColumns: Array.isArray(o.tableColumns) ? o.tableColumns.map(String) : base.tableColumns,
+      termsLines: Array.isArray(o.termsLines) ? o.termsLines.map(String) : base.termsLines,
+      bankLines: Array.isArray(o.bankLines) ? o.bankLines.map(String) : base.bankLines,
+      totalsLabels: {
+        ...base.totalsLabels,
+        ...(o.totalsLabels && typeof o.totalsLabels === 'object' ? (o.totalsLabels as object) : {}),
+      },
+      sourceText: null,
+    })
+  }
+
   if (typeof o.sourceText === 'string' && o.sourceText.trim()) {
-    return parseEditableTextToTemplate(o.sourceText, normalizeTaxInvoiceTemplate({ ...o, sourceText: undefined }))
+    if (isCorruptedTemplateSource(o.sourceText)) {
+      return sanitizeTaxInvoiceTemplate({
+        ...base,
+        ...(typeof o.shopName === 'string' ? { shopName: stripTemplatePlaceholders(o.shopName) } : {}),
+      })
+    }
+    return parseEditableTextToTemplate(o.sourceText, base)
   }
-  return {
-    ...base,
-    ...o,
-    copyLabels: Array.isArray(o.copyLabels) && o.copyLabels.length === 3
-      ? [String(o.copyLabels[0]), String(o.copyLabels[1]), String(o.copyLabels[2])]
-      : base.copyLabels,
-    addressLines: Array.isArray(o.addressLines) ? o.addressLines.map(String) : base.addressLines,
-    tableColumns: Array.isArray(o.tableColumns) ? o.tableColumns.map(String) : base.tableColumns,
-    termsLines: Array.isArray(o.termsLines) ? o.termsLines.map(String) : base.termsLines,
-    bankLines: Array.isArray(o.bankLines) ? o.bankLines.map(String) : base.bankLines,
-    totalsLabels: {
-      ...base.totalsLabels,
-      ...(o.totalsLabels && typeof o.totalsLabels === 'object' ? (o.totalsLabels as object) : {}),
-    },
-  }
+  return { ...base }
 }
 
 export function mergeTemplateWithGstSettings(
@@ -293,7 +387,6 @@ export function ocrTextToEditableTemplate(ocrText: string): string {
     }
   }
 
-  cfg.sourceText = ocrText
   cfg.updatedAt = new Date().toISOString()
-  return templateConfigToEditableText(cfg)
+  return templateConfigToEditableText(sanitizeTaxInvoiceTemplate(cfg))
 }
