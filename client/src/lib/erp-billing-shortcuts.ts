@@ -57,7 +57,7 @@ export function createManualBillLine(
     size: null,
     qty: 1,
     originalWeightGm: null,
-    weightGm: isGiftOrMrp ? null : null,
+    weightGm: null,
     gross_weight: null,
     bag_wt: null,
     bags: null,
@@ -76,6 +76,7 @@ export function createManualBillLine(
     invoice_item_name: invoiceItem.name,
     hsn_code: invoiceItem.hsn,
     manualEntry: true,
+    manualEntryOpen: true,
     manualCategory: category,
     mrpMode: isGiftOrMrp ? true : undefined,
   }
@@ -83,10 +84,16 @@ export function createManualBillLine(
   return applyPieceSlabToLine(base, slab)
 }
 
-/** Tab order for gift/MRP rows — qty then piece rate */
-export const GIFT_MRP_FIELD_ORDER: (keyof ErpBillLine)[] = ['qty', 'unitInr']
+/** Gift flow: SKU → Style → Product → Size → PCS */
+export const GIFT_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
+  'sku',
+  'style_code',
+  'name',
+  'size',
+  'qty',
+]
 
-/** Tab order for manual entry rows — SKU first after A/S/B shortcut */
+/** A/S/B flow: SKU → Style → weights / rates → PCS */
 export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'sku',
   'style_code',
@@ -96,6 +103,7 @@ export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'bag_wt',
   'purity',
   'wastage_pct',
+  'ratePerGram',
   'mc_rate',
   'mc_type',
   'qty',
@@ -103,35 +111,117 @@ export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'stone_charges',
 ]
 
-export function flatSkusFromCatalog(
-  catalog: DesignBillingStyle[],
-): { sku: string; style_code: string; product_name?: string | null }[] {
-  const out: { sku: string; style_code: string; product_name?: string | null }[] = []
-  for (const s of catalog) {
-    for (const sk of s.skus) {
-      out.push({ sku: sk.sku, style_code: s.style_code, product_name: sk.product_name })
-    }
-  }
-  return out.sort((a, b) => a.sku.localeCompare(b.sku))
+export type DesignBillingProduct = {
+  name: string
+  image_url?: string | null
 }
 
-export function findStyleForSku(catalog: DesignBillingStyle[], sku: string): string | null {
-  const q = sku.trim().toUpperCase()
-  for (const s of catalog) {
-    if (s.skus.some((sk) => sk.sku.toUpperCase() === q)) return s.style_code
-  }
-  return null
-}
-
-export function nextManualEntryField(current: keyof ErpBillLine): keyof ErpBillLine | null {
-  const idx = MANUAL_ENTRY_FIELD_ORDER.indexOf(current)
-  if (idx < 0 || idx >= MANUAL_ENTRY_FIELD_ORDER.length - 1) return null
-  return MANUAL_ENTRY_FIELD_ORDER[idx + 1] ?? null
+export type DesignBillingSku = {
+  sku: string
+  product_name?: string | null
+  product_names?: DesignBillingProduct[]
+  image_url?: string | null
 }
 
 export type DesignBillingStyle = {
   style_code: string
-  skus: { sku: string; product_name?: string | null }[]
+  skus: DesignBillingSku[]
+}
+
+export type FlatBillingSku = {
+  sku: string
+  style_code: string
+  product_name?: string | null
+  product_names?: DesignBillingProduct[]
+  image_url?: string | null
+}
+
+function skuKey(sku: string): string {
+  return sku.trim().toUpperCase()
+}
+
+/** Unique SKUs across styles — one L_STAND even if it exists under two styles. */
+export function uniqueSkusFromCatalog(catalog: DesignBillingStyle[]): FlatBillingSku[] {
+  const bySku = new Map<string, FlatBillingSku>()
+  for (const s of catalog) {
+    for (const sk of s.skus) {
+      const key = skuKey(sk.sku)
+      if (!key) continue
+      const incoming: FlatBillingSku = {
+        sku: sk.sku.trim(),
+        style_code: s.style_code,
+        product_name: sk.product_name,
+        product_names: sk.product_names,
+        image_url: sk.image_url,
+      }
+      const existing = bySku.get(key)
+      if (!existing) {
+        bySku.set(key, incoming)
+        continue
+      }
+      const incomingScore = (incoming.product_names?.length ?? 0) + (incoming.product_name ? 1 : 0)
+      const existingScore = (existing.product_names?.length ?? 0) + (existing.product_name ? 1 : 0)
+      if (incomingScore > existingScore) bySku.set(key, incoming)
+    }
+  }
+  return [...bySku.values()].sort((a, b) => a.sku.localeCompare(b.sku))
+}
+
+export function flatSkusFromCatalog(catalog: DesignBillingStyle[]): FlatBillingSku[] {
+  return uniqueSkusFromCatalog(catalog)
+}
+
+export function findStylesForSku(catalog: DesignBillingStyle[], sku: string): string[] {
+  const q = skuKey(sku)
+  const styles: string[] = []
+  const seen = new Set<string>()
+  for (const s of catalog) {
+    if (!s.skus.some((sk) => skuKey(sk.sku) === q)) continue
+    const code = s.style_code.trim()
+    const k = code.toUpperCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    styles.push(code)
+  }
+  return styles
+}
+
+export function findStyleForSku(catalog: DesignBillingStyle[], sku: string): string | null {
+  const unique = uniqueSkusFromCatalog(catalog)
+  const hit = unique.find((x) => skuKey(x.sku) === skuKey(sku))
+  if (hit) return hit.style_code
+  const styles = findStylesForSku(catalog, sku)
+  return styles[0] ?? null
+}
+
+export function findSkuEntry(catalog: DesignBillingStyle[], sku: string): FlatBillingSku | null {
+  return uniqueSkusFromCatalog(catalog).find((x) => skuKey(x.sku) === skuKey(sku)) ?? null
+}
+
+export function productNamesForSku(catalog: DesignBillingStyle[], sku: string): DesignBillingProduct[] {
+  const entry = findSkuEntry(catalog, sku)
+  if (entry?.product_names?.length) return entry.product_names
+  const out: DesignBillingProduct[] = []
+  const seen = new Set<string>()
+  for (const s of catalog) {
+    for (const sk of s.skus) {
+      if (skuKey(sk.sku) !== skuKey(sku)) continue
+      for (const p of sk.product_names || []) {
+        const k = p.name.trim().toUpperCase()
+        if (!k || seen.has(k)) continue
+        seen.add(k)
+        out.push(p)
+      }
+      if (sk.product_name) {
+        const k = sk.product_name.trim().toUpperCase()
+        if (k && !seen.has(k)) {
+          seen.add(k)
+          out.push({ name: sk.product_name, image_url: sk.image_url })
+        }
+      }
+    }
+  }
+  return out
 }
 
 export function filterStylesForCategory(
@@ -148,10 +238,48 @@ export function filterSkusForStyle(
   styleCode: string,
   query: string,
 ): string[] {
-  const style = catalog.find((s) => s.style_code.toUpperCase() === styleCode.trim().toUpperCase())
-  if (!style) return []
+  const unique = uniqueSkusFromCatalog(catalog)
+  const style = styleCode.trim().toUpperCase()
+  const scoped = style
+    ? unique.filter((x) => x.style_code.toUpperCase() === style)
+    : unique
+  const source = scoped.length ? scoped : unique
   const q = query.trim().toUpperCase()
-  const skus = style.skus.map((s) => s.sku)
+  const skus = source.map((s) => s.sku)
   if (!q) return skus
   return skus.filter((sku) => sku.toUpperCase().includes(q))
+}
+
+export function uniqueSkuNames(skus: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of skus) {
+    const k = skuKey(raw)
+    if (!k || seen.has(k)) continue
+    seen.add(k)
+    out.push(raw.trim())
+  }
+  return out
+}
+
+export function isGiftManualLine(line: ErpBillLine): boolean {
+  return line.manualCategory === 'gift' || !!line.mrpMode
+}
+
+export function entryFieldOrderForLine(line: ErpBillLine): (keyof ErpBillLine)[] {
+  return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER
+}
+
+export function nextManualEntryField(
+  current: keyof ErpBillLine,
+  line?: ErpBillLine,
+): keyof ErpBillLine | null {
+  const order = line ? entryFieldOrderForLine(line) : MANUAL_ENTRY_FIELD_ORDER
+  const idx = order.indexOf(current)
+  if (idx < 0 || idx >= order.length - 1) return null
+  return order[idx + 1] ?? null
+}
+
+export function firstManualEntryField(line: ErpBillLine): keyof ErpBillLine {
+  return entryFieldOrderForLine(line)[0] ?? 'sku'
 }

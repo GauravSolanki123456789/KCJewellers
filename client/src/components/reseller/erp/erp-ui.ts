@@ -163,11 +163,15 @@ export type ErpBillLine = {
   hsn_code?: string | null
   /** Manual billing row (A/S/B/G shortcut — no barcode) */
   manualEntry?: boolean
+  /** True while A/S/B/G stacked editor is open; collapses to the normal table row when done */
+  manualEntryOpen?: boolean
   manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift'
   /** MRP / piece-rate line (no weight in kgs on invoice) */
   mrpMode?: boolean
   /** Size variants from design master (gift SKUs) */
   designSizeOptions?: { size_label: string; fixed_price_mrp: number | null }[]
+  /** Catalogue product names under this SKU (Ganesh, Murugan, …) */
+  designProductOptions?: { name: string; image_url?: string | null }[]
   /** MRP before slab discount (display only) */
   mrpListPrice?: number | null
   /** Per-line karigar tracking (orders only) */

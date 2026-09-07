@@ -55,17 +55,18 @@ import {
 } from '@/lib/erp-invoice-defaults'
 import {
   createManualBillLine,
-  filterSkusForStyle,
   findInvoiceItemForCategory,
   findStyleForSku,
-  flatSkusFromCatalog,
-  nextManualEntryField,
+  firstManualEntryField,
+  isGiftManualLine,
   resolveBillingScanShortcut,
+  uniqueSkusFromCatalog,
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
-import { giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
+import { applyGiftMrpForSlabChange, giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
+import { ErpBillingStackedRow } from '@/components/reseller/erp/ErpBillingStackedRow'
 import { resolveCustomerPlaceOfSupply } from '@/lib/erp-place-of-supply'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import {
@@ -134,28 +135,29 @@ type BillTableCol = { key: string; label: string; w: string; edit?: boolean }
 
 const TABLE_COLS: BillTableCol[] = [
   { key: 'barcode', label: 'Barcode', w: 'w-[7%]' },
-  { key: 'sku', label: 'SKU', w: 'w-[5%]' },
-  { key: 'style_code', label: 'Style', w: 'w-[5%]' },
-  { key: 'name', label: 'Product', w: 'w-[7%]' },
+  { key: 'sku', label: 'SKU', w: 'w-[6%]' },
+  { key: 'style_code', label: 'Style', w: 'w-[7%]' },
+  { key: 'name', label: 'Product', w: 'w-[8%]' },
   { key: 'invoice_item_name', label: 'Inv.item', w: 'w-[7%]', edit: true },
-  { key: 'hsn_code', label: 'HSN', w: 'w-[4%]', edit: true },
-  { key: 'size', label: 'Size', w: 'w-[5%]', edit: true },
-  { key: 'weightGm', label: 'NetWt', w: 'w-[4%]', edit: true },
-  { key: 'gross_weight', label: 'Gross', w: 'w-[4%]', edit: true },
-  { key: 'bags', label: 'Bags', w: 'w-[3%]', edit: true },
+  { key: 'hsn_code', label: 'HSN', w: 'w-[4.5%]', edit: true },
+  { key: 'size', label: 'Size', w: 'w-[5.5%]', edit: true },
+  { key: 'weightGm', label: 'NetWt', w: 'w-[4.5%]', edit: true },
+  { key: 'gross_weight', label: 'Gross', w: 'w-[4.5%]', edit: true },
+  { key: 'bags', label: 'Bags', w: 'w-[3.5%]', edit: true },
   { key: 'bag_wt', label: 'BagWt', w: 'w-[4%]', edit: true },
   { key: 'purity', label: 'Purity', w: 'w-[4%]', edit: true },
-  { key: 'wastage_pct', label: 'Wast%', w: 'w-[3%]', edit: true },
-  { key: 'ratePerGram', label: 'Rate', w: 'w-[4%]', edit: true },
+  { key: 'wastage_pct', label: 'Wast%', w: 'w-[3.5%]', edit: true },
+  { key: 'ratePerGram', label: 'Rate', w: 'w-[4.5%]', edit: true },
   { key: 'mc_rate', label: 'MC', w: 'w-[4%]', edit: true },
-  { key: 'mc_type', label: 'MCType', w: 'w-[4%]', edit: true },
-  { key: 'qty', label: 'PCS', w: 'w-[3%]', edit: true },
-  { key: 'box_charges', label: 'Box', w: 'w-[3%]', edit: true },
-  { key: 'stone_charges', label: 'Stone', w: 'w-[3%]', edit: true },
-  { key: 'metal_type', label: 'Metal', w: 'w-[4%]' },
-  { key: 'fixed_price', label: 'Fixed', w: 'w-[4%]', edit: true },
-  { key: 'amount', label: 'Amt', w: 'w-[5%]' },
+  { key: 'mc_type', label: 'MCType', w: 'w-[4.5%]', edit: true },
+  { key: 'qty', label: 'PCS', w: 'w-[3.5%]', edit: true },
+  { key: 'box_charges', label: 'Box', w: 'w-[3.5%]', edit: true },
+  { key: 'stone_charges', label: 'Stone', w: 'w-[3.5%]', edit: true },
+  { key: 'metal_type', label: 'Metal', w: 'w-[4.5%]' },
+  { key: 'fixed_price', label: 'Fixed', w: 'w-[4.5%]', edit: true },
+  { key: 'amount', label: 'Amt', w: 'w-[6%]' },
 ]
+
 
 const MANUAL_EXTRA_COLS: BillTableCol[] = []
 
@@ -343,6 +345,8 @@ export function ErpBillingWorkspace() {
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
   const [pdfLayoutMode, setPdfLayoutMode] = useState<'detailed' | 'summary'>('detailed')
+  const [quoteOutputOverride, setQuoteOutputOverride] = useState<ErpQuoteOutputMode | null>(null)
+  const [quoteMenuOpen, setQuoteMenuOpen] = useState(false)
   const [gstInvoiceItems, setGstInvoiceItems] = useState<GstInvoiceItem[]>([])
   const [billingCatalogs, setBillingCatalogs] = useState<Record<string, DesignBillingStyle[]>>({})
   const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: keyof ErpBillLine } | null>(null)
@@ -353,18 +357,22 @@ export function ErpBillingWorkspace() {
   const manualCellRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const quoteOutputMode = useMemo(
-    () => resolveQuoteOutputModeForSlab(rateSlab, workstation.quoteOutputMode, shopQuoteOutputMode),
-    [rateSlab, workstation.quoteOutputMode, shopQuoteOutputMode],
+    () =>
+      resolveQuoteOutputModeForSlab(
+        rateSlab,
+        workstation.quoteOutputMode,
+        shopQuoteOutputMode,
+        quoteOutputOverride,
+      ),
+    [rateSlab, workstation.quoteOutputMode, shopQuoteOutputMode, quoteOutputOverride],
   )
 
   const generateQuoteButtonLabel = useMemo(() => {
     const prefix = editingBillId ? 'Update & ' : 'Generate '
-    if (rateSlab === 'R') return `${prefix}Epson estimate`
-    if (rateSlab === 'W' || rateSlab === 'F') return `${prefix}PDF quote`
     if (quoteOutputMode === 'epson') return `${prefix}Epson estimate`
     if (quoteOutputMode === 'both') return `${prefix}quote (PDF + Epson)`
-    return `${prefix}PDF quote`
-  }, [editingBillId, quoteOutputMode, rateSlab])
+    return `${prefix}PDF estimate`
+  }, [editingBillId, quoteOutputMode])
 
   const tableCols = useMemo(() => TABLE_COLS, [])
 
@@ -488,8 +496,9 @@ export function ErpBillingWorkspace() {
       silverOverride?: number,
     ): ErpBillLine[] =>
       list.map((line) => {
+        const withGift = applyGiftMrpForSlabChange(line, nextSlab, slabSettings)
         const cleared: ErpBillLine = {
-          ...line,
+          ...withGift,
           rateLocked: false,
           ratePerGram: null,
           displayMcInr: null,
@@ -504,7 +513,7 @@ export function ErpBillingWorkspace() {
           silverPerG: silverOverride,
         })
       }),
-    [recalcLine],
+    [recalcLine, slabSettings],
   )
 
   const recalcAll = useCallback(
@@ -866,7 +875,7 @@ export function ErpBillingWorkspace() {
         setLines((prev) => [...prev, line])
         setScanCode('')
         const lineKey = line.code || `manual-${Date.now()}`
-        focusManualCell(lineKey, shortcut === 'gift' ? 'qty' : 'sku')
+        focusManualCell(lineKey, firstManualEntryField(line))
       } catch (e) {
         setScanErrorMsg(erpErr(e))
         setScanCode('')
@@ -992,11 +1001,40 @@ export function ErpBillingWorkspace() {
           { params: { style_code: styleCode, sku } },
         )
         const d = res.data.defaults
+        let catalogProducts: { name: string; image_url?: string | null }[] = []
+        try {
+          const cat = await axios.get<{ products: { name: string; image_url?: string | null }[] }>(
+            '/api/reseller/erp/design-master/catalog-products',
+            { params: { style_code: styleCode, sku } },
+          )
+          catalogProducts = cat.data.products || []
+        } catch {
+          catalogProducts = []
+        }
         if (!d) {
-          updateLine(lineIdx, { style_code: styleCode, sku, name: sku })
+          updateLine(lineIdx, {
+            style_code: styleCode,
+            sku,
+            name: sku,
+            designProductOptions: catalogProducts,
+          })
           afterApply?.()
           return
         }
+        const storedNames = Array.isArray((d as { product_names?: unknown }).product_names)
+          ? ((d as { product_names: { name: string; image_url?: string | null }[] }).product_names)
+          : []
+        const mergedProducts = (() => {
+          const seen = new Set<string>()
+          const out: { name: string; image_url?: string | null }[] = []
+          for (const p of [...storedNames, ...catalogProducts]) {
+            const key = String(p.name || '').trim().toUpperCase()
+            if (!key || seen.has(key)) continue
+            seen.add(key)
+            out.push({ name: p.name.trim(), image_url: p.image_url ?? null })
+          }
+          return out
+        })()
         setLines((prev) =>
           prev.map((l, i) => {
             if (i !== lineIdx) return l
@@ -1037,8 +1075,9 @@ export function ErpBillingWorkspace() {
               invoice_item_name: (d.invoice_item_name as string) || l.invoice_item_name,
               hsn_code: (d.hsn_code as string) || l.hsn_code,
               designSizeOptions: sizeVariants,
+              designProductOptions: mergedProducts,
               mrpMode: isGift ? true : l.mrpMode,
-              mrpListPrice: mrpList,
+              mrpListPrice: mrpList ?? l.mrpListPrice,
               fixed_price: fixedPrice,
               unitInr: isGift && fixedPrice ? fixedPrice : l.unitInr,
             })
@@ -1364,7 +1403,9 @@ export function ErpBillingWorkspace() {
     resetBill()
   }
 
-  const generateQuote = async () => {
+  const generateQuote = async (modeOverride?: ErpQuoteOutputMode) => {
+    if (modeOverride) setQuoteOutputOverride(modeOverride)
+    const mode = modeOverride ?? quoteOutputMode
     clearDuplicateState()
     const status = deriveEstimateStatus({
       lines,
@@ -1375,8 +1416,8 @@ export function ErpBillingWorkspace() {
     const bill = await persistBill('estimate', status, { skipReset: true })
     if (!bill) return
 
-    const wantsPdf = quoteOutputMode === 'pdf' || quoteOutputMode === 'both'
-    const wantsEpson = quoteOutputMode === 'epson' || quoteOutputMode === 'both'
+    const wantsPdf = mode === 'pdf' || mode === 'both'
+    const wantsEpson = mode === 'epson' || mode === 'both'
 
     try {
       if (wantsEpson) {
@@ -1432,8 +1473,10 @@ export function ErpBillingWorkspace() {
         return line.hsn_code || ''
       case 'size':
         return line.size || '—'
-      case 'weightGm':
-        return line.weightGm != null && Number.isFinite(Number(line.weightGm)) ? line.weightGm : ''
+      case 'weightGm': {
+        const net = line.originalWeightGm ?? line.weightGm
+        return net != null && Number.isFinite(Number(net)) ? net : ''
+      }
       case 'gross_weight':
         return line.gross_weight != null && Number.isFinite(Number(line.gross_weight)) ? line.gross_weight : ''
       case 'bags':
@@ -1457,7 +1500,7 @@ export function ErpBillingWorkspace() {
       case 'stone_charges':
         return line.stone_charges ?? 0
       case 'metal_type':
-        return (line.metal_type || 'silver').slice(0, 8)
+        return line.metal_type || 'silver'
       case 'fixed_price':
         return line.fixed_price ?? ''
       case 'amount':
@@ -1478,15 +1521,19 @@ export function ErpBillingWorkspace() {
   }
 
   const commitNumericCell = (idx: number, line: ErpBillLine, k: keyof ErpBillLine, raw: string) => {
+    const parsed = parseNumericCellValue(raw)
     const patch: Partial<ErpBillLine> = {
-      [k]: parseNumericCellValue(raw),
+      [k]: parsed,
     } as Partial<ErpBillLine>
+    if (k === 'weightGm') {
+      patch.originalWeightGm = parsed
+      patch.weightGm = parsed
+    }
     if (k === 'ratePerGram') {
       patch.rateLocked = raw !== ''
     }
     if (k === 'fixed_price' && isPiecePricedBillLine({ ...line, ...patch })) {
-      const rate = parseNumericCellValue(raw)
-      if (rate != null) patch.unitInr = rate
+      if (parsed != null) patch.unitInr = parsed
     }
     if (line.manualEntry) {
       updateManualLine(idx, patch)
@@ -1495,12 +1542,15 @@ export function ErpBillingWorkspace() {
     }
   }
 
+  const commitNumericCellRef = useRef(commitNumericCell)
+  commitNumericCellRef.current = commitNumericCell
+
   const flushNumericDraft = useCallback(
     (lineKey: string, idx: number, line: ErpBillLine, k: keyof ErpBillLine) => {
       const refKey = `${lineKey}-${String(k)}`
       const draft = cellDraftsRef.current[refKey]
       if (draft === undefined) return
-      commitNumericCell(idx, line, k, draft)
+      commitNumericCellRef.current(idx, line, k, draft)
       setCellDrafts((prev) => {
         const next = { ...prev }
         delete next[refKey]
@@ -1509,6 +1559,12 @@ export function ErpBillingWorkspace() {
     },
     [],
   )
+
+  const collapseManualRow = useCallback((idx: number) => {
+    setLines((prev) =>
+      prev.map((l, i) => (i === idx ? { ...l, manualEntryOpen: false } : l)),
+    )
+  }, [])
 
   const advanceBillField = useCallback(
     (lineKey: string, field: keyof ErpBillLine, line: ErpBillLine, idx: number) => {
@@ -1520,10 +1576,11 @@ export function ErpBillingWorkspace() {
         focusManualCell(lineKey, nextKey as keyof ErpBillLine)
       } else {
         setManualFocus(null)
+        collapseManualRow(idx)
         scanRef.current?.focus()
       }
     },
-    [focusManualCell, tableCols, flushNumericDraft],
+    [focusManualCell, tableCols, flushNumericDraft, collapseManualRow],
   )
 
   if (!hydrated) {
@@ -1825,7 +1882,7 @@ export function ErpBillingWorkspace() {
         ) : null}
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          {(rateSlab === 'W' || rateSlab === 'F') ? (
+          {quoteOutputMode === 'pdf' || quoteOutputMode === 'both' ? (
             <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
                 PDF layout
@@ -1860,10 +1917,56 @@ export function ErpBillingWorkspace() {
             <Receipt className="size-4" />
             New bill
           </button>
-          <button type="button" className={erpBtnGhost} disabled={saveBusy || lines.length === 0} onClick={() => void generateQuote()}>
-            <FileText className="size-4" />
-            {generateQuoteButtonLabel}
-          </button>
+          <div className="relative">
+            <div className="flex overflow-hidden rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] items-center gap-2 px-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] disabled:opacity-60"
+                disabled={saveBusy || lines.length === 0}
+                onClick={() => void generateQuote()}
+              >
+                <FileText className="size-4" />
+                {generateQuoteButtonLabel}
+              </button>
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] items-center border-l border-[var(--color-slate-700,#e8e4df)] px-2 text-[var(--color-jewelry-black,#1a1814)]"
+                aria-label="Choose estimate output"
+                disabled={saveBusy || lines.length === 0}
+                onClick={() => setQuoteMenuOpen((o) => !o)}
+              >
+                <ChevronDown className="size-4" />
+              </button>
+            </div>
+            {quoteMenuOpen ? (
+              <ul className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
+                <li>
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2.5 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--kc-accent,#c41e3a)]/[0.06]"
+                    onClick={() => {
+                      setQuoteMenuOpen(false)
+                      void generateQuote('epson')
+                    }}
+                  >
+                    Epson estimate
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2.5 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--kc-accent,#c41e3a)]/[0.06]"
+                    onClick={() => {
+                      setQuoteMenuOpen(false)
+                      void generateQuote('pdf')
+                    }}
+                  >
+                    PDF estimate
+                  </button>
+                </li>
+              </ul>
+            ) : null}
+          </div>
           <button
             type="button"
             className={erpBtnPrimary}
@@ -1888,8 +1991,8 @@ export function ErpBillingWorkspace() {
         ) : null}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
-        <div className="space-y-3">
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className={`${erpCardCls} border-blue-200/60 bg-blue-50/30`}>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-blue-900">Scanner</span>
@@ -2006,24 +2109,24 @@ export function ErpBillingWorkspace() {
             <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">{lines.length} items</span>
           </div>
 
-          <div className="max-h-[min(560px,calc(100vh-16rem))] overflow-y-auto overflow-x-hidden">
-            <table className="w-full table-fixed text-[10px] leading-tight">
+          <div className="max-h-[min(620px,calc(100vh-14rem))] overflow-y-auto">
+            <table className="w-full table-fixed text-[11px] leading-snug">
               <thead className="sticky top-0 z-10 bg-[var(--color-slate-900,#faf8f4)] shadow-sm">
-                <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
-                  <th className="w-[3%] px-1 py-1.5">#</th>
+                <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/60">
+                  <th className="w-[2.5%] px-1 py-2">#</th>
                   {tableCols.map((c) => (
-                    <th key={c.key} className={`px-0.5 py-1.5 text-left font-semibold ${c.w}`}>
+                    <th key={c.key} className={`px-0.5 py-2 text-left font-semibold whitespace-normal break-words ${c.w}`}>
                       {c.label}
                     </th>
                   ))}
-                  <th className="w-[3%] px-1 py-1.5" />
+                  <th className="w-[2.5%] px-1 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
                     <td colSpan={tableCols.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Scan a barcode or press A / S / B for manual entry
+                      Scan a barcode or press A / S / B / G for manual entry
                     </td>
                   </tr>
                 ) : (
@@ -2034,6 +2137,90 @@ export function ErpBillingWorkspace() {
                       : []
                     const styleDraft = String(line.style_code || '')
                     const skuDraft = String(line.sku || '')
+                    const stacked = !!line.manualEntry && line.manualEntryOpen === true
+                    const gift = isGiftManualLine(line)
+                    const nextAfterSku = gift ? 'name' : 'weightGm'
+
+                    if (stacked) {
+                      return (
+                        <ErpBillingStackedRow
+                          key={lineKey}
+                          line={line}
+                          idx={idx}
+                          lineKey={lineKey}
+                          catalog={catalog}
+                          highlight={duplicateHighlights.has(idx)}
+                          manualFocus={manualFocus}
+                          rowRef={(el) => {
+                            rowRefs.current[idx] = el
+                          }}
+                          cellValue={(field) => {
+                            if (NUMERIC_EDIT_KEYS.includes(field)) {
+                              return cellInputDisplayValue(lineKey, String(field), line)
+                            }
+                            return String(cellVal(line, String(field)) ?? '')
+                          }}
+                          inputRef={(field, el) => {
+                            manualCellRefs.current[`${lineKey}-${String(field)}`] = el
+                          }}
+                          onSkuChange={(v) => updateLine(idx, { sku: v || undefined })}
+                          onStyleChange={(v) => updateLine(idx, { style_code: v || undefined })}
+                          onSkuCommit={(sku, style) => {
+                            void applyDesignDefaults(idx, style, sku, () => {
+                              focusManualCell(lineKey, nextAfterSku)
+                            })
+                          }}
+                          onStyleCommit={(style) => {
+                            if (line.sku) {
+                              void applyDesignDefaults(idx, style, String(line.sku), () => {
+                                focusManualCell(lineKey, nextAfterSku)
+                              })
+                              return
+                            }
+                            updateLine(idx, { style_code: style })
+                            focusManualCell(lineKey, 'sku')
+                          }}
+                          onProductChange={(name) => updateLine(idx, { name })}
+                          onProductCommit={(name, imageUrl) => {
+                            updateLine(idx, { name, imageUrl: imageUrl || line.imageUrl })
+                            focusManualCell(lineKey, 'size')
+                          }}
+                          onSizeChange={(label) => updateLine(idx, { size: label || null })}
+                          onSizeCommit={(label) => {
+                            const hit = (line.designSizeOptions || []).find((s) => s.size_label === label)
+                            let patch: Partial<ErpBillLine> = { size: label || null }
+                            if (hit?.fixed_price_mrp != null) {
+                              const mrp = hit.fixed_price_mrp
+                              const slabPrice = giftMrpSlabPrice(mrp, rateSlab, slabSettings)
+                              patch = {
+                                ...patch,
+                                mrpListPrice: mrp,
+                                fixed_price: slabPrice,
+                                unitInr: slabPrice,
+                                mrpMode: true,
+                              }
+                            }
+                            updateLine(idx, patch)
+                            advanceBillField(lineKey, 'size', { ...line, ...patch }, idx)
+                          }}
+                          onNumericChange={(field, raw) => {
+                            if (NUMERIC_EDIT_KEYS.includes(field)) {
+                              if (!isPartialDecimalInput(raw)) return
+                              setCellDrafts((prev) => ({ ...prev, [`${lineKey}-${String(field)}`]: raw }))
+                              return
+                            }
+                            updateLine(idx, { [field]: raw } as Partial<ErpBillLine>)
+                          }}
+                          onNumericBlur={(field) => {
+                            if (NUMERIC_EDIT_KEYS.includes(field)) {
+                              flushNumericDraft(lineKey, idx, line, field)
+                            }
+                          }}
+                          onAdvance={(field) => advanceBillField(lineKey, field, line, idx)}
+                          onDelete={() => setLines((p) => p.filter((_, i) => i !== idx))}
+                        />
+                      )
+                    }
 
                     return (
                     <tr
@@ -2044,6 +2231,9 @@ export function ErpBillingWorkspace() {
                       className={`border-b border-[var(--color-slate-700,#e8e4df)]/50 transition-colors ${
                         duplicateHighlights.has(idx) ? 'bg-amber-100 ring-2 ring-amber-400 ring-inset' : ''
                       } ${line.manualEntry ? 'bg-emerald-50/30' : ''}`}
+                      onDoubleClick={() => {
+                        if (line.manualEntry) updateLine(idx, { manualEntryOpen: true })
+                      }}
                     >
                       <td className="px-2 py-2 tabular-nums">{idx + 1}</td>
                       {tableCols.map((col) => {
@@ -2073,7 +2263,7 @@ export function ErpBillingWorkspace() {
                                   const style = v.trim().toUpperCase()
                                   if (line.sku) {
                                     void applyDesignDefaults(idx, style, String(line.sku), () => {
-                                      focusManualCell(lineKey, 'weightGm')
+                                      focusManualCell(lineKey, isGiftManualLine(line) ? 'name' : 'weightGm')
                                     })
                                     return
                                   }
@@ -2087,10 +2277,7 @@ export function ErpBillingWorkspace() {
 
                         if (line.manualEntry && col.key === 'sku') {
                           const refKey = `${lineKey}-sku`
-                          const flatSkus = flatSkusFromCatalog(catalog)
-                          const skuOptions = line.style_code
-                            ? filterSkusForStyle(catalog, String(line.style_code), skuDraft)
-                            : flatSkus.map((x) => x.sku)
+                          const skuOptions = uniqueSkusFromCatalog(catalog).map((x) => x.sku)
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <ErpBillingStyleSkuCell
@@ -2107,10 +2294,39 @@ export function ErpBillingWorkspace() {
                                   const sku = v.trim().toUpperCase()
                                   const styleCode =
                                     findStyleForSku(catalog, sku) || String(line.style_code || '')
-                                  if (!styleCode) return
+                                  if (!styleCode) {
+                                    updateLine(idx, { sku })
+                                    focusManualCell(lineKey, 'style_code')
+                                    return
+                                  }
                                   void applyDesignDefaults(idx, styleCode, sku, () => {
-                                    focusManualCell(lineKey, 'weightGm')
+                                    focusManualCell(lineKey, isGiftManualLine(line) ? 'name' : 'weightGm')
                                   })
+                                }}
+                              />
+                            </td>
+                          )
+                        }
+
+                        if (col.key === 'name' && line.designProductOptions?.length) {
+                          const refKey = `${lineKey}-name`
+                          return (
+                            <td key={col.key} className="px-0.5 py-0.5">
+                              <ErpBillingStyleSkuCell
+                                value={String(line.name || '')}
+                                placeholder="Product…"
+                                options={line.designProductOptions.map((p) => p.name)}
+                                autoFocus={manualFocus?.lineKey === lineKey && manualFocus.field === 'name'}
+                                inputRef={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                onChange={(v) => updateLine(idx, { name: v })}
+                                onCommit={(name) => {
+                                  const hit = line.designProductOptions?.find(
+                                    (p) => p.name.trim().toUpperCase() === name.trim().toUpperCase(),
+                                  )
+                                  updateLine(idx, { name, imageUrl: hit?.image_url || line.imageUrl })
+                                  focusManualCell(lineKey, 'size')
                                 }}
                               />
                             </td>
@@ -2122,13 +2338,16 @@ export function ErpBillingWorkspace() {
                           const sizeOpts = line.designSizeOptions
                           return (
                             <td key={col.key} className="px-0.5 py-0.5">
-                              <input
-                                ref={(el) => { manualCellRefs.current[refKey] = el }}
-                                list={`size-list-${lineKey}`}
-                                className="w-full rounded border border-emerald-300 bg-white px-0.5 py-0.5 text-[10px]"
+                              <ErpBillingStyleSkuCell
                                 value={String(line.size ?? '')}
-                                onChange={(e) => {
-                                  const label = e.target.value
+                                placeholder="Size…"
+                                options={sizeOpts.map((s) => s.size_label)}
+                                autoFocus={manualFocus?.lineKey === lineKey && manualFocus.field === 'size'}
+                                inputRef={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                onChange={(label) => updateLine(idx, { size: label || null })}
+                                onCommit={(label) => {
                                   const hit = sizeOpts.find((s) => s.size_label === label)
                                   let patch: Partial<ErpBillLine> = { size: label || null }
                                   if (hit?.fixed_price_mrp != null) {
@@ -2143,19 +2362,9 @@ export function ErpBillingWorkspace() {
                                     }
                                   }
                                   updateLine(idx, patch)
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
-                                    e.preventDefault()
-                                    advanceBillField(lineKey, 'size', line, idx)
-                                  }
+                                  advanceBillField(lineKey, 'size', { ...line, ...patch }, idx)
                                 }}
                               />
-                              <datalist id={`size-list-${lineKey}`}>
-                                {sizeOpts.map((s) => (
-                                  <option key={s.size_label} value={s.size_label} />
-                                ))}
-                              </datalist>
                             </td>
                           )
                         }
@@ -2178,7 +2387,7 @@ export function ErpBillingWorkspace() {
                                 autoFocus={isManualFocused}
                                 type="text"
                                 inputMode={isNumericField ? 'decimal' : 'text'}
-                                className={`w-full rounded border px-0.5 py-0.5 tabular-nums text-[10px] ${
+                                className={`w-full min-w-0 rounded border px-1 py-1 tabular-nums text-[11px] ${
                                   line.manualEntry
                                     ? 'border-emerald-300 bg-white text-[var(--color-jewelry-black,#1a1814)]'
                                     : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
@@ -2256,7 +2465,7 @@ export function ErpBillingWorkspace() {
                           )
                         }
                         return (
-                          <td key={col.key} className="max-w-[120px] truncate px-2 py-2">
+                          <td key={col.key} className="whitespace-normal break-words px-1 py-1.5 text-[var(--color-jewelry-black,#1a1814)]">
                             {cellVal(line, col.key)}
                           </td>
                         )

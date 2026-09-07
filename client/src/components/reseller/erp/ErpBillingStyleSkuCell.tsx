@@ -1,7 +1,8 @@
 'use client'
 
-import { useId } from 'react'
 import type { DesignBillingStyle } from '@/lib/erp-billing-shortcuts'
+import { uniqueSkusFromCatalog } from '@/lib/erp-billing-shortcuts'
+import { ErpBillingSuggestField } from '@/components/reseller/erp/ErpBillingSuggestField'
 
 type Props = {
   value: string
@@ -13,56 +14,23 @@ type Props = {
   inputRef?: (el: HTMLInputElement | null) => void
 }
 
-export function ErpBillingStyleSkuCell({
-  value,
-  placeholder,
-  options,
-  autoFocus,
-  onChange,
-  onCommit,
-  inputRef,
-}: Props) {
-  const listId = useId()
-
-  const commitCurrent = () => {
-    const v = value.trim().toUpperCase()
-    if (v) onCommit(v)
-  }
-
-  return (
-    <>
-      <input
-        ref={inputRef}
-        autoFocus={autoFocus}
-        className="w-full min-w-[72px] rounded border border-emerald-300 bg-emerald-50/40 px-1 py-1 text-[var(--color-jewelry-black,#1a1814)]"
-        list={listId}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value.toUpperCase())}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            commitCurrent()
-          } else if (e.key === 'Tab' && !e.shiftKey) {
-            e.preventDefault()
-            commitCurrent()
-          }
-        }}
-      />
-      <datalist id={listId}>
-        {options.map((opt) => (
-          <option key={opt} value={opt} />
-        ))}
-      </datalist>
-    </>
-  )
+export function ErpBillingStyleSkuCell(props: Props) {
+  return <ErpBillingSuggestField {...props} />
 }
 
 export function styleOptionsForCatalog(catalog: DesignBillingStyle[], query: string): string[] {
   const q = query.trim().toUpperCase()
-  const codes = catalog.map((s) => s.style_code)
-  if (!q) return codes
-  return codes.filter((c) => c.toUpperCase().includes(q))
+  const seen = new Set<string>()
+  const codes: string[] = []
+  for (const s of catalog) {
+    const code = s.style_code.trim()
+    const k = code.toUpperCase()
+    if (!k || seen.has(k)) continue
+    if (q && !k.includes(q)) continue
+    seen.add(k)
+    codes.push(code)
+  }
+  return codes
 }
 
 export function filterSkusForStyle(
@@ -70,10 +38,12 @@ export function filterSkusForStyle(
   styleCode: string,
   query: string,
 ): string[] {
-  const style = catalog.find((s) => s.style_code.toUpperCase() === styleCode.trim().toUpperCase())
-  if (!style) return []
+  const unique = uniqueSkusFromCatalog(catalog)
+  const style = styleCode.trim().toUpperCase()
+  const scoped = style ? unique.filter((x) => x.style_code.toUpperCase() === style) : unique
+  const source = scoped.length ? scoped : unique
   const q = query.trim().toUpperCase()
-  const skus = style.skus.map((s) => s.sku)
+  const skus = source.map((s) => s.sku)
   if (!q) return skus
   return skus.filter((sku) => sku.toUpperCase().includes(q))
 }

@@ -30,12 +30,14 @@ export function resolveQuoteOutputMode(
   return normalizeQuoteOutputMode(resellerDefault ?? 'pdf')
 }
 
-/** Billing slab overrides shop default: R → Epson only, W/F → PDF only. */
+/** Default output by slab: R → Epson, W/F → PDF. Billing UI can override. */
 export function resolveQuoteOutputModeForSlab(
   rateSlab: 'R' | 'W' | 'F',
   workstationMode?: ErpQuoteOutputMode | null,
   resellerDefault?: ErpQuoteOutputMode | null,
+  override?: ErpQuoteOutputMode | null,
 ): ErpQuoteOutputMode {
+  if (override === 'pdf' || override === 'epson' || override === 'both') return override
   if (rateSlab === 'R') return 'epson'
   if (rateSlab === 'W' || rateSlab === 'F') return 'pdf'
   return resolveQuoteOutputMode(workstationMode, resellerDefault)

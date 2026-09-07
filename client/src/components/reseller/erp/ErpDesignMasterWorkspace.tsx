@@ -19,12 +19,18 @@ type SizeVariant = {
   fixed_price_mrp: number | null
 }
 
+type CatalogProductName = {
+  name: string
+  image_url?: string | null
+}
+
 type DesignSku = {
   id: number
   style_id: number
   style_code?: string
   sku: string
   product_name?: string | null
+  product_names?: CatalogProductName[]
   purity?: number | null
   metal_type?: string | null
   wastage_pct?: number | null
@@ -74,6 +80,9 @@ export function ErpDesignMasterWorkspace() {
   const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
   const [styleInvoiceDraft, setStyleInvoiceDraft] = useState({ name: '', hsn: '' })
   const [sizeVariants, setSizeVariants] = useState<SizeVariant[]>([])
+  const [productNames, setProductNames] = useState<CatalogProductName[]>([])
+  const [newProductName, setNewProductName] = useState('')
+  const [catalogBusy, setCatalogBusy] = useState(false)
   const [editingStyleId, setEditingStyleId] = useState<number | null>(null)
   const [styleRenameDraft, setStyleRenameDraft] = useState('')
   const [editingSkuId, setEditingSkuId] = useState<number | null>(null)
@@ -129,9 +138,16 @@ export function ErpDesignMasterWorkspace() {
           fixed_price_mrp: sv.fixed_price_mrp ?? null,
         })),
       )
+      setProductNames(
+        (selectedSku.product_names || []).map((p) => ({
+          name: p.name,
+          image_url: p.image_url ?? null,
+        })),
+      )
     } else {
       setDraft({})
       setSizeVariants([])
+      setProductNames([])
     }
   }, [selectedSku])
 
@@ -174,6 +190,12 @@ export function ErpDesignMasterWorkspace() {
           .map((sv) => ({
             size_label: sv.size_label.trim(),
             fixed_price_mrp: sv.fixed_price_mrp,
+          })),
+        product_names: productNames
+          .filter((p) => p.name.trim())
+          .map((p) => ({
+            name: p.name.trim(),
+            image_url: p.image_url ?? null,
           })),
       }
       const res = await axios.put(`/api/reseller/erp/design-master/skus/${selectedSku.id}`, payload)
@@ -266,6 +288,59 @@ export function ErpDesignMasterWorkspace() {
 
   const removeSizeVariant = (idx: number) => {
     setSizeVariants((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const addProductName = (raw?: string) => {
+    const name = (raw ?? newProductName).trim().toUpperCase()
+    if (!name) return
+    setProductNames((prev) => {
+      if (prev.some((p) => p.name.trim().toUpperCase() === name)) return prev
+      return [...prev, { name, image_url: null }]
+    })
+    setNewProductName('')
+  }
+
+  const removeProductName = (idx: number) => {
+    setProductNames((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const loadCatalogProducts = async () => {
+    if (!selectedStyle || !selectedSku) return
+    setCatalogBusy(true)
+    setMsg('')
+    try {
+      const res = await axios.get<{ products: CatalogProductName[] }>(
+        '/api/reseller/erp/design-master/catalog-products',
+        { params: { style_code: selectedStyle.style_code, sku: selectedSku.sku } },
+      )
+      const incoming = res.data.products || []
+      if (!incoming.length) {
+        setMsg('No catalogue products found for this style + SKU.')
+        return
+      }
+      setProductNames((prev) => {
+        const seen = new Set(prev.map((p) => p.name.trim().toUpperCase()))
+        const next = [...prev]
+        for (const p of incoming) {
+          const key = p.name.trim().toUpperCase()
+          if (!key || seen.has(key)) {
+            if (key && p.image_url) {
+              const i = next.findIndex((x) => x.name.trim().toUpperCase() === key)
+              if (i >= 0 && !next[i].image_url) next[i] = { ...next[i], image_url: p.image_url }
+            }
+            continue
+          }
+          seen.add(key)
+          next.push({ name: p.name.trim(), image_url: p.image_url ?? null })
+        }
+        return next
+      })
+      setMsg(`Loaded ${incoming.length} catalogue product name(s). Save to keep them.`)
+    } catch (e) {
+      setMsg(erpErr(e))
+    } finally {
+      setCatalogBusy(false)
+    }
   }
 
   const seedFromStock = async (overwrite = false) => {
@@ -635,6 +710,74 @@ export function ErpDesignMasterWorkspace() {
                     onChange={(e) => setDraft((d) => ({ ...d, fixed_price: e.target.value }))}
                   />
                 </label>
+              </div>
+
+              <div className="rounded-lg border border-[var(--color-slate-900,#e8e4dc)] p-2">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                    Product names (from catalogue)
+                  </p>
+                  <button
+                    type="button"
+                    className={erpBtnGhost}
+                    disabled={catalogBusy}
+                    onClick={() => void loadCatalogProducts()}
+                  >
+                    {catalogBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                    Load catalogue
+                  </button>
+                </div>
+                <p className="mb-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Names like GANESH / MURUGAN under this SKU. Billing G flow lets you pick one after style.
+                </p>
+                <div className="mb-2 flex gap-1">
+                  <input
+                    className={`${erpInputCls} flex-1 text-xs`}
+                    placeholder="Add product name"
+                    value={newProductName}
+                    onChange={(e) => setNewProductName(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addProductName()
+                      }
+                    }}
+                  />
+                  <button type="button" className={erpBtnGhost} onClick={() => addProductName()}>
+                    <Plus className="size-3.5" />
+                  </button>
+                </div>
+                {productNames.length === 0 ? (
+                  <p className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                    No product names yet. Load from catalogue or add them here.
+                  </p>
+                ) : (
+                  <ul className="max-h-40 space-y-1 overflow-y-auto">
+                    {productNames.map((p, idx) => (
+                      <li
+                        key={`${p.name}-${idx}`}
+                        className="flex items-center gap-2 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1.5"
+                      >
+                        {p.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.image_url} alt="" className="size-8 rounded object-cover" />
+                        ) : (
+                          <span className="size-8 rounded bg-[var(--color-slate-900,#faf8f4)]" />
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                          {p.name}
+                        </span>
+                        <button
+                          type="button"
+                          className={`${erpBtnGhost} text-red-700`}
+                          onClick={() => removeProductName(idx)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               <div className="rounded-lg border border-[var(--color-slate-900,#e8e4dc)] p-2">

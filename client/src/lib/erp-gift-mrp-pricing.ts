@@ -1,5 +1,6 @@
 import { erpSlabToKind, type ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { parseResellerSlabSettings, tierSettingsForSlab, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
+import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
 /** Slab-adjusted gift/MRP piece rate from catalogue MRP (Gift / MRP disc %). */
 export function giftMrpSlabPrice(
@@ -19,4 +20,22 @@ export function parseResellerSlabSettingsFromUser(raw: unknown): ResellerSlabSet
     return parseResellerSlabSettings((raw as { reseller_slab_settings?: unknown }).reseller_slab_settings)
   }
   return parseResellerSlabSettings(raw)
+}
+
+/** Re-apply Gift / MRP disc % from the stored list MRP when the billing slab changes. */
+export function applyGiftMrpForSlabChange(
+  line: ErpBillLine,
+  nextSlab: ErpRateSlab,
+  slabSettings: ResellerSlabSettings,
+): ErpBillLine {
+  const list = Number(line.mrpListPrice)
+  if (!Number.isFinite(list) || list <= 0) return line
+  if (!line.mrpMode && line.manualCategory !== 'gift') return line
+  const slabPrice = giftMrpSlabPrice(list, nextSlab, slabSettings)
+  return {
+    ...line,
+    fixed_price: slabPrice,
+    unitInr: slabPrice,
+    mrpMode: true,
+  }
 }

@@ -47,6 +47,7 @@ async function ensureDesignMasterSchema(pool) {
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS invoice_item_name VARCHAR(255);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(32);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS fixed_price NUMERIC(12, 2);
+        ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS product_names JSONB;
         CREATE TABLE IF NOT EXISTS reseller_erp_design_sku_sizes (
             id SERIAL PRIMARY KEY,
             reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -63,6 +64,33 @@ async function ensureDesignMasterSchema(pool) {
     `);
 }
 
+function parseProductNames(raw) {
+    if (!raw) return [];
+    let list = raw;
+    if (typeof raw === 'string') {
+        try {
+            list = JSON.parse(raw);
+        } catch {
+            return [];
+        }
+    }
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const item of list) {
+        const name = String(item?.name || item?.product_name || item || '').trim();
+        if (!name) continue;
+        const key = name.toUpperCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+            name,
+            image_url: item?.image_url || item?.imageUrl || null,
+        });
+    }
+    return out;
+}
+
 function mapDesignSku(row) {
     if (!row) return null;
     return {
@@ -72,6 +100,7 @@ function mapDesignSku(row) {
         style_name: row.style_name,
         sku: row.sku,
         product_name: row.product_name,
+        product_names: parseProductNames(row.product_names),
         purity: row.purity != null ? Number(row.purity) : null,
         metal_type: row.metal_type,
         wastage_pct: row.wastage_pct != null ? Number(row.wastage_pct) : null,
@@ -112,7 +141,7 @@ async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
     if (!sc || !sk) return null;
     const rows = await query(
         `SELECT ds.id AS style_id, ds.style_code, ds.style_name,
-                sk.id, sk.sku, sk.product_name, sk.purity, sk.metal_type,
+                sk.id, sk.sku, sk.product_name, sk.product_names, sk.purity, sk.metal_type,
                 sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
                 sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
                 sk.invoice_item_name, sk.hsn_code, sk.fixed_price
@@ -341,7 +370,7 @@ function registerDesignMasterRoutes(app, deps) {
                 [req.user.id],
             );
             const skus = await query(
-                `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.purity, sk.metal_type,
+                `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.product_names, sk.purity, sk.metal_type,
                         sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
                         sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
                         sk.invoice_item_name, sk.hsn_code, sk.fixed_price
@@ -400,7 +429,7 @@ function registerDesignMasterRoutes(app, deps) {
             if (!invoiceItem) return res.status(400).json({ error: 'invoice_item required' });
             const norm = invoiceItem.toUpperCase();
             const rows = await query(
-                `SELECT ds.style_code, sk.sku, sk.product_name, sk.invoice_item_name
+                `SELECT ds.style_code, sk.sku, sk.product_name, sk.product_names, sk.invoice_item_name
                  FROM reseller_erp_design_styles ds
                  JOIN reseller_erp_design_skus sk
                    ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
@@ -413,12 +442,66 @@ function registerDesignMasterRoutes(app, deps) {
             for (const r of rows) {
                 const code = r.style_code;
                 if (!byStyle[code]) byStyle[code] = { style_code: code, skus: [] };
-                byStyle[code].skus.push({ sku: r.sku, product_name: r.product_name });
+                const skuKey = String(r.sku || '').trim().toUpperCase();
+                if (byStyle[code].skus.some((s) => String(s.sku).trim().toUpperCase() === skuKey)) continue;
+                byStyle[code].skus.push({
+                    sku: r.sku,
+                    product_name: r.product_name,
+                    product_names: parseProductNames(r.product_names),
+                });
             }
             res.json({ styles: Object.values(byStyle) });
         } catch (e) {
             console.error('design master billing-catalog:', e);
             res.status(500).json({ error: e.message || 'Failed to load billing catalog' });
+        }
+    });
+
+    /** Catalogue product names (Ganesh, Murugan, …) for a design style + SKU. */
+    app.get('/api/reseller/erp/design-master/catalog-products', checkAuth, erpGate, async (req, res) => {
+        try {
+            const styleCode = String(req.query.style_code || req.query.style || '').trim();
+            const sku = String(req.query.sku || '').trim();
+            if (!sku) return res.status(400).json({ error: 'sku required' });
+            const skuNorm = sku.toUpperCase().replace(/[\s-]+/g, '_');
+            const styleNorm = styleCode.toUpperCase().replace(/[_-]+/g, ' ').trim();
+            const rows = await query(
+                `SELECT
+                    COALESCE(NULLIF(TRIM(wp.design_group), ''), NULLIF(TRIM(wp.name), ''), 'ITEM') AS product_name,
+                    (ARRAY_AGG(wp.image_url ORDER BY wp.updated_at DESC NULLS LAST)
+                      FILTER (WHERE wp.image_url IS NOT NULL AND TRIM(wp.image_url) <> ''))[1] AS image_url
+                 FROM web_products wp
+                 JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+                 JOIN web_categories wc ON wc.id = ws.category_id
+                 WHERE (wp.is_active IS NULL OR wp.is_active = true)
+                   AND (
+                     UPPER(REPLACE(REPLACE(TRIM(ws.name), ' ', '_'), '-', '_')) = $1
+                     OR UPPER(REPLACE(ws.slug, '-', '_')) LIKE '%' || $1 || '%'
+                     OR UPPER(TRIM(wp.sku)) = UPPER($2)
+                   )
+                   AND (
+                     $3 = ''
+                     OR UPPER(REPLACE(REPLACE(TRIM(ws.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
+                     OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
+                     OR UPPER(REPLACE(ws.slug, '-', ' ')) LIKE '%' || $3 || '%'
+                   )
+                 GROUP BY 1
+                 ORDER BY 1`,
+                [skuNorm, sku, styleNorm],
+            );
+            const seen = new Set();
+            const products = [];
+            for (const r of rows) {
+                const name = String(r.product_name || '').trim();
+                const key = name.toUpperCase();
+                if (!name || seen.has(key)) continue;
+                seen.add(key);
+                products.push({ name, image_url: r.image_url || null });
+            }
+            res.json({ products });
+        } catch (e) {
+            console.error('design master catalog-products:', e);
+            res.status(500).json({ error: e.message || 'Failed to load catalogue products' });
         }
     });
 
@@ -480,6 +563,9 @@ function registerDesignMasterRoutes(app, deps) {
             const body = req.body || {};
             const num = (k) => (body[k] != null && body[k] !== '' ? Number(body[k]) : null);
             const newSku = body.sku != null ? String(body.sku).trim().slice(0, 128) : null;
+            const productNames = body.product_names != null
+                ? JSON.stringify(parseProductNames(body.product_names))
+                : null;
             const rows = await query(
                 `UPDATE reseller_erp_design_skus SET
                     sku = COALESCE($1, sku),
@@ -491,8 +577,9 @@ function registerDesignMasterRoutes(app, deps) {
                     invoice_item_name = COALESCE($14, invoice_item_name),
                     hsn_code = COALESCE($15, hsn_code),
                     fixed_price = $16,
+                    product_names = COALESCE($17::jsonb, product_names),
                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $17 AND reseller_user_id = $18
+                 WHERE id = $18 AND reseller_user_id = $19
                  RETURNING *`,
                 [
                     newSku,
@@ -511,6 +598,7 @@ function registerDesignMasterRoutes(app, deps) {
                     body.invoice_item_name != null ? String(body.invoice_item_name).slice(0, 255) : null,
                     body.hsn_code != null ? String(body.hsn_code).slice(0, 32) : null,
                     num('fixed_price'),
+                    productNames,
                     id,
                     req.user.id,
                 ],
