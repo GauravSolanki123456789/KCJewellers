@@ -51,6 +51,7 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
           fallbackWhatsAppText: payload.fallbackWhatsAppText,
           fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
           customerWhatsAppHref: payload.customerWhatsAppHref,
+          customerMobile: payload.customerMobile,
           brandLabel: payload.brandLabel,
         })
         close()
@@ -94,7 +95,8 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
   const brand = payload?.brandLabel?.trim() || 'KC Jewellers'
   const ios = isIosDevice()
   const showHelperCopy = !minimal
-  const hasCustomerWa = !!payload?.customerWhatsAppHref?.trim()
+  const hasCustomerWa =
+    !!payload?.customerWhatsAppHref?.trim() || !!payload?.customerMobile?.replace(/\D/g, '').slice(-10)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

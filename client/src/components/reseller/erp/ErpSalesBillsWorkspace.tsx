@@ -17,14 +17,14 @@ import { ErpBillSavedModal } from '@/components/reseller/erp/ErpBillSavedModal'
 import { ErpComplianceDialog, type ErpComplianceSuccessMeta } from '@/components/reseller/erp/ErpComplianceDialog'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
-import type { PdfShareSheetPayload } from '@/lib/pdf-share'
+import { openPdfBlobInViewer, type PdfShareSheetPayload } from '@/lib/pdf-share'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { summarizeBillsMetalTotals } from '@/lib/erp-bill-metal-totals'
-import { Download, Eye, FileCheck, FileSpreadsheet, Loader2, Receipt, Trash2, Truck } from 'lucide-react'
+import { Download, Eye, FileCheck, FileSpreadsheet, FileText, Loader2, Receipt, Trash2, Truck } from 'lucide-react'
 
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
 
@@ -304,6 +304,40 @@ export function ErpSalesBillsWorkspace() {
     }
   }
 
+  const viewBillPdf = async (id: number) => {
+    setBusy(true)
+    try {
+      const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`)
+      const bill = res.data.bill
+      const session = (bill.session || {}) as ErpBillSession
+      const payload = await buildErpSalesPdfPayload({
+        bill,
+        brandLabel,
+        customerName: bill.customer_name,
+        mobile: session.mobile,
+        customerAddress: session.address,
+        customerPan: session.pan,
+        customerGst: session.customerGst,
+        slabSettingsRaw: auth.user,
+        taxInvoiceMode: !!bill.compliance?.einvoice?.irn,
+      })
+      await openPdfBlobInViewer(payload.blob, {
+        filename: payload.filename,
+        title: payload.title,
+        text: payload.text,
+        fallbackWhatsAppText: payload.fallbackWhatsAppText,
+        fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
+        customerWhatsAppHref: payload.customerWhatsAppHref,
+        customerMobile: payload.customerMobile,
+        brandLabel: payload.brandLabel,
+      })
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -487,6 +521,14 @@ export function ErpSalesBillsWorkspace() {
                         onClick={() => void openView(b.id)}
                       >
                         <Eye className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
+                        title="View bill PDF"
+                        onClick={() => void viewBillPdf(b.id)}
+                      >
+                        <FileText className="size-4" />
                       </button>
                       <button
                         type="button"

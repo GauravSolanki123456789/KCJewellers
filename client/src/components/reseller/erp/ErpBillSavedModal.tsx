@@ -85,6 +85,7 @@ export function ErpBillSavedModal({
       fallbackWhatsAppText: pdfPayload.fallbackWhatsAppText,
       fallbackWhatsAppHref: pdfPayload.fallbackWhatsAppHref,
       customerWhatsAppHref: customerWhatsAppHref(mobile.trim() || defaultMobile || null, pdfPayload.fallbackWhatsAppText),
+      customerMobile: mobile.trim() || defaultMobile || pdfPayload.customerMobile || null,
       brandLabel: pdfPayload.brandLabel,
     })
     setAutoOpened(true)
@@ -109,6 +110,7 @@ export function ErpBillSavedModal({
       fallbackWhatsAppText: pdfPayload.fallbackWhatsAppText,
       fallbackWhatsAppHref: pdfPayload.fallbackWhatsAppHref,
       customerWhatsAppHref: customerWhatsAppHref(mobile.trim() || null, pdfPayload.fallbackWhatsAppText),
+      customerMobile: mobile.trim() || pdfPayload.customerMobile || null,
       brandLabel: pdfPayload.brandLabel,
     })
   }, [pdfPayload, mobile])

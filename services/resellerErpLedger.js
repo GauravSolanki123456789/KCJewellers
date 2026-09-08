@@ -18,6 +18,7 @@ const PAYMENT_MODES = new Set(['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 
 const LEDGER_SCOPES = new Set(['official', 'lane']);
 
 const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');
+const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -539,6 +540,26 @@ function registerResellerErpLedgerRoutes(app, deps) {
     app.delete('/api/reseller/erp/ledger/entries/:id', checkAuth, erpGate, async (req, res) => {
         try {
             const id = parseInt(String(req.params.id), 10);
+            const entryRows = await query(
+                `SELECT id, pv_id FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!entryRows.length) return res.status(404).json({ error: 'Entry not found' });
+            const entry = entryRows[0];
+
+            if (entry.pv_id) {
+                try {
+                    const deletedPv = await deletePurchaseVoucherById(query, req.user.id, entry.pv_id);
+                    if (!deletedPv) {
+                        return res.status(404).json({ error: 'Linked purchase voucher not found' });
+                    }
+                    return res.json({ success: true, deleted_pv_number: deletedPv });
+                } catch (e) {
+                    if (e.status === 400) return res.status(400).json({ error: e.message });
+                    throw e;
+                }
+            }
+
             const rows = await query(
                 `DELETE FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2 RETURNING id`,
                 [id, req.user.id],

@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { pdf } from '@react-pdf/renderer'
+import axios from '@/lib/axios'
 import { FileImage, Loader2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { ErpQuotePdfDocument } from '@/lib/erp-quote-pdf-document'
@@ -24,6 +25,38 @@ import {
   resolveErpLineImages,
 } from '@/lib/erp-quote-pdf'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
+
+function normalizeMobileDigits(raw: string | null | undefined): string {
+  return String(raw || '')
+    .replace(/\D/g, '')
+    .slice(-10)
+}
+
+async function resolveBillCustomerMobile(
+  bill: ErpBill,
+  mobile?: string | null,
+): Promise<string> {
+  let m = normalizeMobileDigits(mobile ?? bill.session?.mobile)
+  if (m.length === 10) return m
+  const searchQ = bill.customer_name?.trim() || (bill.customer_id ? String(bill.customer_id) : '')
+  if (!searchQ) return ''
+  try {
+    const res = await axios.get<{ customers: { id: number; mobile?: string | null; name?: string }[] }>(
+      '/api/reseller/erp/customers',
+      { params: { q: searchQ } },
+    )
+    const list = res.data.customers || []
+    const row =
+      (bill.customer_id ? list.find((c) => c.id === bill.customer_id) : null) ||
+      list.find((c) => c.name?.trim().toLowerCase() === bill.customer_name?.trim().toLowerCase()) ||
+      list[0]
+    m = normalizeMobileDigits(row?.mobile)
+    if (m.length === 10) return m
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
 
 export async function shareErpQuotePdf(params: {
   bill: ErpBill
@@ -76,13 +109,18 @@ export async function shareErpQuotePdf(params: {
     filename,
   })
 
+  const resolvedMobile = await resolveBillCustomerMobile(params.bill, params.mobile)
+  const customerWaHref = erpCustomerWhatsAppHref(resolvedMobile || null, text)
+
   const sheetPayload: PdfShareSheetPayload = {
     blob,
     filename,
     title: `${brandLabel} — ${params.bill.bill_number}`,
     text,
     fallbackWhatsAppText: text,
-    fallbackWhatsAppHref: erpCustomerWhatsAppHref(params.mobile, text),
+    fallbackWhatsAppHref: customerWaHref,
+    customerWhatsAppHref: customerWaHref,
+    customerMobile: resolvedMobile || null,
     brandLabel,
   }
 
@@ -96,6 +134,8 @@ export async function shareErpQuotePdf(params: {
     text: sheetPayload.text,
     fallbackWhatsAppText: sheetPayload.fallbackWhatsAppText,
     fallbackWhatsAppHref: sheetPayload.fallbackWhatsAppHref,
+    customerWhatsAppHref: sheetPayload.customerWhatsAppHref,
+    customerMobile: sheetPayload.customerMobile,
   })
 }
 

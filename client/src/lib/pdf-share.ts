@@ -87,6 +87,8 @@ export type OpenPdfViewerOptions = {
   fallbackWhatsAppText?: string
   fallbackWhatsAppHref?: string | null
   customerWhatsAppHref?: string | null
+  /** 10-digit customer mobile — shown in viewer and used for WhatsApp send */
+  customerMobile?: string | null
   brandLabel?: string
 }
 
@@ -102,6 +104,7 @@ export async function openPdfBlobInViewer(blob: Blob, opts?: OpenPdfViewerOption
       fallbackWhatsAppText: opts.fallbackWhatsAppText || opts.text || opts.filename,
       fallbackWhatsAppHref: opts.fallbackWhatsAppHref ?? null,
       customerWhatsAppHref: opts.customerWhatsAppHref ?? null,
+      customerMobile: opts.customerMobile ?? null,
       brandLabel: opts.brandLabel,
     })
     return
@@ -122,8 +125,8 @@ export type SharePdfBlobOptions = {
   text: string
   fallbackWhatsAppText: string
   fallbackWhatsAppHref?: string | null
-  /** Opens wa.me with customer number pre-filled (reseller sends from their WhatsApp). */
   customerWhatsAppHref?: string | null
+  customerMobile?: string | null
 }
 
 export type SharePdfNativeResult = 'shared' | 'cancelled' | 'unsupported' | 'failed'
@@ -170,6 +173,7 @@ export async function sharePdfBlob(blob: Blob, filename: string, opts: SharePdfB
     fallbackWhatsAppText: opts.fallbackWhatsAppText,
     fallbackWhatsAppHref: opts.fallbackWhatsAppHref,
     customerWhatsAppHref: opts.customerWhatsAppHref,
+    customerMobile: opts.customerMobile,
   })
 }
 
@@ -189,5 +193,6 @@ export type PdfShareSheetPayload = {
   fallbackWhatsAppText: string
   fallbackWhatsAppHref?: string | null
   customerWhatsAppHref?: string | null
+  customerMobile?: string | null
   brandLabel?: string
 }

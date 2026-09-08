@@ -11,6 +11,12 @@ import { buildErpSalesPdfFilename } from '@/lib/erp-sales-invoice-template'
 import { normalizeTaxInvoiceTemplate } from '@/lib/erp-tax-invoice-template'
 import { mrpInvoiceItemNames, fetchGstInvoiceItems } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 
+function normalizeMobileDigits(raw: string | null | undefined): string {
+  return String(raw || '')
+    .replace(/\D/g, '')
+    .slice(-10)
+}
+
 export function buildErpSalesWhatsAppMessage(params: {
   brandLabel: string
   bill: ErpBill
@@ -146,6 +152,7 @@ export async function buildErpSalesPdfPayload(params: {
     fallbackWhatsAppText: text,
     fallbackWhatsAppHref: null,
     customerWhatsAppHref: erpCustomerWhatsAppHref(params.mobile ?? session.mobile, text),
+    customerMobile: normalizeMobileDigits(params.mobile ?? session.mobile) || null,
     brandLabel,
   }
 }

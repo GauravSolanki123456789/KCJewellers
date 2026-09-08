@@ -69,6 +69,8 @@ async function ensurePurchaseSchema(pool) {
             ADD COLUMN IF NOT EXISTS weight_kg NUMERIC(12, 3);
         ALTER TABLE reseller_erp_stock_batches
             ADD COLUMN IF NOT EXISTS purchase_voucher_id INTEGER;
+        ALTER TABLE reseller_erp_purchase_vouchers
+            ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES reseller_erp_customers(id) ON DELETE SET NULL;
     `);
 }
 
@@ -91,6 +93,11 @@ function mapPv(row) {
         ledger_entry_id: row.ledger_entry_id,
         status: row.status,
         stock_batch_id: row.stock_batch_id,
+        customer_id: row.customer_id,
+        customer_name: row.customer_name || null,
+        customer_mobile: row.customer_mobile || null,
+        customer_gstin: row.customer_gstin || null,
+        customer_address: row.customer_address || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -131,6 +138,62 @@ async function applyReceivedWeight(query, resellerUserId, pvId, addedWeightKg) {
     return rows[0] ? mapPv(rows[0]) : null;
 }
 
+async function deletePurchaseVoucherById(query, resellerUserId, pvId) {
+    const pvRows = await query(
+        `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
+        [pvId, resellerUserId],
+    );
+    if (!pvRows.length) return null;
+    const pv = pvRows[0];
+
+    if (pv.stock_batch_id) {
+        const sold = await query(
+            `SELECT 1 FROM reseller_erp_stock_pieces
+             WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND status = 'sold' LIMIT 1`,
+            [pv.stock_batch_id, resellerUserId],
+        );
+        if (sold.length) {
+            throw Object.assign(
+                new Error('Cannot delete — some stock from this PV was sold. Remove sold items first.'),
+                { status: 400 },
+            );
+        }
+        await query(
+            `DELETE FROM reseller_erp_stock_pieces
+             WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND status = 'in_stock'`,
+            [pv.stock_batch_id, resellerUserId],
+        );
+        await query(
+            `DELETE FROM reseller_erp_stock_import_batches
+             WHERE stock_batch_id = $1::uuid AND reseller_user_id = $2`,
+            [pv.stock_batch_id, resellerUserId],
+        );
+        await query(
+            `DELETE FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+            [pv.stock_batch_id, resellerUserId],
+        );
+    }
+
+    if (pv.ledger_entry_id) {
+        await query(
+            `DELETE FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2`,
+            [pv.ledger_entry_id, resellerUserId],
+        );
+    } else {
+        await query(
+            `DELETE FROM reseller_erp_ledger_entries WHERE pv_id = $1 AND reseller_user_id = $2`,
+            [pv.id, resellerUserId],
+        );
+    }
+
+    await query(
+        `DELETE FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
+        [pv.id, resellerUserId],
+    );
+
+    return pv.pv_number;
+}
+
 function registerResellerErpPurchaseVoucherRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, erpGate } = deps;
 
@@ -149,7 +212,14 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
         try {
             const status = trimStr(req.query.status, 32);
             const params = [req.user.id];
-            let sql = `SELECT * FROM reseller_erp_purchase_vouchers WHERE reseller_user_id = $1`;
+            let sql = `SELECT pv.*,
+                              c.name AS customer_name,
+                              c.mobile AS customer_mobile,
+                              c.gstin AS customer_gstin,
+                              c.address AS customer_address
+                       FROM reseller_erp_purchase_vouchers pv
+                       LEFT JOIN reseller_erp_customers c ON c.id = pv.customer_id
+                       WHERE pv.reseller_user_id = $1`;
             if (status) {
                 params.push(status);
                 sql += ` AND status = $${params.length}`;
@@ -245,14 +315,24 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
             const metalType = trimStr(req.body.metal_type, 32);
             const narration = trimStr(req.body.narration, 2000);
             const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'neft';
+            const customerIdRaw = parseInt(String(req.body.customer_id || ''), 10);
+            const customerId =
+                Number.isFinite(customerIdRaw) && customerIdRaw > 0 ? customerIdRaw : null;
+            if (customerId) {
+                const cust = await query(
+                    `SELECT id FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [customerId, req.user.id],
+                );
+                if (!cust.length) return res.status(400).json({ error: 'Customer not found' });
+            }
 
             const pvRows = await query(
                 `INSERT INTO reseller_erp_purchase_vouchers (
                     reseller_user_id, pv_number, entry_date, vendor_name, vendor_bill_ref,
-                    amount_inr, weight_kg, metal_type, narration, status
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open')
+                    amount_inr, weight_kg, metal_type, narration, status, customer_id
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10)
                  RETURNING *`,
-                [req.user.id, pvNumber, entryDate, vendorName, vendorBillRef, amount, weightKg, metalType, narration],
+                [req.user.id, pvNumber, entryDate, vendorName, vendorBillRef, amount, weightKg, metalType, narration, customerId],
             );
             const pv = pvRows[0];
 
@@ -260,8 +340,8 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, payment_mode,
                     reference_no, counterparty_name, narration, is_suspense, ledger_scope,
-                    pv_id, weight_kg
-                 ) VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,false,'official',$8,$9)
+                    pv_id, weight_kg, customer_id
+                 ) VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,false,'official',$8,$9,$10)
                  RETURNING id`,
                 [
                     req.user.id,
@@ -273,6 +353,7 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
                     narration || `Stock purchase ${pvNumber} · ${weightKg} kg`,
                     pv.id,
                     weightKg,
+                    customerId,
                 ],
             );
 
@@ -329,59 +410,11 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
         try {
             const id = parseInt(String(req.params.id), 10);
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
-            const pvRows = await query(
-                `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
-                [id, req.user.id],
-            );
-            if (!pvRows.length) return res.status(404).json({ error: 'Purchase voucher not found' });
-            const pv = pvRows[0];
-
-            if (pv.stock_batch_id) {
-                const sold = await query(
-                    `SELECT 1 FROM reseller_erp_stock_pieces
-                     WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND status = 'sold' LIMIT 1`,
-                    [pv.stock_batch_id, req.user.id],
-                );
-                if (sold.length) {
-                    return res.status(400).json({
-                        error: 'Cannot delete — some stock from this PV was sold. Remove sold items first.',
-                    });
-                }
-                await query(
-                    `DELETE FROM reseller_erp_stock_pieces
-                     WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND status = 'in_stock'`,
-                    [pv.stock_batch_id, req.user.id],
-                );
-                await query(
-                    `DELETE FROM reseller_erp_stock_import_batches
-                     WHERE stock_batch_id = $1::uuid AND reseller_user_id = $2`,
-                    [pv.stock_batch_id, req.user.id],
-                );
-                await query(
-                    `DELETE FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
-                    [pv.stock_batch_id, req.user.id],
-                );
-            }
-
-            if (pv.ledger_entry_id) {
-                await query(
-                    `DELETE FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2`,
-                    [pv.ledger_entry_id, req.user.id],
-                );
-            } else {
-                await query(
-                    `DELETE FROM reseller_erp_ledger_entries WHERE pv_id = $1 AND reseller_user_id = $2`,
-                    [pv.id, req.user.id],
-                );
-            }
-
-            await query(
-                `DELETE FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
-                [pv.id, req.user.id],
-            );
-
-            res.json({ success: true, deleted_pv_number: pv.pv_number });
+            const deleted = await deletePurchaseVoucherById(query, req.user.id, id);
+            if (!deleted) return res.status(404).json({ error: 'Purchase voucher not found' });
+            res.json({ success: true, deleted_pv_number: deleted });
         } catch (e) {
+            if (e.status === 400) return res.status(400).json({ error: e.message });
             console.error('erp purchase delete:', e);
             res.status(500).json({ error: e.message || 'Failed to delete purchase voucher' });
         }
@@ -393,4 +426,5 @@ module.exports = {
     registerResellerErpPurchaseVoucherRoutes,
     applyReceivedWeight,
     mapPv,
+    deletePurchaseVoucherById,
 };

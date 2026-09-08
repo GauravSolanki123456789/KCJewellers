@@ -1799,24 +1799,22 @@ export function ErpBillingWorkspace() {
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Discount (₹)
             </label>
-            <input
-              className={`${erpInputCls} py-2 text-sm tabular-nums !text-[#1a1814] ${
+            <div
+              className={`${erpInputCls} flex min-h-[44px] items-center py-2 text-sm tabular-nums font-semibold ${
                 parsedCollected != null && discountSummary.cashDiscountInr < 0
-                  ? 'border-amber-400 bg-amber-50/80 !text-amber-950'
+                  ? 'border-amber-400 bg-amber-50/80 text-amber-950'
                   : parsedCollected != null && discountSummary.cashDiscountInr > 0
-                    ? 'border-emerald-300 bg-emerald-50/60 !text-emerald-950'
-                    : 'bg-white'
+                    ? 'border-emerald-300 bg-emerald-50/60 text-emerald-950'
+                    : 'bg-white text-[#1a1814]'
               }`}
-              readOnly
-              tabIndex={-1}
-              value={
-                parsedCollected != null
-                  ? discountSummary.cashDiscountInr.toLocaleString('en-IN')
-                  : ''
-              }
-              placeholder="Auto"
+              style={{ color: '#1a1814', WebkitTextFillColor: '#1a1814' }}
+              aria-live="polite"
               title="Net total minus collected amount"
-            />
+            >
+              {parsedCollected != null
+                ? discountSummary.cashDiscountInr.toLocaleString('en-IN')
+                : 'Auto'}
+            </div>
           </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">

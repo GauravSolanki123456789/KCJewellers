@@ -86,7 +86,6 @@ function PdfViewerInner() {
     )
   }
 
-  const brand = payload.brandLabel?.trim() || 'KC Jewellers'
   const hasCustomerWa = !!payload.customerWhatsAppHref?.trim()
 
   return (
@@ -95,7 +94,6 @@ function PdfViewerInner() {
         <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-[#1a1814]">{payload.title || payload.filename}</p>
-            <p className="truncate text-xs text-[#1a1814]/55">{brand}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button

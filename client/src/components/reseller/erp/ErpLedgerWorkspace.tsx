@@ -28,7 +28,7 @@ import {
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-import-parser'
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
-import { formatErpDateTime } from '@/lib/erp-date-format'
+import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
 type ImportPreviewRow = ParsedBankRow & {
   customer_name?: string | null
@@ -120,6 +120,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       pending_weight_kg: number
       status: string
       entry_date: string
+      customer_id?: number | null
+      customer_name?: string | null
+      customer_mobile?: string | null
+      customer_gstin?: string | null
+      customer_address?: string | null
     }[]
   >([])
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -148,6 +153,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     metal_type: 'SILVER',
     payment_mode: 'neft',
     narration: '',
+    customer_id: '',
   })
   const [expenseForm, setExpenseForm] = useState({
     entry_date: todayIso(),
@@ -163,6 +169,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [payCustomerResults, setPayCustomerResults] = useState<ErpCustomer[]>([])
   const [payCustomerPickIdx, setPayCustomerPickIdx] = useState(-1)
   const [payCustomerLabel, setPayCustomerLabel] = useState('')
+  const [pvCustomerQ, setPvCustomerQ] = useState('')
+  const [pvCustomerResults, setPvCustomerResults] = useState<ErpCustomer[]>([])
+  const [pvCustomerPickIdx, setPvCustomerPickIdx] = useState(-1)
+  const [pvCustomerLabel, setPvCustomerLabel] = useState('')
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -177,6 +187,20 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }, 200)
     return () => clearTimeout(t)
   }, [payCustomerQ])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!pvCustomerQ.trim()) {
+        setPvCustomerResults([])
+        return
+      }
+      void axios
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params: { q: pvCustomerQ.trim() } })
+        .then((r) => setPvCustomerResults(r.data.customers || []))
+        .catch(() => setPvCustomerResults([]))
+    }, 200)
+    return () => clearTimeout(t)
+  }, [pvCustomerQ])
 
   const loadCustomers = useCallback(async () => {
     const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
@@ -421,6 +445,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     try {
       await axios.delete(`/api/reseller/erp/ledger/entries/${id}`)
       if (editingId === id) setEditingId(null)
+      void axios
+        .get<{ purchase_vouchers: typeof purchaseVouchers }>('/api/reseller/erp/purchase-vouchers')
+        .then((r) => setPurchaseVouchers(r.data.purchase_vouchers || []))
+        .catch(() => {})
       await reload()
     } catch (e) {
       alert(erpErr(e))
@@ -535,6 +563,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           ...pvForm,
           amount_inr: amount,
           weight_kg: weightKg,
+          customer_id: pvForm.customer_id ? Number(pvForm.customer_id) : null,
         },
       )
       setMsg(`Purchase saved — ${res.data.purchase_voucher.pv_number}. Upload stock in Products with this PV number.`)
@@ -547,7 +576,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         metal_type: 'SILVER',
         payment_mode: 'neft',
         narration: '',
+        customer_id: '',
       })
+      setPvCustomerQ('')
+      setPvCustomerLabel('')
+      setPvCustomerResults([])
       void axios
         .get<{ purchase_vouchers: typeof purchaseVouchers }>('/api/reseller/erp/purchase-vouchers')
         .then((r) => setPurchaseVouchers(r.data.purchase_vouchers || []))
@@ -1233,12 +1266,105 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             Record stock purchase — generates PV number (PV0001, PV0002…)
           </p>
-          <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-            After saving, go to <strong>Products → Stock upload</strong>, enter the PV number, and upload Excel until
-            weight tallies. Enter purchase weight in <strong>kg</strong>; stock Excel uses <strong>grams</strong> per
-            piece (converted automatically). Purchase appears in both normal and Jainav ledgers.
-          </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2 lg:col-span-3">
+              Link customer (optional — purchase posts to their ledger)
+              <div className="relative mt-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-jewelry-black,#1a1814)]/40" />
+                <input
+                  className={`${erpInputCls} pl-9`}
+                  placeholder="Search name or mobile…"
+                  value={pvCustomerQ}
+                  onChange={(e) => {
+                    setPvCustomerQ(e.target.value)
+                    setPvCustomerPickIdx(-1)
+                    if (!e.target.value.trim()) {
+                      setPvForm({ ...pvForm, customer_id: '' })
+                      setPvCustomerLabel('')
+                    }
+                  }}
+                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                    const list = pvCustomerResults.slice(0, 8)
+                    if (!list.length) return
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setPvCustomerPickIdx((i) => Math.min(i + 1, list.length - 1))
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setPvCustomerPickIdx((i) => Math.max(i - 1, 0))
+                    } else if (e.key === 'Enter' && pvCustomerPickIdx >= 0) {
+                      e.preventDefault()
+                      const c = list[pvCustomerPickIdx]
+                      setPvForm({ ...pvForm, customer_id: String(c.id) })
+                      setPvCustomerQ(c.name)
+                      setPvCustomerLabel(
+                        [c.mobile, c.gstin, c.address].filter(Boolean).join(' · ') || c.name,
+                      )
+                      setPvCustomerResults([])
+                    }
+                  }}
+                />
+                {pvCustomerResults.length > 0 && pvCustomerQ.trim() && !pvForm.customer_id ? (
+                  <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
+                    {pvCustomerResults.slice(0, 8).map((c, i) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className={`block w-full px-3 py-2.5 text-left text-sm ${
+                            i === pvCustomerPickIdx
+                              ? 'bg-[var(--kc-accent,#c41e3a)]/10'
+                              : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
+                          }`}
+                          onClick={() => {
+                            setPvForm({ ...pvForm, customer_id: String(c.id) })
+                            setPvCustomerQ(c.name)
+                            setPvCustomerLabel(
+                              [c.mobile, c.gstin, c.address].filter(Boolean).join(' · ') || c.name,
+                            )
+                            setPvCustomerResults([])
+                          }}
+                        >
+                          <span className="font-medium text-[#1a1814]">{c.name}</span>
+                          {c.mobile ? (
+                            <span className="ml-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                              {c.mobile}
+                            </span>
+                          ) : null}
+                          {c.gstin ? (
+                            <span className="mt-0.5 block text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                              GSTIN {c.gstin}
+                            </span>
+                          ) : null}
+                          {c.address ? (
+                            <span className="mt-0.5 block text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                              {c.address}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              {pvCustomerLabel ? (
+                <p className="mt-1.5 rounded-lg border border-emerald-200 bg-emerald-50/60 px-2.5 py-2 text-[11px] leading-relaxed text-[#1a1814]">
+                  {pvCustomerLabel}
+                  {pvForm.customer_id ? (
+                    <button
+                      type="button"
+                      className="ml-2 font-semibold text-rose-600"
+                      onClick={() => {
+                        setPvForm({ ...pvForm, customer_id: '' })
+                        setPvCustomerQ('')
+                        setPvCustomerLabel('')
+                      }}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </p>
+              ) : null}
+            </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Date
               <ErpDateInput className={`${erpInputCls} mt-1`} value={pvForm.entry_date} onChange={(v) => setPvForm({ ...pvForm, entry_date: v })} />
@@ -1299,8 +1425,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{pv.pv_number}</p>
                       <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
                         {pv.vendor_name || 'Vendor'} · {pv.weight_kg} kg · pending {pv.pending_weight_kg} kg ·{' '}
-                        {pv.status} · {pv.entry_date}
+                        {pv.status} · {formatErpDateDdMmYyyy(pv.entry_date)}
                       </p>
+                      {pv.customer_name ? (
+                        <p className="text-[10px] text-emerald-800">
+                          {pv.customer_name}
+                          {pv.customer_mobile ? ` · ${pv.customer_mobile}` : ''}
+                          {pv.customer_gstin ? ` · GSTIN ${pv.customer_gstin}` : ''}
+                        </p>
+                      ) : null}
                     </div>
                     <button
                       type="button"

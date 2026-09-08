@@ -133,7 +133,8 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         let credit = 0;
         let debit = 0;
         if (creditTypes.has(p.entry_type)) credit = Number(p.amount_inr) || 0;
-        if (debitTypes.has(p.entry_type) && p.entry_type === 'payment_out') debit = Number(p.amount_inr) || 0;
+        if (p.entry_type === 'payment_out') debit = Number(p.amount_inr) || 0;
+        if (p.entry_type === 'purchase') debit = Number(p.amount_inr) || 0;
         if (p.entry_type === 'adjustment') {
             const amt = Number(p.amount_inr) || 0;
             if (amt >= 0) credit = amt;

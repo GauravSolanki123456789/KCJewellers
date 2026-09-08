@@ -10,12 +10,26 @@ import {
 import { downloadPdfBlob, sharePdfFileNative } from '@/lib/pdf-share'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
+import {
+  customerWhatsAppHref,
+  formatCustomerMobileDisplay,
+} from '@/lib/catalog-inquiry-shared'
+
+function normalizeMobileDigits(raw: string | null | undefined): string {
+  return String(raw || '')
+    .replace(/\D/g, '')
+    .slice(-10)
+}
 
 export default function PdfViewerOverlay() {
   const payload = useSyncExternalStore(subscribePdfOverlay, getPdfOverlayPayload, () => null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
+  const [customerMobile, setCustomerMobile] = useState('')
   const [waMode, setWaMode] = useState<'pick' | 'customer'>('pick')
+
+  const opts = payload?.opts
+  const blob = payload?.blob
 
   useEffect(() => {
     if (!payload?.blob) {
@@ -28,6 +42,20 @@ export default function PdfViewerOverlay() {
   }, [payload?.blob])
 
   useEffect(() => {
+    if (!opts) return
+    const initial =
+      normalizeMobileDigits(opts.customerMobile) ||
+      (() => {
+        const href = opts.customerWhatsAppHref || ''
+        const m = /wa\.me\/(\d+)/i.exec(href)
+        if (m) return m[1].slice(-10)
+        return ''
+      })()
+    setCustomerMobile(initial)
+    setWaMode(initial.length === 10 ? 'customer' : 'pick')
+  }, [opts])
+
+  useEffect(() => {
     if (!payload) return
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -38,8 +66,17 @@ export default function PdfViewerOverlay() {
 
   const close = useCallback(() => closePdfOverlay(), [])
 
-  const opts = payload?.opts
-  const blob = payload?.blob
+  const waText = opts?.fallbackWhatsAppText || opts?.text || opts?.filename || ''
+
+  const customerHref = useMemo(() => {
+    const mob = normalizeMobileDigits(customerMobile)
+    return mob.length === 10 ? customerWhatsAppHref(mob, waText) : null
+  }, [customerMobile, waText])
+
+  const customerLabel = useMemo(() => {
+    const display = formatCustomerMobileDisplay(customerMobile)
+    return display ? `Customer — ${display}` : 'Customer number (enter below)'
+  }, [customerMobile])
 
   const handleDownload = useCallback(() => {
     if (!blob || !opts?.filename) return
@@ -59,20 +96,25 @@ export default function PdfViewerOverlay() {
     }
   }, [blob, opts, sharing])
 
-  const handleWhatsApp = useCallback(() => {
-    if (!opts) return
+  const handleWhatsApp = useCallback(async () => {
+    if (!opts || !blob) return
+    if (waMode === 'customer' && customerHref) {
+      const shared = await sharePdfFileNative(blob, opts.filename, {
+        title: opts.title || opts.filename,
+        text: waText,
+      })
+      if (shared === 'shared') return
+      openExternalUrl(customerHref, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
+      return
+    }
     const href =
-      waMode === 'customer' && opts.customerWhatsAppHref?.trim()
-        ? opts.customerWhatsAppHref.trim()
-        : opts.fallbackWhatsAppHref?.trim() ||
-          buildWhatsAppShareLink(opts.fallbackWhatsAppText || opts.text || opts.filename)
+      opts.fallbackWhatsAppHref?.trim() || buildWhatsAppShareLink(waText)
     openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
-  }, [opts, waMode])
-
-  const brand = useMemo(() => opts?.brandLabel?.trim() || 'KC Jewellers', [opts?.brandLabel])
-  const hasCustomerWa = !!opts?.customerWhatsAppHref?.trim()
+  }, [opts, blob, waMode, customerHref, waText])
 
   if (!payload || !opts) return null
+
+  const hasCustomerMobile = normalizeMobileDigits(customerMobile).length === 10
 
   return (
     <div
@@ -93,7 +135,6 @@ export default function PdfViewerOverlay() {
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-[#1a1814]">{opts.title || opts.filename}</p>
-            <p className="truncate text-xs text-[#1a1814]/55">{brand}</p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button
@@ -103,7 +144,7 @@ export default function PdfViewerOverlay() {
               className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-600"
             >
               {sharing ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
-              Share
+              Share PDF
             </button>
             <button
               type="button"
@@ -116,29 +157,48 @@ export default function PdfViewerOverlay() {
           </div>
         </div>
 
-        <div className="mx-auto mt-3 flex max-w-5xl flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="block flex-1 text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/50">
+        <div className="mx-auto mt-3 grid max-w-5xl gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/50">
+            Customer mobile
+            <input
+              type="tel"
+              inputMode="numeric"
+              className="mt-1 block w-full rounded-xl border border-[#e8e4df] bg-white px-3 py-2.5 text-sm font-medium text-[#1a1814]"
+              placeholder="10-digit for WhatsApp"
+              value={customerMobile}
+              onChange={(e) => {
+                const v = e.target.value.replace(/\D/g, '').slice(0, 10)
+                setCustomerMobile(v)
+                if (v.length === 10) setWaMode('customer')
+              }}
+            />
+          </label>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/50">
             WhatsApp
             <select
-              className="mt-1 block w-full rounded-xl border border-[#e8e4df] bg-white px-3 py-2.5 text-sm font-medium text-[#1a1814]"
+              className="mt-1 block w-full min-w-[160px] rounded-xl border border-[#e8e4df] bg-white px-3 py-2.5 text-sm font-medium text-[#1a1814]"
               value={waMode}
               onChange={(e) => setWaMode(e.target.value as 'pick' | 'customer')}
             >
               <option value="pick">Pick contact</option>
-              <option value="customer" disabled={!hasCustomerWa}>
-                Customer number{hasCustomerWa ? '' : ' (none)'}
+              <option value="customer" disabled={!hasCustomerMobile}>
+                {hasCustomerMobile ? customerLabel : 'Customer number (enter mobile)'}
               </option>
             </select>
           </label>
           <button
             type="button"
-            onClick={handleWhatsApp}
+            onClick={() => void handleWhatsApp()}
+            disabled={waMode === 'customer' && !hasCustomerMobile}
             className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-700 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-100 sm:w-auto"
           >
             <MessageCircle className="size-4" />
-            WhatsApp
+            {waMode === 'customer' ? 'Send to customer' : 'WhatsApp'}
           </button>
         </div>
+        <p className="mx-auto mt-2 max-w-5xl text-[11px] text-[#1a1814]/50">
+          Send to customer opens WhatsApp to their number with the PDF (share sheet on mobile, chat + attach on desktop).
+        </p>
       </header>
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden p-2 sm:p-4">
