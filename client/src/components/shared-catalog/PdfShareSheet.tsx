@@ -30,6 +30,7 @@ type Props = {
 
 export default function PdfShareSheet({ open, onOpenChange, payload, minimal = false }: Props) {
   const [sharing, setSharing] = useState(false)
+  const [waMode, setWaMode] = useState<'pick' | 'customer'>('pick')
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
@@ -42,15 +43,34 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
         text: payload.text,
       })
       if (result === 'shared') close()
-      else if (result === 'unsupported' || result === 'failed') openPdfBlobInViewer(payload.blob)
+      else if (result === 'unsupported' || result === 'failed') {
+        await openPdfBlobInViewer(payload.blob, {
+          filename: payload.filename,
+          title: payload.title,
+          text: payload.text,
+          fallbackWhatsAppText: payload.fallbackWhatsAppText,
+          fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
+          customerWhatsAppHref: payload.customerWhatsAppHref,
+          brandLabel: payload.brandLabel,
+        })
+        close()
+      }
     } finally {
       setSharing(false)
     }
   }, [payload, sharing, close])
 
-  const handleOpenPdf = useCallback(() => {
+  const handleOpenPdf = useCallback(async () => {
     if (!payload) return
-    openPdfBlobInViewer(payload.blob)
+    await openPdfBlobInViewer(payload.blob, {
+      filename: payload.filename,
+      title: payload.title,
+      text: payload.text,
+      fallbackWhatsAppText: payload.fallbackWhatsAppText,
+      fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
+      customerWhatsAppHref: payload.customerWhatsAppHref,
+      brandLabel: payload.brandLabel,
+    })
     close()
   }, [payload, close])
 
@@ -60,18 +80,21 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
     close()
   }, [payload, close])
 
-  const handleWhatsAppText = useCallback(() => {
+  const handleWhatsApp = useCallback(() => {
     if (!payload) return
     const href =
-      payload.fallbackWhatsAppHref?.trim() ||
-      buildWhatsAppShareLink(payload.fallbackWhatsAppText)
+      waMode === 'customer' && payload.customerWhatsAppHref?.trim()
+        ? payload.customerWhatsAppHref.trim()
+        : payload.fallbackWhatsAppHref?.trim() ||
+          buildWhatsAppShareLink(payload.fallbackWhatsAppText)
     openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
     close()
-  }, [payload, close])
+  }, [payload, close, waMode])
 
   const brand = payload?.brandLabel?.trim() || 'KC Jewellers'
   const ios = isIosDevice()
   const showHelperCopy = !minimal
+  const hasCustomerWa = !!payload?.customerWhatsAppHref?.trim()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,9 +109,7 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
             </DialogTitle>
             {showHelperCopy ? (
               <DialogDescription className="text-sm leading-relaxed text-neutral-600">
-                {ios
-                  ? `Tap Share PDF, then choose WhatsApp to send your shortlist to ${brand}.`
-                  : `Share your shortlist PDF with ${brand} on WhatsApp or save it to your device.`}
+                Opens in a new tab where you can download, share on WhatsApp, or attach the PDF.
               </DialogDescription>
             ) : null}
           </DialogHeader>
@@ -105,11 +126,21 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
         <div className="space-y-2.5 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-1 sm:pb-4">
           <button
             type="button"
+            disabled={!payload}
+            onClick={() => void handleOpenPdf()}
+            className="flex min-h-[52px] w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-md transition active:scale-[0.99] bg-emerald-700 hover:bg-emerald-600"
+          >
+            <FileText className="size-5 shrink-0" aria-hidden />
+            Open PDF in new tab
+          </button>
+
+          <button
+            type="button"
             disabled={!payload || sharing}
-            onClick={handleSharePdf}
+            onClick={() => void handleSharePdf()}
             className={cn(
-              'flex min-h-[52px] w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-md transition active:scale-[0.99]',
-              sharing ? 'bg-neutral-400' : 'bg-emerald-600 hover:bg-emerald-500',
+              'flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border-2 border-neutral-800 bg-neutral-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-neutral-800 active:scale-[0.99]',
+              sharing && 'opacity-70',
             )}
           >
             {sharing ? (
@@ -120,24 +151,28 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
             {sharing ? 'Opening share…' : 'Share PDF — WhatsApp, Files…'}
           </button>
 
-          <button
-            type="button"
-            disabled={!payload}
-            onClick={handleOpenPdf}
-            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border-2 border-neutral-800 bg-neutral-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-neutral-800 active:scale-[0.99]"
-          >
-            <FileText className="size-5 shrink-0" aria-hidden />
-            Open PDF
-          </button>
+          <label className="block text-[10px] font-bold uppercase tracking-wide text-neutral-500">
+            WhatsApp mode
+            <select
+              className="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm font-medium text-neutral-900"
+              value={waMode}
+              onChange={(e) => setWaMode(e.target.value as 'pick' | 'customer')}
+            >
+              <option value="pick">Pick contact / share sheet (current)</option>
+              <option value="customer" disabled={!hasCustomerWa}>
+                Send to customer number{hasCustomerWa ? '' : ' (no customer mobile)'}
+              </option>
+            </select>
+          </label>
 
           <button
             type="button"
             disabled={!payload}
-            onClick={handleWhatsAppText}
+            onClick={handleWhatsApp}
             className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50 active:scale-[0.99]"
           >
             <MessageCircle className="size-5 shrink-0 text-emerald-600" aria-hidden />
-            WhatsApp (text only)
+            WhatsApp (text + attach PDF from viewer)
           </button>
 
           {!ios ? (
@@ -155,8 +190,8 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
         {payload && showHelperCopy ? (
           <p className="border-t border-neutral-100 px-4 py-3 text-center text-[11px] leading-relaxed text-neutral-500">
             {ios
-              ? 'If WhatsApp is not listed, tap Open PDF → Share ↗ at the bottom of Safari → WhatsApp.'
-              : 'Tip: Share PDF attaches the catalogue; WhatsApp (text) sends your picks without the file.'}
+              ? 'Open PDF → Share ↗ in Safari → WhatsApp to attach the file.'
+              : `Tip: Open PDF tab has download + WhatsApp. “Send to customer” opens chat with ${brand}’s customer number.`}
           </p>
         ) : null}
       </DialogContent>

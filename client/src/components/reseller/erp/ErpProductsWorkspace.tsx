@@ -60,6 +60,15 @@ export function ErpProductsWorkspace() {
   const [designStyles, setDesignStyles] = useState<string[]>([])
   const [designSkus, setDesignSkus] = useState<string[]>([])
   const [designProducts, setDesignProducts] = useState<string[]>([])
+  const [pvNumber, setPvNumber] = useState('')
+  const [pvBusy, setPvBusy] = useState(false)
+  const [activePv, setActivePv] = useState<{
+    pv_number: string
+    weight_kg: number
+    received_weight_kg: number
+    pending_weight_kg: number
+    status: string
+  } | null>(null)
 
   useEffect(() => {
     void axios
@@ -135,7 +144,16 @@ export function ErpProductsWorkspace() {
       const buf = await file.arrayBuffer()
       const rows = parseStockExcelRows(buf)
       if (!rows.length) throw new Error('No rows in file')
-      const res = await axios.post<{ batch_id: string; inserted: number; updated: number; total: number }>(
+      const res = await axios.post<{
+        batch_id: string
+        inserted: number
+        updated: number
+        duplicate_skipped?: number
+        duplicate_in_file?: string[]
+        total: number
+        weight_tallied?: boolean
+        purchase_voucher?: { pv_number: string; pending_weight_kg: number; status: string }
+      }>(
         '/api/reseller/erp/stock-pieces/bulk',
         isAppend
           ? {
@@ -146,11 +164,25 @@ export function ErpProductsWorkspace() {
           : { rows, batch_label: `Stock ${file.name.replace(/\.[^.]+$/, '')}`, source_filename: file.name },
       )
       setMsgTone('ok')
-      setMsg(
-        isAppend
-          ? `Added ${res.data.total} piece(s) to batch — ${res.data.inserted} new, ${res.data.updated} updated.`
-          : `Uploaded ${res.data.total} piece(s) — ${res.data.inserted} new, ${res.data.updated} updated.`,
-      )
+      let detail = isAppend
+        ? `Added ${res.data.inserted} piece(s) to batch`
+        : `Uploaded ${res.data.inserted} new piece(s)`
+      if (res.data.duplicate_skipped) detail += ` · ${res.data.duplicate_skipped} duplicate barcode(s) skipped`
+      if (res.data.duplicate_in_file?.length)
+        detail += ` · ${res.data.duplicate_in_file.length} duplicate(s) in file`
+      if (res.data.weight_tallied) {
+        detail += ' · Weight tallied — stock taken in successfully!'
+      } else if (res.data.purchase_voucher) {
+        detail += ` · PV ${res.data.purchase_voucher.pv_number}: pending ${res.data.purchase_voucher.pending_weight_kg} kg`
+        setActivePv({
+          pv_number: res.data.purchase_voucher.pv_number,
+          weight_kg: 0,
+          received_weight_kg: 0,
+          pending_weight_kg: res.data.purchase_voucher.pending_weight_kg,
+          status: res.data.purchase_voucher.status,
+        })
+      }
+      setMsg(detail)
       await loadBatches()
       await loadBatch(res.data.batch_id)
       if (isAppend) await loadImports(res.data.batch_id)
@@ -288,6 +320,37 @@ export function ErpProductsWorkspace() {
       alert(erpErr(e))
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const openPvBatch = async () => {
+    const pv = pvNumber.trim().toUpperCase()
+    if (!pv || pvBusy) return
+    setPvBusy(true)
+    setMsg(null)
+    try {
+      const res = await axios.post<{
+        batch: { id: string; batch_label: string }
+        purchase_voucher: {
+          pv_number: string
+          weight_kg: number
+          received_weight_kg: number
+          pending_weight_kg: number
+          status: string
+        }
+      }>('/api/reseller/erp/purchase-vouchers/open-batch', { pv_number: pv })
+      setActivePv(res.data.purchase_voucher)
+      await loadBatches()
+      await loadBatch(res.data.batch.id)
+      setMsgTone('ok')
+      setMsg(
+        `Opened ${pv} — pending weight ${res.data.purchase_voucher.pending_weight_kg} kg. Upload Excel to tally.`,
+      )
+    } catch (e) {
+      setMsgTone('err')
+      setMsg(erpErr(e))
+    } finally {
+      setPvBusy(false)
     }
   }
 
@@ -485,6 +548,33 @@ export function ErpProductsWorkspace() {
             }`}
           >
             {msg}
+          </p>
+        ) : null}
+      </div>
+      <div className={`${erpCardCls} border-blue-100 bg-gradient-to-br from-white to-blue-50/30`}>
+        <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Open purchase voucher (PV)</p>
+        <p className="mb-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+          Enter PV number from Ledger → Purchase (PV). Upload Excel here until weight tallies.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            className={`${erpInputCls} font-mono uppercase`}
+            placeholder="PV0001"
+            value={pvNumber}
+            onChange={(e) => setPvNumber(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void openPvBatch()
+            }}
+          />
+          <button type="button" className={erpBtnPrimary} disabled={pvBusy || !pvNumber.trim()} onClick={() => void openPvBatch()}>
+            {pvBusy ? <Loader2 className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
+            Open PV batch
+          </button>
+        </div>
+        {activePv ? (
+          <p className="mt-2 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs text-blue-950">
+            <span className="font-bold">{activePv.pv_number}</span> · Status: {activePv.status} · Pending:{' '}
+            <span className="font-semibold tabular-nums">{activePv.pending_weight_kg} kg</span>
           </p>
         ) : null}
       </div>

@@ -21,7 +21,7 @@ TEXT 738,53,"ROMAN.TTF",180,1,8,"NWT:"
 TEXT 666,53,"ROMAN.TTF",180,1,9,"{{net_weight}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
-TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
@@ -49,7 +49,7 @@ TEXT 720,29,"ROMAN.TTF",180,1,8,"MC:"
 TEXT 648,29,"ROMAN.TTF",180,1,9,"{{mc_rate}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
-TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 720,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
@@ -76,7 +76,7 @@ TEXT 738,29,"ROMAN.TTF",180,1,8,"V.A:"
 TEXT 666,29,"ROMAN.TTF",180,1,9,"{{wastage_pct}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
-TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
@@ -597,6 +597,8 @@ function buildLabelTemplateVars(piece, hw, profile) {
         box_code: String(piece.box_code || '').trim(),
         box_label: String(piece.box_label || piece.box_code || '').trim(),
         box_name: String(piece.box_name || piece.box_label || piece.box_code || '').trim(),
+        rfid_tag: String(piece.rfid_tag || '').trim(),
+        tag_no: String(piece.rfid_tag || '').trim(),
     };
 }
 

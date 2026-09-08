@@ -1797,6 +1797,29 @@ export function ErpBillingWorkspace() {
         </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Discount (₹)
+            </label>
+            <input
+              className={`${erpInputCls} py-2 text-sm tabular-nums ${
+                parsedCollected != null && discountSummary.cashDiscountInr < 0
+                  ? 'border-amber-400 bg-amber-50/80 text-amber-950'
+                  : parsedCollected != null && discountSummary.cashDiscountInr > 0
+                    ? 'border-emerald-300 bg-emerald-50/60 text-emerald-950'
+                    : 'bg-[var(--color-slate-900,#f7f4ef)] text-[var(--color-jewelry-black,#1a1814)]/70'
+              }`}
+              readOnly
+              tabIndex={-1}
+              value={
+                parsedCollected != null
+                  ? discountSummary.cashDiscountInr.toLocaleString('en-IN')
+                  : ''
+              }
+              placeholder="Auto"
+              title="Net total minus collected amount"
+            />
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Payment
             </label>
             <select className={`${erpInputCls} py-2 text-sm`} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as ErpPaymentMethod)}>

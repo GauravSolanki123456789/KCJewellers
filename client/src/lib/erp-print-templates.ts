@@ -19,7 +19,7 @@ TEXT 738,53,"ROMAN.TTF",180,1,8,"NWT:"
 TEXT 666,53,"ROMAN.TTF",180,1,9,"{{net_weight}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
-TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
@@ -47,7 +47,7 @@ TEXT 720,29,"ROMAN.TTF",180,1,8,"MC:"
 TEXT 648,29,"ROMAN.TTF",180,1,9,"{{mc_rate}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
-TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 720,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
@@ -74,7 +74,7 @@ TEXT 738,29,"ROMAN.TTF",180,1,8,"V.A:"
 TEXT 666,29,"ROMAN.TTF",180,1,9,"{{wastage_pct}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
-TEXT 530,23,"ROMAN.TTF",180,1,9,""
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,""
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
@@ -104,6 +104,7 @@ TEXT 648,53,"ROMAN.TTF",180,1,9,"{{gross_weight}}"
 TEXT 720,29,"ROMAN.TTF",180,1,8,"BOX:"
 TEXT 648,29,"ROMAN.TTF",180,1,9,"{{box_name}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
 `.trim()
@@ -235,6 +236,8 @@ export const LABEL_TEMPLATE_VARS = [
   'stone_weight',
   'box_charges',
   'purity',
+  'rfid_tag',
+  'tag_no',
 ] as const
 
 export const LABEL_RULE_FIELD_KEYS = [

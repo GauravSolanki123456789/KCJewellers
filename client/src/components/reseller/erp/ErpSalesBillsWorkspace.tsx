@@ -556,7 +556,7 @@ export function ErpSalesBillsWorkspace() {
         defaultMobile={complianceSuccessMobile}
         variant={complianceSuccessVariant}
         complianceNote={complianceSuccessNote}
-        autoDownload={!!complianceSuccessPdf}
+        autoOpenViewer={!!complianceSuccessPdf}
         onDone={onComplianceSuccessDone}
       />
     </div>

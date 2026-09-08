@@ -8,6 +8,9 @@ export function formatLedgerTransactionKind(kind: string | null | undefined): st
   if (k === 'bill_advance') return 'Advance'
   if (k === 'suspense_in') return 'Suspense'
   if (k === 'adjustment') return 'Adjustment'
+  if (k === 'purchase') return 'Purchase'
+  if (k === 'expense') return 'Expense'
+  if (k === 'salary') return 'Salary'
   return k.replace(/_/g, ' ')
 }
 

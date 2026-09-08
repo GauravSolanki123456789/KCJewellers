@@ -9,7 +9,7 @@ import {
   orderPdfCacheKey,
   type AdminOrderPdfSource,
 } from '@/lib/build-admin-order-pdf'
-import { downloadPdfBlob, sharePdfBlob } from '@/lib/pdf-share'
+import { openPdfBlobInViewer, sharePdfBlob } from '@/lib/pdf-share'
 
 type Props = {
   order: AdminOrderPdfSource
@@ -19,7 +19,7 @@ type Props = {
 }
 
 export function AdminOrderPdfActions({ order, compact, className }: Props) {
-  const [busy, setBusy] = useState<'dl' | 'share' | null>(null)
+  const [busy, setBusy] = useState<'open' | 'share' | null>(null)
   const filename = adminOrderPdfFilename(order.id)
 
   /** Reuse blob when download + share share the same order data; dedupe parallel builds. */
@@ -47,18 +47,23 @@ export function AdminOrderPdfActions({ order, compact, className }: Props) {
     return p
   }, [order])
 
-  const run = async (mode: 'dl' | 'share') => {
+  const run = async (mode: 'open' | 'share') => {
     if (busy) return
     setBusy(mode)
     try {
       const blob = await getOrBuildPdfBlob()
-      if (mode === 'dl') {
-        downloadPdfBlob(blob, filename)
+      if (mode === 'open') {
+        await openPdfBlobInViewer(blob, {
+          filename,
+          title: `KC Jewellers — Order #${order.id}`,
+          text: `KC Jewellers — Order #${order.id} (${filename})`,
+          fallbackWhatsAppText: `KC Jewellers — Order #${order.id} (${filename}). Attach the PDF from the viewer tab.`,
+        })
       } else {
         await sharePdfBlob(blob, filename, {
           title: `KC Jewellers — Order #${order.id}`,
           text: `KC Jewellers — Order #${order.id} (${filename})`,
-          fallbackWhatsAppText: `KC Jewellers — Order #${order.id} (${filename}). Attach the PDF you just saved, then share on WhatsApp.`,
+          fallbackWhatsAppText: `KC Jewellers — Order #${order.id} (${filename}). Attach the PDF from the viewer tab.`,
         })
       }
     } catch {
@@ -75,18 +80,18 @@ export function AdminOrderPdfActions({ order, compact, className }: Props) {
     <div className={cn('flex flex-wrap items-center gap-2', className)} role="group" aria-label="Order PDF actions">
       <button
         type="button"
-        onClick={() => void run('dl')}
+        onClick={() => void run('open')}
         disabled={!!busy}
         className={cn(
           baseBtn,
           compact ? 'px-3 py-2.5' : 'px-3.5 py-2.5',
           'border-amber-500/35 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15',
         )}
-        title="Download order PDF"
-        aria-label="Download order PDF"
+        title="Open order PDF in new tab"
+        aria-label="Open order PDF in new tab"
       >
-        {busy === 'dl' ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <FileDown className="size-4 shrink-0" />}
-        {!compact ? <span>{busy === 'dl' ? 'Preparing…' : 'Download PDF'}</span> : null}
+        {busy === 'open' ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <FileDown className="size-4 shrink-0" />}
+        {!compact ? <span>{busy === 'open' ? 'Preparing…' : 'Open PDF'}</span> : null}
       </button>
       <button
         type="button"

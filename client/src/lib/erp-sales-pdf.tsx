@@ -144,7 +144,8 @@ export async function buildErpSalesPdfPayload(params: {
     title: `${brandLabel} — ${params.taxInvoiceMode ? 'Tax invoice' : 'Invoice'} ${params.bill.bill_number}`,
     text,
     fallbackWhatsAppText: text,
-    fallbackWhatsAppHref: erpCustomerWhatsAppHref(params.mobile ?? session.mobile, text),
+    fallbackWhatsAppHref: null,
+    customerWhatsAppHref: erpCustomerWhatsAppHref(params.mobile ?? session.mobile, text),
     brandLabel,
   }
 }

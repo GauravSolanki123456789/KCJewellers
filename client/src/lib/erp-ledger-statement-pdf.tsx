@@ -1,5 +1,5 @@
 import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer'
-import { downloadPdfBlob } from '@/lib/pdf-share'
+import { presentPdfBlob } from '@/lib/pdf-share'
 import type { CustomerAccountData } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { formatLedgerTransactionKind, formatPdfInr } from '@/lib/erp-ledger-labels'
 
@@ -75,5 +75,5 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
 export async function downloadCustomerAccountPdf(account: CustomerAccountData) {
   const blob = await pdf(<LedgerStatementDocument account={account} />).toBlob()
   const fname = `ledger-${account.customer.name.replace(/\W+/g, '_')}-${new Date().toISOString().slice(0, 10)}.pdf`
-  downloadPdfBlob(blob, fname)
+  await presentPdfBlob(blob, fname, { title: 'Customer account statement', text: fname })
 }

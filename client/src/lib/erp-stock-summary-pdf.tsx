@@ -1,5 +1,5 @@
 import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer'
-import { downloadPdfBlob } from '@/lib/pdf-share'
+import { presentPdfBlob } from '@/lib/pdf-share'
 
 type SkuRow = { style_code: string; sku: string; count: number; total_weight_g: number; avg_weight_g: number }
 type StyleRow = { style_code: string; count: number; total_weight_g: number; avg_weight_g: number; sku_count?: number }
@@ -67,5 +67,7 @@ function StockSummaryDocument({ summary }: { summary: StockSummaryPdfData }) {
 
 export async function downloadStockSummaryPdf(summary: StockSummaryPdfData) {
   const blob = await pdf(<StockSummaryDocument summary={summary} />).toBlob()
-  downloadPdfBlob(blob, `stock-summary-${new Date().toISOString().slice(0, 10)}.pdf`)
+  await presentPdfBlob(blob, `stock-summary-${new Date().toISOString().slice(0, 10)}.pdf`, {
+    title: 'Stock summary',
+  })
 }

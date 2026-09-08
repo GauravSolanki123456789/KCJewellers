@@ -115,12 +115,9 @@ function B2bSuccessInner() {
       />
     )
     const blob = await pdf(doc).toBlob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `kc-jewellers-proforma-${order.id}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
+    const fname = `kc-jewellers-proforma-${order.id}.pdf`
+    const { presentPdfBlob } = await import('@/lib/pdf-share')
+    await presentPdfBlob(blob, fname, { title: `Proforma #${order.id}`, text: fname })
   }
 
   if (loading) {

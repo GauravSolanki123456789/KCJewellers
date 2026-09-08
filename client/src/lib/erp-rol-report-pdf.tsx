@@ -1,5 +1,5 @@
 import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer'
-import { downloadPdfBlob } from '@/lib/pdf-share'
+import { presentPdfBlob } from '@/lib/pdf-share'
 
 export type RolReportBlock = {
   style_code: string
@@ -70,5 +70,7 @@ function RolReportDocument({ report, generatedAt }: { report: RolReportBlock[]; 
 export async function downloadRolReportPdf(report: RolReportBlock[]) {
   const generatedAt = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
   const blob = await pdf(<RolReportDocument report={report} generatedAt={generatedAt} />).toBlob()
-  downloadPdfBlob(blob, `rol-report-${new Date().toISOString().slice(0, 10)}.pdf`)
+  await presentPdfBlob(blob, `rol-report-${new Date().toISOString().slice(0, 10)}.pdf`, {
+    title: 'ROL report',
+  })
 }

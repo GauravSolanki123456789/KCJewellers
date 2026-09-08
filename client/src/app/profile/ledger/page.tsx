@@ -94,12 +94,9 @@ function LedgerContent() {
       />
     )
     const blob = await pdf(doc).toBlob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `kc-jewellers-ledger-${new Date().toISOString().slice(0, 10)}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
+    const fname = `kc-jewellers-ledger-${new Date().toISOString().slice(0, 10)}.pdf`
+    const { presentPdfBlob } = await import('@/lib/pdf-share')
+    await presentPdfBlob(blob, fname, { title: 'KC Jewellers ledger', text: fname })
   }
 
   if (!tierReady || (auth.isAuthenticated && loading)) {

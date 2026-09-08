@@ -8,7 +8,14 @@ const LEDGER_ENTRY_TYPES = new Set([
     'suspense_in',
     'bill_advance',
     'adjustment',
+    'purchase',
+    'expense',
+    'salary',
 ]);
+
+const PAYMENT_MODES = new Set(['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other', 'bank', 'gpay', 'mixed']);
+
+const LEDGER_SCOPES = new Set(['official', 'lane']);
 
 const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');
 
@@ -73,6 +80,11 @@ function mapLedgerEntry(row, extras = {}) {
         is_suspense: !!row.is_suspense,
         resolved_at: row.resolved_at,
         import_batch_id: row.import_batch_id,
+        ledger_scope: row.ledger_scope || 'official',
+        pv_id: row.pv_id,
+        pv_number: row.pv_number || extras.pv_number || null,
+        employee_id: row.employee_id,
+        weight_kg: row.weight_kg != null ? Number(row.weight_kg) : null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -106,9 +118,12 @@ async function ensureLedgerSchema(pool) {
             is_suspense BOOLEAN NOT NULL DEFAULT false,
             resolved_at TIMESTAMPTZ,
             import_batch_id INTEGER REFERENCES reseller_erp_ledger_import_batches(id) ON DELETE SET NULL,
+            ledger_scope VARCHAR(16) NOT NULL DEFAULT 'official',
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS ledger_scope VARCHAR(16) NOT NULL DEFAULT 'official';
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_reseller_date
             ON reseller_erp_ledger_entries (reseller_user_id, entry_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_customer
@@ -117,6 +132,114 @@ async function ensureLedgerSchema(pool) {
             ON reseller_erp_ledger_entries (reseller_user_id, is_suspense)
             WHERE is_suspense = true;
     `);
+}
+
+async function findDuplicateEntry(query, resellerUserId, row) {
+    const ref = trimStr(row.reference_no, 120);
+    if (!ref) return null;
+    const hits = await query(
+        `SELECT id FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1
+           AND reference_no = $2
+           AND entry_date = $3::date
+           AND amount_inr = $4
+           AND entry_type = $5
+         LIMIT 1`,
+        [resellerUserId, ref, row.entry_date, row.amount_inr, row.entry_type],
+    );
+    return hits[0] || null;
+}
+
+async function matchCustomerByHint(query, resellerUserId, hint) {
+    const s = trimStr(hint, 255);
+    if (!s) return null;
+    const digits = s.replace(/\D/g, '');
+    if (digits.length >= 10) {
+        const mobile = digits.slice(-10);
+        const byMobile = await query(
+            `SELECT id, name FROM reseller_erp_customers
+             WHERE reseller_user_id = $1 AND RIGHT(REGEXP_REPLACE(COALESCE(mobile,''), '[^0-9]', '', 'g'), 10) = $2
+             LIMIT 1`,
+            [resellerUserId, mobile],
+        );
+        if (byMobile[0]) return byMobile[0];
+    }
+    const byName = await query(
+        `SELECT id, name FROM reseller_erp_customers
+         WHERE reseller_user_id = $1 AND name ILIKE $2
+         ORDER BY LENGTH(name) ASC
+         LIMIT 1`,
+        [resellerUserId, s],
+    );
+    if (byName[0]) return byName[0];
+    const fuzzy = await query(
+        `SELECT id, name FROM reseller_erp_customers
+         WHERE reseller_user_id = $1 AND $2 ILIKE '%' || name || '%'
+         ORDER BY LENGTH(name) DESC
+         LIMIT 1`,
+        [resellerUserId, s],
+    );
+    return fuzzy[0] || null;
+}
+
+function normalizeImportRow(row, extras = {}) {
+    let entryType = trimStr(row.entry_type, 32);
+    let amount = parseAmount(row.amount_inr);
+
+    if (amount == null || amount <= 0) {
+        const credit = parseAmount(
+            row.credit ?? pickField(row, ['credit', 'deposit', 'cr amount', 'credit amount']),
+        );
+        const debit = parseAmount(
+            row.debit ?? pickField(row, ['debit', 'withdrawal', 'dr amount', 'debit amount']),
+        );
+        const amountRaw = parseAmount(row.amount ?? pickField(row, ['amount', 'transaction amount', 'amt']));
+        entryType = 'payment_in';
+        amount = credit;
+        if (amount == null && amountRaw != null) {
+            amount = Math.abs(amountRaw);
+            entryType = amountRaw < 0 ? 'payment_out' : 'payment_in';
+        }
+        if (debit != null && debit > 0) {
+            amount = debit;
+            entryType = 'payment_out';
+        }
+    }
+
+    if (amount == null || amount <= 0) return null;
+    if (!LEDGER_ENTRY_TYPES.has(entryType)) {
+        entryType = entryType === 'payment_out' ? 'payment_out' : 'payment_in';
+    }
+
+    const entryDate =
+        parseDateOrNull(row.entry_date) ||
+        parseDateOrNull(
+            pickField(row, ['txn date', 'transaction date', 'value date', 'posting date', 'date']) || row.date,
+        ) ||
+        new Date().toISOString().slice(0, 10);
+    const paymentMode = trimStr(row.payment_mode, 32).toLowerCase() || 'neft';
+    const narration =
+        trimStr(row.narration, 2000) ||
+        trimStr(pickField(row, ['narration', 'description', 'particulars', 'remarks', 'details']), 2000);
+    const reference =
+        trimStr(row.reference_no, 120) ||
+        trimStr(pickField(row, ['reference', 'ref no', 'utr', 'cheque', 'txn id', 'transaction id']), 120);
+    const counterparty =
+        trimStr(row.counterparty_name, 255) ||
+        trimStr(pickField(row, ['beneficiary', 'party name', 'customer', 'payee', 'name']), 255);
+
+    return {
+        entry_date: entryDate,
+        entry_type: entryType,
+        amount_inr: amount,
+        customer_id: row.customer_id != null ? parseInt(String(row.customer_id), 10) || null : null,
+        payment_mode: PAYMENT_MODES.has(paymentMode) ? paymentMode : 'other',
+        reference_no: reference,
+        bank_name: trimStr(row.bank_name, 120) || trimStr(extras.bank_name, 120),
+        counterparty_name: counterparty,
+        narration,
+        is_suspense: !!row.is_suspense,
+    };
 }
 
 async function createBillAdvanceLedgerEntry(query, resellerUserId, bill) {
@@ -159,14 +282,24 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const to = parseDateOrNull(req.query.to);
             const customerId = parseInt(String(req.query.customer_id || ''), 10);
             const suspenseOnly = String(req.query.suspense_only || '') === '1';
+            const importBatchId = parseInt(String(req.query.import_batch_id || ''), 10);
+            const laneView = String(req.query.lane_view || '') === '1';
             const q = trimStr(req.query.q, 120);
             const params = [req.user.id];
             let sql = `
-                SELECT e.*, c.name AS customer_name, b.bill_number
+                SELECT e.*, c.name AS customer_name, b.bill_number,
+                       pv.pv_number, emp.name AS employee_name
                 FROM reseller_erp_ledger_entries e
                 LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
                 LEFT JOIN reseller_erp_bills b ON b.id = e.bill_id
+                LEFT JOIN reseller_erp_purchase_vouchers pv ON pv.id = e.pv_id
+                LEFT JOIN reseller_erp_employees emp ON emp.id = e.employee_id
                 WHERE e.reseller_user_id = $1`;
+            if (laneView) {
+                sql += ` AND (e.ledger_scope = 'lane' OR e.entry_type = 'purchase')`;
+            } else {
+                sql += ` AND e.ledger_scope = 'official'`;
+            }
             if (from) {
                 params.push(from);
                 sql += ` AND e.entry_date >= $${params.length}::date`;
@@ -180,6 +313,10 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 sql += ` AND e.customer_id = $${params.length}`;
             }
             if (suspenseOnly) sql += ` AND e.is_suspense = true AND e.resolved_at IS NULL`;
+            if (Number.isFinite(importBatchId) && importBatchId > 0) {
+                params.push(importBatchId);
+                sql += ` AND e.import_batch_id = $${params.length}`;
+            }
             if (q) {
                 params.push(`%${q}%`);
                 const idx = params.length;
@@ -189,6 +326,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     OR e.reference_no ILIKE $${idx}
                     OR c.name ILIKE $${idx}
                     OR b.bill_number ILIKE $${idx}
+                    OR pv.pv_number ILIKE $${idx}
+                    OR emp.name ILIKE $${idx}
                 )`;
             }
             sql += ` ORDER BY e.entry_date DESC, e.id DESC LIMIT 2000`;
@@ -204,8 +343,12 @@ function registerResellerErpLedgerRoutes(app, deps) {
         try {
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);
+            const laneView = String(req.query.lane_view || '') === '1';
             const params = [req.user.id];
             let dateSql = '';
+            let scopeSql = laneView
+                ? ` AND (ledger_scope = 'lane' OR entry_type = 'purchase')`
+                : ` AND ledger_scope = 'official'`;
             if (from) {
                 params.push(from);
                 dateSql += ` AND entry_date >= $${params.length}::date`;
@@ -218,26 +361,26 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 query(
                     `SELECT
                         COALESCE(SUM(amount_inr) FILTER (WHERE entry_type IN ('payment_in', 'bill_advance', 'suspense_in') AND NOT is_suspense), 0)::float AS received,
-                        COALESCE(SUM(amount_inr) FILTER (WHERE entry_type = 'payment_out'), 0)::float AS paid_out,
+                        COALESCE(SUM(amount_inr) FILTER (WHERE entry_type IN ('payment_out', 'purchase', 'expense', 'salary')), 0)::float AS paid_out,
                         COUNT(*)::int AS entry_count
                      FROM reseller_erp_ledger_entries
-                     WHERE reseller_user_id = $1 ${dateSql}`,
+                     WHERE reseller_user_id = $1 ${scopeSql} ${dateSql}`,
                     params,
                 ),
                 query(
                     `SELECT COALESCE(SUM(amount_inr), 0)::float AS suspense_total,
                             COUNT(*)::int AS suspense_count
                      FROM reseller_erp_ledger_entries
-                     WHERE reseller_user_id = $1 AND is_suspense = true AND resolved_at IS NULL ${dateSql}`,
+                     WHERE reseller_user_id = $1 AND is_suspense = true AND resolved_at IS NULL ${scopeSql} ${dateSql}`,
                     params,
                 ),
                 query(
                     `SELECT e.customer_id, c.name AS customer_name,
                             COALESCE(SUM(e.amount_inr) FILTER (WHERE e.entry_type IN ('payment_in', 'bill_advance')), 0)::float AS received,
-                            COALESCE(SUM(e.amount_inr) FILTER (WHERE e.entry_type = 'payment_out'), 0)::float AS paid_out
+                            COALESCE(SUM(e.amount_inr) FILTER (WHERE e.entry_type IN ('payment_out', 'purchase', 'expense', 'salary')), 0)::float AS paid_out
                      FROM reseller_erp_ledger_entries e
                      LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
-                     WHERE e.reseller_user_id = $1 AND e.is_suspense = false ${dateSql.replace(/entry_date/g, 'e.entry_date')}
+                     WHERE e.reseller_user_id = $1 AND e.is_suspense = false ${scopeSql.replace(/ledger_scope/g, 'e.ledger_scope')} ${dateSql.replace(/entry_date/g, 'e.entry_date')}
                      GROUP BY e.customer_id, c.name
                      ORDER BY received DESC NULLS LAST
                      LIMIT 500`,
@@ -269,17 +412,26 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 return res.status(400).json({ error: 'Valid amount is required' });
             }
             const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'other';
+            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
+            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
             const isSuspense = !!req.body.is_suspense;
+            const employeeId =
+                req.body.employee_id != null ? parseInt(String(req.body.employee_id), 10) || null : null;
+            const pvId = req.body.pv_id != null ? parseInt(String(req.body.pv_id), 10) || null : null;
+            const weightKg =
+                req.body.weight_kg != null ? parseFloat(String(req.body.weight_kg).replace(/[,₹\s]/g, '')) : null;
             const customerId =
                 req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null;
-            if (!isSuspense && !customerId && entryType !== 'payment_out') {
+            const noCustomerOk = new Set(['payment_out', 'purchase', 'expense', 'salary']);
+            if (!isSuspense && !customerId && !noCustomerOk.has(entryType)) {
                 return res.status(400).json({ error: 'Select a customer or mark as suspense' });
             }
             const rows = await query(
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
-                    payment_mode, reference_no, bank_name, counterparty_name, narration, is_suspense
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                    payment_mode, reference_no, bank_name, counterparty_name, narration, is_suspense,
+                    ledger_scope, employee_id, pv_id, weight_kg
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -294,6 +446,10 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     trimStr(req.body.counterparty_name, 255),
                     trimStr(req.body.narration, 2000),
                     isSuspense,
+                    entryType === 'purchase' ? 'official' : ledgerScope,
+                    employeeId,
+                    pvId,
+                    weightKg,
                 ],
             );
             res.json({ success: true, entry: mapLedgerEntry(rows[0]) });
@@ -321,8 +477,10 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     counterparty_name = COALESCE($9, counterparty_name),
                     narration = COALESCE($10, narration),
                     is_suspense = COALESCE($11, is_suspense),
+                    employee_id = $12,
+                    weight_kg = COALESCE($13, weight_kg),
                     updated_at = NOW()
-                 WHERE id = $12 AND reseller_user_id = $13
+                 WHERE id = $14 AND reseller_user_id = $15
                  RETURNING *`,
                 [
                     parseDateOrNull(req.body.entry_date),
@@ -336,6 +494,10 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     trimStr(req.body.counterparty_name, 255) || null,
                     trimStr(req.body.narration, 2000) || null,
                     req.body.is_suspense != null ? !!req.body.is_suspense : null,
+                    req.body.employee_id != null ? parseInt(String(req.body.employee_id), 10) || null : null,
+                    req.body.weight_kg != null
+                        ? parseFloat(String(req.body.weight_kg).replace(/[,₹\s]/g, ''))
+                        : null,
                     id,
                     req.user.id,
                 ],
@@ -389,11 +551,74 @@ function registerResellerErpLedgerRoutes(app, deps) {
         }
     });
 
+    app.post('/api/reseller/erp/ledger/import/preview', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const rawRows = Array.isArray(req.body.rows) ? req.body.rows : [];
+            if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
+            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
+            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
+            const markSuspense = !!req.body.mark_unmatched_suspense;
+            const previewRows = [];
+            let duplicates = 0;
+            let skipped = 0;
+
+            for (let i = 0; i < rawRows.length; i++) {
+                const raw = rawRows[i];
+                const normalized = normalizeImportRow(raw, { bank_name: req.body.bank_name });
+                if (!normalized) {
+                    skipped++;
+                    continue;
+                }
+                let customerId = normalized.customer_id;
+                let customerName = null;
+                if (!customerId && normalized.counterparty_name) {
+                    const match = await matchCustomerByHint(query, req.user.id, normalized.counterparty_name);
+                    if (match) {
+                        customerId = match.id;
+                        customerName = match.name;
+                    }
+                }
+                const dup = await findDuplicateEntry(query, req.user.id, {
+                    ...normalized,
+                    reference_no: normalized.reference_no,
+                });
+                if (dup) duplicates++;
+                const isSuspense = markSuspense && !customerId;
+                previewRows.push({
+                    row_index: i,
+                    ...normalized,
+                    customer_id: customerId,
+                    customer_name: customerName,
+                    entry_type: isSuspense ? 'suspense_in' : normalized.entry_type,
+                    is_suspense: isSuspense,
+                    duplicate: !!dup,
+                    ledger_scope: ledgerScope,
+                });
+            }
+
+            res.json({
+                success: true,
+                preview: previewRows,
+                duplicate_count: duplicates,
+                skipped,
+                total: previewRows.length,
+            });
+        } catch (e) {
+            console.error('erp ledger import preview:', e);
+            res.status(500).json({ error: e.message || 'Preview failed' });
+        }
+    });
+
     app.post('/api/reseller/erp/ledger/import', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const rawRows = Array.isArray(req.body.rows) ? req.body.rows : [];
             if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
             if (rawRows.length > 5000) return res.status(400).json({ error: 'Max 5000 rows per import' });
+
+            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
+            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
+            const skipDuplicates = req.body.skip_duplicates !== false;
+            const markSuspense = !!req.body.mark_unmatched_suspense;
 
             const batchRows = await query(
                 `INSERT INTO reseller_erp_ledger_import_batches (reseller_user_id, file_name, row_count)
@@ -405,87 +630,69 @@ function registerResellerErpLedgerRoutes(app, deps) {
             let inserted = 0;
             let skipped = 0;
             let suspense = 0;
+            let duplicates = 0;
+            const duplicateRows = [];
 
             for (const row of rawRows) {
-                const dateRaw =
-                    pickField(row, ['txn date', 'transaction date', 'value date', 'posting date', 'date']) ||
-                    row.date ||
-                    row.Date;
-                const entryDate = parseDateOrNull(dateRaw) || new Date().toISOString().slice(0, 10);
-
-                let credit = parseAmount(
-                    pickField(row, ['credit', 'deposit', 'cr amount', 'credit amount']) || row.credit || row.Credit,
-                );
-                let debit = parseAmount(
-                    pickField(row, ['debit', 'withdrawal', 'dr amount', 'debit amount']) || row.debit || row.Debit,
-                );
-                const amountRaw = parseAmount(
-                    pickField(row, ['amount', 'transaction amount', 'amt']) || row.amount || row.Amount,
-                );
-
-                let entryType = 'payment_in';
-                let amount = credit;
-                if (amount == null && credit != null) amount = credit;
-                if (amount == null && amountRaw != null) {
-                    amount = Math.abs(amountRaw);
-                    entryType = amountRaw < 0 ? 'payment_out' : 'payment_in';
-                }
-                if (debit != null && debit > 0) {
-                    amount = debit;
-                    entryType = 'payment_out';
-                }
-                if (amount == null || amount <= 0) {
+                const normalized = normalizeImportRow(row, { bank_name: req.body.bank_name });
+                if (!normalized) {
                     skipped++;
                     continue;
                 }
 
-                const narration = trimStr(
-                    pickField(row, ['narration', 'description', 'particulars', 'remarks', 'details']) ||
-                        row.narration ||
-                        row.Narration,
-                    2000,
-                );
-                const reference = trimStr(
-                    pickField(row, ['reference', 'ref no', 'utr', 'cheque', 'txn id', 'transaction id']) ||
-                        row.reference ||
-                        row.UTR,
-                    120,
-                );
-                const counterparty = trimStr(
-                    pickField(row, ['beneficiary', 'party name', 'customer', 'payee', 'name']) ||
-                        row.customer ||
-                        row.Customer,
-                    255,
-                );
-                const bankName = trimStr(pickField(row, ['bank', 'bank name']) || row.bank, 120);
+                if (normalized.reference_no) {
+                    const dup = await findDuplicateEntry(query, req.user.id, normalized);
+                    if (dup) {
+                        duplicates++;
+                        duplicateRows.push({
+                            reference_no: normalized.reference_no,
+                            entry_date: normalized.entry_date,
+                            amount_inr: normalized.amount_inr,
+                        });
+                        if (skipDuplicates) continue;
+                    }
+                }
 
-                const markSuspense = !!req.body.mark_unmatched_suspense && !row.customer_id;
-                const customerId =
-                    row.customer_id != null ? parseInt(String(row.customer_id), 10) || null : null;
+                let customerId = normalized.customer_id;
+                if (!customerId && normalized.counterparty_name) {
+                    const match = await matchCustomerByHint(query, req.user.id, normalized.counterparty_name);
+                    if (match) customerId = match.id;
+                }
+
+                const markRowSuspense = (row.is_suspense != null ? !!row.is_suspense : markSuspense) && !customerId;
+                const entryType =
+                    row.entry_type && LEDGER_ENTRY_TYPES.has(trimStr(row.entry_type, 32))
+                        ? trimStr(row.entry_type, 32)
+                        : markRowSuspense
+                          ? 'suspense_in'
+                          : normalized.entry_type;
 
                 await query(
                     `INSERT INTO reseller_erp_ledger_entries (
                         reseller_user_id, entry_date, entry_type, amount_inr, customer_id,
                         payment_mode, reference_no, bank_name, counterparty_name, narration,
-                        is_suspense, import_batch_id
-                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+                        is_suspense, import_batch_id, ledger_scope
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
                     [
                         req.user.id,
-                        entryDate,
-                        markSuspense && !customerId ? 'suspense_in' : entryType,
-                        amount,
+                        normalized.entry_date,
+                        entryType,
+                        normalized.amount_inr,
                         customerId,
-                        trimStr(row.payment_mode, 32).toLowerCase() || 'neft',
-                        reference,
-                        bankName,
-                        counterparty,
-                        narration,
-                        markSuspense && !customerId,
+                        normalized.payment_mode,
+                        normalized.reference_no,
+                        normalized.bank_name || trimStr(req.body.bank_name, 120),
+                        normalized.counterparty_name,
+                        normalized.narration,
+                        markRowSuspense,
                         batchId,
+                        row.ledger_scope && LEDGER_SCOPES.has(String(row.ledger_scope))
+                            ? String(row.ledger_scope)
+                            : ledgerScope,
                     ],
                 );
                 inserted++;
-                if (markSuspense && !customerId) suspense++;
+                if (markRowSuspense) suspense++;
             }
 
             await query(
@@ -493,7 +700,15 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 [inserted, batchId],
             );
 
-            res.json({ success: true, inserted, skipped, suspense, batch_id: batchId });
+            res.json({
+                success: true,
+                inserted,
+                skipped,
+                suspense,
+                duplicates,
+                duplicate_rows: duplicateRows.slice(0, 50),
+                batch_id: batchId,
+            });
         } catch (e) {
             console.error('erp ledger import:', e);
             res.status(500).json({ error: e.message || 'Import failed' });

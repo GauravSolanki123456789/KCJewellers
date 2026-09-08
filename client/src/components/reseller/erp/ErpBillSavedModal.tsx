@@ -7,6 +7,7 @@ import { printErpBillThermal } from '@/lib/erp-billing-print'
 import {
   CheckCircle2,
   Download,
+  FileText,
   Loader2,
   MessageCircle,
   Printer,
@@ -31,6 +32,7 @@ import {
 import { validateGstin } from '@/lib/erp-gstin'
 import {
   downloadPdfBlob,
+  openPdfBlobInViewer,
   printPdfBlob,
   sharePdfFileNative,
   type PdfShareSheetPayload,
@@ -48,7 +50,7 @@ type Props = {
   /** saved = after Save bill; e-invoice = after e-invoice generation */
   variant?: 'saved' | 'e-invoice' | 'e-way'
   complianceNote?: string | null
-  autoDownload?: boolean
+  autoOpenViewer?: boolean
 }
 
 export function ErpBillSavedModal({
@@ -60,24 +62,33 @@ export function ErpBillSavedModal({
   onDone,
   variant = 'saved',
   complianceNote = null,
-  autoDownload = true,
+  autoOpenViewer = true,
 }: Props) {
   const [mobile, setMobile] = useState(defaultMobile)
-  const [autoDownloaded, setAutoDownloaded] = useState(false)
+  const [autoOpened, setAutoOpened] = useState(false)
+  const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
   const [thermalBusy, setThermalBusy] = useState(false)
 
   useEffect(() => {
     if (open) {
       setMobile(defaultMobile)
-      setAutoDownloaded(false)
+      setAutoOpened(false)
     }
   }, [open, defaultMobile])
 
   useEffect(() => {
-    if (!open || !pdfPayload || autoDownload === false || autoDownloaded) return
-    downloadPdfBlob(pdfPayload.blob, pdfPayload.filename)
-    setAutoDownloaded(true)
-  }, [open, pdfPayload, autoDownloaded, autoDownload])
+    if (!open || !pdfPayload || autoOpenViewer === false || autoOpened) return
+    void openPdfBlobInViewer(pdfPayload.blob, {
+      filename: pdfPayload.filename,
+      title: pdfPayload.title,
+      text: pdfPayload.text,
+      fallbackWhatsAppText: pdfPayload.fallbackWhatsAppText,
+      fallbackWhatsAppHref: pdfPayload.fallbackWhatsAppHref,
+      customerWhatsAppHref: customerWhatsAppHref(mobile.trim() || defaultMobile || null, pdfPayload.fallbackWhatsAppText),
+      brandLabel: pdfPayload.brandLabel,
+    })
+    setAutoOpened(true)
+  }, [open, pdfPayload, autoOpened, autoOpenViewer, mobile, defaultMobile])
 
   const handlePrint = useCallback(() => {
     if (!pdfPayload) return
@@ -89,14 +100,30 @@ export function ErpBillSavedModal({
     downloadPdfBlob(pdfPayload.blob, pdfPayload.filename)
   }, [pdfPayload])
 
+  const handleOpenPdf = useCallback(() => {
+    if (!pdfPayload) return
+    void openPdfBlobInViewer(pdfPayload.blob, {
+      filename: pdfPayload.filename,
+      title: pdfPayload.title,
+      text: pdfPayload.text,
+      fallbackWhatsAppText: pdfPayload.fallbackWhatsAppText,
+      fallbackWhatsAppHref: pdfPayload.fallbackWhatsAppHref,
+      customerWhatsAppHref: customerWhatsAppHref(mobile.trim() || null, pdfPayload.fallbackWhatsAppText),
+      brandLabel: pdfPayload.brandLabel,
+    })
+  }, [pdfPayload, mobile])
+
   const handleWhatsApp = useCallback(() => {
     if (!pdfPayload) return
     const text = pdfPayload.fallbackWhatsAppText
-    const href = customerWhatsAppHref(mobile.trim() || null, text)
+    const href =
+      waMode === 'customer'
+        ? customerWhatsAppHref(mobile.trim() || null, text)
+        : pdfPayload.fallbackWhatsAppHref?.trim() || null
     if (href) {
       openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
     }
-  }, [pdfPayload, mobile])
+  }, [pdfPayload, mobile, waMode])
 
   const handleShare = useCallback(async () => {
     if (!pdfPayload) return
@@ -166,9 +193,13 @@ export function ErpBillSavedModal({
         ) : null}
 
         <div className="grid grid-cols-2 gap-2">
+          <button type="button" className={erpBtnGhost} onClick={handleOpenPdf}>
+            <FileText className="size-4" />
+            Open PDF tab
+          </button>
           <button type="button" className={erpBtnGhost} onClick={handleDownload}>
             <Download className="size-4" />
-            Download again
+            Download
           </button>
           <button type="button" className={erpBtnGhost} onClick={handlePrint}>
             <Printer className="size-4" />
@@ -195,7 +226,7 @@ export function ErpBillSavedModal({
           <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
             WhatsApp mobile
             <span className="ml-1 font-normal normal-case text-[var(--color-jewelry-black,#1a1814)]/45">
-              (change temporarily to send elsewhere)
+              (customer number for direct send)
             </span>
             <input
               type="tel"
@@ -206,6 +237,17 @@ export function ErpBillSavedModal({
               onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
             />
           </label>
+          <label className="mt-2 block text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+            WhatsApp mode
+            <select
+              className={`${erpInputCls} mt-1.5 text-sm font-medium normal-case`}
+              value={waMode}
+              onChange={(e) => setWaMode(e.target.value as 'pick' | 'customer')}
+            >
+              <option value="customer">Send to customer number (from your WhatsApp)</option>
+              <option value="pick">Pick contact / share sheet (current)</option>
+            </select>
+          </label>
           <button
             type="button"
             className={`${erpBtnPrimary} mt-3 w-full`}
@@ -213,7 +255,7 @@ export function ErpBillSavedModal({
             disabled={!pdfPayload}
           >
             <MessageCircle className="size-4" />
-            Send bill on WhatsApp
+            {waMode === 'customer' ? 'Send bill to customer on WhatsApp' : 'WhatsApp (pick contact)'}
           </button>
         </div>
 

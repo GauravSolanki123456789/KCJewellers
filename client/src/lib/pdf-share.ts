@@ -1,5 +1,6 @@
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
+import { blobToBase64, storePdfForViewer, type StoredPdfViewerPayload } from '@/lib/pdf-viewer-store'
 
 function openWhatsAppFallback(text: string, explicitHref?: string | null) {
   const href =
@@ -79,11 +80,51 @@ export function printPdfBlob(blob: Blob): void {
   }, 120_000)
 }
 
-/** Open PDF in a new tab — iOS Safari “Share ↗ → WhatsApp” flow. */
-export function openPdfBlobInViewer(blob: Blob): void {
+export type OpenPdfViewerOptions = {
+  filename: string
+  title?: string
+  text?: string
+  fallbackWhatsAppText?: string
+  fallbackWhatsAppHref?: string | null
+  customerWhatsAppHref?: string | null
+  brandLabel?: string
+}
+
+/** Open PDF in dedicated viewer tab with download + WhatsApp actions. */
+export async function openPdfBlobInViewer(blob: Blob, opts?: OpenPdfViewerOptions): Promise<void> {
+  if (typeof window === 'undefined') return
+
+  if (opts?.filename) {
+    try {
+      const blobBase64 = await blobToBase64(blob)
+      const storePayload: StoredPdfViewerPayload = {
+        blobBase64,
+        filename: opts.filename,
+        title: opts.title || opts.filename,
+        text: opts.text || opts.filename,
+        fallbackWhatsAppText: opts.fallbackWhatsAppText || opts.text || opts.filename,
+        fallbackWhatsAppHref: opts.fallbackWhatsAppHref ?? null,
+        customerWhatsAppHref: opts.customerWhatsAppHref ?? null,
+        brandLabel: opts.brandLabel,
+      }
+      const id = storePdfForViewer(storePayload)
+      openExternalUrl(`/pdf-viewer?id=${encodeURIComponent(id)}`, {
+        preferNewTab: !shouldUseSameTabWhatsAppNavigation(),
+      })
+      return
+    } catch {
+      /* fall through to raw blob URL */
+    }
+  }
+
   const url = URL.createObjectURL(blob)
   openExternalUrl(url, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
   setTimeout(() => URL.revokeObjectURL(url), 120_000)
+}
+
+/** Default PDF action — open viewer tab instead of downloading. */
+export async function presentPdfBlob(blob: Blob, filename: string, opts?: Omit<OpenPdfViewerOptions, 'filename'>) {
+  await openPdfBlobInViewer(blob, { filename, ...opts })
 }
 
 export type SharePdfBlobOptions = {
@@ -91,6 +132,8 @@ export type SharePdfBlobOptions = {
   text: string
   fallbackWhatsAppText: string
   fallbackWhatsAppHref?: string | null
+  /** Opens wa.me with customer number pre-filled (reseller sends from their WhatsApp). */
+  customerWhatsAppHref?: string | null
 }
 
 export type SharePdfNativeResult = 'shared' | 'cancelled' | 'unsupported' | 'failed'
@@ -130,23 +173,14 @@ export async function sharePdfFileNative(
  * On iOS, prefer {@link shouldPresentPdfShareSheet} + {@link sharePdfFileNative} on a second tap.
  */
 export async function sharePdfBlob(blob: Blob, filename: string, opts: SharePdfBlobOptions): Promise<void> {
-  if (shouldPresentPdfShareSheet()) {
-    const result = await sharePdfFileNative(blob, filename, opts)
-    if (result === 'shared' || result === 'cancelled') return
-    openPdfBlobInViewer(blob)
-    return
-  }
-
-  triggerDownload(blob, filename)
-
-  await new Promise<void>((resolve) => {
-    setTimeout(() => resolve(), 200)
+  await openPdfBlobInViewer(blob, {
+    filename,
+    title: opts.title,
+    text: opts.text,
+    fallbackWhatsAppText: opts.fallbackWhatsAppText,
+    fallbackWhatsAppHref: opts.fallbackWhatsAppHref,
+    customerWhatsAppHref: opts.customerWhatsAppHref,
   })
-
-  const result = await sharePdfFileNative(blob, filename, opts)
-  if (result === 'shared' || result === 'cancelled') return
-
-  openWhatsAppFallback(opts.fallbackWhatsAppText, opts.fallbackWhatsAppHref)
 }
 
 export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise<void> {
@@ -164,5 +198,6 @@ export type PdfShareSheetPayload = {
   text: string
   fallbackWhatsAppText: string
   fallbackWhatsAppHref?: string | null
+  customerWhatsAppHref?: string | null
   brandLabel?: string
 }

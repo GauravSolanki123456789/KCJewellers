@@ -335,6 +335,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/pdf-viewer/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/pdf-viewer">> = Specific
+  const handler = {} as typeof import("../../src/app/pdf-viewer/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/policies/privacy/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/policies/privacy">> = Specific

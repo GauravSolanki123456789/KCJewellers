@@ -288,7 +288,13 @@ export type ErpLedgerEntry = {
   is_suspense: boolean
   resolved_at?: string | null
   import_batch_id?: number | null
+  ledger_scope?: 'official' | 'lane'
+  pv_id?: number | null
+  pv_number?: string | null
+  employee_id?: number | null
+  weight_kg?: number | null
   created_at?: string | null
+  updated_at?: string | null
 }
 
 export type ErpStockItem = {

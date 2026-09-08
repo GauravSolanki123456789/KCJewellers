@@ -10,6 +10,7 @@ const {
     lookupDesignDefaults,
     applyDesignDefaultsToPiece,
 } = require('./resellerErpDesignMaster');
+const { applyReceivedWeight } = require('./resellerErpPurchaseVouchers');
 
 function normalizeComPort(raw) {
     const t = String(raw || '').trim().toUpperCase();
@@ -920,9 +921,18 @@ function registerStockPieceRoutes(app, deps) {
 
             const pieces = [];
             const usedBarcodes = new Set();
+            const duplicateInFile = [];
             for (const row of rawRows) {
                 let p = applyNetWeightToPiece(parseExcelRowToPiece(row));
                 if (!p) continue;
+                if (p.barcode) {
+                    const bc = String(p.barcode).trim();
+                    if (usedBarcodes.has(bc)) {
+                        duplicateInFile.push(bc);
+                        continue;
+                    }
+                    usedBarcodes.add(bc);
+                }
                 if (p.style_code && p.sku) {
                     try {
                         const defaults = await lookupDesignDefaults(
@@ -991,6 +1001,8 @@ function registerStockPieceRoutes(app, deps) {
 
             let inserted = 0;
             let updated = 0;
+            let duplicateSkipped = 0;
+            let addedWeightGm = 0;
             const itemCodes = new Set();
 
             for (const p of pieces) {
@@ -1023,10 +1035,14 @@ function registerStockPieceRoutes(app, deps) {
                     }
                 }
                 const existing = await query(
-                    `SELECT id, rfid_tag FROM reseller_erp_stock_pieces
+                    `SELECT id, rfid_tag, status FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND barcode = $2`,
                     [req.user.id, p.barcode],
                 );
+                if (existing.length && existing[0].status === 'in_stock') {
+                    duplicateSkipped++;
+                    continue;
+                }
                 if (existing.length) {
                     const oldTag = existing[0].rfid_tag;
                     await query(
@@ -1166,8 +1182,20 @@ function registerStockPieceRoutes(app, deps) {
                         }
                     }
                     inserted++;
+                    addedWeightGm += Number(p.avg_weight) || 0;
                 }
                 if (p.item_code) itemCodes.add(p.item_code);
+            }
+
+            let purchaseVoucher = null;
+            const batchPv = await query(
+                `SELECT purchase_voucher_id FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+                [batchId, req.user.id],
+            );
+            const pvId = batchPv[0]?.purchase_voucher_id;
+            if (pvId && addedWeightGm > 0) {
+                const addedKg = Math.round((addedWeightGm / 1000) * 1000) / 1000;
+                purchaseVoucher = await applyReceivedWeight(query, req.user.id, pvId, addedKg);
             }
 
             await query(
@@ -1190,7 +1218,11 @@ function registerStockPieceRoutes(app, deps) {
                 source_filename: sourceFilename || 'Excel import',
                 inserted,
                 updated,
+                duplicate_skipped: duplicateSkipped,
+                duplicate_in_file: duplicateInFile.slice(0, 50),
                 total: pieces.length,
+                purchase_voucher: purchaseVoucher,
+                weight_tallied: purchaseVoucher?.status === 'tallied',
             });
         } catch (e) {
             console.error('erp stock bulk:', e);

@@ -80,9 +80,12 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const entryParams = [resellerUserId, customerId];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
-                           narration, bill_id, is_suspense
+                           narration, bill_id, is_suspense, ledger_scope
                     FROM reseller_erp_ledger_entries
                     WHERE reseller_user_id = $1 AND customer_id = $2 AND is_suspense = false`;
+    if (!includeShadow) {
+        entrySql += ` AND ledger_scope = 'official'`;
+    }
     if (from) {
         entryParams.push(from);
         entrySql += ` AND entry_date >= $${entryParams.length}::date`;
