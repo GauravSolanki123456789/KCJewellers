@@ -1266,6 +1266,49 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
+    app.get(
+        '/api/reseller/erp/stock-pieces/batches/:batchId/duplicate-barcodes',
+        checkAuth,
+        erpGate,
+        async (req, res) => {
+            try {
+                const batchId = String(req.params.batchId || '').trim();
+                const inBatch = await query(
+                    `SELECT barcode, COUNT(*)::int AS cnt
+                     FROM reseller_erp_stock_pieces
+                     WHERE batch_id = $1::uuid AND reseller_user_id = $2
+                       AND status = 'in_stock' AND barcode IS NOT NULL AND TRIM(barcode) <> ''
+                     GROUP BY barcode HAVING COUNT(*) > 1
+                     ORDER BY cnt DESC, barcode ASC
+                     LIMIT 100`,
+                    [batchId, req.user.id],
+                );
+                const crossStock = await query(
+                    `SELECT p.barcode, COUNT(*)::int AS cnt
+                     FROM reseller_erp_stock_pieces p
+                     WHERE p.reseller_user_id = $1 AND p.status = 'in_stock'
+                       AND p.barcode IS NOT NULL AND TRIM(p.barcode) <> ''
+                       AND p.barcode IN (
+                           SELECT barcode FROM reseller_erp_stock_pieces
+                           WHERE batch_id = $2::uuid AND reseller_user_id = $1 AND status = 'in_stock'
+                       )
+                     GROUP BY p.barcode HAVING COUNT(*) > 1
+                     ORDER BY cnt DESC, barcode ASC
+                     LIMIT 100`,
+                    [req.user.id, batchId],
+                );
+                res.json({
+                    duplicates_in_batch: inBatch,
+                    duplicates_across_stock: crossStock.filter(
+                        (r) => !inBatch.some((x) => x.barcode === r.barcode),
+                    ),
+                });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Duplicate scan failed' });
+            }
+        },
+    );
+
     app.delete(
         '/api/reseller/erp/stock-pieces/batches/:batchId/imports/:importId',
         checkAuth,

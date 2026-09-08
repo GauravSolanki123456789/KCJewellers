@@ -551,6 +551,50 @@ function registerResellerErpLedgerRoutes(app, deps) {
         }
     });
 
+    app.get('/api/reseller/erp/ledger/import-batches', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT b.id, b.file_name, b.row_count, b.created_at,
+                        (SELECT COUNT(*)::int FROM reseller_erp_ledger_entries e
+                         WHERE e.import_batch_id = b.id AND e.reseller_user_id = b.reseller_user_id) AS live_count
+                 FROM reseller_erp_ledger_import_batches b
+                 WHERE b.reseller_user_id = $1
+                 ORDER BY b.created_at DESC
+                 LIMIT 200`,
+                [req.user.id],
+            );
+            res.json({ batches: rows });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to list import batches' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/ledger/import-batches/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid batch id' });
+            const batchRows = await query(
+                `SELECT id FROM reseller_erp_ledger_import_batches WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!batchRows.length) return res.status(404).json({ error: 'Import batch not found' });
+            const deleted = await query(
+                `DELETE FROM reseller_erp_ledger_entries
+                 WHERE import_batch_id = $1 AND reseller_user_id = $2
+                 RETURNING id`,
+                [id, req.user.id],
+            );
+            await query(`DELETE FROM reseller_erp_ledger_import_batches WHERE id = $1 AND reseller_user_id = $2`, [
+                id,
+                req.user.id,
+            ]);
+            res.json({ success: true, deleted_entries: deleted.length });
+        } catch (e) {
+            console.error('erp ledger import batch delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete import batch' });
+        }
+    });
+
     app.post('/api/reseller/erp/ledger/import/preview', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const rawRows = Array.isArray(req.body.rows) ? req.body.rows : [];

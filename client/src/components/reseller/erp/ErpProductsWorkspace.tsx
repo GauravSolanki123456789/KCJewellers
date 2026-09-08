@@ -14,7 +14,7 @@ import {
 } from '@/lib/erp-hardware'
 import { printStockLabels } from '@/lib/erp-print-labels'
 import { parseStockExcelRows, downloadStockPiecesExcel } from '@/lib/reseller-erp-stock-editor'
-import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { formatErpDateDdMmYyyy, formatErpDateTime } from '@/lib/erp-date-format'
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
 
 type Batch = {
@@ -57,6 +57,7 @@ export function ErpProductsWorkspace() {
   const [imports, setImports] = useState<ImportBatch[]>([])
   const [importsLoading, setImportsLoading] = useState(false)
   const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
+  const [dupScanBusy, setDupScanBusy] = useState(false)
   const [designStyles, setDesignStyles] = useState<string[]>([])
   const [designSkus, setDesignSkus] = useState<string[]>([])
   const [designProducts, setDesignProducts] = useState<string[]>([])
@@ -237,6 +238,43 @@ export function ErpProductsWorkspace() {
       alert(erpErr(e))
     } finally {
       setDeletingImportId(null)
+    }
+  }
+
+  const scanDuplicates = async () => {
+    if (!activeBatchId || dupScanBusy) return
+    setDupScanBusy(true)
+    setMsg(null)
+    try {
+      const res = await axios.get<{
+        duplicates_in_batch: { barcode: string; cnt: number }[]
+        duplicates_across_stock: { barcode: string; cnt: number }[]
+      }>(`/api/reseller/erp/stock-pieces/batches/${activeBatchId}/duplicate-barcodes`)
+      const inBatch = res.data.duplicates_in_batch || []
+      const cross = res.data.duplicates_across_stock || []
+      if (!inBatch.length && !cross.length) {
+        setMsgTone('ok')
+        setMsg('No duplicate barcodes found in this batch.')
+        return
+      }
+      const parts: string[] = []
+      if (inBatch.length) {
+        parts.push(
+          `In batch: ${inBatch.slice(0, 8).map((d) => `${d.barcode} (×${d.cnt})`).join(', ')}${inBatch.length > 8 ? '…' : ''}`,
+        )
+      }
+      if (cross.length) {
+        parts.push(
+          `Also elsewhere in stock: ${cross.slice(0, 8).map((d) => `${d.barcode} (×${d.cnt})`).join(', ')}${cross.length > 8 ? '…' : ''}`,
+        )
+      }
+      setMsgTone('err')
+      setMsg(`Duplicate barcodes — ${parts.join(' · ')}`)
+    } catch (e) {
+      setMsgTone('err')
+      setMsg(erpErr(e))
+    } finally {
+      setDupScanBusy(false)
     }
   }
 
@@ -424,6 +462,15 @@ export function ErpProductsWorkspace() {
             </button>
             <button
               type="button"
+              className={erpBtnGhost}
+              disabled={dupScanBusy || !pieces.length}
+              onClick={() => void scanDuplicates()}
+            >
+              {dupScanBusy ? <Loader2 className="size-4 animate-spin" /> : <ScanBarcode className="size-4" />}
+              Check duplicates
+            </button>
+            <button
+              type="button"
               className="ml-auto inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
               disabled={deleting}
               onClick={() => void deleteBatch()}
@@ -455,7 +502,7 @@ export function ErpProductsWorkspace() {
                         {imp.source_filename}
                       </p>
                       <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-                        {imp.live_count ?? imp.piece_count} piece(s) · {formatErpDateDdMmYyyy(imp.created_at)}
+                        {imp.live_count ?? imp.piece_count} piece(s) · uploaded {formatErpDateTime(imp.created_at)}
                       </p>
                     </div>
                     <button

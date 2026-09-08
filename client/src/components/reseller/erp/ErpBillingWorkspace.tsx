@@ -1800,12 +1800,12 @@ export function ErpBillingWorkspace() {
               Discount (₹)
             </label>
             <input
-              className={`${erpInputCls} py-2 text-sm tabular-nums ${
+              className={`${erpInputCls} py-2 text-sm tabular-nums !text-[#1a1814] ${
                 parsedCollected != null && discountSummary.cashDiscountInr < 0
-                  ? 'border-amber-400 bg-amber-50/80 text-amber-950'
+                  ? 'border-amber-400 bg-amber-50/80 !text-amber-950'
                   : parsedCollected != null && discountSummary.cashDiscountInr > 0
-                    ? 'border-emerald-300 bg-emerald-50/60 text-emerald-950'
-                    : 'bg-[var(--color-slate-900,#f7f4ef)] text-[var(--color-jewelry-black,#1a1814)]/70'
+                    ? 'border-emerald-300 bg-emerald-50/60 !text-emerald-950'
+                    : 'bg-white'
               }`}
               readOnly
               tabIndex={-1}

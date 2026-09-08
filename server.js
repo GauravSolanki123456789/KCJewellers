@@ -4558,13 +4558,6 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             } else {
                 const digits = normalizeStoredMobile(mobile_number);
                 if (digits.length === 10) {
-                    const mobileOwner = await findUserByStoredMobile(digits);
-                    const targetId = parseInt(String(id), 10);
-                    if (mobileOwner && mobileOwner.id !== targetId) {
-                        return res.status(409).json({
-                            error: `This mobile is already on account #${mobileOwner.id} (${mobileOwner.email || mobileOwner.business_name || 'no email'}). Use a different number.`,
-                        });
-                    }
                     updates.push(`mobile_number = $${paramIndex++}`);
                     params.push(digits);
                 }

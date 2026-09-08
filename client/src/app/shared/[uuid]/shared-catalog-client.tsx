@@ -1474,7 +1474,7 @@ export default function SharedCatalogClient({
                                       }
                                       setMakeOnOrderQty(key, parseInt(raw, 10) || 0)
                                     }}
-                                    className="w-full min-w-0 rounded-md border border-amber-500/40 bg-white px-2 py-1.5 text-sm font-semibold tabular-nums text-slate-900 outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-500/40"
+                                    className="w-full min-w-0 rounded-md border border-amber-500/40 bg-white px-2 py-1.5 text-sm font-semibold tabular-nums !text-[#1a1814] placeholder:!text-neutral-400 outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-500/40"
                                   />
                                   <span className="shrink-0 text-[10px] font-medium text-amber-800">pcs</span>
                                 </div>

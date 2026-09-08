@@ -1,6 +1,6 @@
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
-import { blobToBase64, storePdfForViewer, type StoredPdfViewerPayload } from '@/lib/pdf-viewer-store'
+import { openPdfOverlay } from '@/lib/pdf-viewer-overlay-store'
 
 function openWhatsAppFallback(text: string, explicitHref?: string | null) {
   const href =
@@ -90,35 +90,25 @@ export type OpenPdfViewerOptions = {
   brandLabel?: string
 }
 
-/** Open PDF in dedicated viewer tab with download + WhatsApp actions. */
+/** Open PDF in an in-page overlay (same tab — no popup / sessionStorage issues). */
 export async function openPdfBlobInViewer(blob: Blob, opts?: OpenPdfViewerOptions): Promise<void> {
   if (typeof window === 'undefined') return
 
   if (opts?.filename) {
-    try {
-      const blobBase64 = await blobToBase64(blob)
-      const storePayload: StoredPdfViewerPayload = {
-        blobBase64,
-        filename: opts.filename,
-        title: opts.title || opts.filename,
-        text: opts.text || opts.filename,
-        fallbackWhatsAppText: opts.fallbackWhatsAppText || opts.text || opts.filename,
-        fallbackWhatsAppHref: opts.fallbackWhatsAppHref ?? null,
-        customerWhatsAppHref: opts.customerWhatsAppHref ?? null,
-        brandLabel: opts.brandLabel,
-      }
-      const id = storePdfForViewer(storePayload)
-      openExternalUrl(`/pdf-viewer?id=${encodeURIComponent(id)}`, {
-        preferNewTab: !shouldUseSameTabWhatsAppNavigation(),
-      })
-      return
-    } catch {
-      /* fall through to raw blob URL */
-    }
+    openPdfOverlay(blob, {
+      filename: opts.filename,
+      title: opts.title || opts.filename,
+      text: opts.text || opts.filename,
+      fallbackWhatsAppText: opts.fallbackWhatsAppText || opts.text || opts.filename,
+      fallbackWhatsAppHref: opts.fallbackWhatsAppHref ?? null,
+      customerWhatsAppHref: opts.customerWhatsAppHref ?? null,
+      brandLabel: opts.brandLabel,
+    })
+    return
   }
 
   const url = URL.createObjectURL(blob)
-  openExternalUrl(url, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
+  openExternalUrl(url, { preferNewTab: false })
   setTimeout(() => URL.revokeObjectURL(url), 120_000)
 }
 

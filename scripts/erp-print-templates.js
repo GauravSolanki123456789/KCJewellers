@@ -94,6 +94,9 @@ const LABEL_RULE_FIELD_KEYS = [
     'mc_rate',
     'bags',
     'box_charges',
+    'box_code',
+    'box_name',
+    'rfid_tag',
 ];
 
 function newRuleId() {
@@ -163,6 +166,10 @@ function metalTypeMatches(piece, metalTypes) {
 
 function pieceFieldHasValue(piece, field) {
     if (!piece || !field) return false;
+    if (field === 'rfid_tag') {
+        const tag = piece.rfid_tag ?? piece.tag_no;
+        return tag != null && String(tag).trim().length > 0;
+    }
     const v = piece[field];
     if (v == null || v === '') return false;
     if (typeof v === 'number') return Number.isFinite(v) && v !== 0;

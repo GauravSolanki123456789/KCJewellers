@@ -251,6 +251,7 @@ export const LABEL_RULE_FIELD_KEYS = [
   'box_charges',
   'box_code',
   'box_name',
+  'rfid_tag',
 ] as const
 
 export type LabelRuleFieldKey = (typeof LABEL_RULE_FIELD_KEYS)[number]
@@ -573,6 +574,7 @@ export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {
   box_charges: 'Box charges',
   box_code: 'Box code',
   box_name: 'Box name (label)',
+  rfid_tag: 'RFID tag',
 }
 
 /** Best-effort map from another software's sample PRN to our {{placeholders}}. */

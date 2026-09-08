@@ -109,7 +109,7 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
             </DialogTitle>
             {showHelperCopy ? (
               <DialogDescription className="text-sm leading-relaxed text-neutral-600">
-                Opens in a new tab where you can download, share on WhatsApp, or attach the PDF.
+                Opens on this page — close with ✕ when done, or download / share below.
               </DialogDescription>
             ) : null}
           </DialogHeader>

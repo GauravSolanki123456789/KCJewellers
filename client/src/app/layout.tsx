@@ -30,6 +30,7 @@ import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import AuthToast from "@/components/AuthToast";
 import AddToCartToast from "@/components/AddToCartToast";
 import WhatsAppContactFab from "@/components/WhatsAppContactFab";
+import PdfViewerOverlay from "@/components/shared/PdfViewerOverlay";
 import ResellerAttentionSectionSync from "@/components/ResellerAttentionSectionSync";
 import Footer from "@/components/Footer";
 import { getOgImagePath } from "@/lib/og-image";
@@ -283,6 +284,7 @@ export default async function RootLayout({
               <CartDrawerWrapper />
             </Suspense>
             <WhatsAppContactFab />
+            <PdfViewerOverlay />
             </LoginModalProvider>
           </BookRateProvider>
         </CartProvider>

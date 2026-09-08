@@ -17,13 +17,17 @@ const PREFIX = 'kc-pdf-viewer:'
 
 export function storePdfForViewer(payload: StoredPdfViewerPayload): string {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  sessionStorage.setItem(`${PREFIX}${id}`, JSON.stringify(payload))
+  try {
+    localStorage.setItem(`${PREFIX}${id}`, JSON.stringify(payload))
+  } catch {
+    sessionStorage.setItem(`${PREFIX}${id}`, JSON.stringify(payload))
+  }
   return id
 }
 
 export function loadPdfFromViewerStore(id: string): StoredPdfViewerPayload | null {
   try {
-    const raw = sessionStorage.getItem(`${PREFIX}${id}`)
+    const raw = localStorage.getItem(`${PREFIX}${id}`) || sessionStorage.getItem(`${PREFIX}${id}`)
     if (!raw) return null
     return JSON.parse(raw) as StoredPdfViewerPayload
   } catch {
@@ -32,6 +36,7 @@ export function loadPdfFromViewerStore(id: string): StoredPdfViewerPayload | nul
 }
 
 export function clearPdfViewerStore(id: string): void {
+  localStorage.removeItem(`${PREFIX}${id}`)
   sessionStorage.removeItem(`${PREFIX}${id}`)
 }
 

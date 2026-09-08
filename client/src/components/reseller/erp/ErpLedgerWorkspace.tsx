@@ -28,6 +28,7 @@ import {
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-import-parser'
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
+import { formatErpDateTime } from '@/lib/erp-date-format'
 
 type ImportPreviewRow = ParsedBankRow & {
   customer_name?: string | null
@@ -107,6 +108,20 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [importBankName, setImportBankName] = useState('')
   const [importDuplicateCount, setImportDuplicateCount] = useState(0)
   const [lastBatchId, setLastBatchId] = useState<number | null>(null)
+  const [importBatches, setImportBatches] = useState<
+    { id: number; file_name: string; row_count: number; live_count: number; created_at: string }[]
+  >([])
+  const [purchaseVouchers, setPurchaseVouchers] = useState<
+    {
+      id: number
+      pv_number: string
+      vendor_name?: string | null
+      weight_kg: number
+      pending_weight_kg: number
+      status: string
+      entry_date: string
+    }[]
+  >([])
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState<Partial<ErpLedgerEntry>>({})
   const [addingInline, setAddingInline] = useState(false)
@@ -209,6 +224,14 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       )
       .then((r) => setEmployees(r.data.employees || []))
       .catch(() => setEmployees([]))
+    void axios
+      .get<{ batches: typeof importBatches }>('/api/reseller/erp/ledger/import-batches')
+      .then((r) => setImportBatches(r.data.batches || []))
+      .catch(() => setImportBatches([]))
+    void axios
+      .get<{ purchase_vouchers: typeof purchaseVouchers }>('/api/reseller/erp/purchase-vouchers')
+      .then((r) => setPurchaseVouchers(r.data.purchase_vouchers || []))
+      .catch(() => setPurchaseVouchers([]))
   }, [loadCustomers])
 
   useEffect(() => {
@@ -337,6 +360,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       })
       setLastBatchId(res.data.batch_id)
       setImportPreview([])
+      void axios
+        .get<{ batches: typeof importBatches }>('/api/reseller/erp/ledger/import-batches')
+        .then((r) => setImportBatches(r.data.batches || []))
       setMsg(
         `Imported ${res.data.inserted} entry(s)` +
           (res.data.duplicates ? ` · ${res.data.duplicates} duplicate(s) skipped` : '') +
@@ -522,7 +548,41 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         payment_mode: 'neft',
         narration: '',
       })
+      void axios
+        .get<{ purchase_vouchers: typeof purchaseVouchers }>('/api/reseller/erp/purchase-vouchers')
+        .then((r) => setPurchaseVouchers(r.data.purchase_vouchers || []))
       setTab('entries')
+      await reload()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deleteImportBatch = async (batchId: number, fileName: string) => {
+    if (!confirm(`Delete bank import "${fileName}" and all its ledger entries?`)) return
+    setBusy(true)
+    try {
+      await axios.delete(`/api/reseller/erp/ledger/import-batches/${batchId}`)
+      setImportBatches((prev) => prev.filter((b) => b.id !== batchId))
+      if (lastBatchId === batchId) setLastBatchId(null)
+      setMsg(`Deleted import "${fileName}".`)
+      await reload()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deletePurchaseVoucher = async (pvId: number, pvNumber: string) => {
+    if (!confirm(`Delete ${pvNumber} and its stock batch (if any)? The PV number can be reused.`)) return
+    setBusy(true)
+    try {
+      await axios.delete(`/api/reseller/erp/purchase-vouchers/${pvId}`)
+      setPurchaseVouchers((prev) => prev.filter((p) => p.id !== pvId))
+      setMsg(`Deleted ${pvNumber}. Number is free to reuse.`)
       await reload()
     } catch (e) {
       alert(erpErr(e))
@@ -1175,7 +1235,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           </p>
           <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
             After saving, go to <strong>Products → Stock upload</strong>, enter the PV number, and upload Excel until
-            weight tallies. Purchase appears in both normal and Jainav ledgers.
+            weight tallies. Enter purchase weight in <strong>kg</strong>; stock Excel uses <strong>grams</strong> per
+            piece (converted automatically). Purchase appears in both normal and Jainav ledgers.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -1222,6 +1283,39 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
             Save purchase &amp; generate PV
           </button>
+
+          {purchaseVouchers.length > 0 ? (
+            <div className="space-y-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                Purchase vouchers
+              </p>
+              <div className="space-y-1.5">
+                {purchaseVouchers.slice(0, 20).map((pv) => (
+                  <div
+                    key={pv.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{pv.pv_number}</p>
+                      <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+                        {pv.vendor_name || 'Vendor'} · {pv.weight_kg} kg · pending {pv.pending_weight_kg} kg ·{' '}
+                        {pv.status} · {pv.entry_date}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => void deletePurchaseVoucher(pv.id, pv.pv_number)}
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -1330,6 +1424,52 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               }}
             />
           </div>
+
+          {importBatches.length > 0 ? (
+            <div className="space-y-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                Uploaded bank imports
+              </p>
+              <div className="space-y-1.5">
+                {importBatches.map((b) => (
+                  <div
+                    key={b.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
+                        {b.file_name}
+                      </p>
+                      <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+                        {b.live_count ?? b.row_count} entries · uploaded {formatErpDateTime(b.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className={erpBtnGhost}
+                        onClick={() => {
+                          setLastBatchId(b.id)
+                          setTab('entries')
+                        }}
+                      >
+                        View entries
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                        disabled={busy}
+                        onClick={() => void deleteImportBatch(b.id, b.file_name)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {importPreview.length > 0 ? (
             <div className="space-y-3 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">

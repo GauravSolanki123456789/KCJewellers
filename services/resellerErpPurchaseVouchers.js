@@ -99,16 +99,17 @@ function mapPv(row) {
 async function nextPvNumber(query, resellerUserId) {
     const rows = await query(
         `SELECT pv_number FROM reseller_erp_purchase_vouchers
-         WHERE reseller_user_id = $1 AND pv_number ~ '^PV[0-9]+$'
-         ORDER BY CAST(SUBSTRING(pv_number FROM 3) AS INTEGER) DESC
-         LIMIT 1`,
+         WHERE reseller_user_id = $1 AND pv_number ~ '^PV[0-9]+$'`,
         [resellerUserId],
     );
-    let n = 1;
-    if (rows[0]?.pv_number) {
-        const m = /^PV(\d+)$/i.exec(String(rows[0].pv_number));
-        if (m) n = parseInt(m[1], 10) + 1;
+    const used = new Set();
+    const re = /^PV(\d+)$/i;
+    for (const row of rows) {
+        const m = re.exec(String(row.pv_number || '').trim().toUpperCase());
+        if (m) used.add(parseInt(m[1], 10));
     }
+    let n = 1;
+    while (used.has(n)) n += 1;
     return `PV${String(n).padStart(4, '0')}`;
 }
 
@@ -321,6 +322,68 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
             res.json({ success: true, employee: rows[0] });
         } catch (e) {
             res.status(500).json({ error: e.message || 'Failed to add employee' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/purchase-vouchers/:id', checkAuth, erpGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const pvRows = await query(
+                `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!pvRows.length) return res.status(404).json({ error: 'Purchase voucher not found' });
+            const pv = pvRows[0];
+
+            if (pv.stock_batch_id) {
+                const sold = await query(
+                    `SELECT 1 FROM reseller_erp_stock_pieces
+                     WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND status = 'sold' LIMIT 1`,
+                    [pv.stock_batch_id, req.user.id],
+                );
+                if (sold.length) {
+                    return res.status(400).json({
+                        error: 'Cannot delete — some stock from this PV was sold. Remove sold items first.',
+                    });
+                }
+                await query(
+                    `DELETE FROM reseller_erp_stock_pieces
+                     WHERE batch_id = $1::uuid AND reseller_user_id = $2 AND status = 'in_stock'`,
+                    [pv.stock_batch_id, req.user.id],
+                );
+                await query(
+                    `DELETE FROM reseller_erp_stock_import_batches
+                     WHERE stock_batch_id = $1::uuid AND reseller_user_id = $2`,
+                    [pv.stock_batch_id, req.user.id],
+                );
+                await query(
+                    `DELETE FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+                    [pv.stock_batch_id, req.user.id],
+                );
+            }
+
+            if (pv.ledger_entry_id) {
+                await query(
+                    `DELETE FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2`,
+                    [pv.ledger_entry_id, req.user.id],
+                );
+            } else {
+                await query(
+                    `DELETE FROM reseller_erp_ledger_entries WHERE pv_id = $1 AND reseller_user_id = $2`,
+                    [pv.id, req.user.id],
+                );
+            }
+
+            await query(
+                `DELETE FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
+                [pv.id, req.user.id],
+            );
+
+            res.json({ success: true, deleted_pv_number: pv.pv_number });
+        } catch (e) {
+            console.error('erp purchase delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete purchase voucher' });
         }
     });
 }
