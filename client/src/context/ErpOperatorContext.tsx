@@ -107,6 +107,7 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
     (moduleId: string) => {
       if (!operator) return false
       if (moduleId === 'erp-users') return operator.role === 'admin'
+      if (moduleId === 'backup') return true
       if (operator.role === 'admin' || operator.fullAccess) return true
       return operatorHasModule(operator.allowedModules, moduleId)
     },

@@ -20,6 +20,7 @@ import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorks
 import { ErpFloorsWorkspace } from '@/components/reseller/erp/ErpFloorsWorkspace'
 import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
 import { ErpUsersWorkspace } from '@/components/reseller/erp/ErpUsersWorkspace'
+import { ErpBackupWorkspace } from '@/components/reseller/erp/ErpBackupWorkspace'
 import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
 import { ErpJainavGate } from '@/components/reseller/erp/ErpQuickNav'
 import { ErpShadowWorkspace } from '@/components/reseller/erp/ErpShadowWorkspace'
@@ -212,6 +213,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpTagSplitWorkspace rfidEnabled={rfidEnabled} />
     case 'erp-users':
       return <ErpUsersWorkspace />
+    case 'backup':
+      return <ErpBackupWorkspace />
     case 'jainav':
       return (
         <ErpJainavGate>

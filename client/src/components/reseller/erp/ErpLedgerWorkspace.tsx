@@ -774,7 +774,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
               e.is_suspense
                 ? 'bg-amber-100 text-amber-900'
-                : e.entry_type === 'payment_out' || e.entry_type === 'purchase' || e.entry_type === 'expense' || e.entry_type === 'salary'
+                : e.entry_type === 'purchase'
+                  ? 'bg-blue-50 text-blue-900'
+                  : e.entry_type === 'payment_out' || e.entry_type === 'expense' || e.entry_type === 'salary'
                   ? 'bg-rose-50 text-rose-800'
                   : 'bg-emerald-50 text-emerald-800'
             }`}
@@ -938,10 +940,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         <div className={`${erpCardCls} space-y-3`}>
           <div>
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Payment entries</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-              Bank receipts, UPI/NEFT payments, and suspense items for the date range below. Sales bills appear in the
-              customer account above; this table is for money received or paid out.
-            </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -1523,15 +1521,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             <BookMarked className="size-4 text-blue-700" />
             Import bank sheet (.xlsx / .csv)
           </p>
-          <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-            Upload IDFC, HDFC, or generic bank exports. Review parsed rows, link customers, then import.
-            {laneMode ? (
-              <span className="mt-1 block font-medium text-emerald-800">
-                Jainav lane — entries go to lane ledger only (hidden from normal ledger).
-              </span>
-            ) : null}
-            Unmatched rows can go to <strong>suspense</strong> for later assignment.
-          </p>
+          {laneMode ? (
+            <p className="text-xs font-medium text-emerald-800">
+              Jainav lane — entries go to lane ledger only (hidden from normal ledger).
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button type="button" className={erpBtnGhost} onClick={() => void downloadSample()}>
               <Download className="size-4" />

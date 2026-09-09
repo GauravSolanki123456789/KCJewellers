@@ -25,6 +25,7 @@ const {
     createBillAdvanceLedgerEntry,
 } = require('./resellerErpLedger');
 const { registerResellerErpPurchaseVoucherRoutes } = require('./resellerErpPurchaseVouchers');
+const { registerResellerErpBackupRoutes } = require('./resellerErpBackup');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./resellerErpDesignMaster');
 const { registerStockCheckRoutes } = require('./resellerErpStockCheck');
@@ -588,6 +589,7 @@ function registerResellerErpRoutes(app, deps) {
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpPurchaseVoucherRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerResellerErpBackupRoutes(app, { query, checkAuth, erpGate });
     registerKarigarRoutes(app, {
         query,
         pool,

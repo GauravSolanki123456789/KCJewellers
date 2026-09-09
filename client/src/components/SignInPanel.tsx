@@ -21,7 +21,7 @@ type SignInPanelProps = {
 export default function SignInPanel({
   returnTo,
   onAuthenticated,
-  variant = "modal",
+  variant: _variant = "modal",
 }: SignInPanelProps) {
   const pathname = usePathname();
   const { customDomainHost } = useResellerBranding();
@@ -95,18 +95,8 @@ export default function SignInPanel({
     window.location.href = buildGoogleOAuthStartUrl(safeReturnTo);
   };
 
-  const subtitle =
-    variant === 'page'
-      ? null
-      : customDomainHost
-        ? null
-        : 'Sign in to access cart, checkout, and Book Rate'
-
   return (
     <div className="space-y-4">
-      {subtitle ? (
-        <p className="text-sm leading-relaxed text-slate-400">{subtitle}</p>
-      ) : null}
 
       {step === "choose" && (
         <div className="space-y-3">

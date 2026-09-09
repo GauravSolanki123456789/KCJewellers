@@ -4,6 +4,7 @@ import {
   Building2,
   Calculator,
   CreditCard,
+  Download,
   FileText,
   Layers,
   BookMarked,
@@ -62,6 +63,7 @@ export type ResellerErpModuleId =
   | 'tally'
   | 'integrations'
   | 'erp-users'
+  | 'backup'
   | 'jainav'
   | 'stock-reports'
   | 'stock-check'
@@ -307,6 +309,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Staff logins',
     description: 'Usernames, passwords & tab access',
     icon: UserCog,
+    group: 'tools',
+    kind: 'workspace',
+  },
+  {
+    id: 'backup',
+    title: 'Download backup',
+    short: 'Backup',
+    description: 'Save your ERP data as a JSON file on this computer',
+    icon: Download,
     group: 'tools',
     kind: 'workspace',
   },

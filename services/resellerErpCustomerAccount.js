@@ -129,12 +129,13 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     for (const p of payments) {
         const creditTypes = new Set(['payment_in', 'bill_advance', 'suspense_in']);
-        const debitTypes = new Set(['payment_out', 'adjustment']);
         let credit = 0;
         let debit = 0;
         if (creditTypes.has(p.entry_type)) credit = Number(p.amount_inr) || 0;
         if (p.entry_type === 'payment_out') debit = Number(p.amount_inr) || 0;
-        if (p.entry_type === 'purchase') debit = Number(p.amount_inr) || 0;
+        // Stock-in PV: party supplied goods, shop has not necessarily paid yet → credit.
+        if (p.entry_type === 'purchase') credit = Number(p.amount_inr) || 0;
+        if (p.entry_type === 'expense' || p.entry_type === 'salary') debit = Number(p.amount_inr) || 0;
         if (p.entry_type === 'adjustment') {
             const amt = Number(p.amount_inr) || 0;
             if (amt >= 0) credit = amt;
@@ -164,9 +165,15 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         return { ...r, balance_inr: Math.round(running * 100) / 100 };
     });
 
-    const totalBilled = rows.reduce((s, r) => s + r.debit, 0);
-    const totalPaid = rows.reduce((s, r) => s + r.credit, 0);
-    const balanceDue = Math.round((totalBilled - totalPaid) * 100) / 100;
+    const totalBilled = rows
+        .filter((r) => r.kind === 'sale')
+        .reduce((s, r) => s + r.debit, 0);
+    const totalPaid = rows
+        .filter((r) => r.kind === 'payment_in' || r.kind === 'bill_advance' || r.kind === 'suspense_in')
+        .reduce((s, r) => s + r.credit, 0);
+    const balanceDue = transactions.length
+        ? transactions[transactions.length - 1].balance_inr
+        : 0;
 
     return {
         customer: {
