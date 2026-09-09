@@ -31,6 +31,28 @@ export function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   requestHeaders.set("x-pathname", pathname);
 
+  const iconRewrite =
+    pathname === "/favicon.ico" || pathname === "/icon.png"
+      ? "/icon"
+      : pathname === "/apple-touch-icon.png" ||
+          pathname === "/apple-touch-icon-precomposed.png" ||
+          pathname === "/apple-icon.png"
+        ? "/apple-icon"
+        : pathname === "/opengraph-image.png" ||
+            pathname === "/opengraph-image2.png" ||
+            pathname === "/opengraph-image3.png" ||
+            pathname === "/twitter-image.png"
+          ? "/opengraph-image"
+          : null;
+  if (iconRewrite) {
+    const url = request.nextUrl.clone();
+    url.pathname = iconRewrite;
+    url.search = "";
+    return NextResponse.rewrite(url, {
+      request: { headers: requestHeaders },
+    });
+  }
+
   if (pathname === "/catalog") {
     const style = searchParams.get("style")?.trim();
     const sku = searchParams.get("sku")?.trim();
@@ -62,5 +84,14 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/favicon.ico",
+    "/icon.png",
+    "/apple-touch-icon.png",
+    "/apple-touch-icon-precomposed.png",
+    "/apple-icon.png",
+    "/opengraph-image.png",
+    "/opengraph-image2.png",
+    "/opengraph-image3.png",
+    "/twitter-image.png",
   ],
 };

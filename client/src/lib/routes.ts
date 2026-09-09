@@ -17,6 +17,8 @@ export const CATALOG_STATE_KEY = 'kc_catalog_state'
 /** Set when opening a product from the catalogue so "Back" can restore metal/style. */
 export const CATALOG_FROM_PRODUCT_KEY = 'kc_catalog_from_product'
 export const CHECKOUT_PATH = '/checkout'
+/** Staff / customer login — stays on the current host (reseller custom domain or KC). */
+export const LOGIN_PATH = '/login'
 /** B2B wholesale PO success + proforma (after NEFT / ledger checkout). */
 export const CHECKOUT_B2B_SUCCESS_PATH = '/checkout/b2b-success'
 export const PROFILE_PATH = '/profile'

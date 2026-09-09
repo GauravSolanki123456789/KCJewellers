@@ -181,6 +181,13 @@ export default function Navbar() {
                       unoptimized
                     />
                   </span>
+                ) : resellerBrandingActive ? (
+                  <span
+                    className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/90 text-sm font-semibold text-slate-800 ring-1 ring-slate-700/30 md:size-9 md:text-base"
+                    aria-hidden
+                  >
+                    {businessName.slice(0, 1).toUpperCase()}
+                  </span>
                 ) : (
                   <span className="relative block size-8 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-amber-500/20 md:size-9">
                     <Image

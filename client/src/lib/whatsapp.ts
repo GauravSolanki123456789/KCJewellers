@@ -39,9 +39,12 @@ export function buildCatalogShareUrl(
   return q ? `${site}${path}?${q}` : `${site}${path}`;
 }
 
-export function buildProductShareUrl(barcodeOrSku: string): string {
+export function buildProductShareUrl(
+  barcodeOrSku: string,
+  options?: { origin?: string },
+): string {
   const id = String(barcodeOrSku || "").trim();
-  const site = getSiteUrl();
+  const site = (options?.origin ?? getSiteUrl()).replace(/\/$/, "");
   if (!id) return `${site}/catalog`;
   return `${site}/products/${encodeURIComponent(id)}`;
 }
@@ -77,8 +80,11 @@ export function productShareMessage(params: {
   name: string;
   weightGm?: number | string | null;
   barcode: string;
+  origin?: string;
+  brandName?: string;
 }): string {
   const name = params.name.trim() || "this piece";
+  const brand = (params.brandName || "").trim() || BRAND;
   const w = params.weightGm;
   const weightPart =
     typeof w === "string" && w.trim()
@@ -86,8 +92,8 @@ export function productShareMessage(params: {
       : w != null && typeof w === "number" && !Number.isNaN(w)
         ? ` Weight: ${Number(w).toFixed(2)} gm.`
         : "";
-  const url = buildProductShareUrl(params.barcode);
-  return `Check out this stunning ${name} at ${BRAND}!${weightPart} See it here: ${url}`;
+  const url = buildProductShareUrl(params.barcode, { origin: params.origin });
+  return `Check out this stunning ${name} at ${brand}!${weightPart} See it here: ${url}`;
 }
 
 /** After checkout — contact KC about a specific order (uses profile /orders/[id] link). */

@@ -116,7 +116,13 @@ export default function ProductDetailClient({
   });
   const cart = useCart();
   const { wholesalePricing, hasWholesaleAccess } = useCustomerTier();
-  const { customDomainHost, storefrontMarginPct, showMrpBehindBox } = useResellerBranding();
+  const {
+    customDomainHost,
+    storefrontMarginPct,
+    showMrpBehindBox,
+    businessName,
+    active: resellerBrandingActive,
+  } = useResellerBranding();
   const { pricingOptions } = useCatalogPricingSettings();
   const showInclGst = product ? productPriceShowsInclGst(product, pricingOptions) : true;
   const productRef = useRef<Item | null>(null);
@@ -565,6 +571,8 @@ export default function ProductDetailClient({
     name: displayName,
     weightGm: netWeightLabel,
     barcode,
+    origin: typeof window !== "undefined" ? window.location.origin : undefined,
+    brandName: resellerBrandingActive ? businessName : undefined,
   });
 
   return (

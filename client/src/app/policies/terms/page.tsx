@@ -1,16 +1,15 @@
 import type { Metadata } from "next";
 import { getPolicyPlainText } from "@/lib/policy-content";
-import { getSiteUrl } from "@/lib/site";
 import { POLICY_TERMS_PATH } from "@/lib/routes";
+import { policyPageMetadata } from "@/lib/policy-metadata";
 
-const site = getSiteUrl();
-
-export const metadata: Metadata = {
-  title: "Terms & Conditions",
-  description: "Terms and conditions for using KC Jewellers online services.",
-  alternates: { canonical: `${site}${POLICY_TERMS_PATH}` },
-  robots: { index: true, follow: true },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return policyPageMetadata({
+    title: "Terms & Conditions",
+    description: "Terms and conditions for using KC Jewellers online services.",
+    path: POLICY_TERMS_PATH,
+  });
+}
 
 /** Policy body is loaded from `content/policies/terms.txt`. */
 export const revalidate = 3600;

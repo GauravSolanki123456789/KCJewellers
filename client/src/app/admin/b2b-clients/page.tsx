@@ -874,8 +874,10 @@ function B2BAdminContent() {
                     placeholder="e.g. boutique.example.com"
                   />
                   <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                    Point your domain&apos;s <strong className="text-slate-400">A record</strong> to your Next.js server IP
-                    (same host as KC Jewellers web). Share links will use https://your-domain when set.
+                    Point the domain&apos;s <strong className="text-slate-400">A record</strong> to the same Next.js
+                    server IP as KC Jewellers web (no extra server needed). Staff login is{' '}
+                    <strong className="text-slate-400">https://your-domain/login</strong>
+                    — dashboard, ERP and catalogues stay on their domain. Share / WhatsApp previews use their logo.
                   </p>
                 </div>
                 <div>

@@ -65,6 +65,7 @@ import { useAdminInboxSummary } from '@/hooks/useAdminInboxSummary'
 import { useResellerInboxSummary } from '@/hooks/useResellerInboxSummary'
 import { userHasAdminDashboardAccess, userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
+import { buildGoogleOAuthStartUrl } from '@/lib/google-oauth'
 
 const LEGAL_SUPPORT_LINKS = [
   { href: POLICY_TERMS_PATH, label: 'Terms', icon: ScrollText },
@@ -288,7 +289,7 @@ function ProfilePageContent() {
               Sign in to view your profile
             </h3>
             <p className="mt-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
-              Access wallet, bookings, and order history
+              Access your dashboard, wallet, bookings, and order history on this website
             </p>
             <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
               <button
@@ -299,7 +300,7 @@ function ProfilePageContent() {
                 Sign in
               </button>
               <a
-                href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google?returnTo=${encodeURIComponent(PROFILE_PATH)}`}
+                href={buildGoogleOAuthStartUrl(PROFILE_PATH)}
                 className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-6 py-2.5 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]"
               >
                 Sign in with Google
@@ -343,7 +344,11 @@ function ProfilePageContent() {
                     href={RESELLER_RATES_PATH}
                     icon={LineChart}
                     title="Update today rates"
-                    subtitle="Silver & gold 18K / 22K / 24K — updates prices for all KC visitors"
+                    subtitle={
+                      customDomainHost
+                        ? 'Silver & gold 18K / 22K / 24K — updates prices for visitors on this website'
+                        : 'Silver & gold 18K / 22K / 24K — updates prices for all KC visitors'
+                    }
                     primary={!resellerUploadsEnabled && !resellerEditsEnabled}
                   />
                 ) : null}

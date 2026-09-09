@@ -572,22 +572,118 @@ const RETURN_TO_COOKIE_OPTS = {
     ...(cookieDomain ? { domain: cookieDomain } : {}),
 };
 
+const KC_RETURN_ORIGIN = 'kc_return_origin';
+
+function defaultFrontendOrigin() {
+    return String(process.env.CLIENT_URL || 'http://localhost:3001').replace(/\/$/, '');
+}
+
+function isSafeReturnPath(p) {
+    return typeof p === 'string' && p.startsWith('/') && !p.startsWith('//') && !p.includes('\\');
+}
+
+async function isAllowedFrontendOrigin(originRaw) {
+    if (!originRaw || typeof originRaw !== 'string') return false;
+    let u;
+    try {
+        u = new URL(originRaw);
+    } catch {
+        return false;
+    }
+    const host = String(u.hostname || '').toLowerCase();
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    if (u.protocol === 'http:') {
+        if (!isLocal) return false;
+    } else if (u.protocol !== 'https:') {
+        return false;
+    }
+    const origin = u.origin;
+    if (allowedOrigins.includes(origin)) return true;
+    const client = defaultFrontendOrigin();
+    if (origin === client) return true;
+    try {
+        const clientUrl = new URL(client);
+        if (normalizeStorefrontHostname(u.hostname) === normalizeStorefrontHostname(clientUrl.hostname)) {
+            return true;
+        }
+    } catch {
+        /* ignore */
+    }
+    return originMatchesResellerCustomDomain(origin);
+}
+
+async function rememberOAuthReturn(req, res, returnTo, originRaw) {
+    let dirty = false;
+    if (isSafeReturnPath(returnTo)) {
+        req.session.redirect_after_login = returnTo;
+        res.cookie(KC_RETURN_TO, returnTo, RETURN_TO_COOKIE_OPTS);
+        dirty = true;
+    }
+    if (originRaw && await isAllowedFrontendOrigin(originRaw)) {
+        const clean = new URL(originRaw).origin;
+        req.session.redirect_after_login_origin = clean;
+        res.cookie(KC_RETURN_ORIGIN, clean, RETURN_TO_COOKIE_OPTS);
+        dirty = true;
+    }
+    if (!dirty) return;
+    try {
+        await new Promise((resolve, reject) => {
+            req.session.save((error) => (error ? reject(error) : resolve()));
+        });
+    } catch (error) {
+        console.warn('Session save before OAuth redirect failed:', error?.message);
+    }
+}
+
+async function resolvePostLoginOrigin(req, res) {
+    const sessionOrigin = req.session?.redirect_after_login_origin;
+    if (req.session) delete req.session.redirect_after_login_origin;
+    const originOpts = { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) };
+    if (sessionOrigin && await isAllowedFrontendOrigin(sessionOrigin)) {
+        res.clearCookie(KC_RETURN_ORIGIN, originOpts);
+        return String(sessionOrigin).replace(/\/$/, '');
+    }
+    const cookieOrigin = getCookie(req, KC_RETURN_ORIGIN);
+    if (cookieOrigin && await isAllowedFrontendOrigin(cookieOrigin)) {
+        res.clearCookie(KC_RETURN_ORIGIN, originOpts);
+        return String(cookieOrigin).replace(/\/$/, '');
+    }
+    return defaultFrontendOrigin();
+}
+
+function takeReturnToPath(req, res) {
+    let returnTo = req.session?.redirect_after_login;
+    if (req.session) delete req.session.redirect_after_login;
+    const cookieVal = getCookie(req, KC_RETURN_TO);
+    if (!returnTo && isSafeReturnPath(cookieVal)) {
+        returnTo = cookieVal;
+    }
+    res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
+    return isSafeReturnPath(returnTo) ? returnTo : '/catalog';
+}
+
+function buildPostLoginRedirect(clientUrl, returnTo, user) {
+    const email = String(user?.email || '').toLowerCase().trim();
+    const role = encodeURIComponent(user?.role || '');
+    const name = encodeURIComponent(user?.name || 'User');
+    const q = `auth=success&email=${encodeURIComponent(email)}&role=${role}&name=${name}`;
+    const basePath = isSafeReturnPath(returnTo) ? returnTo : '/catalog';
+    const pathOnly = basePath.split('?')[0];
+    if (pathOnly === '/' || pathOnly === '/catalog') {
+        return `${clientUrl}/catalog?${q}`;
+    }
+    const sep = basePath.includes('?') ? '&' : '?';
+    return `${clientUrl}${basePath}${sep}${q}`;
+}
+
 app.get('/auth/google', authLimiter, async (req, res, next) => {
-    // Store returnTo for post-login redirect (e.g. /checkout)
     const returnTo = req.query.returnTo && typeof req.query.returnTo === 'string'
         ? req.query.returnTo
         : null;
-    if (returnTo && returnTo.startsWith('/')) {
-        req.session.redirect_after_login = returnTo;
-        res.cookie(KC_RETURN_TO, returnTo, RETURN_TO_COOKIE_OPTS);
-        try {
-            await new Promise((resolve, reject) => {
-                req.session.save((error) => (error ? reject(error) : resolve()));
-            });
-        } catch (error) {
-            console.warn('Session save before OAuth redirect failed:', error?.message);
-        }
-    }
+    const originRaw = req.query.origin && typeof req.query.origin === 'string'
+        ? req.query.origin
+        : null;
+    await rememberOAuthReturn(req, res, returnTo, originRaw);
     // 🛠️ LOCAL DEV BYPASS
     if (process.env.NODE_ENV === 'development') {
         console.log("🛠️ Local Dev Detected: Attempting Bypass...");
@@ -623,24 +719,14 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
             // Ensure super_admin role and ['all'] tabs are set
             resolvedUser.role = 'super_admin';
             resolvedUser.allowed_tabs = ['all'];
-                req.login(resolvedUser, (error) => {
+                req.login(resolvedUser, async (error) => {
                 if (error) { 
                     console.error("Login Error:", error);
                     return next(error); 
                 }
-                const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
-                let target = req.session?.redirect_after_login;
-                delete req.session?.redirect_after_login;
-                const cookieVal = getCookie(req, KC_RETURN_TO);
-                if (!target && cookieVal && cookieVal.startsWith('/')) {
-                    target = cookieVal;
-                    res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
-                }
-                target = target || '/catalog';
-                if (target.startsWith('/')) {
-                    return res.redirect(clientUrl + target);
-                }
-                return res.redirect(clientUrl + '/catalog');
+                const clientUrl = await resolvePostLoginOrigin(req, res);
+                const target = takeReturnToPath(req, res);
+                return res.redirect(clientUrl + (isSafeReturnPath(target) ? target : '/catalog'));
             });
 
         } catch (error) {
@@ -654,68 +740,65 @@ app.get('/auth/google', authLimiter, async (req, res, next) => {
 });
 
 
-// Google OAuth Callback - Handle authentication
-app.get('/auth/google/callback', authLimiter, 
-    passport.authenticate('google', { 
-        failureRedirect: (process.env.CLIENT_URL || 'http://localhost:3001') + '/catalog?auth=failed&reason=ACCESS_DENIED',
-        failureMessage: true
-    }),
-    async (req, res) => {
-        const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
-        
-        if (!req.user) {
-            return res.redirect(clientUrl + '/catalog?auth=failed&reason=ACCESS_DENIED');
-        }
-        
-        // CRITICAL: Ensure role is resolved correctly (passport strategy already handles DB update)
-        // This ensures req.user has the correct role for the session
-        const { resolveUserRole } = require('./services/authService');
-        req.user = resolveUserRole(req.user);
-        
-        const email = String(req.user.email || '').toLowerCase().trim();
-        const isSuperAdmin = email === 'jaigaurav56789@gmail.com';
-        
-        // Double-check: Ensure super admin has correct role
-        if (isSuperAdmin) {
-            req.user.role = 'super_admin';
-            req.user.allowed_tabs = ['all'];
-            req.user.account_status = 'active';
-        }
-        
-        // Handle account status redirects
-        if (req.user.account_status === 'pending') {
-            res.redirect(clientUrl + '/complete-profile');
-        } else if (req.user.account_status === 'active') {
-            console.log(`✅ Login successful: ${email} (Role: ${req.user.role})`);
-            logUserActivity({ user_id: req.user.id, action_type: 'login' }).catch(() => {});
-            // Redirect to returnTo (e.g. /checkout) or home with success params
-            let returnTo = req.session?.redirect_after_login;
-            delete req.session?.redirect_after_login;
-            const cookieVal = getCookie(req, KC_RETURN_TO);
-            if (!returnTo && cookieVal && cookieVal.startsWith('/')) {
-                returnTo = cookieVal;
-                res.clearCookie(KC_RETURN_TO, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) });
+// Google OAuth Callback — return to the originating storefront (reseller domain or KC).
+app.get('/auth/google/callback', authLimiter, (req, res, next) => {
+    passport.authenticate('google', { failureMessage: true }, (err, user) => {
+        const run = async () => {
+            const clientUrl = await resolvePostLoginOrigin(req, res);
+            const fail = (reason) =>
+                res.redirect(`${clientUrl}/login?auth=failed&reason=${encodeURIComponent(reason || 'ACCESS_DENIED')}`);
+
+            if (err || !user) {
+                return fail('ACCESS_DENIED');
             }
-            const basePath = (returnTo && returnTo.startsWith('/')) ? returnTo : '/catalog';
-            const redirectUrl = (basePath === '/' || basePath === '/catalog')
-                ? `${clientUrl}/catalog?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`
-                : `${clientUrl}${basePath}?auth=success&email=${encodeURIComponent(email)}&role=${encodeURIComponent(req.user.role)}&name=${encodeURIComponent(req.user.name || 'User')}`;
-            res.redirect(redirectUrl);
-        } else if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
-            // Destroy session for suspended users
-            req.logout((error) => {
-                if (error) { console.error('Logout error:', error); }
-                req.session.destroy((error) => {
-                    if (error) { console.error('Session destroy error:', error); }
-                    res.clearCookie('jp.sid');
-                    res.redirect(clientUrl + '/catalog?auth=suspended&email=' + encodeURIComponent(email));
-                });
+
+            req.logIn(user, async (loginErr) => {
+                if (loginErr) {
+                    console.error('OAuth login error:', loginErr);
+                    return fail('ACCESS_DENIED');
+                }
+
+                if (!req.user) {
+                    return fail('ACCESS_DENIED');
+                }
+
+                const { resolveUserRole } = require('./services/authService');
+                req.user = resolveUserRole(req.user);
+
+                const email = String(req.user.email || '').toLowerCase().trim();
+                const isSuperAdmin = email === 'jaigaurav56789@gmail.com';
+
+                if (isSuperAdmin) {
+                    req.user.role = 'super_admin';
+                    req.user.allowed_tabs = ['all'];
+                    req.user.account_status = 'active';
+                }
+
+                if (req.user.account_status === 'pending') {
+                    return res.redirect(clientUrl + '/complete-profile');
+                }
+                if (req.user.account_status === 'active') {
+                    console.log(`✅ Login successful: ${email} (Role: ${req.user.role})`);
+                    logUserActivity({ user_id: req.user.id, action_type: 'login' }).catch(() => {});
+                    const returnTo = takeReturnToPath(req, res);
+                    return res.redirect(buildPostLoginRedirect(clientUrl, returnTo, req.user));
+                }
+                if (req.user.account_status === 'rejected' || req.user.account_status === 'suspended') {
+                    return req.logout((error) => {
+                        if (error) { console.error('Logout error:', error); }
+                        req.session.destroy((error) => {
+                            if (error) { console.error('Session destroy error:', error); }
+                            res.clearCookie('jp.sid');
+                            res.redirect(clientUrl + '/catalog?auth=suspended&email=' + encodeURIComponent(email));
+                        });
+                    });
+                }
+                return fail('UNKNOWN_STATUS');
             });
-        } else {
-            res.redirect(clientUrl + '/catalog?auth=failed&reason=UNKNOWN_STATUS');
-        }
-    }
-);  
+        };
+        run().catch(next);
+    })(req, res, next);
+});  
 
 // Current user endpoint - include full permissions context
 app.get('/api/auth/current_user', async (req, res) => {

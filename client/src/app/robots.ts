@@ -1,13 +1,16 @@
 import type { MetadataRoute } from "next";
-import { getSiteUrl } from "@/lib/site";
+import { getStorefrontSeoContext } from "@/lib/storefront-seo";
 
-export default function robots(): MetadataRoute.Robots {
-  const base = getSiteUrl();
+export const dynamic = "force-dynamic";
+
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  const seo = await getStorefrontSeoContext();
+  const base = seo.origin.replace(/\/$/, "");
   return {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: "/admin",
+      disallow: ["/admin", "/login", "/reseller", "/profile"],
     },
     sitemap: `${base}/sitemap.xml`,
   };

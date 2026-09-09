@@ -1,16 +1,15 @@
 import type { Metadata } from "next";
 import { getPolicyPlainText } from "@/lib/policy-content";
-import { getSiteUrl } from "@/lib/site";
 import { POLICY_PRIVACY_PATH } from "@/lib/routes";
+import { policyPageMetadata } from "@/lib/policy-metadata";
 
-const site = getSiteUrl();
-
-export const metadata: Metadata = {
-  title: "Privacy Policy",
-  description: "How KC Jewellers collects, uses, and protects your personal data.",
-  alternates: { canonical: `${site}${POLICY_PRIVACY_PATH}` },
-  robots: { index: true, follow: true },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return policyPageMetadata({
+    title: "Privacy Policy",
+    description: "How KC Jewellers collects, uses, and protects your personal data.",
+    path: POLICY_PRIVACY_PATH,
+  });
+}
 
 export const revalidate = 3600;
 

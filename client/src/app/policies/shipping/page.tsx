@@ -1,16 +1,15 @@
 import type { Metadata } from "next";
 import { getPolicyPlainText } from "@/lib/policy-content";
-import { getSiteUrl } from "@/lib/site";
 import { POLICY_SHIPPING_PATH } from "@/lib/routes";
+import { policyPageMetadata } from "@/lib/policy-metadata";
 
-const site = getSiteUrl();
-
-export const metadata: Metadata = {
-  title: "Shipping & Delivery Policy",
-  description: "Shipping regions, timelines, and delivery terms for KC Jewellers.",
-  alternates: { canonical: `${site}${POLICY_SHIPPING_PATH}` },
-  robots: { index: true, follow: true },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return policyPageMetadata({
+    title: "Shipping & Delivery Policy",
+    description: "Shipping regions, timelines, and delivery terms for KC Jewellers.",
+    path: POLICY_SHIPPING_PATH,
+  });
+}
 
 export const revalidate = 3600;
 

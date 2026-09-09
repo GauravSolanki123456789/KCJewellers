@@ -5,12 +5,14 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { ScrollText, LockKeyhole, ReceiptIndianRupee, Truck } from "lucide-react";
 import {
+  LOGIN_PATH,
   POLICY_PRIVACY_PATH,
   POLICY_REFUNDS_PATH,
   POLICY_SHIPPING_PATH,
   POLICY_TERMS_PATH,
 } from "@/lib/routes";
 import { useResellerBranding } from "@/context/ResellerBrandingContext";
+import { useAuth } from "@/hooks/useAuth";
 
 const YEAR = new Date().getFullYear();
 
@@ -23,8 +25,12 @@ const policyLinks = [
 
 export default function Footer() {
   const pathname = usePathname();
-  const { businessName, logoUrl, active: resellerActive } = useResellerBranding();
+  const auth = useAuth();
+  const { businessName, logoUrl, active: resellerActive, customDomainHost } =
+    useResellerBranding();
   const displayName = resellerActive ? businessName : "KC Jewellers";
+  const showStaffLogin =
+    customDomainHost && !auth.isAuthenticated && pathname !== LOGIN_PATH;
 
   if (pathname?.startsWith("/shared/") || pathname?.startsWith("/pricelist/")) {
     return null;
@@ -45,7 +51,15 @@ export default function Footer() {
               </Link>
             ))}
           </nav>
-          <p className="flex shrink-0 items-center gap-2 text-slate-600">
+          <p className="flex shrink-0 items-center gap-3 text-slate-600">
+            {showStaffLogin ? (
+              <Link
+                href={LOGIN_PATH}
+                className="text-xs tracking-wide text-slate-500 transition-colors hover:text-amber-400/90"
+              >
+                Staff login
+              </Link>
+            ) : null}
             {resellerActive && logoUrl ? (
               <span className="relative block size-6 shrink-0 overflow-hidden rounded bg-slate-800/40">
                 <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
@@ -54,16 +68,26 @@ export default function Footer() {
             <span>© {YEAR} {displayName}</span>
           </p>
         </div>
-        <p className="flex items-center justify-center gap-2 text-center text-xs text-slate-600 md:hidden">
-          {resellerActive && logoUrl ? (
-            <span className="relative block size-5 shrink-0 overflow-hidden rounded bg-slate-800/40">
-              <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
-            </span>
+        <div className="flex flex-col items-center gap-2 text-center text-xs text-slate-600 md:hidden">
+          {showStaffLogin ? (
+            <Link
+              href={LOGIN_PATH}
+              className="inline-flex min-h-[44px] items-center text-slate-500 transition-colors hover:text-amber-400/90"
+            >
+              Staff login
+            </Link>
           ) : null}
-          <span>
-            © {YEAR} {displayName}
-          </span>
-        </p>
+          <p className="flex items-center justify-center gap-2">
+            {resellerActive && logoUrl ? (
+              <span className="relative block size-5 shrink-0 overflow-hidden rounded bg-slate-800/40">
+                <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
+              </span>
+            ) : null}
+            <span>
+              © {YEAR} {displayName}
+            </span>
+          </p>
+        </div>
       </div>
     </footer>
   );

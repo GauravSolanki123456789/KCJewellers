@@ -4,13 +4,15 @@ import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import { ShieldX, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { CATALOG_PATH } from '@/lib/routes'
+import { CATALOG_PATH, LOGIN_PATH } from '@/lib/routes'
 import { KC_SUPER_ADMIN_EMAIL } from '@/lib/admin-access'
+import { useLoginModal } from '@/context/LoginModalContext'
 
 type UserType = { role?: string; email?: string; name?: string }
 
 export default function AdminGuard({ children }: { children: React.ReactNode }) {
   const auth = useAuth()
+  const { open: openLoginModal } = useLoginModal()
   const [isChecking, setIsChecking] = useState(true)
   const user = auth.user as UserType | undefined
   const email = (user?.email || '').toLowerCase().trim()
@@ -57,12 +59,13 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
           <ShieldX className="size-16 text-red-500/80 mx-auto mb-4" />
           <h1 className="text-xl font-semibold text-slate-200">Authentication Required</h1>
           <p className="text-slate-500 mt-2">Sign in to access the admin dashboard.</p>
-          <a
-            href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/google`}
+          <button
+            type="button"
+            onClick={() => openLoginModal(typeof window !== 'undefined' ? window.location.pathname : LOGIN_PATH)}
             className="mt-6 inline-block px-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-lg"
           >
-            Sign In with Google
-          </a>
+            Sign in
+          </button>
         </div>
       </div>
     )

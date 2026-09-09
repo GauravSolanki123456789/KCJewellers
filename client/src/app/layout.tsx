@@ -152,16 +152,16 @@ function resellerHostMetadata(
     ogLogo && /^https?:\/\//i.test(ogLogo)
       ? [{ url: ogLogo, width: 1200, height: 1200, alt: brand }]
       : [{ url: defaultOgAbs, width: 2048, height: 2048, alt: brand }];
-  const ogIcon =
-    ogLogo && /^https?:\/\//i.test(ogLogo)
-      ? {
-          icons: {
-            icon: [{ url: ogLogo, type: "image/png" }],
-            apple: [{ url: ogLogo, type: "image/png" }],
-            shortcut: [{ url: ogLogo }],
-          },
-        }
-      : {};
+  const ogIcon = {
+    icons: {
+      icon: [
+        { url: "/favicon.ico", sizes: "any" },
+        { url: "/icon", type: "image/png" },
+      ],
+      apple: [{ url: "/apple-icon", type: "image/png" }],
+      shortcut: [{ url: "/favicon.ico" }],
+    },
+  };
 
   return {
     metadataBase: new URL(origin),
@@ -179,7 +179,10 @@ function resellerHostMetadata(
       title: `${brand} — Jewellery Catalogue`,
       description:
         "Curated jewellery with today's rates — browse and shop online.",
-      images: ogImages,
+      images: [
+        { url: `${origin}/opengraph-image`, width: 1200, height: 1200, alt: brand },
+        ...ogImages,
+      ],
     },
     twitter: {
       card: "summary_large_image",
@@ -245,10 +248,14 @@ export default async function RootLayout({
             <link rel="dns-prefetch" href={imageHost} />
           </>
         ) : null}
-        {resellerLogoAbs ? (
+        {customDomainHost ? (
           <>
-            <link rel="icon" href={resellerLogoAbs} type="image/png" sizes="32x32" />
-            <link rel="apple-touch-icon" href={resellerLogoAbs} sizes="180x180" />
+            <link rel="icon" href="/favicon.ico" sizes="any" />
+            <link rel="icon" href="/icon" type="image/png" sizes="32x32" />
+            <link rel="apple-touch-icon" href="/apple-icon" sizes="180x180" />
+            {resellerLogoAbs ? (
+              <link rel="image_src" href={resellerLogoAbs} />
+            ) : null}
           </>
         ) : null}
       </head>
