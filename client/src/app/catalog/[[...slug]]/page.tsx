@@ -19,6 +19,7 @@ import {
   getStorefrontSeoContext,
   storefrontIconMetadata,
   storefrontOgImages,
+  storefrontSameOriginOgImages,
 } from "@/lib/storefront-seo";
 
 export async function generateMetadata({
@@ -39,7 +40,9 @@ export async function generateMetadata({
       : `Product Catalogue · KC Jewellers`;
     const description = buildCatalogBaseDescription(brandLabel);
     const pageUrl = `${origin}/catalog`;
-    const ogImages = storefrontOgImages(brandLabel, seo.logoUrl);
+    const ogImages = isResellerHost
+      ? storefrontSameOriginOgImages(origin, brandLabel)
+      : storefrontOgImages(brandLabel, seo.logoUrl);
     return {
       metadataBase: seo.metadataBase,
       title: { absolute: titleBase },
@@ -80,7 +83,7 @@ export async function generateMetadata({
         description,
         images: ogImages.map((i) => i.url),
       },
-      ...storefrontIconMetadata(seo.logoUrl),
+      ...storefrontIconMetadata(seo.logoUrl, isResellerHost),
     };
   }
 
@@ -115,7 +118,7 @@ export async function generateMetadata({
   const canonical = `${origin}/catalog/${pathSeg}`;
 
   const ogImages = isResellerHost
-    ? storefrontOgImages(brandLabel, seo.logoUrl)
+    ? storefrontSameOriginOgImages(origin, brandLabel)
     : storefrontOgImages(
         brandLabel,
         seo.logoUrl,
@@ -155,7 +158,7 @@ export async function generateMetadata({
       description,
       images: ogImages.map((i) => i.url),
     },
-    ...storefrontIconMetadata(seo.logoUrl),
+    ...storefrontIconMetadata(seo.logoUrl, isResellerHost),
   };
 }
 

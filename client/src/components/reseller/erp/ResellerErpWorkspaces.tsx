@@ -7,7 +7,7 @@ import { Loader2, MessageCircle, Plus, Search, Trash2, ScanLine, Download, Uploa
 import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
 import { GST_STATE_OPTIONS } from '@/lib/erp-place-of-supply'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
-import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import {
@@ -16,6 +16,7 @@ import {
   erpCardCls,
   erpInputCls,
   erpErr,
+  normalizeErpCustomerSlab,
   type ErpBill,
   type ErpBillLine,
   type ErpCustomer,
@@ -122,6 +123,7 @@ export function CustomersWorkspace() {
     birthdate: '',
     anniversary_date: '',
     notes: '',
+    rate_slab: 'R' as 'R' | 'W' | 'F',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
 
@@ -136,6 +138,7 @@ export function CustomersWorkspace() {
     birthdate: '',
     anniversary_date: '',
     notes: '',
+    rate_slab: 'R' as 'R' | 'W' | 'F',
   })
 
   const loadCustomerIntoForm = (c: ErpCustomer) => {
@@ -148,9 +151,10 @@ export function CustomersWorkspace() {
       pan: c.pan || '',
       address: c.address || '',
       state: c.state || '',
-      birthdate: c.birthdate ? formatErpDateDdMmYyyy(c.birthdate) : '',
-      anniversary_date: c.anniversary_date ? formatErpDateDdMmYyyy(c.anniversary_date) : '',
+      birthdate: toIsoDateInput(c.birthdate),
+      anniversary_date: toIsoDateInput(c.anniversary_date),
       notes: c.notes || '',
+      rate_slab: normalizeErpCustomerSlab(c.rate_slab),
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -197,7 +201,7 @@ export function CustomersWorkspace() {
     await load()
   }
 
-  const CUSTOMER_COLS = ['Name', 'Mobile', 'Email', 'GSTIN', 'PAN', 'Address', 'Birthday', 'Anniversary', 'Notes'] as const
+  const CUSTOMER_COLS = ['Name', 'Mobile', 'Email', 'GSTIN', 'PAN', 'Address', 'Birthday', 'Anniversary', 'Notes', 'Slab'] as const
 
   const downloadAllExcel = async () => {
     setBusy(true)
@@ -214,6 +218,7 @@ export function CustomersWorkspace() {
         Birthday: c.birthdate ? formatErpDateDdMmYyyy(String(c.birthdate)) : '',
         Anniversary: c.anniversary_date ? formatErpDateDdMmYyyy(String(c.anniversary_date)) : '',
         Notes: c.notes ?? '',
+        Slab: normalizeErpCustomerSlab(String(c.rate_slab ?? '')),
       }))
       const XLSX = await import('xlsx')
       const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Name: '' }])
@@ -241,6 +246,7 @@ export function CustomersWorkspace() {
         Birthday: '15/01/1990',
         Anniversary: '20/06/2015',
         Notes: 'Optional notes',
+        Slab: 'W',
       },
     ]
     const ws = XLSX.utils.json_to_sheet(sample)
@@ -262,8 +268,13 @@ export function CustomersWorkspace() {
       const rows = raw.map((row) => {
         const out: Record<string, string> = {}
         for (const col of CUSTOMER_COLS) {
-          const v = row[col] ?? row[col.toLowerCase()]
+          const v = row[col] ?? row[col.toLowerCase()] ?? row[col.toUpperCase()]
           if (v != null && String(v).trim() !== '') out[col] = String(v).trim()
+        }
+        const slabVal = row.Slab ?? row.SLAB ?? row.slab ?? row.rate_slab
+        if (slabVal != null && String(slabVal).trim() !== '') {
+          out.Slab = String(slabVal).trim()
+          out.rate_slab = String(slabVal).trim()
         }
         return out
       })
@@ -414,6 +425,18 @@ export function CustomersWorkspace() {
             ))}
           </select>
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+            Slab
+            <select
+              className={`${erpInputCls} mt-1`}
+              value={form.rate_slab}
+              onChange={(e) => setForm({ ...form, rate_slab: e.target.value as 'R' | 'W' | 'F' })}
+            >
+              <option value="R">Slab R (Retail)</option>
+              <option value="W">Slab W (Wholesale)</option>
+              <option value="F">Slab F</option>
+            </select>
+          </label>
+          <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
             Birthday (dd/mm/yyyy)
             <ErpDateInput className={`${erpInputCls} mt-1`} value={form.birthdate} onChange={(v) => setForm({ ...form, birthdate: v })} />
           </label>
@@ -447,7 +470,7 @@ export function CustomersWorkspace() {
                 <div className="min-w-0">
                   <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{c.name}</p>
                   <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                    {[c.mobile, c.gstin, c.pan, c.email].filter(Boolean).join(' · ') || '—'}
+                    {[c.mobile, c.gstin, c.pan, c.email, `Slab ${normalizeErpCustomerSlab(c.rate_slab)}`].filter(Boolean).join(' · ') || '—'}
                   </p>
                   {(c.birthdate || c.anniversary_date) && (
                     <p className="mt-1 text-[11px] text-[var(--kc-accent,#c41e3a)]">

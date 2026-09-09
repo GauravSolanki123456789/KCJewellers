@@ -24,14 +24,13 @@ export default function SignInPanel({
   variant = "modal",
 }: SignInPanelProps) {
   const pathname = usePathname();
-  const { customDomainHost, businessName, active: resellerActive } = useResellerBranding();
+  const { customDomainHost } = useResellerBranding();
   const [step, setStep] = useState<"choose" | "mobile" | "otp">("choose");
   const [mobile_number, setMobileNumber] = useState("");
   const [otp_code, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const brand = resellerActive ? businessName : "KC Jewellers";
   const defaultReturn =
     customDomainHost ? PROFILE_PATH : pathname || CATALOG_PATH;
   const target = returnTo || defaultReturn;
@@ -96,13 +95,16 @@ export default function SignInPanel({
     window.location.href = buildGoogleOAuthStartUrl(safeReturnTo);
   };
 
-  const subtitle = customDomainHost
-    ? `Sign in to ${brand} — dashboard, ERP, rates and catalogues stay on this website.`
-    : "Sign in to access cart, checkout, and Book Rate";
+  const subtitle =
+    variant === 'page'
+      ? null
+      : customDomainHost
+        ? null
+        : 'Sign in to access cart, checkout, and Book Rate'
 
   return (
     <div className="space-y-4">
-      {variant === "page" ? (
+      {subtitle ? (
         <p className="text-sm leading-relaxed text-slate-400">{subtitle}</p>
       ) : null}
 

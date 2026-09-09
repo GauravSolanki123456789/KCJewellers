@@ -224,6 +224,17 @@ export type ErpCustomer = {
   birthdate?: string | null
   anniversary_date?: string | null
   notes?: string | null
+  /** Assigned making-charge slab: R / W / F */
+  rate_slab?: string | null
+}
+
+export type ErpRateSlabCode = 'R' | 'W' | 'F'
+
+export function normalizeErpCustomerSlab(raw?: string | null): ErpRateSlabCode {
+  const s = String(raw || '').trim().toUpperCase().replace(/^SLAB\s*/, '')
+  if (s === 'W' || s === 'WHOLESALE') return 'W'
+  if (s === 'F') return 'F'
+  return 'R'
 }
 
 export type ErpKarigar = {

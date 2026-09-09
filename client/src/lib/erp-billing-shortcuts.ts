@@ -49,7 +49,7 @@ export function createManualBillLine(
   const lineId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const isGiftOrMrp = category === 'gift' || !!invoiceItem.mrp
   const base: ErpBillLine = {
-    name: invoiceItem.name,
+    name: category === 'gift' ? '' : invoiceItem.name,
     code: lineId,
     barcode: '',
     sku: undefined,

@@ -1,23 +1,18 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { getSiteUrl } from "@/lib/site";
-import { getOgImagePath } from "@/lib/og-image";
 import {
   fetchPublicResellerBranding,
 } from "@/lib/reseller-branding-server";
-import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
+import {
+  publicRequestOrigin,
+  storefrontIconMetadata,
+  storefrontSameOriginOgImages,
+  storefrontOgImages,
+} from "@/lib/storefront-seo";
+import { getOgImagePath } from "@/lib/og-image";
+import { getSiteUrl } from "@/lib/site";
 
 const PAGE_TITLE = "Today Rates";
-
-function canonicalRequestOrigin(headersList: Headers): string {
-  const host = headersList.get("host")?.trim();
-  if (!host) return getSiteUrl();
-  const name = host.split(":")[0].toLowerCase();
-  if (name === "localhost" || name === "127.0.0.1") return getSiteUrl();
-  const xfProto = headersList.get("x-forwarded-proto")?.trim().toLowerCase();
-  const proto = xfProto === "http" ? "http" : "https";
-  return `${proto}://${host.split(":")[0]}`;
-}
 
 export async function generateMetadata(): Promise<Metadata> {
   const h = await headers();
@@ -26,33 +21,22 @@ export async function generateMetadata(): Promise<Metadata> {
   const brandLabel = branding?.businessName?.trim() || "KC Jewellers";
   const isResellerHost = !!(rawDomain && branding?.businessName);
 
-  const origin = canonicalRequestOrigin(h);
-  const siteFallback = getSiteUrl();
+  const origin = publicRequestOrigin(h);
   const metadataBase = new URL(origin);
   const pageUrl = `${origin.replace(/\/$/, "")}/rates`;
 
-  const ogBrandImage = normalizeResellerLogoUrl(branding?.logoUrl ?? null);
-  const defaultOgRel = getOgImagePath();
-  const defaultOgAbs = new URL(defaultOgRel, new URL(siteFallback)).toString();
-
-  const ogImages =
-    ogBrandImage && /^https?:\/\//i.test(ogBrandImage)
-      ? [{ url: ogBrandImage, width: 1200, height: 1200, alt: brandLabel }]
-      : [{ url: defaultOgAbs, width: 2048, height: 2048, alt: brandLabel }];
+  const ogImages = isResellerHost
+    ? storefrontSameOriginOgImages(origin, brandLabel)
+    : storefrontOgImages(brandLabel, null, {
+        url: new URL(getOgImagePath(), new URL(getSiteUrl())).toString(),
+        width: 2048,
+        height: 2048,
+        alt: brandLabel,
+      });
 
   const description = isResellerHost
     ? `${brandLabel} — today's gold (24K, 22K, 18K) and silver rates. Browse our jewellery catalogue.`
     : "Today's gold (24K, 22K, 18K) and silver rates at KC Jewellers — view prices and book your rate in one place.";
-
-  const ogIcon =
-    ogBrandImage && /^https?:\/\//i.test(ogBrandImage)
-      ? {
-          icons: {
-            icon: [{ url: ogBrandImage }],
-            apple: [{ url: ogBrandImage }],
-          },
-        }
-      : {};
 
   return {
     metadataBase,
@@ -76,7 +60,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       images: ogImages.map((i) => i.url),
     },
-    ...ogIcon,
+    ...storefrontIconMetadata(null, isResellerHost),
   };
 }
 

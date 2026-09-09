@@ -11,12 +11,12 @@ import {
   getStorefrontTenantFromHeaders,
   type PublicResellerBranding,
 } from "@/lib/reseller-branding-server";
-import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
 import {
   fetchPublicKcAppThemeId,
   fetchSharedCatalogKcThemeId,
 } from "@/lib/kc-theme-server";
 import { isLightKcThemeId, normalizeKcThemeId } from "@/lib/kc-theme-ids";
+import { publicRequestOrigin } from "@/lib/storefront-seo";
 import { CartProvider } from "@/context/CartContext";
 // Ensure axios sends cookies with cross-origin requests (must load before any API calls)
 import "@/lib/axios";
@@ -132,13 +132,7 @@ const kcMetadata: Metadata = {
 };
 
 function storefrontOriginFromHeaders(h: Headers): string {
-  const host = h.get("host")?.trim();
-  if (!host) return site.replace(/\/$/, "");
-  const name = host.split(":")[0].toLowerCase();
-  if (name === "localhost" || name === "127.0.0.1") return site.replace(/\/$/, "");
-  const xfProto = h.get("x-forwarded-proto")?.trim().toLowerCase();
-  const proto = xfProto === "http" ? "http" : "https";
-  return `${proto}://${host.split(":")[0]}`;
+  return publicRequestOrigin(h);
 }
 
 function resellerHostMetadata(
@@ -146,12 +140,6 @@ function resellerHostMetadata(
   origin: string,
 ): Metadata {
   const brand = branding.businessName?.trim() || "Partner store";
-  const ogLogo = normalizeResellerLogoUrl(branding.logoUrl);
-  const defaultOgAbs = new URL(ogImage, new URL(site)).toString();
-  const ogImages =
-    ogLogo && /^https?:\/\//i.test(ogLogo)
-      ? [{ url: ogLogo, width: 1200, height: 1200, alt: brand }]
-      : [{ url: defaultOgAbs, width: 2048, height: 2048, alt: brand }];
   const ogIcon = {
     icons: {
       icon: [
@@ -181,14 +169,13 @@ function resellerHostMetadata(
         "Curated jewellery with today's rates — browse and shop online.",
       images: [
         { url: `${origin}/opengraph-image`, width: 1200, height: 1200, alt: brand },
-        ...ogImages,
       ],
     },
     twitter: {
       card: "summary_large_image",
       title: brand,
       description: "Curated jewellery with today's rates.",
-      images: ogImages.map((i) => i.url),
+      images: [`${origin}/opengraph-image`],
     },
     robots: { index: true, follow: true },
     alternates: { canonical: origin },
@@ -227,10 +214,6 @@ export default async function RootLayout({
   }
 
   const resolvedKcThemeId = normalizeKcThemeId(initialKcThemeId);
-  const resellerLogoAbs =
-    customDomainHost && resellerHostBranding?.logoUrl
-      ? normalizeResellerLogoUrl(resellerHostBranding.logoUrl)
-      : null;
 
   return (
     <html
@@ -253,9 +236,7 @@ export default async function RootLayout({
             <link rel="icon" href="/favicon.ico" sizes="any" />
             <link rel="icon" href="/icon" type="image/png" sizes="32x32" />
             <link rel="apple-touch-icon" href="/apple-icon" sizes="180x180" />
-            {resellerLogoAbs ? (
-              <link rel="image_src" href={resellerLogoAbs} />
-            ) : null}
+            <link rel="image_src" href="/opengraph-image" />
           </>
         ) : null}
       </head>

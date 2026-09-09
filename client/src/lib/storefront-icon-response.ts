@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { getStorefrontTenantFromHeaders } from "@/lib/reseller-branding-server";
 import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
 
@@ -24,6 +25,37 @@ async function readFallbackPng(kind: "icon" | "og"): Promise<Buffer> {
   throw new Error("Default storefront icon not found");
 }
 
+async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(logoUrl, { next: { revalidate: 300 } });
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/** Square PNG so WhatsApp/OG crawlers never receive a 20MP JPEG from the API host. */
+async function fitLogoOnSquare(src: Buffer, size: number): Promise<Buffer> {
+  const inner = Math.max(32, Math.round(size * 0.86));
+  const fitted = await sharp(src)
+    .rotate()
+    .resize(inner, inner, { fit: "inside", withoutEnlargement: false })
+    .png()
+    .toBuffer();
+  return sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    },
+  })
+    .composite([{ input: fitted, gravity: "centre" }])
+    .png({ compressionLevel: 8 })
+    .toBuffer();
+}
+
 /**
  * Same-origin favicon / OG bytes for the current Host.
  * Reseller vanity domains serve their uploaded logo so WhatsApp/Google never see the KC mark.
@@ -36,22 +68,22 @@ export async function storefrontBrandImageResponse(
     customDomainHost && branding?.logoUrl
       ? normalizeResellerLogoUrl(branding.logoUrl)
       : null;
+  const size = kind === "og" ? 1200 : 256;
 
   if (logoUrl) {
-    try {
-      const res = await fetch(logoUrl, { next: { revalidate: 3600 } });
-      if (res.ok) {
-        const buf = await res.arrayBuffer();
-        const ct = res.headers.get("content-type")?.trim() || "image/png";
-        return new Response(buf, {
+    const raw = await fetchLogoBuffer(logoUrl);
+    if (raw) {
+      try {
+        const png = await fitLogoOnSquare(raw, size);
+        return new Response(new Uint8Array(png), {
           headers: {
-            "Content-Type": ct,
+            "Content-Type": "image/png",
             "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
           },
         });
+      } catch {
+        /* fall through to original bytes / KC mark */
       }
-    } catch {
-      /* fall through */
     }
   }
 

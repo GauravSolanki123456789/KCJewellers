@@ -21,10 +21,26 @@ export function formatErpDateTime(iso?: string | null): string {
   return `${date}, ${time}`
 }
 
+export function toIsoDateInput(raw?: string | null): string {
+  if (!raw) return ''
+  const s = String(raw).trim()
+  if (!s || s === '—') return ''
+  const iso = s.slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const fromDmy = parseDdMmYyyyToIso(s)
+  if (fromDmy) return fromDmy
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return ''
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 /** ISO yyyy-mm-dd → dd/mm/yyyy for text inputs. */
 export function isoToDdMmYyyyInput(iso?: string | null): string {
   if (!iso) return ''
-  const s = String(iso).trim().slice(0, 10)
+  const s = toIsoDateInput(iso)
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
   if (m) return `${m[3]}/${m[2]}/${m[1]}`
   return ''

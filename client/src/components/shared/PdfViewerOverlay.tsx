@@ -196,9 +196,6 @@ export default function PdfViewerOverlay() {
             {waMode === 'customer' ? 'Send to customer' : 'WhatsApp'}
           </button>
         </div>
-        <p className="mx-auto mt-2 max-w-5xl text-[11px] text-[#1a1814]/50">
-          Send to customer opens WhatsApp to their number with the PDF (share sheet on mobile, chat + attach on desktop).
-        </p>
       </header>
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden p-2 sm:p-4">

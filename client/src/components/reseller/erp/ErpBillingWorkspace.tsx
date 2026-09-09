@@ -29,7 +29,7 @@ import {
   type ErpPaymentMethod,
 } from '@/lib/erp-ledger-routing'
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
-import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
@@ -79,6 +79,7 @@ import {
   erpCardCls,
   erpErr,
   erpInputCls,
+  normalizeErpCustomerSlab,
   type ErpBill,
   type ErpBillLine,
   type ErpCustomer,
@@ -753,18 +754,15 @@ export function ErpBillingWorkspace() {
       }),
     )
     setSelectedCustomer(c)
-    setCustomerBirthdate(c.birthdate ? formatErpDateDdMmYyyy(c.birthdate) : '')
-    setCustomerAnniversary(c.anniversary_date ? formatErpDateDdMmYyyy(c.anniversary_date) : '')
+    setCustomerBirthdate(toIsoDateInput(c.birthdate))
+    setCustomerAnniversary(toIsoDateInput(c.anniversary_date))
     setCustomerNotes(c.notes || '')
     setCustomerQ('')
     setCustomerPickIdx(-1)
-  }
-
-  const pickHighlightedCustomer = () => {
-    const list = customers.slice(0, 8)
-    if (customerPickIdx >= 0 && customerPickIdx < list.length) {
-      selectCustomer(list[customerPickIdx])
-    }
+    const assigned = normalizeErpCustomerSlab(c.rate_slab)
+    setRateSlab(assigned)
+    setLines((prev) => (prev.length ? transitionLinesForSlab(prev, assigned) : prev))
+    requestAnimationFrame(() => scanRef.current?.focus())
   }
 
   const saveCustomerQuick = async () => {
@@ -784,6 +782,7 @@ export function ErpBillingWorkspace() {
         birthdate: customerBirthdate.trim() || undefined,
         anniversary_date: customerAnniversary.trim() || undefined,
         notes: customerNotes.trim() || undefined,
+        rate_slab: rateSlab,
       }
       const res = customerId
         ? await axios.put<{ success: boolean; customer: ErpCustomer }>(
@@ -803,17 +802,24 @@ export function ErpBillingWorkspace() {
   }
 
   const onCustomerKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    const list = customerQ.trim() && customers.length > 0 ? customers.slice(0, 8) : []
-    if (!list.length) return
+    const list = customers.slice(0, 8)
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (customerQ.trim() && list.length > 0) {
+        const idx = customerPickIdx >= 0 && customerPickIdx < list.length ? customerPickIdx : 0
+        selectCustomer(list[idx]!)
+        return
+      }
+      requestAnimationFrame(() => scanRef.current?.focus())
+      return
+    }
+    if (!customerQ.trim() || !list.length) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setCustomerPickIdx((i) => Math.min(i + 1, list.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setCustomerPickIdx((i) => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' && customerPickIdx >= 0) {
-      e.preventDefault()
-      pickHighlightedCustomer()
     } else if (e.key === 'Escape') {
       setCustomerPickIdx(-1)
       setCustomerQ('')
@@ -2124,7 +2130,7 @@ export function ErpBillingWorkspace() {
           </div>
         </div>
 
-        <div className={`${erpCardCls} overflow-hidden p-0`}>
+        <div className={`${erpCardCls} overflow-visible p-0`}>
           <div className="flex items-center justify-between border-b border-[var(--color-slate-700,#e8e4df)] bg-blue-600 px-3 py-2.5 text-white">
             <span className="text-sm font-semibold">Scanned products</span>
             <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">{lines.length} items</span>

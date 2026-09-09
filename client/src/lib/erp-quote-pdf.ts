@@ -90,13 +90,8 @@ export function buildErpQuotePdfFilename(params: {
   customerName?: string | null
   createdAt?: string | null
 }): string {
-  const num = slugPart(params.billNumber.replace(/\s+/g, '-'), 24) || 'quote'
-  const name = params.customerName?.trim() ? slugPart(params.customerName, 28) : 'customer'
-  const d = params.createdAt ? new Date(params.createdAt) : new Date()
-  const stamp = Number.isNaN(d.getTime())
-    ? new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
-    : `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
-  return `${num}-${name}-${stamp}.pdf`
+  const num = slugPart(params.billNumber.replace(/\s+/g, '-'), 32) || 'ESTIMATE'
+  return `${num}.pdf`
 }
 
 export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown): ErpQuoteTotals {
@@ -268,24 +263,14 @@ export function erpLinesToPdfItems(lines: ErpBillLine[]): ItemWithPdfImage[] {
   })
 }
 
-export function buildErpQuoteWhatsAppMessage(params: {
+export function buildErpQuoteWhatsAppMessage(_params: {
   brandLabel: string
   bill: ErpBill
   customerName?: string | null
   mobile?: string | null
   filename: string
 }): string {
-  const { brandLabel, bill, customerName, filename } = params
-  const greeting = customerName?.trim() ? `Hi ${customerName.trim()},` : 'Hi,'
-  const lines = bill.lines ?? []
-  const itemLines = lines
-    .map((l, i) => {
-      const amt = l.lineTotalInr != null ? formatErpInr(l.lineTotalInr) : '—'
-      const wt = l.weightGm != null ? ` · ${l.weightGm} gm` : ''
-      return `${i + 1}. ${l.name}${wt} — ${amt}`
-    })
-    .join('\n')
-  return `${greeting}\n\nPlease find your quotation *${bill.bill_number}* from ${brandLabel} attached (${filename}).\n\n${itemLines}\n\n*Total (incl. GST):* ${formatErpInr(bill.total_inr)}\n\nThank you!`
+  return ''
 }
 
 export function erpCustomerWhatsAppHref(mobile: string | null | undefined, text: string): string | null {

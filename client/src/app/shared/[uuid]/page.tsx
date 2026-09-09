@@ -1,25 +1,18 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import SharedCatalogClient from "./shared-catalog-client";
-import { getApiUrlForServer, getSiteUrl } from "@/lib/site";
-import { getOgImagePath } from "@/lib/og-image";
+import { getApiUrlForServer } from "@/lib/site";
 import {
   fetchPublicResellerBranding,
   type PublicResellerBranding,
 } from "@/lib/reseller-branding-server";
 import { normalizeResellerLogoUrl } from "@/lib/normalize-image-url";
 import { normalizeKcThemeId } from "@/lib/kc-theme-ids";
-
-/** Canonical URL for this response — preserves reseller vanity host for OG `url`. */
-function canonicalRequestOrigin(headersList: Headers): string {
-  const host = headersList.get("host")?.trim();
-  if (!host) return getSiteUrl();
-  const name = host.split(":")[0].toLowerCase();
-  if (name === "localhost" || name === "127.0.0.1") return getSiteUrl();
-  const xfProto = headersList.get("x-forwarded-proto")?.trim().toLowerCase();
-  const proto = xfProto === "http" ? "http" : "https";
-  return `${proto}://${host.split(":")[0]}`;
-}
+import {
+  publicRequestOrigin,
+  storefrontIconMetadata,
+  storefrontSameOriginOgImages,
+} from "@/lib/storefront-seo";
 
 async function fetchBrochureOgHints(uuid: string): Promise<{
   creatorBusinessName: string | null;
@@ -70,7 +63,7 @@ function mergeSharedBranding(
   const creatorName = hints?.creatorBusinessName?.trim() || null;
   const name = domainName || creatorName || null;
 
-  const domainLogo = domainBranding?.logoUrl ?? null;
+  const domainLogo = normalizeResellerLogoUrl(domainBranding?.logoUrl ?? null);
   const creatorLogoNorm = normalizeResellerLogoUrl(hints?.creatorLogoUrl ?? null);
   const logo = domainLogo || creatorLogoNorm || null;
 
@@ -112,46 +105,10 @@ export async function generateMetadata({
     hints?.creatorBusinessName?.trim() ||
     "KC Jewellers";
 
-  const ogBrandImage =
-    normalizeResellerLogoUrl(domainBranding?.logoUrl ?? null) ||
-    normalizeResellerLogoUrl(hints?.creatorLogoUrl ?? null);
-
-  const origin = canonicalRequestOrigin(h);
-  const siteFallback = getSiteUrl();
+  const origin = publicRequestOrigin(h);
   const metadataBase = new URL(origin);
   const pageUrl = `${origin.replace(/\/$/, "")}/shared/${encodeURIComponent(uuid)}`;
-
-  const defaultOgRel = getOgImagePath();
-  const defaultOgAbs = new URL(defaultOgRel, new URL(siteFallback)).toString();
-
-  const ogImages =
-    ogBrandImage && /^https?:\/\//i.test(ogBrandImage)
-      ? [
-          {
-            url: ogBrandImage,
-            width: 1200,
-            height: 1200,
-            alt: brandLabel,
-          },
-        ]
-      : [
-          {
-            url: defaultOgAbs,
-            width: 2048,
-            height: 2048,
-            alt: brandLabel,
-          },
-        ];
-
-  const ogIcon =
-    ogBrandImage && /^https?:\/\//i.test(ogBrandImage)
-      ? {
-          icons: {
-            icon: [{ url: ogBrandImage }],
-            apple: [{ url: ogBrandImage }],
-          },
-        }
-      : {};
+  const ogImages = storefrontSameOriginOgImages(origin, brandLabel);
 
   return {
     metadataBase,
@@ -176,7 +133,7 @@ export async function generateMetadata({
       description: "Curated jewellery selection — live pricing incl. GST.",
       images: ogImages.map((i) => i.url),
     },
-    ...ogIcon,
+    ...storefrontIconMetadata(null, true),
   };
 }
 

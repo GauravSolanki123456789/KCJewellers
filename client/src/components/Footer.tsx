@@ -62,7 +62,7 @@ export default function Footer() {
             ) : null}
             {resellerActive && logoUrl ? (
               <span className="relative block size-6 shrink-0 overflow-hidden rounded bg-slate-800/40">
-                <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
+                <Image src="/icon" alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
               </span>
             ) : null}
             <span>© {YEAR} {displayName}</span>
@@ -80,7 +80,7 @@ export default function Footer() {
           <p className="flex items-center justify-center gap-2">
             {resellerActive && logoUrl ? (
               <span className="relative block size-5 shrink-0 overflow-hidden rounded bg-slate-800/40">
-                <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
+                <Image src="/icon" alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
               </span>
             ) : null}
             <span>

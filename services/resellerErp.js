@@ -66,6 +66,11 @@ async function ensureResellerErpSchema(pool) {
             ADD COLUMN IF NOT EXISTS pan VARCHAR(20);
         ALTER TABLE reseller_erp_customers
             ADD COLUMN IF NOT EXISTS state VARCHAR(64);
+        ALTER TABLE reseller_erp_customers
+            ADD COLUMN IF NOT EXISTS rate_slab VARCHAR(1);
+        UPDATE reseller_erp_customers
+            SET rate_slab = 'R'
+            WHERE rate_slab IS NULL OR TRIM(rate_slab) = '';
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_customers_reseller
             ON reseller_erp_customers (reseller_user_id, created_at DESC);
 
@@ -364,7 +369,14 @@ async function nextBillNumber(query, userId, billType) {
     const re = new RegExp(`^${prefix}-(\\d+)$`, 'i');
     for (const row of rows) {
         const m = re.exec(String(row.bill_number || '').trim().toUpperCase());
-        if (m) used.add(parseInt(m[1], 10));
+        if (!m) continue;
+        const digits = m[1];
+        const n = parseInt(digits, 10);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        // Old error fallback wrote ESTIMATE-0001 (4 digits). Do not treat that as slot 1
+        // so gap reuse still yields ESTIMATE-001, ESTIMATE-002, …
+        if (billType === 'estimate' && digits.length > 3 && n < 1000) continue;
+        used.add(n);
     }
     const pad = billType === 'estimate' ? 3 : 4;
     const { n, width } = nextGapNumber(used, pad);
@@ -449,6 +461,13 @@ async function rememberManualBillPrefix(query, userId, billNumber) {
     );
 }
 
+function normalizeCustomerRateSlab(raw) {
+    const s = String(raw || '').trim().toUpperCase().replace(/^SLAB\s*/, '');
+    if (s === 'W' || s === 'WHOLESALE') return 'W';
+    if (s === 'F') return 'F';
+    return 'R';
+}
+
 function mapCustomer(row) {
     if (!row) return row;
     return {
@@ -463,6 +482,7 @@ function mapCustomer(row) {
         birthdate: row.birthdate,
         anniversary_date: row.anniversary_date,
         notes: row.notes,
+        rate_slab: normalizeCustomerRateSlab(row.rate_slab),
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -668,8 +688,8 @@ function registerResellerErpRoutes(app, deps) {
             const rows = await query(
                 `INSERT INTO reseller_erp_customers (
                     reseller_user_id, name, mobile, email, gstin, pan, address, state,
-                    birthdate, anniversary_date, notes
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    birthdate, anniversary_date, notes, rate_slab
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -683,6 +703,7 @@ function registerResellerErpRoutes(app, deps) {
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
+                    normalizeCustomerRateSlab(req.body.rate_slab || req.body.slab),
                 ],
             );
             res.json({ success: true, customer: mapCustomer(rows[0]) });
@@ -703,8 +724,8 @@ function registerResellerErpRoutes(app, deps) {
             const rows = await query(
                 `UPDATE reseller_erp_customers SET
                     name = $1, mobile = $2, email = $3, gstin = $4, pan = $5, address = $6, state = $7,
-                    birthdate = $8, anniversary_date = $9, notes = $10, updated_at = NOW()
-                 WHERE id = $11 AND reseller_user_id = $12
+                    birthdate = $8, anniversary_date = $9, notes = $10, rate_slab = $11, updated_at = NOW()
+                 WHERE id = $12 AND reseller_user_id = $13
                  RETURNING *`,
                 [
                     name,
@@ -717,6 +738,7 @@ function registerResellerErpRoutes(app, deps) {
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
+                    normalizeCustomerRateSlab(req.body.rate_slab || req.body.slab),
                     id,
                     req.user.id,
                 ],
@@ -747,7 +769,7 @@ function registerResellerErpRoutes(app, deps) {
     app.get('/api/reseller/erp/customers/export', checkAuth, erpGate, async (req, res) => {
         try {
             const rows = await query(
-                `SELECT name, mobile, email, gstin, pan, address, birthdate, anniversary_date, notes
+                `SELECT name, mobile, email, gstin, pan, address, birthdate, anniversary_date, notes, rate_slab
                  FROM reseller_erp_customers WHERE reseller_user_id = $1
                  ORDER BY name ASC LIMIT 5000`,
                 [req.user.id],
@@ -776,8 +798,8 @@ function registerResellerErpRoutes(app, deps) {
                 await query(
                     `INSERT INTO reseller_erp_customers (
                         reseller_user_id, name, mobile, email, gstin, pan, address,
-                        birthdate, anniversary_date, notes
-                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+                        birthdate, anniversary_date, notes, rate_slab
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
                     [
                         req.user.id,
                         name,
@@ -789,6 +811,9 @@ function registerResellerErpRoutes(app, deps) {
                         parseDateOrNull(row.birthdate || row.Birthday),
                         parseDateOrNull(row.anniversary_date || row.Anniversary),
                         trimStr(row.notes || row.Notes, 2000),
+                        normalizeCustomerRateSlab(
+                            row.rate_slab || row.slab || row.Slab || row.SLAB,
+                        ),
                     ],
                 );
                 inserted++;
@@ -901,7 +926,9 @@ function registerResellerErpRoutes(app, deps) {
                 billNumber = await nextBillNumber(query, req.user.id, billType);
             } catch (inner) {
                 console.error('erp next bill number (auto):', inner);
-                billNumber = billType === 'sale' ? 'SCB001' : `${billTypePrefix(billType)}-0001`;
+                billNumber = billType === 'sale'
+                    ? 'SCB001'
+                    : `${billTypePrefix(billType)}-${billType === 'estimate' ? '001' : '0001'}`;
             }
             try {
                 manualSuggestion = await suggestManualBillNumber(

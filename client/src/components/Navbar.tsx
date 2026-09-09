@@ -173,7 +173,7 @@ export default function Navbar() {
                 {resellerBrandingActive && logoUrl ? (
                   <span className="relative block size-8 shrink-0 overflow-hidden rounded-md bg-white ring-1 ring-slate-700/30 md:size-9">
                     <Image
-                      src={logoUrl}
+                      src="/icon"
                       alt={businessName}
                       fill
                       className="object-contain p-0.5"

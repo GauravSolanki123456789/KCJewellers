@@ -13,8 +13,7 @@ import SignInPanel from '@/components/SignInPanel'
 
 export default function LoginModal() {
   const { isOpen, close, returnTo } = useLoginModal()
-  const { customDomainHost, businessName, active: resellerActive } = useResellerBranding()
-  const brand = resellerActive ? businessName : 'KC Jewellers'
+  const { customDomainHost } = useResellerBranding()
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
@@ -22,9 +21,7 @@ export default function LoginModal() {
         <DialogHeader>
           <DialogTitle className="text-amber-500 text-lg">Sign In</DialogTitle>
           <DialogDescription className="text-slate-400 text-sm">
-            {customDomainHost
-              ? `Sign in to ${brand} — your dashboard stays on this website.`
-              : 'Sign in to access cart, checkout, and Book Rate'}
+            {customDomainHost ? 'Sign in' : 'Sign in to access cart, checkout, and Book Rate'}
           </DialogDescription>
         </DialogHeader>
         <div className="py-2">

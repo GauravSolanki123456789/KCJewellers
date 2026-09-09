@@ -291,7 +291,7 @@ export default function SharedCatalogClient({
 
   const site = getSiteUrl()
   const brandLabel = initialBranding?.businessName?.trim() || 'KC Jewellers'
-  const brandLogo = initialBranding?.logoUrl?.trim() || null
+  const brandLogo = initialBranding?.logoUrl?.trim() ? '/icon' : null
 
   const giftingGstEnabled = sharedCatalogGiftingGstEnabled(payload)
 
@@ -916,8 +916,14 @@ export default function SharedCatalogClient({
   if (loading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-6 text-slate-100">
+        {brandLogo ? (
+          <span className="relative mb-6 block size-16 overflow-hidden rounded-xl border border-slate-700/60 bg-white shadow-sm">
+            <Image src={brandLogo} alt={brandLabel} fill className="object-contain p-1.5" sizes="64px" unoptimized />
+          </span>
+        ) : null}
         <div className="h-12 w-12 animate-spin rounded-full border-2 border-amber-500/30 border-t-amber-500" />
         <p className="mt-6 text-sm text-slate-400">Opening catalogue…</p>
+        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-600">{brandLabel}</p>
       </div>
     )
   }

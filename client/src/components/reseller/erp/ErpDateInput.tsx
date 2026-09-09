@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { erpInputCls } from '@/components/reseller/erp/erp-ui'
-import { isoToDdMmYyyyInput, parseDdMmYyyyToIso } from '@/lib/erp-date-format'
+import { isoToDdMmYyyyInput, parseDdMmYyyyToIso, toIsoDateInput } from '@/lib/erp-date-format'
 
 type Props = {
   value: string
@@ -12,10 +12,10 @@ type Props = {
 }
 
 export function ErpDateInput({ value, onChange, className, placeholder = 'dd/mm/yyyy' }: Props) {
-  const [text, setText] = useState(() => isoToDdMmYyyyInput(value))
+  const [text, setText] = useState(() => isoToDdMmYyyyInput(toIsoDateInput(value) || value))
 
   useEffect(() => {
-    setText(isoToDdMmYyyyInput(value))
+    setText(isoToDdMmYyyyInput(toIsoDateInput(value) || value))
   }, [value])
 
   return (

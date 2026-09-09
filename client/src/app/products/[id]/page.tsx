@@ -19,6 +19,7 @@ import {
   getStorefrontSeoContext,
   storefrontIconMetadata,
   storefrontOgImages,
+  storefrontSameOriginOgImages,
 } from "@/lib/storefront-seo";
 
 export async function generateMetadata({
@@ -29,7 +30,7 @@ export async function generateMetadata({
   const { id } = await params;
   const safeId = normalizeStorefrontProductId(id);
   const seo = await getStorefrontSeoContext();
-  const { origin, brandLabel } = seo;
+  const { origin, brandLabel, isResellerHost } = seo;
   const productPath = `/products/${encodeURIComponent(safeId)}`;
   const canonical = `${origin}${productPath}`;
   const storefrontDomain = await getStorefrontDomainFromHeaders();
@@ -45,7 +46,7 @@ export async function generateMetadata({
       description: `View this piece on ${brandLabel}.`,
       alternates: { canonical },
       robots: { index: false, follow: true },
-      ...storefrontIconMetadata(seo.logoUrl),
+      ...storefrontIconMetadata(seo.logoUrl, isResellerHost),
     };
   }
 
@@ -58,11 +59,13 @@ export async function generateMetadata({
     item.item_name ||
     item.short_name ||
     "Jewellery";
-  const ogImages = storefrontOgImages(
-    brandLabel,
-    seo.logoUrl,
-    ogImage ? { url: ogImage, width: 1200, height: 1200, alt: name } : null,
-  );
+  const ogImages = isResellerHost
+    ? storefrontSameOriginOgImages(origin, brandLabel)
+    : storefrontOgImages(
+        brandLabel,
+        seo.logoUrl,
+        ogImage ? { url: ogImage, width: 1200, height: 1200, alt: name } : null,
+      );
 
   return {
     metadataBase: seo.metadataBase,
@@ -95,7 +98,7 @@ export async function generateMetadata({
       description,
       images: ogImages.map((i) => i.url),
     },
-    ...storefrontIconMetadata(seo.logoUrl),
+    ...storefrontIconMetadata(seo.logoUrl, isResellerHost),
   };
 }
 
