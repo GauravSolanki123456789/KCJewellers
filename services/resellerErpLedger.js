@@ -31,18 +31,76 @@ function parseAmount(v) {
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
 }
 
+function excelSerialToIso(n) {
+    if (!Number.isFinite(n) || n < 20000 || n > 80000) return null;
+    const epoch = Date.UTC(1899, 11, 30);
+    const dt = new Date(epoch + Math.round(n) * 86400000);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt.toISOString().slice(0, 10);
+}
+
 function parseDateOrNull(v) {
-    if (!v) return null;
+    if (v == null || v === '') return null;
+    if (v instanceof Date && !Number.isNaN(v.getTime())) {
+        const y = v.getFullYear();
+        const m = String(v.getMonth() + 1).padStart(2, '0');
+        const d = String(v.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    if (typeof v === 'number') return excelSerialToIso(v);
     const s = String(v).trim();
     if (!s) return null;
+    const asNum = Number(s);
+    if (/^\d+(\.\d+)?$/.test(s) && asNum > 20000 && asNum < 80000) return excelSerialToIso(asNum);
     const dmY = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);
     if (dmY) {
-        const d = `${dmY[3]}-${dmY[2].padStart(2, '0')}-${dmY[1].padStart(2, '0')}`;
-        return d;
+        return `${dmY[3]}-${dmY[2].padStart(2, '0')}-${dmY[1].padStart(2, '0')}`;
+    }
+    const dMonY = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(s);
+    if (dMonY) {
+        const months = {
+            jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+            jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+        };
+        const m = months[dMonY[2].toLowerCase()];
+        if (m) return `${dMonY[3]}-${m}-${dMonY[1].padStart(2, '0')}`;
     }
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
     const dt = new Date(s);
     if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+    return null;
+}
+
+function parseDrCrHint(v) {
+    const s = String(v ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z]/g, '');
+    if (!s) return null;
+    if (s === 'cr' || s === 'c' || s === 'credit' || s === 'deposit' || s === 'received') return 'in';
+    if (s === 'dr' || s === 'd' || s === 'debit' || s === 'withdrawal' || s === 'paid' || s === 'payout') return 'out';
+    if (s.includes('credit') && !s.includes('debit')) return 'in';
+    if (s.includes('debit') && !s.includes('credit')) return 'out';
+    return null;
+}
+
+/** Credit / deposit = received. Debit / withdrawal = paid out. */
+function resolveBankCreditDebit(credit, debit, amountRaw, drCr) {
+    const cr = credit != null && credit > 0 ? credit : null;
+    const dr = debit != null && debit > 0 ? debit : null;
+    if (cr && !dr) return { amount: cr, entryType: 'payment_in' };
+    if (dr && !cr) return { amount: dr, entryType: 'payment_out' };
+    if (cr && dr) {
+        if (cr >= dr) return { amount: cr, entryType: 'payment_in' };
+        return { amount: dr, entryType: 'payment_out' };
+    }
+    if (amountRaw != null && amountRaw !== 0) {
+        const abs = Math.abs(amountRaw);
+        const hint = parseDrCrHint(drCr);
+        if (hint === 'in') return { amount: abs, entryType: 'payment_in' };
+        if (hint === 'out') return { amount: abs, entryType: 'payment_out' };
+        return { amount: abs, entryType: amountRaw < 0 ? 'payment_out' : 'payment_in' };
+    }
     return null;
 }
 
@@ -55,9 +113,18 @@ function normalizeKey(k) {
 
 function pickField(row, aliases) {
     const keys = Object.keys(row || {});
+    const norms = keys.map((k) => ({ k, n: normalizeKey(k).trim() }));
     for (const alias of aliases) {
-        const hit = keys.find((k) => normalizeKey(k).includes(alias));
-        if (hit != null && String(row[hit] ?? '').trim() !== '') return row[hit];
+        const a = normalizeKey(alias).trim();
+        if (!a) continue;
+        const exact = norms.find((x) => x.n === a);
+        if (exact && String(row[exact.k] ?? '').trim() !== '') return row[exact.k];
+    }
+    for (const alias of aliases) {
+        const a = normalizeKey(alias).trim();
+        if (!a || a.length <= 2) continue;
+        const hit = norms.find((x) => x.n === a || x.n.startsWith(`${a} `) || x.n.includes(` ${a}`));
+        if (hit && String(row[hit.k] ?? '').trim() !== '') return row[hit.k];
     }
     return null;
 }
@@ -186,25 +253,22 @@ async function matchCustomerByHint(query, resellerUserId, hint) {
 function normalizeImportRow(row, extras = {}) {
     let entryType = trimStr(row.entry_type, 32);
     let amount = parseAmount(row.amount_inr);
+    const credit = parseAmount(
+        row.credit ?? pickField(row, ['credit', 'deposit', 'cr amount', 'credit amount', 'deposit amt', 'cr']),
+    );
+    const debit = parseAmount(
+        row.debit ?? pickField(row, ['debit', 'withdrawal', 'dr amount', 'debit amount', 'withdrawal amt', 'dr']),
+    );
+    const amountRaw = parseAmount(row.amount ?? pickField(row, ['amount', 'transaction amount', 'amt']));
+    const drCr = row.dr_cr ?? pickField(row, ['dr cr', 'cr dr', 'debit credit']);
+    const inferred = resolveBankCreditDebit(credit, debit, amountRaw, drCr);
 
     if (amount == null || amount <= 0) {
-        const credit = parseAmount(
-            row.credit ?? pickField(row, ['credit', 'deposit', 'cr amount', 'credit amount']),
-        );
-        const debit = parseAmount(
-            row.debit ?? pickField(row, ['debit', 'withdrawal', 'dr amount', 'debit amount']),
-        );
-        const amountRaw = parseAmount(row.amount ?? pickField(row, ['amount', 'transaction amount', 'amt']));
-        entryType = 'payment_in';
-        amount = credit;
-        if (amount == null && amountRaw != null) {
-            amount = Math.abs(amountRaw);
-            entryType = amountRaw < 0 ? 'payment_out' : 'payment_in';
-        }
-        if (debit != null && debit > 0) {
-            amount = debit;
-            entryType = 'payment_out';
-        }
+        if (!inferred) return null;
+        amount = inferred.amount;
+        entryType = inferred.entryType;
+    } else if (entryType !== 'payment_in' && entryType !== 'payment_out') {
+        if (inferred) entryType = inferred.entryType;
     }
 
     if (amount == null || amount <= 0) return null;
@@ -522,7 +586,10 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 `UPDATE reseller_erp_ledger_entries SET
                     customer_id = $1,
                     is_suspense = false,
-                    entry_type = 'payment_in',
+                    entry_type = CASE
+                        WHEN entry_type = 'suspense_in' THEN 'payment_in'
+                        ELSE entry_type
+                    END,
                     resolved_at = NOW(),
                     updated_at = NOW()
                  WHERE id = $2 AND reseller_user_id = $3 AND is_suspense = true
@@ -654,7 +721,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     ...normalized,
                     customer_id: customerId,
                     customer_name: customerName,
-                    entry_type: isSuspense ? 'suspense_in' : normalized.entry_type,
+                    entry_type: normalized.entry_type,
                     is_suspense: isSuspense,
                     duplicate: !!dup,
                     ledger_scope: ledgerScope,
@@ -725,12 +792,12 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 }
 
                 const markRowSuspense = (row.is_suspense != null ? !!row.is_suspense : markSuspense) && !customerId;
-                const entryType =
-                    row.entry_type && LEDGER_ENTRY_TYPES.has(trimStr(row.entry_type, 32))
-                        ? trimStr(row.entry_type, 32)
-                        : markRowSuspense
-                          ? 'suspense_in'
-                          : normalized.entry_type;
+                const requestedType = trimStr(row.entry_type, 32);
+                let entryType =
+                    requestedType && LEDGER_ENTRY_TYPES.has(requestedType) ? requestedType : normalized.entry_type;
+                if (entryType === 'suspense_in') {
+                    entryType = normalized.entry_type === 'payment_out' ? 'payment_out' : 'payment_in';
+                }
 
                 await query(
                     `INSERT INTO reseller_erp_ledger_entries (

@@ -21,13 +21,11 @@ function filenameFromDisposition(header: string | undefined, fallback: string): 
 
 export function ErpBackupWorkspace() {
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   const downloadBackup = async () => {
     if (busy) return
     setBusy(true)
-    setMsg(null)
     setErr(null)
     try {
       const res = await axios.get('/api/reseller/erp/backup', { responseType: 'blob', timeout: 120000 })
@@ -42,7 +40,6 @@ export function ErpBackupWorkspace() {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-      setMsg(`Saved ${name} to your downloads folder. Keep this file on your computer or a USB drive.`)
     } catch (e) {
       setErr(erpErr(e))
     } finally {
@@ -58,18 +55,8 @@ export function ErpBackupWorkspace() {
         </div>
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-[var(--color-jewelry-black,#1a1814)]">ERP data backup</h2>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/70">
-            Download a copy of this shop’s ERP data — customers, bills, estimates, ledger, stock, designs,
-            floors, purchase vouchers, and settings — as a JSON file on this computer.
-          </p>
         </div>
       </div>
-
-      <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--color-jewelry-black,#1a1814)]/75">
-        <li>Take a backup daily, or before any major change.</li>
-        <li>The file is only for this shop. Staff passwords are not included.</li>
-        <li>Store it somewhere safe (computer, USB, cloud folder you control).</li>
-      </ul>
 
       <button
         type="button"
@@ -81,9 +68,6 @@ export function ErpBackupWorkspace() {
         {busy ? 'Preparing backup…' : 'Download backup'}
       </button>
 
-      {msg ? (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{msg}</p>
-      ) : null}
       {err ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{err}</p>
       ) : null}

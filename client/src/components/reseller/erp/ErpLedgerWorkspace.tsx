@@ -6,6 +6,7 @@ import {
   BookMarked,
   Check,
   Download,
+  FileSpreadsheet,
   Loader2,
   Pencil,
   Plus,
@@ -54,6 +55,82 @@ type LedgerSummary = {
 
 const PAYMENT_MODES = ['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other'] as const
 
+type LedgerTab = 'entries' | 'add' | 'import' | 'suspense' | 'report' | 'purchase' | 'expense'
+
+type LedgerDraftV1 = {
+  v: 1
+  tab: LedgerTab
+  importPreview: ImportPreviewRow[]
+  importFileName: string
+  importBankName: string
+  importDuplicateCount: number
+  importUploadedAt: string | null
+}
+
+function ledgerDraftKey(laneMode: boolean) {
+  return laneMode ? 'kc-erp-ledger-draft-v1-lane' : 'kc-erp-ledger-draft-v1'
+}
+
+function loadLedgerDraft(laneMode: boolean): LedgerDraftV1 | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(ledgerDraftKey(laneMode))
+    if (!raw) return null
+    const d = JSON.parse(raw) as LedgerDraftV1
+    if (d?.v !== 1) return null
+    return d
+  } catch {
+    return null
+  }
+}
+
+function saveLedgerDraft(laneMode: boolean, draft: LedgerDraftV1) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(ledgerDraftKey(laneMode), JSON.stringify(draft))
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function ImportEntryTypeToggle({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: 'payment_in' | 'payment_out') => void
+}) {
+  const paid = value === 'payment_out'
+  return (
+    <div
+      className="inline-flex min-h-[44px] w-[12.25rem] shrink-0 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-0.5"
+      role="group"
+      aria-label="Received or paid out"
+    >
+      <button
+        type="button"
+        className={`min-h-[40px] flex-1 rounded-lg px-2 text-[11px] font-semibold leading-tight ${
+          paid
+            ? 'bg-transparent text-[#1a1814]'
+            : 'bg-emerald-700 text-white'
+        }`}
+        onClick={() => onChange('payment_in')}
+      >
+        Received
+      </button>
+      <button
+        type="button"
+        className={`min-h-[40px] flex-1 rounded-lg px-2 text-[11px] font-semibold leading-tight ${
+          paid ? 'bg-rose-700 text-white' : 'bg-transparent text-[#1a1814]'
+        }`}
+        onClick={() => onChange('payment_out')}
+      >
+        Paid out
+      </button>
+    </div>
+  )
+}
+
 const ENTRY_LABELS: Record<string, string> = {
   payment_in: 'Payment received',
   payment_out: 'Payment made (out)',
@@ -75,9 +152,8 @@ function firstOfMonthIso() {
 }
 
 export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean }) {
-  const [tab, setTab] = useState<
-    'entries' | 'add' | 'import' | 'suspense' | 'report' | 'purchase' | 'expense'
-  >('entries')
+  const [tab, setTab] = useState<LedgerTab>('entries')
+  const [draftReady, setDraftReady] = useState(false)
   const [entries, setEntries] = useState<ErpLedgerEntry[]>([])
   const [customers, setCustomers] = useState<ErpCustomer[]>([])
   const [summary, setSummary] = useState<LedgerSummary | null>(null)
@@ -107,6 +183,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [importFileName, setImportFileName] = useState('')
   const [importBankName, setImportBankName] = useState('')
   const [importDuplicateCount, setImportDuplicateCount] = useState(0)
+  const [importUploadedAt, setImportUploadedAt] = useState<string | null>(null)
   const [lastBatchId, setLastBatchId] = useState<number | null>(null)
   const [importBatches, setImportBatches] = useState<
     { id: number; file_name: string; row_count: number; live_count: number; created_at: string }[]
@@ -173,6 +250,49 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [pvCustomerResults, setPvCustomerResults] = useState<ErpCustomer[]>([])
   const [pvCustomerPickIdx, setPvCustomerPickIdx] = useState(-1)
   const [pvCustomerLabel, setPvCustomerLabel] = useState('')
+
+  useEffect(() => {
+    const d = loadLedgerDraft(laneMode)
+    if (d) {
+      const allowed: LedgerTab[] = ['entries', 'add', 'import', 'suspense', 'report', 'purchase', 'expense']
+      if (allowed.includes(d.tab)) setTab(d.tab)
+      if (Array.isArray(d.importPreview) && d.importPreview.length) {
+        setImportPreview(
+          d.importPreview.map((r) => ({
+            ...r,
+            entry_type: r.entry_type === 'payment_out' ? 'payment_out' : 'payment_in',
+          })),
+        )
+      }
+      if (d.importFileName) setImportFileName(d.importFileName)
+      if (d.importBankName) setImportBankName(d.importBankName)
+      if (d.importDuplicateCount) setImportDuplicateCount(d.importDuplicateCount)
+      if (d.importUploadedAt) setImportUploadedAt(d.importUploadedAt)
+    }
+    setDraftReady(true)
+  }, [laneMode])
+
+  useEffect(() => {
+    if (!draftReady) return
+    saveLedgerDraft(laneMode, {
+      v: 1,
+      tab,
+      importPreview,
+      importFileName,
+      importBankName,
+      importDuplicateCount,
+      importUploadedAt,
+    })
+  }, [
+    draftReady,
+    laneMode,
+    tab,
+    importPreview,
+    importFileName,
+    importBankName,
+    importDuplicateCount,
+    importUploadedAt,
+  ])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -336,11 +456,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       const rows = (previewRes.data.preview || []).map((r) => ({
         ...r,
         import: !r.duplicate,
+        entry_type: (r.entry_type === 'payment_out' ? 'payment_out' : 'payment_in') as 'payment_in' | 'payment_out',
       }))
       setImportPreview(rows)
       setImportFileName(file.name)
       setImportBankName(parsed.bankName)
       setImportDuplicateCount(previewRes.data.duplicate_count || 0)
+      setImportUploadedAt(new Date().toISOString())
       setMsg(
         `Parsed ${rows.length} transaction(s) from ${parsed.format === 'idfc' ? 'IDFC' : 'generic'} format` +
           (previewRes.data.duplicate_count
@@ -353,6 +475,22 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       setBusy(false)
       if (fileRef.current) fileRef.current.value = ''
     }
+  }
+
+  const discardImportDraft = () => {
+    if (
+      importPreview.length &&
+      !confirm('Remove this uploaded bank file and its review rows? Nothing has been imported yet.')
+    ) {
+      return
+    }
+    setImportPreview([])
+    setImportFileName('')
+    setImportBankName('')
+    setImportDuplicateCount(0)
+    setImportUploadedAt(null)
+    setMsg(null)
+    if (fileRef.current) fileRef.current.value = ''
   }
 
   const updatePreviewRow = (idx: number, patch: Partial<ImportPreviewRow>) => {
@@ -384,6 +522,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       })
       setLastBatchId(res.data.batch_id)
       setImportPreview([])
+      setImportFileName('')
+      setImportBankName('')
+      setImportDuplicateCount(0)
+      setImportUploadedAt(null)
       void axios
         .get<{ batches: typeof importBatches }>('/api/reseller/erp/ledger/import-batches')
         .then((r) => setImportBatches(r.data.batches || []))
@@ -412,6 +554,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         UTR: 'UTR123456789',
         Bank: 'HDFC',
         Customer: 'Gaurav Solanki',
+      },
+      {
+        Date: '06/08/2026',
+        Narration: 'IMPS to vendor',
+        Credit: '',
+        Debit: 25000,
+        UTR: 'IMPS998877',
+        Bank: 'HDFC',
+        Customer: '',
       },
     ]
     const ws = XLSX.utils.json_to_sheet(sample)
@@ -1552,6 +1703,33 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             />
           </div>
 
+          {importFileName ? (
+            <div className="flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-blue-200">
+                  <FileSpreadsheet className="size-5 text-blue-800" aria-hidden />
+                </div>
+                <div className="min-w-0">
+                  <p className="break-all text-sm font-semibold text-[#1a1814]">{importFileName}</p>
+                  <p className="mt-0.5 text-[11px] text-[#1a1814]/70">
+                    {importUploadedAt ? `Uploaded ${formatErpDateTime(importUploadedAt)}` : 'Uploaded file'}
+                    {importBankName ? ` · ${importBankName}` : ''}
+                    {importPreview.length ? ` · ${importPreview.length} row(s)` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800"
+                disabled={busy}
+                onClick={discardImportDraft}
+              >
+                <Trash2 className="size-3.5" />
+                Remove file
+              </button>
+            </div>
+          ) : null}
+
           {importBatches.length > 0 ? (
             <div className="space-y-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -1615,12 +1793,12 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 </button>
               </div>
               <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
-                <table className="min-w-[920px] text-left text-xs">
+                <table className="min-w-[1080px] text-left text-xs">
                   <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
                     <tr>
                       <th className="px-2 py-2">Import</th>
                       <th className="px-2 py-2">Date</th>
-                      <th className="px-2 py-2">Type</th>
+                      <th className="min-w-[12.25rem] px-2 py-2">Type</th>
                       <th className="px-2 py-2 text-right">Amount</th>
                       <th className="px-2 py-2">Party / narration</th>
                       <th className="px-2 py-2">UTR / ref</th>
@@ -1654,18 +1832,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                           />
                         </td>
                         <td className="px-2 py-2">
-                          <select
-                            className={`${erpInputCls} py-1.5 text-xs`}
+                          <ImportEntryTypeToggle
                             value={row.entry_type}
-                            onChange={(e) =>
-                              updatePreviewRow(idx, {
-                                entry_type: e.target.value as 'payment_in' | 'payment_out',
-                              })
-                            }
-                          >
-                            <option value="payment_in">Received</option>
-                            <option value="payment_out">Paid out</option>
-                          </select>
+                            onChange={(entry_type) => updatePreviewRow(idx, { entry_type })}
+                          />
                         </td>
                         <td className="px-2 py-2 text-right">
                           <input
