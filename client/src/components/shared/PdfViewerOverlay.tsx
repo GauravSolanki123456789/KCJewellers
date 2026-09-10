@@ -36,7 +36,11 @@ export default function PdfViewerOverlay() {
       setPdfUrl(null)
       return
     }
-    const url = URL.createObjectURL(payload.blob)
+    const url = URL.createObjectURL(
+      new File([payload.blob], payload.opts.filename || 'invoice.pdf', {
+        type: 'application/pdf',
+      }),
+    )
     setPdfUrl(url)
     return () => URL.revokeObjectURL(url)
   }, [payload?.blob])
@@ -152,7 +156,7 @@ export default function PdfViewerOverlay() {
               className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-[#e8e4df] bg-white px-3 py-2 text-xs font-semibold text-[#1a1814] hover:bg-[#f7f4ef]"
             >
               <Download className="size-4" />
-              Download
+              Download {opts.filename ? opts.filename.replace(/\.pdf$/i, '') : 'PDF'}
             </button>
           </div>
         </div>
@@ -201,16 +205,21 @@ export default function PdfViewerOverlay() {
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden p-2 sm:p-4">
         {pdfUrl ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e8e4df] bg-white shadow-sm">
-            <iframe src={pdfUrl} title={opts.filename} className="min-h-0 flex-1 w-full" />
+            <iframe
+              src={`${pdfUrl}#toolbar=0&navpanes=0`}
+              title={opts.filename}
+              className="min-h-0 flex-1 w-full"
+            />
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center">
             <Loader2 className="size-8 animate-spin text-emerald-700" />
           </div>
         )}
-        <p className="mt-2 flex shrink-0 items-center gap-1.5 text-[11px] text-[#1a1814]/45">
+        <p className="mt-2 flex shrink-0 items-center gap-1.5 text-[11px] text-[#1a1814]/55">
           <FileText className="size-3.5" />
-          {opts.filename}
+          Use <span className="font-semibold text-[#1a1814]">Download {opts.filename}</span> so the file is saved
+          with this name (the browser PDF bar uses a random name).
         </p>
       </main>
     </div>

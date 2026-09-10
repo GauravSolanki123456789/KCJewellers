@@ -35,11 +35,16 @@ export function shouldPresentPdfShareSheet(): boolean {
 }
 
 function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
+  const file =
+    blob instanceof File
+      ? blob
+      : new File([blob], filename, { type: blob.type || 'application/pdf' })
+  const url = URL.createObjectURL(file)
   try {
     const a = document.createElement('a')
     a.href = url
     a.download = filename
+    a.rel = 'noopener'
     document.body.appendChild(a)
     a.click()
     a.remove()

@@ -35,16 +35,23 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [regenerateMode, setRegenerateMode] = useState(false)
+  const [withEway, setWithEway] = useState(true)
 
   const isEinvoice = kind === 'e-invoice'
   const existingIrn = bill?.compliance?.einvoice?.irn
   const existingEwb = bill?.compliance?.eway?.ewb_no
   const hasExisting = isEinvoice ? !!existingIrn : !!existingEwb
-  const showDownloadOnly = hasExisting && !regenerateMode && isEinvoice && !!onDownloadTaxInvoice
+  const showDownloadOnly = hasExisting && !regenerateMode && isEinvoice && !!onDownloadTaxInvoice && !(withEway && !existingEwb)
 
   useEffect(() => {
-    if (!open) setRegenerateMode(false)
-  }, [open, bill?.id])
+    if (!open) {
+      setRegenerateMode(false)
+      setWithEway(true)
+      setError('')
+    } else {
+      setWithEway(!bill?.compliance?.eway?.ewb_no)
+    }
+  }, [open, bill?.id, bill?.compliance?.eway?.ewb_no])
 
   const runDownload = async () => {
     if (!bill || !onDownloadTaxInvoice) return
@@ -75,7 +82,7 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
         irn?: string
         ewb_no?: string
         sandbox?: boolean
-      }>(path)
+      }>(path, isEinvoice ? { withEway: withEway && !existingEwb } : {})
       onOpenChange(false)
       onSuccess(res.data.bill, {
         irn: res.data.irn,
@@ -106,16 +113,38 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/65">
-          <p>
+        <div className="space-y-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+          <p className="text-[var(--color-jewelry-black,#1a1814)]/70">
             Bill <span className="font-semibold text-emerald-800">{bill.bill_number}</span> ·{' '}
             {bill.customer_name || 'Customer'}
           </p>
           {isEinvoice && existingIrn ? (
-            <p className="break-all text-xs font-medium text-emerald-700">Already generated — IRN: {existingIrn}</p>
+            <p className="break-all text-xs font-medium text-emerald-800">Already generated — IRN: {existingIrn}</p>
           ) : null}
           {!isEinvoice && existingEwb ? (
-            <p className="text-xs font-medium text-emerald-700">Already generated — EWB: {existingEwb}</p>
+            <p className="text-xs font-medium text-emerald-800">Already generated — EWB: {existingEwb}</p>
+          ) : null}
+          {existingEwb ? (
+            <p className="text-xs font-medium text-blue-800">E-way bill: {existingEwb}</p>
+          ) : null}
+
+          {isEinvoice && !existingEwb ? (
+            <label className="flex min-h-[44px] cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-3">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-emerald-700"
+                checked={withEway}
+                onChange={(e) => setWithEway(e.target.checked)}
+              />
+              <span>
+                <span className="block font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Also generate e-way bill
+                </span>
+                <span className="mt-0.5 block text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
+                  Creates the e-way bill with this e-invoice. Leave unchecked for e-invoice only — you can generate e-way later from the E-way button.
+                </span>
+              </span>
+            </label>
           ) : null}
         </div>
 
@@ -125,7 +154,7 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
           </p>
         ) : null}
 
-        <DialogFooter className="gap-2 sm:gap-2">
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-2">
           <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </button>
@@ -141,13 +170,17 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
               </button>
               <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void runDownload()}>
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                Download tax invoice
+                Download {bill.bill_number}-einvoice
               </button>
             </>
           ) : (
             <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void run()}>
               {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-              Yes, generate
+              {isEinvoice && withEway && !existingEwb
+                ? existingIrn
+                  ? 'Yes, generate e-way'
+                  : 'Yes, generate both'
+                : 'Yes, generate'}
             </button>
           )}
         </DialogFooter>

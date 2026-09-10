@@ -1879,8 +1879,40 @@ function registerResellerErpRoutes(app, deps) {
                 return res.status(400).json({ error: 'E-invoice can only be generated for sales bills.' });
             }
 
+            const withEway =
+                req.body?.withEway === true ||
+                req.body?.with_eway === true ||
+                String(req.body?.withEway || '').toLowerCase() === 'yes';
+
             const existing = parseCompliance(billRow);
             if (existing?.einvoice?.irn) {
+                if (withEway && !existing?.eway?.ewb_no) {
+                    let customer = null;
+                    if (billRow.customer_id) {
+                        const custRows = await query(
+                            `SELECT * FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                            [billRow.customer_id, req.user.id],
+                        );
+                        customer = custRows[0] || null;
+                    }
+                    const ewayResult = await generateEwayForBill({
+                        query,
+                        bill: mapBill(billRow),
+                        resellerUserId: req.user.id,
+                        customer,
+                    });
+                    return res.json({
+                        success: true,
+                        already_generated: true,
+                        irn: existing.einvoice.irn,
+                        ewb_no: ewayResult.ewbNo,
+                        sandbox: ewayResult.sandbox,
+                        bill: mapBill(ewayResult.bill),
+                        message: ewayResult.ewbNo
+                            ? `E-invoice already exists. E-way bill generated: ${ewayResult.ewbNo}`
+                            : 'E-invoice already exists. E-way bill submitted.',
+                    });
+                }
                 return res.json({
                     success: true,
                     already_generated: true,
@@ -1904,18 +1936,27 @@ function registerResellerErpRoutes(app, deps) {
                 bill,
                 resellerUserId: req.user.id,
                 customer,
+                withEway,
             });
+
+            const irnMsg = result.irn
+                ? `E-invoice generated. IRN: ${result.irn}`
+                : 'E-invoice submitted to GSTZen. Check response for details.';
+            const ewayMsg = result.ewbNo
+                ? ` E-way bill: ${result.ewbNo}`
+                : result.ewayError
+                  ? ` E-way: ${result.ewayError}`
+                  : '';
 
             res.json({
                 success: true,
                 irn: result.irn,
                 ack_no: result.ackNo,
                 ack_date: result.ackDt,
+                ewb_no: result.ewbNo || null,
                 sandbox: result.sandbox,
                 bill: mapBill(result.bill),
-                message: result.irn
-                    ? `E-invoice generated. IRN: ${result.irn}`
-                    : 'E-invoice submitted to GSTZen. Check response for details.',
+                message: `${irnMsg}${ewayMsg}`.trim(),
             });
         } catch (e) {
             console.error('erp e-invoice:', e);

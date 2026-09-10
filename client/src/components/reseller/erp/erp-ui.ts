@@ -202,6 +202,7 @@ export type ErpBill = {
       irn?: string | null
       ack_no?: string | null
       ack_date?: string | null
+      signed_qr?: string | null
       status?: string
       sandbox?: boolean
       response?: unknown

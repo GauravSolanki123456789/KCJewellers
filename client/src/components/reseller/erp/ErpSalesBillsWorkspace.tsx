@@ -319,7 +319,7 @@ export function ErpSalesBillsWorkspace() {
         customerPan: session.pan,
         customerGst: session.customerGst,
         slabSettingsRaw: auth.user,
-        taxInvoiceMode: !!bill.compliance?.einvoice?.irn,
+        taxInvoiceMode: false,
       })
       await openPdfBlobInViewer(payload.blob, {
         filename: payload.filename,

@@ -85,7 +85,12 @@ export async function buildErpSalesPdfPayload(params: {
   const einvoice = params.bill.compliance?.einvoice
   if (params.taxInvoiceMode && einvoice?.irn) {
     const response = (einvoice as { response?: unknown }).response
-    const qrImageSrc = await resolveEinvoiceQrImageSrc({ irn: einvoice.irn, complianceResponse: response })
+    const signedQr = (einvoice as { signed_qr?: string | null }).signed_qr
+    const qrImageSrc = await resolveEinvoiceQrImageSrc({
+      irn: einvoice.irn,
+      signedQr,
+      complianceResponse: response,
+    })
     compliance = {
       irn: einvoice.irn,
       ack_no: einvoice.ack_no ?? null,
@@ -132,9 +137,11 @@ export async function buildErpSalesPdfPayload(params: {
     ),
   ).toBlob()
 
-  const filename = params.ewayBillNo || params.bill.compliance?.eway?.ewb_no
-    ? `${params.bill.bill_number.replace(/[^\w.-]+/g, '-')}-eway.pdf`
-    : buildErpSalesPdfFilename(params.bill.bill_number, params.taxInvoiceMode)
+  const filename = params.taxInvoiceMode
+    ? buildErpSalesPdfFilename(params.bill.bill_number, 'einvoice')
+    : params.ewayBillNo
+      ? buildErpSalesPdfFilename(params.bill.bill_number, 'eway')
+      : buildErpSalesPdfFilename(params.bill.bill_number, 'bill')
 
   const text = buildErpSalesWhatsAppMessage({
     brandLabel,

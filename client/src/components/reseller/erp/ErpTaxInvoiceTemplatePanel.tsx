@@ -37,9 +37,11 @@ import {
 type Variant = 'bill' | 'e-invoice' | 'e-way'
 
 const VARIANT_HINT: Record<Variant, string> = {
-  bill: 'Sales bill PDF (3 A4 pages)',
-  'e-invoice': 'E-invoice PDF uses the same layout + IRN / QR block',
-  'e-way': 'E-way PDF uses the same layout + E-Way Bill number',
+  bill: 'Sales bill PDF (3 A4 pages: Original, Duplicate, Triplicate). Change [COPY 1] / [COPY 2] / [COPY 3] below to rename those headers — then Save.',
+  'e-invoice':
+    'E-invoice PDF uses this layout on 3 pages (same copy labels) plus IRN, acknowledgement, QR code, and E-Way Bill (blank if none). Edit [COPY 2] to change “DUPLICATE FOR RECIPIENT”. Downloads as BILLNO-einvoice.pdf.',
+  'e-way':
+    'E-way PDF uses the same 3-page layout. The e-way bill number prints when generated. You can also generate e-way together with e-invoice from Sales bills.',
 }
 
 type Props = {
@@ -217,9 +219,11 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
               Tax invoice PDF format
             </p>
             <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-              {VARIANT_HINT[variant]}. Upload a sample invoice photo or PDF — we scan it line by line, then you
-              edit the layout like a notepad. Same format applies to bills, e-invoice, and e-way PDFs. Output is
-              3 A4 pages: Original → Duplicate → Triplicate.
+              {VARIANT_HINT[variant]} Upload a sample invoice photo or PDF — we scan it line by line, then you
+              edit the layout like a notepad. Change words such as{' '}
+              <strong>DUPLICATE FOR RECIPIENT</strong> on the{' '}
+              <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">[COPY 2]</code> line, then
+              tap <strong>Done — save format</strong>.
             </p>
           </div>
           <button type="button" className={erpBtnGhost} onClick={applyMarlechaDefault}>

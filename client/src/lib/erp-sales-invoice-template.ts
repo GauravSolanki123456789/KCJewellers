@@ -79,11 +79,22 @@ export function mergeInvoiceTemplate(
   return merged
 }
 
-export function buildErpSalesPdfFilename(billNumber: string, taxInvoiceMode?: boolean): string {
-  const num = String(billNumber || 'invoice')
-    .trim()
-    .replace(/[^\w.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-  return `${num || 'invoice'}.pdf`
+export function sanitizeErpBillNumberForFilename(billNumber: string): string {
+  return (
+    String(billNumber || 'invoice')
+      .trim()
+      .replace(/[^\w.-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'invoice'
+  )
+}
+
+export function buildErpSalesPdfFilename(
+  billNumber: string,
+  kind?: boolean | 'bill' | 'einvoice' | 'eway',
+): string {
+  const num = sanitizeErpBillNumberForFilename(billNumber)
+  if (kind === true || kind === 'einvoice') return `${num}-einvoice.pdf`
+  if (kind === 'eway') return `${num}-eway.pdf`
+  return `${num}.pdf`
 }

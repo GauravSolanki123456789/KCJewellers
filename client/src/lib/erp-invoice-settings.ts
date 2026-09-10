@@ -1,55 +1,107 @@
 /** Resolve a QR code image data URI for e-invoice PDF embedding. */
+import QRCode from 'qrcode'
+
+function findStringField(obj: unknown, names: string[], depth = 0): string | null {
+  if (!obj || typeof obj !== 'object' || depth > 8) return null
+  const rec = obj as Record<string, unknown>
+  const want = names.map((n) => n.toLowerCase())
+  for (const [key, val] of Object.entries(rec)) {
+    if (typeof val === 'string' && val.trim() && want.includes(key.toLowerCase())) {
+      return val.trim()
+    }
+  }
+  for (const val of Object.values(rec)) {
+    if (val && typeof val === 'object') {
+      const hit = findStringField(val, names, depth + 1)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+async function generateLocalQrDataUri(text: string): Promise<string | null> {
+  const payload = String(text || '').trim()
+  if (!payload) return null
+  try {
+    return await QRCode.toDataURL(payload, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 280,
+      color: { dark: '#000000', light: '#ffffff' },
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function resolveEinvoiceQrImageSrc(params: {
   irn?: string | null
+  signedQr?: string | null
   complianceResponse?: unknown
 }): Promise<string | null> {
-  const response = params.complianceResponse as Record<string, unknown> | null | undefined
-  const nested = response?.data as Record<string, unknown> | undefined
+  const response = params.complianceResponse
+  const signedFromResponse = findStringField(response, [
+    'SignedQRCode',
+    'signedQRCode',
+    'SignedQrCode',
+    'QRCode',
+    'QrCode',
+  ])
+  const signedQr = String(params.signedQr || signedFromResponse || '').trim()
 
-  const signedQr =
-    (response?.SignedQRCode as string | undefined) ||
-    (response?.signedQRCode as string | undefined) ||
-    (nested?.SignedQRCode as string | undefined) ||
-    (response?.QrCodeImage as string | undefined) ||
-    (nested?.QrCodeImage as string | undefined)
+  if (signedQr.startsWith('data:image')) return signedQr
 
-  if (signedQr && typeof signedQr === 'string') {
-    const trimmed = signedQr.trim()
-    if (trimmed.startsWith('data:image')) return trimmed
-    if (/^[A-Za-z0-9+/=]+$/.test(trimmed.slice(0, 80)) && trimmed.length > 120) {
-      return `data:image/png;base64,${trimmed}`
-    }
-    const qrFromSigned = await fetchQrDataUri(trimmed)
-    if (qrFromSigned) return qrFromSigned
+  const looksLikePngBase64 =
+    signedQr.length > 200 &&
+    /^[A-Za-z0-9+/=\s]+$/.test(signedQr) &&
+    !signedQr.includes('.')
+
+  if (looksLikePngBase64) {
+    return `data:image/png;base64,${signedQr.replace(/\s+/g, '')}`
   }
 
-  const qrUrl =
-    (response?.QrCodeUrl as string | undefined) ||
-    (response?.QRCodeUrl as string | undefined) ||
-    (nested?.QrCodeUrl as string | undefined)
-
-  if (qrUrl && typeof qrUrl === 'string' && qrUrl.startsWith('http')) {
+  const qrUrl = findStringField(response, [
+    'SignedQrCodeImgUrl',
+    'QrCodeUrl',
+    'QRCodeUrl',
+    'QrCodeImageUrl',
+  ])
+  if (qrUrl && /^https?:\/\//i.test(qrUrl)) {
     try {
       const res = await fetch(qrUrl)
-      if (!res.ok) return null
-      const blob = await res.blob()
-      return await blobToDataUri(blob)
+      if (res.ok) {
+        const blob = await res.blob()
+        if (blob.type.startsWith('image')) return await blobToDataUri(blob)
+      }
     } catch {
-      return null
+      /* fall through to local QR */
+    }
+  } else if (qrUrl && qrUrl.startsWith('/')) {
+    try {
+      const res = await fetch(`https://my.gstzen.in${qrUrl}`)
+      if (res.ok) {
+        const blob = await res.blob()
+        if (blob.type.startsWith('image')) return await blobToDataUri(blob)
+      }
+    } catch {
+      /* fall through */
     }
   }
 
-  const irn = params.irn?.trim()
-  if (!irn) return null
+  const qrText = signedQr || String(params.irn || '').trim()
+  if (!qrText) return null
 
-  return fetchQrDataUri(irn)
+  const local = await generateLocalQrDataUri(qrText)
+  if (local) return local
+
+  return fetchQrDataUri(qrText)
 }
 
 async function fetchQrDataUri(text: string): Promise<string | null> {
   const payload = encodeURIComponent(text)
   const urls = [
-    `https://quickchart.io/qr?size=200&margin=1&text=${payload}`,
-    `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${payload}`,
+    `https://quickchart.io/qr?size=280&margin=1&text=${payload}`,
+    `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${payload}`,
   ]
   for (const url of urls) {
     try {

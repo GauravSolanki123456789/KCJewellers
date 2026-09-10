@@ -23,7 +23,7 @@ function formatNicDate(input) {
 }
 
 function parseCompliance(row) {
-    let c = row?.compliance_json;
+    let c = row?.compliance_json ?? row?.compliance;
     if (typeof c === 'string') {
         try {
             c = JSON.parse(c);
@@ -32,6 +32,24 @@ function parseCompliance(row) {
         }
     }
     return c && typeof c === 'object' ? c : {};
+}
+
+function findGstzenValue(obj, names, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 8) return null;
+    const want = names.map((n) => String(n).toLowerCase());
+    for (const [key, val] of Object.entries(obj)) {
+        if (val == null || val === '') continue;
+        if (want.includes(String(key).toLowerCase()) && (typeof val === 'string' || typeof val === 'number')) {
+            return val;
+        }
+    }
+    for (const val of Object.values(obj)) {
+        if (val && typeof val === 'object') {
+            const hit = findGstzenValue(val, names, depth + 1);
+            if (hit != null) return hit;
+        }
+    }
+    return null;
 }
 
 async function loadErpSettings(query, resellerUserId) {
@@ -140,7 +158,7 @@ function resolveEwayConfig(settings) {
     };
 }
 
-function buildEinvoicePayload(bill, gst, customer) {
+function buildEinvoicePayload(bill, gst, customer, opts = {}) {
     const gstin = String(gst.gstin || '')
         .trim()
         .toUpperCase();
@@ -205,7 +223,7 @@ function buildEinvoicePayload(bill, gst, customer) {
     const buyerName = String(bill.customer_name || customer?.name || 'Walk-in customer').slice(0, 100);
     const place = String(gst.placeOfSupply || 'Tamil Nadu').slice(0, 100);
 
-    return {
+    const payload = {
         Version: '1.1',
         TranDtls: {
             TaxSch: 'GST',
@@ -245,6 +263,16 @@ function buildEinvoicePayload(bill, gst, customer) {
             TotInvVal: net,
         },
     };
+
+    if (opts.withEway) {
+        payload.EwbDtls = {
+            TransMode: '1',
+            Distance: 0,
+            VehType: 'R',
+        };
+    }
+
+    return payload;
 }
 
 function buildEwayPayload(bill, gst, compliance, customer) {
@@ -350,7 +378,7 @@ async function updateBillCompliance(query, billId, resellerUserId, patch) {
     return updated[0];
 }
 
-async function generateEinvoiceForBill({ query, bill, resellerUserId, customer }) {
+async function generateEinvoiceForBill({ query, bill, resellerUserId, customer, withEway = false }) {
     const settings = await loadErpSettings(query, resellerUserId);
     const gstCheck = validateGstSettings(settings.gst || {});
     if (!gstCheck.ok) {
@@ -390,12 +418,16 @@ async function generateEinvoiceForBill({ query, bill, resellerUserId, customer }
         throw err;
     }
 
-    const payload = buildEinvoicePayload(bill, settings.gst, customer);
+    const payload = buildEinvoicePayload(bill, settings.gst, customer, { withEway: !!withEway });
     const response = await postGstzen(cfg.url, cfg.token, cfg.gstin, payload);
 
-    const irn = response?.Irn || response?.irn || response?.data?.Irn || null;
-    const ackNo = response?.AckNo || response?.ackNo || response?.data?.AckNo || null;
-    const ackDt = response?.AckDt || response?.ackDt || response?.data?.AckDt || null;
+    const irn = findGstzenValue(response, ['Irn', 'irn', 'IRN']);
+    const ackNo = findGstzenValue(response, ['AckNo', 'ackNo', 'Ack_No']);
+    const ackDt = findGstzenValue(response, ['AckDt', 'ackDt', 'Ack_Date', 'AckDate']);
+    const signedQr = findGstzenValue(response, ['SignedQRCode', 'signedQRCode', 'SignedQrCode']);
+    let ewbNo = withEway
+        ? findGstzenValue(response, ['EwbNo', 'ewbNo', 'ewayBillNo', 'Ewb_No'])
+        : null;
 
     const compliancePatch = {
         einvoice: {
@@ -404,17 +436,54 @@ async function generateEinvoiceForBill({ query, bill, resellerUserId, customer }
             irn,
             ack_no: ackNo,
             ack_date: ackDt,
+            signed_qr: signedQr || null,
             generated_at: new Date().toISOString(),
             response,
         },
     };
 
-    const row = await updateBillCompliance(query, bill.id, resellerUserId, compliancePatch);
+    if (ewbNo) {
+        compliancePatch.eway = {
+            status: 'generated',
+            sandbox: cfg.sandbox,
+            ewb_no: String(ewbNo),
+            generated_at: new Date().toISOString(),
+            response,
+        };
+    }
+
+    let row = await updateBillCompliance(query, bill.id, resellerUserId, compliancePatch);
+
+    if (withEway && !ewbNo) {
+        try {
+            const ewayResult = await generateEwayForBill({
+                query,
+                bill: { ...bill, compliance: parseCompliance(row) },
+                resellerUserId,
+                customer,
+            });
+            row = ewayResult.bill || row;
+            ewbNo = ewayResult.ewbNo || null;
+        } catch (e) {
+            return {
+                bill: row,
+                irn,
+                ackNo,
+                ackDt,
+                ewbNo: null,
+                sandbox: cfg.sandbox,
+                response,
+                ewayError: e.message || 'E-way bill could not be generated with the e-invoice.',
+            };
+        }
+    }
+
     return {
         bill: row,
         irn,
         ackNo,
         ackDt,
+        ewbNo,
         sandbox: cfg.sandbox,
         response,
     };
@@ -441,11 +510,7 @@ async function generateEwayForBill({ query, bill, resellerUserId, customer }) {
     const response = await postGstzen(cfg.url, cfg.token, cfg.gstin, payload);
 
     const ewbNo =
-        response?.ewayBillNo ||
-        response?.EwbNo ||
-        response?.ewbNo ||
-        response?.data?.ewayBillNo ||
-        null;
+        findGstzenValue(response, ['ewayBillNo', 'EwbNo', 'ewbNo', 'Ewb_No']) || null;
 
     const compliancePatch = {
         eway: {

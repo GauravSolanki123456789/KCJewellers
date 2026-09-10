@@ -30,7 +30,7 @@ export type ConfigurableTaxInvoiceProps = ErpTaxInvoicePdfDocumentProps & {
   templateConfig?: ErpTaxInvoiceTemplateConfig | null
   /** e-way bill number when rendering e-way variant */
   ewayBillNo?: string | null
-  /** bill = 3 copies; einvoice = single page with IRN/QR */
+  /** bill = 3 copies; einvoice = 3 copies + IRN / QR / e-way */
   variant?: 'bill' | 'einvoice'
   mrpItemNames?: Set<string>
 }
@@ -173,7 +173,16 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 6,
   },
-  qr: { width: 56, height: 56, objectFit: 'contain' },
+  qr: { width: 92, height: 92, objectFit: 'contain' },
+  qrPlaceholder: {
+    width: 92,
+    height: 92,
+    borderWidth: 1,
+    borderColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+  },
 })
 
 function formatBillDate(bill: ErpBill): string {
@@ -354,10 +363,16 @@ function InvoicePage({
           <View style={{ flex: 1, fontSize: 6.5 }}>
             <Text style={{ fontWeight: 'bold' }}>e-Invoice</Text>
             <Text>IRN: {sanitizePdfText(compliance.irn)}</Text>
-            {compliance.ack_no ? <Text>Ack No.: {sanitizePdfText(compliance.ack_no)}</Text> : null}
-            {compliance.ack_date ? <Text>Ack Date: {sanitizePdfText(compliance.ack_date)}</Text> : null}
+            {compliance.ack_no ? <Text>Ack No.: {sanitizePdfText(String(compliance.ack_no))}</Text> : null}
+            {compliance.ack_date ? <Text>Ack Date: {sanitizePdfText(String(compliance.ack_date))}</Text> : null}
           </View>
-          {compliance.qrImageSrc ? <Image style={styles.qr} src={compliance.qrImageSrc} /> : null}
+          {compliance.qrImageSrc ? (
+            <Image style={styles.qr} src={compliance.qrImageSrc} />
+          ) : (
+            <View style={styles.qrPlaceholder}>
+              <Text style={{ fontSize: 6, textAlign: 'center' }}>QR code</Text>
+            </View>
+          )}
         </View>
       ) : null}
 
@@ -399,8 +414,10 @@ function InvoicePage({
           <Text style={{ fontSize: 8, marginBottom: 12 }}>
             {sanitizePdfText(template.dateLabel)} {formatBillDate(bill)}
           </Text>
-          {ewayBillNo ? (
-            <Text style={{ fontSize: 8, marginBottom: 8 }}>E-Way Bill : {sanitizePdfText(ewayBillNo)}</Text>
+          {variant === 'einvoice' || ewayBillNo ? (
+            <Text style={{ fontSize: 8, marginBottom: 8 }}>
+              E-Way Bill : {sanitizePdfText(ewayBillNo || '')}
+            </Text>
           ) : null}
           <Text style={{ fontSize: 7, marginBottom: 2 }}>{sanitizePdfText(template.placeOfSupplyLabel)}</Text>
           <Text style={{ fontSize: 8, fontWeight: 'bold' }}>{sanitizePdfText(placeOfSupply)}</Text>
@@ -488,12 +505,7 @@ function InvoicePage({
         </View>
       </View>
 
-      {compliance?.irn || ewayBillNo ? (
-        <Text style={styles.eRef}>
-          {sanitizePdfText(template.electronicRefLabel)}{' '}
-          {sanitizePdfText(compliance?.irn || ewayBillNo || '')}
-        </Text>
-      ) : (
+      {variant === 'einvoice' ? null : (
         <Text style={styles.eRef}>{sanitizePdfText(template.electronicRefLabel)}</Text>
       )}
     </Page>
@@ -519,19 +531,17 @@ export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoi
 
   const pageProps = { ...props, lines, session, template, mrpItemNames: mrpNames }
 
-  if (props.variant === 'einvoice') {
-    return (
-      <Document>
-        <InvoicePage copyLabel="" {...pageProps} variant="einvoice" />
-      </Document>
-    )
-  }
+  const copies = [
+    template.copyLabels[0] || 'ORIGINAL FOR RECIPIENT',
+    template.copyLabels[1] || 'DUPLICATE FOR RECIPIENT',
+    template.copyLabels[2] || 'TRIPLICATE FOR SUPPLIER',
+  ]
 
   return (
     <Document>
-      <InvoicePage copyLabel={template.copyLabels[0]} {...pageProps} />
-      <InvoicePage copyLabel={template.copyLabels[1]} {...pageProps} />
-      <InvoicePage copyLabel={template.copyLabels[2]} {...pageProps} />
+      <InvoicePage {...pageProps} copyLabel={copies[0]} variant={props.variant || 'bill'} />
+      <InvoicePage {...pageProps} copyLabel={copies[1]} variant={props.variant || 'bill'} />
+      <InvoicePage {...pageProps} copyLabel={copies[2]} variant={props.variant || 'bill'} />
     </Document>
   )
 }

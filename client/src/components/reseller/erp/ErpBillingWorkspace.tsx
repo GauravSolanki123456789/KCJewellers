@@ -1187,12 +1187,21 @@ export function ErpBillingWorkspace() {
     const nextSlab = pendingSlab ?? rateSlab
     if (pendingSlab) setRateSlab(pendingSlab)
     setLines((prev) =>
-      prev.map((line) =>
-        recalcLine(
-          { ...line, rateLocked: false, ratePerGram: null, displayMcInr: null, displayWastagePct: null },
+      prev.map((line) => {
+        const withGift = applyGiftMrpForSlabChange(line, nextSlab, slabSettings)
+        return recalcLine(
+          {
+            ...withGift,
+            rateLocked: false,
+            ratePerGram: null,
+            displayMcInr: null,
+            displayWastagePct: null,
+            displayMcBeforeDiscount: null,
+            displayMcDiscountPct: null,
+          },
           { slab: nextSlab, wholesaleGold: gVal, wholesaleSilver: sVal },
-        ),
-      ),
+        )
+      }),
     )
     setShowWholesaleModal(false)
     setPendingSlab(null)
