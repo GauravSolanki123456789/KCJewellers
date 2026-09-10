@@ -57,40 +57,184 @@ const PAYMENT_MODES = ['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other']
 
 type LedgerTab = 'entries' | 'add' | 'import' | 'suspense' | 'report' | 'purchase' | 'expense'
 
-type LedgerDraftV1 = {
-  v: 1
+type ImportDraftFile = {
+  id: string
+  fileName: string
+  bankName: string
+  uploadedAt: string
+  rows: ImportPreviewRow[]
+  duplicateCount: number
+}
+
+type LedgerDraftV2 = {
+  v: 2
   tab: LedgerTab
-  importPreview: ImportPreviewRow[]
-  importFileName: string
-  importBankName: string
-  importDuplicateCount: number
-  importUploadedAt: string | null
+  importFiles: ImportDraftFile[]
 }
 
 function ledgerDraftKey(laneMode: boolean) {
-  return laneMode ? 'kc-erp-ledger-draft-v1-lane' : 'kc-erp-ledger-draft-v1'
+  return laneMode ? 'kc-erp-ledger-draft-v2-lane' : 'kc-erp-ledger-draft-v2'
 }
 
-function loadLedgerDraft(laneMode: boolean): LedgerDraftV1 | null {
+function newImportFileId() {
+  return `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeImportRows(rows: ImportPreviewRow[]): ImportPreviewRow[] {
+  return (rows || []).map((r) => ({
+    ...r,
+    entry_type: r.entry_type === 'payment_out' ? 'payment_out' : 'payment_in',
+  }))
+}
+
+function loadLedgerDraft(laneMode: boolean): LedgerDraftV2 | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(ledgerDraftKey(laneMode))
-    if (!raw) return null
-    const d = JSON.parse(raw) as LedgerDraftV1
-    if (d?.v !== 1) return null
-    return d
+    const rawV2 = localStorage.getItem(ledgerDraftKey(laneMode))
+    if (rawV2) {
+      const d = JSON.parse(rawV2) as LedgerDraftV2
+      if (d?.v === 2 && Array.isArray(d.importFiles)) return d
+    }
+    const legacyKey = laneMode ? 'kc-erp-ledger-draft-v1-lane' : 'kc-erp-ledger-draft-v1'
+    const rawV1 = localStorage.getItem(legacyKey)
+    if (!rawV1) return null
+    const old = JSON.parse(rawV1) as {
+      v?: number
+      tab?: LedgerTab
+      importPreview?: ImportPreviewRow[]
+      importFileName?: string
+      importBankName?: string
+      importDuplicateCount?: number
+      importUploadedAt?: string | null
+    }
+    const files: ImportDraftFile[] =
+      Array.isArray(old.importPreview) && old.importPreview.length
+        ? [
+            {
+              id: newImportFileId(),
+              fileName: old.importFileName || 'Bank sheet',
+              bankName: old.importBankName || '',
+              uploadedAt: old.importUploadedAt || new Date().toISOString(),
+              rows: normalizeImportRows(old.importPreview),
+              duplicateCount: old.importDuplicateCount || 0,
+            },
+          ]
+        : []
+    return { v: 2, tab: old.tab || 'entries', importFiles: files }
   } catch {
     return null
   }
 }
 
-function saveLedgerDraft(laneMode: boolean, draft: LedgerDraftV1) {
+function saveLedgerDraft(laneMode: boolean, draft: LedgerDraftV2) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(ledgerDraftKey(laneMode), JSON.stringify(draft))
   } catch {
     /* quota / private mode */
   }
+}
+
+function ImportCustomerSearch({
+  customerId,
+  customerName,
+  onPick,
+}: {
+  customerId?: number | null
+  customerName?: string | null
+  onPick: (next: { customer_id: number | null; customer_name: string | null; is_suspense: boolean }) => void
+}) {
+  const [q, setQ] = useState(customerId && customerName ? customerName : '')
+  const [hits, setHits] = useState<ErpCustomer[]>([])
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (customerId && customerName) setQ(customerName)
+    if (!customerId && !customerName) setQ('')
+  }, [customerId, customerName])
+
+  useEffect(() => {
+    const term = q.trim()
+    if (term.length < 1 || (customerId && term === String(customerName || '').trim())) {
+      setHits([])
+      return
+    }
+    const t = setTimeout(() => {
+      void axios
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+          params: { q: term, limit: 12 },
+        })
+        .then((r) => setHits(r.data.customers || []))
+        .catch(() => setHits([]))
+    }, 180)
+    return () => clearTimeout(t)
+  }, [q, customerId, customerName])
+
+  return (
+    <div className="relative min-w-[11rem]">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#1a1814]/40" />
+      <input
+        className={`${erpInputCls} min-h-[44px] py-1.5 pl-8 pr-2 text-xs`}
+        placeholder="Search name, mobile, GST…"
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value)
+          setOpen(true)
+          if (!e.target.value.trim()) {
+            onPick({ customer_id: null, customer_name: null, is_suspense: true })
+          }
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          window.setTimeout(() => setOpen(false), 180)
+        }}
+      />
+      {open && hits.length > 0 ? (
+        <ul className="absolute z-30 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white py-1 shadow-lg">
+          <li>
+            <button
+              type="button"
+              className="w-full px-3 py-2 text-left text-[11px] font-medium text-[#1a1814]/70 hover:bg-amber-50"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setQ('')
+                setHits([])
+                setOpen(false)
+                onPick({ customer_id: null, customer_name: null, is_suspense: true })
+              }}
+            >
+              Suspense / unassigned
+            </button>
+          </li>
+          {hits.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                className="w-full px-3 py-2 text-left text-xs text-[#1a1814] hover:bg-emerald-50"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setQ(c.name)
+                  setHits([])
+                  setOpen(false)
+                  onPick({ customer_id: c.id, customer_name: c.name, is_suspense: false })
+                }}
+              >
+                <span className="font-semibold">{c.name}</span>
+                <span className="mt-0.5 block text-[10px] text-[#1a1814]/60">
+                  {[c.mobile, c.gstin].filter(Boolean).join(' · ')}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {!customerId ? (
+        <p className="mt-0.5 text-[10px] font-medium text-amber-800">Suspense / unassigned</p>
+      ) : (
+        <p className="mt-0.5 text-[10px] font-medium text-emerald-800">{customerName}</p>
+      )}
+    </div>
+  )
 }
 
 function ImportEntryTypeToggle({
@@ -179,11 +323,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   })
 
   const [resolveCustomerId, setResolveCustomerId] = useState<Record<number, string>>({})
-  const [importPreview, setImportPreview] = useState<ImportPreviewRow[]>([])
-  const [importFileName, setImportFileName] = useState('')
-  const [importBankName, setImportBankName] = useState('')
-  const [importDuplicateCount, setImportDuplicateCount] = useState(0)
-  const [importUploadedAt, setImportUploadedAt] = useState<string | null>(null)
+  const [importFiles, setImportFiles] = useState<ImportDraftFile[]>([])
   const [lastBatchId, setLastBatchId] = useState<number | null>(null)
   const [importBatches, setImportBatches] = useState<
     { id: number; file_name: string; row_count: number; live_count: number; created_at: string }[]
@@ -256,18 +396,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     if (d) {
       const allowed: LedgerTab[] = ['entries', 'add', 'import', 'suspense', 'report', 'purchase', 'expense']
       if (allowed.includes(d.tab)) setTab(d.tab)
-      if (Array.isArray(d.importPreview) && d.importPreview.length) {
-        setImportPreview(
-          d.importPreview.map((r) => ({
-            ...r,
-            entry_type: r.entry_type === 'payment_out' ? 'payment_out' : 'payment_in',
+      if (Array.isArray(d.importFiles) && d.importFiles.length) {
+        setImportFiles(
+          d.importFiles.map((f) => ({
+            ...f,
+            id: f.id || newImportFileId(),
+            rows: normalizeImportRows(f.rows || []),
           })),
         )
       }
-      if (d.importFileName) setImportFileName(d.importFileName)
-      if (d.importBankName) setImportBankName(d.importBankName)
-      if (d.importDuplicateCount) setImportDuplicateCount(d.importDuplicateCount)
-      if (d.importUploadedAt) setImportUploadedAt(d.importUploadedAt)
     }
     setDraftReady(true)
   }, [laneMode])
@@ -275,24 +412,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   useEffect(() => {
     if (!draftReady) return
     saveLedgerDraft(laneMode, {
-      v: 1,
+      v: 2,
       tab,
-      importPreview,
-      importFileName,
-      importBankName,
-      importDuplicateCount,
-      importUploadedAt,
+      importFiles,
     })
-  }, [
-    draftReady,
-    laneMode,
-    tab,
-    importPreview,
-    importFileName,
-    importBankName,
-    importDuplicateCount,
-    importUploadedAt,
-  ])
+  }, [draftReady, laneMode, tab, importFiles])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -458,16 +582,23 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         import: !r.duplicate,
         entry_type: (r.entry_type === 'payment_out' ? 'payment_out' : 'payment_in') as 'payment_in' | 'payment_out',
       }))
-      setImportPreview(rows)
-      setImportFileName(file.name)
-      setImportBankName(parsed.bankName)
-      setImportDuplicateCount(previewRes.data.duplicate_count || 0)
-      setImportUploadedAt(new Date().toISOString())
+      setImportFiles((prev) => [
+        ...prev,
+        {
+          id: newImportFileId(),
+          fileName: file.name,
+          bankName: parsed.bankName,
+          uploadedAt: new Date().toISOString(),
+          rows,
+          duplicateCount: previewRes.data.duplicate_count || 0,
+        },
+      ])
       setMsg(
-        `Parsed ${rows.length} transaction(s) from ${parsed.format === 'idfc' ? 'IDFC' : 'generic'} format` +
+        `Added ${rows.length} transaction(s) from ${file.name}` +
           (previewRes.data.duplicate_count
             ? ` · ${previewRes.data.duplicate_count} duplicate(s) flagged`
-            : ''),
+            : '') +
+          (parsed.format === 'idfc' ? ' · IDFC format' : ''),
       )
     } catch (e) {
       alert(erpErr(e))
@@ -477,28 +608,74 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
   }
 
-  const discardImportDraft = () => {
-    if (
-      importPreview.length &&
-      !confirm('Remove this uploaded bank file and its review rows? Nothing has been imported yet.')
-    ) {
-      return
-    }
-    setImportPreview([])
-    setImportFileName('')
-    setImportBankName('')
-    setImportDuplicateCount(0)
-    setImportUploadedAt(null)
-    setMsg(null)
+  const discardImportFile = (fileId: string, fileName: string) => {
+    if (!confirm(`Remove "${fileName}" and its review rows? Nothing in this file will be imported.`)) return
+    setImportFiles((prev) => prev.filter((f) => f.id !== fileId))
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  const updatePreviewRow = (idx: number, patch: Partial<ImportPreviewRow>) => {
-    setImportPreview((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+  const updatePreviewRow = (fileId: string, idx: number, patch: Partial<ImportPreviewRow>) => {
+    setImportFiles((files) =>
+      files.map((f) =>
+        f.id === fileId ? { ...f, rows: f.rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)) } : f,
+      ),
+    )
   }
 
-  const commitImport = async () => {
-    const toImport = importPreview.filter((r) => r.import !== false && !r.skip)
+  const setFileRowsSelected = (fileId: string, selected: boolean) => {
+    setImportFiles((files) =>
+      files.map((f) =>
+        f.id === fileId
+          ? { ...f, rows: f.rows.map((r) => (r.duplicate ? r : { ...r, import: selected })) }
+          : f,
+      ),
+    )
+  }
+
+  const markFileSelectedSuspense = (fileId: string) => {
+    setImportFiles((files) =>
+      files.map((f) =>
+        f.id === fileId
+          ? {
+              ...f,
+              rows: f.rows.map((r) =>
+                r.import === false || r.skip
+                  ? r
+                  : { ...r, customer_id: null, customer_name: null, is_suspense: true },
+              ),
+            }
+          : f,
+      ),
+    )
+  }
+
+  const deleteFileRows = (fileId: string, mode: 'selected' | 'unselected') => {
+    const file = importFiles.find((f) => f.id === fileId)
+    if (!file) return
+    const selected = file.rows.filter((r) => r.import !== false && !r.skip)
+    const unselected = file.rows.filter((r) => r.import === false || r.skip)
+    const removing = mode === 'selected' ? selected : unselected
+    if (!removing.length) {
+      alert(mode === 'selected' ? 'No selected rows to delete' : 'No unselected rows to delete')
+      return
+    }
+    if (!confirm(`Delete ${removing.length} row(s) from "${file.fileName}"? They will not be imported.`)) return
+    setImportFiles((files) =>
+      files.flatMap((f) => {
+        if (f.id !== fileId) return [f]
+        const remaining =
+          mode === 'selected'
+            ? f.rows.filter((r) => r.import === false || r.skip)
+            : f.rows.filter((r) => r.import !== false && !r.skip)
+        return remaining.length ? [{ ...f, rows: remaining }] : []
+      }),
+    )
+  }
+
+  const commitImportFile = async (fileId: string) => {
+    const file = importFiles.find((f) => f.id === fileId)
+    if (!file) return
+    const toImport = file.rows.filter((r) => r.import !== false && !r.skip)
     if (!toImport.length) {
       alert('No rows selected for import')
       return
@@ -514,27 +691,28 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         batch_id: number
       }>('/api/reseller/erp/ledger/import', {
         rows: toImport,
-        file_name: importFileName,
-        bank_name: importBankName,
+        file_name: file.fileName,
+        bank_name: file.bankName,
         mark_unmatched_suspense: true,
         skip_duplicates: true,
         ledger_scope: laneMode ? 'lane' : 'official',
       })
       setLastBatchId(res.data.batch_id)
-      setImportPreview([])
-      setImportFileName('')
-      setImportBankName('')
-      setImportDuplicateCount(0)
-      setImportUploadedAt(null)
+      setImportFiles((files) =>
+        files.flatMap((f) => {
+          if (f.id !== fileId) return [f]
+          const remaining = f.rows.filter((r) => r.import === false || r.skip)
+          return remaining.length ? [{ ...f, rows: remaining }] : []
+        }),
+      )
       void axios
         .get<{ batches: typeof importBatches }>('/api/reseller/erp/ledger/import-batches')
         .then((r) => setImportBatches(r.data.batches || []))
       setMsg(
-        `Imported ${res.data.inserted} entry(s)` +
+        `Imported ${res.data.inserted} entry(s) from ${file.fileName}` +
           (res.data.duplicates ? ` · ${res.data.duplicates} duplicate(s) skipped` : '') +
           (res.data.suspense ? ` · ${res.data.suspense} in suspense` : ''),
       )
-      setTab('entries')
       await reload()
     } catch (e) {
       alert(erpErr(e))
@@ -1703,32 +1881,184 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             />
           </div>
 
-          {importFileName ? (
-            <div className="flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-blue-200">
-                  <FileSpreadsheet className="size-5 text-blue-800" aria-hidden />
+          {importFiles.map((file) => {
+            const selectedCount = file.rows.filter((r) => r.import !== false && !r.skip).length
+            const allSelected = file.rows.length > 0 && file.rows.every((r) => r.duplicate || (r.import !== false && !r.skip))
+            return (
+              <div key={file.id} className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/40 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-blue-200">
+                      <FileSpreadsheet className="size-5 text-blue-800" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="break-all text-sm font-semibold text-[#1a1814]">{file.fileName}</p>
+                      <p className="mt-0.5 text-[11px] text-[#1a1814]/70">
+                        Uploaded {formatErpDateTime(file.uploadedAt)}
+                        {file.bankName ? ` · ${file.bankName}` : ''}
+                        {` · ${file.rows.length} row(s)`}
+                        {file.duplicateCount > 0 ? ` · ${file.duplicateCount} duplicate(s)` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800"
+                    disabled={busy}
+                    onClick={() => discardImportFile(file.id, file.fileName)}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Remove file
+                  </button>
                 </div>
-                <div className="min-w-0">
-                  <p className="break-all text-sm font-semibold text-[#1a1814]">{importFileName}</p>
-                  <p className="mt-0.5 text-[11px] text-[#1a1814]/70">
-                    {importUploadedAt ? `Uploaded ${formatErpDateTime(importUploadedAt)}` : 'Uploaded file'}
-                    {importBankName ? ` · ${importBankName}` : ''}
-                    {importPreview.length ? ` · ${importPreview.length} row(s)` : ''}
-                  </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className={`${erpBtnGhost} min-h-[40px] text-xs`}
+                    onClick={() => setFileRowsSelected(file.id, !allSelected)}
+                  >
+                    {allSelected ? 'Deselect all' : 'Select all'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`${erpBtnGhost} min-h-[40px] text-xs`}
+                    disabled={busy || selectedCount === 0}
+                    onClick={() => markFileSelectedSuspense(file.id)}
+                  >
+                    Mark selected suspense
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-[40px] items-center gap-1 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800 disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => deleteFileRows(file.id, 'selected')}
+                  >
+                    Delete selected
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-[40px] items-center gap-1 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800 disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => deleteFileRows(file.id, 'unselected')}
+                  >
+                    Delete unselected
+                  </button>
+                  <button
+                    type="button"
+                    className={`${erpBtnPrimary} ml-auto min-h-[40px] text-xs`}
+                    disabled={busy || selectedCount === 0}
+                    onClick={() => void commitImportFile(file.id)}
+                  >
+                    {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                    Import selected ({selectedCount})
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
+                  <table className="min-w-[1080px] text-left text-xs">
+                    <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+                      <tr>
+                        <th className="px-2 py-2">
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="size-5 cursor-pointer accent-emerald-700"
+                              checked={allSelected}
+                              onChange={(e) => setFileRowsSelected(file.id, e.target.checked)}
+                              aria-label="Select all rows"
+                            />
+                            Import
+                          </label>
+                        </th>
+                        <th className="px-2 py-2">Date</th>
+                        <th className="min-w-[12.25rem] px-2 py-2">Type</th>
+                        <th className="px-2 py-2 text-right">Amount</th>
+                        <th className="px-2 py-2">Party / narration</th>
+                        <th className="px-2 py-2">UTR / ref</th>
+                        <th className="px-2 py-2">Customer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {file.rows.map((row, idx) => (
+                        <tr
+                          key={`${file.id}-${row.row_index}-${idx}`}
+                          className={`border-t border-[var(--color-slate-700,#e8e4df)]/60 ${
+                            row.duplicate ? 'bg-amber-50/80' : ''
+                          }`}
+                        >
+                          <td className="px-2 py-2">
+                            <input
+                              type="checkbox"
+                              className="size-5 cursor-pointer accent-emerald-700 disabled:opacity-40"
+                              checked={row.import !== false && !row.skip}
+                              disabled={!!row.duplicate}
+                              onChange={(e) => updatePreviewRow(file.id, idx, { import: e.target.checked })}
+                            />
+                            {row.duplicate ? (
+                              <span className="ml-1 text-[10px] font-semibold text-amber-800">Dup</span>
+                            ) : null}
+                          </td>
+                          <td className="px-2 py-2">
+                            <ErpDateInput
+                              className={`${erpInputCls} min-w-[120px] py-1.5 text-xs`}
+                              value={row.entry_date}
+                              onChange={(v) => updatePreviewRow(file.id, idx, { entry_date: v })}
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <ImportEntryTypeToggle
+                              value={row.entry_type}
+                              onChange={(entry_type) => updatePreviewRow(file.id, idx, { entry_type })}
+                            />
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <input
+                              className={`${erpInputCls} w-24 py-1.5 text-right text-xs tabular-nums`}
+                              value={String(row.amount_inr)}
+                              onChange={(e) =>
+                                updatePreviewRow(file.id, idx, {
+                                  amount_inr: Number(e.target.value.replace(/[^\d.]/g, '')) || 0,
+                                })
+                              }
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              className={`${erpInputCls} mb-1 min-w-[180px] py-1.5 text-xs`}
+                              value={row.counterparty_name}
+                              placeholder="Party name"
+                              onChange={(e) => updatePreviewRow(file.id, idx, { counterparty_name: e.target.value })}
+                            />
+                            <input
+                              className={`${erpInputCls} min-w-[180px] py-1.5 text-xs`}
+                              value={row.narration}
+                              placeholder="Narration"
+                              onChange={(e) => updatePreviewRow(file.id, idx, { narration: e.target.value })}
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              className={`${erpInputCls} min-w-[100px] py-1.5 text-xs`}
+                              value={row.reference_no}
+                              onChange={(e) => updatePreviewRow(file.id, idx, { reference_no: e.target.value })}
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <ImportCustomerSearch
+                              customerId={row.customer_id}
+                              customerName={row.customer_name}
+                              onPick={(next) => updatePreviewRow(file.id, idx, next)}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-              <button
-                type="button"
-                className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800"
-                disabled={busy}
-                onClick={discardImportDraft}
-              >
-                <Trash2 className="size-3.5" />
-                Remove file
-              </button>
-            </div>
-          ) : null}
+            )
+          })}
 
           {importBatches.length > 0 ? (
             <div className="space-y-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
@@ -1772,133 +2102,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-          ) : null}
-
-          {importPreview.length > 0 ? (
-            <div className="space-y-3 border-t border-[var(--color-slate-700,#e8e4df)] pt-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  Review {importPreview.length} row(s)
-                  {importDuplicateCount > 0 ? (
-                    <span className="ml-2 text-xs font-medium text-amber-800">
-                      {importDuplicateCount} duplicate(s)
-                    </span>
-                  ) : null}
-                </p>
-                <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void commitImport()}>
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                  Import selected
-                </button>
-              </div>
-              <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
-                <table className="min-w-[1080px] text-left text-xs">
-                  <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
-                    <tr>
-                      <th className="px-2 py-2">Import</th>
-                      <th className="px-2 py-2">Date</th>
-                      <th className="min-w-[12.25rem] px-2 py-2">Type</th>
-                      <th className="px-2 py-2 text-right">Amount</th>
-                      <th className="px-2 py-2">Party / narration</th>
-                      <th className="px-2 py-2">UTR / ref</th>
-                      <th className="px-2 py-2">Customer</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {importPreview.map((row, idx) => (
-                      <tr
-                        key={`${row.row_index}-${idx}`}
-                        className={`border-t border-[var(--color-slate-700,#e8e4df)]/60 ${
-                          row.duplicate ? 'bg-amber-50/80' : ''
-                        }`}
-                      >
-                        <td className="px-2 py-2">
-                          <input
-                            type="checkbox"
-                            checked={row.import !== false && !row.skip}
-                            disabled={!!row.duplicate}
-                            onChange={(e) => updatePreviewRow(idx, { import: e.target.checked })}
-                          />
-                          {row.duplicate ? (
-                            <span className="ml-1 text-[10px] font-semibold text-amber-800">Dup</span>
-                          ) : null}
-                        </td>
-                        <td className="px-2 py-2">
-                          <ErpDateInput
-                            className={`${erpInputCls} min-w-[120px] py-1.5 text-xs`}
-                            value={row.entry_date}
-                            onChange={(v) => updatePreviewRow(idx, { entry_date: v })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <ImportEntryTypeToggle
-                            value={row.entry_type}
-                            onChange={(entry_type) => updatePreviewRow(idx, { entry_type })}
-                          />
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <input
-                            className={`${erpInputCls} w-24 py-1.5 text-right text-xs tabular-nums`}
-                            value={String(row.amount_inr)}
-                            onChange={(e) =>
-                              updatePreviewRow(idx, {
-                                amount_inr: Number(e.target.value.replace(/[^\d.]/g, '')) || 0,
-                              })
-                            }
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            className={`${erpInputCls} mb-1 min-w-[180px] py-1.5 text-xs`}
-                            value={row.counterparty_name}
-                            placeholder="Party name"
-                            onChange={(e) => updatePreviewRow(idx, { counterparty_name: e.target.value })}
-                          />
-                          <input
-                            className={`${erpInputCls} min-w-[180px] py-1.5 text-xs`}
-                            value={row.narration}
-                            placeholder="Narration"
-                            onChange={(e) => updatePreviewRow(idx, { narration: e.target.value })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            className={`${erpInputCls} min-w-[100px] py-1.5 text-xs`}
-                            value={row.reference_no}
-                            onChange={(e) => updatePreviewRow(idx, { reference_no: e.target.value })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <select
-                            className={`${erpInputCls} min-w-[140px] py-1.5 text-xs`}
-                            value={row.customer_id ? String(row.customer_id) : ''}
-                            onChange={(e) => {
-                              const cid = e.target.value ? Number(e.target.value) : null
-                              const c = customers.find((x) => x.id === cid)
-                              updatePreviewRow(idx, {
-                                customer_id: cid,
-                                customer_name: c?.name || null,
-                                is_suspense: !cid,
-                              })
-                            }}
-                          >
-                            <option value="">Suspense / unassigned</option>
-                            {customers.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                                {c.mobile ? ` · ${c.mobile}` : ''}
-                              </option>
-                            ))}
-                          </select>
-                          {row.customer_name ? (
-                            <p className="mt-0.5 text-[10px] text-emerald-700">{row.customer_name}</p>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </div>
           ) : null}

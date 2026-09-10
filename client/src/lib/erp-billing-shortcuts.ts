@@ -55,7 +55,7 @@ export function createManualBillLine(
     sku: undefined,
     style_code: undefined,
     size: null,
-    qty: 1,
+    qty: category === 'gift' ? 0 : 1,
     originalWeightGm: null,
     weightGm: null,
     gross_weight: null,

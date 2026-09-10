@@ -1018,12 +1018,22 @@ export function ErpBillingWorkspace() {
           catalogProducts = []
         }
         if (!d) {
-          updateLine(lineIdx, {
-            style_code: styleCode,
-            sku,
-            name: sku,
-            designProductOptions: catalogProducts,
-          })
+          setLines((prev) =>
+            prev.map((l, i) => {
+              if (i !== lineIdx) return l
+              const gift = isGiftManualLine(l)
+              const keepName = String(l.name || '').trim()
+              const name =
+                gift && (!keepName || keepName.toUpperCase() === sku.toUpperCase()) ? '' : gift ? keepName : sku
+              return recalcLine({
+                ...l,
+                style_code: styleCode,
+                sku,
+                name,
+                designProductOptions: catalogProducts,
+              })
+            }),
+          )
           afterApply?.()
           return
         }
@@ -1055,7 +1065,15 @@ export function ErpBillingWorkspace() {
               : undefined
             const isGift =
               l.manualCategory === 'gift' ||
-              String(d.invoice_item_name || '').toUpperCase().includes('GIFT')
+              String(d.invoice_item_name || '').toUpperCase().includes('GIFT') ||
+              isGiftManualLine(l)
+            const keepName = String(l.name || '').trim()
+            const skuUpper = sku.toUpperCase()
+            const productName = isGift
+              ? keepName && keepName.toUpperCase() !== skuUpper
+                ? keepName
+                : ''
+              : String(d.product_name || l.name || sku)
             let fixedPrice = num('fixed_price') ?? l.fixed_price
             let mrpList: number | null = null
             if (isGift && fixedPrice != null && fixedPrice > 0) {
@@ -1066,7 +1084,7 @@ export function ErpBillingWorkspace() {
               ...l,
               style_code: styleCode,
               sku,
-              name: String(d.product_name || l.name || sku),
+              name: productName,
               purity: num('purity') ?? l.purity,
               metal_type: String(d.metal_type || l.metal_type || 'silver'),
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
@@ -1091,7 +1109,19 @@ export function ErpBillingWorkspace() {
         )
         afterApply?.()
       } catch {
-        updateLine(lineIdx, { style_code: styleCode, sku, name: sku })
+        setLines((prev) =>
+          prev.map((l, i) => {
+            if (i !== lineIdx) return l
+            const gift = isGiftManualLine(l)
+            const keepName = String(l.name || '').trim()
+            return recalcLine({
+              ...l,
+              style_code: styleCode,
+              sku,
+              name: gift && (!keepName || keepName.toUpperCase() === sku.toUpperCase()) ? '' : gift ? keepName : sku,
+            })
+          }),
+        )
         afterApply?.()
       }
     },
@@ -1500,6 +1530,9 @@ export function ErpBillingWorkspace() {
       case 'mc_type':
         return line.mc_type ?? ''
       case 'qty':
+        if (line.manualCategory === 'gift' || line.mrpMode) {
+          return line.qty != null && Number(line.qty) > 0 ? line.qty : ''
+        }
         return line.qty ?? 1
       case 'box_charges':
         return line.box_charges ?? 0
@@ -1540,6 +1573,9 @@ export function ErpBillingWorkspace() {
     }
     if (k === 'fixed_price' && isPiecePricedBillLine({ ...line, ...patch })) {
       if (parsed != null) patch.unitInr = parsed
+    }
+    if (k === 'qty' && (line.manualCategory === 'gift' || line.mrpMode) && parsed == null) {
+      patch.qty = 0
     }
     if (line.manualEntry) {
       updateManualLine(idx, patch)

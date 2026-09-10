@@ -124,6 +124,9 @@ export function ErpBillingStackedRow({
           if (readOnly) return
           onNumericBlur(field)
         }}
+        onFocus={(e) => {
+          e.currentTarget.select()
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
             e.preventDefault()

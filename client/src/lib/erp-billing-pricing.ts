@@ -147,7 +147,9 @@ export function isPiecePricedBillLine(line: ErpBillLine): boolean {
 }
 
 export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
-  const qty = Math.max(1, Number(line.qty) || 1)
+  const parsed = Number(line.qty)
+  const isGift = line.manualCategory === 'gift' || !!line.mrpMode
+  const qty = Number.isFinite(parsed) && parsed > 0 ? parsed : isGift ? 0 : 1
   const pieceRate = Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram) || 0
   return {
     ...line,

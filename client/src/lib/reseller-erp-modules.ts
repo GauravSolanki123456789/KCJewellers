@@ -408,8 +408,9 @@ export function listErpModulesForHub(opts: {
   }
   return RESELLER_ERP_MODULES.filter((m) => {
     if (m.id === 'shadow') return false
-    if (m.jainavOnly && !opts.jainavUnlocked) return false
-    return opts.canAccess(m.id)
+    if (!opts.canAccess(m.id)) return false
+    if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) return false
+    return true
   })
 }
 
@@ -439,7 +440,7 @@ export function listErpQuickNavModules(opts: {
     if (!opts.canAccess(id)) continue
     const mod = getResellerErpModule(id)
     if (!mod) continue
-    if (mod.jainavOnly && !opts.jainavUnlocked) continue
+    if (isJainavModule(mod, opts.navVisibility) && !opts.jainavUnlocked) continue
     staffIds.add(id)
   }
   return orderNavModuleIds(staffIds)

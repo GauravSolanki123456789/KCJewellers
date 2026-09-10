@@ -247,7 +247,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
 function ModulePageContent() {
   const params = useParams()
   const router = useRouter()
-  const { canAccessModule, shadowUnlocked, operator } = useErpOperator()
+  const { canAccessModule, shadowUnlocked } = useErpOperator()
   const { navVisibility } = useErpNavVisibility()
   const raw = typeof params?.module === 'string' ? params.module : Array.isArray(params?.module) ? params.module[0] : ''
   const mod = useMemo(() => getResellerErpModule(raw), [raw])
@@ -303,7 +303,7 @@ function ModulePageContent() {
     )
   }
 
-  if (mod && (operator?.role === 'admin' ? moduleRequiresJainavUnlock(mod.id, navVisibility) : mod.jainavOnly) && !shadowUnlocked) {
+  if (mod && moduleRequiresJainavUnlock(mod.id, navVisibility) && !shadowUnlocked) {
     return (
       <ResellerErpShell title={mod.title}>
         <ErpJainavGate>

@@ -664,6 +664,8 @@ function registerResellerErpRoutes(app, deps) {
     app.get('/api/reseller/erp/customers', checkAuth, erpGate, async (req, res) => {
         try {
             const q = String(req.query.q || '').trim();
+            const limitRaw = parseInt(String(req.query.limit || '500'), 10);
+            const limit = Number.isFinite(limitRaw) ? Math.min(500, Math.max(1, limitRaw)) : 500;
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_customers WHERE reseller_user_id = $1`;
             if (q) {
@@ -674,7 +676,7 @@ function registerResellerErpRoutes(app, deps) {
                     OR COALESCE(pan,'') ILIKE $2
                 )`;
             }
-            sql += ` ORDER BY updated_at DESC, id DESC LIMIT 500`;
+            sql += ` ORDER BY updated_at DESC, id DESC LIMIT ${limit}`;
             const rows = await query(sql, params);
             res.json({ customers: rows.map(mapCustomer) });
         } catch (e) {
@@ -1772,25 +1774,44 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const rows = await query(
                 `SELECT
-                    COUNT(*) FILTER (WHERE bill_type <> 'order')::int AS bill_count,
+                    COUNT(*) FILTER (
+                        WHERE bill_type <> 'order'
+                          AND NOT (
+                            bill_type = 'estimate'
+                            AND LOWER(COALESCE(status, 'draft')) IN ('cancelled', 'billed')
+                          )
+                    )::int AS bill_count,
                     COALESCE(SUM(total_inr) FILTER (
                         WHERE status IN ('completed','paid','final') AND bill_type = 'sale'
                     ), 0)::float AS completed_inr,
                     COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'credit'), 0)::float AS credit_inr,
-                    COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'estimate'), 0)::float AS estimate_inr,
+                    COALESCE(SUM(total_inr) FILTER (
+                        WHERE bill_type = 'estimate'
+                          AND LOWER(COALESCE(status, 'draft')) NOT IN ('cancelled', 'billed')
+                    ), 0)::float AS estimate_inr,
                     COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'order'), 0)::float AS order_inr,
-                    COALESCE(SUM(total_inr) FILTER (WHERE bill_type <> 'order'), 0)::float AS total_inr
+                    COALESCE(SUM(total_inr) FILTER (
+                        WHERE bill_type <> 'order'
+                          AND NOT (
+                            bill_type = 'estimate'
+                            AND LOWER(COALESCE(status, 'draft')) IN ('cancelled', 'billed')
+                          )
+                    ), 0)::float AS total_inr
                  FROM reseller_erp_bills
                  WHERE reseller_user_id = $1
-                   AND created_at >= NOW() - INTERVAL '30 days'`,
+                   AND COALESCE(bill_date, created_at::date) >= CURRENT_DATE - INTERVAL '30 days'`,
                 [req.user.id],
             );
             const byType = await query(
                 `SELECT bill_type, COUNT(*)::int AS n, COALESCE(SUM(total_inr),0)::float AS total
                  FROM reseller_erp_bills
                  WHERE reseller_user_id = $1
-                   AND created_at >= NOW() - INTERVAL '30 days'
+                   AND COALESCE(bill_date, created_at::date) >= CURRENT_DATE - INTERVAL '30 days'
                    AND bill_type <> 'order'
+                   AND NOT (
+                     bill_type = 'estimate'
+                     AND LOWER(COALESCE(status, 'draft')) IN ('cancelled', 'billed')
+                   )
                  GROUP BY bill_type
                  ORDER BY total DESC`,
                 [req.user.id],

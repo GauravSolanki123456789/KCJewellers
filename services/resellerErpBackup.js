@@ -11,6 +11,7 @@ const BACKUP_TABLES = [
     'reseller_erp_order_jobs',
     'reseller_erp_ledger_entries',
     'reseller_erp_ledger_import_batches',
+    'reseller_erp_shadow_bills',
     'reseller_erp_purchase_vouchers',
     'reseller_erp_employees',
     'reseller_erp_stock_batches',
@@ -104,11 +105,20 @@ async function buildErpBackup(query, userId) {
     };
 }
 
+const { getSessionOperator, operatorCanAccessModule } = require('./resellerErpOperators');
+
 function registerResellerErpBackupRoutes(app, deps) {
     const { query, checkAuth, erpGate } = deps;
 
     app.get('/api/reseller/erp/backup', checkAuth, erpGate, async (req, res) => {
         try {
+            const op = getSessionOperator(req);
+            if (!operatorCanAccessModule(op, 'backup')) {
+                return res.status(403).json({
+                    error: 'You do not have access to this module',
+                    module: 'backup',
+                });
+            }
             const payload = await buildErpBackup(query, req.user.id);
             const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
             const fname = `erp-backup-${slugPart(payload.business_name)}-${day}.json`;
