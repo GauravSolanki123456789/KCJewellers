@@ -20,7 +20,7 @@ TEXT 666,53,"ROMAN.TTF",180,1,9,"{{net_weight}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
-TEXT 738,21,"ROMAN.TTF",180,1,8,""
+TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
 `.trim()
@@ -48,7 +48,7 @@ TEXT 648,29,"ROMAN.TTF",180,1,9,"{{mc_rate}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
-TEXT 720,21,"ROMAN.TTF",180,1,8,""
+TEXT 720,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
 `.trim()
@@ -75,7 +75,7 @@ TEXT 666,29,"ROMAN.TTF",180,1,9,"{{wastage_pct}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
-TEXT 738,21,"ROMAN.TTF",180,1,8,""
+TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
 QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
 PRINT 1,1
 `.trim()
@@ -229,6 +229,7 @@ export const LABEL_TEMPLATE_VARS = [
   'company_code',
   'metal_type',
   'pcs',
+  'pcs_label',
   'bags',
   'bag_wt',
   'stone_charges',
@@ -252,6 +253,7 @@ export const LABEL_RULE_FIELD_KEYS = [
   'box_code',
   'box_name',
   'rfid_tag',
+  'pcs_gt_1',
 ] as const
 
 export type LabelRuleFieldKey = (typeof LABEL_RULE_FIELD_KEYS)[number]
@@ -379,6 +381,29 @@ export function migrateLabelPrnRules(pf: ErpPrintFormatsSettings | null | undefi
       requireNone: (rule.requireNone || []) as LabelRuleFieldKey[],
       template: normalizePrnTemplate(rule.template || pf?.labelPrnTemplate || DEFAULT_LABEL_PRN),
     }))
+    .map((rule) => {
+      const namedPcs = /pcs\s*greater\s*than\s*1/i.test(rule.name)
+      const requireAll = [...(rule.requireAll || [])]
+      if (namedPcs && !requireAll.includes('pcs_gt_1')) requireAll.push('pcs_gt_1')
+      let template = rule.template
+      if (!/\{\{\s*pcs/i.test(template)) {
+        template = template.replace(
+          /TEXT 738,21,"ROMAN\.TTF",180,1,8,""/,
+          'TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"',
+        )
+        template = template.replace(
+          /TEXT 720,21,"ROMAN\.TTF",180,1,8,""/,
+          'TEXT 720,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"',
+        )
+        if (namedPcs && !/\{\{\s*pcs/i.test(template)) {
+          template = template.replace(
+            /PRINT 1,1\s*$/m,
+            'TEXT 400,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"\nPRINT 1,1',
+          )
+        }
+      }
+      return { ...rule, requireAll, template }
+    })
     .sort((a, b) => (b.priority || 0) - (a.priority || 0))
 }
 
@@ -575,6 +600,7 @@ export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {
   box_code: 'Box code',
   box_name: 'Box name (label)',
   rfid_tag: 'RFID tag',
+  pcs_gt_1: 'Pcs greater than 1',
 }
 
 /** Best-effort map from another software's sample PRN to our {{placeholders}}. */

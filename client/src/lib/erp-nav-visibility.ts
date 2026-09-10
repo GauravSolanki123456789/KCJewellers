@@ -9,6 +9,34 @@ export const JAINAV_ONLY_MODULE_IDS: ResellerErpModuleId[] = [
   'jainav-ledger',
 ]
 
+/** Never hide these behind Jainav, even if an old tab-layout save listed them. */
+const NEVER_JAINAV_LOCK_IDS = new Set<string>([
+  'billing',
+  'sales-bills',
+  'credit-bills',
+  'orders',
+  'estimations',
+  'customers',
+  'ledger',
+  'products',
+  'design-master',
+  'floors',
+  'tag-splitting',
+  'barcoding',
+  'scanner',
+  'rate-uncut',
+  'slabs',
+  'gst',
+  'e-invoice',
+  'e-way',
+  'tally',
+  'integrations',
+  'hardware',
+  'print-formats',
+  'backup',
+  'erp-users',
+])
+
 /** Single list: tabs hidden in admin mode until Jainav unlock (F9Rs* + Enter). */
 export type ErpNavVisibility = {
   jainavUnlockTabs: ResellerErpModuleId[]
@@ -27,7 +55,11 @@ export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
   'products',
   'design-master',
   'floors',
+  'tag-splitting',
+  'barcoding',
+  'scanner',
   'rol',
+  'rate-uncut',
   'slabs',
   'gst',
   'e-invoice',
@@ -54,6 +86,8 @@ export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
   'sales-reports',
   'customers',
   'ledger',
+  'products',
+  'tag-splitting',
   'backup',
   'jainav',
   'stock-reports',
@@ -88,7 +122,7 @@ export function normalizeErpNavVisibility(raw: unknown): ErpNavVisibility {
   const mergeMandatory = (ids: ResellerErpModuleId[]) => {
     const set = new Set<ResellerErpModuleId>(ids)
     for (const id of JAINAV_ONLY_MODULE_IDS) set.add(id)
-    return Array.from(set).filter((id) => VALID_NAV_IDS.has(id))
+    return Array.from(set).filter((id) => VALID_NAV_IDS.has(id) && !NEVER_JAINAV_LOCK_IDS.has(id))
   }
 
   // New format: { jainavUnlockTabs: [...] }
@@ -137,6 +171,7 @@ export function moduleRequiresJainavUnlock(
   moduleId: string,
   navVisibility?: ErpNavVisibility | null,
 ): boolean {
+  if (NEVER_JAINAV_LOCK_IDS.has(moduleId)) return false
   const vis = navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY
   if (JAINAV_ONLY_MODULE_IDS.includes(moduleId as ResellerErpModuleId)) return true
   return vis.jainavUnlockTabs.includes(moduleId as ResellerErpModuleId)

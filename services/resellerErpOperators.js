@@ -144,7 +144,7 @@ function trimUsername(v) {
 const MODULE_ALIASES = {
     einvoice: 'e-invoice',
     eway: 'e-way',
-    'rate-uncut': 'rol',
+    uncut: 'rate-uncut',
 };
 
 function normalizeModuleId(id) {
@@ -228,19 +228,62 @@ function registerOperatorRoutes(app, deps) {
 
     app.get('/api/reseller/erp/operators/me', checkAuth, erpGate, async (req, res) => {
         const op = getSessionOperator(req);
-        res.json({
-            operator: op ? mapOperator({
-                id: op.id,
-                username: op.username,
-                display_name: op.displayName,
-                role: op.role,
-                allowed_modules: op.allowedModules,
-                full_access: op.fullAccess,
-                shadow_access: op.shadowAccess,
-                is_active: true,
-            }) : null,
-            shadowUnlocked: !!req.session?.shadowUnlocked,
-        });
+        if (!op) {
+            return res.json({ operator: null, shadowUnlocked: false });
+        }
+        try {
+            const rows = await query(
+                `SELECT id, username, display_name, role, allowed_modules, full_access,
+                        shadow_access, is_active
+                 FROM reseller_erp_operators
+                 WHERE id = $1 AND reseller_user_id = $2 AND is_active = true
+                 LIMIT 1`,
+                [op.id, req.user.id],
+            );
+            if (!rows.length) {
+                req.session.erpOperator = null;
+                req.session.shadowUnlocked = false;
+                return res.json({ operator: null, shadowUnlocked: false });
+            }
+            const fresh = mapOperator(rows[0]);
+            req.session.erpOperator = {
+                ...op,
+                username: fresh.username,
+                displayName: fresh.displayName,
+                role: fresh.role,
+                allowedModules: fresh.fullAccess || fresh.role === 'admin' ? ALL_MODULE_IDS : fresh.allowedModules,
+                fullAccess: fresh.fullAccess,
+                shadowAccess: fresh.shadowAccess,
+            };
+            res.json({
+                operator: mapOperator({
+                    id: fresh.id,
+                    username: fresh.username,
+                    display_name: fresh.displayName,
+                    role: fresh.role,
+                    allowed_modules: req.session.erpOperator.allowedModules,
+                    full_access: fresh.fullAccess,
+                    shadow_access: fresh.shadowAccess,
+                    is_active: true,
+                }),
+                shadowUnlocked: !!req.session?.shadowUnlocked,
+            });
+        } catch (e) {
+            console.error('erp operators me:', e);
+            res.json({
+                operator: mapOperator({
+                    id: op.id,
+                    username: op.username,
+                    display_name: op.displayName,
+                    role: op.role,
+                    allowed_modules: op.allowedModules,
+                    full_access: op.fullAccess,
+                    shadow_access: op.shadowAccess,
+                    is_active: true,
+                }),
+                shadowUnlocked: !!req.session?.shadowUnlocked,
+            });
+        }
     });
 
     // ——— Operator CRUD (ERP admin) ———
@@ -346,7 +389,7 @@ function registerOperatorRoutes(app, deps) {
             if (fullAccess != null) {
                 sets.push(`full_access = $${idx++}`);
                 params.push(fullAccess);
-                if (fullAccess && allowedModules == null) {
+                if (fullAccess) {
                     sets.push(`allowed_modules = $${idx++}`);
                     params.push(ALL_MODULE_IDS);
                 }
@@ -502,7 +545,7 @@ function registerOperatorRoutes(app, deps) {
             if (fullAccess != null) {
                 sets.push(`full_access = $${idx++}`);
                 params.push(fullAccess);
-                if (fullAccess && allowedModules == null) {
+                if (fullAccess) {
                     sets.push(`allowed_modules = $${idx++}`);
                     params.push(ALL_MODULE_IDS);
                 }

@@ -28,14 +28,7 @@ import {
 } from 'lucide-react'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import type { ErpNavVisibility } from '@/lib/erp-nav-visibility'
-import {
-  DEFAULT_ERP_NAV_VISIBILITY,
-  ERP_NAV_MODULE_ORDER,
-  ERP_QUICK_NAV_IDS,
-  moduleRequiresJainavUnlock,
-  orderNavModuleIds,
-  resolveVisibleNavModuleIds,
-} from '@/lib/erp-nav-visibility'
+import { moduleRequiresJainavUnlock, orderNavModuleIds } from '@/lib/erp-nav-visibility'
 
 export type ResellerErpModuleId =
   | 'billing'
@@ -193,7 +186,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: Percent,
     group: 'rates',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'slabs',
@@ -220,7 +213,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: FileText,
     group: 'compliance',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'e-invoice',
@@ -229,7 +222,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: Building2,
     group: 'compliance',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'e-way',
@@ -238,7 +231,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: Truck,
     group: 'compliance',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'tally',
@@ -247,7 +240,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: Settings2,
     group: 'compliance',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'barcoding',
@@ -256,7 +249,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: QrCode,
     group: 'tools',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'tag-splitting',
@@ -264,8 +257,8 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Tag split',
     description: '',
     icon: Split,
-    group: 'tools',
-    kind: 'settings',
+    group: 'inventory',
+    kind: 'workspace',
   },
   {
     id: 'scanner',
@@ -274,7 +267,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: ScanLine,
     group: 'tools',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'hardware',
@@ -301,7 +294,7 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: '',
     icon: Settings2,
     group: 'compliance',
-    kind: 'settings',
+    kind: 'workspace',
   },
   {
     id: 'erp-users',
@@ -395,15 +388,11 @@ export function listErpModulesForHub(opts: {
 }): ResellerErpModule[] {
   const isAdmin = opts.isAdminOperator === true
   if (isAdmin) {
-    const visible = resolveVisibleNavModuleIds({
-      jainavUnlocked: opts.jainavUnlocked,
-      isAdminOperator: true,
-      navVisibility: opts.navVisibility,
-    })
     return RESELLER_ERP_MODULES.filter((m) => {
       if (m.id === 'shadow') return false
-      if (!visible.has(m.id)) return false
-      return opts.canAccess(m.id)
+      if (!opts.canAccess(m.id)) return false
+      if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) return false
+      return true
     })
   }
   return RESELLER_ERP_MODULES.filter((m) => {
@@ -421,29 +410,15 @@ export function listErpQuickNavModules(opts: {
   navVisibility?: ErpNavVisibility | null
 }): ResellerErpModule[] {
   const isAdmin = opts.isAdminOperator === true
-  if (isAdmin) {
-    const visible = resolveVisibleNavModuleIds({
-      jainavUnlocked: opts.jainavUnlocked,
-      isAdminOperator: true,
-      navVisibility: opts.navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY,
-    })
-    return orderNavModuleIds(visible)
-      .map((id) => getResellerErpModule(id))
-      .filter((m): m is ResellerErpModule => {
-        if (!m) return false
-        return opts.canAccess(m.id)
-      })
+  const ids = new Set<string>()
+  for (const m of RESELLER_ERP_MODULES) {
+    if (m.id === 'shadow') continue
+    if (m.id === 'erp-users' && !isAdmin) continue
+    if (!opts.canAccess(m.id)) continue
+    if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) continue
+    ids.add(m.id)
   }
-  const staffIds = new Set<string>()
-  for (const id of ERP_NAV_MODULE_ORDER) {
-    if (id === 'erp-users') continue
-    if (!opts.canAccess(id)) continue
-    const mod = getResellerErpModule(id)
-    if (!mod) continue
-    if (isJainavModule(mod, opts.navVisibility) && !opts.jainavUnlocked) continue
-    staffIds.add(id)
-  }
-  return orderNavModuleIds(staffIds)
+  return orderNavModuleIds(ids)
     .map((id) => getResellerErpModule(id))
     .filter((m): m is ResellerErpModule => !!m)
 }

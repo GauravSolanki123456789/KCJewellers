@@ -653,6 +653,9 @@ export function ErpProductsWorkspace() {
             <>
               <Upload className="mb-2 size-8 text-[var(--kc-accent,#c41e3a)]" />
               <span className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Choose .xlsx or .csv</span>
+              <span className="mt-1 max-w-sm text-center text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                PCS is pieces on one tag (a pair = 1 product, 2 pcs). Split later from Tag split.
+              </span>
             </>
           )}
         </label>

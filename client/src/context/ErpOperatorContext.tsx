@@ -41,7 +41,7 @@ const ErpOperatorContext = createContext<ErpOperatorContextValue | null>(null)
 const ERP_MODULE_ALIASES: Record<string, string> = {
   einvoice: 'e-invoice',
   eway: 'e-way',
-  'rate-uncut': 'rol',
+  uncut: 'rate-uncut',
 }
 
 function normalizeErpModuleId(moduleId: string): string {

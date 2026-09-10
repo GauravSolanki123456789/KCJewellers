@@ -5,8 +5,6 @@
 const { randomUUID } = require('crypto');
 const poshRfid = require('./poshRfid');
 
-const SUFFIX_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
 function round3(n) {
     const x = Number(n);
     return Number.isFinite(x) ? Math.round(x * 1000) / 1000 : 0;
@@ -74,33 +72,39 @@ async function allocateBarcodes(query, resellerUserId, itemCode, refBarcode, cou
     return out;
 }
 
-function baseBarcodeWithoutSuffix(barcode) {
+function splitBarcodeBase(barcode) {
     const s = String(barcode || '').trim();
-    const m = s.match(/^(.+)-([A-Z])$/);
-    return m ? m[1] : s;
+    const letter = s.match(/^(.*)-([A-Z])$/);
+    if (letter) return letter[1];
+    const numeric = s.match(/^(.*)-(\d{2})$/);
+    if (!numeric) return s;
+    const prefix = numeric[1];
+    const suffix = numeric[2];
+    const hyphenCount = (s.match(/-/g) || []).length;
+    const paddedSplit = suffix.startsWith('0');
+    // VLK-36299 must stay intact; only strip real split suffixes (VLK-36299-01, FS001-01).
+    if (hyphenCount >= 2 || paddedSplit || !prefix.includes('-')) return prefix;
+    return s;
 }
 
-function suffixBarcode(base, index) {
-    const letter = SUFFIX_LETTERS[index] || String(index + 1);
-    return `${base}-${letter}`;
+function numericSuffixBarcode(base, index) {
+    return `${base}-${String(index + 1).padStart(2, '0')}`;
 }
 
-async function allocateSuffixBarcodes(query, resellerUserId, baseBarcode, count, startIndex = 0) {
-    const base = baseBarcodeWithoutSuffix(baseBarcode);
+async function allocateNumericSuffixBarcodes(query, resellerUserId, sourceBarcode, count) {
+    const base = splitBarcodeBase(sourceBarcode);
     const out = [];
-    for (let i = 0; i < count; i += 1) {
-        let candidate = suffixBarcode(base, startIndex + i);
-        let tries = 0;
-        while (tries < 50) {
-            const exists = await query(
-                `SELECT id FROM reseller_erp_stock_pieces
-                 WHERE reseller_user_id = $1 AND lower(barcode) = lower($2) LIMIT 1`,
-                [resellerUserId, candidate],
-            );
-            if (!exists.length) break;
-            candidate = suffixBarcode(base, startIndex + i + tries + 1);
-            tries += 1;
-        }
+    let n = 0;
+    while (out.length < count && n < 500) {
+        const candidate = numericSuffixBarcode(base, n);
+        n += 1;
+        if (candidate.toLowerCase() === String(sourceBarcode).trim().toLowerCase()) continue;
+        const exists = await query(
+            `SELECT id FROM reseller_erp_stock_pieces
+             WHERE reseller_user_id = $1 AND lower(barcode) = lower($2) LIMIT 1`,
+            [resellerUserId, candidate],
+        );
+        if (exists.length) continue;
         out.push(candidate);
     }
     return out;
@@ -277,7 +281,9 @@ function registerTagOpsRoutes(app, deps) {
             }
             totalSplitWt = round3(totalSplitWt);
 
-            if (totalSplitPcs > sourcePcs) {
+            const isComponentSplit = normalizedSplits.some((s) => s.part_label);
+
+            if (!isComponentSplit && totalSplitPcs > sourcePcs) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({
                     error: `Split PCS (${totalSplitPcs}) exceeds source PCS (${sourcePcs})`,
@@ -310,56 +316,18 @@ function registerTagOpsRoutes(app, deps) {
             let remainderOnSource = null;
             let updatedSource = null;
 
+            const remainPcs = sourcePcs - totalSplitPcs;
+            const remainWt = round3(Math.max(0, sourceWt - totalSplitWt));
+            const remainGross =
+                sourceGross != null && sourceWt > 0
+                    ? round3(Math.max(0, sourceGross - (sourceGross * totalSplitWt) / sourceWt))
+                    : sourceGross != null
+                      ? round3(Math.max(0, sourceGross - totalSplitWt))
+                      : null;
+            const isPartial = remainPcs > 0;
+
             if (useSuffix && normalizedSplits.length >= 1) {
-                const first = normalizedSplits[0];
-                const rest = normalizedSplits.slice(1);
-                const firstName =
-                    first.product_name ||
-                    appendPartLabel(source.product_name, first.part_label) ||
-                    source.product_name;
-                const firstGross =
-                    sourceGross != null && sourceWt > 0
-                        ? round3((sourceGross * first.weight) / sourceWt)
-                        : first.weight;
-
-                await client.query(
-                    `UPDATE reseller_erp_stock_pieces SET
-                        pcs = $1, avg_weight = $2, gross_weight = $3, product_name = $4,
-                        bags = COALESCE($5, bags), bag_wt = COALESCE($6, bag_wt),
-                        chain_wt_only = NULL, pendant_wt_only = NULL, earring_wt_only = NULL,
-                        updated_at = NOW(), status = 'in_stock'
-                     WHERE id = $7`,
-                    [
-                        first.pcs,
-                        first.weight,
-                        firstGross,
-                        firstName,
-                        first.bags,
-                        first.bag_wt,
-                        source.id,
-                    ],
-                );
-                updatedSource = mapPieceRow({
-                    ...source,
-                    pcs: first.pcs,
-                    avg_weight: first.weight,
-                    gross_weight: firstGross,
-                    product_name: firstName,
-                    bags: first.bags || source.bags,
-                    bag_wt: first.bag_wt != null ? first.bag_wt : source.bag_wt,
-                });
-
-                const suffixBarcodes = await allocateSuffixBarcodes(
-                    queryFn,
-                    req.user.id,
-                    source.barcode,
-                    rest.length,
-                    0,
-                );
-
-                for (let i = 0; i < rest.length; i += 1) {
-                    const s = rest[i];
-                    const newBc = suffixBarcodes[i];
+                const insertSplitRow = async (s, newBc, splitIndex) => {
                     const pieceName =
                         s.product_name ||
                         appendPartLabel(source.product_name, s.part_label) ||
@@ -408,7 +376,7 @@ function registerTagOpsRoutes(app, deps) {
                             source.barcode,
                             JSON.stringify({
                                 split_from: source.barcode,
-                                split_index: i + 2,
+                                split_index: splitIndex,
                                 part_label: s.part_label,
                             }),
                         ],
@@ -422,18 +390,88 @@ function registerTagOpsRoutes(app, deps) {
                             console.warn('posh rfid link after split:', e.message);
                         }
                     }
-                }
+                    return mapped;
+                };
 
-                const remainWt = round3(Math.max(0, sourceWt - totalSplitWt));
-                if (remainWt > 0.05 && rest.length === 0) {
-                    remainderOnSource = {
-                        pcs: sourcePcs - totalSplitPcs + first.pcs,
-                        weight: remainWt,
-                        gross_weight:
-                            sourceGross != null
-                                ? round3(Math.max(0, sourceGross - firstGross))
-                                : null,
-                    };
+                if (isPartial && !isComponentSplit) {
+                    const suffixBarcodes = await allocateNumericSuffixBarcodes(
+                        queryFn,
+                        req.user.id,
+                        source.barcode,
+                        normalizedSplits.length,
+                    );
+                    for (let i = 0; i < normalizedSplits.length; i += 1) {
+                        await insertSplitRow(normalizedSplits[i], suffixBarcodes[i], i + 1);
+                    }
+                    await client.query(
+                        `UPDATE reseller_erp_stock_pieces SET
+                            pcs = $1, avg_weight = $2, gross_weight = $3,
+                            chain_wt_only = NULL, pendant_wt_only = NULL, earring_wt_only = NULL,
+                            updated_at = NOW(), status = 'in_stock'
+                         WHERE id = $4`,
+                        [remainPcs, remainWt, remainGross, source.id],
+                    );
+                    updatedSource = mapPieceRow({
+                        ...source,
+                        pcs: remainPcs,
+                        avg_weight: remainWt,
+                        gross_weight: remainGross,
+                        chain_wt_only: null,
+                        pendant_wt_only: null,
+                        earring_wt_only: null,
+                    });
+                    remainderOnSource = { pcs: remainPcs, weight: remainWt, gross_weight: remainGross };
+                } else {
+                    const first = normalizedSplits[0];
+                    const rest = normalizedSplits.slice(1);
+                    const firstName =
+                        first.product_name ||
+                        appendPartLabel(source.product_name, first.part_label) ||
+                        source.product_name;
+                    const firstGross =
+                        sourceGross != null && sourceWt > 0
+                            ? round3((sourceGross * first.weight) / sourceWt)
+                            : first.weight;
+
+                    await client.query(
+                        `UPDATE reseller_erp_stock_pieces SET
+                            pcs = $1, avg_weight = $2, gross_weight = $3, product_name = $4,
+                            bags = COALESCE($5, bags), bag_wt = COALESCE($6, bag_wt),
+                            rfid_tag = COALESCE($7, rfid_tag),
+                            chain_wt_only = NULL, pendant_wt_only = NULL, earring_wt_only = NULL,
+                            updated_at = NOW(), status = 'in_stock'
+                         WHERE id = $8`,
+                        [
+                            first.pcs,
+                            first.weight,
+                            firstGross,
+                            firstName,
+                            first.bags,
+                            first.bag_wt,
+                            first.rfid_tag,
+                            source.id,
+                        ],
+                    );
+                    updatedSource = mapPieceRow({
+                        ...source,
+                        pcs: first.pcs,
+                        avg_weight: first.weight,
+                        gross_weight: firstGross,
+                        product_name: firstName,
+                        bags: first.bags || source.bags,
+                        bag_wt: first.bag_wt != null ? first.bag_wt : source.bag_wt,
+                        rfid_tag: first.rfid_tag || source.rfid_tag,
+                    });
+
+                    const suffixBarcodes = await allocateNumericSuffixBarcodes(
+                        queryFn,
+                        req.user.id,
+                        source.barcode,
+                        rest.length,
+                    );
+                    for (let i = 0; i < rest.length; i += 1) {
+                        await insertSplitRow(rest[i], suffixBarcodes[i], i + 2);
+                    }
                 }
             } else {
                 const newBarcodes = await allocateBarcodes(
@@ -535,7 +573,7 @@ function registerTagOpsRoutes(app, deps) {
                 [
                     req.user.id,
                     [source.barcode],
-                    created.map((p) => p.barcode),
+                    resultBarcodes,
                     sourcePcs,
                     sourceWt,
                     totalSplitPcs,

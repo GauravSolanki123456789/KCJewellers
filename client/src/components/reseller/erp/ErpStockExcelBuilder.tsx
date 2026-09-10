@@ -28,7 +28,7 @@ const FIELD_ROWS: { key: keyof StockExcelBuilderDefaults; label: string; placeho
   { key: 'metal_slab_w_pct', label: 'Met W%', placeholder: '94' },
   { key: 'metal_slab_f_pct', label: 'Met F%', placeholder: '92' },
   { key: 'mc_type', label: 'MCType', placeholder: 'MC/GM' },
-  { key: 'pcs', label: 'PCS', placeholder: '1' },
+  { key: 'pcs', label: 'PCS (pieces on this one tag)', placeholder: '1' },
   { key: 'box_charges', label: 'Box charges' },
   { key: 'stone_charges', label: 'Stone charges' },
   { key: 'stone_wt', label: 'Stone Wt' },

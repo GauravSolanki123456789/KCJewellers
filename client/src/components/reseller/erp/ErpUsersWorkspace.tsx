@@ -137,9 +137,6 @@ export function ErpUsersWorkspace() {
     }
   }
 
-  const moduleLabel = (id: string) =>
-    RESELLER_ERP_MODULES.find((m) => m.id === id)?.title || id
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -257,17 +254,17 @@ export function ErpUsersWorkspace() {
                 Module access
               </p>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {(moduleIds.length ? moduleIds : RESELLER_ERP_MODULES.map((m) => m.id)).map((id) => (
+                {RESELLER_ERP_MODULES.filter((m) => m.id !== 'shadow').map((m) => (
                   <label
-                    key={id}
+                    key={m.id}
                     className="flex min-h-[40px] cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2.5 py-2 text-xs"
                   >
                     <input
                       type="checkbox"
-                      checked={form.allowedModules.includes(id)}
-                      onChange={() => toggleModule(id)}
+                      checked={form.allowedModules.includes(m.id)}
+                      onChange={() => toggleModule(m.id)}
                     />
-                    <span className="text-[var(--color-jewelry-black,#1a1814)]">{moduleLabel(id)}</span>
+                    <span className="text-[var(--color-jewelry-black,#1a1814)]">{m.title}</span>
                   </label>
                 ))}
               </div>
