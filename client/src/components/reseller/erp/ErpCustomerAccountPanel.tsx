@@ -17,6 +17,7 @@ export type CustomerAccountTx = {
   credit: number
   balance_inr: number
   lane?: string
+  weight_gm?: number
 }
 
 export type CustomerAccountData = {
@@ -234,6 +235,7 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
                   <th className="px-3 py-2.5">Type</th>
                   <th className="px-3 py-2.5">Bill / ref</th>
                   <th className="px-3 py-2.5">Description</th>
+                  <th className="px-3 py-2.5 text-right">Weight</th>
                   <th className="px-3 py-2.5 text-right">Debit</th>
                   <th className="px-3 py-2.5 text-right">Credit</th>
                   <th className="px-3 py-2.5 text-right">Balance</th>
@@ -246,6 +248,9 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
                     <td className="px-3 py-2">{formatLedgerTransactionKind(t.kind)}</td>
                     <td className="px-3 py-2 font-mono">{t.ref || '—'}</td>
                     <td className="max-w-[140px] truncate px-3 py-2">{t.description}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                      {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">{t.debit ? formatErpInr(t.debit) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{t.credit ? formatErpInr(t.credit) : '—'}</td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatErpInr(t.balance_inr)}</td>

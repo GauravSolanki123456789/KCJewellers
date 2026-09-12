@@ -60,27 +60,63 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 6,
     marginBottom: 0,
+    position: 'relative',
+  },
+  headerMain: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  headerCenter: {
+    flexGrow: 1,
+    flexShrink: 1,
+  },
+  headerQrCol: {
+    width: 82,
+    alignItems: 'flex-end',
+    paddingLeft: 4,
   },
   copyTag: {
     fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
     textAlign: 'right',
     marginBottom: 2,
   },
   title: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  shopName: {
     fontSize: 11,
+    fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 3,
+    color: '#000',
+  },
+  shopName: {
+    fontSize: 12,
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 3,
+    color: '#000',
   },
   centerLine: { fontSize: 7.5, textAlign: 'center', lineHeight: 1.3 },
-  taxIdLine: { fontSize: 8, fontWeight: 'bold', textAlign: 'center', marginTop: 2 },
+  taxIdLine: {
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 2,
+    color: '#000',
+  },
+  fieldLabel: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000' },
+  irnBlock: {
+    marginTop: 4,
+    paddingRight: 2,
+  },
+  irnText: {
+    fontSize: 6,
+    lineHeight: 1.25,
+    textAlign: 'left',
+  },
   billingBox: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 78 },
   billingLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000' },
   billingRight: { width: '42%', padding: 6, paddingTop: 8 },
@@ -156,8 +192,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 5,
     paddingHorizontal: 8,
+    fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
-    fontSize: 8.5,
+    fontSize: 9.5,
+    color: '#000',
   },
   footerRow: { flexDirection: 'row', marginTop: 6, minHeight: 88, paddingTop: 4 },
   termsCol: { width: '50%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 6 },
@@ -165,18 +203,10 @@ const styles = StyleSheet.create({
   signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-end' },
   signLine: { borderTopWidth: 1, borderTopColor: '#000', marginTop: 28, paddingTop: 3, textAlign: 'center' },
   eRef: { marginTop: 6, fontSize: 7 },
-  eInvoiceRow: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: '#666',
-    marginBottom: 4,
-    padding: 4,
-    gap: 6,
-  },
-  qr: { width: 92, height: 92, objectFit: 'contain' },
+  qr: { width: 74, height: 74, objectFit: 'contain' },
   qrPlaceholder: {
-    width: 92,
-    height: 92,
+    width: 74,
+    height: 74,
     borderWidth: 1,
     borderColor: '#000',
     alignItems: 'center',
@@ -184,6 +214,17 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 })
+
+/** Join over-split GST address fragments into two compact centered lines. */
+function compactCompanyAddressLines(lines: string[]): string[] {
+  const parts = (lines || [])
+    .map((s) => String(s || '').replace(/,\s*$/, '').trim())
+    .filter(Boolean)
+  if (parts.length <= 2) return parts
+  const line1 = `${parts.slice(0, 2).join(', ')},`
+  const line2 = parts.slice(2).join(', ')
+  return [line1, line2].filter(Boolean)
+}
 
 function formatBillDate(bill: ErpBill): string {
   return formatErpDateDdMmYyyy(bill.bill_date || bill.created_at)
@@ -356,49 +397,67 @@ function InvoicePage({
     ]
   })
 
+  const showQr = !!compliance?.irn
+  const addressLines = compactCompanyAddressLines(template.addressLines)
+  const toLabel = /:$/.test(template.toLabel.trim()) ? template.toLabel.trim() : `${template.toLabel.trim()}:`
+  const placeLabel = /:$/.test(template.placeOfSupplyLabel.trim())
+    ? template.placeOfSupplyLabel.trim()
+    : `${template.placeOfSupplyLabel.trim()}:`
+
   return (
     <Page size="A4" style={styles.page}>
-      {compliance?.irn ? (
-        <View style={styles.eInvoiceRow}>
-          <View style={{ flex: 1, fontSize: 6.5 }}>
-            <Text style={{ fontWeight: 'bold' }}>e-Invoice</Text>
-            <Text>IRN: {sanitizePdfText(compliance.irn)}</Text>
-            {compliance.ack_no ? <Text>Ack No.: {sanitizePdfText(String(compliance.ack_no))}</Text> : null}
-            {compliance.ack_date ? <Text>Ack Date: {sanitizePdfText(String(compliance.ack_date))}</Text> : null}
-          </View>
-          {compliance.qrImageSrc ? (
-            <Image style={styles.qr} src={compliance.qrImageSrc} />
-          ) : (
-            <View style={styles.qrPlaceholder}>
-              <Text style={{ fontSize: 6, textAlign: 'center' }}>QR code</Text>
-            </View>
-          )}
-        </View>
-      ) : null}
-
       <View style={styles.pageBody}>
       <View style={styles.headerBox}>
         {copyLabel ? <Text style={styles.copyTag}>{copyLabel}</Text> : null}
-        <Text style={styles.title}>{sanitizePdfText(template.headerTitle)}</Text>
-        <Text style={styles.shopName}>{sanitizePdfText(shopDisplay)}</Text>
-        {template.addressLines.map((line, i) => (
-          <Text key={`addr-${i}`} style={styles.centerLine}>
-            {sanitizePdfText(line)}
-          </Text>
-        ))}
-        {template.phoneEmailLine ? (
-          <Text style={styles.centerLine}>{sanitizePdfText(template.phoneEmailLine)}</Text>
-        ) : null}
-        <Text style={styles.taxIdLine}>{sanitizePdfText(template.panLine)}</Text>
-        <Text style={styles.taxIdLine}>{sanitizePdfText(template.gstinLine)}</Text>
+        <View style={styles.headerMain}>
+          <View style={styles.headerCenter}>
+            <Text style={styles.title}>{sanitizePdfText(template.headerTitle)}</Text>
+            <Text style={styles.shopName}>{sanitizePdfText(shopDisplay)}</Text>
+            {addressLines.map((line, i) => (
+              <Text key={`addr-${i}`} style={styles.centerLine}>
+                {sanitizePdfText(line)}
+              </Text>
+            ))}
+            {template.phoneEmailLine ? (
+              <Text style={styles.centerLine}>{sanitizePdfText(template.phoneEmailLine)}</Text>
+            ) : null}
+            <Text style={styles.taxIdLine}>{sanitizePdfText(template.panLine)}</Text>
+            <Text style={styles.taxIdLine}>{sanitizePdfText(template.gstinLine)}</Text>
+            {compliance?.irn ? (
+              <View style={styles.irnBlock}>
+                <Text style={styles.irnText}>
+                  IRN: {sanitizePdfText(compliance.irn)}
+                </Text>
+                {compliance.ack_no || compliance.ack_date ? (
+                  <Text style={styles.irnText}>
+                    {compliance.ack_no ? `Ack No.: ${sanitizePdfText(String(compliance.ack_no))}` : ''}
+                    {compliance.ack_no && compliance.ack_date ? '   ' : ''}
+                    {compliance.ack_date ? `Ack Date: ${sanitizePdfText(String(compliance.ack_date))}` : ''}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+          {showQr ? (
+            <View style={styles.headerQrCol}>
+              {compliance?.qrImageSrc ? (
+                <Image style={styles.qr} src={compliance.qrImageSrc} />
+              ) : (
+                <View style={styles.qrPlaceholder}>
+                  <Text style={{ fontSize: 6, textAlign: 'center' }}>QR code</Text>
+                </View>
+              )}
+            </View>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.billingBox}>
         <View style={styles.billingLeft}>
           <Text style={styles.billingBar}>{sanitizePdfText(template.billingAddressLabel)}</Text>
           <View style={styles.billingBody}>
-            <Text>{sanitizePdfText(template.toLabel)}</Text>
-            <Text style={{ fontWeight: 'bold', marginTop: 2 }}>
+            <Text style={styles.fieldLabel}>{sanitizePdfText(toLabel)}</Text>
+            <Text style={{ fontFamily: 'Helvetica-Bold', fontWeight: 'bold', marginTop: 2 }}>
               {sanitizePdfText(customerName || bill.customer_name || 'Walk-in')}
             </Text>
             {customerAddress ? (
@@ -409,18 +468,25 @@ function InvoicePage({
         </View>
         <View style={styles.billingRight}>
           <Text style={{ fontSize: 8, marginBottom: 4 }}>
-            {sanitizePdfText(template.billNoLabel)} {sanitizePdfText(bill.bill_number)}
+            <Text style={styles.fieldLabel}>{sanitizePdfText(template.billNoLabel)} </Text>
+            {sanitizePdfText(bill.bill_number)}
           </Text>
           <Text style={{ fontSize: 8, marginBottom: 12 }}>
-            {sanitizePdfText(template.dateLabel)} {formatBillDate(bill)}
+            <Text style={styles.fieldLabel}>{sanitizePdfText(template.dateLabel)} </Text>
+            {formatBillDate(bill)}
           </Text>
           {variant === 'einvoice' || ewayBillNo ? (
             <Text style={{ fontSize: 8, marginBottom: 8 }}>
-              E-Way Bill : {sanitizePdfText(ewayBillNo || '')}
+              <Text style={styles.fieldLabel}>E-Way Bill : </Text>
+              {sanitizePdfText(ewayBillNo || '')}
             </Text>
           ) : null}
-          <Text style={{ fontSize: 7, marginBottom: 2 }}>{sanitizePdfText(template.placeOfSupplyLabel)}</Text>
-          <Text style={{ fontSize: 8, fontWeight: 'bold' }}>{sanitizePdfText(placeOfSupply)}</Text>
+          <Text style={{ fontSize: 7, marginBottom: 2 }}>
+            <Text style={styles.fieldLabel}>{sanitizePdfText(placeLabel)}</Text>
+          </Text>
+          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' }}>
+            {sanitizePdfText(placeOfSupply)}
+          </Text>
         </View>
       </View>
 
@@ -472,8 +538,8 @@ function InvoicePage({
             <Text>{roundOff.toFixed(2)}</Text>
           </View>
           <View style={styles.netCell}>
-            <Text>{template.totalsLabels.netAmount}</Text>
-            <Text>{roundedTotal.toFixed(2)}</Text>
+            <Text style={styles.fieldLabel}>{template.totalsLabels.netAmount}</Text>
+            <Text style={styles.fieldLabel}>{roundedTotal.toFixed(2)}</Text>
           </View>
         </View>
       </View>

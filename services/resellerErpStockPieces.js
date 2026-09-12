@@ -637,6 +637,60 @@ async function markPiecesSold(query, resellerUserId, lines, billId) {
     }
 }
 
+/** Put scanned barcodes back into stock after a sales return. */
+async function restorePiecesInStock(query, resellerUserId, lines) {
+    const barcodes = (lines || [])
+        .map((l) => (l.barcode || l.code || '').trim())
+        .filter(Boolean);
+    if (!barcodes.length) return;
+
+    await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            status = 'in_stock', sold_bill_id = NULL, updated_at = NOW()
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[])
+           AND status IN ('sold', 'lane')`,
+        [resellerUserId, barcodes],
+    );
+
+    const itemCodes = await query(
+        `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
+        [resellerUserId, barcodes],
+    );
+    for (const row of itemCodes) {
+        await syncStockAlertCounts(query, resellerUserId, row.item_code);
+    }
+}
+
+/** Reverse a sales return — mark those barcodes sold again against the original bill. */
+async function markReturnedPiecesSoldAgain(query, resellerUserId, lines) {
+    const barcodes = (lines || [])
+        .map((l) => (l.barcode || l.code || '').trim())
+        .filter(Boolean);
+    if (!barcodes.length) return;
+
+    for (const line of lines || []) {
+        const barcode = (line.barcode || line.code || '').trim();
+        if (!barcode) continue;
+        const soldBillId = Number(line.source_bill_id) || null;
+        await query(
+            `UPDATE reseller_erp_stock_pieces SET
+                status = 'sold', sold_bill_id = COALESCE($1, sold_bill_id), updated_at = NOW()
+             WHERE reseller_user_id = $2 AND barcode = $3 AND status = 'in_stock'`,
+            [soldBillId, resellerUserId, barcode],
+        );
+    }
+
+    const itemCodes = await query(
+        `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
+        [resellerUserId, barcodes],
+    );
+    for (const row of itemCodes) {
+        await syncStockAlertCounts(query, resellerUserId, row.item_code);
+    }
+}
+
 /** Jainav / lane billing — reserve stock without showing as sold in normal ERP views. */
 async function markPiecesShadowLane(query, resellerUserId, lines) {
     const barcodes = (lines || [])
@@ -2244,7 +2298,7 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
-    return { lookupStockPiece, markPiecesSold, markPiecesShadowLane, syncStockAlertCounts, mapPiece, mapPieceForClient, parseExcelRowToPiece, findSoldBarcodeConflicts };
+    return { lookupStockPiece, markPiecesSold, markPiecesShadowLane, restorePiecesInStock, markReturnedPiecesSoldAgain, syncStockAlertCounts, mapPiece, mapPieceForClient, parseExcelRowToPiece, findSoldBarcodeConflicts };
 }
 
 module.exports = {
@@ -2253,6 +2307,8 @@ module.exports = {
     lookupStockPiece,
     markPiecesSold,
     markPiecesShadowLane,
+    restorePiecesInStock,
+    markReturnedPiecesSoldAgain,
     mapPiece,
     mapPieceForClient,
     parseExcelRowToPiece,

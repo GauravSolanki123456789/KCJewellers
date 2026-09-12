@@ -7,7 +7,7 @@ const { isAdminStrict } = require('../middleware/auth');
 
 const OPERATOR_PUBLIC_SUFFIXES = ['/operators/login', '/operators/logout', '/operators/me'];
 const ALL_MODULE_IDS = [
-    'billing', 'sales-bills', 'credit-bills', 'orders', 'estimations',
+    'billing', 'sales-bills', 'credit-bills', 'debit-notes', 'sales-return', 'orders', 'estimations',
     'customers', 'ledger', 'products', 'design-master', 'floors', 'stock', 'rol',
     'rate-uncut', 'slabs', 'sales-reports', 'sales-percentages',
     'gst', 'e-invoice', 'e-way', 'tally', 'integrations',

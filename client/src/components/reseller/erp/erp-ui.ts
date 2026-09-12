@@ -166,6 +166,10 @@ export type ErpBillLine = {
   /** True while A/S/B/G stacked editor is open; collapses to the normal table row when done */
   manualEntryOpen?: boolean
   manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift'
+  /** Set when this line is copied into a sales return / debit adjustment */
+  source_bill_id?: number | null
+  source_bill_number?: string | null
+  source_line_key?: string | null
   /** MRP / piece-rate line (no weight in kgs on invoice) */
   mrpMode?: boolean
   /** Size variants from design master (gift SKUs) */

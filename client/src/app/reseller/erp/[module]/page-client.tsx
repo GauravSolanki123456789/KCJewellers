@@ -12,6 +12,8 @@ import { erpBtnPrimary } from '@/components/reseller/erp/erp-ui'
 import { ErpBillingWorkspace } from '@/components/reseller/erp/ErpBillingWorkspace'
 import { ErpEstimationsWorkspace } from '@/components/reseller/erp/ErpEstimationsWorkspace'
 import { ErpSalesBillsWorkspace } from '@/components/reseller/erp/ErpSalesBillsWorkspace'
+import { ErpSalesReturnWorkspace } from '@/components/reseller/erp/ErpSalesReturnWorkspace'
+import { ErpCreditDebitNotesWorkspace } from '@/components/reseller/erp/ErpCreditDebitNotesWorkspace'
 import { ErpLedgerWorkspace } from '@/components/reseller/erp/ErpLedgerWorkspace'
 import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
 import { ErpPrintFormatsWorkspace } from '@/components/reseller/erp/ErpPrintFormatsWorkspace'
@@ -36,7 +38,6 @@ import { ErpTaxInvoiceTemplatePanel } from '@/components/reseller/erp/ErpTaxInvo
 import { ErpRolWorkspace } from '@/components/reseller/erp/ErpRolWorkspace'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
 import {
-  BillsWorkspace,
   CustomersWorkspace,
   ErpFallbackPanel,
   IntegrationsWorkspace,
@@ -74,7 +75,11 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'sales-bills':
       return <ErpSalesBillsWorkspace />
     case 'credit-bills':
-      return <BillsWorkspace billTypeFilter="credit" />
+      return <ErpCreditDebitNotesWorkspace kind="credit" />
+    case 'debit-notes':
+      return <ErpCreditDebitNotesWorkspace kind="debit" />
+    case 'sales-return':
+      return <ErpSalesReturnWorkspace />
     case 'orders':
       return <ErpOrderManagementWorkspace />
     case 'estimations':
@@ -130,10 +135,6 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
     case 'e-invoice':
       return (
         <div className="space-y-3">
-          <p className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950">
-            <span className="font-semibold">GSTZen sandbox:</span> Leave API key empty to use the demo token. Default URL:{' '}
-            <span className="font-mono text-[11px]">my.gstzen.in/.../einvoice-json/</span>
-          </p>
           <SettingsWorkspace
             settingsKey="einvoice"
             fields={[

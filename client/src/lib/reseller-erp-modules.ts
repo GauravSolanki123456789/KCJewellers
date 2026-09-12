@@ -5,6 +5,7 @@ import {
   Calculator,
   CreditCard,
   Download,
+  FileMinus,
   FileText,
   Layers,
   BookMarked,
@@ -21,6 +22,7 @@ import {
   Split,
   Tags,
   Truck,
+  Undo2,
   UserCog,
   Users,
   Vault,
@@ -34,6 +36,8 @@ export type ResellerErpModuleId =
   | 'billing'
   | 'sales-bills'
   | 'credit-bills'
+  | 'debit-notes'
+  | 'sales-return'
   | 'orders'
   | 'estimations'
   | 'customers'
@@ -99,10 +103,28 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
   },
   {
     id: 'credit-bills',
-    title: 'Credit bills',
+    title: 'Credit notes',
     short: 'Credit notes',
     description: '',
     icon: CreditCard,
+    group: 'sales',
+    kind: 'workspace',
+  },
+  {
+    id: 'debit-notes',
+    title: 'Debit notes',
+    short: 'Debit notes',
+    description: '',
+    icon: FileMinus,
+    group: 'sales',
+    kind: 'workspace',
+  },
+  {
+    id: 'sales-return',
+    title: 'Sales return',
+    short: 'SSR',
+    description: '',
+    icon: Undo2,
     group: 'sales',
     kind: 'workspace',
   },

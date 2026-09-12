@@ -22,9 +22,10 @@ const styles = StyleSheet.create({
   c1: { width: '14%' },
   c2: { width: '12%' },
   c3: { width: '14%' },
-  c4: { width: '26%' },
-  c5: { width: '11%', textAlign: 'right' },
-  c6: { width: '11%', textAlign: 'right' },
+  c4: { width: '20%' },
+  cW: { width: '10%', textAlign: 'right' },
+  c5: { width: '10%', textAlign: 'right' },
+  c6: { width: '10%', textAlign: 'right' },
   c7: { width: '12%', textAlign: 'right' },
 })
 
@@ -52,6 +53,7 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
           <Text style={styles.c2}>Type</Text>
           <Text style={styles.c3}>Ref</Text>
           <Text style={styles.c4}>Description</Text>
+          <Text style={styles.cW}>Weight</Text>
           <Text style={styles.c5}>Debit</Text>
           <Text style={styles.c6}>Credit</Text>
           <Text style={styles.c7}>Balance</Text>
@@ -62,6 +64,9 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
             <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
             <Text style={styles.c3}>{t.ref || '—'}</Text>
             <Text style={styles.c4}>{t.description}</Text>
+            <Text style={styles.cW}>
+              {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
+            </Text>
             <Text style={styles.c5}>{t.debit ? formatPdfInr(t.debit) : '—'}</Text>
             <Text style={styles.c6}>{t.credit ? formatPdfInr(t.credit) : '—'}</Text>
             <Text style={styles.c7}>{formatPdfInr(t.balance_inr)}</Text>

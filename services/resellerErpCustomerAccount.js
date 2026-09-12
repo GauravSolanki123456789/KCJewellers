@@ -20,6 +20,19 @@ function accountCsvEscape(v) {
     return s;
 }
 
+function totalWeightGmFromLines(linesJson) {
+    let lines = linesJson;
+    if (typeof lines === 'string') {
+        try {
+            lines = JSON.parse(lines);
+        } catch {
+            lines = [];
+        }
+    }
+    if (!Array.isArray(lines)) return 0;
+    return lines.reduce((s, l) => s + (Number(l.weightGm) || Number(l.originalWeightGm) || 0), 0);
+}
+
 async function loadCustomerRow(query, resellerUserId, customerId) {
     const rows = await query(
         `SELECT id, name, mobile, email, gstin, pan, address
@@ -43,11 +56,11 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     if (!customer) throw Object.assign(new Error('Customer not found'), { status: 404 });
 
     const saleParams = [resellerUserId, customerId];
-    let saleSql = `SELECT id, bill_number, bill_date, total_inr, status, created_at
+    let saleSql = `SELECT id, bill_number, bill_date, bill_type, total_inr, status, created_at, lines_json, session_json
                    FROM reseller_erp_bills
                    WHERE reseller_user_id = $1 AND customer_id = $2
-                     AND bill_type = 'sale'
-                     AND LOWER(status) IN ('completed', 'paid', 'final')`;
+                     AND bill_type IN ('sale', 'credit', 'debit')
+                     AND LOWER(status) IN ('completed', 'paid', 'final', 'issued')`;
     if (from) {
         saleParams.push(from);
         saleSql += ` AND bill_date >= $${saleParams.length}::date`;
@@ -100,15 +113,34 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     const rows = [];
 
     for (const s of officialSales) {
+        const kind = String(s.bill_type || 'sale').toLowerCase();
+        let session = s.session_json;
+        if (typeof session === 'string') {
+            try {
+                session = JSON.parse(session);
+            } catch {
+                session = null;
+            }
+        }
+        const weightGm =
+            totalWeightGmFromLines(s.lines_json) ||
+            Number(session && session.returnWeightGm) ||
+            0;
+        const isCredit = kind === 'credit' || kind === 'sales_return';
+        const amt = Number(s.total_inr) || 0;
+        let description = `(V NO: ${s.bill_number}) SALES A/C -`;
+        if (kind === 'credit') description = `(V NO: ${s.bill_number}) CREDIT NOTE -`;
+        if (kind === 'debit') description = `(V NO: ${s.bill_number}) DEBIT NOTE -`;
         rows.push({
             date: normDate(s.bill_date),
             sort_id: s.id,
-            kind: 'sale',
+            kind,
             ref: s.bill_number,
-            description: `(V NO: ${s.bill_number}) SALES A/C -`,
-            debit: Number(s.total_inr) || 0,
-            credit: 0,
+            description,
+            debit: isCredit ? 0 : amt,
+            credit: isCredit ? amt : 0,
             lane: 'gst',
+            weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
         });
     }
 
@@ -166,7 +198,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     });
 
     const totalBilled = rows
-        .filter((r) => r.kind === 'sale')
+        .filter((r) => r.kind === 'sale' || r.kind === 'debit')
         .reduce((s, r) => s + r.debit, 0);
     const totalPaid = rows
         .filter((r) => r.kind === 'payment_in' || r.kind === 'bill_advance' || r.kind === 'suspense_in')
@@ -213,16 +245,18 @@ function customerAccountToCsv(account) {
     push(['Total paid', account.summary.total_paid_inr]);
     push(['Balance due', account.summary.balance_due_inr]);
     lines.push('');
-    push(['DATE', 'PARTICULARS', 'REF. DATE', 'DEBIT', 'CREDIT', 'BALANCE']);
+    push(['DATE', 'PARTICULARS', 'REF. DATE', 'WEIGHT (g)', 'DEBIT', 'CREDIT', 'BALANCE']);
     for (const t of account.transactions) {
         const particulars =
             t.kind === 'sale'
                 ? `(V NO: ${t.ref}) SALES A/C -`
                 : t.description || t.kind;
+        const wt = Number(t.weight_gm) || 0;
         push([
             fmtLedgerDate(t.date),
             particulars,
             t.credit > 0 ? fmtLedgerDate(t.date) : '',
+            wt > 0 ? wt.toFixed(3) : '',
             t.debit ? Number(t.debit).toFixed(2) : '',
             t.credit ? Number(t.credit).toFixed(2) : '',
             Number(t.balance_inr).toFixed(2),

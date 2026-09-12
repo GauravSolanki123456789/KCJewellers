@@ -3,6 +3,9 @@ export function formatLedgerTransactionKind(kind: string | null | undefined): st
   const k = String(kind || '').trim().toLowerCase()
   if (!k || k === 'shadow_sale') return 'Sale'
   if (k === 'sale') return 'Sale'
+  if (k === 'credit' || k === 'credit_note') return 'Credit note'
+  if (k === 'debit' || k === 'debit_note') return 'Debit note'
+  if (k === 'sales_return') return 'Sales return'
   if (k === 'payment_in') return 'Payment'
   if (k === 'payment_out') return 'Payment out'
   if (k === 'bill_advance') return 'Advance'

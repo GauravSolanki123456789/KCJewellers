@@ -8,6 +8,8 @@ const {
     lookupStockPiece,
     markPiecesSold,
     findSoldBarcodeConflicts,
+    restorePiecesInStock,
+    markReturnedPiecesSoldAgain,
 } = require('./resellerErpStockPieces');
 const { registerFloorRoutes } = require('./resellerErpFloors');
 const { registerTagOpsRoutes } = require('./resellerErpTagOps');
@@ -332,6 +334,8 @@ function billTypePrefix(billType) {
     if (billType === 'estimate') return 'ESTIMATE';
     if (billType === 'credit') return 'CREDIT';
     if (billType === 'order') return 'ORDER';
+    if (billType === 'sales_return') return 'SSR';
+    if (billType === 'debit') return 'DN';
     return 'SCB';
 }
 
@@ -345,21 +349,21 @@ function nextGapNumber(usedSet, padLen = 3) {
 
 async function nextBillNumber(query, userId, billType) {
     const prefix = billTypePrefix(billType);
-    if (billType === 'sale') {
+    if (billType === 'sale' || billType === 'sales_return' || billType === 'debit') {
         const rows = await query(
             `SELECT bill_number FROM reseller_erp_bills
-             WHERE reseller_user_id = $1 AND bill_type = 'sale'
-               AND UPPER(bill_number) ~ '^SCB[0-9]+$'`,
-            [userId],
+             WHERE reseller_user_id = $1 AND bill_type = $2
+               AND UPPER(bill_number) ~ $3`,
+            [userId, billType, `^${prefix}[0-9]+$`],
         );
         const used = new Set();
-        const re = /^SCB(\d+)$/i;
+        const re = new RegExp(`^${prefix}(\\d+)$`, 'i');
         for (const row of rows) {
             const m = re.exec(String(row.bill_number || '').trim().toUpperCase());
             if (m) used.add(parseInt(m[1], 10));
         }
         const { n, width } = nextGapNumber(used, 3);
-        return `SCB${String(n).padStart(width, '0')}`;
+        return `${prefix}${String(n).padStart(width, '0')}`;
     }
     const rows = await query(
         `SELECT bill_number FROM reseller_erp_bills
@@ -384,7 +388,7 @@ async function nextBillNumber(query, userId, billType) {
     return `${prefix}-${String(n).padStart(width, '0')}`;
 }
 
-const AUTO_BILL_PREFIXES = new Set(['SCB', 'ESTIMATE', 'CREDIT', 'ORDER']);
+const AUTO_BILL_PREFIXES = new Set(['SCB', 'ESTIMATE', 'CREDIT', 'ORDER', 'SSR', 'DN']);
 
 async function suggestManualBillNumber(query, userId, preferredPrefix) {
     const rows = await query(
@@ -835,15 +839,21 @@ function registerResellerErpRoutes(app, deps) {
             const billType = trimStrLower(req.query.bill_type, 32);
             const status = trimStrLower(req.query.status, 32);
             const q = trimStr(req.query.q, 200);
+            const customerIdRaw = parseInt(String(req.query.customer_id || ''), 10);
+            const customerId = Number.isFinite(customerIdRaw) && customerIdRaw > 0 ? customerIdRaw : null;
             const onDate = parseDateOrNull(req.query.on);
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);
-            const hasExplicitRange = !!(onDate || from || to || q);
+            const hasExplicitRange = !!(onDate || from || to || q || customerId);
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_bills WHERE reseller_user_id = $1`;
             if (billType) {
                 params.push(billType);
                 sql += ` AND bill_type = $${params.length}`;
+            }
+            if (customerId) {
+                params.push(customerId);
+                sql += ` AND customer_id = $${params.length}`;
             }
             if (status) {
                 const st = status.toLowerCase();
@@ -907,7 +917,7 @@ function registerResellerErpRoutes(app, deps) {
                 searchSql += ')';
                 sql += searchSql;
             }
-            if (billType === 'estimate' || billType === 'sale') {
+            if (billType === 'estimate' || billType === 'sale' || billType === 'sales_return' || billType === 'debit') {
                 sql += ` ORDER BY CAST(NULLIF(regexp_replace(bill_number, '\\D', '', 'g'), '') AS INTEGER) DESC NULLS LAST, id DESC`;
             } else {
                 sql += ` ORDER BY created_at DESC, id DESC`;
@@ -932,7 +942,11 @@ function registerResellerErpRoutes(app, deps) {
                 console.error('erp next bill number (auto):', inner);
                 billNumber = billType === 'sale'
                     ? 'SCB001'
-                    : `${billTypePrefix(billType)}-${billType === 'estimate' ? '001' : '0001'}`;
+                    : billType === 'sales_return'
+                      ? 'SSR001'
+                      : billType === 'debit'
+                        ? 'DN001'
+                        : `${billTypePrefix(billType)}-${billType === 'estimate' ? '001' : '0001'}`;
             }
             try {
                 manualSuggestion = await suggestManualBillNumber(
@@ -976,6 +990,8 @@ function registerResellerErpRoutes(app, deps) {
             const allowed = [
                 'sale',
                 'credit',
+                'debit',
+                'sales_return',
                 'estimate',
                 'order',
                 'job_work_issue',
@@ -1113,8 +1129,15 @@ function registerResellerErpRoutes(app, deps) {
             if (trimStr(req.body.bill_number, 64) && billType === 'sale' && !/^SCB\d+$/i.test(billNumber)) {
                 await rememberManualBillPrefix(query, req.user.id, billNumber);
             }
-            if (['completed', 'paid', 'final'].includes(status)) {
+            if (['completed', 'paid', 'final', 'issued'].includes(status) && billType === 'sale') {
                 await markPiecesSold(query, req.user.id, lines, bill.id);
+            }
+            if (['completed', 'paid', 'final', 'issued'].includes(status) && billType === 'sales_return') {
+                try {
+                    await restorePiecesInStock(query, req.user.id, lines);
+                } catch (re) {
+                    console.warn('erp sales return restore stock:', re.message);
+                }
             }
             if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
                 try {
@@ -1270,8 +1293,16 @@ function registerResellerErpRoutes(app, deps) {
             if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
             const bill = mapBill(rows[0]);
             const st = String(bill.status || '').toLowerCase();
-            if (['completed', 'paid', 'final'].includes(st)) {
+            const bt = String(bill.bill_type || '').toLowerCase();
+            if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sale') {
                 await markPiecesSold(query, req.user.id, bill.lines, bill.id);
+            }
+            if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sales_return') {
+                try {
+                    await restorePiecesInStock(query, req.user.id, bill.lines);
+                } catch (re) {
+                    console.warn('erp sales return restore stock:', re.message);
+                }
             }
             res.json({ success: true, bill });
         } catch (e) {
@@ -1314,8 +1345,17 @@ function registerResellerErpRoutes(app, deps) {
             );
             if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
             const bill = mapBill(rows[0]);
-            if (['completed', 'paid', 'final'].includes(String(status).toLowerCase())) {
+            const st = String(status).toLowerCase();
+            const bt = String(bill.bill_type || '').toLowerCase();
+            if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sale') {
                 await markPiecesSold(query, req.user.id, bill.lines, bill.id);
+            }
+            if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sales_return') {
+                try {
+                    await restorePiecesInStock(query, req.user.id, bill.lines);
+                } catch (re) {
+                    console.warn('erp sales return restore stock:', re.message);
+                }
             }
             res.json({ success: true, bill });
         } catch (e) {
@@ -1328,11 +1368,24 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const id = parseInt(String(req.params.id), 10);
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
-            const rows = await query(
-                `DELETE FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 RETURNING id`,
+            const existing = await query(
+                `SELECT * FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
                 [id, req.user.id],
             );
-            if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            if (!existing.length) return res.status(404).json({ error: 'Bill not found' });
+            const existingBill = mapBill(existing[0]);
+            const existingType = String(existingBill.bill_type || '').toLowerCase();
+            if (existingType === 'sales_return') {
+                try {
+                    await markReturnedPiecesSoldAgain(query, req.user.id, existingBill.lines);
+                } catch (re) {
+                    console.warn('erp sales return delete restock reverse:', re.message);
+                }
+            }
+            await query(
+                `DELETE FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
             res.json({ success: true });
         } catch (e) {
             console.error('erp bill delete:', e);
@@ -1347,6 +1400,21 @@ function registerResellerErpRoutes(app, deps) {
                 : [];
             if (!ids.length) return res.status(400).json({ error: 'ids required' });
             if (ids.length > 200) return res.status(400).json({ error: 'Max 200 ids' });
+            const existing = await query(
+                `SELECT * FROM reseller_erp_bills
+                 WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
+                [req.user.id, ids],
+            );
+            for (const row of existing) {
+                const b = mapBill(row);
+                if (String(b.bill_type || '').toLowerCase() === 'sales_return') {
+                    try {
+                        await markReturnedPiecesSoldAgain(query, req.user.id, b.lines);
+                    } catch (re) {
+                        console.warn('erp sales return bulk delete restock reverse:', re.message);
+                    }
+                }
+            }
             const rows = await query(
                 `DELETE FROM reseller_erp_bills
                  WHERE reseller_user_id = $1 AND id = ANY($2::int[])
@@ -1357,6 +1425,61 @@ function registerResellerErpRoutes(app, deps) {
         } catch (e) {
             console.error('erp bills bulk delete:', e);
             res.status(500).json({ error: e.message || 'Bulk delete failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/sales-returns/source-bills', checkAuth, erpGate, async (req, res) => {
+        try {
+            const raw = String(req.query.numbers || req.query.q || '').trim();
+            const numbers = raw
+                .split(/[,;\s]+/)
+                .map((s) => s.trim().toUpperCase())
+                .filter(Boolean)
+                .slice(0, 40);
+            if (!numbers.length) return res.json({ bills: [] });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_bills
+                 WHERE reseller_user_id = $1 AND bill_type = 'sale'
+                   AND LOWER(status) IN ('completed', 'paid', 'final')
+                   AND UPPER(bill_number) = ANY($2::text[])
+                 ORDER BY bill_date DESC, id DESC`,
+                [req.user.id, numbers],
+            );
+            res.json({ bills: rows.map(mapBill) });
+        } catch (e) {
+            console.error('erp sales return source bills:', e);
+            res.status(500).json({ error: e.message || 'Failed to load bills' });
+        }
+    });
+
+    app.get('/api/reseller/erp/sales-returns/returned-keys', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT lines_json FROM reseller_erp_bills
+                 WHERE reseller_user_id = $1 AND bill_type = 'sales_return'
+                   AND LOWER(status) IN ('completed', 'paid', 'final', 'issued')`,
+                [req.user.id],
+            );
+            const keys = new Set();
+            for (const row of rows) {
+                let lines = row.lines_json;
+                if (typeof lines === 'string') {
+                    try {
+                        lines = JSON.parse(lines);
+                    } catch {
+                        lines = [];
+                    }
+                }
+                if (!Array.isArray(lines)) continue;
+                for (const line of lines) {
+                    const k = String(line.source_line_key || '').trim();
+                    if (k) keys.add(k);
+                }
+            }
+            res.json({ keys: [...keys] });
+        } catch (e) {
+            console.error('erp sales return returned keys:', e);
+            res.status(500).json({ error: e.message || 'Failed to load returned items' });
         }
     });
 

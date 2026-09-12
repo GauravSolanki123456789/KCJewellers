@@ -36,14 +36,6 @@ import {
 
 type Variant = 'bill' | 'e-invoice' | 'e-way'
 
-const VARIANT_HINT: Record<Variant, string> = {
-  bill: 'Sales bill PDF (3 A4 pages: Original, Duplicate, Triplicate). Change [COPY 1] / [COPY 2] / [COPY 3] below to rename those headers — then Save.',
-  'e-invoice':
-    'E-invoice PDF uses this layout on 3 pages (same copy labels) plus IRN, acknowledgement, QR code, and E-Way Bill (blank if none). Edit [COPY 2] to change “DUPLICATE FOR RECIPIENT”. Downloads as BILLNO-einvoice.pdf.',
-  'e-way':
-    'E-way PDF uses the same 3-page layout. The e-way bill number prints when generated. You can also generate e-way together with e-invoice from Sales bills.',
-}
-
 type Props = {
   variant?: Variant
   compact?: boolean
@@ -218,13 +210,6 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Tax invoice PDF format
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-              {VARIANT_HINT[variant]} Upload a sample invoice photo or PDF — we scan it line by line, then you
-              edit the layout like a notepad. Change words such as{' '}
-              <strong>DUPLICATE FOR RECIPIENT</strong> on the{' '}
-              <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">[COPY 2]</code> line, then
-              tap <strong>Done — save format</strong>.
-            </p>
           </div>
           <button type="button" className={erpBtnGhost} onClick={applyMarlechaDefault}>
             <RotateCcw className="size-4" />
@@ -300,14 +285,6 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
       <div className={erpCardCls}>
         <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           Edit format (notepad)
-        </p>
-        <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-          Edit any line freely. Keep{' '}
-          <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">[COPY 1]</code>,{' '}
-          <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">[TABLE]</code>, and{' '}
-          <code className="rounded bg-black/[0.04] px-1 font-mono text-[10px]">[TOTAL]</code> markers if you want
-          structured parsing on save. Extra bill items are added as new table rows automatically — no extra columns
-          or lines are injected.
         </p>
         <textarea
           className={`${erpInputCls} min-h-[${compact ? '240' : '360'}px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]`}
