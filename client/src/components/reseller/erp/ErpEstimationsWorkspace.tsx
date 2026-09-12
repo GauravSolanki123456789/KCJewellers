@@ -20,6 +20,7 @@ import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefau
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { summarizeBillsMetalTotals } from '@/lib/erp-bill-metal-totals'
 import { useAuth } from '@/hooks/useAuth'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
   ESTIMATE_FILTER_STATUSES,
@@ -48,6 +49,7 @@ function sortEstimatesDesc(list: ErpBill[]): ErpBill[] {
 }
 
 export function ErpEstimationsWorkspace() {
+  const { canDeleteRecords } = useErpOperator()
   const auth = useAuth()
   const brandLabel =
     (auth.user as WholesaleUserFields)?.business_name?.trim() || 'Our store'
@@ -256,6 +258,7 @@ export function ErpEstimationsWorkspace() {
             <Download className="size-4" />
             Export all
           </button>
+          {canDeleteRecords ? (
           <button
             type="button"
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
@@ -265,6 +268,7 @@ export function ErpEstimationsWorkspace() {
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             Delete selected
           </button>
+          ) : null}
         </div>
       </div>
 
@@ -484,6 +488,7 @@ export function ErpEstimationsWorkspace() {
                         label=""
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
                       />
+                      {canDeleteRecords ? (
                       <button
                         type="button"
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
@@ -492,6 +497,7 @@ export function ErpEstimationsWorkspace() {
                       >
                         <Trash2 className="size-4" />
                       </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

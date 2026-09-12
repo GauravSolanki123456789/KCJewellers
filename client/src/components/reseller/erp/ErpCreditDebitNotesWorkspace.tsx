@@ -14,6 +14,8 @@ import {
   type ErpCustomer,
 } from '@/components/reseller/erp/erp-ui'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
+import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { downloadCreditDebitNotePdf } from '@/lib/erp-note-pdf'
@@ -23,6 +25,7 @@ import { FileSpreadsheet, FileText, Loader2, Trash2 } from 'lucide-react'
 type Kind = 'credit' | 'debit'
 
 export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
+  const { canDeleteRecords } = useErpOperator()
   const auth = useAuth()
   const shopName = useMemo(() => {
     const name = auth.user && (auth.user as WholesaleUserFields).business_name
@@ -40,6 +43,8 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
   const [reason, setReason] = useState('')
   const [remarks, setRemarks] = useState('')
   const [against, setAgainst] = useState('')
+  const [invoiceItem, setInvoiceItem] = useState('')
+  const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
   const [noteDate, setNoteDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   const title = kind === 'credit' ? 'Credit notes' : 'Debit notes'
@@ -47,16 +52,24 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
 
   const load = useCallback(async () => {
     try {
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params: { bill_type: billType, from: '2000-01-01' } })
+      const params =
+        kind === 'credit'
+          ? { bill_types: 'credit,sales_return', from: '2000-01-01' }
+          : { bill_type: 'debit', from: '2000-01-01' }
+      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', { params })
       setBills(res.data.bills || [])
     } catch {
       setBills([])
     }
-  }, [billType])
+  }, [kind])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void fetchGstInvoiceItems().then(setInvoiceItems)
+  }, [])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -121,12 +134,14 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
           taxableInr: taxable,
           gstInr: gst,
           mobile: customer.mobile || '',
+          invoiceItemName: invoiceItem || undefined,
         },
       })
       setAmount('')
       setReason('')
       setRemarks('')
       setAgainst('')
+      setInvoiceItem('')
       await load()
       setMsg(`${title.slice(0, -1)} ${res.data.bill.bill_number} issued.`)
       await downloadCreditDebitNotePdf({
@@ -162,11 +177,6 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
           Jewellery ERP
         </p>
         <h2 className="text-lg font-bold text-[var(--color-jewelry-black,#1a1814)]">{title}</h2>
-        <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-          {kind === 'credit'
-            ? 'Reduce what a customer owes (returns, discount, overcharge). Amounts only — no product lines.'
-            : 'Increase what a customer owes (undercharge, extra fees). Amounts only — no product lines.'}
-        </p>
       </div>
 
       <div className={erpCardCls}>
@@ -213,27 +223,45 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
           </p>
         ) : null}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-            Amount ₹
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Amount ₹</p>
             <input className={`${erpInputCls} mt-1`} value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </label>
-          <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-            Date
-            <ErpDateInput value={noteDate} onChange={setNoteDate} />
-          </label>
-          <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-            Against bill(s) (optional)
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Date</p>
+            <div className="mt-1">
+              <ErpDateInput value={noteDate} onChange={setNoteDate} />
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Against bill(s) (optional)</p>
             <input className={`${erpInputCls} mt-1`} value={against} onChange={(e) => setAgainst(e.target.value)} />
-          </label>
-          <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-            Reason (optional)
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Reason (optional)</p>
             <input className={`${erpInputCls} mt-1`} value={reason} onChange={(e) => setReason(e.target.value)} />
-          </label>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Invoice item</p>
+            <select
+              className={`${erpInputCls} mt-1`}
+              value={invoiceItem}
+              onChange={(e) => setInvoiceItem(e.target.value)}
+            >
+              <option value="">Choose invoice item…</option>
+              {invoiceItems.map((it) => (
+                <option key={it.id} value={it.name}>
+                  {it.name}
+                  {it.hsn ? ` · ${it.hsn}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <label className="mt-2 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-          Remarks (optional)
+        <div className="mt-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Remarks (optional)</p>
           <input className={`${erpInputCls} mt-1`} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-        </label>
+        </div>
         <button type="button" className={`${erpBtnPrimary} mt-3`} disabled={busy} onClick={() => void issue()}>
           Issue {kind === 'credit' ? 'credit note' : 'debit note'}
         </button>
@@ -281,9 +309,11 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
                         <button type="button" className={erpBtnGhost} onClick={() => void downloadCreditDebitNoteExcel(b, kind)}>
                           <FileSpreadsheet className="size-4" /> Excel
                         </button>
-                        <button type="button" className={erpBtnGhost} onClick={() => void remove(b.id)}>
-                          <Trash2 className="size-4" />
-                        </button>
+                        {canDeleteRecords ? (
+                          <button type="button" className={erpBtnGhost} onClick={() => void remove(b.id)}>
+                            <Trash2 className="size-4" />
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

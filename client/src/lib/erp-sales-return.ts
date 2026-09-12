@@ -47,8 +47,33 @@ export function billLinesForReturn(bill: ErpBill): ReturnLine[] {
   })
 }
 
-function sessionFromBill(bill: ErpBill): ErpBillSession {
-  return (bill.session && typeof bill.session === 'object' ? bill.session : {}) as ErpBillSession
+function sessionFromBill(bill: ErpBill | undefined): ErpBillSession {
+  return (bill?.session && typeof bill.session === 'object' ? bill.session : {}) as ErpBillSession
+}
+
+export function billedMetalRatePerG(line: ReturnLine, bill?: ErpBill): number {
+  if (Number(line.originalRatePerGram) > 0) return Number(line.originalRatePerGram)
+  const session = sessionFromBill(bill)
+  const metal = String(line.metal_type || '').toLowerCase()
+  if (metal.startsWith('gold')) return Number(session.goldPerG) || 0
+  return Number(session.silverPerG) || 0
+}
+
+export function uniqueBilledRates(lines: ReturnLine[], billById: Map<number, ErpBill>): { gold: number[]; silver: number[] } {
+  const gold = new Set<number>()
+  const silver = new Set<number>()
+  for (const line of lines) {
+    const rate = billedMetalRatePerG(line, billById.get(line.source_bill_id))
+    if (!(rate > 0)) continue
+    const metal = String(line.metal_type || '').toLowerCase()
+    if (metal.startsWith('gold')) gold.add(Math.round(rate * 1000) / 1000)
+    else silver.add(Math.round(rate * 1000) / 1000)
+  }
+  return { gold: [...gold], silver: [...silver] }
+}
+
+function returnLineHasWeight(line: ReturnLine): boolean {
+  return (Number(line.weightGm) || Number(line.originalWeightGm) || 0) > 0
 }
 
 export function recalcReturnLine(
@@ -67,22 +92,24 @@ export function recalcReturnLine(
     }
   }
 
-  if (isPiecePricedBillLine(line)) {
+  if (isPiecePricedBillLine(line) && !returnLineHasWeight(line)) {
     return { ...line, lineTotalInr: line.originalTotalInr }
   }
 
-  const session = bill ? sessionFromBill(bill) : ({} as ErpBillSession)
+  const session = sessionFromBill(bill)
   const slab = (session.rateSlab || 'R') as ErpRateSlab
-  const goldPerG = customGoldPerG > 0 ? customGoldPerG : Number(session.goldPerG) || 0
-  const silverPerG = customSilverPerG > 0 ? customSilverPerG : Number(session.silverPerG) || 0
   const metal = String(line.metal_type || '').toLowerCase()
+  const goldPerG = customGoldPerG > 0 ? customGoldPerG : Number(session.goldPerG) || 0
+  const silverPerG = customSilverPerG > 0 ? customSilverPerG : Number(session.silverPerG) || billedMetalRatePerG(line, bill)
   const ratePerGram = metal.startsWith('gold') ? goldPerG : silverPerG
   const next: ReturnLine = {
     ...line,
     rateLocked: false,
+    mrpMode: false,
+    manualCategory: line.manualCategory === 'gift' ? undefined : line.manualCategory,
     ratePerGram: ratePerGram > 0 ? ratePerGram : line.ratePerGram,
   }
-  const rates = session.displayRates ?? perGramToDisplayRates(goldPerG, silverPerG)
+  const rates = perGramToDisplayRates(goldPerG, silverPerG)
   const bd = computeLineBreakdown(
     next,
     rates,
@@ -93,7 +120,13 @@ export function recalcReturnLine(
     goldPerG,
     silverPerG,
   )
-  return { ...next, lineTotalInr: Math.round((bd.total || 0) * 100) / 100 }
+  let total = Math.round((Number(bd.total) || 0) * 100) / 100
+  const oldRate = billedMetalRatePerG(line, bill)
+  const rateChanged = oldRate > 0 && ratePerGram > 0 && Math.abs(ratePerGram - oldRate) > 0.0001
+  if (rateChanged && (total <= 0 || Math.abs(total - line.originalTotalInr) < 0.51)) {
+    total = Math.round(line.originalTotalInr * (ratePerGram / oldRate) * 100) / 100
+  }
+  return { ...next, lineTotalInr: total }
 }
 
 export function applyExtrasToReturnLine(
@@ -140,4 +173,21 @@ export function formatReturnWeight(gm: number | null | undefined): string {
   const n = Number(gm) || 0
   if (n <= 0) return '—'
   return `${n.toFixed(3)} g`
+}
+
+export function sourceBillsUseLaneLedger(bills: ErpBill[]): boolean {
+  return bills.some((bill) => {
+    const session = sessionFromBill(bill) as ErpBillSession & {
+      payment_method?: string
+      collected_amount_inr?: number
+      ledgerScope?: string
+    }
+    if (String(session.ledgerScope || '').toLowerCase() === 'lane') return true
+    const pay = String(session.paymentMethod || session.payment_method || '').trim().toLowerCase()
+    if (pay !== 'cash') return false
+    const collected = session.collectedAmountInr ?? session.collected_amount_inr
+    if (collected == null || String(collected).trim() === '') return false
+    const n = Number(collected)
+    return Number.isFinite(n) && n >= 0
+  })
 }

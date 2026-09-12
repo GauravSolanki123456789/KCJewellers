@@ -35,7 +35,6 @@ const NEVER_JAINAV_LOCK_IDS = new Set<string>([
   'integrations',
   'hardware',
   'print-formats',
-  'backup',
   'erp-users',
 ])
 
@@ -157,13 +156,9 @@ export function resolveVisibleNavModuleIds(opts: {
   isAdminOperator: boolean
   navVisibility?: ErpNavVisibility | null
 }): Set<string> {
-  if (!opts.isAdminOperator) {
-    return new Set(ERP_QUICK_NAV_IDS)
-  }
-
   const vis = opts.navVisibility ?? DEFAULT_ERP_NAV_VISIBILITY
   const hidden = new Set<string>([...vis.jainavUnlockTabs, ...JAINAV_ONLY_MODULE_IDS])
-  const visible = new Set<string>(ERP_NAV_MODULE_ORDER)
+  const visible = new Set<string>(opts.isAdminOperator ? ERP_NAV_MODULE_ORDER : ERP_QUICK_NAV_IDS)
 
   if (!opts.jainavUnlocked) {
     for (const id of hidden) visible.delete(id)

@@ -23,6 +23,7 @@ import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleB
 import { ErpRfidLinkDialog } from '@/components/reseller/erp/ErpRfidLinkDialog'
 import { printStockLabels, type PrintLabelPieceOverride } from '@/lib/erp-print-labels'
 import { Check, Loader2, MapPin, Plus, Radio, RotateCcw, Save, Tag, Trash2 } from 'lucide-react'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 
 type FloorOption = {
   id: string
@@ -148,6 +149,7 @@ export function ErpStockExcelEditor({
   printerProfileId?: string | null
   rfidEnabled?: boolean
 }) {
+  const { canDeleteRecords } = useErpOperator()
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
   const [baseline, setBaseline] = useState<StockRowDraft[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -823,6 +825,7 @@ export function ErpStockExcelEditor({
             <RotateCcw className="size-4" />
             Reset
           </button>
+          {canDeleteRecords ? (
           <button
             type="button"
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 disabled:opacity-50"
@@ -832,6 +835,7 @@ export function ErpStockExcelEditor({
             {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             Delete selected {selected.size > 0 ? `(${selected.size})` : ''}
           </button>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-end gap-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
@@ -947,6 +951,7 @@ export function ErpStockExcelEditor({
             ))}
           </select>
         </div>
+        {canDeleteRecords ? (
         <button
           type="button"
           className={erpBtnGhost}
@@ -956,6 +961,7 @@ export function ErpStockExcelEditor({
           <Trash2 className="size-4" />
           Remove category
         </button>
+        ) : null}
       </div>
 
       <div className={`${erpCardCls} kc-batch-excel-editor overflow-x-auto p-0`}>
@@ -1064,7 +1070,7 @@ export function ErpStockExcelEditor({
                             <Tag className="size-3" />
                           </button>
                         </div>
-                      ) : (
+                      ) : canDeleteRecords ? (
                         <button
                           type="button"
                           title="Delete tag & remove from stock"
@@ -1075,7 +1081,7 @@ export function ErpStockExcelEditor({
                           <Tag className="size-3.5" />
                           <Trash2 className="size-3" />
                         </button>
-                      )
+                      ) : null
                     ) : row.rfid_tag ? (
                       <span className="font-mono text-[10px] text-emerald-800">{row.rfid_tag}</span>
                     ) : null}

@@ -33,7 +33,7 @@ const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./reseller
 const { registerStockCheckRoutes } = require('./resellerErpStockCheck');
 const { registerRolRoutes, ensureRolSchema } = require('./resellerErpRol');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
-const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator } = require('./resellerErpOperators');
+const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 const {
     registerShadowRoutes,
     hasValidGstin,
@@ -332,11 +332,13 @@ function parseDateOrNull(v) {
 
 function billTypePrefix(billType) {
     if (billType === 'estimate') return 'ESTIMATE';
-    if (billType === 'credit') return 'CREDIT';
     if (billType === 'order') return 'ORDER';
-    if (billType === 'sales_return') return 'SSR';
-    if (billType === 'debit') return 'DN';
+    if (billType === 'sales_return' || billType === 'credit' || billType === 'debit') return 'SSR';
     return 'SCB';
+}
+
+function isSsrNumberedType(billType) {
+    return billType === 'sales_return' || billType === 'credit' || billType === 'debit';
 }
 
 function nextGapNumber(usedSet, padLen = 3) {
@@ -348,8 +350,24 @@ function nextGapNumber(usedSet, padLen = 3) {
 }
 
 async function nextBillNumber(query, userId, billType) {
+    if (isSsrNumberedType(billType)) {
+        const rows = await query(
+            `SELECT bill_number FROM reseller_erp_bills
+             WHERE reseller_user_id = $1 AND bill_type IN ('sales_return', 'credit', 'debit')
+               AND UPPER(bill_number) ~ '^SSR[0-9]+$'`,
+            [userId],
+        );
+        const used = new Set();
+        const re = /^SSR(\d+)$/i;
+        for (const row of rows) {
+            const m = re.exec(String(row.bill_number || '').trim().toUpperCase());
+            if (m) used.add(parseInt(m[1], 10));
+        }
+        const { n, width } = nextGapNumber(used, 3);
+        return `SSR${String(n).padStart(width, '0')}`;
+    }
     const prefix = billTypePrefix(billType);
-    if (billType === 'sale' || billType === 'sales_return' || billType === 'debit') {
+    if (billType === 'sale') {
         const rows = await query(
             `SELECT bill_number FROM reseller_erp_bills
              WHERE reseller_user_id = $1 AND bill_type = $2
@@ -552,6 +570,98 @@ function mapBill(row) {
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
+}
+
+function billSessionObj(bill) {
+    return bill && bill.session && typeof bill.session === 'object' ? bill.session : {};
+}
+
+async function reverseSalesReturnStock(query, userId, bill) {
+    const session = billSessionObj(bill);
+    const sourceIds = [];
+    if (Array.isArray(session.sourceBillIds)) {
+        for (const raw of session.sourceBillIds) {
+            const n = Number(raw);
+            if (Number.isFinite(n) && n > 0) sourceIds.push(n);
+        }
+    }
+    for (const line of bill.lines || []) {
+        const n = Number(line.source_bill_id);
+        if (Number.isFinite(n) && n > 0) sourceIds.push(n);
+    }
+    let saleExists = false;
+    if (sourceIds.length) {
+        const rows = await query(
+            `SELECT id FROM reseller_erp_bills
+             WHERE reseller_user_id = $1 AND bill_type = 'sale' AND id = ANY($2::int[])
+             LIMIT 1`,
+            [userId, [...new Set(sourceIds)]],
+        );
+        saleExists = rows.length > 0;
+    }
+    if (saleExists) {
+        await markReturnedPiecesSoldAgain(query, userId, bill.lines);
+    } else {
+        await restorePiecesInStock(query, userId, bill.lines);
+    }
+}
+
+async function findLinkedNoteBills(query, userId, bill) {
+    const session = billSessionObj(bill);
+    const sourceReturnId = Number(session.sourceReturnId) || null;
+    const params = [userId, bill.id];
+    let sql = `SELECT * FROM reseller_erp_bills
+               WHERE reseller_user_id = $1 AND id <> $2 AND (
+                    (
+                        session_json->>'sourceReturnId' IS NOT NULL
+                        AND NULLIF(session_json->>'sourceReturnId', '') ~ '^[0-9]+$'
+                        AND (session_json->>'sourceReturnId')::int = $2
+                    )`;
+    if (bill.bill_number) {
+        params.push(String(bill.bill_number).trim());
+        sql += ` OR UPPER(TRIM(COALESCE(session_json->>'sourceReturnNumber', ''))) = UPPER(TRIM($${params.length}))`;
+    }
+    if (sourceReturnId) {
+        params.push(sourceReturnId);
+        sql += ` OR id = $${params.length}`;
+    }
+    sql += ')';
+    const rows = await query(sql, params);
+    return rows.map(mapBill);
+}
+
+async function deleteErpBillCascade(query, userId, existingBill) {
+    const linked = await findLinkedNoteBills(query, userId, existingBill);
+    const all = [existingBill, ...linked];
+    const seen = new Set();
+    const ids = [];
+    for (const b of all) {
+        if (!b || seen.has(b.id)) continue;
+        seen.add(b.id);
+        ids.push(b.id);
+        const t = String(b.bill_type || '').toLowerCase();
+        const st = String(b.status || '').toLowerCase();
+        try {
+            if (t === 'sales_return') {
+                await reverseSalesReturnStock(query, userId, b);
+            } else if (
+                t === 'sale' &&
+                ['completed', 'paid', 'final', 'issued', 'billed'].includes(st)
+            ) {
+                await restorePiecesInStock(query, userId, b.lines);
+            }
+        } catch (re) {
+            console.warn('erp bill delete stock reverse:', re.message);
+        }
+    }
+    if (!ids.length) return 0;
+    const rows = await query(
+        `DELETE FROM reseller_erp_bills
+         WHERE reseller_user_id = $1 AND id = ANY($2::int[])
+         RETURNING id`,
+        [userId, ids],
+    );
+    return rows.length;
 }
 
 function mapStock(row) {
@@ -837,6 +947,11 @@ function registerResellerErpRoutes(app, deps) {
     app.get('/api/reseller/erp/bills', checkAuth, erpGate, async (req, res) => {
         try {
             const billType = trimStrLower(req.query.bill_type, 32);
+            const billTypes = String(req.query.bill_types || '')
+                .split(',')
+                .map((s) => trimStrLower(s, 32))
+                .filter(Boolean)
+                .slice(0, 8);
             const status = trimStrLower(req.query.status, 32);
             const q = trimStr(req.query.q, 200);
             const customerIdRaw = parseInt(String(req.query.customer_id || ''), 10);
@@ -847,8 +962,11 @@ function registerResellerErpRoutes(app, deps) {
             const hasExplicitRange = !!(onDate || from || to || q || customerId);
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_bills WHERE reseller_user_id = $1`;
-            if (billType) {
-                params.push(billType);
+            if (billTypes.length > 1) {
+                params.push(billTypes);
+                sql += ` AND bill_type = ANY($${params.length}::text[])`;
+            } else if (billTypes.length === 1 || billType) {
+                params.push(billTypes[0] || billType);
                 sql += ` AND bill_type = $${params.length}`;
             }
             if (customerId) {
@@ -917,7 +1035,14 @@ function registerResellerErpRoutes(app, deps) {
                 searchSql += ')';
                 sql += searchSql;
             }
-            if (billType === 'estimate' || billType === 'sale' || billType === 'sales_return' || billType === 'debit') {
+            if (
+                billType === 'estimate' ||
+                billType === 'sale' ||
+                billType === 'sales_return' ||
+                billType === 'debit' ||
+                billType === 'credit' ||
+                billTypes.some((t) => ['estimate', 'sale', 'sales_return', 'debit', 'credit'].includes(t))
+            ) {
                 sql += ` ORDER BY CAST(NULLIF(regexp_replace(bill_number, '\\D', '', 'g'), '') AS INTEGER) DESC NULLS LAST, id DESC`;
             } else {
                 sql += ` ORDER BY created_at DESC, id DESC`;
@@ -942,11 +1067,9 @@ function registerResellerErpRoutes(app, deps) {
                 console.error('erp next bill number (auto):', inner);
                 billNumber = billType === 'sale'
                     ? 'SCB001'
-                    : billType === 'sales_return'
+                    : isSsrNumberedType(billType)
                       ? 'SSR001'
-                      : billType === 'debit'
-                        ? 'DN001'
-                        : `${billTypePrefix(billType)}-${billType === 'estimate' ? '001' : '0001'}`;
+                      : `${billTypePrefix(billType)}-${billType === 'estimate' ? '001' : '0001'}`;
             }
             try {
                 manualSuggestion = await suggestManualBillNumber(
@@ -1364,7 +1487,7 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
-    app.delete('/api/reseller/erp/bills/:id', checkAuth, erpGate, async (req, res) => {
+    app.delete('/api/reseller/erp/bills/:id', checkAuth, erpGate, requireJainavUnlockedAdmin(), async (req, res) => {
         try {
             const id = parseInt(String(req.params.id), 10);
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -1373,19 +1496,7 @@ function registerResellerErpRoutes(app, deps) {
                 [id, req.user.id],
             );
             if (!existing.length) return res.status(404).json({ error: 'Bill not found' });
-            const existingBill = mapBill(existing[0]);
-            const existingType = String(existingBill.bill_type || '').toLowerCase();
-            if (existingType === 'sales_return') {
-                try {
-                    await markReturnedPiecesSoldAgain(query, req.user.id, existingBill.lines);
-                } catch (re) {
-                    console.warn('erp sales return delete restock reverse:', re.message);
-                }
-            }
-            await query(
-                `DELETE FROM reseller_erp_bills WHERE id = $1 AND reseller_user_id = $2`,
-                [id, req.user.id],
-            );
+            await deleteErpBillCascade(query, req.user.id, mapBill(existing[0]));
             res.json({ success: true });
         } catch (e) {
             console.error('erp bill delete:', e);
@@ -1393,7 +1504,7 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
-    app.post('/api/reseller/erp/bills/bulk-delete', checkAuth, erpGate, requireJson, async (req, res) => {
+    app.post('/api/reseller/erp/bills/bulk-delete', checkAuth, erpGate, requireJson, requireJainavUnlockedAdmin(), async (req, res) => {
         try {
             const ids = Array.isArray(req.body.ids)
                 ? req.body.ids.map((x) => parseInt(String(x), 10)).filter((n) => Number.isFinite(n))
@@ -1405,23 +1516,16 @@ function registerResellerErpRoutes(app, deps) {
                  WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
                 [req.user.id, ids],
             );
+            let deleted = 0;
+            const seen = new Set();
             for (const row of existing) {
                 const b = mapBill(row);
-                if (String(b.bill_type || '').toLowerCase() === 'sales_return') {
-                    try {
-                        await markReturnedPiecesSoldAgain(query, req.user.id, b.lines);
-                    } catch (re) {
-                        console.warn('erp sales return bulk delete restock reverse:', re.message);
-                    }
-                }
+                if (seen.has(b.id)) continue;
+                const n = await deleteErpBillCascade(query, req.user.id, b);
+                deleted += n;
+                seen.add(b.id);
             }
-            const rows = await query(
-                `DELETE FROM reseller_erp_bills
-                 WHERE reseller_user_id = $1 AND id = ANY($2::int[])
-                 RETURNING id`,
-                [req.user.id, ids],
-            );
-            res.json({ success: true, deleted: rows.length });
+            res.json({ success: true, deleted });
         } catch (e) {
             console.error('erp bills bulk delete:', e);
             res.status(500).json({ error: e.message || 'Bulk delete failed' });

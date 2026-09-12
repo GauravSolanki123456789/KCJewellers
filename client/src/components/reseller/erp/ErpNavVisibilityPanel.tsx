@@ -87,10 +87,6 @@ export function ErpNavVisibilityPanel({ onSaved }: Props) {
           <Settings2 className="size-4 text-emerald-700" />
           ERP tab visibility
         </p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65">
-          Check a tab to hide it from normal admin until you unlock Jainav mode (F9Rs* + Enter). Unchecked tabs
-          stay visible in admin. Day close, Inventory, Lane ledger, and ROL are always unlock-only.
-        </p>
       </div>
 
       <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3">

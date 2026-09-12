@@ -19,6 +19,7 @@ const LEDGER_SCOPES = new Set(['official', 'lane']);
 
 const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');
 const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
+const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -604,7 +605,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
         }
     });
 
-    app.delete('/api/reseller/erp/ledger/entries/:id', checkAuth, erpGate, async (req, res) => {
+    app.delete('/api/reseller/erp/ledger/entries/:id', checkAuth, erpGate, requireJainavUnlockedAdmin(), async (req, res) => {
         try {
             const id = parseInt(String(req.params.id), 10);
             const entryRows = await query(
@@ -657,7 +658,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
         }
     });
 
-    app.delete('/api/reseller/erp/ledger/import-batches/:id', checkAuth, erpGate, async (req, res) => {
+    app.delete('/api/reseller/erp/ledger/import-batches/:id', checkAuth, erpGate, requireJainavUnlockedAdmin(), async (req, res) => {
         try {
             const id = parseInt(String(req.params.id), 10);
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid batch id' });

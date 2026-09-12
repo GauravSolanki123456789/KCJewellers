@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
   erpBtnPrimary,
@@ -29,6 +30,7 @@ import { Download, Eye, FileCheck, FileSpreadsheet, FileText, Loader2, Receipt, 
 const STATUSES = ['draft', 'completed', 'paid', 'cancelled'] as const
 
 export function ErpSalesBillsWorkspace() {
+  const { canDeleteRecords } = useErpOperator()
   const auth = useAuth()
   const brandLabel = useMemo(() => {
     const name = auth.user && (auth.user as WholesaleUserFields).business_name
@@ -355,6 +357,7 @@ export function ErpSalesBillsWorkspace() {
             <Download className="size-4" />
             Export all
           </button>
+          {canDeleteRecords ? (
           <button
             type="button"
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-60"
@@ -364,6 +367,7 @@ export function ErpSalesBillsWorkspace() {
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             Delete selected
           </button>
+          ) : null}
         </div>
       </div>
 
@@ -560,6 +564,7 @@ export function ErpSalesBillsWorkspace() {
                         <Truck className="size-3.5" />
                         <span className="hidden sm:inline">E-way</span>
                       </button>
+                      {canDeleteRecords ? (
                       <button
                         type="button"
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
@@ -568,6 +573,7 @@ export function ErpSalesBillsWorkspace() {
                       >
                         <Trash2 className="size-4" />
                       </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

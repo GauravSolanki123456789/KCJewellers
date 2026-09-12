@@ -16,6 +16,7 @@ import { printStockLabels } from '@/lib/erp-print-labels'
 import { parseStockExcelRows, downloadStockPiecesExcel } from '@/lib/reseller-erp-stock-editor'
 import { formatErpDateDdMmYyyy, formatErpDateTime } from '@/lib/erp-date-format'
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 
 type Batch = {
   id: string
@@ -34,6 +35,7 @@ type ImportBatch = {
 }
 
 export function ErpProductsWorkspace() {
+  const { canDeleteRecords } = useErpOperator()
   const auth = useAuth()
   const rfidEnabled = !!(auth.user as WholesaleUserFields | null)?.reseller_rfid_enabled
   const [batches, setBatches] = useState<Batch[]>([])
@@ -469,6 +471,7 @@ export function ErpProductsWorkspace() {
               {dupScanBusy ? <Loader2 className="size-4 animate-spin" /> : <ScanBarcode className="size-4" />}
               Check duplicates
             </button>
+            {canDeleteRecords ? (
             <button
               type="button"
               className="ml-auto inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
@@ -478,6 +481,7 @@ export function ErpProductsWorkspace() {
               {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
               Delete batch
             </button>
+            ) : null}
           </div>
         </div>
 
@@ -505,6 +509,7 @@ export function ErpProductsWorkspace() {
                         {imp.live_count ?? imp.piece_count} piece(s) · uploaded {formatErpDateTime(imp.created_at)}
                       </p>
                     </div>
+                    {canDeleteRecords ? (
                     <button
                       type="button"
                       className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"
@@ -518,6 +523,7 @@ export function ErpProductsWorkspace() {
                       )}
                       Delete
                     </button>
+                    ) : null}
                   </div>
                 ))
               )}

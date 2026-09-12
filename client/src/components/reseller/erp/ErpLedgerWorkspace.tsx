@@ -29,6 +29,7 @@ import {
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-import-parser'
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
 type ImportPreviewRow = ParsedBankRow & {
@@ -296,6 +297,7 @@ function firstOfMonthIso() {
 }
 
 export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean }) {
+  const { canDeleteRecords } = useErpOperator()
   const [tab, setTab] = useState<LedgerTab>('entries')
   const [draftReady, setDraftReady] = useState(false)
   const [entries, setEntries] = useState<ErpLedgerEntry[]>([])
@@ -1160,6 +1162,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               >
                 <Pencil className="size-4" />
               </button>
+              {canDeleteRecords ? (
               <button
                 type="button"
                 className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"
@@ -1168,8 +1171,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               >
                 <Trash2 className="size-4" />
               </button>
+              ) : null}
             </div>
-          ) : (
+          ) : canDeleteRecords ? (
             <button
               type="button"
               className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"
@@ -1178,7 +1182,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             >
               <Trash2 className="size-4" />
             </button>
-          )}
+          ) : null}
         </td>
       </tr>
     )
@@ -1762,6 +1766,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                         </p>
                       ) : null}
                     </div>
+                    {canDeleteRecords ? (
                     <button
                       type="button"
                       className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"
@@ -1771,6 +1776,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <Trash2 className="size-3.5" />
                       Delete
                     </button>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -2090,6 +2096,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       >
                         View entries
                       </button>
+                      {canDeleteRecords ? (
                       <button
                         type="button"
                         className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"
@@ -2099,6 +2106,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                         <Trash2 className="size-3.5" />
                         Delete
                       </button>
+                      ) : null}
                     </div>
                   </div>
                 ))}

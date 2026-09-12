@@ -3,6 +3,7 @@
  */
 
 const { randomUUID } = require('crypto');
+const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -406,7 +407,7 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
         }
     });
 
-    app.delete('/api/reseller/erp/purchase-vouchers/:id', checkAuth, erpGate, async (req, res) => {
+    app.delete('/api/reseller/erp/purchase-vouchers/:id', checkAuth, erpGate, requireJainavUnlockedAdmin(), async (req, res) => {
         try {
             const id = parseInt(String(req.params.id), 10);
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });

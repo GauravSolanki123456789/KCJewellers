@@ -33,6 +33,8 @@ type ErpOperatorContextValue = {
   unlockShadow: (sequence: string) => Promise<void>
   lockShadow: () => Promise<void>
   canAccessModule: (moduleId: ResellerErpModuleId | string) => boolean
+  /** Document / stock deletes: admin operator after Jainav unlock (F9Rs* + Enter). */
+  canDeleteRecords: boolean
 }
 
 const ErpOperatorContext = createContext<ErpOperatorContextValue | null>(null)
@@ -113,6 +115,8 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
     [operator],
   )
 
+  const canDeleteRecords = operator?.role === 'admin' && shadowUnlocked
+
   const value = useMemo(
     () => ({
       operator,
@@ -124,8 +128,20 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
       unlockShadow,
       lockShadow,
       canAccessModule,
+      canDeleteRecords,
     }),
-    [operator, shadowUnlocked, loading, refresh, login, logout, unlockShadow, lockShadow, canAccessModule],
+    [
+      operator,
+      shadowUnlocked,
+      loading,
+      refresh,
+      login,
+      logout,
+      unlockShadow,
+      lockShadow,
+      canAccessModule,
+      canDeleteRecords,
+    ],
   )
 
   return <ErpOperatorContext.Provider value={value}>{children}</ErpOperatorContext.Provider>

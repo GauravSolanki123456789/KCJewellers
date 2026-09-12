@@ -96,6 +96,19 @@ function requireErpOperatorSession() {
     };
 }
 
+function requireJainavUnlockedAdmin() {
+    return (req, res, next) => {
+        const op = getSessionOperator(req);
+        if (!op || op.role !== 'admin') {
+            return res.status(403).json({ error: 'Delete requires an admin operator in Jainav mode.' });
+        }
+        if (!req.session?.shadowUnlocked) {
+            return res.status(403).json({ error: 'Delete is only available after unlocking Jainav mode.' });
+        }
+        next();
+    };
+}
+
 function requireErpOperatorAdmin() {
     return (req, res, next) => {
         const op = getSessionOperator(req);
@@ -609,4 +622,5 @@ module.exports = {
     requireErpModule,
     requireErpOperatorAdmin,
     requireErpOperatorSession,
+    requireJainavUnlockedAdmin,
 };

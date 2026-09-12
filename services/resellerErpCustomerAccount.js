@@ -59,8 +59,11 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     let saleSql = `SELECT id, bill_number, bill_date, bill_type, total_inr, status, created_at, lines_json, session_json
                    FROM reseller_erp_bills
                    WHERE reseller_user_id = $1 AND customer_id = $2
-                     AND bill_type IN ('sale', 'credit', 'debit')
+                     AND bill_type IN ('sale', 'credit', 'debit', 'sales_return')
                      AND LOWER(status) IN ('completed', 'paid', 'final', 'issued')`;
+    if (!includeShadow) {
+        saleSql += ` AND COALESCE(session_json->>'ledgerScope', 'official') <> 'lane'`;
+    }
     if (from) {
         saleParams.push(from);
         saleSql += ` AND bill_date >= $${saleParams.length}::date`;
@@ -129,8 +132,10 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         const isCredit = kind === 'credit' || kind === 'sales_return';
         const amt = Number(s.total_inr) || 0;
         let description = `(V NO: ${s.bill_number}) SALES A/C -`;
-        if (kind === 'credit') description = `(V NO: ${s.bill_number}) CREDIT NOTE -`;
+        if (kind === 'credit' || kind === 'sales_return') description = `(V NO: ${s.bill_number}) CREDIT NOTE -`;
         if (kind === 'debit') description = `(V NO: ${s.bill_number}) DEBIT NOTE -`;
+        const ledgerScope = String((session && session.ledgerScope) || 'official').toLowerCase();
+        const lane = ledgerScope === 'lane' ? 'jainav' : 'gst';
         rows.push({
             date: normDate(s.bill_date),
             sort_id: s.id,
@@ -139,7 +144,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             description,
             debit: isCredit ? 0 : amt,
             credit: isCredit ? amt : 0,
-            lane: 'gst',
+            lane,
             weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
         });
     }

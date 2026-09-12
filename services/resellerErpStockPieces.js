@@ -11,6 +11,7 @@ const {
     applyDesignDefaultsToPiece,
 } = require('./resellerErpDesignMaster');
 const { applyReceivedWeight } = require('./resellerErpPurchaseVouchers');
+const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 
 function normalizeComPort(raw) {
     const t = String(raw || '').trim().toUpperCase();
@@ -637,58 +638,88 @@ async function markPiecesSold(query, resellerUserId, lines, billId) {
     }
 }
 
-/** Put scanned barcodes back into stock after a sales return. */
-async function restorePiecesInStock(query, resellerUserId, lines) {
-    const barcodes = (lines || [])
-        .map((l) => (l.barcode || l.code || '').trim())
-        .filter(Boolean);
-    if (!barcodes.length) return;
+function stockLineMatchKeys(lines) {
+    const ids = [];
+    const barcodes = [];
+    for (const line of lines || []) {
+        const id = Number(line.stock_piece_id ?? line.id);
+        if (Number.isFinite(id) && id > 0) ids.push(id);
+        for (const raw of [line.barcode, line.code, line.sku, line.item_code]) {
+            const s = String(raw || '').trim();
+            if (s) barcodes.push(s);
+        }
+    }
+    const uniqueIds = [...new Set(ids)];
+    const uniqueCodes = [...new Set(barcodes)];
+    return {
+        ids: uniqueIds,
+        barcodes: uniqueCodes,
+        lowered: [...new Set(uniqueCodes.map((b) => b.toLowerCase()))],
+    };
+}
 
-    await query(
-        `UPDATE reseller_erp_stock_pieces SET
-            status = 'in_stock', sold_bill_id = NULL, updated_at = NOW()
-         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[])
-           AND status IN ('sold', 'lane')`,
-        [resellerUserId, barcodes],
-    );
-
+async function syncAlertsForMatchedPieces(query, resellerUserId, keys) {
     const itemCodes = await query(
         `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
-         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
-        [resellerUserId, barcodes],
+         WHERE reseller_user_id = $1 AND item_code IS NOT NULL
+           AND (
+                (cardinality($2::int[]) > 0 AND id = ANY($2::int[]))
+                OR (cardinality($3::text[]) > 0 AND lower(barcode) = ANY($3::text[]))
+                OR (cardinality($3::text[]) > 0 AND lower(COALESCE(item_code, '')) = ANY($3::text[]))
+           )`,
+        [resellerUserId, keys.ids, keys.lowered],
     );
     for (const row of itemCodes) {
         await syncStockAlertCounts(query, resellerUserId, row.item_code);
     }
 }
 
+/** Put scanned barcodes back into stock after a sales return. */
+async function restorePiecesInStock(query, resellerUserId, lines) {
+    const keys = stockLineMatchKeys(lines);
+    if (!keys.ids.length && !keys.lowered.length) return;
+
+    await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            status = 'in_stock', sold_bill_id = NULL, updated_at = NOW()
+         WHERE reseller_user_id = $1
+           AND status IN ('sold', 'lane')
+           AND (
+                (cardinality($2::int[]) > 0 AND id = ANY($2::int[]))
+                OR (cardinality($3::text[]) > 0 AND lower(barcode) = ANY($3::text[]))
+                OR (cardinality($3::text[]) > 0 AND lower(COALESCE(item_code, '')) = ANY($3::text[]))
+           )`,
+        [resellerUserId, keys.ids, keys.lowered],
+    );
+
+    await syncAlertsForMatchedPieces(query, resellerUserId, keys);
+}
+
 /** Reverse a sales return — mark those barcodes sold again against the original bill. */
 async function markReturnedPiecesSoldAgain(query, resellerUserId, lines) {
-    const barcodes = (lines || [])
-        .map((l) => (l.barcode || l.code || '').trim())
-        .filter(Boolean);
-    if (!barcodes.length) return;
+    const keys = stockLineMatchKeys(lines);
+    if (!keys.ids.length && !keys.lowered.length) return;
 
     for (const line of lines || []) {
-        const barcode = (line.barcode || line.code || '').trim();
-        if (!barcode) continue;
         const soldBillId = Number(line.source_bill_id) || null;
+        const id = Number(line.stock_piece_id ?? line.id);
+        const codes = [line.barcode, line.code, line.sku, line.item_code]
+            .map((x) => String(x || '').trim().toLowerCase())
+            .filter(Boolean);
         await query(
             `UPDATE reseller_erp_stock_pieces SET
                 status = 'sold', sold_bill_id = COALESCE($1, sold_bill_id), updated_at = NOW()
-             WHERE reseller_user_id = $2 AND barcode = $3 AND status = 'in_stock'`,
-            [soldBillId, resellerUserId, barcode],
+             WHERE reseller_user_id = $2 AND status = 'in_stock'
+               AND (
+                    ($3::int IS NOT NULL AND id = $3)
+                    OR (cardinality($4::text[]) > 0 AND lower(barcode) = ANY($4::text[]))
+                    OR (cardinality($4::text[]) > 0 AND lower(COALESCE(item_code, '')) = ANY($4::text[]))
+               )`,
+            [soldBillId, resellerUserId, Number.isFinite(id) && id > 0 ? id : null, codes],
         );
     }
 
-    const itemCodes = await query(
-        `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
-         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
-        [resellerUserId, barcodes],
-    );
-    for (const row of itemCodes) {
-        await syncStockAlertCounts(query, resellerUserId, row.item_code);
-    }
+    await syncAlertsForMatchedPieces(query, resellerUserId, keys);
 }
 
 /** Jainav / lane billing — reserve stock without showing as sold in normal ERP views. */
@@ -1367,6 +1398,7 @@ function registerStockPieceRoutes(app, deps) {
         '/api/reseller/erp/stock-pieces/batches/:batchId/imports/:importId',
         checkAuth,
         erpGate,
+        requireJainavUnlockedAdmin(),
         async (req, res) => {
             try {
                 const batchId = String(req.params.batchId || '').trim();
@@ -1658,7 +1690,7 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
-    app.delete('/api/reseller/erp/stock-pieces/batches/:batchId', checkAuth, erpGate, async (req, res) => {
+    app.delete('/api/reseller/erp/stock-pieces/batches/:batchId', checkAuth, erpGate, requireJainavUnlockedAdmin(), async (req, res) => {
         try {
             const batchId = String(req.params.batchId || '').trim();
             const batchRows = await query(
@@ -1709,7 +1741,7 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
-    app.delete('/api/reseller/erp/stock-pieces', checkAuth, erpGate, requireJson, async (req, res) => {
+    app.delete('/api/reseller/erp/stock-pieces', checkAuth, erpGate, requireJson, requireJainavUnlockedAdmin(), async (req, res) => {
         try {
             const ids = Array.isArray(req.body.ids)
                 ? req.body.ids.map((id) => parseInt(String(id), 10)).filter((n) => n > 0)

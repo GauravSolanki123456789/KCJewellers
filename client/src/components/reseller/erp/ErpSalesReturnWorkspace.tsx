@@ -16,16 +16,20 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
 import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
-import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
+import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import {
   applyExtrasToReturnLine,
+  billedMetalRatePerG,
   billLinesForReturn,
   computeReturnTotals,
   formatReturnWeight,
   parseReturnSlabSettings,
   recalcReturnLine,
+  sourceBillsUseLaneLedger,
+  uniqueBilledRates,
   type ReturnLine,
 } from '@/lib/erp-sales-return'
 import { downloadCreditDebitNotePdf } from '@/lib/erp-note-pdf'
@@ -33,6 +37,7 @@ import {
   Camera,
   CheckSquare,
   Eye,
+  FileText,
   Loader2,
   Square,
   Trash2,
@@ -48,6 +53,7 @@ function completedSale(bill: ErpBill) {
 }
 
 export function ErpSalesReturnWorkspace() {
+  const { canDeleteRecords } = useErpOperator()
   const auth = useAuth()
   const shopName = useMemo(() => {
     const name = auth.user && (auth.user as WholesaleUserFields).business_name
@@ -79,18 +85,11 @@ export function ErpSalesReturnWorkspace() {
   const [previewLines, setPreviewLines] = useState<ReturnLine[]>([])
   const [customGold, setCustomGold] = useState('')
   const [customSilver, setCustomSilver] = useState('')
-  const [origTotalsOn, setOrigTotalsOn] = useState(true)
-  const [customTotalsOn, setCustomTotalsOn] = useState(false)
+  const [rateMode, setRateMode] = useState<'original' | 'custom'>('original')
   const [extraBox, setExtraBox] = useState('')
   const [extraStone, setExtraStone] = useState('')
   const [extraAmt, setExtraAmt] = useState('')
-  const [noteOpen, setNoteOpen] = useState(false)
-  const [noteKind, setNoteKind] = useState<'credit' | 'debit'>('credit')
-  const [noteAmount, setNoteAmount] = useState('')
-  const [noteReason, setNoteReason] = useState('')
-  const [noteRemarks, setNoteRemarks] = useState('')
-  const [noteDate, setNoteDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [pendingReturn, setPendingReturn] = useState<ErpBill | null>(null)
+  const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
   const scanRef = useRef<HTMLInputElement>(null)
 
   const loadHistory = useCallback(async () => {
@@ -116,6 +115,7 @@ export function ErpSalesReturnWorkspace() {
   useEffect(() => {
     void loadHistory()
     void loadReturnedKeys()
+    void fetchGstInvoiceItems().then(setInvoiceItems)
   }, [loadHistory, loadReturnedKeys])
 
   useEffect(() => {
@@ -254,8 +254,7 @@ export function ErpSalesReturnWorkspace() {
     }
     setPreviewLines(chosen.map((l) => ({ ...l })))
     setPreviewKind(kind)
-    setOrigTotalsOn(kind === 'return')
-    setCustomTotalsOn(false)
+    setRateMode('original')
     setCustomGold('')
     setCustomSilver('')
     setExtraBox('')
@@ -281,6 +280,16 @@ export function ErpSalesReturnWorkspace() {
   const origTotals = useMemo(() => computeReturnTotals(originalPreview), [originalPreview])
   const custTotals = useMemo(() => computeReturnTotals(customPreview), [customPreview])
 
+  const billedRates = useMemo(() => uniqueBilledRates(previewLines, billById), [previewLines, billById])
+  const billedRateLabel = useMemo(() => {
+    const parts: string[] = []
+    if (billedRates.silver.length === 1) parts.push(`₹${billedRates.silver[0]}/g Ag`)
+    else if (billedRates.silver.length > 1) parts.push(billedRates.silver.map((r) => `₹${r}/g Ag`).join(', '))
+    if (billedRates.gold.length === 1) parts.push(`₹${billedRates.gold[0]}/g Au`)
+    else if (billedRates.gold.length > 1) parts.push(billedRates.gold.map((r) => `₹${r}/g Au`).join(', '))
+    return parts.join(' · ')
+  }, [billedRates])
+
   const applyDebitExtras = () => {
     const box = Number(extraBox) || 0
     const stone = Number(extraStone) || 0
@@ -291,10 +300,15 @@ export function ErpSalesReturnWorkspace() {
 
   const takeReturn = async () => {
     if (!previewLines.length) return
-    const useCustom = customTotalsOn && (goldN > 0 || silverN > 0)
+    if (rateMode === 'custom' && !(goldN > 0 || silverN > 0)) {
+      setMsg('Enter a gold or silver rate, or choose Same billed rate.')
+      return
+    }
+    const useCustom = rateMode === 'custom'
     const lines = useCustom ? customPreview : originalPreview
     const totals = useCustom ? custTotals : origTotals
     const first = selectedBills[0]
+    const lane = sourceBillsUseLaneLedger(selectedBills)
     setBusy(true)
     setMsg(null)
     try {
@@ -318,19 +332,24 @@ export function ErpSalesReturnWorkspace() {
           gstInr: totals.gst,
           returnWeightGm: totals.weightGm,
           mobile: customer?.mobile || first?.session?.mobile || '',
+          reason: 'Sales return',
+          ledgerScope: lane ? 'lane' : 'official',
+          paymentMethod: first?.session?.paymentMethod || null,
         },
       })
-      setPendingReturn(ssr.data.bill)
-      setNoteKind('credit')
-      setNoteAmount(String(totals.net))
-      setNoteReason('Sales return')
-      setNoteRemarks('')
-      setNoteDate(new Date().toISOString().slice(0, 10))
-      setNoteOpen(true)
       setPreviewKind(null)
+      setSelectedKeys(new Set())
+      setSelectedBills([])
+      setPreviewLines([])
       await loadHistory()
       await loadReturnedKeys()
-      setMsg(`Return ${ssr.data.bill.bill_number} saved. Stock restored. Fill credit note to issue.`)
+      setMsg(`Return ${ssr.data.bill.bill_number} saved. Stock restored.`)
+      await downloadCreditDebitNotePdf({
+        kind: 'credit',
+        bill: ssr.data.bill,
+        shopName,
+        customerMobile: customer?.mobile || first?.session?.mobile || null,
+      })
     } catch (e) {
       setMsg(erpErr(e))
     } finally {
@@ -338,76 +357,47 @@ export function ErpSalesReturnWorkspace() {
     }
   }
 
-  const issueDebitFromPreview = () => {
+  const issueDebitFromPreview = async () => {
     const totals = computeReturnTotals(previewLines)
     const extraNet = Math.max(0, totals.net - origTotals.net)
-    setNoteKind('debit')
-    setNoteAmount(String(extraNet > 0 ? extraNet : totals.net))
-    setNoteReason('Debit adjustment')
-    setNoteRemarks('')
-    setNoteDate(new Date().toISOString().slice(0, 10))
-    setPendingReturn(null)
-    setNoteOpen(true)
-    setPreviewKind(null)
-  }
-
-  const issueNote = async () => {
-    const amt = Number(noteAmount)
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setMsg('Enter a valid amount.')
+    const amt = extraNet > 0 ? extraNet : totals.net
+    if (!(amt > 0)) {
+      setMsg('Enter an extra amount for the debit note.')
       return
     }
     const first = selectedBills[0]
-    const source = pendingReturn
-    const sourceSession = (source?.session || {}) as { againstBills?: string; mobile?: string; returnWeightGm?: number }
-    const customerId = first?.customer_id || source?.customer_id || customer?.id || null
-    const customerName = first?.customer_name || source?.customer_name || customer?.name || ''
-    const againstBills =
-      selectedBills.map((b) => b.bill_number).filter(Boolean).join(', ') || sourceSession.againstBills || source?.bill_number || ''
-    const mobile = customer?.mobile || first?.session?.mobile || sourceSession.mobile || ''
+    const lane = sourceBillsUseLaneLedger(selectedBills)
     const taxable = Math.round((amt / 1.03) * 100) / 100
     const gst = Math.round((amt - taxable) * 100) / 100
-    const weightGm =
-      noteKind === 'credit'
-        ? origTotals.weightGm || custTotals.weightGm || Number(sourceSession.returnWeightGm) || 0
-        : 0
     setBusy(true)
+    setMsg(null)
     try {
       const res = await axios.post<{ bill: ErpBill }>('/api/reseller/erp/bills', {
-        bill_type: noteKind,
+        bill_type: 'debit',
         status: 'completed',
-        customer_id: customerId,
-        customer_name: customerName,
+        customer_id: first?.customer_id || customer?.id || null,
+        customer_name: first?.customer_name || customer?.name || '',
         total_inr: amt,
-        bill_date: noteDate,
-        notes: noteRemarks,
-        lines: [],
+        bill_date: new Date().toISOString().slice(0, 10),
+        lines: previewLines,
         session: {
-          reason: noteReason,
-          remarks: noteRemarks,
-          againstBills,
-          sourceReturnId: source?.id || null,
-          sourceReturnNumber: source?.bill_number || '',
+          reason: 'Debit adjustment',
+          againstBills: selectedBills.map((b) => b.bill_number).filter(Boolean).join(', '),
           taxableInr: taxable,
           gstInr: gst,
-          returnWeightGm: weightGm,
-          mobile,
+          mobile: customer?.mobile || first?.session?.mobile || '',
+          ledgerScope: lane ? 'lane' : 'official',
+          paymentMethod: first?.session?.paymentMethod || null,
         },
       })
-      setNoteOpen(false)
-      setMsg(`${noteKind === 'credit' ? 'Credit note' : 'Debit note'} ${res.data.bill.bill_number} issued.`)
+      setPreviewKind(null)
+      setMsg(`Debit note ${res.data.bill.bill_number} issued.`)
       await downloadCreditDebitNotePdf({
-        kind: noteKind,
+        kind: 'debit',
         bill: res.data.bill,
         shopName,
-        customerMobile: mobile || null,
+        customerMobile: customer?.mobile || first?.session?.mobile || null,
       })
-      setSelectedKeys(new Set())
-      if (noteKind === 'credit') {
-        setSelectedBills([])
-        setPreviewLines([])
-        setPendingReturn(null)
-      }
     } catch (e) {
       setMsg(erpErr(e))
     } finally {
@@ -470,23 +460,28 @@ export function ErpSalesReturnWorkspace() {
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
-                          className="text-[var(--color-jewelry-black,#1a1814)] underline"
-                          onClick={() => {
-                            setPendingReturn(b)
-                            setSelectedBills([])
-                            setNoteKind('credit')
-                            setNoteAmount(String(b.total_inr || ''))
-                            setNoteReason('Sales return')
-                            setNoteRemarks('')
-                            setNoteDate(new Date().toISOString().slice(0, 10))
-                            setNoteOpen(true)
-                          }}
+                          className="inline-flex items-center gap-1 text-[#1a1814] underline"
+                          onClick={() =>
+                            void downloadCreditDebitNotePdf({
+                              kind: 'credit',
+                              bill: b,
+                              shopName,
+                              customerMobile: b.session?.mobile || null,
+                            })
+                          }
                         >
+                          <FileText className="size-3.5" />
                           Credit note
                         </button>
-                        <button type="button" className="text-[var(--kc-accent,#c41e3a)]" onClick={() => void deleteReturn(b.id)}>
-                          <Trash2 className="size-4" />
-                        </button>
+                        {canDeleteRecords ? (
+                          <button
+                            type="button"
+                            className="text-[var(--kc-accent,#c41e3a)]"
+                            onClick={() => void deleteReturn(b.id)}
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -729,10 +724,18 @@ export function ErpSalesReturnWorkspace() {
               </button>
             </div>
             <div className="space-y-2">
-              {previewLines.map((line, idx) => (
+              {previewLines.map((line, idx) => {
+                const shown =
+                  previewKind === 'return'
+                    ? rateMode === 'custom'
+                      ? customPreview[idx] || line
+                      : originalPreview[idx] || line
+                    : line
+                const billedRate = billedMetalRatePerG(line, billById.get(line.source_bill_id))
+                return (
                 <div key={line.source_line_key} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] p-3">
                   <div className="mb-2 flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">{line.name}</p>
+                    <p className="text-sm font-semibold text-[#1a1814]">{line.name}</p>
                     <button
                       type="button"
                       className="text-[var(--kc-accent,#c41e3a)]"
@@ -742,8 +745,8 @@ export function ErpSalesReturnWorkspace() {
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Weight g
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Weight g</p>
                       <input
                         className={`${erpInputCls} mt-1`}
                         value={line.weightGm ?? ''}
@@ -754,9 +757,9 @@ export function ErpSalesReturnWorkspace() {
                           )
                         }}
                       />
-                    </label>
-                    <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Met %
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Met %</p>
                       <input
                         className={`${erpInputCls} mt-1`}
                         value={line.purity ?? ''}
@@ -767,9 +770,9 @@ export function ErpSalesReturnWorkspace() {
                           )
                         }}
                       />
-                    </label>
-                    <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                      MC
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">MC</p>
                       <input
                         className={`${erpInputCls} mt-1`}
                         value={line.mc_rate ?? ''}
@@ -780,31 +783,46 @@ export function ErpSalesReturnWorkspace() {
                           )
                         }}
                       />
-                    </label>
-                    <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Amount
-                      <input
-                        className={`${erpInputCls} mt-1`}
-                        value={line.lineTotalInr ?? ''}
-                        onChange={(e) => {
-                          const v = Number(e.target.value)
-                          setPreviewLines((prev) =>
-                            prev.map((p, i) =>
-                              i === idx ? { ...p, lineTotalInr: Number.isFinite(v) ? v : 0, originalTotalInr: p.originalTotalInr } : p,
-                            ),
-                          )
-                        }}
-                      />
-                    </label>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Amount</p>
+                      <p className="mt-1 flex min-h-[44px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 text-sm font-semibold tabular-nums text-[#1a1814]">
+                        {formatErpInr(shown.lineTotalInr)}
+                      </p>
+                    </div>
                   </div>
-                  <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  <div className="mt-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Invoice item</p>
+                    <select
+                      className={`${erpInputCls} mt-1`}
+                      value={line.invoice_item_name || ''}
+                      onChange={(e) => {
+                        const name = e.target.value
+                        const hsn = invoiceItems.find((it) => it.name === name)?.hsn || line.hsn_code
+                        setPreviewLines((prev) =>
+                          prev.map((p, i) => (i === idx ? { ...p, invoice_item_name: name || null, hsn_code: hsn || p.hsn_code } : p)),
+                        )
+                      }}
+                    >
+                      <option value="">{line.invoice_item_name || 'Choose invoice item…'}</option>
+                      {invoiceItems.map((it) => (
+                        <option key={it.id} value={it.name}>
+                          {it.name}
+                          {it.hsn ? ` · ${it.hsn}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="mt-1 text-xs text-[#1a1814]/70">
                     {line.source_bill_number}
                     {line.barcode ? ` · ${line.barcode}` : ''}
                     {line.wastage_pct != null ? ` · Wastage ${line.wastage_pct}%` : ''}
+                    {billedRate > 0 ? ` · Billed ₹${billedRate}/g` : ''}
                     {` · Billed ${formatErpInr(line.originalTotalInr)}`}
                   </p>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             {previewKind === 'return' ? (
@@ -812,45 +830,50 @@ export function ErpSalesReturnWorkspace() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    className={origTotalsOn ? erpBtnPrimary : erpBtnGhost}
-                    onClick={() => setOrigTotalsOn((v) => !v)}
+                    className={rateMode === 'original' ? erpBtnPrimary : erpBtnGhost}
+                    onClick={() => setRateMode('original')}
                   >
-                    Same billed rate {origTotalsOn ? formatErpInr(origTotals.net) : ''}
+                    Same billed rate
+                    {billedRateLabel ? ` ${billedRateLabel}` : ''}
+                    {` ${formatErpInr(origTotals.net)}`}
                   </button>
                   <button
                     type="button"
-                    className={customTotalsOn ? erpBtnPrimary : erpBtnGhost}
-                    onClick={() => setCustomTotalsOn((v) => !v)}
+                    className={rateMode === 'custom' ? erpBtnPrimary : erpBtnGhost}
+                    onClick={() => setRateMode('custom')}
                   >
-                    Rate I put {customTotalsOn ? formatErpInr(custTotals.net) : ''}
+                    Rate I put{(goldN > 0 || silverN > 0) ? ` ${formatErpInr(custTotals.net)}` : ''}
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                    Gold ₹/g
-                    <input className={`${erpInputCls} mt-1`} value={customGold} onChange={(e) => setCustomGold(e.target.value)} />
-                  </label>
-                  <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                    Silver ₹/g
-                    <input
-                      className={`${erpInputCls} mt-1`}
-                      value={customSilver}
-                      onChange={(e) => setCustomSilver(e.target.value)}
-                    />
-                  </label>
-                </div>
+                {rateMode === 'custom' ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Gold ₹/g</p>
+                      <input className={`${erpInputCls} mt-1`} value={customGold} onChange={(e) => setCustomGold(e.target.value)} inputMode="decimal" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Silver ₹/g</p>
+                      <input
+                        className={`${erpInputCls} mt-1`}
+                        value={customSilver}
+                        onChange={(e) => setCustomSilver(e.target.value)}
+                        inputMode="decimal"
+                      />
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {[
-                    { l: 'Original net', v: origTotals.net, show: origTotalsOn || customTotalsOn },
-                    { l: 'Custom net', v: custTotals.net, show: customTotalsOn },
-                    { l: 'GST (orig)', v: origTotals.gst, show: origTotalsOn },
+                    { l: 'Original net', v: origTotals.net, show: true },
+                    { l: 'Rate I put', v: custTotals.net, show: goldN > 0 || silverN > 0 },
+                    { l: rateMode === 'custom' ? 'GST (new)' : 'GST', v: rateMode === 'custom' ? custTotals.gst : origTotals.gst, show: true },
                     { l: 'Weight', v: origTotals.weightGm, show: true, weight: true },
                   ]
                     .filter((x) => x.show)
                     .map((c) => (
                       <div key={c.l} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
-                        <p className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">{c.l}</p>
-                        <p className="text-sm font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">{c.l}</p>
+                        <p className="text-sm font-semibold tabular-nums text-[#1a1814]">
                           {c.weight ? formatReturnWeight(c.v) : formatErpInr(c.v)}
                         </p>
                       </div>
@@ -863,66 +886,30 @@ export function ErpSalesReturnWorkspace() {
             ) : (
               <div className="mt-4 space-y-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                    Box charges ₹
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Box charges ₹</p>
                     <input className={`${erpInputCls} mt-1`} value={extraBox} onChange={(e) => setExtraBox(e.target.value)} />
-                  </label>
-                  <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                    Stone charges ₹
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Stone charges ₹</p>
                     <input className={`${erpInputCls} mt-1`} value={extraStone} onChange={(e) => setExtraStone(e.target.value)} />
-                  </label>
-                  <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                    Extra amount ₹
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Extra amount ₹</p>
                     <input className={`${erpInputCls} mt-1`} value={extraAmt} onChange={(e) => setExtraAmt(e.target.value)} />
-                  </label>
+                  </div>
                 </div>
                 <button type="button" className={erpBtnGhost} onClick={applyDebitExtras}>
                   Apply to selected products
                 </button>
-                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                <p className="text-sm font-semibold text-[#1a1814]">
                   Current total {formatErpInr(computeReturnTotals(previewLines).net)} · billed {formatErpInr(origTotals.net)}
                 </p>
-                <button type="button" className={erpBtnPrimary} onClick={issueDebitFromPreview}>
+                <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void issueDebitFromPreview()}>
                   Issue debit note
                 </button>
               </div>
             )}
-          </div>
-        </div>
-      ) : null}
-
-      {noteOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-3 sm:items-center">
-          <div className={`${erpCardCls} w-full max-w-lg`}>
-            <h3 className="mb-3 text-lg font-bold text-[var(--color-jewelry-black,#1a1814)]">
-              {noteKind === 'credit' ? 'Issue credit note' : 'Issue debit note'}
-            </h3>
-            <div className="space-y-2">
-              <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                Amount ₹
-                <input className={`${erpInputCls} mt-1`} value={noteAmount} onChange={(e) => setNoteAmount(e.target.value)} />
-              </label>
-              <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                Date
-                <ErpDateInput value={noteDate} onChange={setNoteDate} />
-              </label>
-              <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                Reason (optional)
-                <input className={`${erpInputCls} mt-1`} value={noteReason} onChange={(e) => setNoteReason(e.target.value)} />
-              </label>
-              <label className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                Remarks (optional)
-                <input className={`${erpInputCls} mt-1`} value={noteRemarks} onChange={(e) => setNoteRemarks(e.target.value)} />
-              </label>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void issueNote()}>
-                Issue {noteKind === 'credit' ? 'credit note' : 'debit note'}
-              </button>
-              <button type="button" className={erpBtnGhost} onClick={() => setNoteOpen(false)}>
-                Later
-              </button>
-            </div>
           </div>
         </div>
       ) : null}

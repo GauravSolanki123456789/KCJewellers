@@ -2,14 +2,14 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Download, FileText, Loader2, MessageCircle, Share2 } from 'lucide-react'
+import { Download, FileText, Loader2, MessageCircle, Printer, Share2 } from 'lucide-react'
 import {
   base64ToBlob,
   clearPdfViewerStore,
   loadPdfFromViewerStore,
   type StoredPdfViewerPayload,
 } from '@/lib/pdf-viewer-store'
-import { downloadPdfBlob, sharePdfFileNative } from '@/lib/pdf-share'
+import { downloadPdfBlob, printPdfBlob, sharePdfFileNative } from '@/lib/pdf-share'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 
@@ -44,6 +44,11 @@ function PdfViewerInner() {
     if (!blob || !payload) return
     downloadPdfBlob(blob, payload.filename)
   }, [blob, payload])
+
+  const handlePrint = useCallback(() => {
+    if (!blob) return
+    printPdfBlob(blob)
+  }, [blob])
 
   const handleShareNative = useCallback(async () => {
     if (!blob || !payload || sharing) return
@@ -104,6 +109,14 @@ function PdfViewerInner() {
             >
               {sharing ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
               Share PDF
+            </button>
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-[#e8e4df] bg-white px-3 py-2 text-xs font-semibold text-[#1a1814] hover:bg-[#f7f4ef]"
+            >
+              <Printer className="size-4" />
+              Print
             </button>
             <button
               type="button"

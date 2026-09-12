@@ -56,6 +56,7 @@ type NoteSession = ErpBillSession & {
   againstBills?: string
   taxableInr?: number
   gstInr?: number
+  invoiceItemName?: string
 }
 
 type Props = {
@@ -65,6 +66,17 @@ type Props = {
   customerMobile?: string | null
 }
 
+function noteInvoiceItems(bill: ErpBill, session: NoteSession): string[] {
+  const names = new Set<string>()
+  const fromSession = String(session.invoiceItemName || '').trim()
+  if (fromSession) names.add(fromSession)
+  for (const line of bill.lines || []) {
+    const n = String(line.invoice_item_name || '').trim()
+    if (n) names.add(n)
+  }
+  return [...names]
+}
+
 function NoteDocument({ kind, bill, shopName, customerMobile }: Props) {
   const session = (bill.session || {}) as NoteSession
   const title = kind === 'credit' ? 'CREDIT NOTE' : 'DEBIT NOTE'
@@ -72,6 +84,7 @@ function NoteDocument({ kind, bill, shopName, customerMobile }: Props) {
   const taxable = Number(session.taxableInr)
   const gst = Number(session.gstInr)
   const showTax = Number.isFinite(taxable) && taxable > 0
+  const invoiceItems = noteInvoiceItems(bill, session)
 
   return (
     <Document>
@@ -106,6 +119,12 @@ function NoteDocument({ kind, bill, shopName, customerMobile }: Props) {
           <View style={styles.row}>
             <Text style={styles.label}>Reason</Text>
             <Text style={styles.value}>{sanitizePdfText(session.reason)}</Text>
+          </View>
+        ) : null}
+        {invoiceItems.length ? (
+          <View style={styles.row}>
+            <Text style={styles.label}>Invoice item</Text>
+            <Text style={styles.value}>{sanitizePdfText(invoiceItems.join(', '))}</Text>
           </View>
         ) : null}
         {session.remarks ? (
