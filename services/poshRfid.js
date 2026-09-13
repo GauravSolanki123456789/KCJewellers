@@ -134,7 +134,7 @@ function pieceToPoshPayload(piece) {
         metal_type: normalizeMetalType(piece.metal_type),
         mc_rate: piece.mc_rate != null ? Number(piece.mc_rate) : null,
         stone_charges: piece.stone_charges != null ? Number(piece.stone_charges) : null,
-        status: piece.status === 'sold' || piece.status === 'lane' ? 'sold' : 'in_stock',
+        status: piece.status === 'sold' ? 'sold' : 'in_stock',
         store_id: piece.store_id || null,
         floor_id: piece.floor_id || null,
         floor_name: normalizeFloorName(piece.floor_name),

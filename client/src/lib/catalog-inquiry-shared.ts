@@ -168,6 +168,7 @@ export function customerWhatsAppHref(
   params.set('type', 'phone_number')
   params.set('app_absent', '0')
   if (message?.trim()) params.set('text', message.trim())
+  // type=phone_number opens that chat even if the number is not a saved contact
   return `https://api.whatsapp.com/send/?${params.toString()}`
 }
 

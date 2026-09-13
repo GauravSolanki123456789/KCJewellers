@@ -19,7 +19,7 @@ function PdfViewerInner() {
   const [payload, setPayload] = useState<StoredPdfViewerPayload | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
-  const [waMode, setWaMode] = useState<'pick' | 'customer'>('pick')
+  const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
 
   useEffect(() => {
     if (!id) return
@@ -64,14 +64,17 @@ function PdfViewerInner() {
   }, [blob, payload, sharing])
 
   const handleWhatsApp = useCallback(() => {
-    if (!payload) return
+    if (!payload || !blob) return
     const href =
       waMode === 'customer' && payload.customerWhatsAppHref?.trim()
         ? payload.customerWhatsAppHref.trim()
         : payload.fallbackWhatsAppHref?.trim() ||
           buildWhatsAppShareLink(payload.fallbackWhatsAppText)
+    if (waMode === 'customer' && href) {
+      downloadPdfBlob(blob, payload.filename)
+    }
     openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
-  }, [payload, waMode])
+  }, [payload, blob, waMode])
 
   if (!id) {
     return (
@@ -137,19 +140,20 @@ function PdfViewerInner() {
               value={waMode}
               onChange={(e) => setWaMode(e.target.value as 'pick' | 'customer')}
             >
-              <option value="pick">Pick contact / share sheet (current)</option>
               <option value="customer" disabled={!hasCustomerWa}>
-                Send to customer number{hasCustomerWa ? '' : ' (no customer mobile)'}
+                {hasCustomerWa ? 'Customer — send to this number' : 'Customer number (no mobile on bill)'}
               </option>
+              <option value="pick">Pick a different contact</option>
             </select>
           </label>
           <button
             type="button"
             onClick={handleWhatsApp}
+            disabled={waMode === 'customer' && !hasCustomerWa}
             className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-700 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-100 sm:w-auto"
           >
             <MessageCircle className="size-4" />
-            WhatsApp
+            {waMode === 'customer' ? 'Send to customer' : 'WhatsApp'}
           </button>
         </div>
         <p className="mx-auto mt-2 max-w-5xl text-[11px] leading-relaxed text-[#1a1814]/50">

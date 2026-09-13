@@ -27,7 +27,6 @@ const RETURN_LINE_HEADERS = [
   'Invoice item',
   'HSN',
   'Metal type',
-  'Original billed ₹',
 ] as const
 
 function cell(v: string | number | null | undefined): string | number {
@@ -70,7 +69,6 @@ export async function downloadCreditDebitNoteExcel(
     ['Customer', bill.customer_name || ''],
     ['Mobile', session.mobile || ''],
     ['Against bill(s)', session.againstBills || ''],
-    ['Rate slab', session.rateSlab || ''],
     ['Reason', session.reason || ''],
     ['Remarks', session.remarks || bill.notes || ''],
     [],
@@ -112,7 +110,6 @@ export async function downloadCreditDebitNoteExcel(
         cell(line.invoice_item_name),
         cell(line.hsn_code),
         cell(line.metal_type),
-        cell((line as { originalTotalInr?: number }).originalTotalInr),
       ])
     })
   } else {
@@ -154,12 +151,11 @@ export async function downloadCreditDebitNoteExcel(
       cell(line.invoice_item_name),
       cell(line.hsn_code),
       cell(line.metal_type),
-      cell((line as { originalTotalInr?: number }).originalTotalInr),
     ])
   })
 
   const wsLines = XLSX.utils.aoa_to_sheet(lineSheetRows)
-  setColumnWidths(wsLines, [4, 12, 16, 14, 12, 20, 10, 10, 10, 8, 10, 8, 10, 10, 10, 10, 10, 10, 10, 12, 18, 10, 12, 12])
+  setColumnWidths(wsLines, [4, 12, 16, 14, 12, 20, 10, 10, 10, 8, 10, 8, 10, 10, 10, 10, 10, 10, 10, 12, 18, 10, 12])
 
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, title)

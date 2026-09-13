@@ -1,5 +1,6 @@
 import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer'
 import { presentPdfBlob } from '@/lib/pdf-share'
+import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
@@ -168,12 +169,6 @@ function NoteDocument({ kind, bill, shopName, customerMobile, slabSettingsRaw }:
             <Text style={styles.value}>{sanitizePdfText(session.againstBills)}</Text>
           </View>
         ) : null}
-        {session.rateSlab ? (
-          <View style={styles.row}>
-            <Text style={styles.label}>Rate slab</Text>
-            <Text style={styles.value}>{sanitizePdfText(session.rateSlab)}</Text>
-          </View>
-        ) : null}
         {session.reason ? (
           <View style={styles.row}>
             <Text style={styles.label}>Reason</Text>
@@ -286,10 +281,12 @@ function NoteDocument({ kind, bill, shopName, customerMobile, slabSettingsRaw }:
 export async function downloadCreditDebitNotePdf(opts: Props) {
   const blob = await pdf(<NoteDocument {...opts} />).toBlob()
   const fname = `${opts.bill.bill_number}.pdf`
+  const mobile = opts.customerMobile || null
   await presentPdfBlob(blob, fname, {
     title: opts.kind === 'credit' ? 'Credit note' : 'Debit note',
     text: fname,
-    customerMobile: opts.customerMobile || null,
+    customerMobile: mobile,
+    customerWhatsAppHref: customerWhatsAppHref(mobile, fname),
     brandLabel: opts.shopName || undefined,
   })
 }

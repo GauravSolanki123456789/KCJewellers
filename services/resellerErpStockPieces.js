@@ -552,8 +552,8 @@ async function ensureStockPiecesSchema(pool) {
     `);
     await pool.query(`
         UPDATE reseller_erp_stock_pieces
-        SET status = 'lane'
-        WHERE status = 'sold' AND sold_bill_id IS NULL
+        SET status = 'in_stock', sold_bill_id = NULL, updated_at = NOW()
+        WHERE status = 'lane'
     `).catch(() => {});
     await pool.query(`
         ALTER TABLE reseller_erp_stock_pieces
@@ -774,15 +774,70 @@ async function markPiecesShadowLane(query, resellerUserId, lines) {
 }
 
 function mapPieceForClient(row, opts = {}) {
-    const maskLane = opts.maskLane !== false;
     const p = mapPiece(row);
-    if (maskLane && p.status === 'lane') {
-        return { ...p, status: 'in_stock', locked: true };
+    if (opts.maskLane !== false && p.status === 'lane') {
+        return { ...p, status: 'in_stock' };
     }
     return p;
 }
 
+function rfidFromPayload(payloadJson) {
+    let payload = payloadJson;
+    if (typeof payload === 'string') {
+        try {
+            payload = JSON.parse(payload);
+        } catch {
+            payload = null;
+        }
+    }
+    if (!payload || typeof payload !== 'object') return null;
+    const raw =
+        payload.RFID ||
+        payload.rfid_tag ||
+        payload.RFIDTag ||
+        payload['Rfid Tag'] ||
+        payload['RFID Tag'] ||
+        payload.RfidTag ||
+        null;
+    return raw ? poshRfid.normalizeRfidTag(String(raw)) : null;
+}
+
+async function healLanePiecesToInStock(query, resellerUserId) {
+    const rows = await query(
+        `SELECT id, rfid_tag, payload_json FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND status = 'lane'`,
+        [resellerUserId],
+    );
+    if (!rows.length) return;
+    await query(
+        `UPDATE reseller_erp_stock_pieces
+         SET status = 'in_stock', sold_bill_id = NULL, updated_at = NOW()
+         WHERE reseller_user_id = $1 AND status = 'lane'`,
+        [resellerUserId],
+    );
+    for (const row of rows) {
+        if (row.rfid_tag) continue;
+        const tag = rfidFromPayload(row.payload_json);
+        if (!tag) continue;
+        try {
+            await query(
+                `UPDATE reseller_erp_stock_pieces
+                 SET rfid_tag = $1, updated_at = NOW()
+                 WHERE id = $2 AND reseller_user_id = $3 AND rfid_tag IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM reseller_erp_stock_pieces x
+                     WHERE x.reseller_user_id = $3 AND lower(x.rfid_tag) = lower($1) AND x.id <> $2
+                   )`,
+                [tag, row.id, resellerUserId],
+            );
+        } catch {
+            /* unique / missing tag — leave without RFID */
+        }
+    }
+}
+
 async function lookupStockPiece(query, resellerUserId, code) {
+    await healLanePiecesToInStock(query, resellerUserId);
     const rows = await query(
         `SELECT * FROM reseller_erp_stock_pieces
          WHERE reseller_user_id = $1 AND barcode = $2
@@ -866,7 +921,7 @@ async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, exclude
          LEFT JOIN reseller_erp_bills b ON b.id = p.sold_bill_id AND b.reseller_user_id = p.reseller_user_id
          WHERE p.reseller_user_id = $1
            AND lower(trim(p.barcode)) = ANY($2::text[])
-           AND p.status IN ('sold', 'lane')`,
+           AND p.status = 'sold'`,
         [resellerUserId, normalized],
     );
     for (const row of stockRows) {
@@ -875,15 +930,6 @@ async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, exclude
         if (!key || seen.has(key)) continue;
         if (excludeBillId && row.sold_bill_id === excludeBillId) continue;
         seen.add(key);
-        if (row.status === 'lane') {
-            conflicts.push({
-                barcode: bc,
-                source: 'stock_piece',
-                sold_bill: null,
-                lane_reserved: true,
-            });
-            continue;
-        }
         conflicts.push({
             barcode: bc,
             source: 'stock_piece',
@@ -1002,6 +1048,7 @@ function registerStockPieceRoutes(app, deps) {
                 [batchId, req.user.id],
             );
             if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
+            await healLanePiecesToInStock(query, req.user.id);
             const pieces = await query(
                 `SELECT * FROM reseller_erp_stock_pieces
                  WHERE batch_id = $1::uuid AND reseller_user_id = $2

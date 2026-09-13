@@ -423,8 +423,15 @@ export function ErpSalesReturnWorkspace() {
       return
     }
     const useCustom = rateMode === 'custom'
-    const lines = useCustom ? customPreview : sameRatePreview
-    const totals = useCustom ? custTotals : origTotals
+    const allLines = useCustom ? customPreview : sameRatePreview
+    const lines = previewSelectedKeys.size
+      ? allLines.filter((l) => previewSelectedKeys.has(l.source_line_key))
+      : allLines
+    if (!lines.length) {
+      setMsg('Select the products you are returning. Only selected items come back into stock.')
+      return
+    }
+    const totals = computeReturnTotals(lines)
     const first = selectedBills[0]
     const lane = sourceBillsUseLaneLedger(selectedBills)
     setBusy(true)

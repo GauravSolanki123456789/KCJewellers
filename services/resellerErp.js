@@ -39,7 +39,7 @@ const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, require
 const {
     registerShadowRoutes,
     createShadowBillFromBillingPayload,
-    markEstimateBilledViaLedger,
+    shouldRouteSaleToShadowLedger,
 } = require('./resellerErpShadow');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
@@ -1156,7 +1156,7 @@ function registerResellerErpRoutes(app, deps) {
     if (
                 billType === 'sale' &&
                 ['completed', 'paid', 'final'].includes(status) &&
-                req.session?.shadowUnlocked === true
+                shouldRouteSaleToShadowLedger(sessionObj, req.session?.shadowUnlocked === true)
             ) {
                 if (billRatesUnfixedFromPayload(sessionObj, lines)) {
                     return res.status(400).json({
@@ -1171,13 +1171,6 @@ function registerResellerErpRoutes(app, deps) {
                         req.body,
                         op?.id || null,
                     );
-                    const sourceEstimateId =
-                        req.body.source_estimate_id != null
-                            ? parseInt(String(req.body.source_estimate_id), 10)
-                            : null;
-                    if (Number.isFinite(sourceEstimateId) && sourceEstimateId > 0) {
-                        await markEstimateBilledViaLedger(query, req.user.id, sourceEstimateId);
-                    }
                     return res.json({
                         success: true,
                         shadow: true,
@@ -1811,10 +1804,7 @@ function registerResellerErpRoutes(app, deps) {
             if (stockHit?.piece) {
                 const p = stockHit.piece;
                 if (p.status === 'lane') {
-                    return res.status(409).json({
-                        error: 'This item is not available',
-                        availability: stockHit.availability,
-                    });
+                    p.status = 'in_stock';
                 }
                 if (p.status === 'sold') {
                     const conflicts = await findSoldBarcodeConflicts(query, req.user.id, [code]);

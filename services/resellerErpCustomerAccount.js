@@ -98,7 +98,7 @@ function pushShadowSaleRows(rows, s) {
         sort_id: s.id,
         kind: 'sale',
         ref: s.bill_number,
-        description: `(V NO: ${s.bill_number}) SALES A/C -`,
+        description: 'cash received',
         debit: billAmt,
         credit: 0,
         lane: s.lane || 'jainav',

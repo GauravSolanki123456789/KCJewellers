@@ -109,7 +109,14 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     if (!Number.isFinite(total)) {
         total = linesRaw.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
     }
-    const sessionObj = body.session && typeof body.session === 'object' ? body.session : {};
+    const sessionObj = body.session && typeof body.session === 'object' ? { ...body.session } : {};
+    const collectedRaw = sessionObj.collectedAmountInr ?? sessionObj.collected_amount_inr;
+    const collectedN = collectedRaw != null && String(collectedRaw).trim() !== '' ? Number(collectedRaw) : NaN;
+    if (Number.isFinite(collectedN) && collectedN > 0) {
+        total = collectedN;
+        sessionObj.collectedAmountInr = collectedN;
+        sessionObj.netTotalInr = collectedN;
+    }
     const customerGstin = trimStr(sessionObj.customerGst || body.customer_gstin, 20);
     const paymentMethod = inferPaymentMethodFromSession(sessionObj, body.payment_method);
     const lane = classifyLane({
@@ -155,9 +162,6 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
         ],
     );
     const bill = mapShadowBill(rows[0]);
-    if (['completed', 'paid', 'final'].includes(status)) {
-        await markPiecesShadowLane(query, resellerUserId, linesRaw);
-    }
     return { bill, lane };
 }
 
@@ -607,10 +611,6 @@ function stockSummaryCsv(summary, meta = {}) {
     push(['Overview']);
     push(['Metric', 'Value']);
     push(['Available pcs (in stock)', summary.total_pieces]);
-    if (summary.lane_reserved_count != null) {
-        push(['Lane reserved (Jainav, not in available count)', summary.lane_reserved_count]);
-        push(['Lane reserved weight (g)', summary.lane_reserved_weight_g ?? 0]);
-    }
     push(['Total weight (g)', summary.total_weight_g]);
     push(['Average weight (g)', summary.average_weight_g]);
     push(['Min weight (g)', summary.min_weight_g]);
@@ -619,8 +619,17 @@ function stockSummaryCsv(summary, meta = {}) {
     return lines.join('\r\n');
 }
 
-function shouldRouteSaleToShadowLedger(_sessionObj) {
-    return false;
+function saleIsCashCollected(sessionObj) {
+    const session = sessionObj && typeof sessionObj === 'object' ? sessionObj : {};
+    const pay = inferPaymentMethodFromSession(session, session.paymentMethod);
+    const raw = session.collectedAmountInr ?? session.collected_amount_inr;
+    if (raw == null || String(raw).trim() === '') return false;
+    return pay === 'cash' && Number.isFinite(Number(raw));
+}
+
+function shouldRouteSaleToShadowLedger(sessionObj, shadowUnlocked) {
+    if (shadowUnlocked === true) return true;
+    return saleIsCashCollected(sessionObj);
 }
 
 function registerShadowRoutes(app, deps) {
@@ -771,7 +780,6 @@ function registerShadowRoutes(app, deps) {
                 ],
             );
             const bill = mapShadowBill(rows[0]);
-            await markPiecesShadowLane(query, req.user.id, linesRaw);
             res.json({ success: true, bill });
         } catch (e) {
             console.error('shadow bill create:', e);

@@ -8,19 +8,27 @@ export function hasValidGstin(gst: string | null | undefined): boolean {
 }
 
 export function previewLedgerLane(
-  _paymentMethod: ErpPaymentMethod,
-  _collectedAmountInr?: string | number | null,
+  paymentMethod: ErpPaymentMethod,
+  collectedAmountInr?: string | number | null,
   jainavModeUnlocked = false,
 ): 'hitesh' | 'jainav' {
-  return jainavModeUnlocked ? 'jainav' : 'hitesh'
+  if (jainavModeUnlocked) return 'jainav'
+  const pay = String(paymentMethod || '').trim().toLowerCase()
+  const raw = collectedAmountInr
+  const collectedSet = raw != null && String(raw).trim() !== '' && Number.isFinite(Number(raw))
+  return pay === 'cash' && collectedSet ? 'jainav' : 'hitesh'
 }
 
-/** Only an unlocked Jainav session routes a sale to the lane / SCB ledger. */
+/** Jainav unlock, or cash + cash-received amount, routes the sale to the SCB lane. */
 export function shouldRouteSaleToShadow(session: {
   customerGst?: string | null
   paymentMethod?: string | null
   collectedAmountInr?: number | string | null
   jainavModeUnlocked?: boolean
 }): boolean {
-  return !!session.jainavModeUnlocked
+  if (session.jainavModeUnlocked) return true
+  const pay = String(session.paymentMethod || '').trim().toLowerCase()
+  const raw = session.collectedAmountInr
+  const collectedSet = raw != null && String(raw).trim() !== '' && Number.isFinite(Number(raw))
+  return pay === 'cash' && collectedSet
 }

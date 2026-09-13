@@ -401,7 +401,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const customerId = parseInt(String(req.query.customer_id || ''), 10);
             const suspenseOnly = String(req.query.suspense_only || '') === '1';
             const importBatchId = parseInt(String(req.query.import_batch_id || ''), 10);
-            const laneView = String(req.query.lane_view || '') === '1' && sessionAllowsLane(req);
+            const laneView = String(req.query.lane_view || '') === '1';
             const q = trimStr(req.query.q, 120);
             const params = [req.user.id];
             let cashBook = null;
@@ -436,7 +436,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                         OR (e.ledger_scope = 'official' AND LOWER(COALESCE(e.payment_mode, '')) = 'cash')
                     )`;
                 } else {
-                    sql += ` AND FALSE`;
+                    sql += ` AND e.ledger_scope = 'official' AND LOWER(COALESCE(e.payment_mode, '')) = 'cash'`;
                 }
             } else if (laneView) {
                 sql += ` AND (
@@ -491,7 +491,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
         try {
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);
-            const laneView = String(req.query.lane_view || '') === '1' && sessionAllowsLane(req);
+            const laneView = String(req.query.lane_view || '') === '1';
             const params = [req.user.id];
             let dateSql = '';
             let scopeSql = laneView
@@ -532,7 +532,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                             COALESCE(SUM(e.amount_inr) FILTER (WHERE e.entry_type IN ('payment_out', 'purchase', 'expense', 'salary')), 0)::float AS paid_out
                      FROM reseller_erp_ledger_entries e
                      LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
-                     WHERE e.reseller_user_id = $1 AND e.is_suspense = false ${scopeSql.replace(/ledger_scope/g, 'e.ledger_scope').replace(/payment_mode/g, 'e.payment_mode').replace(/entry_type/g, 'e.entry_type')} ${dateSql.replace(/entry_date/g, 'e.entry_date')}
+                     WHERE e.reseller_user_id = $1 AND e.is_suspense = false ${scopeSql.replace(/ledger_scope/g, 'e.ledger_scope')} ${dateSql.replace(/entry_date/g, 'e.entry_date')}
                      GROUP BY e.customer_id, c.name
                      ORDER BY received DESC NULLS LAST
                      LIMIT 500`,
@@ -564,7 +564,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 return res.status(400).json({ error: 'Valid amount is required' });
             }
             const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'other';
-            const ledgerScope = resolveRequestedLedgerScope(req, req.body.ledger_scope);
+            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
+            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
             const isSuspense = !!req.body.is_suspense;
             const employeeId =
                 req.body.employee_id != null ? parseInt(String(req.body.employee_id), 10) || null : null;
@@ -773,7 +774,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
         try {
             const rawRows = Array.isArray(req.body.rows) ? req.body.rows : [];
             if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
-            const ledgerScope = resolveRequestedLedgerScope(req, req.body.ledger_scope);
+            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
+            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
             const markSuspense = !!req.body.mark_unmatched_suspense;
             const previewRows = [];
             let duplicates = 0;
@@ -832,7 +834,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
             if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
             if (rawRows.length > 5000) return res.status(400).json({ error: 'Max 5000 rows per import' });
 
-            const ledgerScope = resolveRequestedLedgerScope(req, req.body.ledger_scope);
+            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
+            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
             const skipDuplicates = req.body.skip_duplicates !== false;
             const markSuspense = !!req.body.mark_unmatched_suspense;
 
@@ -902,7 +905,9 @@ function registerResellerErpLedgerRoutes(app, deps) {
                         normalized.narration,
                         markRowSuspense,
                         batchId,
-                        resolveRequestedLedgerScope(req, row.ledger_scope || ledgerScope),
+                        row.ledger_scope && LEDGER_SCOPES.has(String(row.ledger_scope))
+                            ? String(row.ledger_scope)
+                            : ledgerScope,
                     ],
                 );
                 inserted++;
@@ -986,5 +991,4 @@ module.exports = {
     ensureLedgerSchema,
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
-    createCollectedCashLedgerEntry,
 };

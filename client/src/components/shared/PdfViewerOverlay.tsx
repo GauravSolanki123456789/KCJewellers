@@ -26,7 +26,7 @@ export default function PdfViewerOverlay() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
   const [customerMobile, setCustomerMobile] = useState('')
-  const [waMode, setWaMode] = useState<'pick' | 'customer'>('pick')
+  const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
 
   const opts = payload?.opts
   const blob = payload?.blob
@@ -51,7 +51,7 @@ export default function PdfViewerOverlay() {
       normalizeMobileDigits(opts.customerMobile) ||
       (() => {
         const href = opts.customerWhatsAppHref || ''
-        const m = /wa\.me\/(\d+)/i.exec(href)
+        const m = /(?:wa\.me\/|phone=)(\d+)/i.exec(href)
         if (m) return m[1].slice(-10)
         return ''
       })()

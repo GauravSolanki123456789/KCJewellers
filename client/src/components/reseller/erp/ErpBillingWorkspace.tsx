@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
   applyPiecePricedLineCalc,
@@ -36,7 +37,6 @@ import {
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
 import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { useErpOperator } from '@/context/ErpOperatorContext'
 import { compactErpDocNumber, erpDocNumbersMatch } from '@/lib/app-notice'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
@@ -1432,6 +1432,8 @@ export function ErpBillingWorkspace() {
     jainavModeUnlocked: shadowUnlocked,
   })
   const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr, shadowUnlocked)
+  const billTotalInr =
+    !isOfficialGstBill && parsedCollected != null && parsedCollected > 0 ? parsedCollected : totals.net
 
   const buildPayload = (
     billType: 'sale' | 'estimate',
@@ -1441,7 +1443,7 @@ export function ErpBillingWorkspace() {
     bill_type: billType,
     customer_id: customerId,
     customer_name: customerName,
-    total_inr: totals.net,
+    total_inr: billType === 'sale' ? billTotalInr : totals.net,
     status,
     ...(extra?.bill_number ? { bill_number: extra.bill_number } : {}),
     notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
@@ -1470,7 +1472,7 @@ export function ErpBillingWorkspace() {
         mcDiscountInr: discountSummary.mcDiscountInr,
         cashDiscountInr: discountSummary.cashDiscountInr,
         totalDiscountInr: discountSummary.totalDiscountInr,
-        netTotalInr: totals.net,
+        netTotalInr: billType === 'sale' ? billTotalInr : totals.net,
         goldSlabRShowMc,
       }),
       ...(combinedSourceEstimateIds.length > 0
