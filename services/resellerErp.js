@@ -1273,45 +1273,63 @@ function registerResellerErpRoutes(app, deps) {
                 req.body.source_estimate_id != null
                     ? parseInt(String(req.body.source_estimate_id), 10)
                     : null;
+            const sourceEstimateIdsRaw = Array.isArray(req.body.source_estimate_ids)
+                ? req.body.source_estimate_ids
+                : [];
+            const sourceEstimateIds = [
+                ...new Set(
+                    [
+                        ...(Number.isFinite(sourceEstimateId) && sourceEstimateId > 0
+                            ? [sourceEstimateId]
+                            : []),
+                        ...sourceEstimateIdsRaw
+                            .map((v) => parseInt(String(v), 10))
+                            .filter((n) => Number.isFinite(n) && n > 0),
+                    ].map((n) => Number(n)),
+                ),
+            ];
             if (
                 billType === 'sale' &&
-                Number.isFinite(sourceEstimateId) &&
-                sourceEstimateId > 0 &&
+                sourceEstimateIds.length > 0 &&
                 ['completed', 'paid', 'final'].includes(status)
             ) {
-                const estRows = await query(
-                    `SELECT id, bill_type, status, session_json FROM reseller_erp_bills
-                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
-                    [sourceEstimateId, req.user.id],
-                );
-                if (
-                    estRows.length &&
-                    String(estRows[0].bill_type || '').toLowerCase() === 'estimate' &&
-                    String(estRows[0].status || '').toLowerCase() !== 'billed'
-                ) {
-                    let prevSession = estRows[0].session_json;
-                    if (typeof prevSession === 'string') {
-                        try {
-                            prevSession = JSON.parse(prevSession);
-                        } catch {
-                            prevSession = {};
-                        }
-                    }
-                    if (!prevSession || typeof prevSession !== 'object') prevSession = {};
-                    const mergedSession = {
-                        ...prevSession,
-                        billedSaleBillId: bill.id,
-                        billedSaleBillNumber: bill.bill_number,
-                        billedAt: new Date().toISOString(),
-                    };
-                    await query(
-                        `UPDATE reseller_erp_bills SET
-                            status = 'billed',
-                            session_json = $1::jsonb,
-                            updated_at = NOW()
-                         WHERE id = $2 AND reseller_user_id = $3`,
-                        [JSON.stringify(mergedSession), sourceEstimateId, req.user.id],
+                for (const estId of sourceEstimateIds) {
+                    const estRows = await query(
+                        `SELECT id, bill_type, status, session_json FROM reseller_erp_bills
+                         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                        [estId, req.user.id],
                     );
+                    if (
+                        estRows.length &&
+                        String(estRows[0].bill_type || '').toLowerCase() === 'estimate' &&
+                        String(estRows[0].status || '').toLowerCase() !== 'billed'
+                    ) {
+                        let prevSession = estRows[0].session_json;
+                        if (typeof prevSession === 'string') {
+                            try {
+                                prevSession = JSON.parse(prevSession);
+                            } catch {
+                                prevSession = {};
+                            }
+                        }
+                        if (!prevSession || typeof prevSession !== 'object') prevSession = {};
+                        const mergedSession = {
+                            ...prevSession,
+                            billedSaleBillId: bill.id,
+                            billedSaleBillNumber: bill.bill_number,
+                            billedAt: new Date().toISOString(),
+                            combinedBilledWith:
+                                sourceEstimateIds.length > 1 ? sourceEstimateIds : undefined,
+                        };
+                        await query(
+                            `UPDATE reseller_erp_bills SET
+                                status = 'billed',
+                                session_json = $1::jsonb,
+                                updated_at = NOW()
+                             WHERE id = $2 AND reseller_user_id = $3`,
+                            [JSON.stringify(mergedSession), estId, req.user.id],
+                        );
+                    }
                 }
             }
             if (billType === 'order') {

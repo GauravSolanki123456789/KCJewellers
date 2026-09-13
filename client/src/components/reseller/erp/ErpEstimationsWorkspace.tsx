@@ -15,7 +15,11 @@ import { ErpQuotePdfButton } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
+import { downloadBillDetailExcel, downloadEstimatesDetailExcel } from '@/lib/erp-bill-excel-export'
+import {
+  formatDuplicateBarcodeMessage,
+  validateEstimatesForCombinedBilling,
+} from '@/lib/erp-combine-estimates'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { summarizeBillsMetalTotals } from '@/lib/erp-bill-metal-totals'
@@ -38,6 +42,7 @@ import {
   Loader2,
   Pencil,
   ScrollText,
+  ShoppingCart,
   Trash2,
 } from 'lucide-react'
 
@@ -180,20 +185,51 @@ export function ErpEstimationsWorkspace() {
   }
 
   const exportRows = async (rows: ErpBill[]) => {
-    const XLSX = await import('xlsx')
-    const data = rows.map((b) => ({
-      'Quote No': b.bill_number,
-      Date: formatErpDateDdMmYyyy(b.created_at ?? b.bill_date),
-      Customer: b.customer_name || '',
-      Items: b.lines?.length ?? 0,
-      Amount: b.total_inr,
-      Status: formatEstimateStatusLabel(resolveBillEstimateStatus(b)),
-      Notes: b.notes || '',
-    }))
-    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ 'Quote No': '' }])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Estimations')
-    XLSX.writeFile(wb, `erp-estimations-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    if (!rows.length) return
+    setBusy(true)
+    try {
+      const fullRows: ErpBill[] = []
+      for (const row of rows) {
+        const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${row.id}`)
+        fullRows.push(res.data.bill)
+      }
+      await downloadEstimatesDetailExcel(fullRows, auth.user)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const billSelectedTogether = async () => {
+    const picked = bills.filter((b) => selected.has(b.id))
+    if (picked.length < 2) {
+      alert('Select at least two estimations to bill together.')
+      return
+    }
+    setBusy(true)
+    try {
+      const fullBills: ErpBill[] = []
+      for (const row of picked) {
+        const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${row.id}`)
+        fullBills.push(res.data.bill)
+      }
+      const validation = validateEstimatesForCombinedBilling(fullBills)
+      if (!validation.ok) {
+        if (validation.duplicates?.length) {
+          alert(formatDuplicateBarcodeMessage(validation.duplicates))
+        } else {
+          alert(validation.error || 'Cannot bill these estimations together.')
+        }
+        return
+      }
+      const ids = fullBills.map((b) => b.id).join(',')
+      window.location.href = `${resellerErpModulePath('billing')}?combine=${ids}`
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const changeStatus = async (id: number, nextStatus: string) => {
@@ -256,7 +292,7 @@ export function ErpEstimationsWorkspace() {
             onClick={() => void exportRows(bills)}
           >
             <Download className="size-4" />
-            Export all
+            Export all (detail)
           </button>
           {canDeleteRecords ? (
           <button
@@ -511,9 +547,20 @@ export function ErpEstimationsWorkspace() {
         <div className="flex flex-wrap gap-2">
           <button type="button" className={erpBtnGhost} onClick={() => void exportRows(bills.filter((b) => selected.has(b.id)))}>
             <FileSpreadsheet className="size-4" />
-            Export selected ({selected.size})
+            Export detail ({selected.size})
           </button>
-          <Link href={resellerErpModulePath('billing')} className={erpBtnPrimary}>
+          {selected.size >= 2 ? (
+            <button
+              type="button"
+              className={erpBtnPrimary}
+              disabled={busy}
+              onClick={() => void billSelectedTogether()}
+            >
+              <ShoppingCart className="size-4" />
+              Bill selected together ({selected.size})
+            </button>
+          ) : null}
+          <Link href={resellerErpModulePath('billing')} className={erpBtnGhost}>
             New quotation in billing
           </Link>
         </div>

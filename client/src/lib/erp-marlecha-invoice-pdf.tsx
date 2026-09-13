@@ -69,11 +69,15 @@ const styles = StyleSheet.create({
   headerCenter: {
     flexGrow: 1,
     flexShrink: 1,
+    paddingRight: 6,
+    alignItems: 'center',
   },
   headerQrCol: {
-    width: 82,
+    width: 96,
     alignItems: 'flex-end',
     paddingLeft: 4,
+    paddingRight: 6,
+    paddingTop: 2,
   },
   copyTag: {
     fontSize: 7,
@@ -110,12 +114,14 @@ const styles = StyleSheet.create({
   fieldLabel: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000' },
   irnBlock: {
     marginTop: 4,
-    paddingRight: 2,
+    paddingHorizontal: 2,
+    width: '100%',
+    alignItems: 'center',
   },
   irnText: {
     fontSize: 6,
     lineHeight: 1.25,
-    textAlign: 'left',
+    textAlign: 'center',
   },
   billingBox: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 78 },
   billingLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000' },
@@ -203,10 +209,10 @@ const styles = StyleSheet.create({
   signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-end' },
   signLine: { borderTopWidth: 1, borderTopColor: '#000', marginTop: 28, paddingTop: 3, textAlign: 'center' },
   eRef: { marginTop: 6, fontSize: 7 },
-  qr: { width: 74, height: 74, objectFit: 'contain' },
+  qr: { width: 88, height: 88, objectFit: 'contain' },
   qrPlaceholder: {
-    width: 74,
-    height: 74,
+    width: 88,
+    height: 88,
     borderWidth: 1,
     borderColor: '#000',
     alignItems: 'center',

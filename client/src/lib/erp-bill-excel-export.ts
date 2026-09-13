@@ -141,3 +141,87 @@ export async function downloadBillDetailExcel(
   const slug = bill.bill_number.replace(/\W+/g, '_')
   XLSX.writeFile(wb, `${slug}-${bill.customer_name?.replace(/\W+/g, '_') || 'customer'}.xlsx`)
 }
+
+export async function downloadEstimatesDetailExcel(
+  bills: ErpBill[],
+  slabSettingsRaw?: unknown,
+) {
+  if (!bills.length) return
+  if (bills.length === 1) {
+    await downloadBillDetailExcel(bills[0], 'estimate', slabSettingsRaw)
+    return
+  }
+
+  const XLSX = await import('xlsx')
+  const wb = XLSX.utils.book_new()
+  const summaryRows: (string | number)[][] = [
+    ['Combined estimations report'],
+    [new Date().toISOString().slice(0, 10)],
+    [],
+    ['Quote no', 'Date', 'Customer', 'Items', 'Net total (₹)', 'Status', 'Notes'],
+  ]
+  let grandNet = 0
+  let grandItems = 0
+
+  for (const bill of bills) {
+    const session = (bill.session || {}) as ErpBillSession
+    const enriched = enrichErpBillLinesForDisplay(bill, slabSettingsRaw)
+    const totals = computeErpQuoteTotals({ ...bill, lines: enriched }, slabSettingsRaw)
+    grandNet += totals.net
+    grandItems += totals.count
+    summaryRows.push([
+      bill.bill_number,
+      formatErpDateDdMmYyyy(bill.bill_date ?? bill.created_at),
+      bill.customer_name || '',
+      enriched.length,
+      totals.net,
+      bill.status || '',
+      bill.notes || session.rateSlab ? `Rate slab ${session.rateSlab || ''}` : '',
+    ])
+
+    const rows: (string | number)[][] = []
+    rows.push([`${bill.bill_number} — Quotation report`])
+    rows.push([bill.customer_name || '', formatErpDateDdMmYyyy(bill.bill_date ?? bill.created_at)])
+    rows.push([])
+    rows.push(['Bill summary'])
+    rows.push(...buildSummaryTable(bill, 'estimate', session))
+    rows.push([])
+    rows.push(['Order summary — scanned line items'])
+    rows.push([...LINE_HEADERS])
+    for (let i = 0; i < enriched.length; i++) {
+      rows.push(lineToRow(enriched[i], i))
+    }
+    rows.push([])
+    rows.push(['Totals'])
+    rows.push(['Items', totals.count])
+    rows.push(['Total weight (g)', Math.round(totals.weight * 100) / 100])
+    rows.push(['Subtotal (₹)', totals.subtotal])
+    rows.push(['GST (₹)', totals.gst])
+    rows.push(['Net total (₹)', totals.net])
+
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    setColumnWidths(ws, [14, 18, 16, 14, 22, 8, 10, 10, 10, 10, 8, 10, 12, 10, 14])
+    const sheetName = bill.bill_number.replace(/[\\/?*[\]:]/g, '_').slice(0, 31)
+    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+
+    const lineSheetRows: (string | number)[][] = [[...LINE_HEADERS]]
+    for (let i = 0; i < enriched.length; i++) {
+      lineSheetRows.push(lineToRow(enriched[i], i))
+    }
+    lineSheetRows.push([])
+    lineSheetRows.push(['Items', totals.count, 'Net total', formatErpInr(totals.net)])
+    const wsLines = XLSX.utils.aoa_to_sheet(lineSheetRows)
+    setColumnWidths(wsLines, [6, 16, 18, 14, 22, 8, 10, 10, 10, 10, 8, 10, 12, 10, 14])
+    XLSX.utils.book_append_sheet(wb, wsLines, `${sheetName.slice(0, 24)} lines`)
+  }
+
+  summaryRows.push([])
+  summaryRows.push(['Combined items', grandItems])
+  summaryRows.push(['Combined net total (₹)', Math.round(grandNet * 100) / 100])
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows)
+  setColumnWidths(wsSummary, [18, 14, 22, 10, 14, 12, 24])
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary', true)
+
+  const slug = `estimates-${new Date().toISOString().slice(0, 10)}`
+  XLSX.writeFile(wb, `${slug}.xlsx`)
+}

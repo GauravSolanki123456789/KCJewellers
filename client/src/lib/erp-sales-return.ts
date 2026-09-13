@@ -263,6 +263,45 @@ export function recalcReturnLine(
   } as ReturnLine
 }
 
+const RETURN_LINE_COMPARE_KEYS = [
+  'weightGm',
+  'originalWeightGm',
+  'purity',
+  'wastage_pct',
+  'mc_rate',
+  'mc_type',
+  'ratePerGram',
+  'metal_slab_r_pct',
+  'metal_slab_w_pct',
+  'metal_slab_f_pct',
+  'invoice_item_name',
+  'box_charges',
+  'stone_charges',
+] as const
+
+export function returnLineChanged(current: ReturnLine, snapshot: ReturnLine): boolean {
+  for (const key of RETURN_LINE_COMPARE_KEYS) {
+    const a = (current as Record<string, unknown>)[key]
+    const b = (snapshot as Record<string, unknown>)[key]
+    if (Number.isFinite(Number(a)) && Number.isFinite(Number(b))) {
+      if (Math.abs(Number(a) - Number(b)) > 0.0001) return true
+      continue
+    }
+    if (String(a ?? '') !== String(b ?? '')) return true
+  }
+  return false
+}
+
+export function anyReturnLinesChanged(
+  lines: ReturnLine[],
+  snapshots: Map<string, ReturnLine>,
+): boolean {
+  return lines.some((line) => {
+    const snap = snapshots.get(line.source_line_key)
+    return snap ? returnLineChanged(line, snap) : false
+  })
+}
+
 export function applyExtrasToReturnLine(
   line: ReturnLine,
   extras: { box?: number; stone?: number; amount?: number },

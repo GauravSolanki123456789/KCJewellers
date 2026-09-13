@@ -21,6 +21,7 @@ import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import {
+  anyReturnLinesChanged,
   applyExtrasToReturnLine,
   billedMetalRatePerG,
   billLinesForReturn,
@@ -28,6 +29,8 @@ import {
   formatReturnWeight,
   parseReturnSlabSettings,
   recalcReturnLine,
+  returnLineChanged,
+  returnLineMetSlabDisplay,
   sourceBillsUseLaneLedger,
   uniqueBilledRates,
   type ReturnLine,
@@ -35,7 +38,6 @@ import {
 import { downloadCreditDebitNoteExcel } from '@/lib/erp-note-excel'
 import { downloadCreditDebitNotePdf } from '@/lib/erp-note-pdf'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { returnLineMetSlabDisplay } from '@/lib/erp-sales-return'
 import {
   Camera,
   CheckSquare,
@@ -87,6 +89,12 @@ export function ErpSalesReturnWorkspace() {
   const [flashKey, setFlashKey] = useState<string | null>(null)
   const [previewKind, setPreviewKind] = useState<PreviewKind | null>(null)
   const [previewLines, setPreviewLines] = useState<ReturnLine[]>([])
+  const [previewSnapshots, setPreviewSnapshots] = useState<Map<string, ReturnLine>>(new Map())
+  const [previewSelectedKeys, setPreviewSelectedKeys] = useState<Set<string>>(new Set())
+  const [bulkWastage, setBulkWastage] = useState('')
+  const [bulkMc, setBulkMc] = useState('')
+  const [bulkWeight, setBulkWeight] = useState('')
+  const [bulkInvoiceItem, setBulkInvoiceItem] = useState('')
   const [customGold, setCustomGold] = useState('')
   const [customSilver, setCustomSilver] = useState('')
   const [rateMode, setRateMode] = useState<'original' | 'custom'>('original')
@@ -256,15 +264,79 @@ export function ErpSalesReturnWorkspace() {
       setMsg('Select at least one product.')
       return
     }
-    setPreviewLines(chosen.map((l) => ({ ...l })))
+    const cloned = chosen.map((l) => ({ ...l }))
+    const snaps = new Map<string, ReturnLine>()
+    for (const line of cloned) snaps.set(line.source_line_key, { ...line })
+    setPreviewLines(cloned)
+    setPreviewSnapshots(snaps)
+    setPreviewSelectedKeys(new Set(cloned.map((l) => l.source_line_key)))
     setPreviewKind(kind)
     setRateMode('original')
     setCustomGold('')
     setCustomSilver('')
+    setBulkWastage('')
+    setBulkMc('')
+    setBulkWeight('')
+    setBulkInvoiceItem('')
     setExtraBox('')
     setExtraStone('')
     setExtraAmt('')
     setMsg(null)
+  }
+
+  const togglePreviewSelectAll = () => {
+    if (previewSelectedKeys.size === previewLines.length) {
+      setPreviewSelectedKeys(new Set())
+    } else {
+      setPreviewSelectedKeys(new Set(previewLines.map((l) => l.source_line_key)))
+    }
+  }
+
+  const togglePreviewLine = (key: string) => {
+    setPreviewSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const applyBulkPreviewEdits = () => {
+    const wastage = bulkWastage.trim() !== '' ? Number(bulkWastage) : null
+    const mc = bulkMc.trim() !== '' ? Number(bulkMc) : null
+    const weight = bulkWeight.trim() !== '' ? Number(bulkWeight) : null
+    const invoiceName = bulkInvoiceItem.trim()
+    if (!previewSelectedKeys.size) {
+      setMsg('Select at least one product in the preview to apply changes.')
+      return
+    }
+    if (wastage == null && mc == null && weight == null && !invoiceName) {
+      setMsg('Enter wastage, MC, weight, or invoice item to apply.')
+      return
+    }
+    setPreviewLines((prev) =>
+      prev.map((line) => {
+        if (!previewSelectedKeys.has(line.source_line_key)) return line
+        const hsn =
+          invoiceName && invoiceItems.find((it) => it.name === invoiceName)?.hsn
+            ? invoiceItems.find((it) => it.name === invoiceName)?.hsn
+            : line.hsn_code
+        return {
+          ...line,
+          ...(weight != null && Number.isFinite(weight)
+            ? { weightGm: weight, originalWeightGm: weight }
+            : {}),
+          ...(wastage != null && Number.isFinite(wastage) ? { wastage_pct: wastage } : {}),
+          ...(mc != null && Number.isFinite(mc) ? { mc_rate: mc } : {}),
+          ...(invoiceName
+            ? { invoice_item_name: invoiceName, hsn_code: hsn || line.hsn_code }
+            : {}),
+        }
+      }),
+    )
+    setMsg(
+      `Updated ${previewSelectedKeys.size} product${previewSelectedKeys.size === 1 ? '' : 's'}. Amounts recalculated.`,
+    )
   }
 
   const goldN = Number(customGold) || 0
@@ -281,7 +353,27 @@ export function ErpSalesReturnWorkspace() {
       ),
     [previewLines, billById, slabSettings, goldN, silverN],
   )
-  const origTotals = useMemo(() => computeReturnTotals(originalPreview), [originalPreview])
+  const billedRatePreview = useMemo(
+    () =>
+      previewLines.map((l) =>
+        recalcReturnLine(l, billById.get(l.source_bill_id), slabSettings, 'custom', 0, 0),
+      ),
+    [previewLines, billById, slabSettings],
+  )
+  const linesAdjusted = useMemo(
+    () => anyReturnLinesChanged(previewLines, previewSnapshots),
+    [previewLines, previewSnapshots],
+  )
+  const sameRatePreview = useMemo(
+    () =>
+      previewLines.map((line, idx) => {
+        const snap = previewSnapshots.get(line.source_line_key)
+        if (snap && returnLineChanged(line, snap)) return billedRatePreview[idx]
+        return originalPreview[idx]
+      }),
+    [previewLines, previewSnapshots, originalPreview, billedRatePreview],
+  )
+  const origTotals = useMemo(() => computeReturnTotals(sameRatePreview), [sameRatePreview])
   const custTotals = useMemo(() => computeReturnTotals(customPreview), [customPreview])
 
   const billedRates = useMemo(() => uniqueBilledRates(previewLines, billById), [previewLines, billById])
@@ -301,7 +393,17 @@ export function ErpSalesReturnWorkspace() {
     const stone = Number(extraStone) || 0
     const amount = Number(extraAmt) || 0
     if (!box && !stone && !amount) return
-    setPreviewLines((prev) => prev.map((l) => applyExtrasToReturnLine(l, { box, stone, amount })))
+    if (!previewSelectedKeys.size) {
+      setMsg('Select products in the preview to apply debit adjustments.')
+      return
+    }
+    setPreviewLines((prev) =>
+      prev.map((l) =>
+        previewSelectedKeys.has(l.source_line_key)
+          ? applyExtrasToReturnLine(l, { box, stone, amount })
+          : l,
+      ),
+    )
   }
 
   const takeReturn = async () => {
@@ -311,7 +413,7 @@ export function ErpSalesReturnWorkspace() {
       return
     }
     const useCustom = rateMode === 'custom'
-    const lines = useCustom ? customPreview : originalPreview
+    const lines = useCustom ? customPreview : sameRatePreview
     const totals = useCustom ? custTotals : origTotals
     const first = selectedBills[0]
     const lane = sourceBillsUseLaneLedger(selectedBills)
@@ -753,31 +855,132 @@ export function ErpSalesReturnWorkspace() {
                 <X className="size-4" />
               </button>
             </div>
+
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button type="button" className={erpBtnGhost} onClick={togglePreviewSelectAll}>
+                {previewSelectedKeys.size === previewLines.length ? (
+                  <CheckSquare className="size-4" />
+                ) : (
+                  <Square className="size-4" />
+                )}
+                {previewSelectedKeys.size === previewLines.length ? 'Deselect all' : 'Select all'}
+              </button>
+              <span className="text-xs text-[#1a1814]/70">
+                {previewSelectedKeys.size} of {previewLines.length} selected
+                {linesAdjusted ? ' · amounts recalculated from your edits' : ''}
+              </span>
+            </div>
+
+            <div className="mb-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">
+                Apply to selected products
+              </p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Wastage %</p>
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    value={bulkWastage}
+                    onChange={(e) => setBulkWastage(e.target.value)}
+                    placeholder="Leave blank"
+                    inputMode="decimal"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">MC</p>
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    value={bulkMc}
+                    onChange={(e) => setBulkMc(e.target.value)}
+                    placeholder="Leave blank"
+                    inputMode="decimal"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Weight g</p>
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    value={bulkWeight}
+                    onChange={(e) => setBulkWeight(e.target.value)}
+                    placeholder="Leave blank"
+                    inputMode="decimal"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Invoice item</p>
+                  <select
+                    className={`${erpInputCls} mt-1`}
+                    value={bulkInvoiceItem}
+                    onChange={(e) => setBulkInvoiceItem(e.target.value)}
+                  >
+                    <option value="">No change</option>
+                    {invoiceItems.map((it) => (
+                      <option key={it.id} value={it.name}>
+                        {it.name}
+                        {it.hsn ? ` · ${it.hsn}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <button type="button" className={`${erpBtnGhost} mt-2`} onClick={applyBulkPreviewEdits}>
+                Apply to {previewSelectedKeys.size || 0} selected
+              </button>
+            </div>
+
             <div className="space-y-2">
               {previewLines.map((line, idx) => {
                 const shown =
                   previewKind === 'return'
                     ? rateMode === 'custom'
                       ? customPreview[idx] || line
-                      : originalPreview[idx] || line
+                      : sameRatePreview[idx] || line
                     : line
+                const previewOn = previewSelectedKeys.has(line.source_line_key)
                 const billedRate = billedMetalRatePerG(line, billById.get(line.source_bill_id))
                 const sourceBill = billById.get(line.source_bill_id)
                 const sourceSlab = (sourceBill?.session?.rateSlab || 'R') as ErpRateSlab
                 const metDisplay = returnLineMetSlabDisplay(line, sourceSlab)
                 return (
-                <div key={line.source_line_key} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] p-3">
+                <div
+                  key={line.source_line_key}
+                  className={`rounded-xl border p-3 ${
+                    previewOn
+                      ? erpListItemSelected
+                      : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+                  }`}
+                >
                   <div className="mb-2 flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-[#1a1814]">{line.name}</p>
+                    <label className="flex min-w-0 flex-1 items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={previewOn}
+                        onChange={() => togglePreviewLine(line.source_line_key)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-[#1a1814]">{line.name}</span>
+                        {line.barcode ? (
+                          <span className="block text-xs text-[#1a1814]/65">{line.barcode}</span>
+                        ) : null}
+                      </span>
+                    </label>
                     <button
                       type="button"
                       className="text-[var(--kc-accent,#c41e3a)]"
-                      onClick={() => setPreviewLines((prev) => prev.filter((_, i) => i !== idx))}
+                      onClick={() => {
+                        setPreviewLines((prev) => prev.filter((_, i) => i !== idx))
+                        setPreviewSelectedKeys((prev) => {
+                          const next = new Set(prev)
+                          next.delete(line.source_line_key)
+                          return next
+                        })
+                      }}
                     >
                       <Trash2 className="size-4" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Weight g</p>
                       <input
@@ -794,6 +997,21 @@ export function ErpSalesReturnWorkspace() {
                                     originalWeightGm: Number.isFinite(v) ? v : 0,
                                   }
                                 : p,
+                            ),
+                          )
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Wastage %</p>
+                      <input
+                        className={`${erpInputCls} mt-1`}
+                        value={line.wastage_pct ?? ''}
+                        onChange={(e) => {
+                          const v = Number(e.target.value)
+                          setPreviewLines((prev) =>
+                            prev.map((p, i) =>
+                              i === idx ? { ...p, wastage_pct: Number.isFinite(v) ? v : null } : p,
                             ),
                           )
                         }}

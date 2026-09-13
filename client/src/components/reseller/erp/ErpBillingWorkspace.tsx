@@ -23,6 +23,11 @@ import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, compute
 import { cachedGet } from '@/lib/api-get-cache'
 import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
 import {
+  combinedEstimateLabel,
+  mergeEstimateLines,
+  validateEstimatesForCombinedBilling,
+} from '@/lib/erp-combine-estimates'
+import {
   hasValidGstin,
   previewLedgerLane,
   shouldRouteSaleToShadow,
@@ -260,6 +265,7 @@ export function ErpBillingWorkspace() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const editIdParam = searchParams.get('edit')
+  const combineParam = searchParams.get('combine')
   const brandLabel = useMemo(() => {
     const name = auth.user && (auth.user as WholesaleUserFields).business_name
     return typeof name === 'string' && name.trim() ? name.trim() : 'Our store'
@@ -341,7 +347,10 @@ export function ErpBillingWorkspace() {
   const suppressEditLoadRef = useRef(false)
   /** Prevents re-fetching the same estimate when slab/rates recalc changes loadBillForEdit identity. */
   const loadedEditBillRef = useRef<number | null>(null)
+  const loadedCombineRef = useRef<string | null>(null)
   const loadBillForEditRef = useRef<(id: number) => Promise<void>>(async () => {})
+  const [combinedSourceEstimateIds, setCombinedSourceEstimateIds] = useState<number[]>([])
+  const [combinedEstimateNumbers, setCombinedEstimateNumbers] = useState<string>('')
   const [workstation] = useErpWorkstationSelection()
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
@@ -676,8 +685,86 @@ export function ErpBillingWorkspace() {
 
   loadBillForEditRef.current = loadBillForEdit
 
+  const loadCombinedEstimates = useCallback(
+    async (ids: number[]) => {
+      const gen = billLoadGen.current
+      const bills: ErpBill[] = []
+      for (const id of ids) {
+        const res = await cachedGet(`/api/reseller/erp/bills/${id}`, () =>
+          axios.get<{ bill: ErpBill }>(`/api/reseller/erp/bills/${id}`),
+          5000,
+        )
+        bills.push(res.data.bill)
+      }
+      if (gen !== billLoadGen.current || suppressEditLoadRef.current) return
+      const validation = validateEstimatesForCombinedBilling(bills)
+      if (!validation.ok) {
+        alert(validation.error || 'Cannot combine these estimations.')
+        router.replace(resellerErpModulePath('estimations'))
+        return
+      }
+      const first = bills[0]
+      const session = (first.session || {}) as ErpBillSession
+      const restoredSlab =
+        session.rateSlab || parseRateSlabFromNotes(first.notes) || 'R'
+      setCombinedSourceEstimateIds(ids)
+      setCombinedEstimateNumbers(combinedEstimateLabel(bills))
+      setEditingBillId(null)
+      setEditingBillNumber(null)
+      setEditingBillType(null)
+      setEditingBillStatus(null)
+      setCustomerId(first.customer_id ?? null)
+      setCustomerName(first.customer_name || '')
+      setMobile(session.mobile || '')
+      setAddress(session.address || '')
+      setCustomerPan(session.pan || '')
+      setCustomerGst(session.customerGst || '')
+      setPlaceOfSupply(session.placeOfSupply || defaultPlaceOfSupply || '')
+      setRateSlab(restoredSlab)
+      if (session.wholesaleGold != null) setWholesaleGold(session.wholesaleGold)
+      if (session.wholesaleSilver != null) setWholesaleSilver(session.wholesaleSilver)
+      if (session.goldPerG) {
+        setGoldPerG(session.goldPerG)
+        setSilverPerG(session.silverPerG ?? 0)
+      }
+      if (session.displayRates) setDisplayRates(session.displayRates)
+      else if (session.goldPerG) {
+        setDisplayRates(perGramToDisplayRates(session.goldPerG, session.silverPerG ?? 0))
+      }
+      setAdvancePaidInr('')
+      setCollectedAmountInr('')
+      setPaymentMethod(session.paymentMethod || 'bank')
+      if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
+      const merged = mergeEstimateLines(bills)
+      const mcMode = session.goldSlabRShowMc === false ? false : goldSlabRShowMc
+      const recalcedLines = merged.map((l) =>
+        recalcLine(l, { slab: restoredSlab, goldSlabRShowMc: mcMode }),
+      )
+      setLines(recalcedLines)
+    },
+    [router, recalcLine, goldSlabRShowMc, defaultPlaceOfSupply],
+  )
+
   useEffect(() => {
     if (!hydrated) return
+    if (combineParam) {
+      if (suppressEditLoadRef.current) return
+      if (loadedCombineRef.current === combineParam) return
+      const ids = combineParam
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n > 0)
+      if (ids.length < 2) {
+        alert('Select at least two estimations to combine.')
+        router.replace(resellerErpModulePath('estimations'))
+        return
+      }
+      loadedCombineRef.current = combineParam
+      loadedEditBillRef.current = null
+      void loadCombinedEstimates(ids).catch((e) => alert(erpErr(e)))
+      return
+    }
+    loadedCombineRef.current = null
     if (!editIdParam) {
       suppressEditLoadRef.current = false
       loadedEditBillRef.current = null
@@ -688,8 +775,10 @@ export function ErpBillingWorkspace() {
     if (!Number.isFinite(id)) return
     if (loadedEditBillRef.current === id) return
     loadedEditBillRef.current = id
+    setCombinedSourceEstimateIds([])
+    setCombinedEstimateNumbers('')
     void loadBillForEditRef.current(id).catch((e) => alert(erpErr(e)))
-  }, [hydrated, editIdParam])
+  }, [hydrated, editIdParam, combineParam, loadCombinedEstimates, router])
 
   useEffect(() => {
     if (!hydrated) return
@@ -1268,6 +1357,8 @@ export function ErpBillingWorkspace() {
     setEditingBillNumber(null)
     setEditingBillType(null)
     setEditingBillStatus(null)
+    setCombinedSourceEstimateIds([])
+    setCombinedEstimateNumbers('')
     setAdvancePaidInr('')
     setCollectedAmountInr('')
     setPaymentMethod('bank')
@@ -1313,35 +1404,45 @@ export function ErpBillingWorkspace() {
     ...(extra?.bill_number ? { bill_number: extra.bill_number } : {}),
     notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
     lines: lines.map((l) => ({ ...l, lineTotalInr: l.lineTotalInr ?? 0 })),
-    session: buildErpBillSession({
-      rateSlab,
-      wholesaleGold,
-      wholesaleSilver,
-      goldPerG,
-      silverPerG,
-      displayRates,
-      mobile,
-      address,
-      lines,
-      advancePaidInr: parsedAdvance,
-      pan: customerPan,
-      customerGst,
-      placeOfSupply: extra?.placeOfSupply ?? placeOfSupply,
-      collectedAmountInr: parsedCollected,
-      paymentMethod,
-      cashAmountInr:
-        paymentMethod === 'mixed' && cashAmountInr.trim() !== '' ? Number(cashAmountInr) : null,
-      onlineAmountInr:
-        paymentMethod === 'mixed' && onlineAmountInr.trim() !== '' ? Number(onlineAmountInr) : null,
-      mcDiscountInr: discountSummary.mcDiscountInr,
-      cashDiscountInr: discountSummary.cashDiscountInr,
-      totalDiscountInr: discountSummary.totalDiscountInr,
-      netTotalInr: totals.net,
-      goldSlabRShowMc,
-    }),
-    ...(editingBillId &&
-    editingBillType === 'estimate' &&
-    billType === 'sale' && { source_estimate_id: editingBillId }),
+    session: {
+      ...buildErpBillSession({
+        rateSlab,
+        wholesaleGold,
+        wholesaleSilver,
+        goldPerG,
+        silverPerG,
+        displayRates,
+        mobile,
+        address,
+        lines,
+        advancePaidInr: parsedAdvance,
+        pan: customerPan,
+        customerGst,
+        placeOfSupply: extra?.placeOfSupply ?? placeOfSupply,
+        collectedAmountInr: parsedCollected,
+        paymentMethod,
+        cashAmountInr:
+          paymentMethod === 'mixed' && cashAmountInr.trim() !== '' ? Number(cashAmountInr) : null,
+        onlineAmountInr:
+          paymentMethod === 'mixed' && onlineAmountInr.trim() !== '' ? Number(onlineAmountInr) : null,
+        mcDiscountInr: discountSummary.mcDiscountInr,
+        cashDiscountInr: discountSummary.cashDiscountInr,
+        totalDiscountInr: discountSummary.totalDiscountInr,
+        netTotalInr: totals.net,
+        goldSlabRShowMc,
+      }),
+      ...(combinedSourceEstimateIds.length > 0
+        ? {
+            combinedFromEstimates: combinedEstimateNumbers,
+            sourceEstimateIds: combinedSourceEstimateIds,
+          }
+        : {}),
+    },
+    ...(combinedSourceEstimateIds.length > 0 && billType === 'sale'
+      ? { source_estimate_ids: combinedSourceEstimateIds }
+      : editingBillId &&
+          editingBillType === 'estimate' &&
+          billType === 'sale' && { source_estimate_id: editingBillId }),
   })
 
   const persistBill = async (
@@ -1695,6 +1796,23 @@ export function ErpBillingWorkspace() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {combinedEstimateNumbers ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-[#1a1814]">
+          <span className="font-semibold text-emerald-900">
+            Combined bill from {combinedEstimateNumbers}
+          </span>
+          <span className="text-emerald-900/75">
+            Save as a sales bill — all selected estimations will be marked billed together.
+          </span>
+          <Link
+            href={resellerErpModulePath('estimations')}
+            className="ml-auto text-xs font-semibold text-emerald-800 underline"
+          >
+            Back to estimations
+          </Link>
+        </div>
+      ) : null}
 
       {editingBillNumber ? (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
