@@ -666,9 +666,9 @@ export function ErpPrintFormatsWorkspace() {
                 }`}
                 onClick={() => setPf((p) => ({ ...p, estimatePrintMode: 'rough' }))}
               >
-                Rough estimate (legacy)
+                Marlecha estimate (thermal)
                 <span className="mt-0.5 block text-[11px] font-normal !text-[#1a1814]/70">
-                  Original + duplicate copy, item-wise purity/weight/GST
+                  Split header, QR, silver/gift/gold item blocks, slab discounts
                 </span>
               </button>
               <button
@@ -686,22 +686,20 @@ export function ErpPrintFormatsWorkspace() {
                 </span>
               </button>
             </div>
-            {pf.estimatePrintMode === 'custom' ? (
-              <label className="mt-3 flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
-                <input
-                  type="checkbox"
-                  checked={pf.estimateDuplicateCopy !== false}
-                  onChange={(e) => setPf((p) => ({ ...p, estimateDuplicateCopy: e.target.checked }))}
-                />
-                Print duplicate copy below original
-              </label>
-            ) : null}
+            <label className="mt-3 flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
+              <input
+                type="checkbox"
+                checked={pf.estimateDuplicateCopy !== false}
+                onChange={(e) => setPf((p) => ({ ...p, estimateDuplicateCopy: e.target.checked }))}
+              />
+              Print duplicate copy below original
+            </label>
           </div>
           <p className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
             {(pf.estimatePrintMode || 'rough') === 'rough' ? (
               <>
-                Rough mode prints the legacy layout with Slab R savings (silver rate + MC discount in ₹) before
-                GST totals.
+                Marlecha mode prints the 80mm estimate layout with daily rates, item-wise slab discounts, and
+                GST totals — matching the B N Marlecha Silver receipt format.
               </>
             ) : (
               <>

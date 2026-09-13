@@ -906,10 +906,33 @@ function buildBillTemplateVars(bill, printFormats, rates) {
     };
 }
 
-function textToEscPos(text) {
+function escPosQrCode(data, moduleSize = 4) {
+    const GS = '\x1D';
+    const payload = String(data || '').trim();
+    if (!payload) return '';
+    const storeLen = payload.length + 3;
+    const pL = storeLen & 0xff;
+    const pH = (storeLen >> 8) & 0xff;
+    let out = '';
+    out += GS + '(k' + String.fromCharCode(4, 0, 49, 65, 50, 0);
+    out += GS + '(k' + String.fromCharCode(3, 0, 49, 67, Math.max(3, Math.min(8, moduleSize)));
+    out += GS + '(k' + String.fromCharCode(3, 0, 49, 69, 48);
+    out += GS + '(k' + String.fromCharCode(pL, pH, 49, 80, 48) + payload;
+    out += GS + '(k' + String.fromCharCode(3, 0, 49, 81, 48);
+    return out;
+}
+
+function textToEscPos(text, opts = {}) {
     const ESC = '\x1B';
     const GS = '\x1D';
     let out = ESC + '@';
+    const qrData = opts.qrData != null ? String(opts.qrData).trim() : '';
+    if (qrData) {
+        out += ESC + 'a' + '\x02';
+        out += escPosQrCode(qrData, opts.qrModuleSize || 4);
+        out += '\r\n';
+        out += ESC + 'a' + '\x00';
+    }
     const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     out += normalized.split('\n').join('\r\n');
     out += '\r\n\r\n\r\n';
@@ -935,11 +958,26 @@ function renderBillEscPos(template, bill, printFormats, rates) {
 }
 
 const ROUGH_ESTIMATE_WIDTH = 42;
+const ESC_BOLD_ON = '\x1B\x45\x01';
+const ESC_BOLD_OFF = '\x1B\x45\x00';
+
+function roughVisibleLen(text) {
+    return String(text || '')
+        .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
+        .replace(/\x1B./g, '')
+        .length;
+}
+
+function roughBold(text) {
+    const t = String(text ?? '');
+    if (!t) return '';
+    return `${ESC_BOLD_ON}${t}${ESC_BOLD_OFF}`;
+}
 
 function roughCenter(text, width = ROUGH_ESTIMATE_WIDTH) {
     const t = String(text || '').trim();
     if (!t) return '';
-    if (t.length >= width) return t.slice(0, width);
+    if (t.length >= width) return t;
     const pad = Math.floor((width - t.length) / 2);
     return `${' '.repeat(Math.max(0, pad))}${t}`;
 }
@@ -1060,47 +1098,358 @@ function splitRoughGst(taxable) {
     return { taxable: base, cgst, sgst, gross };
 }
 
-function buildRoughEstimateItemSection(line, rateSlab, billDate, rates, printFormats) {
-    const out = [];
-    const dt = formatRoughDateTime(billDate);
-    const ornament = isSilverLine(line) ? 'Silver Ornaments' : 'Gold Ornaments';
-    out.push(`NEW ITEM: ${ornament}`);
-    out.push(dt);
-    const tag = String(line.barcode || line.code || '').trim();
-    out.push(`Qty: ${line.qty != null ? line.qty : 1}  Tag: ${tag || '—'}`);
-    const purityLabel = formatPurityForEstimate(line);
-    if (purityLabel) out.push(roughField('Purity', purityLabel));
-    const grossWt = Number(line.gross_weight);
-    const stoneWt = Number(line.stone_wt);
-    const netWt = Number(line.weightGm ?? line.net_weight) || 0;
-    if (Number.isFinite(grossWt) && grossWt > 0) {
-        out.push(roughField('Gross Wt', `${grossWt.toFixed(3)} gms`));
+function shouldShowRoughValue(value) {
+    if (value == null || value === '') return false;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n !== 0;
+    return String(value).trim().length > 0;
+}
+
+function roughMoney(value, decimals = 2) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value ?? '').trim();
+    return n.toLocaleString('en-IN', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+}
+
+function formatRoughRowValue(value) {
+    if (typeof value === 'number') {
+        if (value < 0) return `- ${roughMoney(Math.abs(value))}`;
+        return roughMoney(value);
     }
-    if (Number.isFinite(stoneWt) && stoneWt > 0) {
-        out.push(roughField('Stone Wt', `${stoneWt.toFixed(3)} gms`));
-    }
-    out.push(roughField('Net Wt', `${netWt.toFixed(3)} gms`));
-    out.push(roughField('V.ADDN', roughVAddnGrams(line, rateSlab, printFormats)));
-    out.push(roughDash());
-    const rate = roughRateForLine(line, rates);
-    if (rate) {
-        out.push(roughField('Rate/Gm', rate));
-        const rateNum = Number(rate);
-        if (Number.isFinite(rateNum) && rateNum > 0 && netWt > 0) {
-            const metalValue = Math.round(rateNum * netWt * 100) / 100;
-            out.push(roughField('Value', `Rs.${metalValue.toFixed(2)}`));
+    return String(value ?? '').trim();
+}
+
+function roughPadRow(left, right, width = ROUGH_ESTIMATE_WIDTH) {
+    const l = String(left || '');
+    const r = String(right || '').trim();
+    if (!r) return l;
+    const gap = width - roughVisibleLen(l) - roughVisibleLen(r);
+    if (gap >= 1) return `${l}${' '.repeat(gap)}${r}`;
+    return `${l}\n${' '.repeat(Math.max(0, width - roughVisibleLen(r)))}${r}`;
+}
+
+function roughKvRow(label, value, width = ROUGH_ESTIMATE_WIDTH, opts = {}) {
+    if (!shouldShowRoughValue(value)) return '';
+    const lblRaw = String(label || '').trim();
+    const lbl = opts.boldLabel ? roughBold(lblRaw) : lblRaw;
+    const val = formatRoughRowValue(value);
+    return roughPadRow(lbl, val, width);
+}
+
+function roughSplitRow(left, right, width = ROUGH_ESTIMATE_WIDTH) {
+    const l = String(left || '').trim();
+    const r = String(right || '').trim();
+    if (!r) return l;
+    return roughPadRow(l, r, width);
+}
+
+function roughDottedAmount(amount, width = ROUGH_ESTIMATE_WIDTH) {
+    const val = roughMoney(amount);
+    const dotsLen = Math.max(1, width - val.length);
+    return `${'.'.repeat(dotsLen)}${val}`;
+}
+
+function formatRoughHeaderDate(raw) {
+    const d = raw ? new Date(raw) : new Date();
+    if (Number.isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(d.getFullYear());
+    return `${dd}-${mm}-${yyyy}`;
+}
+
+function formatRoughHeaderTime(raw) {
+    const d = raw ? new Date(raw) : new Date();
+    if (Number.isNaN(d.getTime())) return '';
+    let h = d.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${String(h).padStart(2, '0')}:${min} ${ampm}`;
+}
+
+function extractHeaderRates(session, rates) {
+    const dr = Array.isArray(session?.displayRates) ? session.displayRates : [];
+    const findDisplay = (key, divisor) => {
+        const row = dr.find((r) => String(r?.metal_type || '').toLowerCase() === key);
+        if (row && row.display_rate != null) {
+            const n = Number(row.display_rate);
+            if (Number.isFinite(n) && n > 0) return Math.round(n / divisor);
         }
+        return null;
+    };
+    let silver = rates?.silver != null ? Math.round(Number(rates.silver)) : findDisplay('silver', 1000);
+    let gold22 = findDisplay('gold_22k', 10);
+    let gold18 = findDisplay('gold_18k', 10);
+    const goldPerG = Number(session?.goldPerG ?? session?.gold_per_g ?? rates?.gold ?? 0);
+    if (!gold22 && goldPerG > 0) gold22 = Math.round(goldPerG * 0.916);
+    if (!gold18 && goldPerG > 0) gold18 = Math.round(goldPerG * 0.75);
+    if (silver == null && rates?.silver != null) silver = Math.round(Number(rates.silver));
+    return { silver, gold22, gold18 };
+}
+
+function roughEmpName(bill, session) {
+    return String(
+        session?.operatorDisplayName ||
+            session?.operatorName ||
+            session?.empName ||
+            bill?.operator_name ||
+            bill?.emp_name ||
+            '',
+    ).trim();
+}
+
+function isGiftEstimateLine(line) {
+    if (line?.mrpMode || line?.manualCategory === 'gift') return true;
+    const inv = String(line?.invoice_item_name || '').toUpperCase();
+    const style = String(line?.style_code || '').toUpperCase();
+    if (inv.includes('GIFT') || style.includes('GIFT')) return true;
+    const pieceRate = Number(line?.unitInr ?? line?.fixed_price ?? 0);
+    const wt = Number(line?.weightGm ?? line?.net_weight ?? 0);
+    return pieceRate > 0 && wt <= 0;
+}
+
+function isGoldEstimateLine(line) {
+    if (isGiftEstimateLine(line)) return false;
+    return String(line?.metal_type || '').toLowerCase().startsWith('gold');
+}
+
+function roughItemDisplayName(line) {
+    return String(
+        line?.name || line?.product_name || line?.sku || line?.style_code || line?.invoice_item_name || 'Item',
+    ).trim();
+}
+
+function roughLessWeight(line) {
+    const bagWt = Number(line?.bag_wt) || 0;
+    if (bagWt <= 0) return 0;
+    const bagsRaw = String(line?.bags || '').trim();
+    const bagsNum = Number(bagsRaw);
+    if (Number.isFinite(bagsNum) && bagsNum > 0) return bagWt * bagsNum;
+    if (bagsRaw) return bagWt;
+    return 0;
+}
+
+function roughOtherCharges(line, opts = {}) {
+    const excludeDiamond = opts.excludeDiamond === true;
+    return (
+        (Number(line?.box_charges) || 0) +
+        (Number(line?.stone_charges) || 0) +
+        (excludeDiamond ? 0 : Number(line?.diamond_charges) || 0)
+    );
+}
+
+function roughMcDisplayValue(line, rateSlab, printFormats) {
+    if (!shouldShowRoughMcLine(line, rateSlab, printFormats)) return null;
+    const mcRate = Number(line?.mc_rate);
+    if (Number.isFinite(mcRate) && mcRate > 0) return mcRate;
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) {
+        const mc = line?.displayMcInr != null ? Number(line.displayMcInr) : NaN;
+        if (Number.isFinite(mc) && mc > 0) return Math.round(mc);
     }
-    const stoneCh = Number(line.stone_charges);
-    if (Number.isFinite(stoneCh) && stoneCh > 0) {
-        out.push(roughField('Stone Chrg', stoneCh.toFixed(2)));
+    return null;
+}
+
+function roughMcAmountInr(line, rateSlab, printFormats) {
+    if (!shouldShowRoughMcLine(line, rateSlab, printFormats)) return 0;
+    if (line?.displayMcBeforeDiscount != null && Number(line.displayMcBeforeDiscount) > 0) {
+        return Math.round(Number(line.displayMcBeforeDiscount));
     }
-    out.push(roughDash());
-    const mc = roughMcForLine(line, rateSlab, printFormats);
-    if (mc) out.push(roughField('MC', mc));
-    const taxable = lineTaxableFromTotal(line.lineTotalInr);
-    out.push(roughField('Total', taxable.toFixed(2)));
-    return { lines: out, taxable };
+    const mcRate = Number(line?.mc_rate);
+    if (!Number.isFinite(mcRate) || mcRate <= 0) {
+        if (isGoldSlabRMcMode(line, rateSlab, printFormats) && Number(line?.displayMcInr) > 0) {
+            return Math.round(Number(line.displayMcInr));
+        }
+        return 0;
+    }
+    const wt = Number(line?.weightGm ?? line?.net_weight) || 0;
+    const qty = Number(line?.qty) || 1;
+    if (isMcPerPieceType(line?.mc_type)) return Math.round(mcRate * qty);
+    if (wt > 0) return Math.round(mcRate * wt);
+    return Math.round(mcRate);
+}
+
+function roughMcDiscountAmount(line, rateSlab, rates) {
+    if (
+        line?.displayMcBeforeDiscount != null &&
+        line?.displayMcInr != null &&
+        Number(line.displayMcBeforeDiscount) > Number(line.displayMcInr)
+    ) {
+        return Math.round(Number(line.displayMcBeforeDiscount) - Number(line.displayMcInr));
+    }
+    if (rateSlab === 'R') return computeSlabRLineDiscounts(line, rates).mcDisc;
+    return 0;
+}
+
+function roughSilverRateDiscountInfo(line, rates) {
+    const wt = Number(line?.weightGm ?? line?.net_weight) || 0;
+    const liveSilver = rates?.silver != null ? Number(rates.silver) : null;
+    const lineRate = line?.ratePerGram != null ? Number(line.ratePerGram) : null;
+    if (wt > 0 && liveSilver != null && lineRate != null && liveSilver > lineRate) {
+        const perG = Math.round(liveSilver - lineRate);
+        const wtLabel = Math.round(wt) === wt ? String(Math.round(wt)) : String(wt);
+        return {
+            amount: Math.round((liveSilver - lineRate) * wt),
+            label: `Discount on Silver Rate (${wtLabel} x ${perG})`,
+        };
+    }
+    return { amount: 0, label: 'Discount on Silver Rate' };
+}
+
+function roughGoldRateLabel(line) {
+    const p = Number(line?.purity) || 0;
+    if ((p >= 74 && p <= 76) || Math.abs(p - 75) < 1.5) return 'Rate/Gm (18ct)';
+    return 'Rate/Gm (22ct)';
+}
+
+function roughVAddnPercent(line, rateSlab, printFormats) {
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats)) return 0;
+    const wast = line?.displayWastagePct ?? line?.wastage_pct;
+    const n = Number(wast);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function roughMetalValueForLine(line, rates, rateSlab, printFormats) {
+    const wt = Number(line?.weightGm ?? line?.net_weight) || 0;
+    const rate = Number(roughRateForLine(line, rates)) || 0;
+    if (wt <= 0 || rate <= 0) return 0;
+    if (isGoldEstimateLine(line)) {
+        const vPct = roughVAddnPercent(line, rateSlab, printFormats);
+        return Math.round(rate * wt * (1 + vPct / 100) * 100) / 100;
+    }
+    const vaddnG = Number(roughVAddnGrams(line, rateSlab, printFormats)) || 0;
+    return Math.round(rate * (wt + vaddnG) * 100) / 100;
+}
+
+function roughPreDiscountSubtotal(line, rates, rateSlab, printFormats) {
+    return (
+        roughMetalValueForLine(line, rates, rateSlab, printFormats) +
+        roughMcAmountInr(line, rateSlab, printFormats) +
+        roughOtherCharges(line)
+    );
+}
+
+function roughGiftDiscountInfo(line) {
+    const qty = Number(line?.qty) || 1;
+    const unitMrp = Number(line?.mrpListPrice ?? line?.unitInr ?? line?.fixed_price) || 0;
+    const mrpTotal = unitMrp * qty;
+    const taxable = lineTaxableFromTotal(line?.lineTotalInr);
+    const disc = Math.max(0, Math.round((mrpTotal - taxable) * 100) / 100);
+    const pct = mrpTotal > 0 ? Math.round((disc / mrpTotal) * 100) : 0;
+    return { mrpTotal, disc, pct, taxable };
+}
+
+function pushIf(out, row) {
+    if (row) out.push(row);
+}
+
+function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats) {
+    const out = [];
+    const tag = String(line?.barcode || line?.code || '').trim();
+    out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
+    if (tag) out.push(`Tag : ${tag}`);
+    pushIf(out, roughKvRow('Weight (gm)', Number(line?.weightGm ?? line?.net_weight) || 0));
+    pushIf(out, roughKvRow('Less Weight', roughLessWeight(line)));
+    pushIf(out, roughKvRow('Rate/Gm', roughRateForLine(line, rates)));
+    pushIf(out, roughKvRow('V.ADDN', roughVAddnGrams(line, rateSlab, printFormats)));
+    pushIf(out, roughKvRow('MC', roughMcDisplayValue(line, rateSlab, printFormats)));
+    pushIf(out, roughKvRow('Other Charges', roughOtherCharges(line)));
+
+    const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
+    out.push(roughDottedAmount(preDisc));
+
+    const silverDisc = roughSilverRateDiscountInfo(line, rates);
+    const mcDisc = roughMcDiscountAmount(line, rateSlab, rates);
+    const otherDisc = 0;
+    if (silverDisc.amount > 0) {
+        pushIf(out, roughKvRow(silverDisc.label, -silverDisc.amount, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }));
+    }
+    if (mcDisc > 0) {
+        pushIf(out, roughKvRow('Discount on MC', -mcDisc, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }));
+    }
+    if (otherDisc > 0) {
+        pushIf(
+            out,
+            roughKvRow('Discount on Other Charges', -otherDisc, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }),
+        );
+    }
+
+    const taxable = lineTaxableFromTotal(line?.lineTotalInr);
+    out.push(roughDottedAmount(taxable));
+    const gst = splitRoughGst(taxable);
+    pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
+    pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    out.push(roughDottedAmount(gst.gross));
+    out.push(roughPadRow(roughBold('Total :'), roughBold(roughMoney(gst.gross))));
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+
+    const savings = silverDisc.amount + mcDisc + otherDisc;
+    return { lines: out, taxable, savings, total: gst.gross };
+}
+
+function buildMarlechaGiftItemSection(line, idx) {
+    const out = [];
+    const tag = String(line?.barcode || line?.code || '').trim();
+    const gift = roughGiftDiscountInfo(line);
+    out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
+    if (tag) out.push(`Tag : ${tag}`);
+    pushIf(out, roughKvRow('Qty', Number(line?.qty) || 1));
+    pushIf(out, roughKvRow('MRP', gift.mrpTotal));
+    if (gift.disc > 0) {
+        pushIf(
+            out,
+            roughKvRow(`Discount (${gift.pct}%)`, -gift.disc, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }),
+        );
+    }
+    out.push(roughDottedAmount(gift.taxable));
+    const gst = splitRoughGst(gift.taxable);
+    pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
+    pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    out.push(roughDottedAmount(gst.gross));
+    out.push(roughPadRow(roughBold('Total :'), roughBold(roughMoney(gst.gross))));
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+    return { lines: out, taxable: gift.taxable, savings: gift.disc, total: gst.gross };
+}
+
+function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats) {
+    const out = [];
+    const tag = String(line?.barcode || line?.code || '').trim();
+    out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
+    if (tag) out.push(`Tag : ${tag}`);
+    pushIf(out, roughKvRow('Weight (gm)', Number(line?.weightGm ?? line?.net_weight) || 0));
+    pushIf(out, roughKvRow('Less Weight', roughLessWeight(line)));
+    pushIf(out, roughKvRow(roughGoldRateLabel(line), roughRateForLine(line, rates)));
+    pushIf(out, roughKvRow('V.ADDN (%)', roughVAddnPercent(line, rateSlab, printFormats)));
+    pushIf(out, roughKvRow('MC', roughMcDisplayValue(line, rateSlab, printFormats)));
+    pushIf(out, roughKvRow('Other Charges', roughOtherCharges(line, { excludeDiamond: true })));
+    pushIf(out, roughKvRow('Diamond Charges', Number(line?.diamond_charges) || 0));
+
+    const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
+    out.push(roughDottedAmount(preDisc));
+
+    const taxable = lineTaxableFromTotal(line?.lineTotalInr);
+    const disc = Math.max(0, Math.round((preDisc - taxable) * 100) / 100);
+    if (disc > 0) {
+        pushIf(out, roughKvRow('Discount', -disc, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }));
+    }
+
+    out.push(roughDottedAmount(taxable));
+    const gst = splitRoughGst(taxable);
+    pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
+    pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    out.push(roughDottedAmount(gst.gross));
+    out.push(roughPadRow(roughBold('Total :'), roughBold(roughMoney(gst.gross))));
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+    return { lines: out, taxable, savings: disc, total: gst.gross };
+}
+
+function buildMarlechaEstimateItemSection(line, idx, rateSlab, rates, printFormats) {
+    if (isGiftEstimateLine(line)) return buildMarlechaGiftItemSection(line, idx);
+    if (isGoldEstimateLine(line)) return buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats);
+    return buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats);
 }
 
 function computeSlabRLineDiscounts(line, rates) {
@@ -1132,84 +1481,90 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
         pf.goldSlabRShowMc = false;
     }
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
-    const shopName = String(pf.shopName || bill.shop_name || 'B N MARLECHA SILVER')
-        .trim()
-        .toUpperCase();
+    const shopName = String(pf.shopName || bill.shop_name || 'B N MARLECHA SILVER').trim();
     const estNo = extractEstimateNo(bill.bill_number);
     const billDate = bill.bill_date || bill.created_at || new Date();
-    const phone = String(pf.shopPhone || '').trim();
-    const dots = '.'.repeat(ROUGH_ESTIMATE_WIDTH);
-    const dash = '-'.repeat(20);
+    const headerRates = extractHeaderRates(session, rates);
+    const customerName = String(bill.customer_name || 'Walk-in').trim();
+    const customerMobile = String(
+        bill.customer_mobile || session.mobile || session.customerMobile || '',
+    ).trim();
+    const empName = roughEmpName(bill, session);
+    const dateLabel = formatRoughHeaderDate(billDate);
+    const timeLabel = formatRoughHeaderTime(billDate);
     const out = [];
 
     if (isDuplicate) {
         out.push('');
-        out.push(roughCenter('Duplicate Copy'));
-        out.push(roughCenter(`Rough Estimate : ${estNo}`));
+        out.push(roughCenter(roughBold('Duplicate Copy')));
         out.push('');
     }
 
-    out.push(roughCenter(shopName));
-    out.push(roughCenter(`ROUGH ESTIMATE:${estNo}`));
-    out.push(dots);
+    out.push(roughBold(shopName.toUpperCase()));
+    out.push(roughBold(`ESTIMATE NO ${estNo}`));
+    if (customerMobile) out.push(`${customerName} / ${customerMobile}`);
+    else out.push(customerName);
+
+    if (shouldShowRoughValue(headerRates.silver)) {
+        out.push(roughSplitRow(`SILVER - ${headerRates.silver}`, `DATE : ${dateLabel}`));
+    } else {
+        out.push(roughSplitRow('', `DATE : ${dateLabel}`));
+    }
+    if (shouldShowRoughValue(headerRates.gold22)) {
+        out.push(roughSplitRow(`GOLD 22ct - ${headerRates.gold22}`, `TIME : ${timeLabel}`));
+    } else {
+        out.push(roughSplitRow('', `TIME : ${timeLabel}`));
+    }
+    if (shouldShowRoughValue(headerRates.gold18)) {
+        out.push(
+            roughSplitRow(
+                `GOLD 18ct - ${headerRates.gold18}`,
+                empName ? `Emp Name - ${empName}` : '',
+            ),
+        );
+    } else if (empName) {
+        out.push(roughSplitRow('', `Emp Name - ${empName}`));
+    }
+
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
 
     const items = bill.lines || [];
-    let sumTaxable = 0;
-    let sumMetalDisc = 0;
-    let sumMcDisc = 0;
+    let grandTotal = 0;
+    let totalSavings = 0;
     for (let i = 0; i < items.length; i += 1) {
-        const block = buildRoughEstimateItemSection(items[i], rateSlab, billDate, rates, pf);
+        const block = buildMarlechaEstimateItemSection(items[i], i + 1, rateSlab, rates, pf);
         out.push(...block.lines);
-        sumTaxable += block.taxable;
-        if (rateSlab === 'R') {
-            const d = computeSlabRLineDiscounts(items[i], rates);
-            sumMetalDisc += d.metalDisc;
-            sumMcDisc += d.mcDisc;
-        }
-        if (i < items.length - 1) out.push('');
+        grandTotal += block.total || 0;
+        totalSavings += block.savings || 0;
     }
 
     if (!items.length) {
-        out.push('NEW ITEM : Gold Ornaments');
-        out.push('Qty: 0   Tag:');
+        out.push('Item 1 : —');
+        out.push('Tag : —');
+        out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     }
 
-    out.push(dash);
-    if (rateSlab === 'R' && (sumMetalDisc > 0 || sumMcDisc > 0)) {
-        out.push(roughCenter('--- YOUR SAVINGS (Slab R) ---'));
-        if (sumMetalDisc > 0) {
-            out.push(roughField('Silver rate disc', `Rs.${sumMetalDisc.toLocaleString('en-IN')}`));
-        }
-        if (sumMcDisc > 0) {
-            out.push(roughField('MC discount', `Rs.${sumMcDisc.toLocaleString('en-IN')}`));
-        }
-        const totalSave = sumMetalDisc + sumMcDisc;
-        out.push(roughField('Total discount', `Rs.${totalSave.toLocaleString('en-IN')}`));
-        out.push(dash);
+    if (!grandTotal && Number(bill.total_inr) > 0) {
+        grandTotal = Number(bill.total_inr);
     }
-    const gst = splitRoughGst(sumTaxable);
-    out.push(roughField('CGST 1.5%', gst.cgst.toFixed(2)));
-    out.push(roughField('SGST 1.5%', gst.sgst.toFixed(2)));
-    out.push(dash);
-    out.push('');
-    out.push(roughCenter(`Gross  Rs.${gst.gross.toFixed(2)}`));
-    out.push(roughCenter(`Nett RS  ${gst.gross.toFixed(2)}`));
-    out.push('');
-    out.push(roughCenter('FINAL AMOUNT'));
-    out.push(roughCenter(`Rs.${gst.gross.toFixed(2)}`));
-    out.push(dots);
 
-    const contact = phone || '7867867886,8825888888,9169161616';
-    out.push(`CONTACT : ${contact}`);
-    out.push('**valid only for 1hr. prices may change**');
-    out.push('Join Our Monthly Savings Scheme !!');
-    out.push('Tax Bill will be issued on Confirmation');
+    out.push('='.repeat(ROUGH_ESTIMATE_WIDTH));
+    out.push(roughPadRow(roughBold('GRAND TOTAL :'), roughBold(roughMoney(grandTotal))));
+    out.push('='.repeat(ROUGH_ESTIMATE_WIDTH));
+    out.push(roughPadRow(roughBold('TOTAL SAVINGS :'), roughBold(roughMoney(totalSavings))));
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+    out.push(roughCenter('Valid for One Hour Only'));
+    out.push(roughCenter('GST will be issued on Confirmation GST Bill'));
+    out.push(roughCenter('Join Our Savings Plan'));
+    out.push(roughCenter('Ask Our Representatives for More Details'));
 
     return out.join('\n');
 }
 
 function buildRoughEstimateBody(bill, printFormats, rates) {
+    const pf = migratePrintFormats(printFormats);
     const original = buildRoughEstimateCopy(bill, printFormats, rates, false);
+    if (pf.estimateDuplicateCopy === false) return original;
     const duplicate = buildRoughEstimateCopy(bill, printFormats, rates, true);
     return `${original}\n\n${duplicate}`;
 }
@@ -1281,7 +1636,8 @@ function renderEstimateEscPos(bill, printFormats, rates) {
         return textToEscPos(body);
     }
     const body = buildRoughEstimateBody(bill, printFormats, rates);
-    return textToEscPos(body);
+    const estNo = extractEstimateNo(bill.bill_number);
+    return textToEscPos(body, { qrData: estNo });
 }
 
 function previewTemplateText(template, bill, printFormats, rates) {
