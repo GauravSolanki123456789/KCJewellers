@@ -379,9 +379,11 @@ export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean })
             >
               <div>
                 <span className="font-mono font-semibold text-[var(--color-jewelry-black,#1a1814)]">{b.bill_number}</span>
-                <span className="ml-2 rounded-full bg-[var(--color-slate-900,#f7f4ef)] px-2 py-0.5 text-[10px] font-semibold uppercase">
-                  {b.source === 'official_gst' ? 'GST' : b.lane}
-                </span>
+                {b.source === 'official_gst' ? (
+                  <span className="ml-2 rounded-full bg-[var(--color-slate-900,#f7f4ef)] px-2 py-0.5 text-[10px] font-semibold uppercase text-[#1a1814]">
+                    GST
+                  </span>
+                ) : null}
                 <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                   {b.customer_name || 'Walk-in'}
                   {b.customer_gstin ? ` · ${b.customer_gstin}` : ''}

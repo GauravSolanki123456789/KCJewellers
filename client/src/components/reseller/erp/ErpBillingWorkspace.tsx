@@ -36,6 +36,7 @@ import {
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
 import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { useErpOperator } from '@/context/ErpOperatorContext'
 import { compactErpDocNumber, erpDocNumbersMatch } from '@/lib/app-notice'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
@@ -263,6 +264,7 @@ function clearDraftStorage() {
 
 export function ErpBillingWorkspace() {
   const auth = useAuth()
+  const { shadowUnlocked } = useErpOperator()
   const router = useRouter()
   const searchParams = useSearchParams()
   const editIdParam = searchParams.get('edit')
@@ -1427,8 +1429,9 @@ export function ErpBillingWorkspace() {
     customerGst,
     paymentMethod,
     collectedAmountInr: parsedCollected,
+    jainavModeUnlocked: shadowUnlocked,
   })
-  const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr)
+  const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr, shadowUnlocked)
 
   const buildPayload = (
     billType: 'sale' | 'estimate',

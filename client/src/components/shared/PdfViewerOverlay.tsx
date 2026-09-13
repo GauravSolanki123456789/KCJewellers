@@ -105,14 +105,10 @@ export default function PdfViewerOverlay() {
     }
   }, [blob, opts, sharing])
 
-  const handleWhatsApp = useCallback(async () => {
+  const handleWhatsApp = useCallback(() => {
     if (!opts || !blob) return
     if (waMode === 'customer' && customerHref) {
-      const shared = await sharePdfFileNative(blob, opts.filename, {
-        title: opts.title || opts.filename,
-        text: waText,
-      })
-      if (shared === 'shared') return
+      downloadPdfBlob(blob, opts.filename)
       openExternalUrl(customerHref, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
       return
     }
@@ -150,10 +146,10 @@ export default function PdfViewerOverlay() {
               type="button"
               onClick={() => void handleShareNative()}
               disabled={sharing}
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-600"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-[#e8e4df] bg-white px-3 py-2 text-xs font-semibold text-[#1a1814] hover:bg-[#f7f4ef]"
             >
               {sharing ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
-              Share PDF
+              Share on this PC
             </button>
             <button
               type="button"
@@ -197,22 +193,27 @@ export default function PdfViewerOverlay() {
               value={waMode}
               onChange={(e) => setWaMode(e.target.value as 'pick' | 'customer')}
             >
-              <option value="pick">Pick contact</option>
               <option value="customer" disabled={!hasCustomerMobile}>
                 {hasCustomerMobile ? customerLabel : 'Customer number (enter mobile)'}
               </option>
+              <option value="pick">Pick a different contact</option>
             </select>
           </label>
           <button
             type="button"
             onClick={() => void handleWhatsApp()}
             disabled={waMode === 'customer' && !hasCustomerMobile}
-            className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-700 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-100 sm:w-auto"
+            className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-600 sm:w-auto"
           >
             <MessageCircle className="size-4" />
             {waMode === 'customer' ? 'Send to customer' : 'WhatsApp'}
           </button>
         </div>
+        {waMode === 'customer' && hasCustomerMobile ? (
+          <p className="mx-auto mt-2 max-w-5xl text-[11px] text-[#1a1814]/55">
+            Sends to {customerLabel} on WhatsApp — even if the number is not saved. The PDF downloads so you can attach it in that chat.
+          </p>
+        ) : null}
       </header>
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden p-2 sm:p-4">

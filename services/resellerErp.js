@@ -25,7 +25,9 @@ const {
 const {
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
+    createCollectedCashLedgerEntry,
 } = require('./resellerErpLedger');
+const { ensureCashBookCustomers } = require('./resellerErpCustomerAccount');
 const { registerResellerErpPurchaseVoucherRoutes } = require('./resellerErpPurchaseVouchers');
 const { registerResellerErpBackupRoutes } = require('./resellerErpBackup');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
@@ -36,10 +38,8 @@ const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
 const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 const {
     registerShadowRoutes,
-    hasValidGstin,
     createShadowBillFromBillingPayload,
     markEstimateBilledViaLedger,
-    shouldRouteSaleToShadowLedger,
 } = require('./resellerErpShadow');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
@@ -777,20 +777,38 @@ function registerResellerErpRoutes(app, deps) {
     // ——— Customers ———
     app.get('/api/reseller/erp/customers', checkAuth, erpGate, async (req, res) => {
         try {
+            await ensureCashBookCustomers(query, req.user.id);
             const q = String(req.query.q || '').trim();
             const limitRaw = parseInt(String(req.query.limit || '500'), 10);
             const limit = Number.isFinite(limitRaw) ? Math.min(500, Math.max(1, limitRaw)) : 500;
+            const laneBooks = String(req.query.lane_books || '') === '1' && req.session?.shadowUnlocked === true;
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_customers WHERE reseller_user_id = $1`;
-            if (q) {
-                params.push(`%${q}%`);
-                sql += ` AND (
-                    name ILIKE $2 OR COALESCE(mobile,'') ILIKE $2
-                    OR COALESCE(email,'') ILIKE $2 OR COALESCE(gstin,'') ILIKE $2
-                    OR COALESCE(pan,'') ILIKE $2
-                )`;
+            if (!laneBooks) {
+                sql += ` AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') <> 'jainav2'`;
             }
-            sql += ` ORDER BY updated_at DESC, id DESC LIMIT ${limit}`;
+            if (q) {
+                params.push(q);
+                const exactIdx = params.length;
+                params.push(`%${q}%`);
+                const likeIdx = params.length;
+                sql += ` AND (
+                    name ILIKE $${likeIdx} OR COALESCE(mobile,'') ILIKE $${likeIdx}
+                    OR COALESCE(email,'') ILIKE $${likeIdx} OR COALESCE(gstin,'') ILIKE $${likeIdx}
+                    OR COALESCE(pan,'') ILIKE $${likeIdx}
+                )`;
+                sql += ` ORDER BY
+                    CASE
+                        WHEN lower(trim(name)) = lower(trim($${exactIdx})) THEN 0
+                        WHEN regexp_replace(lower(name), '[\\s._-]+', '', 'g')
+                            = regexp_replace(lower($${exactIdx}), '[\\s._-]+', '', 'g') THEN 1
+                        WHEN lower(name) LIKE lower($${exactIdx}) || '%' THEN 2
+                        ELSE 3
+                    END,
+                    updated_at DESC, id DESC LIMIT ${limit}`;
+            } else {
+                sql += ` ORDER BY updated_at DESC, id DESC LIMIT ${limit}`;
+            }
             const rows = await query(sql, params);
             res.json({ customers: rows.map(mapCustomer) });
         } catch (e) {
@@ -1138,7 +1156,7 @@ function registerResellerErpRoutes(app, deps) {
     if (
                 billType === 'sale' &&
                 ['completed', 'paid', 'final'].includes(status) &&
-                shouldRouteSaleToShadowLedger(sessionObj)
+                req.session?.shadowUnlocked === true
             ) {
                 if (billRatesUnfixedFromPayload(sessionObj, lines)) {
                     return res.status(400).json({
@@ -1267,6 +1285,11 @@ function registerResellerErpRoutes(app, deps) {
                     await createBillAdvanceLedgerEntry(query, req.user.id, bill);
                 } catch (le) {
                     console.warn('erp ledger bill advance:', le.message);
+                }
+                try {
+                    await createCollectedCashLedgerEntry(query, req.user.id, bill);
+                } catch (le) {
+                    console.warn('erp ledger cash received:', le.message);
                 }
             }
             const sourceEstimateId =

@@ -31,14 +31,34 @@ export type CustomerAccountData = {
   transactions: CustomerAccountTx[]
 }
 
+function rankCustomersForQuery(list: ErpCustomer[], q: string): ErpCustomer[] {
+  const n = q.trim().toLowerCase()
+  const compact = n.replace(/[\s._-]+/g, '')
+  const score = (c: ErpCustomer) => {
+    const name = String(c.name || '').trim().toLowerCase()
+    const nc = name.replace(/[\s._-]+/g, '')
+    if (name === n || nc === compact) return 0
+    if (name.startsWith(n) || nc.startsWith(compact)) return 1
+    return 2
+  }
+  return [...list].sort((a, b) => score(a) - score(b))
+}
+
 type Props = {
   laneMode?: boolean
   from: string
   to: string
+  resetToken?: number
   onCustomerSelected?: (customerId: number | null) => void
 }
 
-export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomerSelected }: Props) {
+export function ErpCustomerAccountPanel({
+  laneMode = false,
+  from,
+  to,
+  resetToken = 0,
+  onCustomerSelected,
+}: Props) {
   const [q, setQ] = useState('')
   const [pickIdx, setPickIdx] = useState(-1)
   const [results, setResults] = useState<ErpCustomer[]>([])
@@ -54,12 +74,14 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
         return
       }
       void axios
-        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params: { q: q.trim() } })
-        .then((r) => setResults(r.data.customers || []))
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+          params: { q: q.trim(), ...(laneMode ? { lane_books: '1' } : {}) },
+        })
+        .then((r) => setResults(rankCustomersForQuery(r.data.customers || [], q.trim())))
         .catch(() => setResults([]))
     }, 200)
     return () => clearTimeout(t)
-  }, [q])
+  }, [q, laneMode])
 
   const loadAccount = useCallback(
     async (customer: ErpCustomer) => {
@@ -137,12 +159,19 @@ export function ErpCustomerAccountPanel({ laneMode = false, from, to, onCustomer
     }
   }
 
-  const clear = () => {
+  const clear = useCallback(() => {
     setSelected(null)
     setAccount(null)
     setQ('')
+    setResults([])
+    setPickIdx(-1)
     onCustomerSelected?.(null)
-  }
+  }, [onCustomerSelected])
+
+  useEffect(() => {
+    if (!resetToken) return
+    clear()
+  }, [resetToken, clear])
 
   return (
     <div className={`${erpCardCls} space-y-3`}>

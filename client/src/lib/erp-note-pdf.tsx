@@ -174,18 +174,6 @@ function NoteDocument({ kind, bill, shopName, customerMobile, slabSettingsRaw }:
             <Text style={styles.value}>{sanitizePdfText(session.rateSlab)}</Text>
           </View>
         ) : null}
-        {session.rateMode ? (
-          <View style={styles.row}>
-            <Text style={styles.label}>Return pricing</Text>
-            <Text style={styles.value}>
-              {session.rateMode === 'custom'
-                ? sanitizePdfText(
-                    `Custom rate${session.customSilverPerG ? ` · Silver ₹${session.customSilverPerG}/g` : ''}${session.customGoldPerG ? ` · Gold ₹${session.customGoldPerG}/g` : ''}`,
-                  )
-                : 'Same billed rate'}
-            </Text>
-          </View>
-        ) : null}
         {session.reason ? (
           <View style={styles.row}>
             <Text style={styles.label}>Reason</Text>
@@ -282,12 +270,6 @@ function NoteDocument({ kind, bill, shopName, customerMobile, slabSettingsRaw }:
                 <Text>{formatPdfInr(gst)}</Text>
               </View>
             </>
-          ) : null}
-          {session.originalNet != null && session.originalNet > 0 ? (
-            <View style={styles.row}>
-              <Text style={styles.label}>Original billed net</Text>
-              <Text>{formatPdfInr(session.originalNet)}</Text>
-            </View>
           ) : null}
           <View style={styles.row}>
             <Text style={[styles.label, styles.amount]}>Net amount</Text>

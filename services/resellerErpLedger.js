@@ -308,6 +308,58 @@ function normalizeImportRow(row, extras = {}) {
     };
 }
 
+function sessionAllowsLane(req) {
+    return req.session?.shadowUnlocked === true;
+}
+
+function resolveRequestedLedgerScope(req, raw) {
+    const requested = String(raw || 'official').trim().toLowerCase();
+    if (requested === 'lane' && sessionAllowsLane(req)) return 'lane';
+    return 'official';
+}
+
+async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
+    const session = bill.session || {};
+    const raw = session.collectedAmountInr ?? session.collected_amount_inr;
+    if (raw == null || String(raw).trim() === '') return null;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0 || !bill.id) return null;
+    const existing = await query(
+        `SELECT id FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1 AND bill_id = $2 AND entry_type = 'payment_in'
+           AND lower(coalesce(narration, '')) = 'cash received'
+         LIMIT 1`,
+        [resellerUserId, bill.id],
+    );
+    if (existing.length) return existing[0];
+    let customerId = bill.customer_id || null;
+    if (!customerId) {
+        const cash = await query(
+            `SELECT id FROM reseller_erp_customers
+             WHERE reseller_user_id = $1
+               AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') = 'cash'
+             LIMIT 1`,
+            [resellerUserId],
+        );
+        customerId = cash[0]?.id || null;
+    }
+    const rows = await query(
+        `INSERT INTO reseller_erp_ledger_entries (
+            reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
+            payment_mode, narration, is_suspense, ledger_scope
+         ) VALUES ($1, $2, 'payment_in', $3, $4, $5, 'cash', 'cash received', false, 'official')
+         RETURNING *`,
+        [
+            resellerUserId,
+            bill.bill_date || new Date().toISOString().slice(0, 10),
+            Math.round(amount * 100) / 100,
+            customerId,
+            bill.id,
+        ],
+    );
+    return rows[0] || null;
+}
+
 async function createBillAdvanceLedgerEntry(query, resellerUserId, bill) {
     const session = bill.session || {};
     const advance = Math.max(0, Number(session.advancePaidInr) || 0);
@@ -349,9 +401,22 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const customerId = parseInt(String(req.query.customer_id || ''), 10);
             const suspenseOnly = String(req.query.suspense_only || '') === '1';
             const importBatchId = parseInt(String(req.query.import_batch_id || ''), 10);
-            const laneView = String(req.query.lane_view || '') === '1';
+            const laneView = String(req.query.lane_view || '') === '1' && sessionAllowsLane(req);
             const q = trimStr(req.query.q, 120);
             const params = [req.user.id];
+            let cashBook = null;
+            if (Number.isFinite(customerId) && customerId > 0) {
+                const named = await query(
+                    `SELECT name FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [customerId, req.user.id],
+                );
+                const n = String(named[0]?.name || '')
+                    .trim()
+                    .toLowerCase()
+                    .replace(/[\s._-]+/g, '');
+                if (n === 'cash' || n === 'cashbook') cashBook = 'cash';
+                if (n === 'jainav2') cashBook = 'jainav2';
+            }
             let sql = `
                 SELECT e.*, c.name AS customer_name, b.bill_number,
                        pv.pv_number, emp.name AS employee_name
@@ -361,8 +426,24 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 LEFT JOIN reseller_erp_purchase_vouchers pv ON pv.id = e.pv_id
                 LEFT JOIN reseller_erp_employees emp ON emp.id = e.employee_id
                 WHERE e.reseller_user_id = $1`;
-            if (laneView) {
-                sql += ` AND (e.ledger_scope = 'lane' OR e.entry_type = 'purchase')`;
+            if (cashBook === 'cash') {
+                sql += ` AND e.ledger_scope = 'official' AND LOWER(COALESCE(e.payment_mode, '')) = 'cash'`;
+            } else if (cashBook === 'jainav2') {
+                if (laneView) {
+                    sql += ` AND (
+                        e.ledger_scope = 'lane'
+                        OR e.entry_type = 'purchase'
+                        OR (e.ledger_scope = 'official' AND LOWER(COALESCE(e.payment_mode, '')) = 'cash')
+                    )`;
+                } else {
+                    sql += ` AND FALSE`;
+                }
+            } else if (laneView) {
+                sql += ` AND (
+                    e.ledger_scope = 'lane'
+                    OR e.entry_type = 'purchase'
+                    OR (e.ledger_scope = 'official' AND LOWER(COALESCE(e.payment_mode, '')) = 'cash')
+                )`;
             } else {
                 sql += ` AND e.ledger_scope = 'official'`;
             }
@@ -374,7 +455,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 params.push(to);
                 sql += ` AND e.entry_date <= $${params.length}::date`;
             }
-            if (Number.isFinite(customerId) && customerId > 0) {
+            if (Number.isFinite(customerId) && customerId > 0 && !cashBook) {
                 params.push(customerId);
                 sql += ` AND e.customer_id = $${params.length}`;
             }
@@ -390,6 +471,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     e.narration ILIKE $${idx}
                     OR e.counterparty_name ILIKE $${idx}
                     OR e.reference_no ILIKE $${idx}
+                    OR e.payment_mode ILIKE $${idx}
                     OR c.name ILIKE $${idx}
                     OR b.bill_number ILIKE $${idx}
                     OR pv.pv_number ILIKE $${idx}
@@ -409,11 +491,15 @@ function registerResellerErpLedgerRoutes(app, deps) {
         try {
             const from = parseDateOrNull(req.query.from);
             const to = parseDateOrNull(req.query.to);
-            const laneView = String(req.query.lane_view || '') === '1';
+            const laneView = String(req.query.lane_view || '') === '1' && sessionAllowsLane(req);
             const params = [req.user.id];
             let dateSql = '';
             let scopeSql = laneView
-                ? ` AND (ledger_scope = 'lane' OR entry_type = 'purchase')`
+                ? ` AND (
+                    ledger_scope = 'lane'
+                    OR entry_type = 'purchase'
+                    OR (ledger_scope = 'official' AND LOWER(COALESCE(payment_mode, '')) = 'cash')
+                )`
                 : ` AND ledger_scope = 'official'`;
             if (from) {
                 params.push(from);
@@ -446,7 +532,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                             COALESCE(SUM(e.amount_inr) FILTER (WHERE e.entry_type IN ('payment_out', 'purchase', 'expense', 'salary')), 0)::float AS paid_out
                      FROM reseller_erp_ledger_entries e
                      LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
-                     WHERE e.reseller_user_id = $1 AND e.is_suspense = false ${scopeSql.replace(/ledger_scope/g, 'e.ledger_scope')} ${dateSql.replace(/entry_date/g, 'e.entry_date')}
+                     WHERE e.reseller_user_id = $1 AND e.is_suspense = false ${scopeSql.replace(/ledger_scope/g, 'e.ledger_scope').replace(/payment_mode/g, 'e.payment_mode').replace(/entry_type/g, 'e.entry_type')} ${dateSql.replace(/entry_date/g, 'e.entry_date')}
                      GROUP BY e.customer_id, c.name
                      ORDER BY received DESC NULLS LAST
                      LIMIT 500`,
@@ -478,8 +564,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 return res.status(400).json({ error: 'Valid amount is required' });
             }
             const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'other';
-            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
-            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
+            const ledgerScope = resolveRequestedLedgerScope(req, req.body.ledger_scope);
             const isSuspense = !!req.body.is_suspense;
             const employeeId =
                 req.body.employee_id != null ? parseInt(String(req.body.employee_id), 10) || null : null;
@@ -688,8 +773,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
         try {
             const rawRows = Array.isArray(req.body.rows) ? req.body.rows : [];
             if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
-            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
-            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
+            const ledgerScope = resolveRequestedLedgerScope(req, req.body.ledger_scope);
             const markSuspense = !!req.body.mark_unmatched_suspense;
             const previewRows = [];
             let duplicates = 0;
@@ -748,8 +832,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
             if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
             if (rawRows.length > 5000) return res.status(400).json({ error: 'Max 5000 rows per import' });
 
-            const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
-            const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
+            const ledgerScope = resolveRequestedLedgerScope(req, req.body.ledger_scope);
             const skipDuplicates = req.body.skip_duplicates !== false;
             const markSuspense = !!req.body.mark_unmatched_suspense;
 
@@ -819,9 +902,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                         normalized.narration,
                         markRowSuspense,
                         batchId,
-                        row.ledger_scope && LEDGER_SCOPES.has(String(row.ledger_scope))
-                            ? String(row.ledger_scope)
-                            : ledgerScope,
+                        resolveRequestedLedgerScope(req, row.ledger_scope || ledgerScope),
                     ],
                 );
                 inserted++;
@@ -905,4 +986,5 @@ module.exports = {
     ensureLedgerSchema,
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
+    createCollectedCashLedgerEntry,
 };

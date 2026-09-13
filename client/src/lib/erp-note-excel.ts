@@ -71,13 +71,6 @@ export async function downloadCreditDebitNoteExcel(
     ['Mobile', session.mobile || ''],
     ['Against bill(s)', session.againstBills || ''],
     ['Rate slab', session.rateSlab || ''],
-    ['Return rate mode', session.rateMode === 'custom' ? 'Custom rate' : 'Same billed rate'],
-    ...(session.rateMode === 'custom'
-      ? [
-          ['Custom gold ₹/g', session.customGoldPerG ?? ''],
-          ['Custom silver ₹/g', session.customSilverPerG ?? ''],
-        ]
-      : []),
     ['Reason', session.reason || ''],
     ['Remarks', session.remarks || bill.notes || ''],
     [],
@@ -85,7 +78,6 @@ export async function downloadCreditDebitNoteExcel(
     ['Taxable amount', Number(session.taxableInr) || ''],
     ['GST', Number(session.gstInr) || ''],
     ['Net amount', Number(bill.total_inr) || 0],
-    ...(session.originalNet != null ? [['Original billed net', session.originalNet]] : []),
     ...(session.returnWeightGm != null ? [['Return weight (g)', session.returnWeightGm]] : []),
     [],
     ['Returned products — calculation detail'],

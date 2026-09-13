@@ -122,6 +122,9 @@ export function ErpBillSavedModal({
       waMode === 'customer'
         ? customerWhatsAppHref(mobile.trim() || null, text)
         : pdfPayload.fallbackWhatsAppHref?.trim() || null
+    if (waMode === 'customer' && href) {
+      downloadPdfBlob(pdfPayload.blob, pdfPayload.filename)
+    }
     if (href) {
       openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
     }

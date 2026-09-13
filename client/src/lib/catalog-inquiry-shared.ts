@@ -163,9 +163,12 @@ export function customerWhatsAppHref(
 ): string | null {
   const wa = whatsAppDigitsFromStored(mobile)
   if (!wa) return null
-  const base = `https://wa.me/${wa}`
-  if (!message?.trim()) return base
-  return `${base}?text=${encodeURIComponent(message.trim())}`
+  const params = new URLSearchParams()
+  params.set('phone', wa)
+  params.set('type', 'phone_number')
+  params.set('app_absent', '0')
+  if (message?.trim()) params.set('text', message.trim())
+  return `https://api.whatsapp.com/send/?${params.toString()}`
 }
 
 /** Trackable quotation PDF filename — per-reseller inquiry #, customer mobile, timestamp. */

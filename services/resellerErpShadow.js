@@ -619,16 +619,8 @@ function stockSummaryCsv(summary, meta = {}) {
     return lines.join('\r\n');
 }
 
-function shouldRouteSaleToShadowLedger(sessionObj) {
-    if (!sessionObj || typeof sessionObj !== 'object') return false;
-    const pay = String(sessionObj.paymentMethod || sessionObj.payment_method || 'bank')
-        .trim()
-        .toLowerCase();
-    if (pay !== 'cash') return false;
-    const collected = sessionObj.collectedAmountInr ?? sessionObj.collected_amount_inr;
-    if (collected == null || String(collected).trim() === '') return false;
-    const n = Number(collected);
-    return Number.isFinite(n) && n >= 0;
+function shouldRouteSaleToShadowLedger(_sessionObj) {
+    return false;
 }
 
 function registerShadowRoutes(app, deps) {

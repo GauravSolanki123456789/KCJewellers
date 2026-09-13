@@ -33,6 +33,91 @@ function totalWeightGmFromLines(linesJson) {
     return lines.reduce((s, l) => s + (Number(l.weightGm) || Number(l.originalWeightGm) || 0), 0);
 }
 
+function cashBookKind(name) {
+    const n = String(name || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s._-]+/g, '');
+    if (n === 'cash' || n === 'cashbook') return 'cash';
+    if (n === 'jainav2') return 'jainav2';
+    return null;
+}
+
+function compactCustomerName(name) {
+    return String(name || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s._-]+/g, '');
+}
+
+async function ensureCashBookCustomers(query, resellerUserId) {
+    const books = [
+        { name: 'Cash', note: 'Official cash book' },
+        { name: 'Jainav-2', note: 'Lane cash book' },
+    ];
+    for (const book of books) {
+        const existing = await query(
+            `SELECT id FROM reseller_erp_customers
+             WHERE reseller_user_id = $1
+               AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') = $2
+             LIMIT 1`,
+            [resellerUserId, compactCustomerName(book.name)],
+        );
+        if (existing.length) continue;
+        await query(
+            `INSERT INTO reseller_erp_customers (reseller_user_id, name, notes, rate_slab)
+             VALUES ($1, $2, $3, 'R')`,
+            [resellerUserId, book.name, book.note],
+        );
+    }
+}
+
+function parseJsonObject(raw) {
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return {};
+    }
+}
+
+function collectedFromSession(session) {
+    const raw = session.collectedAmountInr ?? session.collected_amount_inr;
+    if (raw == null || String(raw).trim() === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function pushShadowSaleRows(rows, s) {
+    const session = parseJsonObject(s.session_json);
+    const billAmt = Number(s.total_inr) || 0;
+    const collected = collectedFromSession(session);
+    rows.push({
+        date: normDate(s.bill_date),
+        sort_id: s.id,
+        kind: 'sale',
+        ref: s.bill_number,
+        description: `(V NO: ${s.bill_number}) SALES A/C -`,
+        debit: billAmt,
+        credit: 0,
+        lane: s.lane || 'jainav',
+    });
+    if (collected != null) {
+        rows.push({
+            date: normDate(s.bill_date),
+            sort_id: s.id + 0.5,
+            kind: 'payment_in',
+            ref: s.bill_number,
+            description: 'cash received',
+            debit: 0,
+            credit: collected,
+            lane: s.lane || 'jainav',
+            payment_mode: 'cash',
+        });
+    }
+}
+
 async function loadCustomerRow(query, resellerUserId, customerId) {
     const rows = await query(
         `SELECT id, name, mobile, email, gstin, pan, address
@@ -54,6 +139,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const customer = await loadCustomerRow(query, resellerUserId, customerId);
     if (!customer) throw Object.assign(new Error('Customer not found'), { status: 404 });
+    const book = cashBookKind(customer.name);
 
     const saleParams = [resellerUserId, customerId];
     let saleSql = `SELECT id, bill_number, bill_date, bill_type, total_inr, status, created_at, lines_json, session_json
@@ -73,15 +159,17 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         saleSql += ` AND bill_date <= $${saleParams.length}::date`;
     }
     saleSql += ' ORDER BY bill_date, id';
-    const officialSales = await query(saleSql, saleParams);
+    let officialSales = book ? [] : await query(saleSql, saleParams);
 
     let shadowSales = [];
-    if (includeShadow) {
-        const shParams = [resellerUserId, customerId, customer.name];
-        let shSql = `SELECT id, bill_number, lane, bill_date, total_inr, payment_method, status, created_at
+    if (includeShadow && book !== 'cash') {
+        const shParams = book === 'jainav2' ? [resellerUserId] : [resellerUserId, customerId, customer.name];
+        let shSql = `SELECT id, bill_number, lane, bill_date, total_inr, payment_method, status, created_at, session_json
                      FROM reseller_erp_shadow_bills
-                     WHERE reseller_user_id = $1
-                       AND (customer_id = $2 OR LOWER(TRIM(customer_name)) = LOWER(TRIM($3)))`;
+                     WHERE reseller_user_id = $1`;
+        if (book !== 'jainav2') {
+            shSql += ` AND (customer_id = $2 OR LOWER(TRIM(customer_name)) = LOWER(TRIM($3)))`;
+        }
         if (from) {
             shParams.push(from);
             shSql += ` AND bill_date >= $${shParams.length}::date`;
@@ -94,13 +182,27 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         shadowSales = await query(shSql, shParams);
     }
 
-    const entryParams = [resellerUserId, customerId];
+    const entryParams = book ? [resellerUserId] : [resellerUserId, customerId];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
                            narration, bill_id, is_suspense, ledger_scope
                     FROM reseller_erp_ledger_entries
-                    WHERE reseller_user_id = $1 AND customer_id = $2 AND is_suspense = false`;
-    if (!includeShadow) {
-        entrySql += ` AND ledger_scope = 'official'`;
+                    WHERE reseller_user_id = $1 AND is_suspense = false`;
+    if (book === 'cash') {
+        entrySql += ` AND ledger_scope = 'official' AND LOWER(COALESCE(payment_mode, '')) = 'cash'`;
+    } else if (book === 'jainav2') {
+        if (includeShadow) {
+            entrySql += ` AND (
+                (ledger_scope = 'official' AND LOWER(COALESCE(payment_mode, '')) = 'cash')
+                OR ledger_scope = 'lane'
+            )`;
+        } else {
+            entrySql += ` AND FALSE`;
+        }
+    } else {
+        entrySql += ` AND customer_id = $2`;
+        if (!includeShadow) {
+            entrySql += ` AND ledger_scope = 'official'`;
+        }
     }
     if (from) {
         entryParams.push(from);
@@ -150,18 +252,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     }
 
     if (includeShadow) {
-        for (const s of shadowSales) {
-            rows.push({
-                date: normDate(s.bill_date),
-                sort_id: s.id,
-                kind: 'sale',
-                ref: s.bill_number,
-                description: s.lane === 'jainav' ? 'Jainav' : s.lane === 'hitesh' ? 'Hitesh' : 'Sale',
-                debit: Number(s.total_inr) || 0,
-                credit: 0,
-                lane: s.lane,
-            });
-        }
+        for (const s of shadowSales) pushShadowSaleRows(rows, s);
     }
 
     for (const p of payments) {
@@ -273,4 +364,7 @@ function customerAccountToCsv(account) {
 module.exports = {
     buildCustomerAccount,
     customerAccountToCsv,
+    cashBookKind,
+    ensureCashBookCustomers,
+    compactCustomerName,
 };

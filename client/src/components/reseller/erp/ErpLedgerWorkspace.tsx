@@ -137,6 +137,16 @@ function saveLedgerDraft(laneMode: boolean, draft: LedgerDraftV2) {
   }
 }
 
+function clearLedgerDraft(laneMode: boolean) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(ledgerDraftKey(laneMode))
+    localStorage.removeItem(laneMode ? 'kc-erp-ledger-draft-v1-lane' : 'kc-erp-ledger-draft-v1')
+  } catch {
+    /* ignore */
+  }
+}
+
 function ImportCustomerSearch({
   customerId,
   customerName,
@@ -393,6 +403,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [pvCustomerResults, setPvCustomerResults] = useState<ErpCustomer[]>([])
   const [pvCustomerPickIdx, setPvCustomerPickIdx] = useState(-1)
   const [pvCustomerLabel, setPvCustomerLabel] = useState('')
+  const [accountResetToken, setAccountResetToken] = useState(0)
 
   useEffect(() => {
     const d = loadLedgerDraft(laneMode)
@@ -428,12 +439,14 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         return
       }
       void axios
-        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params: { q: payCustomerQ.trim() } })
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+          params: { q: payCustomerQ.trim(), ...(laneMode ? { lane_books: '1' } : {}) },
+        })
         .then((r) => setPayCustomerResults(r.data.customers || []))
         .catch(() => setPayCustomerResults([]))
     }, 200)
     return () => clearTimeout(t)
-  }, [payCustomerQ])
+  }, [payCustomerQ, laneMode])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -442,17 +455,21 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         return
       }
       void axios
-        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params: { q: pvCustomerQ.trim() } })
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+          params: { q: pvCustomerQ.trim(), ...(laneMode ? { lane_books: '1' } : {}) },
+        })
         .then((r) => setPvCustomerResults(r.data.customers || []))
         .catch(() => setPvCustomerResults([]))
     }, 200)
     return () => clearTimeout(t)
-  }, [pvCustomerQ])
+  }, [pvCustomerQ, laneMode])
 
   const loadCustomers = useCallback(async () => {
-    const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers')
+    const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+      params: laneMode ? { lane_books: '1' } : {},
+    })
     setCustomers(res.data.customers || [])
-  }, [])
+  }, [laneMode])
 
   const loadEntries = useCallback(async () => {
     const params: Record<string, string> = {}
@@ -486,6 +503,78 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       setBusy(false)
     }
   }, [loadEntries, loadSummary])
+
+  const resetUnsavedWorkspace = useCallback(async () => {
+    clearLedgerDraft(laneMode)
+    setTab('entries')
+    setCustomerFilter('')
+    setQ('')
+    setMsg(null)
+    setForm({
+      entry_date: todayIso(),
+      entry_type: 'payment_in',
+      amount_inr: '',
+      customer_id: '',
+      payment_mode: 'neft',
+      reference_no: '',
+      bank_name: '',
+      counterparty_name: '',
+      narration: '',
+      is_suspense: false,
+    })
+    setEditingId(null)
+    setEditDraft({})
+    setAddingInline(false)
+    setInlineDraft({
+      entry_date: todayIso(),
+      entry_type: 'payment_in',
+      amount_inr: '',
+      customer_id: '',
+      payment_mode: 'neft',
+      reference_no: '',
+      bank_name: '',
+      counterparty_name: '',
+      narration: '',
+      is_suspense: false,
+      employee_id: '',
+    })
+    setPvForm({
+      entry_date: todayIso(),
+      vendor_name: '',
+      vendor_bill_ref: '',
+      amount_inr: '',
+      weight_kg: '',
+      metal_type: 'SILVER',
+      payment_mode: 'neft',
+      narration: '',
+      customer_id: '',
+    })
+    setExpenseForm({
+      entry_date: todayIso(),
+      entry_type: 'expense',
+      amount_inr: '',
+      counterparty_name: '',
+      employee_id: '',
+      payment_mode: 'cash',
+      narration: '',
+    })
+    setPayCustomerQ('')
+    setPayCustomerResults([])
+    setPayCustomerLabel('')
+    setPvCustomerQ('')
+    setPvCustomerResults([])
+    setPvCustomerLabel('')
+    setResolveCustomerId({})
+    setImportFiles([])
+    setLastBatchId(null)
+    setAccountResetToken((n) => n + 1)
+    setBusy(true)
+    try {
+      await Promise.all([loadEntries(), loadSummary()])
+    } finally {
+      setBusy(false)
+    }
+  }, [laneMode, loadEntries, loadSummary])
 
   useEffect(() => {
     void loadCustomers().catch(() => setCustomers([]))
@@ -1252,7 +1341,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           type="button"
           className={`${erpBtnGhost} ml-auto min-h-[40px] text-xs`}
           disabled={busy}
-          onClick={() => void reload()}
+          onClick={() => void resetUnsavedWorkspace()}
         >
           {busy ? <Loader2 className="size-4 animate-spin" /> : null}
           Refresh
@@ -1267,6 +1356,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         laneMode={laneMode}
         from={from}
         to={to}
+        resetToken={accountResetToken}
         onCustomerSelected={(id) => setCustomerFilter(id ? String(id) : '')}
       />
 

@@ -8,28 +8,19 @@ export function hasValidGstin(gst: string | null | undefined): boolean {
 }
 
 export function previewLedgerLane(
-  paymentMethod: ErpPaymentMethod,
-  collectedAmountInr?: string | number | null,
+  _paymentMethod: ErpPaymentMethod,
+  _collectedAmountInr?: string | number | null,
+  jainavModeUnlocked = false,
 ): 'hitesh' | 'jainav' {
-  if (paymentMethod === 'cash') {
-    const n = Number(collectedAmountInr)
-    if (Number.isFinite(n) && collectedAmountInr != null && String(collectedAmountInr).trim() !== '') {
-      return 'jainav'
-    }
-  }
-  return 'hitesh'
+  return jainavModeUnlocked ? 'jainav' : 'hitesh'
 }
 
-/** Cash bills with amount received go to Jainav ledger; all other payments → official GST (SCB001…). */
+/** Only an unlocked Jainav session routes a sale to the lane / SCB ledger. */
 export function shouldRouteSaleToShadow(session: {
   customerGst?: string | null
   paymentMethod?: string | null
   collectedAmountInr?: number | string | null
+  jainavModeUnlocked?: boolean
 }): boolean {
-  const pay = String(session.paymentMethod || 'bank').trim().toLowerCase()
-  if (pay !== 'cash') return false
-  const collected = session.collectedAmountInr
-  if (collected == null || String(collected).trim() === '') return false
-  const n = Number(collected)
-  return Number.isFinite(n) && n >= 0
+  return !!session.jainavModeUnlocked
 }

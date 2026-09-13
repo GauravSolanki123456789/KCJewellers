@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FileText, Loader2, MessageCircle, Share2, X } from 'lucide-react'
 import {
   Dialog,
@@ -30,7 +30,16 @@ type Props = {
 
 export default function PdfShareSheet({ open, onOpenChange, payload, minimal = false }: Props) {
   const [sharing, setSharing] = useState(false)
-  const [waMode, setWaMode] = useState<'pick' | 'customer'>('pick')
+  const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
+
+  useEffect(() => {
+    if (!open || !payload) return
+    const hasMobile = Boolean(
+      payload.customerWhatsAppHref?.trim() ||
+        payload.customerMobile?.replace(/\D/g, '').slice(-10).length === 10,
+    )
+    setWaMode(hasMobile ? 'customer' : 'pick')
+  }, [open, payload])
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
@@ -88,6 +97,9 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
         ? payload.customerWhatsAppHref.trim()
         : payload.fallbackWhatsAppHref?.trim() ||
           buildWhatsAppShareLink(payload.fallbackWhatsAppText)
+    if (waMode === 'customer' && href) {
+      downloadPdfBlob(payload.blob, payload.filename)
+    }
     openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
     close()
   }, [payload, close, waMode])
@@ -160,10 +172,10 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
               value={waMode}
               onChange={(e) => setWaMode(e.target.value as 'pick' | 'customer')}
             >
-              <option value="pick">Pick contact / share sheet (current)</option>
               <option value="customer" disabled={!hasCustomerWa}>
-                Send to customer number{hasCustomerWa ? '' : ' (no customer mobile)'}
+                {hasCustomerWa ? 'Customer number' : 'Customer number (no mobile)'}
               </option>
+              <option value="pick">Pick contact</option>
             </select>
           </label>
 
