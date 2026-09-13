@@ -32,11 +32,15 @@ import {
   uniqueBilledRates,
   type ReturnLine,
 } from '@/lib/erp-sales-return'
+import { downloadCreditDebitNoteExcel } from '@/lib/erp-note-excel'
 import { downloadCreditDebitNotePdf } from '@/lib/erp-note-pdf'
+import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { returnLineMetSlabDisplay } from '@/lib/erp-sales-return'
 import {
   Camera,
   CheckSquare,
   Eye,
+  FileSpreadsheet,
   FileText,
   Loader2,
   Square,
@@ -283,10 +287,12 @@ export function ErpSalesReturnWorkspace() {
   const billedRates = useMemo(() => uniqueBilledRates(previewLines, billById), [previewLines, billById])
   const billedRateLabel = useMemo(() => {
     const parts: string[] = []
-    if (billedRates.silver.length === 1) parts.push(`₹${billedRates.silver[0]}/g Ag`)
-    else if (billedRates.silver.length > 1) parts.push(billedRates.silver.map((r) => `₹${r}/g Ag`).join(', '))
-    if (billedRates.gold.length === 1) parts.push(`₹${billedRates.gold[0]}/g Au`)
-    else if (billedRates.gold.length > 1) parts.push(billedRates.gold.map((r) => `₹${r}/g Au`).join(', '))
+    if (billedRates.silver.length === 1) parts.push(`₹${billedRates.silver[0]}/g Silver`)
+    else if (billedRates.silver.length > 1)
+      parts.push(billedRates.silver.map((r) => `₹${r}/g Silver`).join(', '))
+    if (billedRates.gold.length === 1) parts.push(`₹${billedRates.gold[0]}/g Gold`)
+    else if (billedRates.gold.length > 1)
+      parts.push(billedRates.gold.map((r) => `₹${r}/g Gold`).join(', '))
     return parts.join(' · ')
   }, [billedRates])
 
@@ -331,6 +337,13 @@ export function ErpSalesReturnWorkspace() {
           taxableInr: totals.taxable,
           gstInr: totals.gst,
           returnWeightGm: totals.weightGm,
+          rateSlab: first?.session?.rateSlab || 'R',
+          goldPerG: useCustom && goldN > 0 ? goldN : first?.session?.goldPerG ?? null,
+          silverPerG: useCustom && silverN > 0 ? silverN : first?.session?.silverPerG ?? null,
+          displayRates: first?.session?.displayRates ?? null,
+          wholesaleGold: first?.session?.wholesaleGold ?? null,
+          wholesaleSilver: first?.session?.wholesaleSilver ?? null,
+          goldSlabRShowMc: first?.session?.goldSlabRShowMc,
           mobile: customer?.mobile || first?.session?.mobile || '',
           reason: 'Sales return',
           ledgerScope: lane ? 'lane' : 'official',
@@ -349,6 +362,7 @@ export function ErpSalesReturnWorkspace() {
         bill: ssr.data.bill,
         shopName,
         customerMobile: customer?.mobile || first?.session?.mobile || null,
+        slabSettingsRaw: auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
       })
     } catch (e) {
       setMsg(erpErr(e))
@@ -467,11 +481,27 @@ export function ErpSalesReturnWorkspace() {
                               bill: b,
                               shopName,
                               customerMobile: b.session?.mobile || null,
+                              slabSettingsRaw:
+                                auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
                             })
                           }
                         >
                           <FileText className="size-3.5" />
-                          Credit note
+                          PDF
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-[#1a1814] underline"
+                          onClick={() =>
+                            void downloadCreditDebitNoteExcel(
+                              b,
+                              'credit',
+                              auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
+                            )
+                          }
+                        >
+                          <FileSpreadsheet className="size-3.5" />
+                          Excel
                         </button>
                         {canDeleteRecords ? (
                           <button
@@ -732,6 +762,9 @@ export function ErpSalesReturnWorkspace() {
                       : originalPreview[idx] || line
                     : line
                 const billedRate = billedMetalRatePerG(line, billById.get(line.source_bill_id))
+                const sourceBill = billById.get(line.source_bill_id)
+                const sourceSlab = (sourceBill?.session?.rateSlab || 'R') as ErpRateSlab
+                const metDisplay = returnLineMetSlabDisplay(line, sourceSlab)
                 return (
                 <div key={line.source_line_key} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] p-3">
                   <div className="mb-2 flex items-start justify-between gap-2">
@@ -753,23 +786,26 @@ export function ErpSalesReturnWorkspace() {
                         onChange={(e) => {
                           const v = Number(e.target.value)
                           setPreviewLines((prev) =>
-                            prev.map((p, i) => (i === idx ? { ...p, weightGm: Number.isFinite(v) ? v : 0 } : p)),
+                            prev.map((p, i) =>
+                              i === idx
+                                ? {
+                                    ...p,
+                                    weightGm: Number.isFinite(v) ? v : 0,
+                                    originalWeightGm: Number.isFinite(v) ? v : 0,
+                                  }
+                                : p,
+                            ),
                           )
                         }}
                       />
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Met %</p>
-                      <input
-                        className={`${erpInputCls} mt-1`}
-                        value={line.purity ?? ''}
-                        onChange={(e) => {
-                          const v = Number(e.target.value)
-                          setPreviewLines((prev) =>
-                            prev.map((p, i) => (i === idx ? { ...p, purity: Number.isFinite(v) ? v : null } : p)),
-                          )
-                        }}
-                      />
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">
+                        {metDisplay.label}
+                      </p>
+                      <p className="mt-1 flex min-h-[44px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 text-sm tabular-nums text-[#1a1814]">
+                        {metDisplay.value || '—'}
+                      </p>
                     </div>
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">MC</p>

@@ -31,6 +31,10 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
     const name = auth.user && (auth.user as WholesaleUserFields).business_name
     return typeof name === 'string' && name.trim() ? name.trim() : 'Shop'
   }, [auth.user])
+  const slabSettingsRaw = useMemo(
+    () => auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
+    [auth.user],
+  )
 
   const [bills, setBills] = useState<ErpBill[]>([])
   const [busy, setBusy] = useState(false)
@@ -149,6 +153,7 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
         bill: res.data.bill,
         shopName,
         customerMobile: customer.mobile || null,
+        slabSettingsRaw,
       })
     } catch (e) {
       setMsg(erpErr(e))
@@ -301,12 +306,17 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
                               bill: b,
                               shopName,
                               customerMobile: b.session?.mobile || null,
+                              slabSettingsRaw,
                             })
                           }
                         >
                           <FileText className="size-4" /> PDF
                         </button>
-                        <button type="button" className={erpBtnGhost} onClick={() => void downloadCreditDebitNoteExcel(b, kind)}>
+                        <button
+                          type="button"
+                          className={erpBtnGhost}
+                          onClick={() => void downloadCreditDebitNoteExcel(b, kind, slabSettingsRaw)}
+                        >
                           <FileSpreadsheet className="size-4" /> Excel
                         </button>
                         {canDeleteRecords ? (
