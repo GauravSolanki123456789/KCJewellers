@@ -13,6 +13,7 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { Layers, Loader2, Pencil, Plus, Save, Download, Trash2, X, Check } from 'lucide-react'
+import { appConfirm } from '@/lib/app-notice'
 
 type SizeVariant = {
   size_label: string
@@ -232,7 +233,7 @@ export function ErpDesignMasterWorkspace() {
   }
 
   const deleteStyle = async (style: DesignStyle) => {
-    if (!window.confirm(`Delete style "${style.style_code}" and all its SKUs?`)) return
+    if (!await appConfirm(`Delete style "${style.style_code}" and all its SKUs?`)) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/design-master/styles/${style.id}`)
@@ -265,7 +266,7 @@ export function ErpDesignMasterWorkspace() {
   }
 
   const deleteSku = async (sku: DesignSku) => {
-    if (!window.confirm(`Delete SKU "${sku.sku}"?`)) return
+    if (!await appConfirm(`Delete SKU "${sku.sku}"?`)) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/design-master/skus/${sku.id}`)
@@ -347,7 +348,7 @@ export function ErpDesignMasterWorkspace() {
     const label = overwrite
       ? 'Replace all design defaults with values from your current stock?'
       : 'Import style + SKU pairs from uploaded stock? Existing SKU fields stay unless empty.'
-    if (!window.confirm(label)) return
+    if (!await appConfirm(label)) return
     setSeedBusy(true)
     setMsg('')
     try {

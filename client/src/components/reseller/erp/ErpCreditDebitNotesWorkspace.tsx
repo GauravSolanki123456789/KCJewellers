@@ -20,6 +20,7 @@ import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { downloadCreditDebitNotePdf } from '@/lib/erp-note-pdf'
 import { downloadCreditDebitNoteExcel } from '@/lib/erp-note-excel'
+import { appConfirm } from '@/lib/app-notice'
 import { FileSpreadsheet, FileText, Loader2, Trash2 } from 'lucide-react'
 
 type Kind = 'credit' | 'debit'
@@ -163,7 +164,7 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
   }
 
   const remove = async (id: number) => {
-    if (!window.confirm('Delete this note? The number can be reused.')) return
+    if (!(await appConfirm('Delete this note? The number can be reused.'))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/bills/${id}`)

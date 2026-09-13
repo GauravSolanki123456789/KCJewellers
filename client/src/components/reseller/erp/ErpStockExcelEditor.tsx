@@ -19,6 +19,7 @@ import {
 } from '@/lib/reseller-erp-stock-editor'
 import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { appConfirm } from '@/lib/app-notice'
 import { ErpWeighingScaleBar } from '@/components/reseller/erp/ErpWeighingScaleBar'
 import { ErpRfidLinkDialog } from '@/components/reseller/erp/ErpRfidLinkDialog'
 import { printStockLabels, type PrintLabelPieceOverride } from '@/lib/erp-print-labels'
@@ -605,9 +606,9 @@ export function ErpStockExcelEditor({
   const deleteSelected = async () => {
     if (!selected.size || deleting) return
     if (
-      !confirm(
+      !(await appConfirm(
         `Delete ${selected.size} tag(s) and remove those pieces from stock? This cannot be undone.`,
-      )
+      ))
     )
       return
     setDeleting(true)
@@ -637,7 +638,7 @@ export function ErpStockExcelEditor({
       alert('No in-stock pieces for that product in this batch.')
       return
     }
-    if (!confirm(`Remove all ${count} piece(s) of "${name}" from this batch?`)) return
+    if (!(await appConfirm(`Remove all ${count} piece(s) of "${name}" from this batch?`))) return
     setDeleting(true)
     try {
       await axios.delete('/api/reseller/erp/stock-pieces', {
@@ -657,9 +658,9 @@ export function ErpStockExcelEditor({
     if (row.status === 'sold' || row.locked || deleting) return
     const tag = row.values.barcode?.trim() || `#${row.id}`
     if (
-      !confirm(
+      !(await appConfirm(
         `Delete tag "${tag}" and remove this piece from stock? Use this when the label was printed by mistake or the item was sold manually.`,
-      )
+      ))
     )
       return
     setDeleting(true)

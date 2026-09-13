@@ -29,6 +29,7 @@ import CartDrawerWrapper from "@/components/CartDrawerWrapper";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import AuthToast from "@/components/AuthToast";
 import AddToCartToast from "@/components/AddToCartToast";
+import { AppNoticeHost } from "@/components/AppNoticeHost";
 import WhatsAppContactFab from "@/components/WhatsAppContactFab";
 import PdfViewerOverlay from "@/components/shared/PdfViewerOverlay";
 import ResellerAttentionSectionSync from "@/components/ResellerAttentionSectionSync";
@@ -262,6 +263,7 @@ export default async function RootLayout({
               <AuthToast />
             </Suspense>
             <AddToCartToast />
+            <AppNoticeHost />
             <div className="flex flex-1 flex-col">{children}</div>
             <Footer />
             <Suspense fallback={null}>

@@ -7,6 +7,7 @@ import { Loader2, MessageCircle, Plus, Search, Trash2, ScanLine, Download, Uploa
 import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
 import { GST_STATE_OPTIONS } from '@/lib/erp-place-of-supply'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { appConfirm } from '@/lib/app-notice'
 import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
@@ -196,7 +197,7 @@ export function CustomersWorkspace() {
   }
 
   const remove = async (id: number) => {
-    if (!confirm('Delete this customer?')) return
+    if (!(await appConfirm('Delete this customer?'))) return
     await axios.delete(`/api/reseller/erp/customers/${id}`)
     await load()
   }

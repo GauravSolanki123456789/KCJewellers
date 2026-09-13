@@ -36,6 +36,7 @@ import {
 import { deriveEstimateStatus } from '@/lib/erp-estimate-status'
 import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { compactErpDocNumber, erpDocNumbersMatch } from '@/lib/app-notice'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillSavedModal, ErpLedgerBillSavedDialog, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
@@ -304,6 +305,8 @@ export function ErpBillingWorkspace() {
   const [modalWhGold, setModalWhGold] = useState('')
   const [modalWhSilver, setModalWhSilver] = useState('')
   const [scanCode, setScanCode] = useState('')
+  const [estimateNoInput, setEstimateNoInput] = useState('')
+  const [estimateLookupBusy, setEstimateLookupBusy] = useState(false)
   const [scanBusy, setScanBusy] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
@@ -610,11 +613,6 @@ export function ErpBillingWorkspace() {
       if (gen !== billLoadGen.current || suppressEditLoadRef.current) return
       const bill = res.data.bill
       const billType = String(bill.bill_type || '').toLowerCase()
-      if (billType === 'estimate' && String(bill.status || '').toLowerCase() === 'billed') {
-        alert('This estimation is already billed and cannot be edited.')
-        router.replace(resellerErpModulePath('estimations'))
-        return
-      }
       const session = (bill.session || {}) as ErpBillSession
       const restoredSlab =
         session.rateSlab || parseRateSlabFromNotes(bill.notes) || 'R'
@@ -937,9 +935,50 @@ export function ErpBillingWorkspace() {
     scanRef.current?.focus()
   }
 
+  const openEstimateByNumber = async (rawValue?: string) => {
+    const raw = (rawValue ?? estimateNoInput).trim()
+    if (!raw || estimateLookupBusy) return
+    setEstimateLookupBusy(true)
+    setScanErrorMsg(null)
+    try {
+      const padded =
+        /^\d+$/.test(raw) ? `ESTIMATE-${raw.padStart(3, '0')}` : raw
+      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
+        params: { bill_type: 'estimate', from: '2000-01-01', q: padded },
+      })
+      const bills = res.data.bills || []
+      const match =
+        bills.find((b) => erpDocNumbersMatch(b.bill_number, raw)) ||
+        bills.find((b) => erpDocNumbersMatch(b.bill_number, padded)) ||
+        bills.find((b) => compactErpDocNumber(b.bill_number).endsWith(compactErpDocNumber(raw))) ||
+        (bills.length === 1 ? bills[0] : null)
+      if (!match) {
+        setScanErrorMsg(`No estimation found for ${raw}.`)
+        return
+      }
+      setEstimateNoInput('')
+      loadedEditBillRef.current = null
+      loadedCombineRef.current = null
+      if (String(editIdParam || '') === String(match.id)) {
+        await loadBillForEdit(match.id)
+        return
+      }
+      router.replace(`${resellerErpModulePath('billing')}?edit=${match.id}`)
+    } catch (e) {
+      setScanErrorMsg(erpErr(e))
+    } finally {
+      setEstimateLookupBusy(false)
+    }
+  }
+
   const scanWithCode = async (rawCode: string) => {
     const code = rawCode.trim()
     if (!code || scanBusy) return
+    if (/^(estimate|est)[-_\s]?\d+$/i.test(code)) {
+      setScanCode('')
+      await openEstimateByNumber(code)
+      return
+    }
 
     const shortcut = resolveBillingScanShortcut(code)
       if (shortcut) {
@@ -1550,6 +1589,10 @@ export function ErpBillingWorkspace() {
   }
 
   const generateQuote = async (modeOverride?: ErpQuoteOutputMode) => {
+    if (String(editingBillStatus || '').toLowerCase() === 'billed') {
+      alert('This estimation is already billed. Products are shown for reference.')
+      return
+    }
     if (modeOverride) setQuoteOutputOverride(modeOverride)
     const mode = modeOverride ?? quoteOutputMode
     clearDuplicateState()
@@ -1815,9 +1858,23 @@ export function ErpBillingWorkspace() {
       ) : null}
 
       {editingBillNumber ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
-          <span className="font-semibold text-blue-900">Editing {editingBillNumber}</span>
-          {editingBillType === 'estimate' ? (
+        <div className={`flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-3 text-sm ${
+          String(editingBillStatus || '').toLowerCase() === 'billed'
+            ? 'border-emerald-200 bg-emerald-50'
+            : 'border-blue-200 bg-blue-50'
+        }`}>
+          <span className={`font-semibold ${
+            String(editingBillStatus || '').toLowerCase() === 'billed' ? 'text-emerald-900' : 'text-blue-900'
+          }`}>
+            {String(editingBillStatus || '').toLowerCase() === 'billed'
+              ? `${editingBillNumber} is already billed`
+              : `Editing ${editingBillNumber}`}
+          </span>
+          {String(editingBillStatus || '').toLowerCase() === 'billed' ? (
+            <span className="text-emerald-900/75">
+              Products from this quote are loaded below. Create a new sale from Scan & bill if you need another bill.
+            </span>
+          ) : editingBillType === 'estimate' ? (
             <span className="text-blue-800/70">
               Update quote with <strong>Generate quote</strong>, or use <strong>Save bill</strong> to create a sales bill
               and mark this estimate as billed.
@@ -2160,9 +2217,24 @@ export function ErpBillingWorkspace() {
           <button
             type="button"
             className={erpBtnPrimary}
-            disabled={saveBusy || lines.length === 0 || ratesUnfixed}
-            title={ratesUnfixed ? 'Fix rates before saving a sales bill' : undefined}
+            disabled={
+              saveBusy ||
+              lines.length === 0 ||
+              ratesUnfixed ||
+              String(editingBillStatus || '').toLowerCase() === 'billed'
+            }
+            title={
+              String(editingBillStatus || '').toLowerCase() === 'billed'
+                ? 'This estimation is already billed'
+                : ratesUnfixed
+                  ? 'Fix rates before saving a sales bill'
+                  : undefined
+            }
             onClick={() => {
+              if (String(editingBillStatus || '').toLowerCase() === 'billed') {
+                alert('This estimation is already billed.')
+                return
+              }
               if (ratesUnfixed) {
                 alert('Rates are unfixed. Fix rates or use Generate quote to save as an estimate.')
                 return
@@ -2210,6 +2282,33 @@ export function ErpBillingWorkspace() {
               <button type="button" className={erpBtnGhost} disabled={scanBusy} onClick={() => void scan()}>
                 {scanBusy ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
               </button>
+            </div>
+            <div className="mt-2">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-900">
+                Open estimate
+              </p>
+              <div className="flex gap-2">
+                <input
+                  className={erpInputCls}
+                  placeholder="ESTIMATE-002"
+                  value={estimateNoInput}
+                  onChange={(e) => setEstimateNoInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void openEstimateByNumber()
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className={erpBtnGhost}
+                  disabled={estimateLookupBusy}
+                  onClick={() => void openEstimateByNumber()}
+                >
+                  {estimateLookupBusy ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+                </button>
+              </div>
             </div>
             {(duplicateScanMsg || scanErrorMsg) ? (
               <div

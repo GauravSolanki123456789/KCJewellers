@@ -21,6 +21,7 @@ import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
 import { openPdfBlobInViewer, type PdfShareSheetPayload } from '@/lib/pdf-share'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { appConfirm } from '@/lib/app-notice'
 import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
@@ -137,7 +138,7 @@ export function ErpSalesBillsWorkspace() {
   }
 
   const deleteOne = async (id: number) => {
-    if (!confirm('Delete this sales bill?')) return
+    if (!(await appConfirm('Delete this sales bill?'))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/bills/${id}`)
@@ -151,7 +152,7 @@ export function ErpSalesBillsWorkspace() {
   }
 
   const deleteSelected = async () => {
-    if (!selected.size || !confirm(`Delete ${selected.size} sales bill(s)?`)) return
+    if (!selected.size || !(await appConfirm(`Delete ${selected.size} sales bill(s)?`))) return
     setBusy(true)
     try {
       await axios.post('/api/reseller/erp/bills/bulk-delete', { ids: Array.from(selected) })

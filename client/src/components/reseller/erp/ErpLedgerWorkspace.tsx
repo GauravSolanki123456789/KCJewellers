@@ -27,6 +27,7 @@ import {
   type ErpLedgerEntry,
 } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { appConfirm } from '@/lib/app-notice'
 import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-import-parser'
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { useErpOperator } from '@/context/ErpOperatorContext'
@@ -610,8 +611,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
   }
 
-  const discardImportFile = (fileId: string, fileName: string) => {
-    if (!confirm(`Remove "${fileName}" and its review rows? Nothing in this file will be imported.`)) return
+  const discardImportFile = async (fileId: string, fileName: string) => {
+    if (!(await appConfirm(`Remove "${fileName}" and its review rows? Nothing in this file will be imported.`))) return
     setImportFiles((prev) => prev.filter((f) => f.id !== fileId))
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -651,7 +652,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     )
   }
 
-  const deleteFileRows = (fileId: string, mode: 'selected' | 'unselected') => {
+  const deleteFileRows = async (fileId: string, mode: 'selected' | 'unselected') => {
     const file = importFiles.find((f) => f.id === fileId)
     if (!file) return
     const selected = file.rows.filter((r) => r.import !== false && !r.skip)
@@ -661,7 +662,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       alert(mode === 'selected' ? 'No selected rows to delete' : 'No unselected rows to delete')
       return
     }
-    if (!confirm(`Delete ${removing.length} row(s) from "${file.fileName}"? They will not be imported.`)) return
+    if (!(await appConfirm(`Delete ${removing.length} row(s) from "${file.fileName}"? They will not be imported.`))) return
     setImportFiles((files) =>
       files.flatMap((f) => {
         if (f.id !== fileId) return [f]
@@ -771,7 +772,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   }
 
   const removeEntry = async (id: number) => {
-    if (!confirm('Delete this ledger entry?')) return
+    if (!(await appConfirm('Delete this ledger entry?'))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/ledger/entries/${id}`)
@@ -925,7 +926,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   }
 
   const deleteImportBatch = async (batchId: number, fileName: string) => {
-    if (!confirm(`Delete bank import "${fileName}" and all its ledger entries?`)) return
+    if (!(await appConfirm(`Delete bank import "${fileName}" and all its ledger entries?`))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/ledger/import-batches/${batchId}`)
@@ -941,7 +942,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   }
 
   const deletePurchaseVoucher = async (pvId: number, pvNumber: string) => {
-    if (!confirm(`Delete ${pvNumber} and its stock batch (if any)? The PV number can be reused.`)) return
+    if (!(await appConfirm(`Delete ${pvNumber} and its stock batch (if any)? The PV number can be reused.`))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/purchase-vouchers/${pvId}`)
@@ -1911,7 +1912,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     type="button"
                     className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800"
                     disabled={busy}
-                    onClick={() => discardImportFile(file.id, file.fileName)}
+                    onClick={() => void discardImportFile(file.id, file.fileName)}
                   >
                     <Trash2 className="size-3.5" />
                     Remove file
@@ -1938,7 +1939,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     type="button"
                     className="inline-flex min-h-[40px] items-center gap-1 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800 disabled:opacity-50"
                     disabled={busy}
-                    onClick={() => deleteFileRows(file.id, 'selected')}
+                    onClick={() => void deleteFileRows(file.id, 'selected')}
                   >
                     Delete selected
                   </button>
@@ -1946,7 +1947,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     type="button"
                     className="inline-flex min-h-[40px] items-center gap-1 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800 disabled:opacity-50"
                     disabled={busy}
-                    onClick={() => deleteFileRows(file.id, 'unselected')}
+                    onClick={() => void deleteFileRows(file.id, 'unselected')}
                   >
                     Delete unselected
                   </button>

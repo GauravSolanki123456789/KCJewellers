@@ -18,6 +18,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { appConfirm } from '@/lib/app-notice'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import {
   clearErpOrderDraft,
@@ -195,7 +196,7 @@ function OrderJobCard({
   const deleteOrder = async () => {
     if (busy) return
     if (
-      !window.confirm(
+      !await appConfirm(
         `Delete ${job.bill_number}? This removes the order and karigar tracking. The order number can be reused.`,
       )
     ) {
@@ -383,8 +384,9 @@ function OrderJobCard({
                   disabled={busy}
                   className={`${erpBtnGhost} w-full border-rose-200 text-rose-700`}
                   onClick={() => {
-                    if (!window.confirm('Cancel this order job?')) return
-                    void runAction('cancel', { notes: actionNotes || undefined })
+                    void appConfirm('Cancel this order job?').then((ok) => {
+                      if (ok) void runAction('cancel', { notes: actionNotes || undefined })
+                    })
                   }}
                 >
                   {busy ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
@@ -426,8 +428,9 @@ function OrderJobCard({
                 disabled={busy}
                 className={`${erpBtnGhost} w-full border-rose-200 text-rose-700`}
                 onClick={() => {
-                  if (!window.confirm('Cancel this order job?')) return
-                  void runAction('cancel', { notes: actionNotes || undefined })
+                  void appConfirm('Cancel this order job?').then((ok) => {
+                    if (ok) void runAction('cancel', { notes: actionNotes || undefined })
+                  })
                 }}
               >
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
@@ -495,7 +498,7 @@ function KarigarsPanel({ karigars, onRefresh }: { karigars: ErpKarigar[]; onRefr
   }
 
   const deactivate = async (id: number) => {
-    if (!window.confirm('Deactivate this karigar?')) return
+    if (!await appConfirm('Deactivate this karigar?')) return
     try {
       await axios.delete(`/api/reseller/erp/karigars/${id}`)
       await onRefresh()

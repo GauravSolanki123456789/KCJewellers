@@ -37,6 +37,7 @@ import {
 } from '@/lib/erp-sales-return'
 import { downloadCreditDebitNoteExcel } from '@/lib/erp-note-excel'
 import { downloadCreditDebitNotePdf } from '@/lib/erp-note-pdf'
+import { appConfirm, erpDocNumbersMatch } from '@/lib/app-notice'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import {
   Camera,
@@ -45,6 +46,7 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
+  Search,
   Square,
   Trash2,
   Undo2,
@@ -102,6 +104,8 @@ export function ErpSalesReturnWorkspace() {
   const [extraStone, setExtraStone] = useState('')
   const [extraAmt, setExtraAmt] = useState('')
   const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
+  const [ssrLookup, setSsrLookup] = useState('')
+  const [lookedUpSsr, setLookedUpSsr] = useState<ErpBill | null>(null)
   const scanRef = useRef<HTMLInputElement>(null)
 
   const loadHistory = useCallback(async () => {
@@ -387,6 +391,12 @@ export function ErpSalesReturnWorkspace() {
       parts.push(billedRates.gold.map((r) => `₹${r}/g Gold`).join(', '))
     return parts.join(' · ')
   }, [billedRates])
+  const customRateLabel = useMemo(() => {
+    const parts: string[] = []
+    if (silverN > 0) parts.push(`₹${silverN}/g Silver`)
+    if (goldN > 0) parts.push(`₹${goldN}/g Gold`)
+    return parts.join(' · ')
+  }, [goldN, silverN])
 
   const applyDebitExtras = () => {
     const box = Number(extraBox) || 0
@@ -521,13 +531,55 @@ export function ErpSalesReturnWorkspace() {
     }
   }
 
+  const noteKind = (bill: ErpBill): 'credit' | 'debit' =>
+    String(bill.bill_type || '').toLowerCase() === 'debit' ? 'debit' : 'credit'
+
+  const lookupSsr = async () => {
+    const raw = ssrLookup.trim()
+    if (!raw) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const fromHistory = history.find((b) => erpDocNumbersMatch(b.bill_number, raw))
+      if (fromHistory) {
+        setLookedUpSsr(fromHistory)
+        setMsg(`Opened ${fromHistory.bill_number}.`)
+        return
+      }
+      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
+        params: { bill_types: 'sales_return,credit,debit', from: '2000-01-01', q: raw },
+      })
+      const bills = res.data.bills || []
+      const match =
+        bills.find((b) => erpDocNumbersMatch(b.bill_number, raw)) ||
+        (bills.length === 1 ? bills[0] : null)
+      if (!match) {
+        setLookedUpSsr(null)
+        setMsg(`No SSR found for ${raw}.`)
+        return
+      }
+      setLookedUpSsr(match)
+      setMsg(`Opened ${match.bill_number}.`)
+    } catch (e) {
+      setLookedUpSsr(null)
+      setMsg(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const deleteReturn = async (id: number) => {
-    if (!window.confirm('Delete this sales return? The number can be reused. Returned stock will be marked sold again.')) {
+    if (
+      !(await appConfirm(
+        'Delete this sales return? The number can be reused. Returned stock will be marked sold again.',
+      ))
+    ) {
       return
     }
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/bills/${id}`)
+      if (lookedUpSsr?.id === id) setLookedUpSsr(null)
       await loadHistory()
       await loadReturnedKeys()
     } catch (e) {
@@ -551,6 +603,78 @@ export function ErpSalesReturnWorkspace() {
             Refresh
           </button>
         </div>
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            className={erpInputCls}
+            placeholder="Enter SSR number — SSR001, SSR002…"
+            value={ssrLookup}
+            onChange={(e) => setSsrLookup(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void lookupSsr()
+              }
+            }}
+          />
+          <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void lookupSsr()}>
+            <Search className="size-4" />
+            Open SSR
+          </button>
+        </div>
+        {lookedUpSsr ? (
+          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-[#1a1814]">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="font-mono text-sm font-bold">{lookedUpSsr.bill_number}</p>
+                <p className="mt-0.5 text-xs text-[#1a1814]/70">
+                  {formatErpDateDdMmYyyy(lookedUpSsr.bill_date || lookedUpSsr.created_at)}
+                  {lookedUpSsr.customer_name ? ` · ${lookedUpSsr.customer_name}` : ''}
+                  {` · ${formatErpInr(lookedUpSsr.total_inr)}`}
+                  {` · ${
+                    String(lookedUpSsr.bill_type || '').toLowerCase() === 'debit'
+                      ? 'Debit note'
+                      : String(lookedUpSsr.bill_type || '').toLowerCase() === 'credit'
+                        ? 'Credit note'
+                        : 'Sales return'
+                  }`}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={erpBtnGhost}
+                  onClick={() =>
+                    void downloadCreditDebitNotePdf({
+                      kind: noteKind(lookedUpSsr),
+                      bill: lookedUpSsr,
+                      shopName,
+                      customerMobile: lookedUpSsr.session?.mobile || null,
+                      slabSettingsRaw:
+                        auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
+                    })
+                  }
+                >
+                  <FileText className="size-3.5" />
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  className={erpBtnGhost}
+                  onClick={() =>
+                    void downloadCreditDebitNoteExcel(
+                      lookedUpSsr,
+                      noteKind(lookedUpSsr),
+                      auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
+                    )
+                  }
+                >
+                  <FileSpreadsheet className="size-3.5" />
+                  Excel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {history.length ? (
           <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
             <table className="min-w-full text-left text-xs">
@@ -621,8 +745,10 @@ export function ErpSalesReturnWorkspace() {
               </tbody>
             </table>
           </div>
-        ) : (
-          <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">No sales returns yet. SSR001 will be used first.</p>
+        ) : lookedUpSsr ? null : (
+          <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+            Enter an SSR number above to open its PDF or Excel.
+          </p>
         )}
       </div>
 
@@ -1096,7 +1222,9 @@ export function ErpSalesReturnWorkspace() {
                     className={rateMode === 'custom' ? erpBtnPrimary : erpBtnGhost}
                     onClick={() => setRateMode('custom')}
                   >
-                    Rate I put{(goldN > 0 || silverN > 0) ? ` ${formatErpInr(custTotals.net)}` : ''}
+                    Rate I put
+                    {customRateLabel ? ` ${customRateLabel}` : ''}
+                    {goldN > 0 || silverN > 0 ? ` ${formatErpInr(custTotals.net)}` : ''}
                   </button>
                 </div>
                 {rateMode === 'custom' ? (

@@ -17,6 +17,7 @@ import { parseStockExcelRows, downloadStockPiecesExcel } from '@/lib/reseller-er
 import { formatErpDateDdMmYyyy, formatErpDateTime } from '@/lib/erp-date-format'
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
+import { appConfirm } from '@/lib/app-notice'
 
 type Batch = {
   id: string
@@ -225,7 +226,7 @@ export function ErpProductsWorkspace() {
 
   const deleteImport = async (importId: string, filename: string) => {
     if (!activeBatchId || deletingImportId) return
-    if (!confirm(`Delete Excel upload "${filename}" and remove its pieces from this batch?`)) return
+    if (!(await appConfirm(`Delete Excel upload "${filename}" and remove its pieces from this batch?`))) return
     setDeletingImportId(importId)
     try {
       await axios.delete(
@@ -308,9 +309,9 @@ export function ErpProductsWorkspace() {
     const code = String(raw ?? tagDeleteCode).trim()
     if (!code || tagDeleteBusy) return
     if (
-      !window.confirm(
+      !(await appConfirm(
         `Delete tag "${code}"?\n\nThis permanently removes the piece from stock across all uploads.`,
-      )
+      ))
     ) {
       return
     }
@@ -348,7 +349,7 @@ export function ErpProductsWorkspace() {
 
   const deleteBatch = async () => {
     if (!activeBatchId || deleting) return
-    if (!confirm(`Delete entire batch "${activeBatch?.batch_label}"? This cannot be undone.`)) return
+    if (!(await appConfirm(`Delete entire batch "${activeBatch?.batch_label}"? This cannot be undone.`))) return
     setDeleting(true)
     try {
       await axios.delete(`/api/reseller/erp/stock-pieces/batches/${activeBatchId}`)

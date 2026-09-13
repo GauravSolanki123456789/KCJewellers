@@ -15,6 +15,7 @@ import { ErpQuotePdfButton } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import { appConfirm } from '@/lib/app-notice'
 import { downloadBillDetailExcel, downloadEstimatesDetailExcel } from '@/lib/erp-bill-excel-export'
 import {
   formatDuplicateBarcodeMessage,
@@ -159,7 +160,7 @@ export function ErpEstimationsWorkspace() {
   }
 
   const deleteOne = async (id: number) => {
-    if (!confirm('Delete this estimation?')) return
+    if (!(await appConfirm('Delete this estimation?'))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/bills/${id}`)
@@ -172,7 +173,7 @@ export function ErpEstimationsWorkspace() {
   }
 
   const deleteSelected = async () => {
-    if (!selected.size || !confirm(`Delete ${selected.size} estimation(s)?`)) return
+    if (!selected.size || !(await appConfirm(`Delete ${selected.size} estimation(s)?`))) return
     setBusy(true)
     try {
       await axios.post('/api/reseller/erp/bills/bulk-delete', { ids: Array.from(selected) })

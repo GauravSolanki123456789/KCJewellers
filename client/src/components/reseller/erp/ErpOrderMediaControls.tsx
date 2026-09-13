@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import { Camera, Loader2, Mic, Square, Trash2, Upload } from 'lucide-react'
 import { erpBtnGhost, erpErr } from '@/components/reseller/erp/erp-ui'
+import { appConfirm } from '@/lib/app-notice'
 
 type Props = {
   billId: number
@@ -52,7 +53,7 @@ export function ErpOrderMediaControls({
   }
 
   const removeMedia = async (url: string, kind: 'image' | 'voice') => {
-    if (!window.confirm('Remove this attachment?')) return
+    if (!(await appConfirm('Remove this attachment?'))) return
     setBusy(true)
     setErr('')
     try {

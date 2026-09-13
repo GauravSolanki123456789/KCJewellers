@@ -7,6 +7,7 @@ import { Download, Lock, Trash2, Upload } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { appConfirm } from '@/lib/app-notice'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
 import { ErpNavVisibilityPanel } from '@/components/reseller/erp/ErpNavVisibilityPanel'
@@ -117,7 +118,7 @@ export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean })
       setMsg('Type PURGE in the confirmation box.')
       return
     }
-    if (!confirm('Permanently delete Jainav (cash) bills for this date? This cannot be undone.')) return
+    if (!(await appConfirm('Permanently delete Jainav (cash) bills for this date? This cannot be undone.'))) return
     setBusy(true)
     try {
       const res = await axios.post<{ deletedCount: number; estimatesDeleted?: number }>('/api/reseller/erp/shadow/purge', {

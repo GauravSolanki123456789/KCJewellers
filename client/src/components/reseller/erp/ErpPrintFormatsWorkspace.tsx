@@ -9,6 +9,7 @@ import {
   erpInputCls,
   erpOptionSelected,
 } from '@/components/reseller/erp/erp-ui'
+import { appConfirm } from '@/lib/app-notice'
 import { ErpTemplateEditor } from '@/components/reseller/erp/ErpTemplateEditor'
 import {
   DEFAULT_BILL_TEMPLATE,
@@ -584,7 +585,9 @@ export function ErpPrintFormatsWorkspace() {
                                 type="button"
                                 className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700"
                                 onClick={() => {
-                                  if (confirm(`Remove rule "${rule.name}"?`)) removeRule(rule.id)
+                                  void appConfirm(`Remove rule "${rule.name}"?`).then((ok) => {
+                                    if (ok) removeRule(rule.id)
+                                  })
                                 }}
                               >
                                 <Trash2 className="size-4" />

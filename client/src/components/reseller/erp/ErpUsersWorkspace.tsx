@@ -8,6 +8,7 @@ import {
   type ResellerErpModuleId,
 } from '@/lib/reseller-erp-modules'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { appConfirm } from '@/lib/app-notice'
 import type { ErpOperator } from '@/context/ErpOperatorContext'
 
 type OperatorRow = ErpOperator & { lastLoginAt?: string | null }
@@ -125,7 +126,7 @@ export function ErpUsersWorkspace() {
   }
 
   const remove = async (id: number) => {
-    if (!confirm('Remove this ERP user permanently?')) return
+    if (!(await appConfirm('Remove this ERP user permanently?'))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/operators/${id}`)

@@ -12,6 +12,7 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { appConfirm } from '@/lib/app-notice'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, formatErpDateTime } from '@/lib/erp-date-format'
 import { RESELLER_PAYMENT_SETTINGS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
 import { Gem, Loader2, MessageCircle, Plus, Save, Search, Trash2, Wallet } from 'lucide-react'
@@ -262,7 +263,7 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
   }
 
   const deleteScheme = async (id: number) => {
-    if (!window.confirm('Delete this scheme?')) return
+    if (!(await appConfirm('Delete this scheme?'))) return
     setSchemeBusy(true)
     try {
       await axios.delete(`/api/reseller/digi/schemes/${id}`)
@@ -307,7 +308,7 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
   }
 
   const deleteManualTx = async (id: number) => {
-    if (!window.confirm('Remove this manual entry and reverse the balance?')) return
+    if (!(await appConfirm('Remove this manual entry and reverse the balance?'))) return
     try {
       await axios.delete(`/api/reseller/digi/manual-transactions/${id}`)
       await loadTransactions()
