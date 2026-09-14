@@ -560,7 +560,11 @@ async function ensureStockPiecesSchema(pool) {
             DROP CONSTRAINT IF EXISTS reseller_erp_stock_pieces_status_chk;
         ALTER TABLE reseller_erp_stock_pieces
             ADD CONSTRAINT reseller_erp_stock_pieces_status_chk
-            CHECK (status IN ('in_stock', 'sold', 'reserved', 'cancelled', 'lane'));
+            CHECK (status IN ('in_stock', 'sold', 'reserved', 'cancelled', 'lane', 'shadow_sold'));
+    `).catch(() => {});
+    await pool.query(`
+        ALTER TABLE reseller_erp_stock_pieces
+            ADD COLUMN IF NOT EXISTS shadow_bill_id INTEGER;
     `).catch(() => {});
 }
 
@@ -740,7 +744,69 @@ async function markReturnedPiecesSoldAgain(query, resellerUserId, lines) {
     await syncAlertsForPieceIds(query, resellerUserId, touchedIds);
 }
 
-/** Jainav / lane billing — reserve stock without showing as sold in normal ERP views. */
+/** Jainav / cash SCB — hide from ROL / stock scan / inventory, keep RFID and official products look. */
+async function markPiecesShadowSold(query, resellerUserId, lines, shadowBillId) {
+    const barcodes = (lines || [])
+        .map((l) => (l.barcode || l.code || '').trim())
+        .filter(Boolean);
+    if (!barcodes.length) return;
+    const billId = Number(shadowBillId);
+    await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            status = 'shadow_sold',
+            shadow_bill_id = $1,
+            sold_bill_id = NULL,
+            updated_at = NOW()
+         WHERE reseller_user_id = $2 AND barcode = ANY($3::text[]) AND status = 'in_stock'`,
+        [Number.isFinite(billId) && billId > 0 ? billId : null, resellerUserId, barcodes],
+    );
+    const itemCodes = await query(
+        `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
+        [resellerUserId, barcodes],
+    );
+    for (const row of itemCodes) {
+        await syncStockAlertCounts(query, resellerUserId, row.item_code);
+    }
+}
+
+async function restorePiecesFromShadowSold(query, resellerUserId, lines) {
+    const restoredIds = [];
+    for (const line of lines || []) {
+        const pieceId = lineStockPieceId(line);
+        const barcode = lineStockBarcode(line);
+        let rows = [];
+        if (pieceId) {
+            rows = await query(
+                `UPDATE reseller_erp_stock_pieces SET
+                    status = 'in_stock', shadow_bill_id = NULL, updated_at = NOW()
+                 WHERE reseller_user_id = $1 AND id = $2 AND status = 'shadow_sold'
+                 RETURNING id`,
+                [resellerUserId, pieceId],
+            );
+        }
+        if (!rows.length && barcode) {
+            rows = await query(
+                `UPDATE reseller_erp_stock_pieces SET
+                    status = 'in_stock', shadow_bill_id = NULL, updated_at = NOW()
+                 WHERE id = (
+                    SELECT id FROM reseller_erp_stock_pieces
+                    WHERE reseller_user_id = $1
+                      AND status = 'shadow_sold'
+                      AND lower(barcode) = lower($2)
+                    ORDER BY id
+                    LIMIT 1
+                 )
+                 RETURNING id`,
+                [resellerUserId, barcode],
+            );
+        }
+        if (rows[0]) restoredIds.push(rows[0].id);
+    }
+    await syncAlertsForPieceIds(query, resellerUserId, restoredIds);
+}
+
+/** Legacy lane marker — unused for new sales (RFID-safe shadow_sold is used instead). */
 async function markPiecesShadowLane(query, resellerUserId, lines) {
     const barcodes = (lines || [])
         .map((l) => (l.barcode || l.code || '').trim())
@@ -775,7 +841,7 @@ async function markPiecesShadowLane(query, resellerUserId, lines) {
 
 function mapPieceForClient(row, opts = {}) {
     const p = mapPiece(row);
-    if (opts.maskLane !== false && p.status === 'lane') {
+    if (opts.maskLane !== false && (p.status === 'lane' || p.status === 'shadow_sold')) {
         return { ...p, status: 'in_stock' };
     }
     return p;
@@ -921,7 +987,7 @@ async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, exclude
          LEFT JOIN reseller_erp_bills b ON b.id = p.sold_bill_id AND b.reseller_user_id = p.reseller_user_id
          WHERE p.reseller_user_id = $1
            AND lower(trim(p.barcode)) = ANY($2::text[])
-           AND p.status = 'sold'`,
+           AND p.status IN ('sold', 'shadow_sold')`,
         [resellerUserId, normalized],
     );
     for (const row of stockRows) {
@@ -2395,7 +2461,7 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
-    return { lookupStockPiece, markPiecesSold, markPiecesShadowLane, restorePiecesInStock, markReturnedPiecesSoldAgain, syncStockAlertCounts, mapPiece, mapPieceForClient, parseExcelRowToPiece, findSoldBarcodeConflicts };
+    return { lookupStockPiece, markPiecesSold, markPiecesShadowLane, markPiecesShadowSold, restorePiecesFromShadowSold, restorePiecesInStock, markReturnedPiecesSoldAgain, syncStockAlertCounts, mapPiece, mapPieceForClient, parseExcelRowToPiece, findSoldBarcodeConflicts };
 }
 
 module.exports = {
@@ -2404,6 +2470,8 @@ module.exports = {
     lookupStockPiece,
     markPiecesSold,
     markPiecesShadowLane,
+    markPiecesShadowSold,
+    restorePiecesFromShadowSold,
     restorePiecesInStock,
     markReturnedPiecesSoldAgain,
     mapPiece,

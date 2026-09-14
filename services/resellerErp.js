@@ -26,10 +26,12 @@ const {
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
     createCollectedCashLedgerEntry,
+    deleteLedgerEntriesForOfficialBills,
 } = require('./resellerErpLedger');
 const { ensureCashBookCustomers } = require('./resellerErpCustomerAccount');
 const { registerResellerErpPurchaseVoucherRoutes } = require('./resellerErpPurchaseVouchers');
 const { registerResellerErpBackupRoutes } = require('./resellerErpBackup');
+const { registerResellerErpOfflineRoutes } = require('./resellerErpOffline');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./resellerErpDesignMaster');
 const { registerStockCheckRoutes } = require('./resellerErpStockCheck');
@@ -40,6 +42,8 @@ const {
     registerShadowRoutes,
     createShadowBillFromBillingPayload,
     shouldRouteSaleToShadowLedger,
+    shouldRouteReturnToShadowLedger,
+    findShadowBillByOfflineOpId,
 } = require('./resellerErpShadow');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
@@ -655,6 +659,12 @@ async function deleteErpBillCascade(query, userId, existingBill) {
         }
     }
     if (!ids.length) return 0;
+    const numbers = all.map((b) => String(b.bill_number || '').trim()).filter(Boolean);
+    try {
+        await deleteLedgerEntriesForOfficialBills(query, userId, ids, numbers);
+    } catch (le) {
+        console.warn('erp bill delete ledger:', le.message);
+    }
     const rows = await query(
         `DELETE FROM reseller_erp_bills
          WHERE reseller_user_id = $1 AND id = ANY($2::int[])
@@ -704,6 +714,7 @@ function registerResellerErpRoutes(app, deps) {
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpPurchaseVoucherRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpBackupRoutes(app, { query, checkAuth, erpGate });
+    registerResellerErpOfflineRoutes(app, { query, checkAuth, erpGate });
     registerKarigarRoutes(app, {
         query,
         pool,
@@ -1153,6 +1164,57 @@ function registerResellerErpRoutes(app, deps) {
             const status = statusRaw.toLowerCase();
             const sessionObj =
                 req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
+            const offlineOpId = trimStr(sessionObj.offlineOpId || req.body.offline_op_id, 80);
+            if (offlineOpId) {
+                const officialHit = await query(
+                    `SELECT * FROM reseller_erp_bills
+                     WHERE reseller_user_id = $1 AND session_json->>'offlineOpId' = $2
+                     LIMIT 1`,
+                    [req.user.id, offlineOpId],
+                );
+                if (officialHit.length) {
+                    return res.json({ success: true, bill: mapBill(officialHit[0]), replayed: true });
+                }
+                const shadowHit = await findShadowBillByOfflineOpId(query, req.user.id, offlineOpId);
+                if (shadowHit) {
+                    return res.json({
+                        success: true,
+                        shadow: true,
+                        lane: shadowHit.lane,
+                        bill: shadowHit,
+                        replayed: true,
+                    });
+                }
+            }
+    if (
+                ['sales_return', 'credit', 'debit'].includes(billType) &&
+                ['completed', 'paid', 'final', 'issued'].includes(status) &&
+                shouldRouteReturnToShadowLedger(sessionObj, req.session?.shadowUnlocked === true)
+            ) {
+                try {
+                    const op = getSessionOperator(req);
+                    const { bill: shadowBill, lane } = await createShadowBillFromBillingPayload(
+                        query,
+                        req.user.id,
+                        req.body,
+                        op?.id || null,
+                    );
+                    return res.json({
+                        success: true,
+                        shadow: true,
+                        lane,
+                        bill: shadowBill,
+                    });
+                } catch (se) {
+                    if (se.status === 409) {
+                        return res.status(409).json({
+                            error: se.message || 'Could not save return',
+                            conflicts: se.conflicts,
+                        });
+                    }
+                    throw se;
+                }
+            }
     if (
                 billType === 'sale' &&
                 ['completed', 'paid', 'final'].includes(status) &&
@@ -1806,16 +1868,17 @@ function registerResellerErpRoutes(app, deps) {
                 if (p.status === 'lane') {
                     p.status = 'in_stock';
                 }
-                if (p.status === 'sold') {
+                if (p.status === 'shadow_sold' || p.status === 'sold') {
                     const conflicts = await findSoldBarcodeConflicts(query, req.user.id, [code]);
                     const soldBill = conflicts[0]?.sold_bill || null;
+                    const laneNo = soldBill && /^SCB\d{4}-\d+/i.test(String(soldBill.bill_number || ''));
                     return res.status(409).json({
-                        error: soldBill
+                        error: soldBill && !laneNo
                             ? `This piece is already sold in bill ${soldBill.bill_number}`
                             : 'This piece is already sold',
                         availability: stockHit.availability,
-                        sold_bill: soldBill,
-                        conflicts,
+                        sold_bill: soldBill && !laneNo ? soldBill : null,
+                        conflicts: laneNo ? [{ barcode: code, source: 'stock_piece', sold_bill: null }] : conflicts,
                     });
                 }
                 if (p.status !== 'in_stock') {

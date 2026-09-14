@@ -7,8 +7,10 @@ import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
 import { CATALOG_PATH, PROFILE_PATH, RESELLER_ERP_PATH } from '@/lib/routes'
 import type { ReactNode } from 'react'
+import { useEffect } from 'react'
 import { ErpOperatorBar } from '@/components/reseller/erp/ErpOperatorLogin'
 import { ErpQuickNav } from '@/components/reseller/erp/ErpQuickNav'
+import { registerErpOfflineSw, refreshOfflineSnapshotIfStale } from '@/lib/erp-offline-store'
 
 export function useResellerErpAccess() {
   const auth = useAuth()
@@ -38,6 +40,11 @@ export function ResellerErpShell({
   children: ReactNode
   actions?: ReactNode
 }) {
+  useEffect(() => {
+    void registerErpOfflineSw()
+    void refreshOfflineSnapshotIfStale()
+  }, [])
+
   return (
     <div className="min-h-screen bg-[var(--color-slate-950,#faf8f4)] pb-[var(--kc-mobile-nav-stack,5rem)] md:pb-12">
       <div className="border-b border-[var(--color-slate-700,#e8e4df)] bg-white/95 backdrop-blur-sm">

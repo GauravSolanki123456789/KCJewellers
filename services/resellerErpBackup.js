@@ -40,6 +40,16 @@ function slugPart(s) {
 
 async function dumpTable(query, table, userId) {
     try {
+        if (table === 'reseller_erp_stock_pieces') {
+            const rows = await query(
+                `SELECT * FROM reseller_erp_stock_pieces
+                 WHERE reseller_user_id = $1
+                   AND COALESCE(status, 'in_stock') <> 'shadow_sold'
+                 LIMIT ${ROW_LIMIT}`,
+                [userId],
+            );
+            return Array.isArray(rows) ? rows : [];
+        }
         const rows = await query(
             `SELECT * FROM ${table} WHERE reseller_user_id = $1 LIMIT ${ROW_LIMIT}`,
             [userId],

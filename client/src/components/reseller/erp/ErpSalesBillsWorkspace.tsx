@@ -138,7 +138,7 @@ export function ErpSalesBillsWorkspace() {
   }
 
   const deleteOne = async (id: number) => {
-    if (!(await appConfirm('Delete this sales bill?'))) return
+    if (!(await appConfirm('Delete this sales bill? Cash received recorded with this bill will also be removed.'))) return
     setBusy(true)
     try {
       await axios.delete(`/api/reseller/erp/bills/${id}`)
@@ -152,7 +152,7 @@ export function ErpSalesBillsWorkspace() {
   }
 
   const deleteSelected = async () => {
-    if (!selected.size || !(await appConfirm(`Delete ${selected.size} sales bill(s)?`))) return
+    if (!selected.size || !(await appConfirm(`Delete ${selected.size} sales bill(s)? Cash received recorded with those bills will also be removed.`))) return
     setBusy(true)
     try {
       await axios.post('/api/reseller/erp/bills/bulk-delete', { ids: Array.from(selected) })

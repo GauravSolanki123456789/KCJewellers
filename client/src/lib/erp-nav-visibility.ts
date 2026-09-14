@@ -4,6 +4,8 @@ import type { ResellerErpModuleId } from '@/lib/reseller-erp-modules'
 export const JAINAV_ONLY_MODULE_IDS: ResellerErpModuleId[] = [
   'rol',
   'jainav',
+  'jainav-bills',
+  'jainav-ssr',
   'stock-reports',
   'stock-check',
   'jainav-ledger',
@@ -36,6 +38,7 @@ const NEVER_JAINAV_LOCK_IDS = new Set<string>([
   'hardware',
   'print-formats',
   'erp-users',
+  'offline',
 ])
 
 /** Single list: tabs hidden in admin mode until Jainav unlock (F9Rs* + Enter). */
@@ -72,8 +75,11 @@ export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
   'hardware',
   'print-formats',
   'backup',
+  'offline',
   'erp-users',
   'jainav',
+  'jainav-bills',
+  'jainav-ssr',
   'stock-reports',
   'stock-check',
   'jainav-ledger',
@@ -94,7 +100,10 @@ export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
   'sales-reports',
   'tag-splitting',
   'backup',
+  'offline',
   'jainav',
+  'jainav-bills',
+  'jainav-ssr',
   'stock-reports',
   'stock-check',
   'jainav-ledger',
@@ -103,6 +112,8 @@ export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
 /** Default: these tabs require Jainav unlock for admin */
 export const DEFAULT_ERP_JAINAV_UNLOCK_TABS: ResellerErpModuleId[] = [
   'jainav',
+  'jainav-bills',
+  'jainav-ssr',
   'stock-reports',
   'jainav-ledger',
   'rol',

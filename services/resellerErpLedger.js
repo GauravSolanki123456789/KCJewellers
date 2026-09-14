@@ -193,6 +193,8 @@ async function ensureLedgerSchema(pool) {
         );
         ALTER TABLE reseller_erp_ledger_entries
             ADD COLUMN IF NOT EXISTS ledger_scope VARCHAR(16) NOT NULL DEFAULT 'official';
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS shadow_bill_id INTEGER;
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_reseller_date
             ON reseller_erp_ledger_entries (reseller_user_id, entry_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_customer
@@ -358,6 +360,106 @@ async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
         ],
     );
     return rows[0] || null;
+}
+
+async function createShadowCollectedCashLedgerEntry(query, resellerUserId, bill) {
+    const session = bill.session || {};
+    const raw = session.collectedAmountInr ?? session.collected_amount_inr ?? bill.total_inr;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0 || !bill.id) return null;
+    const existing = await query(
+        `SELECT id FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1 AND shadow_bill_id = $2 AND entry_type = 'payment_in'
+           AND lower(coalesce(narration, '')) = 'cash received'
+         LIMIT 1`,
+        [resellerUserId, bill.id],
+    );
+    if (existing.length) return existing[0];
+    let customerId = bill.customer_id || null;
+    if (!customerId) {
+        const cash = await query(
+            `SELECT id FROM reseller_erp_customers
+             WHERE reseller_user_id = $1
+               AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') = 'jainav2'
+             LIMIT 1`,
+            [resellerUserId],
+        );
+        customerId = cash[0]?.id || null;
+    }
+    const rows = await query(
+        `INSERT INTO reseller_erp_ledger_entries (
+            reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
+            shadow_bill_id, payment_mode, reference_no, narration, is_suspense, ledger_scope
+         ) VALUES ($1, $2, 'payment_in', $3, $4, NULL, $5, 'cash', $6, 'cash received', false, 'lane')
+         RETURNING *`,
+        [
+            resellerUserId,
+            bill.bill_date || new Date().toISOString().slice(0, 10),
+            Math.round(amount * 100) / 100,
+            customerId,
+            bill.id,
+            bill.bill_number || null,
+        ],
+    );
+    return rows[0] || null;
+}
+
+async function deleteLedgerEntriesForOfficialBills(query, resellerUserId, billIds, billNumbers) {
+    const ids = (billIds || []).map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n) && n > 0);
+    const numbers = [...new Set((billNumbers || []).map((n) => String(n || '').trim()).filter(Boolean))];
+    if (!ids.length && !numbers.length) return 0;
+    const params = [resellerUserId];
+    const parts = [];
+    if (ids.length) {
+        params.push(ids);
+        parts.push(`bill_id = ANY($${params.length}::int[])`);
+    }
+    if (numbers.length) {
+        params.push(numbers);
+        parts.push(`(
+            entry_type = 'payment_in'
+            AND lower(regexp_replace(coalesce(narration, ''), '\\s+', ' ', 'g')) LIKE '%cash receiv%'
+            AND UPPER(TRIM(COALESCE(reference_no, ''))) = ANY(
+                SELECT UPPER(TRIM(x)) FROM unnest($${params.length}::text[]) AS x
+            )
+        )`);
+    }
+    const rows = await query(
+        `DELETE FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1 AND (${parts.join(' OR ')})
+         RETURNING id`,
+        params,
+    );
+    return rows.length;
+}
+
+async function deleteLedgerEntriesForShadowBills(query, resellerUserId, shadowBillIds, billNumbers) {
+    const ids = (shadowBillIds || []).map((n) => parseInt(String(n), 10)).filter((n) => Number.isFinite(n) && n > 0);
+    const numbers = [...new Set((billNumbers || []).map((n) => String(n || '').trim()).filter(Boolean))];
+    if (!ids.length && !numbers.length) return 0;
+    const params = [resellerUserId];
+    const parts = [];
+    if (ids.length) {
+        params.push(ids);
+        parts.push(`shadow_bill_id = ANY($${params.length}::int[])`);
+    }
+    if (numbers.length) {
+        params.push(numbers);
+        parts.push(`(
+            entry_type = 'payment_in'
+            AND lower(regexp_replace(coalesce(narration, ''), '\\s+', ' ', 'g')) LIKE '%cash receiv%'
+            AND UPPER(TRIM(COALESCE(reference_no, ''))) = ANY(
+                SELECT UPPER(TRIM(x)) FROM unnest($${params.length}::text[]) AS x
+            )
+        )`);
+    }
+    const rows = await query(
+        `DELETE FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1 AND (${parts.join(' OR ')})
+         RETURNING id`,
+        params,
+    );
+    return rows.length;
 }
 
 async function createBillAdvanceLedgerEntry(query, resellerUserId, bill) {
@@ -991,4 +1093,8 @@ module.exports = {
     ensureLedgerSchema,
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
+    createCollectedCashLedgerEntry,
+    createShadowCollectedCashLedgerEntry,
+    deleteLedgerEntriesForOfficialBills,
+    deleteLedgerEntriesForShadowBills,
 };

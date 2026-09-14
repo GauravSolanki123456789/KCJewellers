@@ -3,7 +3,15 @@
  */
 
 const { DEFAULT_SHADOW_SEQUENCE, getSessionOperator, requireErpOperatorAdmin } = require('./resellerErpOperators');
-const { markPiecesSold, markPiecesShadowLane, findSoldBarcodeConflicts } = require('./resellerErpStockPieces');
+const {
+    findSoldBarcodeConflicts,
+    markPiecesShadowSold,
+    restorePiecesFromShadowSold,
+} = require('./resellerErpStockPieces');
+const {
+    createShadowCollectedCashLedgerEntry,
+    deleteLedgerEntriesForShadowBills,
+} = require('./resellerErpLedger');
 
 async function ensureShadowSchema(pool) {
     await pool.query(`
@@ -72,7 +80,21 @@ function mapShadowBill(row) {
         notes: row.notes,
         bill_date: row.bill_date,
         created_at: row.created_at,
+        customer_gstin: row.customer_gstin,
+        shadow: true,
     };
+}
+
+async function findShadowBillByOfflineOpId(query, resellerUserId, opId) {
+    const key = trimStr(opId, 80);
+    if (!key) return null;
+    const rows = await query(
+        `SELECT * FROM reseller_erp_shadow_bills
+         WHERE reseller_user_id = $1 AND session_json->>'offlineOpId' = $2
+         LIMIT 1`,
+        [resellerUserId, key],
+    );
+    return rows[0] ? mapShadowBill(rows[0]) : null;
 }
 
 function hasValidGstin(gst) {
@@ -110,6 +132,18 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
         total = linesRaw.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
     }
     const sessionObj = body.session && typeof body.session === 'object' ? { ...body.session } : {};
+    const offlineOpId = trimStr(sessionObj.offlineOpId || body.offline_op_id, 80);
+    if (offlineOpId) {
+        const existing = await query(
+            `SELECT * FROM reseller_erp_shadow_bills
+             WHERE reseller_user_id = $1 AND session_json->>'offlineOpId' = $2
+             LIMIT 1`,
+            [resellerUserId, offlineOpId],
+        );
+        if (existing.length) {
+            return { bill: mapShadowBill(existing[0]), lane: existing[0].lane, replayed: true };
+        }
+    }
     const collectedRaw = sessionObj.collectedAmountInr ?? sessionObj.collected_amount_inr;
     const collectedN = collectedRaw != null && String(collectedRaw).trim() !== '' ? Number(collectedRaw) : NaN;
     if (Number.isFinite(collectedN) && collectedN > 0) {
@@ -126,15 +160,22 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     });
     const statusRaw = trimStr(body.status, 32) || 'completed';
     const status = statusRaw.toLowerCase();
+    const billType = trimStr(body.bill_type, 32) || 'sale';
     const barcodes = linesRaw.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
-    const conflicts = await findSoldBarcodeConflicts(query, resellerUserId, barcodes);
-    if (conflicts.length) {
-        const err = new Error('One or more items are already sold');
-        err.status = 409;
-        err.conflicts = conflicts;
-        throw err;
+    if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
+        const conflicts = await findSoldBarcodeConflicts(query, resellerUserId, barcodes);
+        if (conflicts.length) {
+            const err = new Error('One or more items are already sold');
+            err.status = 409;
+            err.conflicts = conflicts;
+            throw err;
+        }
     }
-    const billNumber = await nextShadowBillNumber(query, resellerUserId);
+    const billNumber =
+        billType === 'sale'
+            ? await nextShadowBillNumber(query, resellerUserId)
+            : await nextShadowReturnNumber(query, resellerUserId);
+    sessionObj.ledgerScope = 'lane';
     const sessionJson = JSON.stringify(sessionObj);
     const rows = await query(
         `INSERT INTO reseller_erp_shadow_bills (
@@ -147,7 +188,7 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
             resellerUserId,
             billNumber,
             lane,
-            trimStr(body.bill_type, 32) || 'sale',
+            billType,
             body.customer_id != null ? parseInt(String(body.customer_id), 10) || null : null,
             trimStr(body.customer_name, 255),
             customerGstin,
@@ -162,17 +203,76 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
         ],
     );
     const bill = mapShadowBill(rows[0]);
+    if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
+        await markPiecesShadowSold(query, resellerUserId, linesRaw, bill.id);
+        try {
+            await createShadowCollectedCashLedgerEntry(query, resellerUserId, bill);
+        } catch (le) {
+            console.warn('erp shadow cash received:', le.message);
+        }
+        const sourceEstimateId =
+            body.source_estimate_id != null ? parseInt(String(body.source_estimate_id), 10) : null;
+        const sourceEstimateIdsRaw = Array.isArray(body.source_estimate_ids) ? body.source_estimate_ids : [];
+        const sourceEstimateIds = [
+            ...new Set(
+                [
+                    ...(Number.isFinite(sourceEstimateId) && sourceEstimateId > 0 ? [sourceEstimateId] : []),
+                    ...sourceEstimateIdsRaw
+                        .map((v) => parseInt(String(v), 10))
+                        .filter((n) => Number.isFinite(n) && n > 0),
+                ].map((n) => Number(n)),
+            ),
+        ];
+        for (const estId of sourceEstimateIds) {
+            await markEstimateBilledToShadow(query, resellerUserId, estId, bill);
+        }
+    }
+    if (
+        (billType === 'sales_return' || billType === 'credit') &&
+        ['completed', 'paid', 'final', 'issued'].includes(status)
+    ) {
+        await restorePiecesFromShadowSold(query, resellerUserId, linesRaw);
+    }
     return { bill, lane };
 }
 
-async function markEstimateBilledViaLedger(query, resellerUserId, sourceEstimateId) {
+async function markEstimateBilledToShadow(query, resellerUserId, sourceEstimateId, shadowBill) {
     const sourceId = parseInt(String(sourceEstimateId), 10);
     if (!Number.isFinite(sourceId) || sourceId <= 0) return;
-    await query(
-        `DELETE FROM reseller_erp_bills
-         WHERE id = $1 AND reseller_user_id = $2 AND bill_type = 'estimate'`,
+    const estRows = await query(
+        `SELECT id, bill_type, status, session_json FROM reseller_erp_bills
+         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
         [sourceId, resellerUserId],
     );
+    if (!estRows.length || String(estRows[0].bill_type || '').toLowerCase() !== 'estimate') return;
+    let prevSession = estRows[0].session_json;
+    if (typeof prevSession === 'string') {
+        try {
+            prevSession = JSON.parse(prevSession);
+        } catch {
+            prevSession = {};
+        }
+    }
+    const nextSession = {
+        ...(prevSession && typeof prevSession === 'object' ? prevSession : {}),
+        billedShadowBillId: shadowBill.id,
+        billedShadowBillNumber: shadowBill.bill_number,
+        billedAt: new Date().toISOString(),
+        billedViaLedger: true,
+    };
+    await query(
+        `UPDATE reseller_erp_bills
+         SET status = 'billed', session_json = $3::jsonb, updated_at = NOW()
+         WHERE id = $1 AND reseller_user_id = $2 AND bill_type = 'estimate'`,
+        [sourceId, resellerUserId, JSON.stringify(nextSession)],
+    );
+}
+
+async function markEstimateBilledViaLedger(query, resellerUserId, sourceEstimateId) {
+    await markEstimateBilledToShadow(query, resellerUserId, sourceEstimateId, {
+        id: null,
+        bill_number: null,
+    });
 }
 
 function parseSessionJson(raw) {
@@ -331,6 +431,114 @@ async function nextShadowBillNumber(query, resellerUserId) {
         if (m) seq = parseInt(m[1], 10) + 1;
     }
     return `${billPrefix}${seq}`;
+}
+
+async function nextShadowReturnNumber(query, resellerUserId) {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yy = String(now.getFullYear() % 100).padStart(2, '0');
+    const billPrefix = `JSR${mm}${yy}-`;
+    const rows = await query(
+        `SELECT bill_number FROM reseller_erp_shadow_bills
+         WHERE reseller_user_id = $1 AND bill_number LIKE $2
+         ORDER BY id DESC LIMIT 1`,
+        [resellerUserId, `${billPrefix}%`],
+    );
+    let seq = 1;
+    if (rows.length) {
+        const m = String(rows[0].bill_number).match(/-(\d+)$/);
+        if (m) seq = parseInt(m[1], 10) + 1;
+    }
+    return `${billPrefix}${seq}`;
+}
+
+function shouldRouteReturnToShadowLedger(sessionObj, shadowUnlocked) {
+    if (shadowUnlocked !== true) return false;
+    const session = sessionObj && typeof sessionObj === 'object' ? sessionObj : {};
+    return String(session.ledgerScope || '').toLowerCase() === 'lane';
+}
+
+async function listShadowDocuments(query, resellerUserId, opts = {}) {
+    const billType = String(opts.billType || 'sale').trim().toLowerCase() || 'sale';
+    const from = parseDateOrNull(opts.from);
+    const to = parseDateOrNull(opts.to);
+    const onDate = parseDateOrNull(opts.on);
+    const q = String(opts.q || '').trim();
+    const customerId = parseInt(String(opts.customerId || ''), 10);
+    const params = [resellerUserId];
+    let sql = `SELECT * FROM reseller_erp_shadow_bills WHERE reseller_user_id = $1 AND lane = 'jainav'`;
+    if (billType === 'sales_return') {
+        sql += ` AND LOWER(bill_type) IN ('sales_return', 'credit', 'debit')`;
+    } else {
+        params.push(billType);
+        sql += ` AND LOWER(bill_type) = $${params.length}`;
+    }
+    if (Number.isFinite(customerId) && customerId > 0) {
+        params.push(customerId);
+        sql += ` AND customer_id = $${params.length}`;
+    }
+    if (onDate) {
+        params.push(onDate);
+        sql += ` AND bill_date = $${params.length}::date`;
+    } else {
+        if (from) {
+            params.push(from);
+            sql += ` AND bill_date >= $${params.length}::date`;
+        }
+        if (to) {
+            params.push(to);
+            sql += ` AND bill_date <= $${params.length}::date`;
+        }
+    }
+    if (q) {
+        params.push(`%${q}%`);
+        sql += ` AND (
+            bill_number ILIKE $${params.length}
+            OR COALESCE(customer_name,'') ILIKE $${params.length}
+        )`;
+    }
+    sql += ' ORDER BY bill_date DESC, id DESC LIMIT 500';
+    const rows = await query(sql, params);
+    return rows.map(mapShadowBill);
+}
+
+async function deleteShadowBillCascade(query, resellerUserId, existingBill) {
+    const t = String(existingBill.bill_type || '').toLowerCase();
+    const st = String(existingBill.status || '').toLowerCase();
+    try {
+        if ((t === 'sales_return' || t === 'credit') && ['completed', 'paid', 'final', 'issued'].includes(st)) {
+            const sourceId = (existingBill.lines || [])
+                .map((l) => parseInt(String(l.source_bill_id || l.sourceBillId || ''), 10))
+                .find((n) => Number.isFinite(n) && n > 0);
+            await markPiecesShadowSold(
+                query,
+                resellerUserId,
+                existingBill.lines,
+                sourceId || existingBill.id,
+            );
+        } else if (t === 'sale' && ['completed', 'paid', 'final', 'issued'].includes(st)) {
+            await restorePiecesFromShadowSold(query, resellerUserId, existingBill.lines);
+        }
+    } catch (re) {
+        console.warn('erp shadow bill delete stock:', re.message);
+    }
+    try {
+        await deleteLedgerEntriesForShadowBills(
+            query,
+            resellerUserId,
+            [existingBill.id],
+            [existingBill.bill_number],
+        );
+    } catch (le) {
+        console.warn('erp shadow bill delete ledger:', le.message);
+    }
+    const rows = await query(
+        `DELETE FROM reseller_erp_shadow_bills
+         WHERE reseller_user_id = $1 AND id = $2
+         RETURNING id`,
+        [resellerUserId, existingBill.id],
+    );
+    return rows.length;
 }
 
 function requireShadowUnlocked() {
@@ -706,6 +914,129 @@ function registerShadowRoutes(app, deps) {
         }
     });
 
+    app.get('/api/reseller/erp/shadow/documents', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const bills = await listShadowDocuments(query, req.user.id, {
+                billType: req.query.bill_type || 'sale',
+                from: req.query.from,
+                to: req.query.to,
+                on: req.query.on,
+                q: req.query.q,
+                customerId: req.query.customer_id,
+            });
+            res.json({ bills });
+        } catch (e) {
+            console.error('shadow documents list:', e);
+            res.status(500).json({ error: e.message || 'Failed to list documents' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/documents/:id', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_shadow_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Not found' });
+            res.json({ bill: mapShadowBill(rows[0]) });
+        } catch (e) {
+            console.error('shadow document get:', e);
+            res.status(500).json({ error: e.message || 'Failed to load document' });
+        }
+    });
+
+    app.delete('/api/reseller/erp/shadow/documents/:id', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_shadow_bills WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Not found' });
+            const n = await deleteShadowBillCascade(query, req.user.id, mapShadowBill(rows[0]));
+            res.json({ success: true, deleted: n });
+        } catch (e) {
+            console.error('shadow document delete:', e);
+            res.status(500).json({ error: e.message || 'Failed to delete' });
+        }
+    });
+
+    app.post('/api/reseller/erp/shadow/documents/bulk-delete', checkAuth, erpGate, shadowGate, requireJson, async (req, res) => {
+        try {
+            const ids = (Array.isArray(req.body.ids) ? req.body.ids : [])
+                .map((v) => parseInt(String(v), 10))
+                .filter((n) => Number.isFinite(n) && n > 0)
+                .slice(0, 200);
+            if (!ids.length) return res.status(400).json({ error: 'ids required' });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_shadow_bills WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
+                [req.user.id, ids],
+            );
+            let deleted = 0;
+            for (const row of rows) {
+                deleted += await deleteShadowBillCascade(query, req.user.id, mapShadowBill(row));
+            }
+            res.json({ success: true, deleted });
+        } catch (e) {
+            console.error('shadow documents bulk delete:', e);
+            res.status(500).json({ error: e.message || 'Bulk delete failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/source-bills', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const raw = String(req.query.numbers || req.query.q || '').trim();
+            const numbers = raw
+                .split(/[,;\s]+/)
+                .map((s) => s.trim().toUpperCase())
+                .filter(Boolean)
+                .slice(0, 40);
+            if (!numbers.length) return res.json({ bills: [] });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_shadow_bills
+                 WHERE reseller_user_id = $1 AND LOWER(bill_type) = 'sale'
+                   AND LOWER(status) IN ('completed', 'paid', 'final')
+                   AND UPPER(bill_number) = ANY($2::text[])
+                 ORDER BY bill_date DESC, id DESC`,
+                [req.user.id, numbers],
+            );
+            res.json({ bills: rows.map(mapShadowBill) });
+        } catch (e) {
+            console.error('shadow source bills:', e);
+            res.status(500).json({ error: e.message || 'Failed to load bills' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/returned-keys', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT lines_json FROM reseller_erp_shadow_bills
+                 WHERE reseller_user_id = $1 AND LOWER(bill_type) IN ('sales_return', 'credit')
+                   AND LOWER(status) IN ('completed', 'paid', 'final', 'issued')`,
+                [req.user.id],
+            );
+            const keys = new Set();
+            for (const row of rows) {
+                let lines = row.lines_json;
+                if (typeof lines === 'string') {
+                    try { lines = JSON.parse(lines); } catch { lines = []; }
+                }
+                if (!Array.isArray(lines)) continue;
+                for (const line of lines) {
+                    const k = String(line.source_line_key || '').trim();
+                    if (k) keys.add(k);
+                }
+            }
+            res.json({ keys: [...keys] });
+        } catch (e) {
+            console.error('shadow returned keys:', e);
+            res.status(500).json({ error: e.message || 'Failed to load returned items' });
+        }
+    });
+
     app.get('/api/reseller/erp/shadow/bills', checkAuth, erpGate, shadowGate, async (req, res) => {
         try {
             const lane = String(req.query.lane || '').trim().toLowerCase();
@@ -780,6 +1111,12 @@ function registerShadowRoutes(app, deps) {
                 ],
             );
             const bill = mapShadowBill(rows[0]);
+            await markPiecesShadowSold(query, req.user.id, linesRaw, bill.id);
+            try {
+                await createShadowCollectedCashLedgerEntry(query, req.user.id, bill);
+            } catch (le) {
+                console.warn('erp shadow cash received:', le.message);
+            }
             res.json({ success: true, bill });
         } catch (e) {
             console.error('shadow bill create:', e);
@@ -992,4 +1329,6 @@ module.exports = {
     createShadowBillFromBillingPayload,
     markEstimateBilledViaLedger,
     shouldRouteSaleToShadowLedger,
+    shouldRouteReturnToShadowLedger,
+    findShadowBillByOfflineOpId,
 };

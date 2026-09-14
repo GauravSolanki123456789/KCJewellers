@@ -77,6 +77,17 @@ import { ErpBillingStackedRow } from '@/components/reseller/erp/ErpBillingStacke
 import { resolveCustomerPlaceOfSupply } from '@/lib/erp-place-of-supply'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import {
+  enqueueOfflineCustomer,
+  enqueueOfflineDocument,
+  isOfflineOrNetworkError,
+  loadCachedDisplayRates,
+  lookupOfflineProduct,
+  pendingOfflineCount,
+  refreshOfflineSnapshotIfStale,
+  registerErpOfflineSw,
+  searchOfflineCustomers,
+} from '@/lib/erp-offline-store'
+import {
   ErpBillingStyleSkuCell,
   styleOptionsForCatalog,
 } from '@/components/reseller/erp/ErpBillingStyleSkuCell'
@@ -310,6 +321,8 @@ export function ErpBillingWorkspace() {
   const [estimateNoInput, setEstimateNoInput] = useState('')
   const [estimateLookupBusy, setEstimateLookupBusy] = useState(false)
   const [scanBusy, setScanBusy] = useState(false)
+  const [offlineMode, setOfflineMode] = useState(false)
+  const [offlinePending, setOfflinePending] = useState(0)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [customerSaveBusy, setCustomerSaveBusy] = useState(false)
@@ -393,6 +406,27 @@ export function ErpBillingWorkspace() {
 
   useEffect(() => {
     void fetchGstInvoiceItems().then(setGstInvoiceItems)
+  }, [])
+
+  useEffect(() => {
+    void registerErpOfflineSw()
+    void refreshOfflineSnapshotIfStale()
+    const refreshPending = () => {
+      void pendingOfflineCount().then(setOfflinePending)
+    }
+    refreshPending()
+    const on = () => {
+      setOfflineMode(false)
+      refreshPending()
+    }
+    const off = () => setOfflineMode(true)
+    setOfflineMode(typeof navigator !== 'undefined' && navigator.onLine === false)
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => {
+      window.removeEventListener('online', on)
+      window.removeEventListener('offline', off)
+    }
   }, [])
 
   useEffect(() => {
@@ -538,17 +572,31 @@ export function ErpBillingWorkspace() {
 
   const loadDisplayRates = useCallback(async () => {
     const url = `/api/rates/display${ratesApiQueryForStorefront()}`
-    const res = await cachedGet(url, () =>
-      axios.get<{ rates?: unknown }>(url),
-    )
-    const rates = res.data.rates ?? res.data
-    setDisplayRates(rates)
-    const pg = displayRatesToPerGram(rates)
-    setGoldPerG(pg.gold)
-    setSilverPerG(pg.silver)
-    setEditGold(String(pg.gold || ''))
-    setEditSilver(String(pg.silver || ''))
-    return rates
+    try {
+      const res = await cachedGet(url, () => axios.get<{ rates?: unknown }>(url))
+      const rates = res.data.rates ?? res.data
+      setDisplayRates(rates)
+      const pg = displayRatesToPerGram(rates)
+      setGoldPerG(pg.gold)
+      setSilverPerG(pg.silver)
+      setEditGold(String(pg.gold || ''))
+      setEditSilver(String(pg.silver || ''))
+      return rates
+    } catch (e) {
+      if (isOfflineOrNetworkError(e)) {
+        const cached = await loadCachedDisplayRates()
+        if (cached) {
+          setDisplayRates(cached)
+          const pg = displayRatesToPerGram(cached)
+          setGoldPerG(pg.gold)
+          setSilverPerG(pg.silver)
+          setEditGold(String(pg.gold || ''))
+          setEditSilver(String(pg.silver || ''))
+          return cached
+        }
+      }
+      throw e
+    }
   }, [])
 
   useEffect(() => {
@@ -816,11 +864,19 @@ export function ErpBillingWorkspace() {
   const loadCustomers = useCallback(async (q: string) => {
     const params = q.trim() ? { q: q.trim() } : {}
     const cacheKey = `/api/reseller/erp/customers?${JSON.stringify(params)}`
-    const res = await cachedGet(cacheKey, () =>
-      axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params }),
-      30000,
-    )
-    setCustomers(res.data.customers || [])
+    try {
+      const res = await cachedGet(cacheKey, () =>
+        axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params }),
+        30000,
+      )
+      setCustomers(res.data.customers || [])
+    } catch (e) {
+      if (isOfflineOrNetworkError(e)) {
+        setCustomers(await searchOfflineCustomers(q))
+        return
+      }
+      setCustomers([])
+    }
   }, [])
 
   useEffect(() => {
@@ -861,18 +917,18 @@ export function ErpBillingWorkspace() {
       return
     }
     setCustomerSaveBusy(true)
+    const payload = {
+      name,
+      mobile: mobile.trim() || undefined,
+      address: address.trim() || undefined,
+      pan: customerPan.trim() || undefined,
+      gstin: customerGst.trim() || undefined,
+      birthdate: customerBirthdate.trim() || undefined,
+      anniversary_date: customerAnniversary.trim() || undefined,
+      notes: customerNotes.trim() || undefined,
+      rate_slab: rateSlab,
+    }
     try {
-      const payload = {
-        name,
-        mobile: mobile.trim() || undefined,
-        address: address.trim() || undefined,
-        pan: customerPan.trim() || undefined,
-        gstin: customerGst.trim() || undefined,
-        birthdate: customerBirthdate.trim() || undefined,
-        anniversary_date: customerAnniversary.trim() || undefined,
-        notes: customerNotes.trim() || undefined,
-        rate_slab: rateSlab,
-      }
       const res = customerId
         ? await axios.put<{ success: boolean; customer: ErpCustomer }>(
             `/api/reseller/erp/customers/${customerId}`,
@@ -884,6 +940,16 @@ export function ErpBillingWorkspace() {
           )
       selectCustomer(res.data.customer)
     } catch (e) {
+      if (isOfflineOrNetworkError(e)) {
+        if (customerId && customerId > 0) {
+          alert('No network. Customer details stay on this bill and will save with the bill when Wi-Fi returns.')
+          return
+        }
+        const local = await enqueueOfflineCustomer(payload)
+        selectCustomer(local)
+        setOfflinePending((n) => n + 1)
+        return
+      }
       alert(erpErr(e))
     } finally {
       setCustomerSaveBusy(false)
@@ -1064,6 +1130,23 @@ export function ErpBillingWorkspace() {
         setSoldStockMessage(msg)
         setSoldStockOpen(true)
         setScanErrorMsg(null)
+      } else if (isOfflineOrNetworkError(e)) {
+        const local = await lookupOfflineProduct(code)
+        if (local && 'sold' in local) {
+          setSoldStockMessage('This item is already sold.')
+          setSoldStockOpen(true)
+          setScanErrorMsg(null)
+        } else if (local && 'product' in local) {
+          let line = productToLine(local.product, code, rateSlab)
+          const mrpNames = mrpInvoiceItemNames(gstInvoiceItems)
+          if (mrpNames.has(String(line.invoice_item_name || line.name || '').trim().toUpperCase())) {
+            line = { ...line, mrpMode: true }
+          }
+          line = recalcLine(line)
+          setLines((prev) => [...prev, line])
+        } else {
+          setScanErrorMsg('No network and this barcode is not in the device cache. Prepare this device on Wi-Fi first.')
+        }
       } else {
       setScanErrorMsg(erpErr(e))
       }
@@ -1496,11 +1579,11 @@ export function ErpBillingWorkspace() {
   ): Promise<ErpBill | null> => {
     if (saveBusy || lines.length === 0) return null
     setSaveBusy(true)
+    const payload = buildPayload(billType, status, {
+      bill_number: opts?.bill_number,
+      placeOfSupply: opts?.placeOfSupply,
+    })
     try {
-      const payload = buildPayload(billType, status, {
-        bill_number: opts?.bill_number,
-        placeOfSupply: opts?.placeOfSupply,
-      })
       let bill: ErpBill
       if (editingBillId && billType === 'estimate') {
         const res = await axios.put<{ bill: ErpBill }>(`/api/reseller/erp/bills/${editingBillId}`, payload)
@@ -1533,6 +1616,24 @@ export function ErpBillingWorkspace() {
       if (err.response?.status === 409 && err.response.data?.conflicts?.length) {
         setSoldStockMessage(formatSoldStockMessage(err.response.data.conflicts))
         setSoldStockOpen(true)
+      } else if (isOfflineOrNetworkError(e)) {
+        try {
+          const queued = await enqueueOfflineDocument({
+            type: billType,
+            payload: payload as Record<string, unknown>,
+          })
+          setOfflinePending((n) => n + 1)
+          if (billType === 'estimate') {
+            setEditingBillId(queued.id)
+            setEditingBillNumber(queued.bill_number)
+            setEditingBillStatus(queued.status)
+          }
+          if (billType === 'sale' && !opts?.skipReset) resetBill()
+          return queued
+        } catch (qe) {
+          alert(erpErr(qe))
+          return null
+        }
       } else {
       alert(erpErr(e))
       }
@@ -1557,7 +1658,7 @@ export function ErpBillingWorkspace() {
     })
     if (!bill) return
     const shadowBill = bill as ErpBill & { shadow?: boolean; lane?: 'hitesh' | 'jainav' }
-    if (shadowBill.shadow) {
+    if (shadowBill.shadow || String(bill.bill_number || '').startsWith('OFF-')) {
       resetBill()
       return
     }
@@ -1844,6 +1945,19 @@ export function ErpBillingWorkspace() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {(offlineMode || offlinePending > 0) ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-[#1a1814]">
+          <p>
+            {offlineMode
+              ? 'No network — scans and saves stay on this device until you merge.'
+              : `${offlinePending} item(s) on this device waiting to merge after Wi-Fi.`}
+          </p>
+          <Link href={resellerErpModulePath('offline')} className="font-semibold text-emerald-800 underline">
+            Exhibition / offline
+          </Link>
+        </div>
+      ) : null}
 
       {combinedEstimateNumbers ? (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-[#1a1814]">

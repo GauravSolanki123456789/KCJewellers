@@ -60,7 +60,7 @@ function completedSale(bill: ErpBill) {
   return ['completed', 'paid', 'final'].includes(String(bill.status || '').toLowerCase())
 }
 
-export function ErpSalesReturnWorkspace() {
+export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boolean }) {
   const { canDeleteRecords } = useErpOperator()
   const auth = useAuth()
   const shopName = useMemo(() => {
@@ -110,23 +110,29 @@ export function ErpSalesReturnWorkspace() {
 
   const loadHistory = useCallback(async () => {
     try {
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
-        params: { bill_type: 'sales_return', from: '2000-01-01' },
-      })
+      const res = laneMode
+        ? await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/shadow/documents', {
+            params: { bill_type: 'sales_return', from: '2000-01-01' },
+          })
+        : await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
+            params: { bill_type: 'sales_return', from: '2000-01-01' },
+          })
       setHistory(res.data.bills || [])
     } catch {
       setHistory([])
     }
-  }, [])
+  }, [laneMode])
 
   const loadReturnedKeys = useCallback(async () => {
     try {
-      const res = await axios.get<{ keys: string[] }>('/api/reseller/erp/sales-returns/returned-keys')
+      const res = laneMode
+        ? await axios.get<{ keys: string[] }>('/api/reseller/erp/shadow/returned-keys')
+        : await axios.get<{ keys: string[] }>('/api/reseller/erp/sales-returns/returned-keys')
       setReturnedKeys(new Set(res.data.keys || []))
     } catch {
       setReturnedKeys(new Set())
     }
-  }, [])
+  }, [laneMode])
 
   useEffect(() => {
     void loadHistory()
@@ -141,7 +147,9 @@ export function ErpSalesReturnWorkspace() {
         return
       }
       void axios
-        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params: { q: custQ.trim() } })
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+          params: { q: custQ.trim(), ...(laneMode ? { lane_books: '1' } : {}) },
+        })
         .then((r) => setCustResults(r.data.customers || []))
         .catch(() => setCustResults([]))
     }, 200)
@@ -164,9 +172,13 @@ export function ErpSalesReturnWorkspace() {
     setBusy(true)
     setMsg(null)
     try {
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/sales-returns/source-bills', {
-        params: { numbers: raw },
-      })
+      const res = laneMode
+        ? await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/shadow/source-bills', {
+            params: { numbers: raw },
+          })
+        : await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/sales-returns/source-bills', {
+            params: { numbers: raw },
+          })
       const bills = res.data.bills || []
       if (!bills.length) setMsg(`No completed sale found for ${raw}.`)
       else {
@@ -186,9 +198,13 @@ export function ErpSalesReturnWorkspace() {
     setCustResults([])
     setBusy(true)
     try {
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
-        params: { bill_type: 'sale', customer_id: c.id },
-      })
+      const res = laneMode
+        ? await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/shadow/documents', {
+            params: { bill_type: 'sale', customer_id: c.id, from: '2000-01-01' },
+          })
+        : await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
+            params: { bill_type: 'sale', customer_id: c.id },
+          })
       setCustomerBills((res.data.bills || []).filter(completedSale))
     } catch (e) {
       setMsg(erpErr(e))
@@ -433,7 +449,7 @@ export function ErpSalesReturnWorkspace() {
     }
     const totals = computeReturnTotals(lines)
     const first = selectedBills[0]
-    const lane = sourceBillsUseLaneLedger(selectedBills)
+    const lane = laneMode || sourceBillsUseLaneLedger(selectedBills)
     setBusy(true)
     setMsg(null)
     try {
@@ -499,7 +515,7 @@ export function ErpSalesReturnWorkspace() {
       return
     }
     const first = selectedBills[0]
-    const lane = sourceBillsUseLaneLedger(selectedBills)
+    const lane = laneMode || sourceBillsUseLaneLedger(selectedBills)
     const taxable = Math.round((amt / 1.03) * 100) / 100
     const gst = Math.round((amt - taxable) * 100) / 100
     setBusy(true)
@@ -553,16 +569,20 @@ export function ErpSalesReturnWorkspace() {
         setMsg(`Opened ${fromHistory.bill_number}.`)
         return
       }
-      const res = await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
-        params: { bill_types: 'sales_return,credit,debit', from: '2000-01-01', q: raw },
-      })
+      const res = laneMode
+        ? await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/shadow/documents', {
+            params: { bill_type: 'sales_return', from: '2000-01-01', q: raw },
+          })
+        : await axios.get<{ bills: ErpBill[] }>('/api/reseller/erp/bills', {
+            params: { bill_types: 'sales_return,credit,debit', from: '2000-01-01', q: raw },
+          })
       const bills = res.data.bills || []
       const match =
         bills.find((b) => erpDocNumbersMatch(b.bill_number, raw)) ||
         (bills.length === 1 ? bills[0] : null)
       if (!match) {
         setLookedUpSsr(null)
-        setMsg(`No SSR found for ${raw}.`)
+        setMsg(`No ${laneMode ? 'JSR' : 'SSR'} found for ${raw}.`)
         return
       }
       setLookedUpSsr(match)
@@ -585,7 +605,9 @@ export function ErpSalesReturnWorkspace() {
     }
     setBusy(true)
     try {
-      await axios.delete(`/api/reseller/erp/bills/${id}`)
+      await axios.delete(
+        laneMode ? `/api/reseller/erp/shadow/documents/${id}` : `/api/reseller/erp/bills/${id}`,
+      )
       if (lookedUpSsr?.id === id) setLookedUpSsr(null)
       await loadHistory()
       await loadReturnedKeys()
@@ -604,7 +626,9 @@ export function ErpSalesReturnWorkspace() {
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Jewellery ERP
             </p>
-            <h2 className="text-lg font-bold text-[var(--color-jewelry-black,#1a1814)]">Sales return</h2>
+            <h2 className="text-lg font-bold text-[var(--color-jewelry-black,#1a1814)]">
+              {laneMode ? 'Jainav sales return' : 'Sales return'}
+            </h2>
           </div>
           <button type="button" className={erpBtnGhost} onClick={() => void loadHistory()}>
             Refresh
@@ -613,7 +637,7 @@ export function ErpSalesReturnWorkspace() {
         <div className="mb-3 flex flex-col gap-2 sm:flex-row">
           <input
             className={erpInputCls}
-            placeholder="Enter SSR number — SSR001, SSR002…"
+            placeholder={laneMode ? 'Enter JSR number — JSR0926-1…' : 'Enter SSR number — SSR001, SSR002…'}
             value={ssrLookup}
             onChange={(e) => setSsrLookup(e.target.value)}
             onKeyDown={(e) => {
@@ -625,7 +649,7 @@ export function ErpSalesReturnWorkspace() {
           />
           <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void lookupSsr()}>
             <Search className="size-4" />
-            Open SSR
+            Open {laneMode ? 'JSR' : 'SSR'}
           </button>
         </div>
         {lookedUpSsr ? (

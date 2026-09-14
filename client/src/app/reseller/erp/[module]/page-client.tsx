@@ -29,6 +29,8 @@ import { ErpShadowWorkspace } from '@/components/reseller/erp/ErpShadowWorkspace
 import { ErpStockReportWorkspace } from '@/components/reseller/erp/ErpStockReportWorkspace'
 import { ErpStockCheckWorkspace } from '@/components/reseller/erp/ErpStockCheckWorkspace'
 import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
+import { ErpJainavBillsWorkspace } from '@/components/reseller/erp/ErpJainavBillsWorkspace'
+import { ErpOfflineWorkspace } from '@/components/reseller/erp/ErpOfflineWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { isJainavModule } from '@/lib/reseller-erp-modules'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
@@ -216,10 +218,24 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpUsersWorkspace />
     case 'backup':
       return <ErpBackupWorkspace />
+    case 'offline':
+      return <ErpOfflineWorkspace />
     case 'jainav':
       return (
         <ErpJainavGate>
           <ErpShadowWorkspace embedded />
+        </ErpJainavGate>
+      )
+    case 'jainav-bills':
+      return (
+        <ErpJainavGate>
+          <ErpJainavBillsWorkspace />
+        </ErpJainavGate>
+      )
+    case 'jainav-ssr':
+      return (
+        <ErpJainavGate>
+          <ErpSalesReturnWorkspace laneMode />
         </ErpJainavGate>
       )
     case 'stock-reports':

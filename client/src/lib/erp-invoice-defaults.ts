@@ -116,7 +116,8 @@ export function formatSoldStockMessage(conflicts: SoldBillConflict[]): string {
   if (!conflicts.length) return 'This item is already sold.'
   const lines = conflicts.map((c) => {
     const b = c.sold_bill
-    if (!b) return `${c.barcode}: already sold`
+    const laneNo = /^SCB\d{4}-\d+/i.test(String(b?.bill_number || '')) || /^JSR\d{4}-\d+/i.test(String(b?.bill_number || ''))
+    if (!b || laneNo) return `${c.barcode}: already sold`
     const parts = [
       b.bill_number ? `Bill ${b.bill_number}` : null,
       b.customer_name ? `Customer: ${b.customer_name}` : null,

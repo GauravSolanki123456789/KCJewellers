@@ -27,6 +27,7 @@ import {
   Users,
   Vault,
   Warehouse,
+  WifiOff,
 } from 'lucide-react'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import type { ErpNavVisibility } from '@/lib/erp-nav-visibility'
@@ -62,9 +63,12 @@ export type ResellerErpModuleId =
   | 'erp-users'
   | 'backup'
   | 'jainav'
+  | 'jainav-bills'
+  | 'jainav-ssr'
   | 'stock-reports'
   | 'stock-check'
   | 'jainav-ledger'
+  | 'offline'
   /** @deprecated use jainav */
   | 'shadow'
 
@@ -337,11 +341,40 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     kind: 'workspace',
   },
   {
+    id: 'offline',
+    title: 'Exhibition / offline',
+    short: 'Offline',
+    description: 'Work without Wi-Fi · queue bills · merge when online',
+    icon: WifiOff,
+    group: 'tools',
+    kind: 'workspace',
+  },
+  {
     id: 'jainav',
     title: 'Hitesh & Jainav',
     short: 'Day close',
     description: 'Lane billing · export · purge',
     icon: Vault,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
+  {
+    id: 'jainav-bills',
+    title: 'Jainav bills',
+    short: 'Jainav bills',
+    description: 'SCB bills · preview · PDF · Excel · filters',
+    icon: FileText,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
+  {
+    id: 'jainav-ssr',
+    title: 'Jainav SSR',
+    short: 'Jainav SSR',
+    description: 'Returns against SCB bills · JSR numbers',
+    icon: Undo2,
     group: 'jainav',
     kind: 'workspace',
     jainavOnly: true,
