@@ -180,11 +180,24 @@ function ImportCustomerSearch({
         placeholder="Search name, mobile, GST…"
         value={q}
         onChange={(e) => {
-          setQ(e.target.value)
+          const next = e.target.value
+          setQ(next)
           setOpen(true)
-          if (!e.target.value.trim()) {
+          if (customerId && next.trim() !== String(customerName || '').trim()) {
             onPick({ customer_id: null, customer_name: null, is_suspense: true })
           }
+          if (!next.trim()) {
+            onPick({ customer_id: null, customer_name: null, is_suspense: true })
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || !hits.length) return
+          e.preventDefault()
+          const c = hits[0]
+          setQ(c.name)
+          setHits([])
+          setOpen(false)
+          onPick({ customer_id: c.id, customer_name: c.name, is_suspense: false })
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => {
@@ -1545,25 +1558,30 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                   value={payCustomerQ}
                   disabled={form.is_suspense}
                   onChange={(e) => {
-                    setPayCustomerQ(e.target.value)
+                    const next = e.target.value
+                    setPayCustomerQ(next)
                     setPayCustomerPickIdx(-1)
-                    if (!e.target.value.trim()) {
+                    if (!next.trim()) {
+                      setForm({ ...form, customer_id: '' })
+                      setPayCustomerLabel('')
+                    } else if (form.customer_id && next.trim() !== payCustomerLabel.split(' · ')[0]?.trim()) {
                       setForm({ ...form, customer_id: '' })
                       setPayCustomerLabel('')
                     }
                   }}
                   onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
                     const list = payCustomerResults.slice(0, 8)
-                    if (!list.length) return
-                    if (e.key === 'ArrowDown') {
+                    if (e.key === 'ArrowDown' && list.length) {
                       e.preventDefault()
                       setPayCustomerPickIdx((i) => Math.min(i + 1, list.length - 1))
-                    } else if (e.key === 'ArrowUp') {
+                    } else if (e.key === 'ArrowUp' && list.length) {
                       e.preventDefault()
                       setPayCustomerPickIdx((i) => Math.max(i - 1, 0))
-                    } else if (e.key === 'Enter' && payCustomerPickIdx >= 0) {
+                    } else if (e.key === 'Enter' && list.length) {
                       e.preventDefault()
-                      const c = list[payCustomerPickIdx]
+                      const idx =
+                        payCustomerPickIdx >= 0 && payCustomerPickIdx < list.length ? payCustomerPickIdx : 0
+                      const c = list[idx]
                       setForm({ ...form, customer_id: String(c.id), is_suspense: false })
                       setPayCustomerQ(c.name)
                       setPayCustomerLabel(c.mobile ? `${c.name} · ${c.mobile}` : c.name)
@@ -1571,7 +1589,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     }
                   }}
                 />
-                {payCustomerResults.length > 0 && payCustomerQ.trim() && !form.customer_id ? (
+                {payCustomerResults.length > 0 && payCustomerQ.trim() ? (
                   <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
                     {payCustomerResults.slice(0, 8).map((c, i) => (
                       <li key={c.id}>

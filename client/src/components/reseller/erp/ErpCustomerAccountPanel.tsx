@@ -116,16 +116,16 @@ export function ErpCustomerAccountPanel({
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     const list = results.slice(0, 8)
-    if (!list.length) return
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown' && list.length) {
       e.preventDefault()
       setPickIdx((i) => Math.min(i + 1, list.length - 1))
-    } else if (e.key === 'ArrowUp') {
+    } else if (e.key === 'ArrowUp' && list.length) {
       e.preventDefault()
       setPickIdx((i) => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' && pickIdx >= 0 && pickIdx < list.length) {
+    } else if (e.key === 'Enter' && list.length) {
       e.preventDefault()
-      pickCustomer(list[pickIdx])
+      const idx = pickIdx >= 0 && pickIdx < list.length ? pickIdx : 0
+      pickCustomer(list[idx])
     }
   }
 
@@ -185,12 +185,18 @@ export function ErpCustomerAccountPanel({
           placeholder="Search customer by name or mobile…"
           value={q}
           onChange={(e) => {
-            setQ(e.target.value)
+            const next = e.target.value
+            setQ(next)
             setPickIdx(-1)
+            if (selected && next.trim() !== selected.name.trim()) {
+              setSelected(null)
+              setAccount(null)
+              onCustomerSelected?.(null)
+            }
           }}
           onKeyDown={onKeyDown}
         />
-        {results.length > 0 && q.trim() && !selected ? (
+        {results.length > 0 && q.trim() ? (
           <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
             {results.slice(0, 8).map((c, i) => (
               <li key={c.id}>

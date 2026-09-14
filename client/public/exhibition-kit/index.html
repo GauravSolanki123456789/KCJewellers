@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a1814" />
+  <title>KC Exhibition Billing</title>
+  <style>
+    :root {
+      --bg: #f7f4ef;
+      --card: #ffffff;
+      --text: #1a1814;
+      --muted: #6b6560;
+      --accent: #047857;
+      --border: #e8e4df;
+      --danger: #be123c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    h1 { font-size: 1.1rem; margin: 0; }
+    .sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    main { padding: 12px; max-width: 720px; margin: 0 auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    label { display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+    input, select, button, textarea {
+      font: inherit;
+      width: 100%;
+      min-height: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      background: #fff;
+      color: var(--text);
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+    .lines { margin-top: 10px; }
+    .line {
+      display: flex; justify-content: space-between; gap: 8px;
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+      background: #ecfdf5; color: #065f46;
+    }
+    .msg { font-size: 0.85rem; padding: 10px 12px; border-radius: 12px; margin-top: 8px; }
+    .msg.ok { background: #ecfdf5; color: #065f46; }
+    .msg.err { background: #fff1f2; color: var(--danger); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .actions button { width: auto; flex: 1 1 140px; }
+    .total { font-size: 1.25rem; font-weight: 700; margin-top: 8px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KC Exhibition Billing</h1>
+    <p class="sub" id="status">No pack loaded</p>
+  </header>
+  <main>
+    <section class="card" id="setup">
+      <label>1 · Load exhibition pack (.json from shop ERP)</label>
+      <input type="file" id="packFile" accept=".json,application/json" />
+      <div class="actions">
+        <button type="button" class="secondary" id="exportBtn" disabled>Export return pack</button>
+      </div>
+      <p id="setupMsg" class="msg hidden"></p>
+    </section>
+
+    <section class="card hidden" id="billing">
+      <div class="row">
+        <div>
+          <label>Customer</label>
+          <input id="custQ" placeholder="Search name or mobile…" autocomplete="off" />
+          <select id="custPick" class="hidden"></select>
+        </div>
+        <div>
+          <label>Scan barcode</label>
+          <input id="scan" placeholder="Scan or type barcode…" autocomplete="off" />
+        </div>
+      </div>
+      <div class="lines" id="lines"></div>
+      <p class="total">Total: ₹<span id="total">0</span></p>
+      <div class="row">
+        <div>
+          <label>Collected (₹)</label>
+          <input id="collected" type="number" inputmode="decimal" />
+        </div>
+        <div>
+          <label>Type</label>
+          <select id="billType">
+            <option value="estimate">Estimate</option>
+            <option value="sale">Cash bill</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" id="saveBtn">Save</button>
+        <button type="button" class="secondary" id="clearBtn">Clear cart</button>
+      </div>
+      <p id="billMsg" class="msg hidden"></p>
+    </section>
+
+    <section class="card hidden" id="queueSec">
+      <label>Saved on this device (<span id="qCount">0</span>)</label>
+      <div id="queueList" style="font-size:0.85rem;color:var(--muted)"></div>
+    </section>
+  </main>
+  <script>
+    const STORAGE = 'kc-exhibition-v1';
+    let state = { pack: null, cart: [], queue: [], counters: {} };
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE);
+        if (raw) state = JSON.parse(raw);
+      } catch (_) {}
+    }
+    function saveState() {
+      localStorage.setItem(STORAGE, JSON.stringify(state));
+    }
+    function uid() {
+      return 'ex-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9);
+    }
+    function showMsg(el, text, ok) {
+      el.textContent = text;
+      el.className = 'msg ' + (ok ? 'ok' : 'err');
+      el.classList.remove('hidden');
+    }
+    function fmt(n) {
+      return (Math.round(Number(n || 0) * 100) / 100).toLocaleString('en-IN');
+    }
+    function nextEstimateNo() {
+      let n = state.counters.nextEstimateSlot || 1;
+      const used = new Set((state.queue || []).filter(q => q.type === 'estimate').map(q => q.localBillNumber));
+      let num = `ESTIMATE-${String(n).padStart(3, '0')}`;
+      while (used.has(num)) { n++; num = `ESTIMATE-${String(n).padStart(3, '0')}`; }
+      state.counters.nextEstimateSlot = n + 1;
+      return num;
+    }
+    function nextLocalScb() {
+      const hint = state.counters.nextShadowBillNumber || 'SCB0000-1';
+      const m = hint.match(/^(SCB\d{4}-)(\d+)$/);
+      if (!m) return hint;
+      let seq = parseInt(m[2], 10);
+      const prefix = m[1];
+      const used = new Set((state.queue || []).filter(q => q.type === 'sale').map(q => q.localBillNumber));
+      let num = prefix + seq;
+      while (used.has(num)) { seq++; num = prefix + seq; }
+      state.counters.nextShadowBillNumber = prefix + (seq + 1);
+      return num;
+    }
+    function applyPack(pack) {
+      state.pack = pack;
+      state.counters = {
+        nextEstimateNumber: pack.counters?.nextEstimateNumber,
+        nextShadowBillNumber: pack.counters?.nextShadowBillNumber,
+        nextEstimateSlot: parseInt(String(pack.counters?.nextEstimateNumber || 'ESTIMATE-001').split('-')[1], 10) || 1,
+      };
+      saveState();
+      document.getElementById('status').textContent =
+        `${(pack.snapshot?.customers || []).length} customers · ${(pack.snapshot?.pieces || []).length} barcodes`;
+      document.getElementById('billing').classList.remove('hidden');
+      document.getElementById('queueSec').classList.remove('hidden');
+      document.getElementById('exportBtn').disabled = false;
+      renderQueue();
+    }
+    function findPiece(code) {
+      const c = String(code || '').trim().toLowerCase();
+      if (!c || !state.pack?.snapshot?.pieces) return null;
+      const blocked = new Set((state.pack.snapshot.blockedBarcodes || []).map(b => String(b).toLowerCase()));
+      if (blocked.has(c)) return { error: 'Already sold in shop' };
+      const soldLocal = new Set();
+      (state.queue || []).forEach(q => {
+        if (q.type !== 'sale') return;
+        (q.payload?.lines || []).forEach(l => soldLocal.add(String(l.barcode || l.code || '').toLowerCase()));
+      });
+      if (soldLocal.has(c)) return { error: 'Already billed on this device' };
+      return state.pack.snapshot.pieces.find(p => String(p.barcode || '').toLowerCase() === c) || null;
+    }
+    function renderCart() {
+      const el = document.getElementById('lines');
+      el.innerHTML = state.cart.map((l, i) =>
+        `<div class="line"><span>${l.barcode} · ${l.name || l.product_name || ''}</span><span>₹${fmt(l.lineTotalInr)}</span></div>`
+      ).join('') || '<p style="color:var(--muted);font-size:0.85rem">Scan items to add</p>';
+      const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
+      document.getElementById('total').textContent = fmt(total);
+      document.getElementById('collected').value = total ? String(Math.round(total)) : '';
+    }
+    function renderQueue() {
+      document.getElementById('qCount').textContent = (state.queue || []).length;
+      document.getElementById('queueList').innerHTML = (state.queue || []).slice(-8).reverse().map(q =>
+        `<div>${q.type} · ${q.localBillNumber || q.id}</div>`
+      ).join('') || 'Nothing saved yet';
+    }
+    document.getElementById('packFile').addEventListener('change', async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      try {
+        const pack = JSON.parse(await f.text());
+        if (!pack.snapshot?.pieces) throw new Error('Invalid exhibition pack');
+        applyPack(pack);
+        showMsg(document.getElementById('setupMsg'), 'Pack loaded. You can bill offline.', true);
+      } catch (err) {
+        showMsg(document.getElementById('setupMsg'), err.message || 'Could not read pack', false);
+      }
+    });
+    document.getElementById('scan').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const hit = findPiece(e.target.value);
+      e.target.value = '';
+      if (!hit) { showMsg(document.getElementById('billMsg'), 'Barcode not found', false); return; }
+      if (hit.error) { showMsg(document.getElementById('billMsg'), hit.error, false); return; }
+      const price = Number(hit.fixed_price) || 0;
+      state.cart.push({
+        barcode: hit.barcode,
+        name: hit.name || hit.product_name,
+        lineTotalInr: price,
+        net_weight: hit.net_weight,
+        gross_weight: hit.gross_weight,
+        purity: hit.purity,
+        metal_type: hit.metal_type,
+      });
+      saveState();
+      renderCart();
+    });
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      state.cart = [];
+      saveState();
+      renderCart();
+    });
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      if (!state.cart.length) { showMsg(document.getElementById('billMsg'), 'Add at least one item', false); return; }
+      const custName = document.getElementById('custQ').value.trim() || 'Walk-in';
+      const customers = state.pack?.snapshot?.customers || [];
+      const cust = customers.find(c => c.name?.toLowerCase() === custName.toLowerCase());
+      const billType = document.getElementById('billType').value;
+      const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
+      const collected = Number(document.getElementById('collected').value) || total;
+      const opId = uid();
+      const localBillNumber = billType === 'estimate' ? nextEstimateNo() : nextLocalScb();
+      const item = {
+        id: opId,
+        type: billType === 'estimate' ? 'estimate' : 'sale',
+        localBillNumber,
+        createdAt: new Date().toISOString(),
+        localCustomerId: cust?.id || null,
+        payload: {
+          bill_type: billType,
+          bill_number: billType === 'estimate' ? localBillNumber : undefined,
+          customer_id: cust?.id || null,
+          customer_name: custName,
+          total_inr: collected,
+          status: billType === 'estimate' ? 'draft' : 'completed',
+          payment_method: 'cash',
+          bill_date: new Date().toISOString().slice(0, 10),
+          lines: state.cart,
+          offline_op_id: opId,
+          session: {
+            offlineOpId: opId,
+            collectedAmountInr: collected,
+            netTotalInr: collected,
+            paymentMethod: 'cash',
+          },
+        },
+      };
+      state.queue.push(item);
+      state.cart = [];
+      saveState();
+      renderCart();
+      renderQueue();
+      showMsg(document.getElementById('billMsg'), `Saved ${localBillNumber}`, true);
+    });
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({
+        kind: 'kc-exhibition-return',
+        exportedAt: new Date().toISOString(),
+        queue: state.queue || [],
+      }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `exhibition-return-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      showMsg(document.getElementById('setupMsg'), 'Return pack downloaded. Upload it in shop ERP → Exhibition.', true);
+    });
+    loadState();
+    if (state.pack) applyPack(state.pack);
+    renderCart();
+  </script>
+</body>
+</html>

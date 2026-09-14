@@ -320,6 +320,64 @@ function resolveRequestedLedgerScope(req, raw) {
     return 'official';
 }
 
+function fmtReceiptDate(iso) {
+    if (!iso) return '';
+    const s = String(iso).slice(0, 10);
+    const [y, m, d] = s.split('-');
+    if (!y || !m || !d) return '';
+    return `${d}-${m}-${y.slice(2)}`;
+}
+
+async function nextReceiptNumber(query, resellerUserId, scope) {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yy = String(now.getFullYear() % 100).padStart(2, '0');
+    if (scope === 'lane') {
+        const prefix = `REC${mm}${yy}-`;
+        const rows = await query(
+            `SELECT reference_no FROM reseller_erp_ledger_entries
+             WHERE reseller_user_id = $1 AND ledger_scope = 'lane'
+               AND UPPER(COALESCE(reference_no, '')) LIKE $2
+             ORDER BY id DESC LIMIT 100`,
+            [resellerUserId, `${prefix.toUpperCase()}%`],
+        );
+        let seq = 1;
+        for (const row of rows) {
+            const m = String(row.reference_no || '').match(/-(\d+)$/i);
+            if (m) {
+                seq = Math.max(seq, parseInt(m[1], 10) + 1);
+                break;
+            }
+        }
+        return `${prefix}${seq}`;
+    }
+    const rows = await query(
+        `SELECT reference_no FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1 AND ledger_scope = 'official'
+           AND UPPER(COALESCE(reference_no, '')) ~ '^REC[0-9]+$'
+         ORDER BY id DESC LIMIT 100`,
+        [resellerUserId],
+    );
+    let seq = 1;
+    for (const row of rows) {
+        const m = String(row.reference_no || '').match(/^REC(\d+)$/i);
+        if (m) {
+            seq = Math.max(seq, parseInt(m[1], 10) + 1);
+            break;
+        }
+    }
+    return `REC${seq}`;
+}
+
+function buildCashReceivedNarration({ recNumber, customerName, billNumber, entryDate }) {
+    const name = String(customerName || '').trim().toUpperCase();
+    const dt = fmtReceiptDate(entryDate);
+    if (billNumber) {
+        return `CASH ${recNumber} - ${name}${dt ? ` ${dt}` : ''} - ${billNumber}`;
+    }
+    return 'CASH - CASH RECEIVED';
+}
+
 async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
     const session = bill.session || {};
     const raw = session.collectedAmountInr ?? session.collected_amount_inr;
@@ -329,12 +387,12 @@ async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
     const existing = await query(
         `SELECT id FROM reseller_erp_ledger_entries
          WHERE reseller_user_id = $1 AND bill_id = $2 AND entry_type = 'payment_in'
-           AND lower(coalesce(narration, '')) = 'cash received'
          LIMIT 1`,
         [resellerUserId, bill.id],
     );
     if (existing.length) return existing[0];
     let customerId = bill.customer_id || null;
+    let customerName = bill.customer_name || '';
     if (!customerId) {
         const cash = await query(
             `SELECT id FROM reseller_erp_customers
@@ -344,19 +402,36 @@ async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
             [resellerUserId],
         );
         customerId = cash[0]?.id || null;
+    } else if (!customerName) {
+        const crow = await query(
+            `SELECT name FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+            [customerId, resellerUserId],
+        );
+        customerName = crow[0]?.name || '';
     }
+    const entryDate = bill.bill_date || new Date().toISOString().slice(0, 10);
+    const recNumber = await nextReceiptNumber(query, resellerUserId, 'official');
+    const billNumber = bill.bill_number || null;
+    const narration = buildCashReceivedNarration({
+        recNumber,
+        customerName,
+        billNumber,
+        entryDate,
+    });
     const rows = await query(
         `INSERT INTO reseller_erp_ledger_entries (
             reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
-            payment_mode, narration, is_suspense, ledger_scope
-         ) VALUES ($1, $2, 'payment_in', $3, $4, $5, 'cash', 'cash received', false, 'official')
+            payment_mode, reference_no, narration, is_suspense, ledger_scope
+         ) VALUES ($1, $2, 'payment_in', $3, $4, $5, 'cash', $6, $7, false, 'official')
          RETURNING *`,
         [
             resellerUserId,
-            bill.bill_date || new Date().toISOString().slice(0, 10),
+            entryDate,
             Math.round(amount * 100) / 100,
             customerId,
             bill.id,
+            recNumber,
+            narration,
         ],
     );
     return rows[0] || null;
@@ -370,12 +445,12 @@ async function createShadowCollectedCashLedgerEntry(query, resellerUserId, bill)
     const existing = await query(
         `SELECT id FROM reseller_erp_ledger_entries
          WHERE reseller_user_id = $1 AND shadow_bill_id = $2 AND entry_type = 'payment_in'
-           AND lower(coalesce(narration, '')) = 'cash received'
          LIMIT 1`,
         [resellerUserId, bill.id],
     );
     if (existing.length) return existing[0];
     let customerId = bill.customer_id || null;
+    const customerName = bill.customer_name || '';
     if (!customerId) {
         const cash = await query(
             `SELECT id FROM reseller_erp_customers
@@ -386,19 +461,29 @@ async function createShadowCollectedCashLedgerEntry(query, resellerUserId, bill)
         );
         customerId = cash[0]?.id || null;
     }
+    const entryDate = bill.bill_date || new Date().toISOString().slice(0, 10);
+    const recNumber = await nextReceiptNumber(query, resellerUserId, 'lane');
+    const billNumber = bill.bill_number || null;
+    const narration = buildCashReceivedNarration({
+        recNumber,
+        customerName,
+        billNumber,
+        entryDate,
+    });
     const rows = await query(
         `INSERT INTO reseller_erp_ledger_entries (
             reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
             shadow_bill_id, payment_mode, reference_no, narration, is_suspense, ledger_scope
-         ) VALUES ($1, $2, 'payment_in', $3, $4, NULL, $5, 'cash', $6, 'cash received', false, 'lane')
+         ) VALUES ($1, $2, 'payment_in', $3, $4, NULL, $5, 'cash', $6, $7, false, 'lane')
          RETURNING *`,
         [
             resellerUserId,
-            bill.bill_date || new Date().toISOString().slice(0, 10),
+            entryDate,
             Math.round(amount * 100) / 100,
             customerId,
             bill.id,
-            bill.bill_number || null,
+            recNumber,
+            narration,
         ],
     );
     return rows[0] || null;
@@ -680,6 +765,34 @@ function registerResellerErpLedgerRoutes(app, deps) {
             if (!isSuspense && !customerId && !noCustomerOk.has(entryType)) {
                 return res.status(400).json({ error: 'Select a customer or mark as suspense' });
             }
+            let referenceNo = trimStr(req.body.reference_no, 120);
+            let narration = trimStr(req.body.narration, 2000);
+            const entryDate = parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10);
+            if (
+                entryType === 'payment_in' &&
+                paymentMode === 'cash' &&
+                !referenceNo &&
+                !isSuspense
+            ) {
+                const scope = entryType === 'purchase' ? 'official' : ledgerScope;
+                referenceNo = await nextReceiptNumber(query, req.user.id, scope);
+                if (!narration) {
+                    let customerName = trimStr(req.body.counterparty_name, 255);
+                    if (!customerName && customerId) {
+                        const crow = await query(
+                            `SELECT name FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                            [customerId, req.user.id],
+                        );
+                        customerName = crow[0]?.name || '';
+                    }
+                    narration = buildCashReceivedNarration({
+                        recNumber: referenceNo,
+                        customerName,
+                        billNumber: null,
+                        entryDate,
+                    });
+                }
+            }
             const rows = await query(
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
@@ -689,16 +802,16 @@ function registerResellerErpLedgerRoutes(app, deps) {
                  RETURNING *`,
                 [
                     req.user.id,
-                    parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10),
+                    entryDate,
                     entryType,
                     amount,
                     customerId,
                     req.body.bill_id != null ? parseInt(String(req.body.bill_id), 10) || null : null,
                     PAYMENT_MODES.has(paymentMode) ? paymentMode : 'other',
-                    trimStr(req.body.reference_no, 120),
+                    referenceNo,
                     trimStr(req.body.bank_name, 120),
                     trimStr(req.body.counterparty_name, 255),
-                    trimStr(req.body.narration, 2000),
+                    narration,
                     isSuspense,
                     entryType === 'purchase' ? 'official' : ledgerScope,
                     employeeId,
@@ -1095,6 +1208,9 @@ module.exports = {
     createBillAdvanceLedgerEntry,
     createCollectedCashLedgerEntry,
     createShadowCollectedCashLedgerEntry,
+    nextReceiptNumber,
+    buildCashReceivedNarration,
+    fmtReceiptDate,
     deleteLedgerEntriesForOfficialBills,
     deleteLedgerEntriesForShadowBills,
 };

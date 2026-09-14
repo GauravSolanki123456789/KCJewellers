@@ -89,33 +89,67 @@ function collectedFromSession(session) {
     return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+function rowKindRank(kind) {
+    const k = String(kind || '').toLowerCase();
+    if (k === 'sale' || k === 'debit') return 1;
+    if (k === 'payment_in' || k === 'bill_advance' || k === 'suspense_in') return 2;
+    if (k === 'credit' || k === 'sales_return') return 2;
+    return 3;
+}
+
+function fmtReceiptDate(iso) {
+    if (!iso) return '';
+    const s = String(iso).slice(0, 10);
+    const [y, m, d] = s.split('-');
+    if (!y || !m || !d) return '';
+    return `${d}-${m}-${y.slice(2)}`;
+}
+
+function formatLedgerPaymentDescription(p, customerName, shadowBillById) {
+    const ref = String(p.reference_no || '').trim();
+    const nar = String(p.narration || '').trim();
+    if (/^REC\d{4}-\d+/i.test(ref) || /^REC\d+$/i.test(ref)) {
+        if (nar) return `(V NO: ${ref}) ${nar}`;
+        return `(V NO: ${ref}) CASH - CASH RECEIVED`;
+    }
+    if (p.shadow_bill_id && shadowBillById && shadowBillById[p.shadow_bill_id]) {
+        const sb = shadowBillById[p.shadow_bill_id];
+        const billNo = sb.bill_number || ref;
+        const name = String(sb.customer_name || customerName || '').trim().toUpperCase();
+        const dt = fmtReceiptDate(sb.bill_date || p.entry_date);
+        const recRef = /^REC/i.test(ref) ? ref : ref;
+        const line = `CASH ${recRef} - ${name}${dt ? ` ${dt}` : ''} - ${billNo}`;
+        return `(V NO: ${recRef}) ${line}`;
+    }
+    if (/^cash received$/i.test(nar) && /^SCB\d{4}-\d+/i.test(ref)) {
+        const name = String(customerName || '').trim().toUpperCase();
+        const dt = fmtReceiptDate(p.entry_date);
+        const line = `CASH ${ref} - ${name}${dt ? ` ${dt}` : ''} - ${ref}`;
+        return `(V NO: ${ref}) ${line}`;
+    }
+    if (nar) {
+        if (/^\(V NO:/i.test(nar)) return nar;
+        if (ref) return `(V NO: ${ref}) ${nar}`;
+        return nar;
+    }
+    if (ref) return `(V NO: ${ref}) CASH - CASH RECEIVED`;
+    return 'CASH - CASH RECEIVED';
+}
+
 function pushShadowSaleRows(rows, s) {
-    const session = parseJsonObject(s.session_json);
     const billAmt = Number(s.total_inr) || 0;
-    const collected = collectedFromSession(session);
+    const weightGm = totalWeightGmFromLines(s.lines_json);
     rows.push({
         date: normDate(s.bill_date),
         sort_id: s.id,
         kind: 'sale',
         ref: s.bill_number,
-        description: 'cash received',
+        description: `(V NO: ${s.bill_number}) SALES A/C -`,
         debit: billAmt,
         credit: 0,
         lane: s.lane || 'jainav',
+        weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
     });
-    if (collected != null) {
-        rows.push({
-            date: normDate(s.bill_date),
-            sort_id: s.id + 0.5,
-            kind: 'payment_in',
-            ref: s.bill_number,
-            description: 'cash received',
-            debit: 0,
-            credit: collected,
-            lane: s.lane || 'jainav',
-            payment_mode: 'cash',
-        });
-    }
 }
 
 async function loadCustomerRow(query, resellerUserId, customerId) {
@@ -184,17 +218,15 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const entryParams = book ? [resellerUserId] : [resellerUserId, customerId];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
-                           narration, bill_id, is_suspense, ledger_scope
+                           narration, bill_id, shadow_bill_id, is_suspense, ledger_scope
                     FROM reseller_erp_ledger_entries
                     WHERE reseller_user_id = $1 AND is_suspense = false`;
     if (book === 'cash') {
         entrySql += ` AND ledger_scope = 'official' AND LOWER(COALESCE(payment_mode, '')) = 'cash'`;
     } else if (book === 'jainav2') {
         if (includeShadow) {
-            entrySql += ` AND (
-                (ledger_scope = 'official' AND LOWER(COALESCE(payment_mode, '')) = 'cash')
-                OR ledger_scope = 'lane'
-            )`;
+            entrySql += ` AND ledger_scope = 'lane' AND entry_type = 'payment_in'
+                          AND LOWER(COALESCE(payment_mode, '')) = 'cash'`;
         } else {
             entrySql += ` AND FALSE`;
         }
@@ -214,6 +246,18 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     }
     entrySql += ' ORDER BY entry_date, id';
     const payments = await query(entrySql, entryParams);
+
+    const shadowBillIds = [...new Set(payments.map((p) => p.shadow_bill_id).filter(Boolean))];
+    let shadowBillById = {};
+    if (shadowBillIds.length) {
+        const sbRows = await query(
+            `SELECT id, bill_number, customer_name, bill_date
+             FROM reseller_erp_shadow_bills
+             WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
+            [resellerUserId, shadowBillIds],
+        );
+        shadowBillById = Object.fromEntries((sbRows || []).map((r) => [r.id, r]));
+    }
 
     const rows = [];
 
@@ -251,11 +295,17 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         });
     }
 
-    if (includeShadow) {
+    if (includeShadow && book !== 'jainav2') {
         for (const s of shadowSales) pushShadowSaleRows(rows, s);
     }
 
+    const seenShadowPay = new Set();
     for (const p of payments) {
+        if (p.shadow_bill_id) {
+            const key = String(p.shadow_bill_id);
+            if (seenShadowPay.has(key)) continue;
+            seenShadowPay.add(key);
+        }
         const creditTypes = new Set(['payment_in', 'bill_advance', 'suspense_in']);
         let credit = 0;
         let debit = 0;
@@ -269,12 +319,15 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             if (amt >= 0) credit = amt;
             else debit = Math.abs(amt);
         }
+        const isPay = creditTypes.has(p.entry_type) || p.entry_type === 'payment_out';
         rows.push({
             date: normDate(p.entry_date),
             sort_id: p.id,
             kind: p.entry_type,
             ref: p.reference_no || '',
-            description: p.narration || p.entry_type.replace(/_/g, ' '),
+            description: isPay
+                ? formatLedgerPaymentDescription(p, customer.name, shadowBillById)
+                : p.narration || p.entry_type.replace(/_/g, ' '),
             debit,
             credit,
             payment_mode: p.payment_mode,
@@ -284,6 +337,8 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     rows.sort((a, b) => {
         const d = a.date.localeCompare(b.date);
         if (d !== 0) return d;
+        const kr = rowKindRank(a.kind) - rowKindRank(b.kind);
+        if (kr !== 0) return kr;
         return (a.sort_id || 0) - (b.sort_id || 0);
     });
 

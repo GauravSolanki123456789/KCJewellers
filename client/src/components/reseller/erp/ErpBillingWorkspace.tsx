@@ -1976,24 +1976,14 @@ export function ErpBillingWorkspace() {
         </div>
       ) : null}
 
-      {editingBillNumber ? (
-        <div className={`flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-3 text-sm ${
-          String(editingBillStatus || '').toLowerCase() === 'billed'
-            ? 'border-emerald-200 bg-emerald-50'
-            : 'border-blue-200 bg-blue-50'
-        }`}>
-          <span className={`font-semibold ${
-            String(editingBillStatus || '').toLowerCase() === 'billed' ? 'text-emerald-900' : 'text-blue-900'
-          }`}>
-            {String(editingBillStatus || '').toLowerCase() === 'billed'
-              ? `${editingBillNumber} is already billed`
-              : `Editing ${editingBillNumber}`}
-          </span>
-          {String(editingBillStatus || '').toLowerCase() === 'billed' ? (
-            <span className="text-emerald-900/75">
-              Products from this quote are loaded below. Create a new sale from Scan & bill if you need another bill.
-            </span>
-          ) : editingBillType === 'estimate' ? (
+      {editingBillNumber && String(editingBillStatus || '').toLowerCase() === 'billed' ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-900">
+          {editingBillNumber} is already billed
+        </div>
+      ) : editingBillNumber ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
+          <span className="font-semibold text-blue-900">Editing {editingBillNumber}</span>
+          {editingBillType === 'estimate' ? (
             <span className="text-blue-800/70">
               Update quote with <strong>Generate quote</strong>, or use <strong>Save bill</strong> to create a sales bill
               and mark this estimate as billed.
