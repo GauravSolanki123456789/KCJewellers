@@ -205,10 +205,12 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     const bill = mapShadowBill(rows[0]);
     if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
         await markPiecesShadowSold(query, resellerUserId, linesRaw, bill.id);
-        try {
-            await createShadowCollectedCashLedgerEntry(query, resellerUserId, bill);
-        } catch (le) {
-            console.warn('erp shadow cash received:', le.message);
+        if (saleIsCashCollected(sessionObj)) {
+            try {
+                await createShadowCollectedCashLedgerEntry(query, resellerUserId, bill);
+            } catch (le) {
+                console.warn('erp shadow cash received:', le.message);
+            }
         }
         const sourceEstimateId =
             body.source_estimate_id != null ? parseInt(String(body.source_estimate_id), 10) : null;
@@ -832,7 +834,8 @@ function saleIsCashCollected(sessionObj) {
     const pay = inferPaymentMethodFromSession(session, session.paymentMethod);
     const raw = session.collectedAmountInr ?? session.collected_amount_inr;
     if (raw == null || String(raw).trim() === '') return false;
-    return pay === 'cash' && Number.isFinite(Number(raw));
+    const amount = Number(raw);
+    return pay === 'cash' && Number.isFinite(amount) && amount > 0;
 }
 
 function shouldRouteSaleToShadowLedger(sessionObj, shadowUnlocked) {
@@ -1112,10 +1115,12 @@ function registerShadowRoutes(app, deps) {
             );
             const bill = mapShadowBill(rows[0]);
             await markPiecesShadowSold(query, req.user.id, linesRaw, bill.id);
-            try {
-                await createShadowCollectedCashLedgerEntry(query, req.user.id, bill);
-            } catch (le) {
-                console.warn('erp shadow cash received:', le.message);
+            if (saleIsCashCollected(sessionObj)) {
+                try {
+                    await createShadowCollectedCashLedgerEntry(query, req.user.id, bill);
+                } catch (le) {
+                    console.warn('erp shadow cash received:', le.message);
+                }
             }
             res.json({ success: true, bill });
         } catch (e) {
@@ -1330,5 +1335,6 @@ module.exports = {
     markEstimateBilledViaLedger,
     shouldRouteSaleToShadowLedger,
     shouldRouteReturnToShadowLedger,
+    saleIsCashCollected,
     findShadowBillByOfflineOpId,
 };

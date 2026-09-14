@@ -38,7 +38,6 @@ const NEVER_JAINAV_LOCK_IDS = new Set<string>([
   'hardware',
   'print-formats',
   'erp-users',
-  'offline',
 ])
 
 /** Single list: tabs hidden in admin mode until Jainav unlock (F9Rs* + Enter). */
@@ -116,6 +115,7 @@ export const DEFAULT_ERP_JAINAV_UNLOCK_TABS: ResellerErpModuleId[] = [
   'jainav-ssr',
   'stock-reports',
   'jainav-ledger',
+  'offline',
   'rol',
 ]
 

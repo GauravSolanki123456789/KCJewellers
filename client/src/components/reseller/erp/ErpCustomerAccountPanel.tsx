@@ -69,19 +69,24 @@ export function ErpCustomerAccountPanel({
 
   useEffect(() => {
     const t = setTimeout(() => {
-      if (!q.trim()) {
+      const term = q.trim()
+      if (!term) {
+        setResults([])
+        return
+      }
+      if (selected && term.toLowerCase() === selected.name.trim().toLowerCase()) {
         setResults([])
         return
       }
       void axios
         .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
-          params: { q: q.trim(), ...(laneMode ? { lane_books: '1' } : {}) },
+          params: { q: term, ...(laneMode ? { lane_books: '1' } : {}) },
         })
-        .then((r) => setResults(rankCustomersForQuery(r.data.customers || [], q.trim())))
+        .then((r) => setResults(rankCustomersForQuery(r.data.customers || [], term)))
         .catch(() => setResults([]))
     }, 200)
     return () => clearTimeout(t)
-  }, [q, laneMode])
+  }, [q, laneMode, selected])
 
   const loadAccount = useCallback(
     async (customer: ErpCustomer) => {
@@ -96,10 +101,14 @@ export function ErpCustomerAccountPanel({
         })
         setAccount(res.data)
         setSelected(customer)
-        onCustomerSelected?.(customer.id)
+        setQ(customer.name)
+        setResults([])
       } catch (e) {
         setMsg(erpErr(e))
         setAccount(null)
+        setSelected(null)
+        setQ('')
+        onCustomerSelected?.(null)
       } finally {
         setBusy(false)
       }
@@ -108,9 +117,11 @@ export function ErpCustomerAccountPanel({
   )
 
   const pickCustomer = (c: ErpCustomer) => {
+    setSelected(c)
     setQ(c.name)
     setResults([])
     setPickIdx(-1)
+    onCustomerSelected?.(c.id)
     void loadAccount(c)
   }
 
@@ -196,7 +207,9 @@ export function ErpCustomerAccountPanel({
           }}
           onKeyDown={onKeyDown}
         />
-        {results.length > 0 && q.trim() ? (
+        {results.length > 0 &&
+        q.trim() &&
+        !(selected && q.trim().toLowerCase() === selected.name.trim().toLowerCase()) ? (
           <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
             {results.slice(0, 8).map((c, i) => (
               <li key={c.id}>

@@ -439,7 +439,8 @@ async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
 
 async function createShadowCollectedCashLedgerEntry(query, resellerUserId, bill) {
     const session = bill.session || {};
-    const raw = session.collectedAmountInr ?? session.collected_amount_inr ?? bill.total_inr;
+    const raw = session.collectedAmountInr ?? session.collected_amount_inr;
+    if (raw == null || String(raw).trim() === '') return null;
     const amount = Number(raw);
     if (!Number.isFinite(amount) || amount <= 0 || !bill.id) return null;
     const existing = await query(

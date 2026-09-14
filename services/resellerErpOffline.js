@@ -2,6 +2,9 @@
  * Exhibition / offline kit — snapshot, exhibition pack export, and merge on return.
  */
 
+const fs = require('fs');
+const path = require('path');
+
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
     return s.length > max ? s.slice(0, max) : s;
@@ -169,9 +172,40 @@ async function nextShadowBillHint(query, resellerUserId) {
     return `${prefix}${seq}`;
 }
 
+function resolveExhibitionAppPath() {
+    const candidates = [
+        path.join(__dirname, '../client/public/exhibition-kit/index.html'),
+        path.join(process.cwd(), 'client/public/exhibition-kit/index.html'),
+        path.join(process.cwd(), 'public/exhibition-kit/index.html'),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
+}
+
 function registerResellerErpOfflineRoutes(app, deps) {
     const { query, checkAuth, erpGate, requireJson } = deps;
     const { findShadowBillByOfflineOpId } = require('./resellerErpShadow');
+
+    app.get('/api/reseller/erp/offline/exhibition-app', checkAuth, erpGate, async (req, res) => {
+        try {
+            const filePath = resolveExhibitionAppPath();
+            if (!filePath) {
+                return res.status(404).json({ error: 'Exhibition app file not found on server' });
+            }
+            const html = fs.readFileSync(filePath, 'utf8');
+            if (!html || !html.trim()) {
+                return res.status(404).json({ error: 'Exhibition app file is empty' });
+            }
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.setHeader('Content-Disposition', 'attachment; filename="kc-exhibition-billing.html"');
+            res.send(html);
+        } catch (e) {
+            console.error('erp exhibition app download:', e);
+            res.status(500).json({ error: e.message || 'Failed to download exhibition app' });
+        }
+    });
 
     app.get('/api/reseller/erp/offline/snapshot', checkAuth, erpGate, async (req, res) => {
         try {

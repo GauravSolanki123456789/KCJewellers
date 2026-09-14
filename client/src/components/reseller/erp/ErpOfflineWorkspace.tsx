@@ -1,16 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import axios from '@/lib/axios'
 import {
   CloudDownload,
   CloudUpload,
   Download,
   ExternalLink,
-  HardDrive,
   Loader2,
-  Smartphone,
   Wifi,
   WifiOff,
 } from 'lucide-react'
@@ -23,7 +20,6 @@ import {
   type OfflineSnapshotMeta,
 } from '@/lib/erp-offline-store'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr } from '@/components/reseller/erp/erp-ui'
-import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
 function formatWhen(iso?: string | null) {
@@ -59,21 +55,40 @@ export function ErpOfflineWorkspace() {
     }
   }, [reload])
 
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const downloadExhibitionPack = async () => {
     setBusy(true)
     setErr(null)
     setMsg(null)
     try {
       const res = await axios.get('/api/reseller/erp/offline/exhibition-pack', { responseType: 'blob' })
-      const url = URL.createObjectURL(res.data)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `exhibition-pack-${new Date().toISOString().slice(0, 10)}.json`
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadBlob(res.data, `exhibition-pack-${new Date().toISOString().slice(0, 10)}.json`)
       await captureOfflineSnapshotFromServer()
       await reload()
-      setMsg('Exhibition pack downloaded. Copy this file and the exhibition app to your pendrive.')
+      setMsg('Exhibition pack downloaded.')
+    } catch (e) {
+      setErr(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const downloadExhibitionApp = async () => {
+    setBusy(true)
+    setErr(null)
+    setMsg(null)
+    try {
+      const res = await axios.get('/api/reseller/erp/offline/exhibition-app', { responseType: 'blob' })
+      downloadBlob(res.data, 'kc-exhibition-billing.html')
+      setMsg('Exhibition app downloaded.')
     } catch (e) {
       setErr(erpErr(e))
     } finally {
@@ -102,7 +117,7 @@ export function ErpOfflineWorkspace() {
       )
       const { ok, failed, results } = res.data
       if (failed === 0) {
-        setMsg(`Merged ${ok} item(s) from exhibition. Your live ERP is updated.`)
+        setMsg(`Merged ${ok} item(s) from exhibition.`)
       } else {
         setErr(
           `Merged ${ok}, ${failed} need attention. ${results
@@ -147,10 +162,6 @@ export function ErpOfflineWorkspace() {
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]/45">Exhibition</p>
             <h2 className="text-lg font-bold text-[#1a1814]">Offline stall kit</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-[#1a1814]/70">
-              At the shop: download the pack + app to a pendrive. At the stall: install the app, load the pack, bill
-              offline. Back at the shop: upload the return file here — duplicates are blocked automatically.
-            </p>
           </div>
           <span
             className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 text-xs font-semibold ${
@@ -167,8 +178,8 @@ export function ErpOfflineWorkspace() {
         <div className={erpCardCls}>
           <p className="text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/45">Step 1 · Shop</p>
           <p className="mt-1 text-sm font-semibold text-[#1a1814]">Download exhibition pack</p>
-          <p className="mt-1 text-xs text-[#1a1814]/60">
-            {meta ? `${meta.customerCount} customers · ${meta.pieceCount} barcodes` : 'Customers + stock snapshot'}
+          <p className="mt-1 text-xs tabular-nums text-[#1a1814]/60">
+            {meta ? `${meta.customerCount} customers · ${meta.pieceCount} barcodes` : '—'}
           </p>
           <button
             type="button"
@@ -184,11 +195,15 @@ export function ErpOfflineWorkspace() {
         <div className={erpCardCls}>
           <p className="text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/45">Step 1 · Shop</p>
           <p className="mt-1 text-sm font-semibold text-[#1a1814]">Download exhibition app</p>
-          <p className="mt-1 text-xs text-[#1a1814]/60">Works on laptop &amp; phone — save to pendrive</p>
-          <a href="/exhibition-kit/" download="index.html" className={`${erpBtnGhost} mt-3 inline-flex w-full justify-center`}>
-            <Download className="size-4" />
-            Save app (HTML)
-          </a>
+          <button
+            type="button"
+            className={`${erpBtnPrimary} mt-3 w-full`}
+            disabled={busy || !online}
+            onClick={() => void downloadExhibitionApp()}
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+            Download app
+          </button>
           <a
             href={appUrl}
             target="_blank"
@@ -202,22 +217,12 @@ export function ErpOfflineWorkspace() {
 
         <div className={erpCardCls}>
           <p className="text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/45">Step 2 · Stall</p>
-          <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-[#1a1814]">
-            <HardDrive className="size-4 text-emerald-700" />
-            Load pack in app
-          </p>
-          <p className="mt-1 text-xs text-[#1a1814]/60">
-            Copy pendrive to stall PC/phone → open app → upload pack → scan &amp; bill
-          </p>
-          <Link href={resellerErpModulePath('billing')} className={`${erpBtnGhost} mt-3 inline-flex w-full justify-center`}>
-            Scan &amp; bill (online)
-          </Link>
+          <p className="mt-1 text-sm font-semibold text-[#1a1814]">Load pack in app</p>
         </div>
 
         <div className={erpCardCls}>
           <p className="text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/45">Step 3 · Shop</p>
           <p className="mt-1 text-sm font-semibold text-[#1a1814]">Upload return file</p>
-          <p className="mt-1 text-xs text-[#1a1814]/60">Export from exhibition app → merge here</p>
           <input
             ref={mergeRef}
             type="file"
@@ -241,15 +246,9 @@ export function ErpOfflineWorkspace() {
         </div>
       </div>
 
-      <div className={`${erpCardCls} flex flex-wrap items-center gap-3 text-sm text-[#1a1814]/75`}>
-        <Smartphone className="size-5 shrink-0 text-emerald-700" />
-        <p>
-          Estimate numbers continue from your shop (e.g. after ESTIMATE-002 the app uses ESTIMATE-003). Each bill gets a
-          unique offline ID so nothing duplicates when you merge.
-        </p>
-      </div>
-
-      {msg ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p> : null}
+      {msg ? (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
+      ) : null}
       {err ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{err}</p> : null}
 
       {queue.length > 0 ? (
@@ -260,13 +259,10 @@ export function ErpOfflineWorkspace() {
               Merge browser queue
             </button>
           </div>
-          <p className="mt-1 text-xs text-[#1a1814]/55">Items saved in this browser before Wi-Fi returned.</p>
         </div>
       ) : null}
 
-      <p className="text-center text-[11px] text-[#1a1814]/45">
-        Last pack cache: {formatWhen(meta?.capturedAt)}
-      </p>
+      <p className="text-center text-[11px] text-[#1a1814]/45">Last pack cache: {formatWhen(meta?.capturedAt)}</p>
     </div>
   )
 }
