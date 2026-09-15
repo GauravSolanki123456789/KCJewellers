@@ -1157,6 +1157,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 customerId,
                 from: parseDateOrNull(req.query.from),
                 to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
                 includeShadow: false,
             });
             res.json(account);
@@ -1176,6 +1177,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 customerId,
                 from: parseDateOrNull(req.query.from),
                 to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
                 includeShadow: false,
             });
             const csv = customerAccountToCsv(account);

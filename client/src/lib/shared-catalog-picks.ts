@@ -1,4 +1,5 @@
 import { getCustomerDisplaySize, getCustomerDisplayWeightLabel } from '@/lib/pricing'
+import { isMakeToOrderOnlyProduct } from '@/lib/make-to-order-product'
 import { formatProductMetalSpecSummary } from '@/lib/product-metal-specs'
 import { getProductBoxCharges, productHasBoxOption, productWithBoxChargesOnly, effectiveIncludeBox } from '@/lib/product-box-pricing'
 import type { SharedCatalogPickLineForWhatsApp } from '@/lib/cart-order-whatsapp'
@@ -75,30 +76,40 @@ export function sharedCatalogPickToWhatsAppLine(
 ): SharedCatalogPickLineForWhatsApp {
   const code = String(pick.row.product.barcode || pick.row.product.sku || pick.key)
   const item = sharedCatalogProductToItem(pick.row.product)
+  const makeToOrderOnly = isMakeToOrderOnlyProduct(pick.row.product)
   const mto = Math.max(0, pick.makeOnOrderQty ?? 0)
   const inStock = pick.qty
   return {
-    name:
-      mto > 0
+    name: makeToOrderOnly
+      ? `${pick.displayTitle} (Make on order)`
+      : mto > 0
         ? inStock > 0
           ? `${pick.displayTitle} (Make on order +${mto})`
           : `${pick.displayTitle} (Make on order: ${mto} pcs)`
         : pick.displayTitle,
     skuOrBarcode: code,
-    priceInr: pick.unitTotalInr,
-    compareAtInr: pick.row.unitCompareAtInr,
-    qty: pick.qty + mto,
+    priceInr: makeToOrderOnly ? 0 : pick.unitTotalInr,
+    compareAtInr: makeToOrderOnly ? null : pick.row.unitCompareAtInr,
+    qty: makeToOrderOnly ? 0 : pick.qty + mto,
     sizeLabel: pick.sizeLabel,
     weightLabel: pick.weightLabel,
-    metalSpecSummary: formatProductMetalSpecSummary(item, rates),
-    showInclGst: pick.row.showInclGst,
-    withBoxPriceInr:
-      pick.includeBox && productHasBoxOption(pick.row.item) ? pick.unitTotalInr : null,
-    slabDiscountLines:
-      pick.row.slabDiscountLines.length > 0 ? pick.row.slabDiscountLines : undefined,
-    savingsInr: pick.row.savingsInr ?? undefined,
-    uploadedMcRate: uploadedMc?.mc ?? undefined,
-    uploadedMcType: uploadedMc?.mcType ?? undefined,
+    metalSpecSummary: makeToOrderOnly
+      ? pick.weightLabel || null
+      : formatProductMetalSpecSummary(item, rates),
+    showInclGst: makeToOrderOnly ? undefined : pick.row.showInclGst,
+    withBoxPriceInr: makeToOrderOnly
+      ? null
+      : pick.includeBox && productHasBoxOption(pick.row.item)
+        ? pick.unitTotalInr
+        : null,
+    slabDiscountLines: makeToOrderOnly
+      ? undefined
+      : pick.row.slabDiscountLines.length > 0
+        ? pick.row.slabDiscountLines
+        : undefined,
+    savingsInr: makeToOrderOnly ? undefined : pick.row.savingsInr ?? undefined,
+    uploadedMcRate: makeToOrderOnly ? undefined : uploadedMc?.mc ?? undefined,
+    uploadedMcType: makeToOrderOnly ? undefined : uploadedMc?.mcType ?? undefined,
   }
 }
 

@@ -125,6 +125,7 @@ const {
     ensurePricelistSchema,
     registerResellerPricelistRoutes,
 } = require('./services/resellerPricelist');
+const { registerResellerImageSearchRoutes } = require('./services/resellerImageSearch');
 const {
     isStorefrontInvestAllowed,
     assertStorefrontInvestAllowed,
@@ -833,6 +834,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerDigisilverEnabled = !!resolvedUser.reseller_digisilver_enabled;
         let resellerEnhancedPicturesEnabled = !!resolvedUser.reseller_enhanced_pictures_enabled;
         let resellerPricelistEnabled = !!resolvedUser.reseller_pricelist_enabled;
+        let resellerImageSearchEnabled = !!resolvedUser.reseller_image_search_enabled;
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
@@ -847,6 +849,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_digisilver_enabled, false) AS digisilver_enabled,
                         COALESCE(reseller_enhanced_pictures_enabled, false) AS enhanced_pictures,
                         COALESCE(reseller_pricelist_enabled, false) AS pricelist_enabled,
+                        COALESCE(reseller_image_search_enabled, false) AS image_search_enabled,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
@@ -864,6 +867,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerDigisilverEnabled = !!fresh[0].digisilver_enabled;
                 resellerEnhancedPicturesEnabled = !!fresh[0].enhanced_pictures;
                 resellerPricelistEnabled = !!fresh[0].pricelist_enabled;
+                resellerImageSearchEnabled = !!fresh[0].image_search_enabled;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
             }
         } catch (e) {
@@ -933,6 +937,11 @@ app.get('/api/auth/current_user', async (req, res) => {
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_pricelist_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
+            if (msg.includes('reseller_image_search_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_image_search_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
         }
         let catalogLimits = null;
         if (tier === 'RESELLER') {
@@ -979,6 +988,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_digisilver_enabled: resellerDigisilverEnabled,
                 reseller_enhanced_pictures_enabled: resellerEnhancedPicturesEnabled,
                 reseller_pricelist_enabled: resellerPricelistEnabled,
+                reseller_image_search_enabled: resellerImageSearchEnabled,
                 reseller_slab_settings: resellerSlabSettings,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
@@ -1880,6 +1890,12 @@ registerResellerEnhancedPictureRoutes(app, {
 ensureEnhancedPicturesSchema(pool).catch((e) =>
     console.warn('reseller enhanced pictures schema:', e.message),
 );
+registerResellerImageSearchRoutes(app, {
+    query,
+    pool,
+    checkAuth,
+    uploadsRoot: path.join(__dirname, 'uploads'),
+});
 registerResellerPricelistRoutes(app, {
     query,
     pool,
@@ -3080,6 +3096,9 @@ app.get('/api/products', async (req, res) => {
                 COALESCE(wp.fixed_price, 0)::float AS fixed_price,
                 COALESCE(wp.stone_charges, 0)::float AS stone_charges,
                 wp.design_group,
+                wp.brand,
+                COALESCE(wp.make_to_order_only, false) AS make_to_order_only,
+                COALESCE(wp.quantity, 0)::int AS quantity,
                 wp.image_url,
                 wp.secondary_image_url,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
@@ -4272,6 +4291,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_digisilver_enabled, false) AS reseller_digisilver_enabled,
                        COALESCE(reseller_enhanced_pictures_enabled, false) AS reseller_enhanced_pictures_enabled,
                        COALESCE(reseller_pricelist_enabled, false) AS reseller_pricelist_enabled,
+                       COALESCE(reseller_image_search_enabled, false) AS reseller_image_search_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
@@ -4763,6 +4783,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_pricelist_enabled !== undefined) {
             updates.push(`reseller_pricelist_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_pricelist_enabled);
+        }
+
+        if (req.body.reseller_image_search_enabled !== undefined) {
+            updates.push(`reseller_image_search_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_image_search_enabled);
         }
 
         if (req.body.reseller_invest_manage_enabled !== undefined) {
@@ -8223,6 +8248,8 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                 COALESCE(wp.mrp_rate_behind_box, 0)::float AS mrp_rate_behind_box,
                 COALESCE(wp.metal_type, 'silver') AS metal_type,
                 COALESCE(wp.quantity, 1)::int AS quantity,
+                wp.brand,
+                COALESCE(wp.make_to_order_only, false) AS make_to_order_only,
                 wp.size,
                 wp.design_group,
                 wp.diamond_carat, wp.diamond_cut, wp.diamond_color, wp.diamond_clarity, wp.certificate_url,

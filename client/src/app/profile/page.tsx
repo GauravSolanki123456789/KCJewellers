@@ -22,6 +22,7 @@ import {
   RESELLER_MC_SLABS_PATH,
   RESELLER_ERP_PATH,
   RESELLER_ENHANCED_PICTURES_PATH,
+  RESELLER_IMAGE_SEARCH_PATH,
   RESELLER_PRICELIST_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
@@ -52,6 +53,7 @@ import {
   Layers,
   Percent,
   Sparkles,
+  Search,
   LayoutGrid,
   ListOrdered,
 } from 'lucide-react'
@@ -246,6 +248,12 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_pricelist_enabled?: boolean }).reseller_pricelist_enabled,
   )
+  const resellerImageSearchEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_image_search_enabled?: boolean }).reseller_image_search_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -372,7 +380,16 @@ function ProfilePageContent() {
                     href={RESELLER_ENHANCED_PICTURES_PATH}
                     icon={Sparkles}
                     title="Enhanced pictures"
-                    subtitle="AI studio idol photos — rename by barcode & auto-attach to Excel uploads"
+                    subtitle="AI studio idol photos — single or bulk upload by filename code"
+                    primary
+                  />
+                ) : null}
+                {resellerImageSearchEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_IMAGE_SEARCH_PATH}
+                    icon={Search}
+                    title="Find product through image"
+                    subtitle="Upload a photo to locate the closest SKU in your catalogue"
                     primary
                   />
                 ) : null}

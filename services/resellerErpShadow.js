@@ -1278,6 +1278,7 @@ function registerShadowRoutes(app, deps) {
                 customerId,
                 from: parseDateOrNull(req.query.from),
                 to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
                 includeShadow: true,
             });
             res.json(account);
@@ -1298,6 +1299,7 @@ function registerShadowRoutes(app, deps) {
                 customerId,
                 from: parseDateOrNull(req.query.from),
                 to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
                 includeShadow: true,
             });
             if (format === 'html') {

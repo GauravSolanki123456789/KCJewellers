@@ -39,6 +39,7 @@ import {
   type ItemWithVariants,
 } from '@/lib/product-variants'
 import { formatLiveStockLabel, parseProductStockQty } from '@/lib/live-stock'
+import { isMakeToOrderOnlyProduct, makeToOrderStockLabel } from '@/lib/make-to-order-product'
 
 type ProductCardProps = {
   product: ItemWithVariants
@@ -126,11 +127,18 @@ export default function ProductCard({
   }, [product, variants, storefrontWeightOnly])
 
   const active = hasVariants ? activeVariant : product
+  const makeToOrderOnly = isMakeToOrderOnlyProduct(active) || isMakeToOrderOnlyProduct(product)
   const productHidePrices = !!(product.reseller_hide_prices ?? active.reseller_hide_prices)
-  const hidePriceDisplay = storefrontWeightOnly || productHidePrices
-  const showLiveStock = !!(product.reseller_show_live_stock ?? active.reseller_show_live_stock ?? storefrontShowLiveStock)
+  const hidePriceDisplay = storefrontWeightOnly || productHidePrices || makeToOrderOnly
+  const showLiveStock =
+    !makeToOrderOnly &&
+    !!(product.reseller_show_live_stock ?? active.reseller_show_live_stock ?? storefrontShowLiveStock)
   const stockQty = parseProductStockQty(active.quantity ?? active.pcs ?? product.quantity ?? product.pcs)
-  const stockLabel = showLiveStock ? formatLiveStockLabel(stockQty) : null
+  const stockLabel = makeToOrderOnly
+    ? makeToOrderStockLabel()
+    : showLiveStock
+      ? formatLiveStockLabel(stockQty)
+      : null
   const hasBox = productHasBoxOption(active)
   const boxSlideIdx = boxImageSlideIndex(active)
   const resolvedIncludeBox = effectiveIncludeBox(active, includeBox)
@@ -300,7 +308,7 @@ export default function ProductCard({
         <span
           className={cn(
             'text-[10px] font-semibold sm:text-[11px]',
-            stockQty <= 0
+            makeToOrderOnly || stockQty <= 0
               ? 'text-amber-700'
               : stockQty <= 3
                 ? 'text-amber-600'
@@ -310,7 +318,9 @@ export default function ProductCard({
           {stockLabel}
         </span>
       ) : null}
-      <ProductMetalSpecExtras item={active} rates={rates} breakdown={breakdown} density="card" />
+      {!makeToOrderOnly ? (
+        <ProductMetalSpecExtras item={active} rates={rates} breakdown={breakdown} density="card" />
+      ) : null}
       {hasVariants ? (
         <div
           onClick={(e) => {
@@ -350,7 +360,7 @@ export default function ProductCard({
         )
       ) : null}
 
-      {showMrpBehindBox ? <MrpBehindBoxNote item={active} className="mt-1" /> : null}
+      {showMrpBehindBox && !makeToOrderOnly ? <MrpBehindBoxNote item={active} className="mt-1" /> : null}
 
       {!hidePriceDisplay ? (
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">

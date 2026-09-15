@@ -11,20 +11,26 @@ import { downloadPdfBlob, printPdfBlob, sharePdfFileNative } from '@/lib/pdf-sha
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import {
+  fetchWhatsAppCloudStatus,
+  normalizeErpMobile10,
+  sendPdfViaWhatsAppCloud,
+  whatsAppSetupHint,
+  type WhatsAppCloudStatus,
+} from '@/lib/erp-whatsapp-cloud'
+import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
+import {
   customerWhatsAppHref,
   formatCustomerMobileDisplay,
 } from '@/lib/catalog-inquiry-shared'
-
-function normalizeMobileDigits(raw: string | null | undefined): string {
-  return String(raw || '')
-    .replace(/\D/g, '')
-    .slice(-10)
-}
 
 export default function PdfViewerOverlay() {
   const payload = useSyncExternalStore(subscribePdfOverlay, getPdfOverlayPayload, () => null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
+  const [waSending, setWaSending] = useState(false)
+  const [waMsg, setWaMsg] = useState<string | null>(null)
+  const [waConfigured, setWaConfigured] = useState(false)
+  const [waStatus, setWaStatus] = useState<WhatsAppCloudStatus>({ configured: false })
   const [customerMobile, setCustomerMobile] = useState('')
   const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
 
@@ -48,7 +54,7 @@ export default function PdfViewerOverlay() {
   useEffect(() => {
     if (!opts) return
     const initial =
-      normalizeMobileDigits(opts.customerMobile) ||
+      normalizeErpMobile10(opts.customerMobile) ||
       (() => {
         const href = opts.customerWhatsAppHref || ''
         const m = /(?:wa\.me\/|phone=)(\d+)/i.exec(href)
@@ -68,12 +74,20 @@ export default function PdfViewerOverlay() {
     }
   }, [payload])
 
+  useEffect(() => {
+    if (!payload) return
+    void fetchWhatsAppCloudStatus().then((s) => {
+      setWaConfigured(s.configured)
+      setWaStatus(s)
+    })
+  }, [payload])
+
   const close = useCallback(() => closePdfOverlay(), [])
 
   const waText = opts?.fallbackWhatsAppText || opts?.text || opts?.filename || ''
 
   const customerHref = useMemo(() => {
-    const mob = normalizeMobileDigits(customerMobile)
+    const mob = normalizeErpMobile10(customerMobile)
     return mob.length === 10 ? customerWhatsAppHref(mob, waText) : null
   }, [customerMobile, waText])
 
@@ -105,8 +119,40 @@ export default function PdfViewerOverlay() {
     }
   }, [blob, opts, sharing])
 
-  const handleWhatsApp = useCallback(() => {
-    if (!opts || !blob) return
+  const handleWhatsApp = useCallback(async () => {
+    if (!opts || !blob || waSending) return
+    setWaMsg(null)
+    const mob = normalizeErpMobile10(customerMobile)
+    if (waMode === 'customer' && mob.length === 10) {
+      if (!waConfigured) {
+        setWaMsg(whatsAppSetupHint(waStatus))
+        return
+      }
+      setWaSending(true)
+      try {
+        const result = await sendPdfViaWhatsAppCloud({
+          blob,
+          filename: opts.filename || 'document.pdf',
+          mobile: mob,
+          caption: waText,
+        })
+        setWaMsg(
+          result.deliveryMode === 'template'
+            ? 'PDF sent via approved WhatsApp template.'
+            : 'PDF sent to customer on WhatsApp.',
+        )
+      } catch (e) {
+        const err = e as { response?: { data?: { error?: string } }; message?: string }
+        setWaMsg(err.response?.data?.error || err.message || 'WhatsApp send failed')
+      } finally {
+        setWaSending(false)
+      }
+      return
+    }
+    if (waMode === 'customer' && customerHref && !waConfigured) {
+      setWaMsg(whatsAppSetupHint(waStatus))
+      return
+    }
     if (waMode === 'customer' && customerHref) {
       downloadPdfBlob(blob, opts.filename)
       openExternalUrl(customerHref, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
@@ -115,11 +161,11 @@ export default function PdfViewerOverlay() {
     const href =
       opts.fallbackWhatsAppHref?.trim() || buildWhatsAppShareLink(waText)
     openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
-  }, [opts, blob, waMode, customerHref, waText])
+  }, [opts, blob, waMode, customerHref, waText, customerMobile, waConfigured, waSending, waStatus])
 
   if (!payload || !opts) return null
 
-  const hasCustomerMobile = normalizeMobileDigits(customerMobile).length === 10
+  const hasCustomerMobile = normalizeErpMobile10(customerMobile).length === 10
 
   return (
     <div
@@ -202,16 +248,35 @@ export default function PdfViewerOverlay() {
           <button
             type="button"
             onClick={() => void handleWhatsApp()}
-            disabled={waMode === 'customer' && !hasCustomerMobile}
+            disabled={(waMode === 'customer' && !hasCustomerMobile) || waSending}
             className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-600 sm:w-auto"
           >
-            <MessageCircle className="size-4" />
-            {waMode === 'customer' ? 'Send to customer' : 'WhatsApp'}
+            {waSending ? <Loader2 className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
+            {waMode === 'customer'
+              ? waConfigured
+                ? 'Send PDF to customer'
+                : 'Send to customer'
+              : 'WhatsApp'}
           </button>
         </div>
-        {waMode === 'customer' && hasCustomerMobile ? (
+        {waMsg ? (
+          <p
+            className={`mx-auto mt-2 max-w-5xl text-[11px] ${
+              waMsg.includes('sent') ? 'text-emerald-800' : 'text-rose-700'
+            }`}
+          >
+            {waMsg}
+          </p>
+        ) : waMode === 'customer' && hasCustomerMobile ? (
           <p className="mx-auto mt-2 max-w-5xl text-[11px] text-[#1a1814]/55">
-            Sends to {customerLabel} on WhatsApp — even if the number is not saved. The PDF downloads so you can attach it in that chat.
+            {waConfigured ? whatsAppSetupHint(waStatus) : (
+              <>
+                {whatsAppSetupHint(waStatus)}{' '}
+                <a href={resellerErpModulePath('integrations')} className="font-semibold text-emerald-800 underline">
+                  Open Integrations
+                </a>
+              </>
+            )}
           </p>
         ) : null}
       </header>

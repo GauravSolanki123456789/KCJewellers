@@ -407,6 +407,48 @@ export async function generateEnhancedPicture(opts: {
   return res.data
 }
 
+export type BulkEnhancedGenerateResult = {
+  success: boolean
+  queued_count: number
+  skipped: { filename: string; reason: string }[]
+  failed: { filename: string; error: string }[]
+  queued: { job_id: number; filename: string; barcode_stem: string }[]
+  credits?: number
+}
+
+export async function generateBulkEnhancedPictures(opts: {
+  images: File[]
+  templateKey?: string
+  varietyKey?: string
+  aspectRatio?: string
+  canvasText?: string
+  renderQuality?: 'standard' | '2k' | '4k'
+  backgroundPreset?: string
+  visualization?: string
+  applyWatermark?: boolean
+  applyInfoText?: boolean
+}) {
+  const fd = new FormData()
+  for (const file of opts.images) fd.append('images', file)
+  fd.append('template_key', opts.templateKey || 'idols')
+  if (opts.varietyKey) fd.append('variety_key', opts.varietyKey)
+  fd.append('aspect_ratio', opts.aspectRatio || '1:1')
+  if (opts.canvasText) fd.append('canvas_text', opts.canvasText)
+  if (opts.renderQuality) fd.append('render_quality', opts.renderQuality)
+  if (opts.backgroundPreset) fd.append('background_preset', opts.backgroundPreset)
+  if (opts.visualization) fd.append('visualization', opts.visualization)
+  if (opts.applyWatermark) fd.append('apply_watermark', '1')
+  else if (opts.applyWatermark === false) fd.append('apply_watermark', '0')
+  if (opts.applyInfoText) fd.append('apply_info_text', '1')
+  else if (opts.applyInfoText === false) fd.append('apply_info_text', '0')
+  const res = await axios.post<BulkEnhancedGenerateResult>(
+    `${apiBase()}/api/reseller/enhanced-pictures/bulk-generate`,
+    fd,
+    { withCredentials: true, timeout: 600000 },
+  )
+  return res.data
+}
+
 export async function saveEnhancedOverlaySettings(settings: EnhancedOverlaySettings) {
   const res = await axios.put<{ success: boolean; overlay_settings: EnhancedOverlaySettings }>(
     `${apiBase()}/api/reseller/enhanced-pictures/overlay-settings`,

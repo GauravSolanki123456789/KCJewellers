@@ -648,6 +648,20 @@ async function initSchema() {
             ADD COLUMN IF NOT EXISTS reseller_enhanced_pictures_enabled BOOLEAN NOT NULL DEFAULT false
         `);
         await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_image_search_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE web_products
+            ADD COLUMN IF NOT EXISTS brand VARCHAR(64),
+            ADD COLUMN IF NOT EXISTS make_to_order_only BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE reseller_product_submissions
+            ADD COLUMN IF NOT EXISTS brand VARCHAR(64),
+            ADD COLUMN IF NOT EXISTS make_to_order_only BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
             ALTER TABLE reseller_metal_rates
             ADD COLUMN IF NOT EXISTS digi_silver_per_gram NUMERIC(12, 2),
             ADD COLUMN IF NOT EXISTS digi_gold_24k_per_gram NUMERIC(12, 2),

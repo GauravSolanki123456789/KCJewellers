@@ -15,6 +15,7 @@ const {
 } = require('./productImagePaths');
 const { classifyCatalogMetalFamily, sqlCatalogMetalFamilyExpr } = require('./catalogMetalFamily');
 const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
+const { normalizeExcelBrand, isEmeraldMakeToOrderBrand } = require('./productBrandUtils');
 
 function styleSlugFromCode(styleCode) {
     const s = String(styleCode || 'Uncategorized').trim();
@@ -241,11 +242,24 @@ function normalizeSyncItem(item) {
                   ? String(item.video_url)
                   : '',
         quantity: (() => {
+            const brand = normalizeExcelBrand(item.brand ?? item.Brand);
+            if (
+                isEmeraldMakeToOrderBrand(brand) ||
+                item.make_to_order_only === true ||
+                item.makeToOrderOnly === true
+            ) {
+                return 0;
+            }
             const raw = item.quantity ?? item.pcs ?? item.PCS;
             if (raw == null || String(raw).trim() === '') return 1;
             const n = parseInt(String(raw), 10);
             return Number.isFinite(n) && n >= 0 ? n : 1;
         })(),
+        brand: normalizeExcelBrand(item.brand ?? item.Brand),
+        makeToOrderOnly:
+            isEmeraldMakeToOrderBrand(item.brand ?? item.Brand) ||
+            item.make_to_order_only === true ||
+            item.makeToOrderOnly === true,
     };
 }
 
@@ -465,6 +479,38 @@ async function upsertWebProductFromSyncItem(deps, item, opts = {}) {
 
     try {
         await query(upsertSql, upsertParams);
+        if (norm.brand || norm.makeToOrderOnly) {
+            try {
+                await query(
+                    `UPDATE web_products
+                     SET brand = COALESCE($2, brand),
+                         make_to_order_only = COALESCE($3, make_to_order_only),
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE LOWER(TRIM(sku)) = LOWER($1)`,
+                    [norm.prodSku, norm.brand || null, !!norm.makeToOrderOnly],
+                );
+            } catch (brandErr) {
+                const bmsg = brandErr.message || '';
+                if (bmsg.includes('brand') || bmsg.includes('make_to_order_only')) {
+                    await pool.query(
+                        'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS brand VARCHAR(64)',
+                    );
+                    await pool.query(
+                        'ALTER TABLE web_products ADD COLUMN IF NOT EXISTS make_to_order_only BOOLEAN NOT NULL DEFAULT false',
+                    );
+                    await query(
+                        `UPDATE web_products
+                         SET brand = COALESCE($2, brand),
+                             make_to_order_only = COALESCE($3, make_to_order_only),
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE LOWER(TRIM(sku)) = LOWER($1)`,
+                        [norm.prodSku, norm.brand || null, !!norm.makeToOrderOnly],
+                    );
+                } else {
+                    throw brandErr;
+                }
+            }
+        }
     } catch (upsertErr) {
         const msg = upsertErr.message || '';
         if (

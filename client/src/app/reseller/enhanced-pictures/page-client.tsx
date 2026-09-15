@@ -36,6 +36,7 @@ import {
   fetchEnhancedJobStatus,
   fetchProductLookup,
   generateEnhancedPicture,
+  generateBulkEnhancedPictures,
   cancelEnhancedJob,
   deleteEnhancedJob,
   verifyEnhancedTopup,
@@ -128,6 +129,10 @@ export default function ResellerEnhancedPicturesPageClient() {
   const [mrpRateBehindBox, setMrpRateBehindBox] = useState('')
   const [showMrpField, setShowMrpField] = useState(false)
   const [lookupLabel, setLookupLabel] = useState<string | null>(null)
+  const [importMode, setImportMode] = useState<'single' | 'bulk'>('single')
+  const [bulkFiles, setBulkFiles] = useState<File[]>([])
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkSummary, setBulkSummary] = useState<string | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
   const [sourcePreview, setSourcePreview] = useState<string | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
@@ -1176,13 +1181,93 @@ export default function ResellerEnhancedPicturesPageClient() {
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
             04 · Import asset
           </p>
-          <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
-            <PhotoImportControls
-              previewUrl={sourcePreview}
-              onPick={onPick}
-              emptyLabel="Take or upload office / stock photo"
-            />
+          <div className="mb-3 flex gap-2">
+            {(['single', 'bulk'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setImportMode(mode)}
+                className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
+                  importMode === mode
+                    ? 'bg-emerald-700 text-white'
+                    : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                }`}
+              >
+                {mode === 'single' ? 'Single photo' : 'Bulk upload'}
+              </button>
+            ))}
           </div>
+          {importMode === 'single' ? (
+            <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
+              <PhotoImportControls
+                previewUrl={sourcePreview}
+                onPick={onPick}
+                emptyLabel="Take or upload office / stock photo"
+              />
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
+              <label className="flex min-h-[100px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-4 py-6 text-center">
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  onChange={(e) => setBulkFiles(Array.from(e.target.files || []))}
+                />
+                <span className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Choose many photos (filename = product code)
+                </span>
+                <span className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+                  e.g. murugan-sfidol1459-002.jpg — up to 300 per batch
+                </span>
+              </label>
+              {bulkFiles.length > 0 ? (
+                <p className="mt-3 text-sm font-medium text-emerald-800">
+                  {bulkFiles.length} file{bulkFiles.length === 1 ? '' : 's'} selected
+                </p>
+              ) : null}
+              <button
+                type="button"
+                disabled={bulkBusy || bulkFiles.length === 0 || credits < bulkFiles.length}
+                className="mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                onClick={() => void (async () => {
+                  setBulkBusy(true)
+                  setBulkSummary(null)
+                  setError('')
+                  try {
+                    const res = await generateBulkEnhancedPictures({
+                      images: bulkFiles,
+                      templateKey,
+                      varietyKey: activeVariety?.variety_key || varietyKey || undefined,
+                      aspectRatio,
+                      canvasText: includeCanvasText ? canvasText : undefined,
+                      renderQuality: generationOptions.renderQuality,
+                      backgroundPreset: generationOptions.backgroundPreset,
+                      visualization: generationOptions.visualization,
+                      applyWatermark: generationOptions.applyWatermark,
+                      applyInfoText: generationOptions.applyInfoText,
+                    })
+                    setBulkSummary(
+                      `Queued ${res.queued_count} · Skipped ${res.skipped.length} · Failed ${res.failed.length}`,
+                    )
+                    setCredits(res.credits ?? credits)
+                    void loadRecentJobs(true)
+                  } catch (e) {
+                    setError((e as Error).message || 'Bulk generate failed')
+                  } finally {
+                    setBulkBusy(false)
+                  }
+                })()}
+              >
+                {bulkBusy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                Generate all ({bulkFiles.length || 0} × {renderQualityCreditCost(generationOptions.renderQuality)} credits)
+              </button>
+              {bulkSummary ? (
+                <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">{bulkSummary}</p>
+              ) : null}
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4">
@@ -1219,6 +1304,8 @@ export default function ResellerEnhancedPicturesPageClient() {
           ) : null}
         </section>
 
+        {importMode === 'single' ? (
+        <>
         <section>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
             05 · Rename to barcode
@@ -1335,12 +1422,6 @@ export default function ResellerEnhancedPicturesPageClient() {
           </section>
         ) : null}
 
-        {error ? (
-          <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-            {error}
-          </p>
-        ) : null}
-
         {geminiBatchAllowed ? (
           <div className="rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1402,6 +1483,14 @@ export default function ResellerEnhancedPicturesPageClient() {
           >
             Recharge credits
           </button>
+        ) : null}
+        </>
+        ) : null}
+
+        {error ? (
+          <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {error}
+          </p>
         ) : null}
           </>
         )}

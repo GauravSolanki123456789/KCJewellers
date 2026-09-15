@@ -79,6 +79,8 @@ type AdminUser = {
   reseller_enhanced_pictures_enabled?: boolean
   /** Admin enables B2B pricelist module (`users.reseller_pricelist_enabled`). */
   reseller_pricelist_enabled?: boolean
+  /** Admin enables find product through image (`users.reseller_image_search_enabled`). */
+  reseller_image_search_enabled?: boolean
   reseller_invite_code?: string | null
   referred_by_user_id?: number | null
   reseller_slab_settings?: ResellerSlabSettings | null
@@ -193,6 +195,7 @@ function B2BAdminContent() {
     reseller_digisilver_enabled: false,
     reseller_enhanced_pictures_enabled: false,
     reseller_pricelist_enabled: false,
+    reseller_image_search_enabled: false,
     reseller_invite_code: '',
     reseller_catalog_max_products: '50',
     reseller_catalog_daily_limit: '10',
@@ -280,6 +283,7 @@ function B2BAdminContent() {
         reseller_digisilver_enabled: !!resellerModalUser.reseller_digisilver_enabled,
         reseller_enhanced_pictures_enabled: !!resellerModalUser.reseller_enhanced_pictures_enabled,
         reseller_pricelist_enabled: !!resellerModalUser.reseller_pricelist_enabled,
+        reseller_image_search_enabled: !!resellerModalUser.reseller_image_search_enabled,
         reseller_invite_code: resellerModalUser.reseller_invite_code
           ? normalizeResellerInviteCode(resellerModalUser.reseller_invite_code)
           : '',
@@ -390,6 +394,7 @@ function B2BAdminContent() {
         reseller_digisilver_enabled: resellerForm.reseller_digisilver_enabled,
         reseller_enhanced_pictures_enabled: resellerForm.reseller_enhanced_pictures_enabled,
         reseller_pricelist_enabled: resellerForm.reseller_pricelist_enabled,
+        reseller_image_search_enabled: resellerForm.reseller_image_search_enabled,
         reseller_invite_code: resellerForm.reseller_invite_code.trim()
           ? normalizeResellerInviteCode(resellerForm.reseller_invite_code)
           : null,
@@ -1158,6 +1163,39 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_pricelist_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Find product through image</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Reseller uploads a photo to locate matching catalogue SKU / barcode.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_image_search_enabled}
+                      aria-label="Find product through image"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_image_search_enabled: !f.reseller_image_search_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_image_search_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_image_search_enabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

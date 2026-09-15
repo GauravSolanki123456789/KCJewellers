@@ -50,6 +50,7 @@ export const RESELLER_PAYMENT_SETTINGS_PATH = '/reseller/payment-settings'
 export const RESELLER_CATALOG_SLAB_SETTINGS_PATH = '/reseller/catalog-slab-settings'
 /** RESELLER tier — AI Enhanced Picture studio (idol templates etc.). */
 export const RESELLER_ENHANCED_PICTURES_PATH = '/reseller/enhanced-pictures'
+export const RESELLER_IMAGE_SEARCH_PATH = '/reseller/image-search'
 /** RESELLER tier — B2B pricelist (separate from live catalogue). */
 export const RESELLER_PRICELIST_PATH = '/reseller/pricelist'
 /** Admin — test & activate Enhanced Picture prompts for a reseller. */

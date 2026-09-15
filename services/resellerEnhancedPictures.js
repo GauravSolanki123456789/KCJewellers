@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { extractProductStemFromFilename } = require('./productBrandUtils');
 const crypto = require('crypto');
 const axios = require('axios');
 const multer = require('multer');
@@ -924,6 +925,31 @@ function createEnhancedUploadMulter(uploadsDir) {
             cb(okMime || okExt ? null : new Error('Only JPEG, PNG, WEBP, or GIF images are allowed'), okMime || okExt);
         },
     }).single('image');
+}
+
+function createEnhancedBulkUploadMulter(uploadsDir) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    return multer({
+        storage: multer.diskStorage({
+            destination: (_req, _file, cb) => cb(null, uploadsDir),
+            filename: (_req, file, cb) => {
+                const ext = path.extname(String(file.originalname || '')).toLowerCase() || '.jpg';
+                const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg';
+                cb(null, `enhanced-src-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExt}`);
+            },
+        }),
+        limits: { fileSize: 12 * 1024 * 1024, files: 300 },
+        fileFilter: (_req, file, cb) => {
+            const mime = String(file.mimetype || '').toLowerCase();
+            const ext = path.extname(String(file.originalname || '')).toLowerCase();
+            const okMime =
+                mime.startsWith('image/') ||
+                mime === 'application/octet-stream' ||
+                mime === 'binary/octet-stream';
+            const okExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'].includes(ext);
+            cb(okMime || okExt ? null : new Error('Only image files are allowed'), okMime || okExt);
+        },
+    }).array('images', 300);
 }
 
 function mimeFromExt(ext) {
@@ -2769,10 +2795,15 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
     const enhancedDir = path.join(uploadsWebProductsDir, 'enhanced');
     fs.mkdirSync(enhancedDir, { recursive: true });
     const upload = createEnhancedUploadMulter(enhancedDir);
+    const bulkUpload = createEnhancedBulkUploadMulter(enhancedDir);
 
     const runUpload = (req, res) =>
         new Promise((resolve, reject) => {
             upload(req, res, (err) => (err ? reject(err) : resolve()));
+        });
+    const runBulkUpload = (req, res) =>
+        new Promise((resolve, reject) => {
+            bulkUpload(req, res, (err) => (err ? reject(err) : resolve()));
         });
 
     // ---- Admin: templates + prompts for a reseller ----
@@ -4413,6 +4444,134 @@ function registerResellerEnhancedPictureRoutes(app, deps) {
         } catch (e) {
             console.error('reseller enhanced generate:', e);
             res.status(e.status || 500).json({ error: e.message, credits: e.status === 402 ? 0 : undefined });
+        }
+    });
+
+    app.post('/api/reseller/enhanced-pictures/bulk-generate', checkAuth, async (req, res) => {
+        try {
+            await ensureEnhancedPicturesSchema(pool);
+            await assertResellerEnhancedAccess(query, req.user.id);
+            await runBulkUpload(req, res);
+            const files = Array.isArray(req.files) ? req.files : [];
+            if (!files.length) return res.status(400).json({ error: 'At least one image required' });
+
+            const generationOptions = parseGenerationOptions(req.body);
+            const templateKey =
+                String(req.body.template_key || TEMPLATE_IDOLS).trim().toLowerCase().slice(0, 64) ||
+                TEMPLATE_IDOLS;
+            const varietyKey =
+                String(req.body.variety_key || '').trim().toLowerCase().slice(0, 64) || null;
+            const aspectRatio = normalizeAspectRatio(req.body.aspect_ratio);
+            const canvasText = sanitizeCanvasLabel(String(req.body.canvas_text || '').trim()).slice(0, 120);
+            const creditCost = creditCostForRenderQuality(generationOptions.renderQuality);
+            const creditCheck = await getCreditBalance(query, req.user.id);
+            const maxQueue = Math.floor((creditCheck?.credits ?? 0) / creditCost);
+            if (maxQueue <= 0) {
+                return res.status(402).json({
+                    error: `Need ${creditCost} credits per image. You have ${creditCheck?.credits ?? 0}.`,
+                    credits: creditCheck?.credits ?? 0,
+                });
+            }
+
+            const prompt = await resolveActivePrompt(query, req.user.id, templateKey, varietyKey);
+            if (!prompt) {
+                return res.status(400).json({ error: 'No active prompt for this template.' });
+            }
+            const aiConfig = await resolveAiConfigForUser(query, req.user.id);
+            const showcase = await loadTemplateShowcase(query, req.user.id, templateKey);
+            const normalized = normalizePromptFields(prompt.prompt_text, prompt.negative_prompt || '');
+            const syncDeps = { query, pool, enhancedDir, getPublicApiBaseUrl, uploadsWebProductsDir };
+
+            const queued = [];
+            const skipped = [];
+            const failed = [];
+
+            for (const file of files.slice(0, maxQueue)) {
+                const photoType =
+                    /(_secondary|-secondary|-back|_back)/i.test(file.originalname || '') ? 'back' : 'front';
+                const barcodeStem = extractProductStemFromFilename(file.originalname, photoType);
+                if (!barcodeStem) {
+                    skipped.push({ filename: file.originalname, reason: 'Could not read product code from filename' });
+                    continue;
+                }
+                try {
+                    const sourceUrl = `${getPublicApiBaseUrl()}/uploads/web_products/enhanced/${file.filename}`;
+                    const downloadFilename =
+                        photoType === 'back' ? `${barcodeStem}_secondary` : barcodeStem;
+                    const jobIns = await query(
+                        `INSERT INTO reseller_enhanced_picture_jobs
+                            (reseller_user_id, template_key, prompt_id, source_image_url, barcode_stem, photo_type,
+                             status, created_by_user_id, aspect_ratio, canvas_text, download_filename)
+                         VALUES ($1, $2, $3, $4, $5, $6, 'processing', $7, $8, $9, $10)
+                         RETURNING *`,
+                        [
+                            req.user.id,
+                            templateKey,
+                            prompt.id,
+                            sourceUrl,
+                            barcodeStem,
+                            photoType,
+                            req.user.id,
+                            aspectRatio,
+                            canvasText || null,
+                            downloadFilename,
+                        ],
+                    );
+                    const job = jobIns[0];
+                    await saveJobGenerationMeta(query, job.id, generationOptions, {
+                        apply_watermark: parseOverlayToggle(req.body, 'apply_watermark'),
+                        apply_info_text: parseOverlayToggle(req.body, 'apply_info_text'),
+                    });
+                    await consumeOneCredit(query, pool, req.user.id);
+                    const syncParams = {
+                        sourceImagePath: file.path,
+                        aspectRatio,
+                        canvasText,
+                        barcodeStem,
+                        photoType,
+                        downloadFilename,
+                        resellerUserId: req.user.id,
+                        promptText: normalized.promptText,
+                        negativePrompt: normalized.negativePrompt,
+                        workflowHighlights: showcase.workflow_highlights,
+                        templateKey,
+                        varietyKey,
+                        generationOptions,
+                        overlayMeta: {},
+                    };
+                    setImmediate(() => {
+                        processEnhancedSyncJob(job.id, syncParams, syncDeps).catch((e) => {
+                            console.error(`enhanced bulk sync #${job.id}:`, e);
+                        });
+                    });
+                    queued.push({ job_id: job.id, filename: file.originalname, barcode_stem: barcodeStem });
+                } catch (fileErr) {
+                    failed.push({ filename: file.originalname, error: fileErr.message });
+                }
+            }
+
+            if (files.length > maxQueue) {
+                for (const file of files.slice(maxQueue)) {
+                    skipped.push({
+                        filename: file.originalname,
+                        reason: 'Not enough credits for this image',
+                    });
+                }
+            }
+
+            const creditsLeft = await getCreditBalance(query, req.user.id);
+            res.status(202).json({
+                success: queued.length > 0,
+                queued_count: queued.length,
+                skipped,
+                failed,
+                queued,
+                credits: creditsLeft?.credits ?? 0,
+                ai_model: aiConfig?.gemini_model || null,
+            });
+        } catch (e) {
+            console.error('enhanced bulk-generate:', e);
+            res.status(e.status || 500).json({ error: e.message });
         }
     });
 

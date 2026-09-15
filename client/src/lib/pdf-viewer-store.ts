@@ -10,6 +10,8 @@ export type StoredPdfViewerPayload = {
   fallbackWhatsAppHref?: string | null
   /** wa.me link — open chat with customer number */
   customerWhatsAppHref?: string | null
+  /** 10-digit customer mobile for WhatsApp Cloud API send */
+  customerMobile?: string | null
   brandLabel?: string
 }
 

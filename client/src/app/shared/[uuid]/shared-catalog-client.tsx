@@ -48,6 +48,7 @@ import {
   productHasBoxOption,
 } from '@/lib/product-box-pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
+import { isMakeToOrderOnlyProduct, makeToOrderStockLabel } from '@/lib/make-to-order-product'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
 import {
@@ -688,7 +689,9 @@ export default function SharedCatalogClient({
           name: customer.name,
         },
         lines: selectionPicks.map((pick) => {
-          const uploadedMc = lookupProductUploadedMc(pick.row.product)
+          const makeToOrderOnly = isMakeToOrderOnlyProduct(pick.row.product)
+          const stripPrices = weightOnly || makeToOrderOnly
+          const uploadedMc = makeToOrderOnly ? null : lookupProductUploadedMc(pick.row.product)
           const waLine = sharedCatalogPickToWhatsAppLine(
             pick,
             payload && typeof payload === 'object' && 'rates' in payload ? payload.rates ?? [] : [],
@@ -698,20 +701,20 @@ export default function SharedCatalogClient({
             name: waLine.name,
             code: waLine.skuOrBarcode,
             qty: waLine.qty,
-            unitInr: weightOnly ? null : waLine.priceInr,
-            lineTotalInr: weightOnly ? null : pick.lineTotalInr,
-            compareAtInr: weightOnly ? null : (waLine.compareAtInr ?? null),
+            unitInr: stripPrices ? null : waLine.priceInr,
+            lineTotalInr: stripPrices ? null : pick.lineTotalInr,
+            compareAtInr: stripPrices ? null : (waLine.compareAtInr ?? null),
             sizeLabel: waLine.sizeLabel ?? null,
             weightLabel: waLine.weightLabel ?? null,
-            metalSpecSummary: weightOnly
-              ? stripPricePartsFromMetalSpecSummary(waLine.metalSpecSummary ?? null)
+            metalSpecSummary: stripPrices
+              ? waLine.weightLabel || stripPricePartsFromMetalSpecSummary(waLine.metalSpecSummary ?? null)
               : (waLine.metalSpecSummary ?? null),
-            showInclGst: weightOnly ? undefined : waLine.showInclGst,
-            withBoxPriceInr: weightOnly ? null : (waLine.withBoxPriceInr ?? null),
-            slabDiscountLines: weightOnly ? undefined : waLine.slabDiscountLines,
-            savingsInr: weightOnly ? null : (waLine.savingsInr ?? null),
-            uploadedMcRate: uploadedMc?.mc ?? null,
-            uploadedMcType: uploadedMc?.mcType ?? null,
+            showInclGst: stripPrices ? undefined : waLine.showInclGst,
+            withBoxPriceInr: stripPrices ? null : (waLine.withBoxPriceInr ?? null),
+            slabDiscountLines: stripPrices ? undefined : waLine.slabDiscountLines,
+            savingsInr: stripPrices ? null : (waLine.savingsInr ?? null),
+            uploadedMcRate: stripPrices ? null : (uploadedMc?.mc ?? null),
+            uploadedMcType: stripPrices ? null : (uploadedMc?.mcType ?? null),
           }
         }),
         catalogUrl: typeof window !== 'undefined' ? window.location.href : undefined,
@@ -1142,8 +1145,6 @@ export default function SharedCatalogClient({
               const selected = selections.has(key)
               const stockQty = stockByKey.get(key) ?? 0
               const makeOnOrderQty = makeOnOrderByKey.get(key) ?? 0
-              const stockLabel = showLiveStock ? formatLiveStockLabel(stockQty) : null
-              const inStockCap = showLiveStock ? Math.max(0, stockQty) : MAX_PIECE_QTY
               const anySelected = group.variants.some((v) => {
                 const k = rowKeyByRow.get(v)
                 return k ? selections.has(k) : false
@@ -1161,6 +1162,13 @@ export default function SharedCatalogClient({
               const hasVariants = group.variants.length > 1
               const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst, slabDiscountLines, savingsInr, priceBreakdown } =
                 activeRow
+              const makeToOrderOnly = isMakeToOrderOnlyProduct(product)
+              const stockLabel = makeToOrderOnly
+                ? makeToOrderStockLabel()
+                : showLiveStock
+                  ? formatLiveStockLabel(stockQty)
+                  : null
+              const inStockCap = makeToOrderOnly ? 0 : showLiveStock ? Math.max(0, stockQty) : MAX_PIECE_QTY
               const name = group.displayTitle
               const img = normalizeCatalogImageSrc(
                 product.image_url || group.variants[0]?.product.image_url,
@@ -1169,7 +1177,7 @@ export default function SharedCatalogClient({
               const code = String(product.barcode || product.sku || '')
               const sizeLabel = getCustomerDisplaySize(item)
               const wtLabel = getCustomerDisplayWeightLabel(sharedCatalogProductToItem(product))
-              const uploadedMc = lookupProductUploadedMc(product)
+              const uploadedMc = makeToOrderOnly ? null : lookupProductUploadedMc(product)
               const hasBox = productHasBoxOption(item)
               const includeBox = effectiveIncludeBox(
                 item,
@@ -1348,12 +1356,14 @@ export default function SharedCatalogClient({
                           </p>
                         </>
                       ) : null}
-                      <ProductMetalSpecExtras
-                        item={item}
-                        rates={payload.rates ?? []}
-                        breakdown={priceBreakdown}
-                        density="shared"
-                      />
+                      {!makeToOrderOnly ? (
+                        <ProductMetalSpecExtras
+                          item={item}
+                          rates={payload.rates ?? []}
+                          breakdown={priceBreakdown}
+                          density="shared"
+                        />
+                      ) : null}
                       {hasBox && hidePrices ? (
                         <WithBoxLabel className="mt-1" density="shared" />
                       ) : null}
@@ -1385,7 +1395,7 @@ export default function SharedCatalogClient({
                         </div>
                       ) : null}
                       <div className="mt-1.5 space-y-2">
-                        {!hidePrices ? (
+                        {!hidePrices && !makeToOrderOnly ? (
                           <div className="flex min-w-0 flex-col gap-0.5">
                             {displayCompareAtInr != null && displayCompareAtInr > displayUnitInr ? (
                               <span className="kc-price-compare">

@@ -11,6 +11,7 @@ import { appConfirm } from '@/lib/app-notice'
 import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
+import { ErpWhatsAppCloudPanel } from '@/components/reseller/erp/ErpWhatsAppCloudPanel'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -987,23 +988,37 @@ export function IntegrationsWorkspace() {
     { key: 'eway', label: 'E-way bill' },
     { key: 'tally', label: 'Tally' },
     { key: 'scanner', label: 'Scanner' },
+    {
+      key: 'whatsappCloud',
+      label: 'WhatsApp Business',
+      isConfigured: (block: Record<string, unknown>) => {
+        const enabled = block.enabled !== false && block.enabled !== 'no'
+        return enabled && !!(block.accessToken && block.phoneNumberId)
+      },
+    },
   ]
 
   return (
-    <ul className="space-y-2">
-      {blocks.map((b) => {
-        const block = (settings[b.key] as Record<string, string>) || {}
-        const configured = Object.values(block).some((v) => v != null && String(v).trim())
-        return (
-          <li key={b.key} className={`${erpCardCls} flex items-center justify-between`}>
-            <span className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{b.label}</span>
-            <span className={`text-xs font-semibold ${configured ? 'text-emerald-600' : 'text-[var(--color-jewelry-black,#1a1814)]/45'}`}>
-              {configured ? 'Configured' : 'Not set'}
-            </span>
-          </li>
-        )
-      })}
-    </ul>
+    <div className="space-y-4">
+      <ul className="space-y-2">
+        {blocks.map((b) => {
+          const block = (settings[b.key] as Record<string, unknown>) || {}
+          const configured =
+            'isConfigured' in b && typeof b.isConfigured === 'function'
+              ? b.isConfigured(block)
+              : Object.values(block).some((v) => v != null && String(v).trim())
+          return (
+            <li key={b.key} className={`${erpCardCls} flex items-center justify-between`}>
+              <span className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{b.label}</span>
+              <span className={`text-xs font-semibold ${configured ? 'text-emerald-600' : 'text-[var(--color-jewelry-black,#1a1814)]/45'}`}>
+                {configured ? 'Configured' : 'Not set'}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      <ErpWhatsAppCloudPanel />
+    </div>
   )
 }
 

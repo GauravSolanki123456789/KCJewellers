@@ -35,7 +35,7 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [regenerateMode, setRegenerateMode] = useState(false)
-  const [withEway, setWithEway] = useState(true)
+  const [withEway, setWithEway] = useState(false)
 
   const isEinvoice = kind === 'e-invoice'
   const existingIrn = bill?.compliance?.einvoice?.irn
@@ -46,10 +46,10 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
   useEffect(() => {
     if (!open) {
       setRegenerateMode(false)
-      setWithEway(true)
+      setWithEway(false)
       setError('')
     } else {
-      setWithEway(!bill?.compliance?.eway?.ewb_no)
+      setWithEway(false)
     }
   }, [open, bill?.id, bill?.compliance?.eway?.ewb_no])
 
@@ -136,13 +136,8 @@ export function ErpComplianceDialog({ open, onOpenChange, bill, kind, onSuccess,
                 checked={withEway}
                 onChange={(e) => setWithEway(e.target.checked)}
               />
-              <span>
-                <span className="block font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  Also generate e-way bill
-                </span>
-                <span className="mt-0.5 block text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-                  Creates the e-way bill with this e-invoice. Leave unchecked for e-invoice only — you can generate e-way later from the E-way button.
-                </span>
+              <span className="block font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Also generate e-way bill
               </span>
             </label>
           ) : null}

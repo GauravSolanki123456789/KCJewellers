@@ -15,6 +15,11 @@ const {
 } = require('./upsertWebProductFromSyncItem');
 const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
 const { detectGpPairedBases, applyGpVariantPairing } = require('./gpVariantPairing');
+const {
+    normalizeExcelBrand,
+    isEmeraldMakeToOrderBrand,
+    applyEmeraldMakeToOrderFields,
+} = require('./productBrandUtils');
 
 const SUBMISSION_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected', 'withdrawn']);
 
@@ -53,6 +58,8 @@ function submissionRowToSyncItem(row) {
         imageUrl: row.image_url ?? payload.imageUrl,
         boxImageUrl: row.box_image_url ?? payload.boxImageUrl,
         videoUrl: row.video_url ?? payload.videoUrl,
+        brand: row.brand ?? payload.brand,
+        makeToOrderOnly: row.make_to_order_only ?? payload.makeToOrderOnly ?? payload.make_to_order_only,
         ...payload,
     };
 }
@@ -138,6 +145,7 @@ function excelRowToSyncItem(row) {
         chainWeight: get('ChainWtOnly', 'chain_wt_only', 'chain_weight', 'ChainWeight'),
         pendantWeight: get('PendantWtOnly', 'pendant_wt_only', 'pendant_weight', 'PendantWeight'),
         earringWeight: get('EarringWtOnly', 'earring_wt_only', 'earring_weight', 'EarringWeight'),
+        brand: get('Brand', 'brand', 'BRAND'),
     };
 }
 
@@ -263,7 +271,7 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
                 : item.box_charges != null
                   ? Number(item.box_charges)
                   : 0;
-    return {
+    const fields = {
         submitted_by_user_id: submittedByUserId,
         batch_id: batchId || null,
         style_code: resolved.styleCode,
@@ -315,7 +323,13 @@ function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
         video_url: item.videoUrl || item.video_url ? String(item.videoUrl || item.video_url) : null,
         payload_json: payload,
         web_product_sku: resolved.prodSku || null,
+        brand: normalizeExcelBrand(itemGet('Brand', 'brand', 'BRAND') ?? item.brand) || null,
+        make_to_order_only: isEmeraldMakeToOrderBrand(itemGet('Brand', 'brand', 'BRAND') ?? item.brand),
     };
+    if (fields.make_to_order_only) {
+        applyEmeraldMakeToOrderFields(fields);
+    }
+    return fields;
 }
 
 function normSubmissionCompareStr(value) {
@@ -387,6 +401,21 @@ function submissionRowFingerprint(row) {
         attr_color: row.attr_color,
         attr_stone: row.attr_stone,
     });
+}
+
+async function findExistingLiveProductBySku(query, userId, productId) {
+    const key = String(productId || '').trim();
+    const uid = parseInt(String(userId), 10);
+    if (!key || !Number.isFinite(uid) || uid <= 0) return null;
+    const rows = await query(
+        `SELECT id, sku, barcode FROM web_products
+         WHERE submitted_by_user_id = $1
+           AND (is_active IS NULL OR is_active = true)
+           AND (LOWER(TRIM(sku)) = LOWER($2) OR LOWER(TRIM(barcode)) = LOWER($2))
+         LIMIT 1`,
+        [uid, key],
+    );
+    return rows[0] || null;
 }
 
 async function loadExistingSubmissionsForBulkMatch(query, userId) {
@@ -1060,6 +1089,7 @@ function registerResellerProductRoutes(app, deps) {
             const seenSkus = new Map();
             let quantityUpdatedCount = 0;
             let quantityUnchangedCount = 0;
+            let skippedExistingCount = 0;
             const existingSubmissions = await loadExistingSubmissionsForBulkMatch(query, req.user.id);
             const parsedItems = products.map((raw) => excelRowToSyncItem(raw) || raw);
             const gpPairedBases = detectGpPairedBases(parsedItems);
@@ -1075,6 +1105,7 @@ function registerResellerProductRoutes(app, deps) {
                     }
                     const skuKey = String(resolved.prodSku).trim().toLowerCase();
                     const fields = buildSubmissionFieldsFromItem(item, req.user.id, batchId);
+                    const isEmerald = !!fields.make_to_order_only;
                     let existingMatch = findMatchingSubmission(existingSubmissions, fields);
                     if (!existingMatch && resolved.prodSku) {
                         existingMatch = findMatchingSubmissionByProductId(
@@ -1082,7 +1113,22 @@ function registerResellerProductRoutes(app, deps) {
                             resolved.prodSku,
                         );
                     }
+                    if (isEmerald && !existingMatch && resolved.prodSku) {
+                        const live = await findExistingLiveProductBySku(
+                            query,
+                            req.user.id,
+                            resolved.prodSku,
+                        );
+                        if (live) {
+                            skippedExistingCount += 1;
+                            continue;
+                        }
+                    }
                     if (existingMatch) {
+                        if (isEmerald) {
+                            skippedExistingCount += 1;
+                            continue;
+                        }
                         const qtyResult = await updateExistingSubmissionQuantity(
                             query,
                             existingMatch,
@@ -1126,6 +1172,7 @@ function registerResellerProductRoutes(app, deps) {
                 created_count: created.length,
                 quantity_updated_count: quantityUpdatedCount,
                 quantity_unchanged_count: quantityUnchangedCount,
+                skipped_existing_count: skippedExistingCount,
                 expected_count: products.length,
                 style_summary: summarizeImportByStyle(created),
                 submissions: created,

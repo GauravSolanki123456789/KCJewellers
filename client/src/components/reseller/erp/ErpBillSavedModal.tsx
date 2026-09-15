@@ -39,6 +39,13 @@ import {
 } from '@/lib/pdf-share'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
+import {
+  fetchWhatsAppCloudStatus,
+  normalizeErpMobile10,
+  sendPdfViaWhatsAppCloud,
+  whatsAppSetupHint,
+  type WhatsAppCloudStatus,
+} from '@/lib/erp-whatsapp-cloud'
 
 type Props = {
   open: boolean
@@ -67,12 +74,21 @@ export function ErpBillSavedModal({
   const [mobile, setMobile] = useState(defaultMobile)
   const [autoOpened, setAutoOpened] = useState(false)
   const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
+  const [waConfigured, setWaConfigured] = useState(false)
+  const [waStatus, setWaStatus] = useState<WhatsAppCloudStatus>({ configured: false })
+  const [waSending, setWaSending] = useState(false)
+  const [waMsg, setWaMsg] = useState<string | null>(null)
   const [thermalBusy, setThermalBusy] = useState(false)
 
   useEffect(() => {
     if (open) {
       setMobile(defaultMobile)
       setAutoOpened(false)
+      setWaMsg(null)
+      void fetchWhatsAppCloudStatus().then((s) => {
+        setWaConfigured(s.configured)
+        setWaStatus(s)
+      })
     }
   }, [open, defaultMobile])
 
@@ -115,9 +131,41 @@ export function ErpBillSavedModal({
     })
   }, [pdfPayload, mobile])
 
-  const handleWhatsApp = useCallback(() => {
-    if (!pdfPayload) return
+  const handleWhatsApp = useCallback(async () => {
+    if (!pdfPayload || waSending) return
+    setWaMsg(null)
     const text = pdfPayload.fallbackWhatsAppText
+    const mob = normalizeErpMobile10(mobile)
+    if (waMode === 'customer' && mob.length === 10) {
+      if (!waConfigured) {
+        setWaMsg(whatsAppSetupHint(waStatus))
+        return
+      }
+      setWaSending(true)
+      try {
+        const result = await sendPdfViaWhatsAppCloud({
+          blob: pdfPayload.blob,
+          filename: pdfPayload.filename,
+          mobile: mob,
+          caption: text,
+        })
+        setWaMsg(
+          result.deliveryMode === 'template'
+            ? 'PDF sent via approved WhatsApp template.'
+            : 'PDF sent to customer on WhatsApp.',
+        )
+      } catch (e) {
+        const err = e as { response?: { data?: { error?: string } }; message?: string }
+        setWaMsg(err.response?.data?.error || err.message || 'WhatsApp send failed')
+      } finally {
+        setWaSending(false)
+      }
+      return
+    }
+    if (waMode === 'customer' && !waConfigured) {
+      setWaMsg(whatsAppSetupHint(waStatus))
+      return
+    }
     const href =
       waMode === 'customer'
         ? customerWhatsAppHref(mobile.trim() || null, text)
@@ -128,7 +176,7 @@ export function ErpBillSavedModal({
     if (href) {
       openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
     }
-  }, [pdfPayload, mobile, waMode])
+  }, [pdfPayload, mobile, waMode, waConfigured, waSending, waStatus])
 
   const handleShare = useCallback(async () => {
     if (!pdfPayload) return
@@ -249,19 +297,36 @@ export function ErpBillSavedModal({
               value={waMode}
               onChange={(e) => setWaMode(e.target.value as 'pick' | 'customer')}
             >
-              <option value="customer">Send to customer number (from your WhatsApp)</option>
-              <option value="pick">Pick contact / share sheet (current)</option>
+              <option value="customer">
+                {waConfigured ? 'Send PDF from shop WhatsApp (automatic)' : 'Send to customer (opens WhatsApp app)'}
+              </option>
+              <option value="pick">Pick contact / share sheet</option>
             </select>
           </label>
           <button
             type="button"
             className={`${erpBtnPrimary} mt-3 w-full`}
-            onClick={handleWhatsApp}
-            disabled={!pdfPayload}
+            onClick={() => void handleWhatsApp()}
+            disabled={!pdfPayload || waSending}
           >
-            <MessageCircle className="size-4" />
-            {waMode === 'customer' ? 'Send bill to customer on WhatsApp' : 'WhatsApp (pick contact)'}
+            {waSending ? <Loader2 className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
+            {waMode === 'customer'
+              ? waConfigured
+                ? 'Send PDF to customer'
+                : 'Send bill to customer on WhatsApp'
+              : 'WhatsApp (pick contact)'}
           </button>
+          {waMsg ? (
+            <p
+              className={`mt-2 text-xs ${waMsg.includes('sent') ? 'text-emerald-800' : 'text-rose-700'}`}
+            >
+              {waMsg}
+            </p>
+          ) : waConfigured && waMode === 'customer' ? (
+            <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Sends from your shop WhatsApp Business number — configure in ERP → Integrations.
+            </p>
+          ) : null}
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col">

@@ -97,6 +97,61 @@ function rowKindRank(kind) {
     return 3;
 }
 
+function extractLinkedBillRefFromNarration(narration) {
+    const nar = String(narration || '').trim();
+    if (!nar) return null;
+    const tail = nar.match(/ - ([A-Z][A-Z0-9-]{2,})$/i);
+    if (tail) return tail[1].toUpperCase();
+    return null;
+}
+
+function interleaveSalesAndLinkedPayments(rows) {
+    const saleKinds = new Set(['sale', 'debit', 'credit', 'sales_return']);
+    const payKinds = new Set(['payment_in', 'bill_advance', 'suspense_in', 'payment_out']);
+    const sales = [];
+    const pays = [];
+    const other = [];
+    for (const r of rows) {
+        const k = String(r.kind || '').toLowerCase();
+        if (saleKinds.has(k)) sales.push(r);
+        else if (payKinds.has(k)) pays.push(r);
+        else other.push(r);
+    }
+    sales.sort((a, b) => {
+        const d = a.date.localeCompare(b.date);
+        if (d !== 0) return d;
+        return (a.sort_id || 0) - (b.sort_id || 0);
+    });
+    const saleRefs = new Set(sales.map((s) => String(s.ref || '').trim().toUpperCase()).filter(Boolean));
+    const paysByBill = new Map();
+    const orphanPays = [];
+    for (const p of pays) {
+        const link = String(p.linked_bill_ref || '').trim().toUpperCase();
+        if (link && saleRefs.has(link)) {
+            if (!paysByBill.has(link)) paysByBill.set(link, []);
+            paysByBill.get(link).push(p);
+        } else {
+            orphanPays.push(p);
+        }
+    }
+    orphanPays.sort((a, b) => {
+        const d = a.date.localeCompare(b.date);
+        if (d !== 0) return d;
+        return (a.sort_id || 0) - (b.sort_id || 0);
+    });
+    const out = [];
+    for (const s of sales) {
+        out.push(s);
+        const ref = String(s.ref || '').trim().toUpperCase();
+        const linked = (paysByBill.get(ref) || []).sort(
+            (a, b) => (a.sort_id || 0) - (b.sort_id || 0),
+        );
+        for (const p of linked) out.push(p);
+    }
+    out.push(...orphanPays, ...other);
+    return out;
+}
+
 function fmtReceiptDate(iso) {
     if (!iso) return '';
     const s = String(iso).slice(0, 10);
@@ -167,8 +222,13 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     if (!Number.isFinite(customerId) || customerId <= 0) {
         throw Object.assign(new Error('customer_id required'), { status: 400 });
     }
-    const from = parseDateOrNull(opts.from);
-    const to = parseDateOrNull(opts.to);
+    const onDate = parseDateOrNull(opts.on);
+    let from = parseDateOrNull(opts.from);
+    let to = parseDateOrNull(opts.to);
+    if (onDate) {
+        from = onDate;
+        to = onDate;
+    }
     const includeShadow = !!opts.includeShadow;
 
     const customer = await loadCustomerRow(query, resellerUserId, customerId);
@@ -258,6 +318,9 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         );
         shadowBillById = Object.fromEntries((sbRows || []).map((r) => [r.id, r]));
     }
+    const billIdToRef = Object.fromEntries(
+        (officialSales || []).map((s) => [s.id, String(s.bill_number || '').trim()]),
+    );
 
     const rows = [];
 
@@ -320,6 +383,14 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             else debit = Math.abs(amt);
         }
         const isPay = creditTypes.has(p.entry_type) || p.entry_type === 'payment_out';
+        let linkedBillRef = null;
+        if (p.shadow_bill_id && shadowBillById[p.shadow_bill_id]) {
+            linkedBillRef = shadowBillById[p.shadow_bill_id].bill_number;
+        } else if (p.bill_id && billIdToRef[p.bill_id]) {
+            linkedBillRef = billIdToRef[p.bill_id];
+        } else {
+            linkedBillRef = extractLinkedBillRefFromNarration(p.narration);
+        }
         rows.push({
             date: normDate(p.entry_date),
             sort_id: p.id,
@@ -331,27 +402,23 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             debit,
             credit,
             payment_mode: p.payment_mode,
+            linked_bill_ref: linkedBillRef,
         });
     }
 
-    rows.sort((a, b) => {
-        const d = a.date.localeCompare(b.date);
-        if (d !== 0) return d;
-        const kr = rowKindRank(a.kind) - rowKindRank(b.kind);
-        if (kr !== 0) return kr;
-        return (a.sort_id || 0) - (b.sort_id || 0);
-    });
+    const orderedRows = interleaveSalesAndLinkedPayments(rows);
 
     let running = 0;
-    const transactions = rows.map((r) => {
+    const transactions = orderedRows.map((r) => {
         running += r.debit - r.credit;
-        return { ...r, balance_inr: Math.round(running * 100) / 100 };
+        const { linked_bill_ref: _lb, ...pub } = r;
+        return { ...pub, balance_inr: Math.round(running * 100) / 100 };
     });
 
-    const totalBilled = rows
+    const totalBilled = orderedRows
         .filter((r) => r.kind === 'sale' || r.kind === 'debit')
         .reduce((s, r) => s + r.debit, 0);
-    const totalPaid = rows
+    const totalPaid = orderedRows
         .filter((r) => r.kind === 'payment_in' || r.kind === 'bill_advance' || r.kind === 'suspense_in')
         .reduce((s, r) => s + r.credit, 0);
     const balanceDue = transactions.length

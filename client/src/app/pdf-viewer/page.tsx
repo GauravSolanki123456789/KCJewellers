@@ -12,6 +12,14 @@ import {
 import { downloadPdfBlob, printPdfBlob, sharePdfFileNative } from '@/lib/pdf-share'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
+import {
+  fetchWhatsAppCloudStatus,
+  normalizeErpMobile10,
+  sendPdfViaWhatsAppCloud,
+  whatsAppSetupHint,
+  type WhatsAppCloudStatus,
+} from '@/lib/erp-whatsapp-cloud'
+import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
 
 function PdfViewerInner() {
   const searchParams = useSearchParams()
@@ -20,6 +28,10 @@ function PdfViewerInner() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
   const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
+  const [waConfigured, setWaConfigured] = useState(false)
+  const [waStatus, setWaStatus] = useState<WhatsAppCloudStatus>({ configured: false })
+  const [waSending, setWaSending] = useState(false)
+  const [waMsg, setWaMsg] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -34,6 +46,14 @@ function PdfViewerInner() {
       clearPdfViewerStore(id)
     }
   }, [id])
+
+  useEffect(() => {
+    if (!payload) return
+    void fetchWhatsAppCloudStatus().then((s) => {
+      setWaConfigured(s.configured)
+      setWaStatus(s)
+    })
+  }, [payload])
 
   const blob = useMemo(() => {
     if (!payload) return null
@@ -63,8 +83,41 @@ function PdfViewerInner() {
     }
   }, [blob, payload, sharing])
 
-  const handleWhatsApp = useCallback(() => {
-    if (!payload || !blob) return
+  const handleWhatsApp = useCallback(async () => {
+    if (!payload || !blob || waSending) return
+    setWaMsg(null)
+    const hrefMob = payload.customerWhatsAppHref?.match(/(?:wa\.me\/|phone=)(\d+)/i)?.[1]
+    const mob = normalizeErpMobile10(hrefMob)
+    if (waMode === 'customer' && mob.length === 10) {
+      if (!waConfigured) {
+        setWaMsg(whatsAppSetupHint(waStatus))
+        return
+      }
+      setWaSending(true)
+      try {
+        const result = await sendPdfViaWhatsAppCloud({
+          blob,
+          filename: payload.filename,
+          mobile: mob,
+          caption: payload.fallbackWhatsAppText || payload.text || payload.filename,
+        })
+        setWaMsg(
+          result.deliveryMode === 'template'
+            ? 'PDF sent via approved WhatsApp template.'
+            : 'PDF sent to customer on WhatsApp.',
+        )
+      } catch (e) {
+        const err = e as { response?: { data?: { error?: string } }; message?: string }
+        setWaMsg(err.response?.data?.error || err.message || 'WhatsApp send failed')
+      } finally {
+        setWaSending(false)
+      }
+      return
+    }
+    if (waMode === 'customer' && !waConfigured) {
+      setWaMsg(whatsAppSetupHint(waStatus))
+      return
+    }
     const href =
       waMode === 'customer' && payload.customerWhatsAppHref?.trim()
         ? payload.customerWhatsAppHref.trim()
@@ -74,7 +127,7 @@ function PdfViewerInner() {
       downloadPdfBlob(blob, payload.filename)
     }
     openExternalUrl(href, { preferNewTab: !shouldUseSameTabWhatsAppNavigation() })
-  }, [payload, blob, waMode])
+  }, [payload, blob, waMode, waConfigured, waSending, waStatus])
 
   if (!id) {
     return (
@@ -148,18 +201,38 @@ function PdfViewerInner() {
           </label>
           <button
             type="button"
-            onClick={handleWhatsApp}
-            disabled={waMode === 'customer' && !hasCustomerWa}
+            onClick={() => void handleWhatsApp()}
+            disabled={(waMode === 'customer' && !hasCustomerWa) || waSending}
             className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-700 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-100 sm:w-auto"
           >
-            <MessageCircle className="size-4" />
-            {waMode === 'customer' ? 'Send to customer' : 'WhatsApp'}
+            {waSending ? <Loader2 className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
+            {waMode === 'customer'
+              ? waConfigured
+                ? 'Send PDF to customer'
+                : 'Send to customer'
+              : 'WhatsApp'}
           </button>
         </div>
-        <p className="mx-auto mt-2 max-w-5xl text-[11px] leading-relaxed text-[#1a1814]/50">
-          Tip: Use <strong>Share PDF</strong> to attach the file on mobile. WhatsApp text opens a chat — attach the PDF
-          from Downloads or use Share PDF.
-        </p>
+        {waMsg ? (
+          <p
+            className={`mx-auto mt-2 max-w-5xl text-[11px] ${
+              waMsg.includes('sent') ? 'text-emerald-800' : 'text-rose-700'
+            }`}
+          >
+            {waMsg}
+          </p>
+        ) : waMode === 'customer' && hasCustomerWa ? (
+          <p className="mx-auto mt-2 max-w-5xl text-[11px] text-[#1a1814]/55">
+            {waConfigured ? whatsAppSetupHint(waStatus) : (
+              <>
+                {whatsAppSetupHint(waStatus)}{' '}
+                <a href={resellerErpModulePath('integrations')} className="font-semibold text-emerald-800 underline">
+                  Open Integrations
+                </a>
+              </>
+            )}
+          </p>
+        ) : null}
       </header>
 
       <main className="mx-auto w-full max-w-5xl flex-1 p-2 sm:p-4">

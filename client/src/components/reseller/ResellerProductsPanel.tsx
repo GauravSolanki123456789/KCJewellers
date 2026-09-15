@@ -329,6 +329,7 @@ export function ResellerProductsPanel({
         created_count: number
         quantity_updated_count?: number
         quantity_unchanged_count?: number
+        skipped_existing_count?: number
         expected_count?: number
         batch_id?: string | null
         style_summary?: Record<string, number>
@@ -337,6 +338,7 @@ export function ResellerProductsPanel({
       const n = res.data.created_count ?? 0
       const qtyUpdated = res.data.quantity_updated_count ?? 0
       const qtyUnchanged = res.data.quantity_unchanged_count ?? 0
+      const skippedExisting = res.data.skipped_existing_count ?? 0
       const expected = res.data.expected_count ?? products.length
       const errs = res.data.errors ?? []
       const errN = errs.length
@@ -347,12 +349,21 @@ export function ResellerProductsPanel({
       }
       if (n === 0 && qtyUpdated === 0) {
         const first = errs[0] ? formatRowErr(errs[0]) : null
+        if (skippedExisting > 0 && !first) {
+          setBulkResult(
+            `${skippedExisting} emerald product${skippedExisting === 1 ? '' : 's'} already in your uploads or live catalogue — nothing new added.`,
+          )
+          void loadBatches()
+          return
+        }
         setError(
           first
             ? `No rows imported — ${first}${errN > 1 ? ` — and ${errN - 1} more` : ''}`
-            : qtyUnchanged > 0
-              ? `${qtyUnchanged} existing product${qtyUnchanged === 1 ? '' : 's'} already had the same stock — nothing new to import.`
-              : 'No rows imported. Check Barcode, StyleCode, and MetalType (use gifting for gift items).',
+            : skippedExisting > 0
+              ? `${skippedExisting} emerald product${skippedExisting === 1 ? '' : 's'} already exist — nothing new to import.${qtyUnchanged > 0 ? ` ${qtyUnchanged} other row${qtyUnchanged === 1 ? '' : 's'} already had the same stock.` : ''}`
+              : qtyUnchanged > 0
+                ? `${qtyUnchanged} existing product${qtyUnchanged === 1 ? '' : 's'} already had the same stock — nothing new to import.`
+                : 'No rows imported. Check Barcode, StyleCode, and MetalType (use gifting for gift items).',
         )
         return
       }
@@ -374,8 +385,12 @@ export function ResellerProductsPanel({
         qtyUpdated > 0 || qtyUnchanged > 0
           ? ` ${qtyUpdated} stock update${qtyUpdated === 1 ? '' : 's'}${qtyUnchanged ? ` · ${qtyUnchanged} already correct` : ''}.`
           : ''
+      const skippedHint =
+        skippedExisting > 0
+          ? ` ${skippedExisting} emerald product${skippedExisting === 1 ? '' : 's'} already existed and ${skippedExisting === 1 ? 'was' : 'were'} skipped.`
+          : ''
       setBulkResult(
-        `${n} new product${n === 1 ? '' : 's'} added to batch${styleHint ? ` — ${styleHint}` : ''}.${qtyHint} Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,
+        `${n} new product${n === 1 ? '' : 's'} added to batch${styleHint ? ` — ${styleHint}` : ''}.${skippedHint}${qtyHint} Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,
       )
       if (res.data.batch_id) {
         setExpandedBatchId(res.data.batch_id)

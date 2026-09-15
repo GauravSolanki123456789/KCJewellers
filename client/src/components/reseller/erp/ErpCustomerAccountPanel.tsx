@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from 'react'
 import axios from '@/lib/axios'
 import { Download, FileText, Loader2, Search } from 'lucide-react'
+import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
@@ -66,6 +67,9 @@ export function ErpCustomerAccountPanel({
   const [account, setAccount] = useState<CustomerAccountData | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [filterFrom, setFilterFrom] = useState(from)
+  const [filterTo, setFilterTo] = useState(to)
+  const [onDate, setOnDate] = useState('')
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -96,9 +100,13 @@ export function ErpCustomerAccountPanel({
         const path = laneMode
           ? '/api/reseller/erp/shadow/customer-account'
           : '/api/reseller/erp/ledger/customer-account'
-        const res = await axios.get<CustomerAccountData>(path, {
-          params: { customer_id: customer.id, from, to },
-        })
+        const params: Record<string, string | number> = { customer_id: customer.id }
+        if (onDate) params.on = onDate
+        else {
+          if (filterFrom) params.from = filterFrom
+          if (filterTo) params.to = filterTo
+        }
+        const res = await axios.get<CustomerAccountData>(path, { params })
         setAccount(res.data)
         setSelected(customer)
         setQ(customer.name)
@@ -113,7 +121,7 @@ export function ErpCustomerAccountPanel({
         setBusy(false)
       }
     },
-    [laneMode, from, to, onCustomerSelected],
+    [laneMode, filterFrom, filterTo, onDate, onCustomerSelected],
   )
 
   const pickCustomer = (c: ErpCustomer) => {
@@ -122,7 +130,6 @@ export function ErpCustomerAccountPanel({
     setResults([])
     setPickIdx(-1)
     onCustomerSelected?.(c.id)
-    void loadAccount(c)
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -151,10 +158,13 @@ export function ErpCustomerAccountPanel({
         const path = laneMode
           ? '/api/reseller/erp/shadow/customer-account/export'
           : '/api/reseller/erp/ledger/customer-account/export'
-        const res = await axios.get(path, {
-          params: { customer_id: selected.id, from, to, format: 'csv' },
-          responseType: 'blob',
-        })
+        const params: Record<string, string | number> = { customer_id: selected.id, format: 'csv' }
+        if (onDate) params.on = onDate
+        else {
+          if (filterFrom) params.from = filterFrom
+          if (filterTo) params.to = filterTo
+        }
+        const res = await axios.get(path, { params, responseType: 'blob' })
         const url = URL.createObjectURL(res.data)
         const a = document.createElement('a')
         a.href = url
@@ -184,11 +194,46 @@ export function ErpCustomerAccountPanel({
     clear()
   }, [resetToken, clear])
 
+  useEffect(() => {
+    if (!selected) return
+    void loadAccount(selected)
+  }, [selected, filterFrom, filterTo, onDate, loadAccount])
+
   return (
     <div className={`${erpCardCls} space-y-3`}>
-      <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-        {laneMode ? 'Customer payment ledger' : 'Customer payment ledger'}
-      </p>
+      <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Customer payment ledger</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+          From
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={filterFrom}
+            onChange={(v) => {
+              setOnDate('')
+              setFilterFrom(v)
+            }}
+          />
+        </label>
+        <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+          To
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={filterTo}
+            onChange={(v) => {
+              setOnDate('')
+              setFilterTo(v)
+            }}
+          />
+        </label>
+        <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+          On date
+          <ErpDateInput
+            className={`${erpInputCls} mt-1`}
+            value={onDate}
+            onChange={setOnDate}
+          />
+        </label>
+      </div>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-jewelry-black,#1a1814)]/40" />
         <input
