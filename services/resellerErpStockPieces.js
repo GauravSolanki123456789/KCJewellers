@@ -1220,6 +1220,7 @@ function registerStockPieceRoutes(app, deps) {
             let duplicateSkipped = 0;
             let addedWeightGm = 0;
             const itemCodes = new Set();
+            const insertedPieces = [];
 
             for (const p of pieces) {
                 const rfidTag = p.rfid_tag ? poshRfid.normalizeRfidTag(p.rfid_tag) : null;
@@ -1399,6 +1400,12 @@ function registerStockPieceRoutes(app, deps) {
                     }
                     inserted++;
                     addedWeightGm += Number(p.avg_weight) || 0;
+                    if (ins[0]) {
+                        insertedPieces.push({
+                            id: ins[0].id,
+                            barcode: ins[0].barcode,
+                        });
+                    }
                 }
                 if (p.item_code) itemCodes.add(p.item_code);
             }
@@ -1436,6 +1443,7 @@ function registerStockPieceRoutes(app, deps) {
                 updated,
                 duplicate_skipped: duplicateSkipped,
                 duplicate_in_file: duplicateInFile.slice(0, 50),
+                inserted_pieces: insertedPieces,
                 total: pieces.length,
                 purchase_voucher: purchaseVoucher,
                 weight_tallied: purchaseVoucher?.status === 'tallied',

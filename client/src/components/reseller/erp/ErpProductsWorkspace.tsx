@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
 import { ErpStockExcelBuilder } from '@/components/reseller/erp/ErpStockExcelBuilder'
+import { ErpManualAddProduct } from '@/components/reseller/erp/ErpManualAddProduct'
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import {
@@ -61,6 +62,9 @@ export function ErpProductsWorkspace() {
   const [importsLoading, setImportsLoading] = useState(false)
   const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
   const [dupScanBusy, setDupScanBusy] = useState(false)
+  const [designTree, setDesignTree] = useState<
+    { style_code: string; skus: { sku: string; product_name?: string | null }[] }[]
+  >([])
   const [designStyles, setDesignStyles] = useState<string[]>([])
   const [designSkus, setDesignSkus] = useState<string[]>([])
   const [designProducts, setDesignProducts] = useState<string[]>([])
@@ -81,6 +85,7 @@ export function ErpProductsWorkspace() {
       )
       .then((res) => {
         const tree = res.data.tree || []
+        setDesignTree(tree)
         setDesignStyles(tree.map((s) => s.style_code))
         const skus = new Set<string>()
         const products = new Set<string>()
@@ -94,6 +99,7 @@ export function ErpProductsWorkspace() {
         setDesignProducts(Array.from(products).sort())
       })
       .catch(() => {
+        setDesignTree([])
         setDesignStyles([])
         setDesignSkus([])
         setDesignProducts([])
@@ -543,6 +549,19 @@ export function ErpProductsWorkspace() {
             {msg}
           </p>
         ) : null}
+        <ErpManualAddProduct
+          batches={batches.map((b) => ({ id: b.id, batch_label: b.batch_label }))}
+          designTree={designTree}
+          printerProfileId={workstation.printerProfileId}
+          hardware={hw}
+          rfidEnabled={rfidEnabled}
+          defaultBatchId={activeBatchId}
+          onAdded={async (batchId) => {
+            await loadBatches()
+            await loadBatch(batchId)
+            await loadImports(batchId)
+          }}
+        />
         <ErpStockExcelEditor
           batchId={activeBatchId}
           pieces={pieces}
@@ -632,6 +651,17 @@ export function ErpProductsWorkspace() {
           </p>
         ) : null}
       </div>
+      <ErpManualAddProduct
+        batches={batches.map((b) => ({ id: b.id, batch_label: b.batch_label }))}
+        designTree={designTree}
+        printerProfileId={workstation.printerProfileId}
+        hardware={hw}
+        rfidEnabled={rfidEnabled}
+        onAdded={async (batchId) => {
+          await loadBatches()
+          await loadBatch(batchId)
+        }}
+      />
       <ErpStockExcelBuilder
         existingStyles={designStyles}
         existingSkus={designSkus}

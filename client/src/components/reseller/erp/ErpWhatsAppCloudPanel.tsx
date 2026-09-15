@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import { Copy, Loader2, MessageCircle } from 'lucide-react'
 import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
@@ -52,16 +52,16 @@ export function ErpWhatsAppCloudPanel() {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [status, setStatus] = useState<WhatsAppCloudStatus>({ configured: false })
+  const formLoadedRef = useRef(false)
 
   const refreshStatus = useCallback(async () => {
     const s = await fetchWhatsAppCloudStatus()
     setStatus(s)
-    if (s.displayNumber && !displayNumber) setDisplayNumber(String(s.displayNumber).replace(/\D/g, '').slice(-10))
-    if (s.phoneNumberId && !phoneNumberId) setPhoneNumberId(s.phoneNumberId)
-    if (s.documentTemplateName && !documentTemplateName) setDocumentTemplateName(s.documentTemplateName)
-  }, [displayNumber, phoneNumberId, documentTemplateName])
+  }, [])
 
   useEffect(() => {
+    if (formLoadedRef.current) return
+    formLoadedRef.current = true
     void axios
       .get<{ settings: Record<string, unknown> }>('/api/reseller/erp/settings')
       .then((res) => {
@@ -126,7 +126,7 @@ export function ErpWhatsAppCloudPanel() {
       <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 sm:p-4">
         <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Meta webhook</p>
         <p className="mt-1 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-          One callback URL for all shops — paste these in Meta Developer → WhatsApp → Configure webhook.
+          Paste in Meta Developer → WhatsApp → Configure webhook (same for all shops).
         </p>
         <div className="mt-3 grid gap-3">
           <CopyField label="Callback URL" value={status.webhookCallbackUrl || ''} />
@@ -135,7 +135,7 @@ export function ErpWhatsAppCloudPanel() {
             value={
               status.webhookVerifyTokenConfigured
                 ? status.webhookVerifyToken || ''
-                : '(Set WHATSAPP_WEBHOOK_VERIFY_TOKEN on server)'
+                : '(Set WHATSAPP_WEBHOOK_VERIFY_TOKEN on server and restart API)'
             }
           />
         </div>
@@ -196,7 +196,7 @@ export function ErpWhatsAppCloudPanel() {
                 className={`${erpInputCls} mt-1 font-mono text-xs`}
                 placeholder="document_delivery"
                 value={documentTemplateName}
-                onChange={(e) => setDocumentTemplateName(e.target.value.trim())}
+                onChange={(e) => setDocumentTemplateName(e.target.value)}
               />
             </label>
             <label className="block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
@@ -205,7 +205,7 @@ export function ErpWhatsAppCloudPanel() {
                 className={`${erpInputCls} mt-1 font-mono text-xs`}
                 placeholder="en"
                 value={documentTemplateLanguage}
-                onChange={(e) => setDocumentTemplateLanguage(e.target.value.trim())}
+                onChange={(e) => setDocumentTemplateLanguage(e.target.value)}
               />
             </label>
           </div>
