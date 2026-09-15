@@ -322,10 +322,6 @@ export function ErpBillSavedModal({
             >
               {waMsg}
             </p>
-          ) : waConfigured && waMode === 'customer' ? (
-            <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Sends from your shop WhatsApp Business number — configure in ERP → Integrations.
-            </p>
           ) : null}
         </div>
 

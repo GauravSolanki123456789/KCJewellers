@@ -10,6 +10,9 @@ export type WhatsAppCloudStatus = {
   coexistenceActive?: boolean
   embeddedSignupAvailable?: boolean
   documentTemplateName?: string | null
+  webhookCallbackUrl?: string | null
+  webhookVerifyToken?: string | null
+  webhookVerifyTokenConfigured?: boolean
   sendMode?:
     | 'cloud_api'
     | 'cloud_api_coexistence'
@@ -45,6 +48,9 @@ export async function fetchWhatsAppCloudStatus(): Promise<WhatsAppCloudStatus> {
       coexistenceActive: res.data.coexistenceActive,
       embeddedSignupAvailable: res.data.embeddedSignupAvailable,
       documentTemplateName: res.data.documentTemplateName,
+      webhookCallbackUrl: res.data.webhookCallbackUrl,
+      webhookVerifyToken: res.data.webhookVerifyToken,
+      webhookVerifyTokenConfigured: res.data.webhookVerifyTokenConfigured,
       sendMode: res.data.sendMode,
     }
   } catch {
@@ -96,16 +102,7 @@ export async function sendPdfViaWhatsAppCloud(opts: {
   return res.data
 }
 
-/** User-facing hint when Cloud API is not configured yet. */
-export function whatsAppSetupHint(status: WhatsAppCloudStatus): string {
-  if (status.configured) {
-    if (status.coexistenceActive) {
-      return `Sending from ${status.displayNumber || 'your shop number'} via WhatsApp Business + Cloud API — no app opens.`
-    }
-    return `Sending from ${status.displayNumber || 'your shop number'} — no app opens.`
-  }
-  if (status.embeddedSignupAvailable) {
-    return 'Connect your WhatsApp Business app once in ERP → Integrations. After that, Send PDF works with one click — your phone app stays active.'
-  }
-  return 'Set up WhatsApp Cloud API once in ERP → Integrations → WhatsApp Business. Then Send PDF works with one click from your shop number.'
+/** Short hint when Cloud API is not configured yet. */
+export function whatsAppSetupHint(_status: WhatsAppCloudStatus): string {
+  return 'WhatsApp not connected — configure in ERP → Integrations.'
 }

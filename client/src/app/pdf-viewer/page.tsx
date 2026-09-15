@@ -19,7 +19,6 @@ import {
   whatsAppSetupHint,
   type WhatsAppCloudStatus,
 } from '@/lib/erp-whatsapp-cloud'
-import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
 
 function PdfViewerInner() {
   const searchParams = useSearchParams()
@@ -221,17 +220,8 @@ function PdfViewerInner() {
           >
             {waMsg}
           </p>
-        ) : waMode === 'customer' && hasCustomerWa ? (
-          <p className="mx-auto mt-2 max-w-5xl text-[11px] text-[#1a1814]/55">
-            {waConfigured ? whatsAppSetupHint(waStatus) : (
-              <>
-                {whatsAppSetupHint(waStatus)}{' '}
-                <a href={resellerErpModulePath('integrations')} className="font-semibold text-emerald-800 underline">
-                  Open Integrations
-                </a>
-              </>
-            )}
-          </p>
+        ) : !waConfigured && waMode === 'customer' && hasCustomerWa ? (
+          <p className="mx-auto mt-2 max-w-5xl text-[11px] text-rose-700">{whatsAppSetupHint(waStatus)}</p>
         ) : null}
       </header>
 

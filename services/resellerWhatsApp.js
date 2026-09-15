@@ -35,6 +35,9 @@ function readMetaPlatformConfig() {
         trimStr(process.env.WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID, 64);
     const defaultTemplateName = trimStr(process.env.WHATSAPP_DOCUMENT_TEMPLATE_NAME, 120);
     const defaultTemplateLang = trimStr(process.env.WHATSAPP_DOCUMENT_TEMPLATE_LANGUAGE, 16) || 'en';
+    const webhookVerifyToken =
+        trimStr(process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN, 256) ||
+        trimStr(process.env.META_WEBHOOK_VERIFY_TOKEN, 256);
     return {
         appId,
         appSecret,
@@ -42,6 +45,19 @@ function readMetaPlatformConfig() {
         embeddedSignupAvailable: !!(appId && appSecret && configId),
         defaultTemplateName,
         defaultTemplateLang,
+        webhookVerifyToken,
+    };
+}
+
+/** One platform webhook URL serves all reseller WABAs connected to the same Meta app. */
+function readWhatsAppWebhookConfig(getPublicApiBaseUrl) {
+    const platform = readMetaPlatformConfig();
+    const base = typeof getPublicApiBaseUrl === 'function' ? getPublicApiBaseUrl() : '';
+    const callbackUrl = base ? `${String(base).replace(/\/$/, '')}/api/webhooks/whatsapp` : null;
+    return {
+        callbackUrl,
+        verifyToken: platform.webhookVerifyToken || null,
+        verifyTokenConfigured: !!platform.webhookVerifyToken,
     };
 }
 
@@ -385,8 +401,61 @@ async function sendWhatsAppPdfToCustomer(query, resellerUserId, opts) {
     return sendWhatsAppPdfWithFallback(cfg, { mobile: opts.mobile, caption, filename, pdfBuffer: buffer });
 }
 
+function registerWhatsAppWebhookRoutes(app, deps = {}) {
+    const getPublicApiBaseUrl = deps.getPublicApiBaseUrl;
+
+    app.get('/api/webhooks/whatsapp', (req, res) => {
+        const mode = String(req.query['hub.mode'] || '');
+        const token = String(req.query['hub.verify_token'] || '');
+        const challenge = req.query['hub.challenge'];
+        const expected = readMetaPlatformConfig().webhookVerifyToken;
+        if (mode === 'subscribe' && expected && token === expected && challenge != null) {
+            return res.status(200).send(String(challenge));
+        }
+        if (!expected) {
+            console.warn('whatsapp webhook verify: WHATSAPP_WEBHOOK_VERIFY_TOKEN not set');
+        }
+        return res.sendStatus(403);
+    });
+
+    app.post('/api/webhooks/whatsapp', (req, res) => {
+        res.sendStatus(200);
+        try {
+            const body = req.body;
+            if (!body || typeof body !== 'object') return;
+            const entries = Array.isArray(body.entry) ? body.entry : [];
+            for (const entry of entries) {
+                const changes = Array.isArray(entry.changes) ? entry.changes : [];
+                for (const change of changes) {
+                    const value = change.value || {};
+                    const phoneNumberId = value.metadata?.phone_number_id;
+                    const statuses = Array.isArray(value.statuses) ? value.statuses : [];
+                    for (const st of statuses) {
+                        if (st.status === 'failed') {
+                            console.warn('whatsapp delivery failed', {
+                                phoneNumberId,
+                                messageId: st.id,
+                                errors: st.errors,
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('whatsapp webhook parse:', e.message);
+        }
+    });
+
+    if (typeof getPublicApiBaseUrl === 'function') {
+        const cfg = readWhatsAppWebhookConfig(getPublicApiBaseUrl);
+        if (cfg.callbackUrl) {
+            console.log(`WhatsApp webhook URL: ${cfg.callbackUrl}`);
+        }
+    }
+}
+
 function registerResellerWhatsAppRoutes(app, deps) {
-    const { query, checkAuth, erpGate } = deps;
+    const { query, checkAuth, erpGate, getPublicApiBaseUrl } = deps;
     const multer = require('multer');
     const upload = multer({
         storage: multer.memoryStorage(),
@@ -416,6 +485,7 @@ function registerResellerWhatsAppRoutes(app, deps) {
             }
             const coexistenceActive =
                 phoneMeta?.isOnBizApp === true && phoneMeta?.platformType === 'CLOUD_API';
+            const webhook = readWhatsAppWebhookConfig(getPublicApiBaseUrl);
             res.json({
                 configured: cfg.enabled,
                 displayNumber: phoneMeta?.displayPhoneNumber || cfg.displayNumber || null,
@@ -427,6 +497,9 @@ function registerResellerWhatsAppRoutes(app, deps) {
                 coexistenceActive,
                 embeddedSignupAvailable: platform.embeddedSignupAvailable,
                 documentTemplateName: cfg.documentTemplateName || null,
+                webhookCallbackUrl: webhook.callbackUrl,
+                webhookVerifyToken: webhook.verifyToken,
+                webhookVerifyTokenConfigured: webhook.verifyTokenConfigured,
                 sendMode: cfg.enabled
                     ? coexistenceActive
                         ? 'cloud_api_coexistence'
@@ -527,7 +600,9 @@ function registerResellerWhatsAppRoutes(app, deps) {
 
 module.exports = {
     registerResellerWhatsAppRoutes,
+    registerWhatsAppWebhookRoutes,
     readWhatsAppCloudConfig,
+    readWhatsAppWebhookConfig,
     readMetaPlatformConfig,
     sendWhatsAppPdfToCustomer,
     normalizeMobile10,

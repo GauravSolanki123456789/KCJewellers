@@ -979,9 +979,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Show live stock</p>
-                      <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-                        Product cards show available PCS; shared catalogues cap quantity and offer make-on-order above stock.
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1172,9 +1169,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Find product through image</p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        Reseller uploads a photo to locate matching catalogue SKU / barcode.
-                      </p>
                     </div>
                     <button
                       type="button"

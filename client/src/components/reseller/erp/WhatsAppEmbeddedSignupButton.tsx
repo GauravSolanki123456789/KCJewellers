@@ -89,7 +89,7 @@ export function WhatsAppEmbeddedSignupButton({
 
   const connect = useCallback(async () => {
     if (!config?.available || !config.appId || !config.configId) {
-      setError('One-click connect is not available yet. Use manual Meta credentials below, or ask KC admin to enable platform Meta app.')
+      setError('Connect is not available — use shop credentials below.')
       return
     }
     setBusy(true)
@@ -108,7 +108,7 @@ export function WhatsAppEmbeddedSignupButton({
                 const wabaId = session?.data?.waba_id
                 if (!code) throw new Error('Meta signup was cancelled')
                 if (!phoneNumberId) {
-                  throw new Error('Phone number ID missing from Meta signup — try again and finish all steps')
+                  throw new Error('Phone number ID missing — finish all Meta steps and try again')
                 }
                 await completeWhatsAppEmbeddedSignup({
                   code,
@@ -145,17 +145,12 @@ export function WhatsAppEmbeddedSignupButton({
   if (!config?.available) return null
 
   return (
-    <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
-      <p className="text-sm font-semibold text-emerald-950">Connect existing WhatsApp Business app</p>
-      <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
-        Keep using WhatsApp on your phone. Meta links your number to Cloud API so ERP can send PDFs with one
-        click — no need to delete your account.
-      </p>
+    <div>
       <button
         type="button"
         disabled={busy}
         onClick={() => void connect()}
-        className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-60 sm:w-auto"
+        className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-60 sm:w-auto"
       >
         {busy ? <Loader2 className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
         Connect my shop WhatsApp
