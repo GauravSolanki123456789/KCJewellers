@@ -2,15 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from '@/lib/axios'
-import {
-  CloudDownload,
-  CloudUpload,
-  Download,
-  ExternalLink,
-  Loader2,
-  Wifi,
-  WifiOff,
-} from 'lucide-react'
+import { CloudDownload, CloudUpload, Download, Loader2, Wifi, WifiOff } from 'lucide-react'
 import {
   captureOfflineSnapshotFromServer,
   getOfflineSnapshotMeta,
@@ -87,7 +79,9 @@ export function ErpOfflineWorkspace() {
     setMsg(null)
     try {
       const res = await axios.get('/api/reseller/erp/offline/exhibition-app', { responseType: 'blob' })
-      downloadBlob(res.data, 'kc-exhibition-billing.html')
+      const cd = res.headers['content-disposition'] as string | undefined
+      const match = cd?.match(/filename="([^"]+)"/)
+      downloadBlob(res.data, match?.[1] || 'exhibition-estimates.html')
       setMsg('Exhibition app downloaded.')
     } catch (e) {
       setErr(erpErr(e))
@@ -153,8 +147,6 @@ export function ErpOfflineWorkspace() {
     }
   }
 
-  const appUrl = typeof window !== 'undefined' ? `${window.location.origin}/exhibition-kit/` : '/exhibition-kit/'
-
   return (
     <div className="space-y-4">
       <div className={erpCardCls}>
@@ -204,15 +196,6 @@ export function ErpOfflineWorkspace() {
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
             Download app
           </button>
-          <a
-            href={appUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${erpBtnGhost} mt-2 inline-flex w-full justify-center text-xs`}
-          >
-            <ExternalLink className="size-3.5" />
-            Open app
-          </a>
         </div>
 
         <div className={erpCardCls}>

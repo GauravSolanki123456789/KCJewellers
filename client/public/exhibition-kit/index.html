@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#1a1814" />
-  <title>KC Exhibition Billing</title>
+  <title>Exhibition Estimates</title>
   <style>
     :root {
       --bg: #f7f4ef;
@@ -94,7 +94,7 @@
 </head>
 <body>
   <header>
-    <h1>KC Exhibition Billing</h1>
+    <h1 id="appTitle">Exhibition Estimates</h1>
     <p class="sub" id="status">No pack loaded</p>
   </header>
   <main>
@@ -103,6 +103,7 @@
       <input type="file" id="packFile" accept=".json,application/json" />
       <div class="actions">
         <button type="button" class="secondary" id="exportBtn" disabled>Export return pack</button>
+        <button type="button" class="secondary" id="refreshBtn" disabled>Refresh for next exhibition</button>
       </div>
       <p id="setupMsg" class="msg hidden"></p>
     </section>
@@ -139,7 +140,7 @@
           </select>
         </div>
         <div>
-          <label>Estimate no.</label>
+          <label>Quote no.</label>
           <input id="estNo" readonly />
         </div>
       </div>
@@ -152,7 +153,7 @@
         </div>
       </div>
       <div class="actions">
-        <button type="button" id="saveBtn">Save estimate</button>
+        <button type="button" id="saveBtn">Save quote</button>
         <button type="button" class="secondary" id="clearBtn">Clear cart</button>
       </div>
       <p id="billMsg" class="msg hidden"></p>
@@ -170,7 +171,12 @@
     function loadState() {
       try {
         const raw = localStorage.getItem(STORAGE);
-        if (raw) state = { ...state, ...JSON.parse(raw) };
+        if (raw) {
+          state = { ...state, ...JSON.parse(raw) };
+          if (state.counters?.nextEstimateSlot && !state.counters?.nextQuoteSlot) {
+            state.counters.nextQuoteSlot = state.counters.nextEstimateSlot;
+          }
+        }
       } catch (_) {}
     }
     function saveState() {
@@ -254,38 +260,72 @@
       };
     }
 
-    function nextEstimateNo() {
-      let n = state.counters.nextEstimateSlot || 1;
+    function parseQuoteSlot(raw) {
+      const m = String(raw || 'QUOTE-001').match(/QUOTE-(\d+)/i);
+      return m ? parseInt(m[1], 10) || 1 : 1;
+    }
+
+    function peekNextQuoteNo() {
+      let n = state.counters.nextQuoteSlot || 1;
       const used = new Set((state.queue || []).filter(q => q.type === 'estimate').map(q => q.localBillNumber));
-      let num = `ESTIMATE-${String(n).padStart(3, '0')}`;
-      while (used.has(num)) { n++; num = `ESTIMATE-${String(n).padStart(3, '0')}`; }
-      state.counters.nextEstimateSlot = n + 1;
+      let num = `QUOTE-${String(n).padStart(3, '0')}`;
+      while (used.has(num)) { n++; num = `QUOTE-${String(n).padStart(3, '0')}`; }
+      return { num, slot: n };
+    }
+
+    function allocateQuoteNo() {
+      const { num, slot } = peekNextQuoteNo();
+      state.counters.nextQuoteSlot = slot + 1;
       return num;
     }
 
-    function refreshEstimateNo() {
-      document.getElementById('estNo').value = nextEstimateNo();
-      state.counters.nextEstimateSlot = (state.counters.nextEstimateSlot || 1);
+    function refreshQuoteNo() {
+      document.getElementById('estNo').value = peekNextQuoteNo().num;
+    }
+
+    function setShopTitle(pack) {
+      const shop = pack?.shopName || pack?.snapshot?.shopName || 'Exhibition';
+      const title = shop + ' Estimates';
+      document.title = title;
+      const h1 = document.getElementById('appTitle');
+      if (h1) h1.textContent = title;
     }
 
     function applyPack(pack) {
       state.pack = pack;
       state.rates = pack.snapshot?.rates || state.rates;
+      const quoteHint = pack.counters?.nextQuoteNumber || pack.counters?.nextEstimateNumber;
       state.counters = {
-        nextEstimateNumber: pack.counters?.nextEstimateNumber,
-        nextEstimateSlot: parseInt(String(pack.counters?.nextEstimateNumber || 'ESTIMATE-001').split('-')[1], 10) || 1,
+        nextQuoteNumber: quoteHint,
+        nextQuoteSlot: parseQuoteSlot(quoteHint),
       };
       saveState();
+      setShopTitle(pack);
       document.getElementById('status').textContent =
         `${(pack.snapshot?.customers || []).length} customers · ${(pack.snapshot?.pieces || []).length} barcodes`;
       document.getElementById('billing').classList.remove('hidden');
       document.getElementById('queueSec').classList.remove('hidden');
       document.getElementById('exportBtn').disabled = false;
+      document.getElementById('refreshBtn').disabled = false;
       document.getElementById('goldRate').value = String(state.rates.gold_per_gram || '');
       document.getElementById('silverRate').value = String(state.rates.silver_per_gram || '');
       document.getElementById('rateSlab').value = state.rateSlab || 'R';
-      refreshEstimateNo();
+      refreshQuoteNo();
       renderQueue();
+    }
+
+    function refreshForNextExhibition() {
+      if (!state.pack) return;
+      state.queue = [];
+      state.cart = [];
+      state.selectedCustomer = null;
+      state.counters.nextQuoteSlot = parseQuoteSlot(state.pack.counters?.nextQuoteNumber);
+      document.getElementById('custQ').value = '';
+      saveState();
+      renderCart();
+      renderQueue();
+      refreshQuoteNo();
+      showMsg(document.getElementById('setupMsg'), 'Cleared saved quotes on this device. Next quote: ' + peekNextQuoteNo().num, true);
     }
 
     function findPiece(code) {
@@ -389,14 +429,23 @@
     document.getElementById('custMenu').addEventListener('click', (e) => {
       const btn = e.target.closest('.suggest-item');
       if (!btn) return;
-      state.selectedCustomer = {
-        id: Number(btn.dataset.id),
+      const custId = Number(btn.dataset.id);
+      const customers = state.pack?.snapshot?.customers || [];
+      const full = customers.find(c => Number(c.id) === custId) || null;
+      state.selectedCustomer = full || {
+        id: custId,
         name: btn.dataset.name,
         mobile: btn.dataset.mobile,
       };
       document.getElementById('custQ').value = state.selectedCustomer.mobile
         ? `${state.selectedCustomer.name} · ${state.selectedCustomer.mobile}`
         : state.selectedCustomer.name;
+      const slab = String(state.selectedCustomer.rate_slab || 'R').toUpperCase();
+      if (['R', 'W', 'F'].includes(slab)) {
+        document.getElementById('rateSlab').value = slab;
+        state.rateSlab = slab;
+        recalcCart();
+      }
       document.getElementById('custMenu').classList.add('hidden');
       saveState();
     });
@@ -444,7 +493,7 @@
       state.cart = [];
       saveState();
       renderCart();
-      refreshEstimateNo();
+      refreshQuoteNo();
     });
 
     document.getElementById('saveBtn').addEventListener('click', () => {
@@ -464,7 +513,7 @@
       }
       const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
       const collected = Number(document.getElementById('collected').value) || total;
-      const localBillNumber = document.getElementById('estNo').value || nextEstimateNo();
+      const localBillNumber = allocateQuoteNo();
       const opId = uid();
       const rates = currentRates();
       const item = {
@@ -507,9 +556,11 @@
       saveState();
       renderCart();
       renderQueue();
-      refreshEstimateNo();
+      refreshQuoteNo();
       showMsg(document.getElementById('billMsg'), `Saved ${localBillNumber}`, true);
     });
+
+    document.getElementById('refreshBtn').addEventListener('click', refreshForNextExhibition);
 
     document.getElementById('exportBtn').addEventListener('click', () => {
       const blob = new Blob([JSON.stringify({

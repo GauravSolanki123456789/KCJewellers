@@ -164,7 +164,7 @@ async function nextEstimateHint(query, resellerUserId) {
         `SELECT bill_number FROM reseller_erp_bills
          WHERE reseller_user_id = $1 AND bill_type = 'estimate'
            AND UPPER(bill_number) ~ '^ESTIMATE-[0-9]+$'
-         ORDER BY id DESC LIMIT 200`,
+         ORDER BY id DESC LIMIT 500`,
         [resellerUserId],
     );
     const used = new Set();
@@ -179,6 +179,49 @@ async function nextEstimateHint(query, resellerUserId) {
     let next = 1;
     while (used.has(next)) next += 1;
     return `ESTIMATE-${String(next).padStart(3, '0')}`;
+}
+
+async function nextQuoteHint(query, resellerUserId) {
+    const rows = await query(
+        `SELECT bill_number FROM reseller_erp_bills
+         WHERE reseller_user_id = $1 AND bill_type = 'estimate'
+           AND UPPER(bill_number) ~ '^QUOTE-[0-9]+$'
+         ORDER BY id DESC LIMIT 500`,
+        [resellerUserId],
+    );
+    const used = new Set();
+    for (const row of rows) {
+        const m = String(row.bill_number || '').match(/^QUOTE-(\d+)$/i);
+        if (m) {
+            const n = parseInt(m[1], 10);
+            if (Number.isFinite(n) && n > 0) used.add(n);
+        }
+    }
+    let next = 1;
+    while (used.has(next)) next += 1;
+    return `QUOTE-${String(next).padStart(3, '0')}`;
+}
+
+async function loadShopDisplayName(query, resellerUserId) {
+    try {
+        const rows = await query(
+            `SELECT business_name, email FROM users WHERE id = $1 LIMIT 1`,
+            [resellerUserId],
+        );
+        const name = trimStr(rows[0]?.business_name, 120);
+        if (name) return name;
+        return trimStr(rows[0]?.email, 120) || 'Shop';
+    } catch {
+        return 'Shop';
+    }
+}
+
+function slugShopName(name) {
+    return String(name || 'shop')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'shop';
 }
 
 async function nextShadowBillHint(query, resellerUserId) {
@@ -222,12 +265,24 @@ function registerResellerErpOfflineRoutes(app, deps) {
             if (!filePath) {
                 return res.status(404).json({ error: 'Exhibition app file not found on server' });
             }
-            const html = fs.readFileSync(filePath, 'utf8');
+            let html = fs.readFileSync(filePath, 'utf8');
             if (!html || !html.trim()) {
                 return res.status(404).json({ error: 'Exhibition app file is empty' });
             }
+            const shopName = await loadShopDisplayName(query, req.user.id);
+            const safeTitle = shopName.replace(/[<>&"]/g, '');
+            html = html
+                .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle} Estimates</title>`)
+                .replace(
+                    /<h1[^>]*>[^<]*<\/h1>/,
+                    `<h1 id="appTitle">${safeTitle} Estimates</h1>`,
+                );
+            const slug = slugShopName(shopName);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
-            res.setHeader('Content-Disposition', 'attachment; filename="kc-exhibition-billing.html"');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="${slug}-exhibition-estimates.html"`,
+            );
             res.send(html);
         } catch (e) {
             console.error('erp exhibition app download:', e);
@@ -248,14 +303,17 @@ function registerResellerErpOfflineRoutes(app, deps) {
     app.get('/api/reseller/erp/offline/exhibition-pack', checkAuth, erpGate, async (req, res) => {
         try {
             const snap = await loadOfflineSnapshot(query, req.user.id);
+            const shopName = await loadShopDisplayName(query, req.user.id);
             const pack = {
-                packVersion: 1,
+                packVersion: 2,
                 kind: 'kc-exhibition-pack',
                 exportedAt: new Date().toISOString(),
                 resellerUserId: req.user.id,
+                shopName,
                 snapshot: snap,
                 counters: {
                     nextEstimateNumber: await nextEstimateHint(query, req.user.id),
+                    nextQuoteNumber: await nextQuoteHint(query, req.user.id),
                     nextShadowBillNumber: await nextShadowBillHint(query, req.user.id),
                 },
             };
@@ -402,9 +460,14 @@ function registerResellerErpOfflineRoutes(app, deps) {
                     }
 
                     if (billType === 'estimate') {
-                        const billNumber =
-                            trimStr(payload.bill_number, 64) ||
-                            (await nextEstimateHint(query, req.user.id));
+                        let billNumber = trimStr(payload.bill_number, 64);
+                        if (!billNumber) {
+                            billNumber = await nextEstimateHint(query, req.user.id);
+                        } else if (/^QUOTE-/i.test(billNumber)) {
+                            billNumber = billNumber.toUpperCase();
+                        } else if (/^ESTIMATE-/i.test(billNumber)) {
+                            billNumber = billNumber.toUpperCase();
+                        }
                         const dup = await query(
                             `SELECT id FROM reseller_erp_bills
                              WHERE reseller_user_id = $1 AND bill_number = $2 LIMIT 1`,

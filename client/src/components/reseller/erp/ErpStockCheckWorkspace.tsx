@@ -2,8 +2,40 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
-import { CheckCircle2, FileSpreadsheet, FileText, History, Loader2, ScanLine } from 'lucide-react'
+import {
+  CheckCircle2,
+  FileSpreadsheet,
+  FileText,
+  History,
+  Loader2,
+  Merge,
+  Pencil,
+  Save,
+  ScanLine,
+  Trash2,
+} from 'lucide-react'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import {
+  buildReportData,
+  buildFloorSummary,
+  previewStockCheckPdf,
+} from '@/lib/erp-stock-check-pdf'
+import {
+  loadArchive,
+  loadDrafts,
+  loadWorkspacePersist,
+  mergeScopeMaps,
+  saveArchive,
+  saveDrafts,
+  saveWorkspacePersist,
+  scopeFromArray,
+  scopeToArray,
+  uniqueScans,
+  type StockCheckArchive,
+  type StockCheckDraft,
+  type StockCheckScanRow,
+  type StockCheckScopeBarcode,
+} from '@/lib/erp-stock-check-storage'
 
 type FloorBox = {
   id: string
@@ -20,41 +52,6 @@ type Floor = {
   boxes: FloorBox[]
 }
 
-type ScopeBarcode = {
-  barcode: string
-  sku?: string | null
-  style_code?: string | null
-  product_name?: string | null
-  size?: string | null
-  floor_name?: string | null
-  box_code?: string | null
-}
-
-type ScanRow = {
-  id: string
-  barcode: string
-  found: boolean
-  sku?: string | null
-  product_name?: string | null
-  scannedAt: number
-}
-
-type ScanSession = {
-  id: string
-  label: string
-  finishedAt: string
-  scopeCount: number
-  scans: ScanRow[]
-  stats: {
-    uniqueFound: number
-    uniqueMissing: number
-    notInScope: number
-    missingBarcodes: string[]
-  }
-}
-
-const SESSIONS_KEY = 'kc-stock-check-sessions-v1'
-
 function downloadCsv(filename: string, rows: string[][]) {
   const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`
   const body = rows.map((r) => r.map(esc).join(',')).join('\n')
@@ -67,26 +64,20 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url)
 }
 
-function loadSessions(): ScanSession[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(SESSIONS_KEY)
-    return raw ? (JSON.parse(raw) as ScanSession[]) : []
-  } catch {
-    return []
+function buildStats(scopeBarcodes: Map<string, StockCheckScopeBarcode>, scans: StockCheckScanRow[]) {
+  const uniq = uniqueScans(scans)
+  const scannedSet = new Set(uniq.map((s) => s.barcode))
+  const uniqueFound = uniq.filter((s) => s.found).length
+  const missingBarcodes: string[] = []
+  for (const code of scopeBarcodes.keys()) {
+    if (!scannedSet.has(code)) missingBarcodes.push(code)
   }
-}
-
-function saveSessions(list: ScanSession[]) {
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(list.slice(0, 50)))
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  return {
+    uniqueFound,
+    uniqueMissingScope: missingBarcodes.length,
+    notInScope: uniq.filter((s) => !s.found).length,
+    missingBarcodes,
+  }
 }
 
 export function ErpStockCheckWorkspace() {
@@ -95,24 +86,54 @@ export function ErpStockCheckWorkspace() {
   const [selectedFloorIds, setSelectedFloorIds] = useState<string[]>([])
   const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([])
   const [scopeAll, setScopeAll] = useState(false)
-  const [scopeBarcodes, setScopeBarcodes] = useState<Map<string, ScopeBarcode>>(new Map())
+  const [scopeBarcodes, setScopeBarcodes] = useState<Map<string, StockCheckScopeBarcode>>(new Map())
   const [scopeLoaded, setScopeLoaded] = useState(false)
   const [scopeBusy, setScopeBusy] = useState(false)
   const [scopeLabel, setScopeLabel] = useState('')
   const [scanCode, setScanCode] = useState('')
-  const [scans, setScans] = useState<ScanRow[]>([])
-  const [sessions, setSessions] = useState<ScanSession[]>([])
+  const [scans, setScans] = useState<StockCheckScanRow[]>([])
+  const [drafts, setDrafts] = useState<StockCheckDraft[]>([])
+  const [archive, setArchive] = useState<StockCheckArchive[]>([])
   const [msg, setMsg] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([])
+  const [pdfBusy, setPdfBusy] = useState(false)
   const scanRef = useRef<HTMLInputElement>(null)
+  const hydratedRef = useRef(false)
 
   useEffect(() => {
-    setSessions(loadSessions())
+    setDrafts(loadDrafts())
+    setArchive(loadArchive())
+    const saved = loadWorkspacePersist()
+    if (saved) {
+      setSelectedFloorIds(saved.selectedFloorIds || [])
+      setSelectedBoxIds(saved.selectedBoxIds || [])
+      setScopeAll(saved.scopeAll || false)
+      setScopeBarcodes(scopeFromArray(saved.scopeBarcodes || []))
+      setScopeLoaded(saved.scopeLoaded || false)
+      setScopeLabel(saved.scopeLabel || '')
+      setScans(saved.scans || [])
+    }
+    hydratedRef.current = true
     void axios
       .get<{ floors: Floor[] }>('/api/reseller/erp/floors')
       .then((r) => setFloors(r.data.floors || []))
       .catch(() => setFloors([]))
       .finally(() => setLoadingFloors(false))
   }, [])
+
+  useEffect(() => {
+    if (!hydratedRef.current) return
+    saveWorkspacePersist({
+      selectedFloorIds,
+      selectedBoxIds,
+      scopeAll,
+      scopeBarcodes: scopeToArray(scopeBarcodes),
+      scopeLoaded,
+      scopeLabel,
+      scans,
+    })
+  }, [selectedFloorIds, selectedBoxIds, scopeAll, scopeBarcodes, scopeLoaded, scopeLabel, scans])
 
   const toggleFloor = (floor: Floor, checked: boolean) => {
     setScopeAll(false)
@@ -170,53 +191,34 @@ export function ErpStockCheckWorkspace() {
         setMsg('Select floor(s), box(es), or entire stock.')
         return
       }
-      const res = await axios.get<{ barcodes: ScopeBarcode[]; count: number }>(
+      const res = await axios.get<{ barcodes: StockCheckScopeBarcode[]; count: number }>(
         '/api/reseller/erp/stock-check/barcodes',
         { params },
       )
-      const map = new Map<string, ScopeBarcode>()
-      for (const row of res.data.barcodes || []) {
-        const code = String(row.barcode || '').trim().toUpperCase()
-        if (code) map.set(code, row)
-      }
-      setScopeBarcodes(map)
+      const incoming = res.data.barcodes || []
+      const merged = mergeScopeMaps(scopeBarcodes, incoming)
+      const label = buildScopeLabel()
+      setScopeBarcodes(merged)
       setScopeLoaded(true)
-      setScopeLabel(buildScopeLabel())
-      setScans([])
-      setMsg(`Loaded ${map.size} barcode(s) in scope. Start scanning.`)
+      setScopeLabel((prev) => {
+        if (!prev || !scopeLoaded) return label
+        return `${prev} + ${label}`
+      })
+      setMsg(`Added ${incoming.length} barcode(s). Total in scope: ${merged.size}. Scans kept.`)
       scanRef.current?.focus()
     } catch (e) {
       setMsg(erpErr(e))
-      setScopeBarcodes(new Map())
-      setScopeLoaded(false)
     } finally {
       setScopeBusy(false)
     }
-  }, [scopeAll, selectedBoxIds, selectedFloorIds, buildScopeLabel])
+  }, [scopeAll, selectedBoxIds, selectedFloorIds, buildScopeLabel, scopeBarcodes, scopeLoaded])
 
-  const scannedBarcodeSet = useMemo(() => new Set(scans.map((s) => s.barcode)), [scans])
-
-  const uniqueScans = useMemo(() => {
-    const seen = new Set<string>()
-    const out: ScanRow[] = []
-    for (const s of scans) {
-      if (seen.has(s.barcode)) continue
-      seen.add(s.barcode)
-      out.push(s)
-    }
-    return out
-  }, [scans])
-
-  const stats = useMemo(() => {
-    const uniqueFound = uniqueScans.filter((s) => s.found).length
-    const uniqueMissingScope = Math.max(0, scopeBarcodes.size - uniqueFound)
-    const notInScope = uniqueScans.filter((s) => !s.found).length
-    const missingBarcodes: string[] = []
-    for (const code of scopeBarcodes.keys()) {
-      if (!scannedBarcodeSet.has(code)) missingBarcodes.push(code)
-    }
-    return { uniqueFound, uniqueMissingScope, notInScope, missingBarcodes }
-  }, [uniqueScans, scopeBarcodes, scannedBarcodeSet])
+  const uniqueScanRows = useMemo(() => uniqueScans(scans), [scans])
+  const scannedBarcodeSet = useMemo(() => new Set(uniqueScanRows.map((s) => s.barcode)), [uniqueScanRows])
+  const stats = useMemo(
+    () => buildStats(scopeBarcodes, scans),
+    [scopeBarcodes, scans],
+  )
 
   const pushScan = (raw: string) => {
     const barcode = raw.trim().toUpperCase()
@@ -232,7 +234,7 @@ export function ErpStockCheckWorkspace() {
       return
     }
     const hit = scopeBarcodes.get(barcode)
-    const row: ScanRow = {
+    const row: StockCheckScanRow = {
       id: `${barcode}-${Date.now()}`,
       barcode,
       found: !!hit,
@@ -246,35 +248,123 @@ export function ErpStockCheckWorkspace() {
     scanRef.current?.focus()
   }
 
+  const makeReport = useCallback(
+    (opts: {
+      label: string
+      scopeRows: StockCheckScopeBarcode[]
+      scanRows: StockCheckScanRow[]
+      title?: string
+    }) =>
+      buildReportData({
+        title: opts.title,
+        scopeLabel: opts.label,
+        scopeBarcodes: opts.scopeRows,
+        scans: uniqueScans(opts.scanRows),
+      }),
+    [],
+  )
+
+  const previewReport = async (report: ReturnType<typeof buildReportData>) => {
+    setPdfBusy(true)
+    try {
+      await previewStockCheckPdf(report)
+      setMsg('PDF preview opened in this tab.')
+    } catch (e) {
+      setMsg(erpErr(e))
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  const previewCurrent = () => {
+    void previewReport(
+      makeReport({
+        label: scopeLabel || buildScopeLabel(),
+        scopeRows: scopeToArray(scopeBarcodes),
+        scanRows: scans,
+      }),
+    )
+  }
+
+  const saveDraft = () => {
+    if (!scans.length) {
+      setMsg('Scan at least one barcode before saving draft.')
+      return
+    }
+    const name = draftName.trim() || `Draft ${new Date().toLocaleString('en-IN')}`
+    const draft: StockCheckDraft = {
+      id: `draft-${Date.now()}`,
+      name,
+      savedAt: new Date().toISOString(),
+      scopeLabel: scopeLabel || buildScopeLabel(),
+      scopeBarcodes: scopeToArray(scopeBarcodes),
+      scans: uniqueScanRows,
+    }
+    const next = [draft, ...loadDrafts()]
+    saveDrafts(next)
+    setDrafts(next)
+    setDraftName('')
+    setMsg(`Draft saved: ${name}`)
+  }
+
+  const continueDraft = (draft: StockCheckDraft) => {
+    setScopeBarcodes(scopeFromArray(draft.scopeBarcodes))
+    setScopeLoaded(true)
+    setScopeLabel(draft.scopeLabel)
+    setScans(draft.scans)
+    setMsg(`Loaded draft "${draft.name}". Continue scanning.`)
+    scanRef.current?.focus()
+  }
+
+  const mergeDraft = (draft: StockCheckDraft) => {
+    setScopeBarcodes((prev) => mergeScopeMaps(prev, draft.scopeBarcodes))
+    setScopeLoaded(true)
+    setScopeLabel((prev) => (prev ? `${prev} + ${draft.scopeLabel}` : draft.scopeLabel))
+    const mergedScans = uniqueScans([...draft.scans, ...scans])
+    setScans(mergedScans)
+    setMsg(`Merged draft "${draft.name}" into current session.`)
+    scanRef.current?.focus()
+  }
+
+  const deleteDraft = (id: string) => {
+    const next = loadDrafts().filter((d) => d.id !== id)
+    saveDrafts(next)
+    setDrafts(next)
+    setMsg('Draft deleted.')
+  }
+
   const finishScan = () => {
     if (!scans.length) {
       setMsg('Scan at least one barcode before finishing.')
       return
     }
-    const session: ScanSession = {
+    const session: StockCheckArchive = {
       id: `scan-${Date.now()}`,
       label: scopeLabel || buildScopeLabel(),
       finishedAt: new Date().toISOString(),
       scopeCount: scopeBarcodes.size,
-      scans: uniqueScans,
+      scopeBarcodes: scopeToArray(scopeBarcodes),
+      scans: uniqueScanRows,
       stats: {
         uniqueFound: stats.uniqueFound,
         uniqueMissing: stats.uniqueMissingScope,
         notInScope: stats.notInScope,
-        missingBarcodes: stats.missingBarcodes.slice(0, 500),
       },
     }
-    const next = [session, ...loadSessions()]
-    saveSessions(next)
-    setSessions(next)
+    const next = [session, ...loadArchive()]
+    saveArchive(next)
+    setArchive(next)
     setScans([])
-    setMsg(`Scan saved (${session.stats.uniqueFound} found, ${session.stats.uniqueMissing} missing). Start a new scan when ready.`)
+    setScopeBarcodes(new Map())
+    setScopeLoaded(false)
+    setScopeLabel('')
+    setMsg(`Scan finished (${session.stats.uniqueFound} found, ${session.stats.uniqueMissing} missing).`)
     scanRef.current?.focus()
   }
 
   const exportCsv = () => {
     const header = ['Barcode', 'Status', 'SKU', 'Product', 'Scanned at']
-    const rows = uniqueScans.map((s) => [
+    const rows = uniqueScanRows.map((s) => [
       s.barcode,
       s.found ? 'FOUND' : 'NOT IN SCOPE',
       s.sku || '',
@@ -282,12 +372,12 @@ export function ErpStockCheckWorkspace() {
       new Date(s.scannedAt).toLocaleString('en-IN'),
     ])
     downloadCsv(`stock-check-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows])
-    setMsg('CSV downloaded.')
+    setMsg('Scan log CSV downloaded.')
   }
 
   const exportSummaryCsv = () => {
     const header = ['Barcode', 'In scope', 'SKU', 'Product', 'Floor', 'Box']
-    const scannedSet = new Set(uniqueScans.map((s) => s.barcode))
+    const scannedSet = new Set(uniqueScanRows.map((s) => s.barcode))
     const rows: string[][] = []
     for (const [code, meta] of scopeBarcodes) {
       rows.push([
@@ -299,78 +389,98 @@ export function ErpStockCheckWorkspace() {
         meta.box_code || '',
       ])
     }
-    for (const s of uniqueScans.filter((x) => !x.found)) {
+    for (const s of uniqueScanRows.filter((x) => !x.found)) {
       rows.push([s.barcode, 'NOT IN SCOPE', s.sku || '', s.product_name || '', '', ''])
     }
     downloadCsv(`stock-check-report-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows])
-    setMsg('Report CSV downloaded.')
+    setMsg('Full report CSV downloaded.')
   }
 
-  const exportPdf = () => {
-    const scannedSet = new Set(uniqueScans.map((s) => s.barcode))
-    const missingRows = [...scopeBarcodes.entries()]
-      .filter(([code]) => !scannedSet.has(code))
-      .map(([code, meta]) => ({ code, meta }))
-    const scanRows = uniqueScans.map((s) => {
-      const meta = scopeBarcodes.get(s.barcode)
-      return {
-        ...s,
-        floor: meta?.floor_name || '',
-        box: meta?.box_code || '',
-      }
-    })
-    const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><title>Stock check report</title>
-<style>
-  body { font-family: system-ui, sans-serif; color: #1a1814; padding: 24px; font-size: 12px; }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  .sub { color: #6b6560; margin-bottom: 16px; }
-  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .stat { padding: 8px 12px; border-radius: 8px; background: #f7f4ef; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-  th, td { border: 1px solid #e8e4df; padding: 6px 8px; text-align: left; }
-  th { background: #faf8f4; font-size: 10px; text-transform: uppercase; }
-  .missing { background: #fff1f2; }
-  .found { background: #fffbeb; }
-  @media print { body { padding: 12px; } }
-</style></head><body>
-  <h1>Stock checking report</h1>
-  <p class="sub">${escapeHtml(scopeLabel || 'Stock scan')} · ${escapeHtml(new Date().toLocaleString('en-IN'))}</p>
-  <div class="stats">
-    <div class="stat"><strong>In scope:</strong> ${scopeBarcodes.size}</div>
-    <div class="stat"><strong>Found:</strong> ${stats.uniqueFound}</div>
-    <div class="stat"><strong>Missing:</strong> ${stats.uniqueMissingScope}</div>
-    <div class="stat"><strong>Not in scope scans:</strong> ${stats.notInScope}</div>
-  </div>
-  <h2>Scanned (${scanRows.length})</h2>
-  <table><thead><tr><th>Barcode</th><th>Status</th><th>SKU</th><th>Product</th><th>Floor</th><th>Box</th></tr></thead><tbody>
-  ${scanRows
-    .map(
-      (s) =>
-        `<tr class="${s.found ? 'found' : 'missing'}"><td>${escapeHtml(s.barcode)}</td><td>${s.found ? 'FOUND' : 'NOT IN SCOPE'}</td><td>${escapeHtml(s.sku || '')}</td><td>${escapeHtml(s.product_name || '')}</td><td>${escapeHtml(s.floor || '')}</td><td>${escapeHtml(s.box || '')}</td></tr>`,
+  const exportFloorCsv = () => {
+    const summary = buildFloorSummary(scopeToArray(scopeBarcodes), uniqueScanRows)
+    const header = ['Floor', 'Box', 'In scope', 'Found', 'Missing']
+    const rows = summary.map((f) => [f.floor, f.box, String(f.inScope), String(f.found), String(f.missing)])
+    downloadCsv(`stock-check-floors-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows])
+    setMsg('Floor / box summary CSV downloaded.')
+  }
+
+  const deleteArchive = (id: string) => {
+    const next = loadArchive().filter((s) => s.id !== id)
+    saveArchive(next)
+    setArchive(next)
+    setSelectedArchiveIds((prev) => prev.filter((x) => x !== id))
+    setMsg('Past scan deleted.')
+  }
+
+  const renameArchive = (id: string) => {
+    const current = loadArchive().find((s) => s.id === id)
+    if (!current) return
+    const nextName = window.prompt('Rename scan', current.label)
+    if (!nextName?.trim()) return
+    const next = loadArchive().map((s) => (s.id === id ? { ...s, label: nextName.trim() } : s))
+    saveArchive(next)
+    setArchive(next)
+    setMsg('Scan renamed.')
+  }
+
+  const previewArchive = (session: StockCheckArchive) => {
+    void previewReport(
+      makeReport({
+        label: session.label,
+        scopeRows: session.scopeBarcodes,
+        scanRows: session.scans,
+      }),
     )
-    .join('')}
-  </tbody></table>
-  <h2>Missing from scope (${missingRows.length})</h2>
-  <table><thead><tr><th>Barcode</th><th>SKU</th><th>Product</th><th>Floor</th><th>Box</th></tr></thead><tbody>
-  ${missingRows
-    .map(
-      ({ code, meta }) =>
-        `<tr class="missing"><td>${escapeHtml(code)}</td><td>${escapeHtml(meta.sku || '')}</td><td>${escapeHtml(meta.product_name || '')}</td><td>${escapeHtml(meta.floor_name || '')}</td><td>${escapeHtml(meta.box_code || '')}</td></tr>`,
-    )
-    .join('')}
-  </tbody></table>
-  <script>window.onload = function(){ window.print(); };</script>
-</body></html>`
-    const w = window.open('', '_blank')
-    if (!w) {
-      setMsg('Allow pop-ups to open the print preview.')
+  }
+
+  const mergeSelectedArchive = () => {
+    const picked = loadArchive().filter((s) => selectedArchiveIds.includes(s.id))
+    if (picked.length < 2) {
+      setMsg('Select at least 2 past scans to merge.')
       return
     }
-    w.document.open()
-    w.document.write(html)
-    w.document.close()
-    setMsg('Print preview opened — use Save as PDF.')
+    const scopeMap = new Map<string, StockCheckScopeBarcode>()
+    let allScans: StockCheckScanRow[] = []
+    for (const s of picked) {
+      for (const row of s.scopeBarcodes) {
+        const code = String(row.barcode || '').trim().toUpperCase()
+        if (code) scopeMap.set(code, row)
+      }
+      allScans = uniqueScans([...allScans, ...s.scans])
+    }
+    const label = picked.map((s) => s.label).join(' + ')
+    void previewReport(
+      makeReport({
+        title: 'Merged stock checking report',
+        label,
+        scopeRows: [...scopeMap.values()],
+        scanRows: allScans,
+      }),
+    )
+    setMsg(`Merged preview for ${picked.length} scans.`)
+  }
+
+  const loadMergedIntoWorkspace = () => {
+    const picked = loadArchive().filter((s) => selectedArchiveIds.includes(s.id))
+    if (!picked.length) {
+      setMsg('Select past scan(s) to load.')
+      return
+    }
+    const scopeMap = new Map<string, StockCheckScopeBarcode>()
+    let allScans: StockCheckScanRow[] = []
+    for (const s of picked) {
+      for (const row of s.scopeBarcodes) {
+        const code = String(row.barcode || '').trim().toUpperCase()
+        if (code) scopeMap.set(code, row)
+      }
+      allScans = uniqueScans([...allScans, ...s.scans])
+    }
+    setScopeBarcodes(scopeMap)
+    setScopeLoaded(true)
+    setScopeLabel(picked.map((s) => s.label).join(' + '))
+    setScans(allScans)
+    setMsg(`Loaded ${picked.length} scan(s) into workspace.`)
+    scanRef.current?.focus()
   }
 
   if (loadingFloors) {
@@ -391,7 +501,7 @@ export function ErpStockCheckWorkspace() {
             Stock checking
           </p>
           <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-            Select scope, load barcodes, scan once per item. Finish scan to save a session for later review.
+            Select scope, load barcodes, scan once per item. Your progress is saved when you switch tabs.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -399,12 +509,7 @@ export function ErpStockCheckWorkspace() {
             {scopeBusy ? <Loader2 className="size-4 animate-spin" /> : null}
             Load scope
           </button>
-          <button
-            type="button"
-            className={erpBtnPrimary}
-            disabled={!scans.length}
-            onClick={finishScan}
-          >
+          <button type="button" className={erpBtnPrimary} disabled={!scans.length} onClick={finishScan}>
             <CheckCircle2 className="size-4" />
             Finish scan
           </button>
@@ -502,21 +607,17 @@ export function ErpStockCheckWorkspace() {
             }}
           />
           <div className="mb-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-            <div className="rounded-lg bg-amber-100 px-2 py-1.5 text-amber-950">
-              Found: {stats.uniqueFound}
-            </div>
-            <div className="rounded-lg bg-red-100 px-2 py-1.5 text-red-950">
-              Missing: {stats.uniqueMissingScope}
-            </div>
+            <div className="rounded-lg bg-amber-100 px-2 py-1.5 text-amber-950">Found: {stats.uniqueFound}</div>
+            <div className="rounded-lg bg-red-100 px-2 py-1.5 text-red-950">Missing: {stats.uniqueMissingScope}</div>
             <div className="rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-2 py-1.5">
               In scope: {scopeBarcodes.size}
             </div>
             <div className="rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-2 py-1.5">
-              Unique scans: {uniqueScans.length}
+              Unique scans: {uniqueScanRows.length}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={erpBtnGhost} disabled={!uniqueScans.length} onClick={exportCsv}>
+            <button type="button" className={erpBtnGhost} disabled={!uniqueScanRows.length} onClick={exportCsv}>
               <FileSpreadsheet className="size-4" />
               Scan log CSV
             </button>
@@ -524,23 +625,83 @@ export function ErpStockCheckWorkspace() {
               <FileSpreadsheet className="size-4" />
               Full report CSV
             </button>
-            <button type="button" className={erpBtnGhost} disabled={!uniqueScans.length} onClick={exportPdf}>
-              <FileText className="size-4" />
-              Print / PDF
+            <button type="button" className={erpBtnGhost} disabled={!scopeLoaded} onClick={exportFloorCsv}>
+              <FileSpreadsheet className="size-4" />
+              Floor / box CSV
+            </button>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              disabled={!uniqueScanRows.length || pdfBusy}
+              onClick={previewCurrent}
+            >
+              {pdfBusy ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+              Preview PDF
             </button>
           </div>
+          {scopeLabel ? (
+            <p className="mt-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">Scope: {scopeLabel}</p>
+          ) : null}
           {msg ? <p className="mt-2 text-xs text-emerald-800">{msg}</p> : null}
         </div>
       </div>
+
+      <div className={`${erpCardCls} grid gap-3 sm:grid-cols-[1fr_auto_auto]`}>
+        <input
+          className={`${erpInputCls} text-sm`}
+          placeholder="Draft name (optional)"
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+        />
+        <button type="button" className={erpBtnPrimary} disabled={!scans.length} onClick={saveDraft}>
+          <Save className="size-4" />
+          Save scan
+        </button>
+      </div>
+
+      {drafts.length > 0 ? (
+        <details className={erpCardCls} open={drafts.length <= 4}>
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/55 marker:content-none">
+            <Save className="size-4" />
+            Saved drafts ({drafts.length})
+          </summary>
+          <ul className="mt-3 space-y-2">
+            {drafts.map((d) => (
+              <li
+                key={d.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs"
+              >
+                <div>
+                  <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{d.name}</p>
+                  <p className="text-[var(--color-jewelry-black,#1a1814)]/55">
+                    {new Date(d.savedAt).toLocaleString('en-IN')} · {d.scans.length} scans · scope{' '}
+                    {d.scopeBarcodes.length}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className={erpBtnGhost} onClick={() => continueDraft(d)}>
+                    Continue
+                  </button>
+                  <button type="button" className={erpBtnGhost} onClick={() => mergeDraft(d)}>
+                    <Merge className="size-3.5" />
+                    Merge
+                  </button>
+                  <button type="button" className={erpBtnGhost} onClick={() => deleteDraft(d.id)}>
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {stats.missingBarcodes.length > 0 && scopeLoaded ? (
         <div className={`${erpCardCls} border-red-100 bg-red-50/40`}>
           <p className="mb-2 text-xs font-semibold uppercase text-red-900">
             Missing in scope ({stats.missingBarcodes.length})
           </p>
-          <p className="mb-2 text-[11px] text-red-900/70">
-            These barcodes are in scope but not scanned yet.
-          </p>
+          <p className="mb-2 text-[11px] text-red-900/70">These barcodes are in scope but not scanned yet.</p>
           <div className="max-h-40 overflow-auto rounded-lg border border-red-200 bg-white p-2 font-mono text-[11px] text-red-950">
             {stats.missingBarcodes.slice(0, 120).join(', ')}
             {stats.missingBarcodes.length > 120 ? '…' : ''}
@@ -565,19 +726,19 @@ export function ErpStockCheckWorkspace() {
               </tr>
             </thead>
             <tbody>
-              {uniqueScans.length === 0 ? (
+              {uniqueScanRows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-3 py-6 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                     No scans yet.
                   </td>
                 </tr>
               ) : (
-                uniqueScans.map((s, i) => (
+                uniqueScanRows.map((s, i) => (
                   <tr
                     key={s.id}
                     className={s.found ? 'bg-amber-100 text-amber-950' : 'bg-red-50 text-red-900'}
                   >
-                    <td className="px-2 py-1.5">{uniqueScans.length - i}</td>
+                    <td className="px-2 py-1.5">{uniqueScanRows.length - i}</td>
                     <td className="px-2 py-1.5 font-mono font-semibold">{s.barcode}</td>
                     <td className="px-2 py-1.5">{s.found ? 'In scope' : 'Not present'}</td>
                     <td className="px-2 py-1.5">{s.sku || '—'}</td>
@@ -593,23 +754,68 @@ export function ErpStockCheckWorkspace() {
         </div>
       </div>
 
-      {sessions.length > 0 ? (
-        <details className={erpCardCls} open={sessions.length <= 3}>
+      {archive.length > 0 ? (
+        <details className={erpCardCls} open={archive.length <= 3}>
           <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/55 marker:content-none">
             <History className="size-4" />
-            Past scans ({sessions.length})
+            Past scans ({archive.length})
           </summary>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={erpBtnGhost}
+              disabled={selectedArchiveIds.length < 2}
+              onClick={mergeSelectedArchive}
+            >
+              <Merge className="size-4" />
+              Merge & preview
+            </button>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              disabled={!selectedArchiveIds.length}
+              onClick={loadMergedIntoWorkspace}
+            >
+              Load selected
+            </button>
+          </div>
           <ul className="mt-3 space-y-2">
-            {sessions.map((s) => (
+            {archive.map((s) => (
               <li
                 key={s.id}
-                className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs"
               >
-                <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{s.label}</p>
-                <p className="text-[var(--color-jewelry-black,#1a1814)]/55">
-                  {new Date(s.finishedAt).toLocaleString('en-IN')} · scope {s.scopeCount} · found{' '}
-                  {s.stats.uniqueFound} · missing {s.stats.uniqueMissing}
-                </p>
+                <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={selectedArchiveIds.includes(s.id)}
+                    onChange={(e) => {
+                      setSelectedArchiveIds((prev) =>
+                        e.target.checked ? [...prev, s.id] : prev.filter((x) => x !== s.id),
+                      )
+                    }}
+                  />
+                  <span>
+                    <span className="block font-semibold text-[var(--color-jewelry-black,#1a1814)]">{s.label}</span>
+                    <span className="text-[var(--color-jewelry-black,#1a1814)]/55">
+                      {new Date(s.finishedAt).toLocaleString('en-IN')} · scope {s.scopeCount} · found{' '}
+                      {s.stats.uniqueFound} · missing {s.stats.uniqueMissing}
+                    </span>
+                  </span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className={erpBtnGhost} disabled={pdfBusy} onClick={() => previewArchive(s)}>
+                    <FileText className="size-3.5" />
+                    Preview
+                  </button>
+                  <button type="button" className={erpBtnGhost} onClick={() => renameArchive(s.id)}>
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button type="button" className={erpBtnGhost} onClick={() => deleteArchive(s.id)}>
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
