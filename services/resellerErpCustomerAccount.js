@@ -30,7 +30,17 @@ function totalWeightGmFromLines(linesJson) {
         }
     }
     if (!Array.isArray(lines)) return 0;
-    return lines.reduce((s, l) => s + (Number(l.weightGm) || Number(l.originalWeightGm) || 0), 0);
+    return lines.reduce((s, l) => {
+        const w =
+            Number(l.weightGm) ||
+            Number(l.originalWeightGm) ||
+            Number(l.net_weight) ||
+            Number(l.net_weight_gm) ||
+            Number(l.avg_weight) ||
+            Number(l.weight_gm) ||
+            0;
+        return s + (Number.isFinite(w) ? w : 0);
+    }, 0);
 }
 
 function cashBookKind(name) {
@@ -193,7 +203,18 @@ function formatLedgerPaymentDescription(p, customerName, shadowBillById) {
 
 function pushShadowSaleRows(rows, s) {
     const billAmt = Number(s.total_inr) || 0;
-    const weightGm = totalWeightGmFromLines(s.lines_json);
+    let session = s.session_json;
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch {
+            session = null;
+        }
+    }
+    const weightGm =
+        totalWeightGmFromLines(s.lines_json) ||
+        Number(session && (session.returnWeightGm || session.totalWeightGm)) ||
+        0;
     rows.push({
         date: normDate(s.bill_date),
         sort_id: s.id,
@@ -258,7 +279,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     let shadowSales = [];
     if (includeShadow && book !== 'cash') {
         const shParams = book === 'jainav2' ? [resellerUserId] : [resellerUserId, customerId, customer.name];
-        let shSql = `SELECT id, bill_number, lane, bill_date, total_inr, payment_method, status, created_at, session_json
+        let shSql = `SELECT id, bill_number, lane, bill_date, total_inr, payment_method, status, created_at, session_json, lines_json
                      FROM reseller_erp_shadow_bills
                      WHERE reseller_user_id = $1`;
         if (book !== 'jainav2') {

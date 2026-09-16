@@ -80,5 +80,9 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
 export async function downloadCustomerAccountPdf(account: CustomerAccountData) {
   const blob = await pdf(<LedgerStatementDocument account={account} />).toBlob()
   const fname = `ledger-${account.customer.name.replace(/\W+/g, '_')}-${new Date().toISOString().slice(0, 10)}.pdf`
-  await presentPdfBlob(blob, fname, { title: 'Customer account statement', text: fname })
+  await presentPdfBlob(blob, fname, {
+    title: 'Customer account statement',
+    text: fname,
+    customerMobile: account.customer.mobile ?? null,
+  })
 }

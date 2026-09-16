@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import { Loader2, Plus, Printer, Trash2 } from 'lucide-react'
+import { ErpBillingSuggestField } from '@/components/reseller/erp/ErpBillingSuggestField'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, erpErr } from '@/components/reseller/erp/erp-ui'
 import { printStockLabels } from '@/lib/erp-print-labels'
 import type { ErpHardwareSettings } from '@/lib/erp-hardware'
@@ -51,72 +52,15 @@ function newRow(): ManualRow {
   }
 }
 
-function rankOptions(options: string[], query: string): string[] {
-  const q = query.trim().toLowerCase()
-  if (!q) return options
-  return [...options].sort((a, b) => {
-    const al = a.toLowerCase()
-    const bl = b.toLowerCase()
-    const aStarts = al.startsWith(q)
-    const bStarts = bl.startsWith(q)
-    if (aStarts && !bStarts) return -1
-    if (!aStarts && bStarts) return 1
-    const aIncludes = al.includes(q)
-    const bIncludes = bl.includes(q)
-    if (aIncludes && !bIncludes) return -1
-    if (!aIncludes && bIncludes) return 1
-    return al.localeCompare(bl)
-  })
+function normCode(v: string): string {
+  return v.trim().toUpperCase()
 }
 
-function SmartField({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-  listId,
-  inputId,
-  inputMode,
-  onEnter,
-  autoFocus,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: string[]
-  placeholder?: string
-  listId: string
-  inputId?: string
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
-  onEnter?: () => void
-  autoFocus?: boolean
-}) {
-  const ranked = useMemo(() => rankOptions(options, value).slice(0, 80), [options, value])
+function FieldLabel({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
       {label}
-      <input
-        id={inputId}
-        className={`${erpInputCls} mt-1 text-xs`}
-        list={listId}
-        placeholder={placeholder}
-        value={value}
-        inputMode={inputMode}
-        autoFocus={autoFocus}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            onEnter?.()
-          }
-        }}
-      />
-      <datalist id={listId}>
-        {ranked.map((o) => (
-          <option key={o} value={o} />
-        ))}
-      </datalist>
+      <div className="mt-1">{children}</div>
     </label>
   )
 }
@@ -129,6 +73,7 @@ export function ErpManualAddProduct({
   rfidEnabled,
   defaultBatchId,
   onAdded,
+  onDesignTreeRefresh,
 }: {
   batches: BatchOption[]
   designTree: DesignStyle[]
@@ -137,6 +82,7 @@ export function ErpManualAddProduct({
   rfidEnabled?: boolean
   defaultBatchId?: string | null
   onAdded?: (batchId: string) => void
+  onDesignTreeRefresh?: () => Promise<void> | void
 }) {
   const [open, setOpen] = useState(false)
   const [batchId, setBatchId] = useState('')
@@ -147,6 +93,8 @@ export function ErpManualAddProduct({
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [msgTone, setMsgTone] = useState<'ok' | 'err'>('ok')
+  const skuRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const wtRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const styleOptions = useMemo(
     () => designTree.map((s) => s.style_code).filter(Boolean),
@@ -161,15 +109,48 @@ export function ErpManualAddProduct({
   const skusForStyle = useCallback(
     (styleCode: string) => {
       const style = designTree.find(
-        (s) => s.style_code.toLowerCase() === styleCode.trim().toLowerCase(),
+        (s) => normCode(s.style_code) === normCode(styleCode),
       )
       return (style?.skus || []).map((sk) => sk.sku).filter(Boolean)
     },
     [designTree],
   )
 
+  const ensureStyle = useCallback(
+    async (styleCode: string) => {
+      const code = normCode(styleCode)
+      if (!code) return
+      const exists = designTree.some((s) => normCode(s.style_code) === code)
+      if (exists) return
+      await axios.post('/api/reseller/erp/design-master/styles', {
+        style_code: code,
+        style_name: code,
+      })
+      await onDesignTreeRefresh?.()
+    },
+    [designTree, onDesignTreeRefresh],
+  )
+
+  const ensureSku = useCallback(
+    async (styleCode: string, sku: string, productName?: string) => {
+      const style = normCode(styleCode)
+      const skuCode = normCode(sku)
+      if (!style || !skuCode) return
+      await ensureStyle(style)
+      const styleRow = designTree.find((s) => normCode(s.style_code) === style)
+      const exists = styleRow?.skus.some((sk) => normCode(sk.sku) === skuCode)
+      if (exists) return
+      await axios.post('/api/reseller/erp/design-master/skus', {
+        style_code: style,
+        sku: skuCode,
+        product_name: productName?.trim() || undefined,
+      })
+      await onDesignTreeRefresh?.()
+    },
+    [designTree, ensureStyle, onDesignTreeRefresh],
+  )
+
   const loadDefaults = useCallback(async (rowId: string, styleCode: string, sku: string) => {
-    const key = `${styleCode}|${sku}`
     if (!styleCode.trim() || !sku.trim()) {
       setDefaults((d) => ({ ...d, [rowId]: null }))
       return
@@ -188,7 +169,8 @@ export function ErpManualAddProduct({
               ? {
                   ...r,
                   purity: r.purity || (def.purity != null ? String(def.purity) : r.purity),
-                  product_name: r.product_name || (def.product_name ? String(def.product_name) : r.product_name),
+                  product_name:
+                    r.product_name || (def.product_name ? String(def.product_name) : r.product_name),
                 }
               : r,
           ),
@@ -227,21 +209,50 @@ export function ErpManualAddProduct({
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, ...patch } : r)))
   }
 
-  const onStyleChange = (row: ManualRow, styleCode: string) => {
-    updateRow(row.id, { style_code: styleCode.toUpperCase(), sku: '', product_name: '' })
-    setDefaults((d) => ({ ...d, [row.id]: null }))
+  const commitStyle = async (row: ManualRow, styleCode: string) => {
+    const code = normCode(styleCode)
+    if (!code) return
+    try {
+      await ensureStyle(code)
+      updateRow(row.id, { style_code: code, sku: '', product_name: '' })
+      setDefaults((d) => ({ ...d, [row.id]: null }))
+      setTimeout(() => skuRefs.current[row.id]?.focus(), 0)
+    } catch (e) {
+      setMsgTone('err')
+      setMsg(erpErr(e))
+    }
   }
 
-  const onSkuChange = (row: ManualRow, sku: string) => {
-    const style = designTree.find(
-      (s) => s.style_code.toLowerCase() === row.style_code.trim().toLowerCase(),
-    )
-    const match = style?.skus.find((sk) => sk.sku.toLowerCase() === sku.trim().toLowerCase())
-    updateRow(row.id, {
-      sku: sku.toUpperCase(),
-      product_name: match?.product_name || row.product_name,
-    })
-    void loadDefaults(row.id, row.style_code, sku)
+  const commitSku = async (row: ManualRow, sku: string) => {
+    const skuCode = normCode(sku)
+    const styleCode = normCode(row.style_code)
+    if (!skuCode || !styleCode) return
+    try {
+      await ensureSku(styleCode, skuCode, row.product_name)
+      const style = designTree.find((s) => normCode(s.style_code) === styleCode)
+      const match = style?.skus.find((sk) => normCode(sk.sku) === skuCode)
+      updateRow(row.id, {
+        sku: skuCode,
+        product_name: match?.product_name || row.product_name,
+      })
+      await loadDefaults(row.id, styleCode, skuCode)
+      setTimeout(() => wtRefs.current[row.id]?.focus(), 0)
+    } catch (e) {
+      setMsgTone('err')
+      setMsg(erpErr(e))
+    }
+  }
+
+  const commitBatch = (label: string) => {
+    const v = label.trim()
+    setBatchQuery(v)
+    const exact = batches.find((b) => b.batch_label.toLowerCase() === v.toLowerCase())
+    if (exact) {
+      setBatchId(exact.id)
+      return
+    }
+    const partial = batches.find((b) => b.batch_label.toLowerCase().includes(v.toLowerCase()))
+    if (partial && v) setBatchId(partial.id)
   }
 
   const submit = async () => {
@@ -261,6 +272,10 @@ export function ErpManualAddProduct({
     setBusy(true)
     setMsg(null)
     try {
+      for (const r of validRows) {
+        await ensureStyle(r.style_code)
+        await ensureSku(r.style_code, r.sku, r.product_name)
+      }
       const excelRows = validRows.map((r) => {
         const def = defaults[r.id]
         const productName = r.product_name.trim() || def?.product_name || ''
@@ -335,24 +350,15 @@ export function ErpManualAddProduct({
         </button>
       </div>
 
-      <SmartField
-        label="Stock batch"
-        value={batchQuery}
-        onChange={(v) => {
-          setBatchQuery(v)
-          const exact = batches.find((b) => b.batch_label.toLowerCase() === v.trim().toLowerCase())
-          if (exact) {
-            setBatchId(exact.id)
-            return
-          }
-          const ranked = rankOptions(batchOptions, v)
-          const partial = batches.find((b) => b.batch_label.toLowerCase() === ranked[0]?.toLowerCase())
-          if (partial && v.trim()) setBatchId(partial.id)
-        }}
-        options={batchOptions}
-        listId="manual-add-batch-list"
-        placeholder="VALAK, KAMACHI, CHOMBU…"
-      />
+      <FieldLabel label="Stock batch">
+        <ErpBillingSuggestField
+          value={batchQuery}
+          placeholder="VALAK, KAMACHI, CHOMBU…"
+          options={batchOptions}
+          onChange={setBatchQuery}
+          onCommit={commitBatch}
+        />
+      </FieldLabel>
 
       <div className="space-y-3">
         {rows.map((row, idx) => {
@@ -362,7 +368,7 @@ export function ErpManualAddProduct({
           return (
             <div
               key={row.id}
-              className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 space-y-3"
+              className="space-y-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-bold text-[var(--color-jewelry-black,#1a1814)]">#{idx + 1}</p>
@@ -377,39 +383,44 @@ export function ErpManualAddProduct({
                 ) : null}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <SmartField
-                  label="Style"
-                  value={row.style_code}
-                  onChange={(v) => onStyleChange(row, v)}
-                  options={styleOptions}
-                  listId={`manual-style-${row.id}`}
-                  placeholder="KUTHU VALAK"
-                  autoFocus={idx === 0}
-                  onEnter={() => document.getElementById(`manual-sku-${row.id}`)?.focus()}
-                />
-                <SmartField
-                  label="SKU"
-                  value={row.sku}
-                  onChange={(v) => onSkuChange(row, v)}
-                  options={skuOpts}
-                  listId={`manual-sku-${row.id}`}
-                  inputId={`manual-sku-${row.id}`}
-                  placeholder="BLR CV CASTING-VLK"
-                  onEnter={() => document.getElementById(`manual-wt-${row.id}`)?.focus()}
-                />
-                <SmartField
-                  label="Product name"
-                  value={row.product_name}
-                  onChange={(v) => updateRow(row.id, { product_name: v })}
-                  options={prodOpts}
-                  listId={`manual-prod-${row.id}`}
-                  placeholder="VLK"
-                />
-                <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                  Weight (g)
+                <FieldLabel label="Style">
+                  <ErpBillingSuggestField
+                    value={row.style_code}
+                    placeholder="KUTHU VALAK"
+                    options={styleOptions}
+                    autoFocus={idx === 0}
+                    onChange={(v) => updateRow(row.id, { style_code: v })}
+                    onCommit={(v) => void commitStyle(row, v)}
+                  />
+                </FieldLabel>
+                <FieldLabel label="SKU">
+                  <ErpBillingSuggestField
+                    value={row.sku}
+                    placeholder={row.style_code ? 'BLR CV CASTING-VLK' : 'Select style first'}
+                    options={row.style_code ? skuOpts : []}
+                    emptyText={row.style_code ? 'Type new SKU + Enter to create' : 'Select style first'}
+                    inputRef={(el) => {
+                      skuRefs.current[row.id] = el
+                    }}
+                    onChange={(v) => updateRow(row.id, { sku: v })}
+                    onCommit={(v) => void commitSku(row, v)}
+                  />
+                </FieldLabel>
+                <FieldLabel label="Product name">
+                  <ErpBillingSuggestField
+                    value={row.product_name}
+                    placeholder="VLK"
+                    options={prodOpts}
+                    onChange={(v) => updateRow(row.id, { product_name: v })}
+                    onCommit={(v) => updateRow(row.id, { product_name: v.trim().toUpperCase() })}
+                  />
+                </FieldLabel>
+                <FieldLabel label="Weight (g)">
                   <input
-                    id={`manual-wt-${row.id}`}
-                    className={`${erpInputCls} mt-1 text-xs`}
+                    ref={(el) => {
+                      wtRefs.current[row.id] = el
+                    }}
+                    className={`${erpInputCls} text-xs`}
                     inputMode="decimal"
                     placeholder="150.4"
                     value={row.avg_weight}
@@ -421,37 +432,34 @@ export function ErpManualAddProduct({
                       }
                     }}
                   />
-                </label>
-                <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                  Purity
+                </FieldLabel>
+                <FieldLabel label="Purity">
                   <input
                     id={`manual-purity-${row.id}`}
-                    className={`${erpInputCls} mt-1 text-xs`}
+                    className={`${erpInputCls} text-xs`}
                     inputMode="numeric"
                     placeholder={def?.purity != null ? String(def.purity) : '80'}
                     value={row.purity}
                     onChange={(e) => updateRow(row.id, { purity: e.target.value })}
                   />
-                </label>
-                <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                  PCS
+                </FieldLabel>
+                <FieldLabel label="PCS">
                   <input
-                    className={`${erpInputCls} mt-1 text-xs`}
+                    className={`${erpInputCls} text-xs`}
                     inputMode="numeric"
                     value={row.pcs}
                     onChange={(e) => updateRow(row.id, { pcs: e.target.value })}
                   />
-                </label>
+                </FieldLabel>
                 {rfidEnabled ? (
-                  <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45 sm:col-span-2">
-                    RFID tag (optional)
+                  <FieldLabel label="RFID tag (optional)">
                     <input
-                      className={`${erpInputCls} mt-1 font-mono text-xs`}
+                      className={`${erpInputCls} font-mono text-xs`}
                       placeholder="B1238"
                       value={row.rfid_tag}
                       onChange={(e) => updateRow(row.id, { rfid_tag: e.target.value.toUpperCase() })}
                     />
-                  </label>
+                  </FieldLabel>
                 ) : null}
               </div>
               {def ? (

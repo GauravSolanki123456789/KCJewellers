@@ -78,33 +78,35 @@ export function ErpProductsWorkspace() {
     status: string
   } | null>(null)
 
-  useEffect(() => {
-    void axios
-      .get<{ tree: { style_code: string; skus: { sku: string; product_name?: string | null }[] }[] }>(
-        '/api/reseller/erp/design-master/tree',
-      )
-      .then((res) => {
-        const tree = res.data.tree || []
-        setDesignTree(tree)
-        setDesignStyles(tree.map((s) => s.style_code))
-        const skus = new Set<string>()
-        const products = new Set<string>()
-        for (const s of tree) {
-          for (const sk of s.skus || []) {
-            if (sk.sku) skus.add(sk.sku)
-            if (sk.product_name) products.add(sk.product_name)
-          }
+  const loadDesignTree = useCallback(async () => {
+    try {
+      const res = await axios.get<{
+        tree: { style_code: string; skus: { sku: string; product_name?: string | null }[] }[]
+      }>('/api/reseller/erp/design-master/tree')
+      const tree = res.data.tree || []
+      setDesignTree(tree)
+      setDesignStyles(tree.map((s) => s.style_code))
+      const skus = new Set<string>()
+      const products = new Set<string>()
+      for (const s of tree) {
+        for (const sk of s.skus || []) {
+          if (sk.sku) skus.add(sk.sku)
+          if (sk.product_name) products.add(sk.product_name)
         }
-        setDesignSkus(Array.from(skus).sort())
-        setDesignProducts(Array.from(products).sort())
-      })
-      .catch(() => {
-        setDesignTree([])
-        setDesignStyles([])
-        setDesignSkus([])
-        setDesignProducts([])
-      })
+      }
+      setDesignSkus(Array.from(skus).sort())
+      setDesignProducts(Array.from(products).sort())
+    } catch {
+      setDesignTree([])
+      setDesignStyles([])
+      setDesignSkus([])
+      setDesignProducts([])
+    }
   }, [])
+
+  useEffect(() => {
+    void loadDesignTree()
+  }, [loadDesignTree])
 
   useEffect(() => {
     void axios
@@ -556,6 +558,7 @@ export function ErpProductsWorkspace() {
           hardware={hw}
           rfidEnabled={rfidEnabled}
           defaultBatchId={activeBatchId}
+          onDesignTreeRefresh={loadDesignTree}
           onAdded={async (batchId) => {
             await loadBatches()
             await loadBatch(batchId)
@@ -657,6 +660,7 @@ export function ErpProductsWorkspace() {
         printerProfileId={workstation.printerProfileId}
         hardware={hw}
         rfidEnabled={rfidEnabled}
+        onDesignTreeRefresh={loadDesignTree}
         onAdded={async (batchId) => {
           await loadBatches()
           await loadBatch(batchId)

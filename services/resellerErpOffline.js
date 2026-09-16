@@ -120,6 +120,32 @@ async function loadOfflineSnapshot(query, resellerUserId) {
     } catch {
         settings = {};
     }
+    let rates = {
+        gold_per_gram: 7500,
+        silver_per_gram: 252.2,
+        gold_24k_per_gram: 0,
+        gold_22k_per_gram: 0,
+        gold_18k_per_gram: 0,
+    };
+    try {
+        const rateRows = await query(
+            `SELECT silver_per_gram, gold_24k_per_gram, gold_22k_per_gram, gold_18k_per_gram
+             FROM reseller_metal_rates WHERE user_id = $1 LIMIT 1`,
+            [resellerUserId],
+        );
+        const r = rateRows[0];
+        if (r) {
+            rates = {
+                gold_per_gram: Number(r.gold_22k_per_gram) || Number(r.gold_24k_per_gram) || 7500,
+                gold_24k_per_gram: Number(r.gold_24k_per_gram) || 0,
+                gold_22k_per_gram: Number(r.gold_22k_per_gram) || 0,
+                gold_18k_per_gram: Number(r.gold_18k_per_gram) || 0,
+                silver_per_gram: Number(r.silver_per_gram) || 252.2,
+            };
+        }
+    } catch {
+        /* keep defaults */
+    }
     return {
         capturedAt: new Date().toISOString(),
         customers: (customers || []).map(mapOfflineCustomer),
@@ -128,6 +154,8 @@ async function loadOfflineSnapshot(query, resellerUserId) {
             .map((r) => String(r.barcode || '').trim())
             .filter(Boolean),
         settings,
+        rates,
+        slabSettings: settings?.reseller_slab_settings || settings?.slabSettings || null,
     };
 }
 

@@ -68,11 +68,7 @@
       display: flex; justify-content: space-between; gap: 8px;
       padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
     }
-    .pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
-      background: #ecfdf5; color: #065f46;
-    }
+    .line small { display: block; color: var(--muted); font-size: 0.72rem; }
     .msg { font-size: 0.85rem; padding: 10px 12px; border-radius: 12px; margin-top: 8px; }
     .msg.ok { background: #ecfdf5; color: #065f46; }
     .msg.err { background: #fff1f2; color: var(--danger); }
@@ -80,6 +76,20 @@
     .actions button { width: auto; flex: 1 1 140px; }
     .total { font-size: 1.25rem; font-weight: 700; margin-top: 8px; }
     .hidden { display: none; }
+    .suggest-wrap { position: relative; }
+    .suggest-menu {
+      position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+      max-height: 220px; overflow: auto; background: #fff;
+      border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 20;
+    }
+    .suggest-item {
+      display: block; width: 100%; text-align: left; min-height: 40px;
+      padding: 10px 12px; border: none; border-radius: 0;
+      background: #fff; color: var(--text); font-size: 0.85rem;
+    }
+    .suggest-item:hover, .suggest-item.active { background: rgba(196,30,58,.06); }
+    .suggest-item small { color: var(--muted); margin-left: 6px; }
   </style>
 </head>
 <body>
@@ -99,14 +109,38 @@
 
     <section class="card hidden" id="billing">
       <div class="row">
-        <div>
+        <div class="suggest-wrap">
           <label>Customer</label>
           <input id="custQ" placeholder="Search name or mobile…" autocomplete="off" />
-          <select id="custPick" class="hidden"></select>
+          <div id="custMenu" class="suggest-menu hidden"></div>
         </div>
         <div>
           <label>Scan barcode</label>
           <input id="scan" placeholder="Scan or type barcode…" autocomplete="off" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label>Gold rate (₹/g)</label>
+          <input id="goldRate" type="number" inputmode="decimal" step="0.01" />
+        </div>
+        <div>
+          <label>Silver rate (₹/g)</label>
+          <input id="silverRate" type="number" inputmode="decimal" step="0.01" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label>Slab</label>
+          <select id="rateSlab">
+            <option value="R">R</option>
+            <option value="W">W</option>
+            <option value="F">F</option>
+          </select>
+        </div>
+        <div>
+          <label>Estimate no.</label>
+          <input id="estNo" readonly />
         </div>
       </div>
       <div class="lines" id="lines"></div>
@@ -116,16 +150,9 @@
           <label>Collected (₹)</label>
           <input id="collected" type="number" inputmode="decimal" />
         </div>
-        <div>
-          <label>Type</label>
-          <select id="billType">
-            <option value="estimate">Estimate</option>
-            <option value="sale">Cash bill</option>
-          </select>
-        </div>
       </div>
       <div class="actions">
-        <button type="button" id="saveBtn">Save</button>
+        <button type="button" id="saveBtn">Save estimate</button>
         <button type="button" class="secondary" id="clearBtn">Clear cart</button>
       </div>
       <p id="billMsg" class="msg hidden"></p>
@@ -137,13 +164,13 @@
     </section>
   </main>
   <script>
-    const STORAGE = 'kc-exhibition-v1';
-    let state = { pack: null, cart: [], queue: [], counters: {} };
+    const STORAGE = 'kc-exhibition-v2';
+    let state = { pack: null, cart: [], queue: [], counters: {}, rates: { gold_per_gram: 0, silver_per_gram: 0 }, rateSlab: 'R', selectedCustomer: null };
 
     function loadState() {
       try {
         const raw = localStorage.getItem(STORAGE);
-        if (raw) state = JSON.parse(raw);
+        if (raw) state = { ...state, ...JSON.parse(raw) };
       } catch (_) {}
     }
     function saveState() {
@@ -160,6 +187,73 @@
     function fmt(n) {
       return (Math.round(Number(n || 0) * 100) / 100).toLocaleString('en-IN');
     }
+    function norm(v) { return String(v || '').trim().toLowerCase(); }
+
+    function parseMetalSlabFraction(raw) {
+      if (raw == null || raw === '') return 1;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return 1;
+      if (n > 1) return Math.min(1, Math.max(0, n / 100));
+      if (n > 0 && n <= 1) return n;
+      return 1;
+    }
+    function pieceSlabMcRate(piece, slab) {
+      if (slab === 'W') return piece.mc_rate_slab_w ?? piece.mc_rate_slab_r ?? piece.mc_rate ?? 0;
+      if (slab === 'F') return piece.mc_rate_slab_f ?? piece.mc_rate_slab_w ?? piece.mc_rate ?? 0;
+      return piece.mc_rate_slab_r ?? piece.mc_rate ?? 0;
+    }
+    function pieceSlabMetalFraction(piece, slab) {
+      if (slab === 'W') return parseMetalSlabFraction(piece.metal_slab_w_pct ?? piece.metal_slab_r_pct ?? 1);
+      if (slab === 'F') return parseMetalSlabFraction(piece.metal_slab_f_pct ?? piece.metal_slab_w_pct ?? 1);
+      return parseMetalSlabFraction(piece.metal_slab_r_pct ?? 1);
+    }
+    function isMcPerGm(mcType) {
+      const t = String(mcType || '').toLowerCase();
+      return !(t.includes('piece') || t.includes('pcs'));
+    }
+    function calcLineTotal(piece, rates, slab) {
+      const silverPerG = Number(rates.silver_per_gram) || 0;
+      const goldPerG = Number(rates.gold_per_gram) || 0;
+      const net = Number(piece.net_weight) || 0;
+      const fixed = Number(piece.fixed_price) || 0;
+      const qty = Number(piece.pcs) || 1;
+      if (fixed > 0 && net <= 0) return Math.round(fixed * qty * 1.03);
+      const metal = String(piece.metal_type || 'silver').toLowerCase();
+      const frac = pieceSlabMetalFraction(piece, slab);
+      const billWt = Math.round(net * frac * 1000) / 1000;
+      const mcRate = Number(pieceSlabMcRate(piece, slab)) || 0;
+      let metalRate = silverPerG;
+      if (metal.startsWith('gold')) {
+        const p = Number(piece.purity) || 75;
+        if (p >= 90) metalRate = rates.gold_22k_per_gram || goldPerG;
+        else if (p >= 74) metalRate = rates.gold_18k_per_gram || goldPerG * 0.75;
+        else metalRate = goldPerG;
+      }
+      const stone = Number(piece.stone_charges) || 0;
+      const box = Number(piece.box_charges) || 0;
+      const mcGm = isMcPerGm(piece.mc_type);
+      let metalPart, mc;
+      if (mcGm) {
+        const combined = Math.round((metalRate + mcRate) * billWt);
+        metalPart = Math.round(metalRate * billWt);
+        mc = combined - metalPart;
+      } else {
+        metalPart = Math.round(metalRate * billWt);
+        mc = Math.round(mcRate * qty);
+      }
+      const taxable = metalPart + mc + stone + box;
+      return Math.round(taxable * 1.03);
+    }
+
+    function currentRates() {
+      return {
+        gold_per_gram: Number(document.getElementById('goldRate').value) || state.rates.gold_per_gram || 0,
+        silver_per_gram: Number(document.getElementById('silverRate').value) || state.rates.silver_per_gram || 0,
+        gold_22k_per_gram: state.rates.gold_22k_per_gram || Number(document.getElementById('goldRate').value) || 0,
+        gold_18k_per_gram: state.rates.gold_18k_per_gram || 0,
+      };
+    }
+
     function nextEstimateNo() {
       let n = state.counters.nextEstimateSlot || 1;
       const used = new Set((state.queue || []).filter(q => q.type === 'estimate').map(q => q.localBillNumber));
@@ -168,23 +262,17 @@
       state.counters.nextEstimateSlot = n + 1;
       return num;
     }
-    function nextLocalScb() {
-      const hint = state.counters.nextShadowBillNumber || 'SCB0000-1';
-      const m = hint.match(/^(SCB\d{4}-)(\d+)$/);
-      if (!m) return hint;
-      let seq = parseInt(m[2], 10);
-      const prefix = m[1];
-      const used = new Set((state.queue || []).filter(q => q.type === 'sale').map(q => q.localBillNumber));
-      let num = prefix + seq;
-      while (used.has(num)) { seq++; num = prefix + seq; }
-      state.counters.nextShadowBillNumber = prefix + (seq + 1);
-      return num;
+
+    function refreshEstimateNo() {
+      document.getElementById('estNo').value = nextEstimateNo();
+      state.counters.nextEstimateSlot = (state.counters.nextEstimateSlot || 1);
     }
+
     function applyPack(pack) {
       state.pack = pack;
+      state.rates = pack.snapshot?.rates || state.rates;
       state.counters = {
         nextEstimateNumber: pack.counters?.nextEstimateNumber,
-        nextShadowBillNumber: pack.counters?.nextShadowBillNumber,
         nextEstimateSlot: parseInt(String(pack.counters?.nextEstimateNumber || 'ESTIMATE-001').split('-')[1], 10) || 1,
       };
       saveState();
@@ -193,8 +281,13 @@
       document.getElementById('billing').classList.remove('hidden');
       document.getElementById('queueSec').classList.remove('hidden');
       document.getElementById('exportBtn').disabled = false;
+      document.getElementById('goldRate').value = String(state.rates.gold_per_gram || '');
+      document.getElementById('silverRate').value = String(state.rates.silver_per_gram || '');
+      document.getElementById('rateSlab').value = state.rateSlab || 'R';
+      refreshEstimateNo();
       renderQueue();
     }
+
     function findPiece(code) {
       const c = String(code || '').trim().toLowerCase();
       if (!c || !state.pack?.snapshot?.pieces) return null;
@@ -202,27 +295,115 @@
       if (blocked.has(c)) return { error: 'Already sold in shop' };
       const soldLocal = new Set();
       (state.queue || []).forEach(q => {
-        if (q.type !== 'sale') return;
         (q.payload?.lines || []).forEach(l => soldLocal.add(String(l.barcode || l.code || '').toLowerCase()));
       });
-      if (soldLocal.has(c)) return { error: 'Already billed on this device' };
+      state.cart.forEach(l => soldLocal.add(String(l.barcode || '').toLowerCase()));
+      if (soldLocal.has(c)) return { error: 'Already in cart or saved' };
       return state.pack.snapshot.pieces.find(p => String(p.barcode || '').toLowerCase() === c) || null;
     }
+
+    function pieceToLine(piece) {
+      const slab = document.getElementById('rateSlab').value || 'R';
+      const rates = currentRates();
+      const lineTotalInr = calcLineTotal(piece, rates, slab);
+      return {
+        barcode: piece.barcode,
+        code: piece.barcode,
+        name: piece.name || piece.product_name,
+        product_name: piece.product_name || piece.name,
+        sku: piece.sku,
+        style_code: piece.style_code,
+        weightGm: piece.net_weight,
+        originalWeightGm: piece.net_weight,
+        net_weight: piece.net_weight,
+        purity: piece.purity,
+        metal_type: piece.metal_type || 'silver',
+        mc_rate: piece.mc_rate,
+        mc_type: piece.mc_type,
+        mc_rate_slab_r: piece.mc_rate_slab_r,
+        mc_rate_slab_w: piece.mc_rate_slab_w,
+        mc_rate_slab_f: piece.mc_rate_slab_f,
+        metal_slab_r_pct: piece.metal_slab_r_pct,
+        metal_slab_w_pct: piece.metal_slab_w_pct,
+        metal_slab_f_pct: piece.metal_slab_f_pct,
+        stone_charges: piece.stone_charges,
+        box_charges: piece.box_charges,
+        fixed_price: piece.fixed_price,
+        qty: piece.pcs || 1,
+        lineTotalInr,
+      };
+    }
+
+    function recalcCart() {
+      const slab = document.getElementById('rateSlab').value || 'R';
+      state.rateSlab = slab;
+      const rates = currentRates();
+      state.rates = { ...state.rates, ...rates };
+      state.cart = state.cart.map(l => {
+        const total = calcLineTotal(l, rates, slab);
+        return { ...l, lineTotalInr: total };
+      });
+      saveState();
+      renderCart();
+    }
+
     function renderCart() {
       const el = document.getElementById('lines');
-      el.innerHTML = state.cart.map((l, i) =>
-        `<div class="line"><span>${l.barcode} · ${l.name || l.product_name || ''}</span><span>₹${fmt(l.lineTotalInr)}</span></div>`
+      el.innerHTML = state.cart.map(l =>
+        `<div class="line"><span>${l.barcode} · ${l.name || l.product_name || ''}<small>${l.weightGm ? l.weightGm + ' g' : ''}${l.purity ? ' · ' + l.purity : ''}</small></span><span>₹${fmt(l.lineTotalInr)}</span></div>`
       ).join('') || '<p style="color:var(--muted);font-size:0.85rem">Scan items to add</p>';
       const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
       document.getElementById('total').textContent = fmt(total);
       document.getElementById('collected').value = total ? String(Math.round(total)) : '';
     }
+
     function renderQueue() {
       document.getElementById('qCount').textContent = (state.queue || []).length;
       document.getElementById('queueList').innerHTML = (state.queue || []).slice(-8).reverse().map(q =>
-        `<div>${q.type} · ${q.localBillNumber || q.id}</div>`
+        `<div>${q.type} · ${q.localBillNumber || q.id} · ₹${fmt(q.payload?.total_inr || 0)}</div>`
       ).join('') || 'Nothing saved yet';
     }
+
+    function filterCustomers(q) {
+      const customers = state.pack?.snapshot?.customers || [];
+      const n = norm(q);
+      if (!n) return customers.slice(0, 12);
+      return customers.filter(c =>
+        norm(c.name).includes(n) || norm(c.mobile).includes(n.replace(/\D/g, ''))
+      ).slice(0, 12);
+    }
+
+    function renderCustMenu() {
+      const q = document.getElementById('custQ').value;
+      const menu = document.getElementById('custMenu');
+      const list = filterCustomers(q);
+      if (!list.length) { menu.classList.add('hidden'); return; }
+      menu.innerHTML = list.map(c =>
+        `<button type="button" class="suggest-item" data-id="${c.id}" data-name="${c.name}" data-mobile="${c.mobile || ''}">${c.name}${c.mobile ? `<small>${c.mobile}</small>` : ''}</button>`
+      ).join('');
+      menu.classList.remove('hidden');
+    }
+
+    document.getElementById('custQ').addEventListener('input', renderCustMenu);
+    document.getElementById('custQ').addEventListener('focus', renderCustMenu);
+    document.getElementById('custMenu').addEventListener('click', (e) => {
+      const btn = e.target.closest('.suggest-item');
+      if (!btn) return;
+      state.selectedCustomer = {
+        id: Number(btn.dataset.id),
+        name: btn.dataset.name,
+        mobile: btn.dataset.mobile,
+      };
+      document.getElementById('custQ').value = state.selectedCustomer.mobile
+        ? `${state.selectedCustomer.name} · ${state.selectedCustomer.mobile}`
+        : state.selectedCustomer.name;
+      document.getElementById('custMenu').classList.add('hidden');
+      saveState();
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.suggest-wrap')) document.getElementById('custMenu').classList.add('hidden');
+    });
+
     document.getElementById('packFile').addEventListener('change', async (e) => {
       const f = e.target.files?.[0];
       if (!f) return;
@@ -230,59 +411,76 @@
         const pack = JSON.parse(await f.text());
         if (!pack.snapshot?.pieces) throw new Error('Invalid exhibition pack');
         applyPack(pack);
-        showMsg(document.getElementById('setupMsg'), 'Pack loaded. You can bill offline.', true);
+        showMsg(document.getElementById('setupMsg'), 'Pack loaded. Set rates and scan barcodes.', true);
       } catch (err) {
         showMsg(document.getElementById('setupMsg'), err.message || 'Could not read pack', false);
       }
     });
+
+    ['goldRate', 'silverRate', 'rateSlab'].forEach(id => {
+      document.getElementById(id).addEventListener('change', recalcCart);
+      document.getElementById(id).addEventListener('input', recalcCart);
+    });
+
     document.getElementById('scan').addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
+      const rates = currentRates();
+      if (!rates.silver_per_gram && !rates.gold_per_gram) {
+        showMsg(document.getElementById('billMsg'), 'Enter gold/silver rate first', false);
+        return;
+      }
       const hit = findPiece(e.target.value);
       e.target.value = '';
       if (!hit) { showMsg(document.getElementById('billMsg'), 'Barcode not found', false); return; }
       if (hit.error) { showMsg(document.getElementById('billMsg'), hit.error, false); return; }
-      const price = Number(hit.fixed_price) || 0;
-      state.cart.push({
-        barcode: hit.barcode,
-        name: hit.name || hit.product_name,
-        lineTotalInr: price,
-        net_weight: hit.net_weight,
-        gross_weight: hit.gross_weight,
-        purity: hit.purity,
-        metal_type: hit.metal_type,
-      });
+      state.cart.push(pieceToLine(hit));
       saveState();
       renderCart();
+      showMsg(document.getElementById('billMsg'), 'Added ' + hit.barcode, true);
     });
+
     document.getElementById('clearBtn').addEventListener('click', () => {
       state.cart = [];
       saveState();
       renderCart();
+      refreshEstimateNo();
     });
+
     document.getElementById('saveBtn').addEventListener('click', () => {
       if (!state.cart.length) { showMsg(document.getElementById('billMsg'), 'Add at least one item', false); return; }
-      const custName = document.getElementById('custQ').value.trim() || 'Walk-in';
-      const customers = state.pack?.snapshot?.customers || [];
-      const cust = customers.find(c => c.name?.toLowerCase() === custName.toLowerCase());
-      const billType = document.getElementById('billType').value;
+      const cust = state.selectedCustomer;
+      const custQ = document.getElementById('custQ').value.trim();
+      let customerName = cust?.name || custQ || 'Walk-in';
+      let customerMobile = cust?.mobile || '';
+      if (!cust && custQ) {
+        const customers = state.pack?.snapshot?.customers || [];
+        const match = customers.find(c => norm(c.name) === norm(custQ) || norm(c.mobile) === norm(custQ));
+        if (match) {
+          customerName = match.name;
+          customerMobile = match.mobile || '';
+          state.selectedCustomer = match;
+        }
+      }
       const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
       const collected = Number(document.getElementById('collected').value) || total;
+      const localBillNumber = document.getElementById('estNo').value || nextEstimateNo();
       const opId = uid();
-      const localBillNumber = billType === 'estimate' ? nextEstimateNo() : nextLocalScb();
+      const rates = currentRates();
       const item = {
         id: opId,
-        type: billType === 'estimate' ? 'estimate' : 'sale',
+        type: 'estimate',
         localBillNumber,
         createdAt: new Date().toISOString(),
-        localCustomerId: cust?.id || null,
+        localCustomerId: state.selectedCustomer?.id || null,
         payload: {
-          bill_type: billType,
-          bill_number: billType === 'estimate' ? localBillNumber : undefined,
-          customer_id: cust?.id || null,
-          customer_name: custName,
+          bill_type: 'estimate',
+          bill_number: localBillNumber,
+          customer_id: state.selectedCustomer?.id || null,
+          customer_name: customerName,
+          customer_mobile: customerMobile || null,
           total_inr: collected,
-          status: billType === 'estimate' ? 'draft' : 'completed',
+          status: 'draft',
           payment_method: 'cash',
           bill_date: new Date().toISOString().slice(0, 10),
           lines: state.cart,
@@ -292,16 +490,27 @@
             collectedAmountInr: collected,
             netTotalInr: collected,
             paymentMethod: 'cash',
+            rateSlab: document.getElementById('rateSlab').value || 'R',
+            goldPerG: rates.gold_per_gram,
+            silverPerG: rates.silver_per_gram,
+            displayRates: [
+              { metal_type: 'gold', display_rate: Math.round(rates.gold_per_gram * 10) },
+              { metal_type: 'silver', display_rate: Math.round(rates.silver_per_gram * 1000) },
+            ],
           },
         },
       };
       state.queue.push(item);
       state.cart = [];
+      state.selectedCustomer = null;
+      document.getElementById('custQ').value = '';
       saveState();
       renderCart();
       renderQueue();
+      refreshEstimateNo();
       showMsg(document.getElementById('billMsg'), `Saved ${localBillNumber}`, true);
     });
+
     document.getElementById('exportBtn').addEventListener('click', () => {
       const blob = new Blob([JSON.stringify({
         kind: 'kc-exhibition-return',
@@ -312,11 +521,13 @@
       a.href = URL.createObjectURL(blob);
       a.download = `exhibition-return-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
-      showMsg(document.getElementById('setupMsg'), 'Return pack downloaded. Upload it in shop ERP → Exhibition.', true);
+      showMsg(document.getElementById('setupMsg'), 'Return pack downloaded. Upload in shop ERP → Exhibition.', true);
     });
+
     loadState();
     if (state.pack) applyPack(state.pack);
     renderCart();
+    renderQueue();
   </script>
 </body>
 </html>
