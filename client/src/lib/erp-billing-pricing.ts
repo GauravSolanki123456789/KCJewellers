@@ -14,7 +14,7 @@ import {
   resolveErpSilverMetalRatePerG,
   pieceSlabMcRate,
 } from '@/lib/erp-piece-slab-pricing'
-import type { Item, PriceBreakdown } from '@/lib/pricing'
+import { isMcPerPiece, type Item, type PriceBreakdown } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
 export type ErpRateSlab = 'R' | 'W' | 'F'
@@ -32,25 +32,49 @@ export function parseRateSlabFromNotes(notes?: string | null): ErpRateSlab | nul
   return m[1].toUpperCase() as ErpRateSlab
 }
 
+/** Silver gift catalogue rows (SILVER GIFT ITEMS / GIFT ITEMS) — match storefront slab pricing. */
+export function isSilverGiftStockLine(line: ErpBillLine): boolean {
+  const sku = String(line.sku || '').toUpperCase()
+  const style = String(line.style_code || '').toUpperCase()
+  const inv = String(line.invoice_item_name || '').toUpperCase()
+  return sku.includes('GIFT') || style.includes('GIFT ITEM') || inv.includes('GIFT ITEM')
+}
+
+/** Align ERP billing with shared catalogue slab math (no wastage % on silver gift stock). */
+export function normalizeLineForCatalogSlabPricing(line: ErpBillLine): ErpBillLine {
+  if (!isSilverGiftStockLine(line)) return line
+  const net = line.originalWeightGm ?? line.weightGm
+  if (line.wastage_pct != null && Number(line.wastage_pct) > 0) {
+    return {
+      ...line,
+      wastage_pct: 0,
+      originalWeightGm: net ?? line.originalWeightGm,
+      weightGm: net ?? line.weightGm,
+    }
+  }
+  return line
+}
+
 export function lineToItem(line: ErpBillLine): Item {
+  const normalized = normalizeLineForCatalogSlabPricing(line)
   return {
-    barcode: line.barcode || line.code,
-    sku: line.sku,
-    item_name: line.name,
-    style_code: line.style_code,
-    metal_type: line.metal_type || 'silver',
-    net_weight: line.weightGm ?? undefined,
-    net_wt: line.weightGm ?? undefined,
-    purity: line.purity ?? 925,
-    wastage_pct: line.wastage_pct ?? undefined,
-    mc_rate: line.mc_rate ?? undefined,
-    mc_type: line.mc_type ?? undefined,
-    stone_charges: line.stone_charges ?? 0,
-    stone_wt: line.stone_wt ?? undefined,
-    box_charges: line.box_charges ?? 0,
-    fixed_price: line.fixed_price ?? undefined,
-    size: line.size ?? undefined,
-    pcs: line.qty ?? 1,
+    barcode: normalized.barcode || normalized.code,
+    sku: normalized.sku,
+    item_name: normalized.name,
+    style_code: normalized.style_code,
+    metal_type: normalized.metal_type || 'silver',
+    net_weight: normalized.weightGm ?? undefined,
+    net_wt: normalized.weightGm ?? undefined,
+    purity: normalized.purity ?? 925,
+    wastage_pct: normalized.wastage_pct ?? undefined,
+    mc_rate: normalized.mc_rate ?? undefined,
+    mc_type: normalized.mc_type ?? undefined,
+    stone_charges: normalized.stone_charges ?? 0,
+    stone_wt: normalized.stone_wt ?? undefined,
+    box_charges: normalized.box_charges ?? 0,
+    fixed_price: normalized.fixed_price ?? undefined,
+    size: normalized.size ?? undefined,
+    pcs: normalized.qty ?? 1,
   }
 }
 
@@ -188,11 +212,15 @@ export function computeLineBreakdown(
   }
 
   const metal = String(line.metal_type || '').toLowerCase()
-  if (lineHasPieceSlabFields(line) && metal.startsWith('silver')) {
-    const adjusted = applyPieceSlabToLine(line, slab)
+  const slabLine = normalizeLineForCatalogSlabPricing(line)
+  if (lineHasPieceSlabFields(slabLine) && metal.startsWith('silver')) {
+    const adjusted = applyPieceSlabToLine(slabLine, slab)
     const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
     const silverOffset =
       slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
+    const mcDisc = isMcPerPiece(adjusted.mc_type)
+      ? Math.max(0, Number(tier.mc_discount_pct) || 0)
+      : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0)
     return computeErpPieceSlabBreakdown(
       adjusted,
       slab,
@@ -200,10 +228,11 @@ export function computeLineBreakdown(
       wholesaleSilver,
       3,
       silverOffset,
+      mcDisc,
     )
   }
 
-  const item = lineToItem(line)
+  const item = lineToItem(slabLine)
   const ctx = buildSlabContext(
     slab,
     slabSettings,

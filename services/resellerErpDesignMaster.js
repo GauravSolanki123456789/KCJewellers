@@ -237,26 +237,36 @@ function buildCatalogProductDetails(rows) {
     return products;
 }
 
+/** Product-level slugs (e.g. god-frames-balaji-padmavathi-8.5) are not design SKUs. */
+function isLikelyProductSlugSku(sku) {
+    const s = String(sku || '').trim();
+    if (!s) return true;
+    if (/[a-z]/.test(s) && s.includes('-')) return true;
+    if (/\d+\.\d+$/.test(s) && s.includes('-')) return true;
+    return false;
+}
+
 async function queryCatalogSkusForStyle(query, styleCode) {
     const styleNorm = String(styleCode || '').toUpperCase().replace(/[_-]+/g, ' ').trim();
     const rows = await query(
-        `SELECT DISTINCT ON (UPPER(TRIM(wp.sku)))
-            TRIM(wp.sku) AS sku
-         FROM web_products wp
-         JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+        `SELECT DISTINCT TRIM(ws.name) AS sku
+         FROM web_subcategories ws
          JOIN web_categories wc ON wc.id = ws.category_id
-         WHERE (wp.is_active IS NULL OR wp.is_active = true)
-           AND TRIM(COALESCE(wp.sku, '')) <> ''
+         WHERE EXISTS (
+             SELECT 1 FROM web_products wp
+             WHERE wp.subcategory_id = ws.id
+               AND (wp.is_active IS NULL OR wp.is_active = true)
+         )
            AND (
              $1 = ''
              OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) LIKE '%' || $1 || '%'
-             OR UPPER(REPLACE(REPLACE(TRIM(ws.name), '_', ' '), '-', ' ')) LIKE '%' || $1 || '%'
-             OR UPPER(REPLACE(ws.slug, '-', ' ')) LIKE '%' || $1 || '%'
            )
-         ORDER BY UPPER(TRIM(wp.sku)), wp.id`,
+         ORDER BY TRIM(ws.name)`,
         [styleNorm],
     );
-    return (rows || []).map((r) => String(r.sku || '').trim()).filter(Boolean);
+    return (rows || [])
+        .map((r) => String(r.sku || '').trim())
+        .filter((sku) => sku && !isLikelyProductSlugSku(sku));
 }
 
 async function queryCatalogRows(query, styleCode, sku) {
@@ -625,7 +635,7 @@ async function seedDesignMasterFromStock(query, resellerUserId, opts = {}) {
     for (const row of rows) {
         const styleCode = String(row.style_code).trim().slice(0, 128);
         const sku = String(row.sku).trim().slice(0, 128);
-        if (!styleCode || !sku) {
+        if (!styleCode || !sku || isLikelyProductSlugSku(sku)) {
             skipped += 1;
             continue;
         }
@@ -765,6 +775,7 @@ function registerDesignMasterRoutes(app, deps) {
             }
             for (const sk of skus) {
                 if (!byStyle[sk.style_id]) continue;
+                if (isLikelyProductSlugSku(sk.sku)) continue;
                 const mapped = mapDesignSku(sk);
                 mapped.size_variants = sizesBySku[sk.id] || [];
                 byStyle[sk.style_id].skus.push(mapped);
@@ -1165,4 +1176,5 @@ module.exports = {
     loadAllBillingCatalogsForOffline,
     importStyleCatalogFromWeb,
     queryCatalogSkusForStyle,
+    isLikelyProductSlugSku,
 };

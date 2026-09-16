@@ -68,6 +68,7 @@ type Props = {
   onNumericChange: (field: keyof ErpBillLine, raw: string) => void
   onNumericBlur: (field: keyof ErpBillLine) => void
   onAdvance: (field: keyof ErpBillLine) => void
+  onPatch: (patch: Partial<ErpBillLine>) => void
   onDelete: () => void
   rowRef: (el: HTMLTableRowElement | null) => void
 }
@@ -92,6 +93,7 @@ export function ErpBillingStackedRow({
   onNumericChange,
   onNumericBlur,
   onAdvance,
+  onPatch,
   onDelete,
   rowRef,
 }: Props) {
@@ -257,6 +259,47 @@ export function ErpBillingStackedRow({
                       <p className="rounded-full border border-emerald-200 bg-white px-2 py-1.5 text-xs capitalize text-[var(--color-jewelry-black,#1a1814)]">
                         {line.metal_type || 'silver'}
                       </p>
+                    ) : f.key === 'box_charges' && line.designBoxOptions?.length ? (
+                      <ErpBillingSuggestField
+                        value={
+                          line.designBoxOptions.find((o) => o.box_charges === (line.box_charges || 0))
+                            ?.label || ''
+                        }
+                        placeholder="Box…"
+                        options={line.designBoxOptions.map((o) => o.label)}
+                        autoFocus={focused('box_charges')}
+                        inputRef={(el) => inputRef('box_charges', el)}
+                        onChange={() => {}}
+                        onCommit={(label) => {
+                          const hit = line.designBoxOptions?.find((o) => o.label === label)
+                          onPatch({
+                            box_charges: hit?.box_charges ?? 0,
+                            fixed_price: hit?.fixed_price ?? line.fixed_price,
+                          })
+                          onAdvance('box_charges')
+                        }}
+                      />
+                    ) : f.key === 'stone_charges' && line.designFinishOptions?.length ? (
+                      <ErpBillingSuggestField
+                        value={
+                          line.designFinishOptions.find(
+                            (o) => o.stone_charges === (line.stone_charges || 0),
+                          )?.label || ''
+                        }
+                        placeholder="Finish…"
+                        options={line.designFinishOptions.map((o) => o.label)}
+                        autoFocus={focused('stone_charges')}
+                        inputRef={(el) => inputRef('stone_charges', el)}
+                        onChange={() => {}}
+                        onCommit={(label) => {
+                          const hit = line.designFinishOptions?.find((o) => o.label === label)
+                          onPatch({
+                            stone_charges: hit?.stone_charges ?? 0,
+                            fixed_price: hit?.fixed_price ?? line.fixed_price,
+                          })
+                          onAdvance('stone_charges')
+                        }}
+                      />
                     ) : (
                       bandInput(f.key)
                     )}
@@ -265,15 +308,72 @@ export function ErpBillingStackedRow({
               </div>
             </>
           ) : (
-            <div className="grid max-w-xs grid-cols-2 gap-2">
-              <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                PCS
-                {bandInput('qty')}
-              </label>
-              <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                FIXED
-                {bandInput('fixed_price')}
-              </label>
+            <div className="space-y-2">
+              {(line.designFinishOptions?.length || line.designBoxOptions?.length) ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {line.designFinishOptions?.length ? (
+                    <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                      Stone
+                      <ErpBillingSuggestField
+                        value={
+                          line.designFinishOptions.find(
+                            (o) => o.stone_charges === (line.stone_charges || 0),
+                          )?.label || ''
+                        }
+                        placeholder="GP / Standard…"
+                        options={line.designFinishOptions.map((o) => o.label)}
+                        autoFocus={focused('stone_charges')}
+                        inputRef={(el) => inputRef('stone_charges', el)}
+                        onChange={() => {}}
+                        onCommit={(label) => {
+                          const hit = line.designFinishOptions?.find((o) => o.label === label)
+                          onPatch({
+                            stone_charges: hit?.stone_charges ?? 0,
+                            fixed_price: hit?.fixed_price ?? line.fixed_price,
+                            unitInr: hit?.fixed_price ?? line.unitInr,
+                          })
+                          onAdvance('stone_charges')
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                  {line.designBoxOptions?.length ? (
+                    <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                      Box
+                      <ErpBillingSuggestField
+                        value={
+                          line.designBoxOptions.find((o) => o.box_charges === (line.box_charges || 0))
+                            ?.label || ''
+                        }
+                        placeholder="With / without box…"
+                        options={line.designBoxOptions.map((o) => o.label)}
+                        autoFocus={focused('box_charges')}
+                        inputRef={(el) => inputRef('box_charges', el)}
+                        onChange={() => {}}
+                        onCommit={(label) => {
+                          const hit = line.designBoxOptions?.find((o) => o.label === label)
+                          onPatch({
+                            box_charges: hit?.box_charges ?? 0,
+                            fixed_price: hit?.fixed_price ?? line.fixed_price,
+                            unitInr: hit?.fixed_price ?? line.unitInr,
+                          })
+                          onAdvance('box_charges')
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="grid max-w-xs grid-cols-2 gap-2">
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  PCS
+                  {bandInput('qty')}
+                </label>
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  FIXED
+                  {bandInput('fixed_price')}
+                </label>
+              </div>
             </div>
           )}
         </div>

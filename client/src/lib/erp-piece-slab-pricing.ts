@@ -85,6 +85,7 @@ export function computeErpPieceSlabBreakdown(
   wholesaleSilver?: number | null,
   gstPct = 3,
   silverRateOffsetPerG = 0,
+  mcDiscountPct = 0,
 ): PriceBreakdown {
   const netWt = line.originalWeightGm ?? line.weightGm ?? 0
   const billWt = pieceSlabBillableWeight(line, slab)
@@ -103,13 +104,16 @@ export function computeErpPieceSlabBreakdown(
   let metalPart: number
   let mc: number
 
+  const mcDisc = Math.max(0, Math.min(100, Number(mcDiscountPct) || 0))
   if (mcGm) {
     const combined = Math.round((metalRate + mcRate) * billWt)
     metalPart = Math.round(metalRate * billWt)
     mc = combined - metalPart
+    if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100))
   } else {
     metalPart = Math.round(metalRate * billWt)
-    mc = Math.round(mcRate * qty)
+    const mcRaw = Math.round(mcRate * qty)
+    mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw
   }
 
   const taxable = metalPart + mc + stone + box

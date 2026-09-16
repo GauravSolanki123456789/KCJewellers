@@ -14,6 +14,7 @@ import {
   displayRatesToPerGram,
   isPiecePricedBillLine,
   lineHasPieceSlabFields,
+  normalizeLineForCatalogSlabPricing,
   parseRateSlabFromNotes,
   parseSlabSettingsFromUser,
   perGramToDisplayRates,
@@ -479,10 +480,10 @@ export function ErpBillingWorkspace() {
       const mcMode = opts?.goldSlabRShowMc ?? goldSlabRShowMc
       const whGold = opts?.wholesaleGold !== undefined ? opts.wholesaleGold : wholesaleGold
       const whSilver = opts?.wholesaleSilver !== undefined ? opts.wholesaleSilver : wholesaleSilver
-      const withOriginal = {
+      const withOriginal = normalizeLineForCatalogSlabPricing({
         ...line,
         originalWeightGm: line.originalWeightGm ?? line.weightGm,
-      }
+      })
       const slabLine = applyPieceSlabToLine(withOriginal, slab)
       const bd = computeLineBreakdown(
         slabLine,
@@ -521,23 +522,15 @@ export function ErpBillingWorkspace() {
         next.displayMcBeforeDiscount = null
         next.displayMcDiscountPct = null
       }
-      if (!line.rateLocked) {
-        if (lineHasPieceSlabFields(slabLine) && String(line.metal_type || '').toLowerCase().startsWith('silver')) {
-          const silverOffset =
-            slab === 'R'
-              ? Math.max(0, Number(slabSettings.slab_r?.silver_rate_offset_per_g) || 0)
-              : 0
-          next.ratePerGram = resolveErpSilverMetalRatePerG(
-            slab,
-            s,
-            wholesaleSilver,
-            silverOffset,
-          )
-        } else {
+      const silverMetal = String(line.metal_type || '').toLowerCase().startsWith('silver')
+      const silverOffset =
+        slab === 'R' ? Math.max(0, Number(slabSettings.slab_r?.silver_rate_offset_per_g) || 0) : 0
+      if (silverMetal && slab === 'R' && silverOffset > 0) {
+        next.ratePerGram = resolveErpSilverMetalRatePerG(slab, s, wholesaleSilver, silverOffset)
+      } else if (!line.rateLocked) {
         const r = bd.rate_per_gram
         next.ratePerGram =
           r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
-        }
       }
       return next
     },
@@ -2667,6 +2660,7 @@ export function ErpBillingWorkspace() {
                             }
                           }}
                           onAdvance={(field) => advanceBillField(lineKey, field, line, idx)}
+                          onPatch={(patch) => updateLine(idx, patch)}
                           onDelete={() => setLines((p) => p.filter((_, i) => i !== idx))}
                         />
                       )

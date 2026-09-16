@@ -76,6 +76,25 @@ export function patchLineFromCatalogProduct(
     if (s.fixed_price != null) patch.fixed_price = s.fixed_price
   }
 
+  if (product.finish_options?.length === 1) {
+    const f = product.finish_options[0]
+    patch.stone_charges = f.stone_charges ?? 0
+    if (f.fixed_price != null) {
+      patch.fixed_price = f.fixed_price
+      patch.unitInr = f.fixed_price
+      patch.mrpMode = true
+    }
+  }
+
+  if (product.box_options?.length === 1) {
+    const b = product.box_options[0]
+    patch.box_charges = b.box_charges ?? 0
+    if (b.fixed_price != null) {
+      patch.fixed_price = b.fixed_price
+      patch.unitInr = b.fixed_price
+    }
+  }
+
   return patch
 }
 

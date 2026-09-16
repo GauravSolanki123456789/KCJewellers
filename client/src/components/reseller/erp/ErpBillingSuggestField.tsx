@@ -130,6 +130,7 @@ export function ErpBillingSuggestField({
     onCommit(v)
     setOpen(false)
     setPickIdx(-1)
+    requestAnimationFrame(() => localInput.current?.blur())
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

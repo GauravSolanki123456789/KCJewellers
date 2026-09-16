@@ -303,8 +303,53 @@
     return !(t.includes('piece') || t.includes('pcs'));
   }
 
-  function calcLineTotal(piece, rates, slab) {
+  function isSilverGiftLine(piece) {
+    const sku = String(piece.sku || '').toUpperCase();
+    const style = String(piece.style_code || '').toUpperCase();
+    const inv = String(piece.invoice_item_name || '').toUpperCase();
+    return sku.includes('GIFT') || style.includes('GIFT ITEM') || inv.includes('GIFT ITEM');
+  }
+
+  function billableSilverWeight(piece) {
+    const net = Number(piece.net_weight ?? piece.weightGm) || 0;
+    if (net <= 0) return 0;
+    if (isSilverGiftLine(piece)) return net;
+    const wastage = Number(piece.wastage_pct) || 0;
+    if (wastage > 0) return Math.round(net * (1 + wastage / 100) * 1000) / 1000;
+    return net;
+  }
+
+  function slabSilverRate(rates, slab, slabSettings) {
     const silverPerG = Number(rates.silver_per_gram) || 0;
+    const offset =
+      slab === 'R'
+        ? Math.max(0, Number(slabSettings?.slab_r?.silver_rate_offset_per_g) || 0)
+        : 0;
+    if (slab === 'R' && offset > 0) return Math.max(0, silverPerG - offset);
+    if (slab === 'W' || slab === 'F') {
+      const wh = Number(rates.wholesale_silver_per_gram);
+      if (Number.isFinite(wh) && wh > 0) return wh;
+    }
+    return silverPerG;
+  }
+
+  function mcDiscountPct(piece, slab, slabSettings) {
+    const tier =
+      slab === 'W'
+        ? slabSettings?.slab_w || {}
+        : slab === 'F'
+          ? slabSettings?.slab_f || {}
+          : slabSettings?.slab_r || {};
+    const t = String(piece.mc_type || '').toLowerCase();
+    const isPiece = t.includes('piece') || t.includes('pcs');
+    const key = isPiece ? 'mc_discount_pct' : 'mc_gm_discount_pct';
+    const val = tier[key] != null ? tier[key] : tier.mc_discount_pct;
+    return Math.max(0, Math.min(100, Number(val) || 0));
+  }
+
+  function calcLineTotal(piece, rates, slab, slabSettings) {
+    const settings = slabSettings || {};
+    const silverPerG = slabSilverRate(rates, slab, settings);
     const goldPerG = Number(rates.gold_per_gram) || 0;
     const net = Number(piece.net_weight ?? piece.weightGm) || 0;
     const fixed = Number(piece.fixed_price) || 0;
@@ -315,8 +360,9 @@
     if (fixed > 0 && net <= 0) return Math.round(fixed * qty * 1.03);
     const metal = String(piece.metal_type || 'silver').toLowerCase();
     const frac = pieceSlabMetalFraction(piece, slab);
-    const billWt = Math.round(net * frac * 1000) / 1000;
+    const billWt = Math.round(billableSilverWeight(piece) * frac * 1000) / 1000;
     const mcRate = Number(pieceSlabMcRate(piece, slab)) || 0;
+    const mcDisc = mcDiscountPct(piece, slab, settings);
     let metalRate = silverPerG;
     if (metal.startsWith('gold')) {
       const p = Number(piece.purity) || 75;
@@ -332,9 +378,11 @@
       const combined = Math.round((metalRate + mcRate) * billWt);
       metalPart = Math.round(metalRate * billWt);
       mc = combined - metalPart;
+      if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100));
     } else {
       metalPart = Math.round(metalRate * billWt);
-      mc = Math.round(mcRate * qty);
+      const mcRaw = Math.round(mcRate * qty);
+      mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw;
     }
     const taxable = metalPart + mc + stone + box;
     return Math.round(taxable * 1.03);

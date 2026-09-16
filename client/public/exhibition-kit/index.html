@@ -272,9 +272,13 @@
       return state.billingCatalogs[name] || [];
     }
 
+    function slabSettings() {
+      return state.pack?.snapshot?.slabSettings || state.pack?.snapshot?.settings?.reseller_slab_settings || {};
+    }
+
     function recalcLine(line) {
       const slab = document.getElementById('rateSlab').value || 'R';
-      const total = KB.calcLineTotal(line, currentRates(), slab);
+      const total = KB.calcLineTotal(line, currentRates(), slab, slabSettings());
       return { ...line, lineTotalInr: total };
     }
 

@@ -238,6 +238,48 @@ function daysUntilAnnualEvent(isoDate) {
     return Math.round((next.getTime() - today.getTime()) / 86400000);
 }
 
+async function enrichStockPieceFromCatalog(query, piece) {
+    if (!piece?.barcode) return piece;
+    try {
+        const rows = await query(
+            `SELECT wp.net_weight::float AS net_weight,
+                    wp.gross_weight::float AS gross_weight,
+                    wp.wastage_pct::float AS wastage_pct,
+                    COALESCE(wp.metal_type, 'silver') AS metal_type,
+                    wp.mc_rate::float AS mc_rate,
+                    wp.mc_type
+             FROM web_products wp
+             WHERE trim(wp.barcode) = trim($1)
+               AND (wp.is_active IS NULL OR wp.is_active = true)
+             LIMIT 1`,
+            [String(piece.barcode).trim()],
+        );
+        if (!rows.length) return piece;
+        const cat = rows[0];
+        const sku = String(piece.sku || '').toUpperCase();
+        const style = String(piece.style_code || '').toUpperCase();
+        const isGift = sku.includes('GIFT') || style.includes('GIFT');
+        const next = { ...piece };
+        if (cat.net_weight != null && Number(cat.net_weight) > 0) {
+            next.avg_weight = Number(cat.net_weight);
+        }
+        if (cat.gross_weight != null && Number(cat.gross_weight) > 0) {
+            next.gross_weight = Number(cat.gross_weight);
+        }
+        if (isGift) {
+            next.wastage_pct = cat.wastage_pct != null ? Number(cat.wastage_pct) : 0;
+        } else if (cat.wastage_pct != null && (piece.wastage_pct == null || piece.wastage_pct === '')) {
+            next.wastage_pct = Number(cat.wastage_pct);
+        }
+        if (cat.metal_type) next.metal_type = cat.metal_type;
+        if (piece.mc_rate == null && cat.mc_rate != null) next.mc_rate = cat.mc_rate;
+        if (!piece.mc_type && cat.mc_type) next.mc_type = cat.mc_type;
+        return next;
+    } catch {
+        return piece;
+    }
+}
+
 async function lookupCatalogImageUrl(query, keys) {
     const barcode = trimStr(keys?.barcode, 128);
     const sku = trimStr(keys?.sku, 128);
@@ -1867,7 +1909,7 @@ function registerResellerErpRoutes(app, deps) {
 
             const stockHit = await lookupStockPiece(query, req.user.id, code);
             if (stockHit?.piece) {
-                const p = stockHit.piece;
+                const p = await enrichStockPieceFromCatalog(query, stockHit.piece);
                 if (p.status === 'lane') {
                     p.status = 'in_stock';
                 }
