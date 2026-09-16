@@ -1,6 +1,7 @@
 import type { GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { applyPieceSlabToLine, type ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { generateManualBarcode } from '@/lib/erp-manual-barcode'
 
 /** Scanner shortcut keys in billing → invoice item category */
 export type BillingManualCategory = 'articles' | 'jewellery' | 'bullion' | 'gift'
@@ -45,8 +46,9 @@ export function createManualBillLine(
   category: BillingManualCategory,
   invoiceItem: GstInvoiceItem,
   slab: ErpRateSlab = 'R',
+  usedCodes: Iterable<string> = [],
 ): ErpBillLine {
-  const lineId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const lineId = generateManualBarcode(usedCodes)
   const isGiftOrMrp = category === 'gift' || !!invoiceItem.mrp
   const base: ErpBillLine = {
     name: category === 'gift' ? '' : invoiceItem.name,
@@ -93,10 +95,12 @@ export const GIFT_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'qty',
 ]
 
-/** A/S/B flow: SKU → Style → weights / rates → PCS */
+/** A/S/B flow: SKU → Style → Product → Size → weights / rates → PCS */
 export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'sku',
   'style_code',
+  'name',
+  'size',
   'weightGm',
   'gross_weight',
   'bags',

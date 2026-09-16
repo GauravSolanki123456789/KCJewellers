@@ -42,6 +42,8 @@ export function ErpBillingSuggestField({
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
   const wrapRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLUListElement>(null)
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const keyboardNavRef = useRef(false)
   const localInput = useRef<HTMLInputElement | null>(null)
 
   const parsed = useMemo(() => {
@@ -102,6 +104,16 @@ export function ErpBillingSuggestField({
   }, [open, filtered.length, value])
 
   useEffect(() => {
+    if (!open || pickIdx < 0 || !keyboardNavRef.current) return
+    optionRefs.current[pickIdx]?.scrollIntoView({ block: 'nearest' })
+    keyboardNavRef.current = false
+  }, [open, pickIdx])
+
+  useEffect(() => {
+    optionRefs.current = optionRefs.current.slice(0, filtered.length)
+  }, [filtered.length])
+
+  useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node
       if (wrapRef.current?.contains(t) || menuRef.current?.contains(t)) return
@@ -123,12 +135,14 @@ export function ErpBillingSuggestField({
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
+      keyboardNavRef.current = true
       setOpen(true)
       setPickIdx((i) => Math.min(i + 1, filtered.length - 1))
       return
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
+      keyboardNavRef.current = true
       setPickIdx((i) => Math.max(i - 1, 0))
       return
     }
@@ -161,6 +175,9 @@ export function ErpBillingSuggestField({
           filtered.slice(0, 60).map((opt, i) => (
             <li key={opt.value}>
               <button
+                ref={(el) => {
+                  optionRefs.current[i] = el
+                }}
                 type="button"
                 className={`w-full px-3 py-2.5 text-left text-sm leading-snug text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--kc-accent,#c41e3a)]/[0.06] ${
                   pickIdx === i ? 'bg-[var(--kc-accent,#c41e3a)]/[0.08]' : ''

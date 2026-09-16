@@ -1,3 +1,5 @@
+import type { DesignCatalogProduct } from '@/lib/erp-catalog-product'
+
 export const erpInputCls =
   'min-h-[44px] w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50'
 
@@ -176,6 +178,12 @@ export type ErpBillLine = {
   designSizeOptions?: { size_label: string; fixed_price_mrp: number | null }[]
   /** Catalogue product names under this SKU (Ganesh, Murugan, …) */
   designProductOptions?: { name: string; image_url?: string | null }[]
+  /** Full catalogue product rows for smart autofill after product pick */
+  designProductCatalog?: DesignCatalogProduct[]
+  /** Per-product box packaging choices (With box / Without box) */
+  designBoxOptions?: { label: string; box_charges: number; fixed_price?: number | null }[]
+  /** Per-product finish choices (GP / Standard) — shown in Stone column */
+  designFinishOptions?: { label: string; stone_charges: number; fixed_price?: number | null }[]
   /** MRP before slab discount (display only) */
   mrpListPrice?: number | null
   /** Per-line karigar tracking (orders only) */

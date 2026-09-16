@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import Link from 'next/link'
 import axios from '@/lib/axios'
 import {
@@ -70,6 +71,22 @@ export function ErpEstimationsWorkspace() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [previewBill, setPreviewBill] = useState<ErpBill | null>(null)
   const [statusBusyId, setStatusBusyId] = useState<number | null>(null)
+
+  const sessionRestore = useErpModuleSession(
+    'estimations',
+    () => ({ q, status, from, to, onDate }),
+    [q, status, from, to, onDate],
+  )
+  const sessionAppliedRef = useRef(false)
+  useEffect(() => {
+    if (sessionAppliedRef.current || !sessionRestore) return
+    sessionAppliedRef.current = true
+    if (sessionRestore.q) setQ(sessionRestore.q)
+    if (sessionRestore.status) setStatus(sessionRestore.status)
+    if (sessionRestore.from) setFrom(sessionRestore.from)
+    if (sessionRestore.to) setTo(sessionRestore.to)
+    if (sessionRestore.onDate) setOnDate(sessionRestore.onDate)
+  }, [sessionRestore])
 
   const load = useCallback(async () => {
     const params: Record<string, string> = { bill_type: 'estimate' }

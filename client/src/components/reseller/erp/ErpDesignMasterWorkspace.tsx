@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import axios from '@/lib/axios'
 import {
   erpBtnGhost,
@@ -23,6 +24,15 @@ type SizeVariant = {
 type CatalogProductName = {
   name: string
   image_url?: string | null
+  mc_rate?: number | null
+  mc_type?: string | null
+  wastage_pct?: number | null
+  purity?: number | null
+  metal_type?: string | null
+  fixed_price?: number | null
+  sizes?: { size_label: string; fixed_price_mrp?: number | null }[]
+  box_options?: { label: string; box_charges: number; fixed_price?: number | null }[]
+  finish_options?: { label: string; stone_charges: number; fixed_price?: number | null }[]
 }
 
 type DesignSku = {
@@ -84,6 +94,7 @@ export function ErpDesignMasterWorkspace() {
   const [productNames, setProductNames] = useState<CatalogProductName[]>([])
   const [newProductName, setNewProductName] = useState('')
   const [catalogBusy, setCatalogBusy] = useState(false)
+  const [styleCatalogBusy, setStyleCatalogBusy] = useState(false)
   const [editingStyleId, setEditingStyleId] = useState<number | null>(null)
   const [styleRenameDraft, setStyleRenameDraft] = useState('')
   const [editingSkuId, setEditingSkuId] = useState<number | null>(null)
@@ -106,6 +117,31 @@ export function ErpDesignMasterWorkspace() {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  type DesignMasterSession = {
+    selectedStyleId: number | null
+    selectedSkuId: number | null
+    draft: Record<string, string>
+    sizeVariants: SizeVariant[]
+    productNames: CatalogProductName[]
+  }
+
+  const sessionRestore = useErpModuleSession<DesignMasterSession>(
+    'design-master',
+    () => ({ selectedStyleId, selectedSkuId, draft, sizeVariants, productNames }),
+    [selectedStyleId, selectedSkuId, draft, sizeVariants, productNames],
+  )
+  const sessionAppliedRef = useRef(false)
+
+  useEffect(() => {
+    if (sessionAppliedRef.current || !sessionRestore || loading) return
+    sessionAppliedRef.current = true
+    if (sessionRestore.selectedStyleId != null) setSelectedStyleId(sessionRestore.selectedStyleId)
+    if (sessionRestore.selectedSkuId != null) setSelectedSkuId(sessionRestore.selectedSkuId)
+    if (sessionRestore.draft) setDraft(sessionRestore.draft)
+    if (sessionRestore.sizeVariants?.length) setSizeVariants(sessionRestore.sizeVariants)
+    if (sessionRestore.productNames?.length) setProductNames(sessionRestore.productNames)
+  }, [sessionRestore, loading])
 
   const selectedStyle = tree.find((s) => s.id === selectedStyleId) || null
   const selectedSku = selectedStyle?.skus.find((s) => s.id === selectedSkuId) || null
@@ -305,6 +341,37 @@ export function ErpDesignMasterWorkspace() {
     setProductNames((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  const loadStyleCatalog = async () => {
+    if (!selectedStyle) return
+    if (
+      !await appConfirm(
+        `Import all catalogue SKUs and products under style "${selectedStyle.style_code}"? New SKUs will be created; existing SKUs get updated product names.`,
+      )
+    ) {
+      return
+    }
+    setStyleCatalogBusy(true)
+    setMsg('')
+    try {
+      const res = await axios.post<{
+        style_code: string
+        skuCount: number
+        skusCreated: number
+        skusUpdated: number
+      }>('/api/reseller/erp/design-master/import-style-catalog', {
+        style_id: selectedStyle.id,
+      })
+      setMsg(
+        `Style "${res.data.style_code}": ${res.data.skuCount} catalogue SKU(s) — ${res.data.skusCreated} created, ${res.data.skusUpdated} updated.`,
+      )
+      await reload()
+    } catch (e) {
+      setMsg(erpErr(e))
+    } finally {
+      setStyleCatalogBusy(false)
+    }
+  }
+
   const loadCatalogProducts = async () => {
     if (!selectedStyle || !selectedSku) return
     setCatalogBusy(true)
@@ -312,31 +379,27 @@ export function ErpDesignMasterWorkspace() {
     try {
       const res = await axios.get<{ products: CatalogProductName[] }>(
         '/api/reseller/erp/design-master/catalog-products',
-        { params: { style_code: selectedStyle.style_code, sku: selectedSku.sku } },
+        { params: { style_code: selectedStyle.style_code, sku: selectedSku.sku, detailed: '1' } },
       )
       const incoming = res.data.products || []
       if (!incoming.length) {
         setMsg('No catalogue products found for this style + SKU.')
         return
       }
-      setProductNames((prev) => {
-        const seen = new Set(prev.map((p) => p.name.trim().toUpperCase()))
-        const next = [...prev]
-        for (const p of incoming) {
-          const key = p.name.trim().toUpperCase()
-          if (!key || seen.has(key)) {
-            if (key && p.image_url) {
-              const i = next.findIndex((x) => x.name.trim().toUpperCase() === key)
-              if (i >= 0 && !next[i].image_url) next[i] = { ...next[i], image_url: p.image_url }
-            }
-            continue
-          }
-          seen.add(key)
-          next.push({ name: p.name.trim(), image_url: p.image_url ?? null })
-        }
-        return next
-      })
-      setMsg(`Loaded ${incoming.length} catalogue product name(s). Save to keep them.`)
+      setProductNames(incoming.map((p) => ({ ...p, name: p.name.trim() })))
+      const first = incoming[0]
+      if (first) {
+        setDraft((d) => ({
+          ...d,
+          mc_rate: first.mc_rate != null ? String(first.mc_rate) : d.mc_rate,
+          mc_type: first.mc_type || d.mc_type,
+          wastage_pct: first.wastage_pct != null ? String(first.wastage_pct) : d.wastage_pct,
+          purity: first.purity != null ? String(first.purity) : d.purity,
+          metal_type: first.metal_type || d.metal_type,
+        }))
+      }
+      setSizeVariants([])
+      setMsg(`Loaded ${incoming.length} catalogue product(s) with MC, sizes & variants. Save to keep.`)
     } catch (e) {
       setMsg(erpErr(e))
     } finally {
@@ -450,7 +513,20 @@ export function ErpDesignMasterWorkspace() {
 
       <div className="grid gap-3 lg:grid-cols-3">
         <div className={erpCardCls}>
-          <p className="mb-2 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Styles</p>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Styles</p>
+            {selectedStyle ? (
+              <button
+                type="button"
+                className={erpBtnGhost}
+                disabled={styleCatalogBusy}
+                onClick={() => void loadStyleCatalog()}
+              >
+                {styleCatalogBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                Load style catalogue
+              </button>
+            ) : null}
+          </div>
           <ul className="max-h-[420px] space-y-1 overflow-y-auto">
             {tree.length === 0 ? (
               <li className="text-xs text-[var(--color-jewelry-black,#1a1814)]/45">Add a style to begin.</li>

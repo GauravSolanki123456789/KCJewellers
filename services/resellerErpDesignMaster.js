@@ -83,12 +83,219 @@ function parseProductNames(raw) {
         const key = name.toUpperCase();
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push({
+        const entry = {
             name,
             image_url: item?.image_url || item?.imageUrl || null,
-        });
+        };
+        const num = (k) => {
+            const v = item?.[k];
+            if (v == null || v === '') return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        };
+        if (item?.mc_rate != null) entry.mc_rate = num('mc_rate');
+        if (item?.mc_type) entry.mc_type = String(item.mc_type);
+        if (item?.wastage_pct != null) entry.wastage_pct = num('wastage_pct');
+        if (item?.purity != null) entry.purity = num('purity');
+        if (item?.metal_type) entry.metal_type = String(item.metal_type);
+        if (item?.fixed_price != null) entry.fixed_price = num('fixed_price');
+        if (Array.isArray(item?.sizes) && item.sizes.length) entry.sizes = item.sizes;
+        if (Array.isArray(item?.box_options) && item.box_options.length) entry.box_options = item.box_options;
+        if (Array.isArray(item?.finish_options) && item.finish_options.length) {
+            entry.finish_options = item.finish_options;
+        }
+        out.push(entry);
     }
     return out;
+}
+
+function numOrNull(v) {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+function normalizeCatalogProductName(name) {
+    return String(name || '')
+        .trim()
+        .replace(/\s+GP\s*$/i, '')
+        .replace(/\s+STANDARD\s*$/i, '')
+        .trim();
+}
+
+function detectFinishLabel(row) {
+    const name = String(row.name || row.product_name || '').trim();
+    if (/\bGP\b/i.test(name) || String(row.attr_stone || '').toUpperCase().includes('GP')) return 'GP';
+    if (/\bSTANDARD\b/i.test(name)) return 'Standard';
+    const stone = numOrNull(row.stone_charges);
+    if (stone != null && stone > 0 && /\bGP\b/i.test(String(row.design_group || ''))) return 'GP';
+    return null;
+}
+
+function buildCatalogProductDetails(rows) {
+    const groups = new Map();
+    for (const row of rows) {
+        const dg = String(row.design_group || '').trim();
+        const baseName = dg || normalizeCatalogProductName(row.name || row.product_name) || 'ITEM';
+        const groupKey = `${row.subcategory_id || ''}::${baseName.toUpperCase()}`;
+        const bucket = groups.get(groupKey) || { name: baseName, rows: [] };
+        bucket.rows.push(row);
+        groups.set(groupKey, bucket);
+    }
+
+    const products = [];
+    for (const { name, rows: groupRows } of groups.values()) {
+        const image_url =
+            groupRows.find((r) => r.image_url && String(r.image_url).trim())?.image_url || null;
+        const lead = groupRows[0];
+        const sizes = [];
+        const sizeSeen = new Set();
+        const boxOptions = [];
+        const boxSeen = new Set();
+        const finishOptions = [];
+        const finishSeen = new Set();
+
+        for (const r of groupRows) {
+            const sizeLabel = String(r.size || r.weight_display || '').trim();
+            if (sizeLabel) {
+                const sk = sizeLabel.toUpperCase();
+                if (!sizeSeen.has(sk)) {
+                    sizeSeen.add(sk);
+                    sizes.push({
+                        size_label: sizeLabel,
+                        net_weight: numOrNull(r.net_weight),
+                        gross_weight: numOrNull(r.gross_weight),
+                        mc_rate: numOrNull(r.mc_rate),
+                        mc_type: r.mc_type || null,
+                        wastage_pct: numOrNull(r.wastage_pct),
+                        purity: numOrNull(r.purity),
+                        fixed_price: numOrNull(r.fixed_price),
+                        box_charges: numOrNull(r.box_charges),
+                        stone_charges: numOrNull(r.stone_charges),
+                    });
+                }
+            }
+
+            const boxCharge = numOrNull(r.box_charges);
+            if (boxCharge != null && boxCharge > 0) {
+                const withoutKey = 'WITHOUT BOX';
+                const withKey = 'WITH BOX';
+                if (!boxSeen.has(withoutKey)) {
+                    boxSeen.add(withoutKey);
+                    boxOptions.push({
+                        label: 'Without box',
+                        box_charges: 0,
+                        fixed_price: numOrNull(r.fixed_price),
+                    });
+                }
+                if (!boxSeen.has(withKey)) {
+                    boxSeen.add(withKey);
+                    boxOptions.push({
+                        label: 'With box',
+                        box_charges: boxCharge,
+                        fixed_price: numOrNull(r.fixed_price),
+                    });
+                }
+            }
+
+            const finish = detectFinishLabel(r);
+            if (finish) {
+                const fk = finish.toUpperCase();
+                if (!finishSeen.has(fk)) {
+                    finishSeen.add(fk);
+                    finishOptions.push({
+                        label: finish,
+                        stone_charges: numOrNull(r.stone_charges) || 0,
+                        fixed_price: numOrNull(r.fixed_price),
+                    });
+                }
+            }
+        }
+
+        const product = {
+            name,
+            image_url,
+            mc_rate: numOrNull(lead.mc_rate),
+            mc_type: lead.mc_type || null,
+            wastage_pct: numOrNull(lead.wastage_pct),
+            purity: numOrNull(lead.purity),
+            metal_type: lead.metal_type || 'silver',
+            fixed_price: numOrNull(lead.fixed_price),
+            net_weight: numOrNull(lead.net_weight),
+        };
+        if (sizes.length) product.sizes = sizes;
+        if (boxOptions.length >= 2) product.box_options = boxOptions;
+        if (finishOptions.length >= 2) product.finish_options = finishOptions;
+        else if (finishOptions.length === 1 && sizes.length <= 1) {
+            product.default_finish = finishOptions[0].label;
+            product.stone_charges = finishOptions[0].stone_charges;
+        }
+        products.push(product);
+    }
+
+    products.sort((a, b) => a.name.localeCompare(b.name));
+    return products;
+}
+
+async function queryCatalogSkusForStyle(query, styleCode) {
+    const styleNorm = String(styleCode || '').toUpperCase().replace(/[_-]+/g, ' ').trim();
+    const rows = await query(
+        `SELECT DISTINCT ON (UPPER(TRIM(wp.sku)))
+            TRIM(wp.sku) AS sku
+         FROM web_products wp
+         JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+         JOIN web_categories wc ON wc.id = ws.category_id
+         WHERE (wp.is_active IS NULL OR wp.is_active = true)
+           AND TRIM(COALESCE(wp.sku, '')) <> ''
+           AND (
+             $1 = ''
+             OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) LIKE '%' || $1 || '%'
+             OR UPPER(REPLACE(REPLACE(TRIM(ws.name), '_', ' '), '-', ' ')) LIKE '%' || $1 || '%'
+             OR UPPER(REPLACE(ws.slug, '-', ' ')) LIKE '%' || $1 || '%'
+           )
+         ORDER BY UPPER(TRIM(wp.sku)), wp.id`,
+        [styleNorm],
+    );
+    return (rows || []).map((r) => String(r.sku || '').trim()).filter(Boolean);
+}
+
+async function queryCatalogRows(query, styleCode, sku) {
+    const skuNorm = sku.toUpperCase().replace(/[\s-]+/g, '_');
+    const styleNorm = styleCode.toUpperCase().replace(/[_-]+/g, ' ').trim();
+    return query(
+        `SELECT
+            wp.id, wp.subcategory_id, wp.sku, wp.barcode, wp.name, wp.size, wp.image_url,
+            wp.design_group,
+            wp.gross_weight::float AS gross_weight,
+            wp.net_weight::float AS net_weight,
+            wp.weight_display,
+            wp.wastage_pct::float AS wastage_pct,
+            wp.purity::float AS purity,
+            wp.mc_rate::float AS mc_rate,
+            wp.mc_type,
+            COALESCE(wp.fixed_price, 0)::float AS fixed_price,
+            COALESCE(wp.stone_charges, 0)::float AS stone_charges,
+            COALESCE(wp.box_charges, 0)::float AS box_charges,
+            COALESCE(wp.metal_type, 'silver') AS metal_type,
+            wp.attr_stone
+         FROM web_products wp
+         JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+         JOIN web_categories wc ON wc.id = ws.category_id
+         WHERE (wp.is_active IS NULL OR wp.is_active = true)
+           AND (
+             UPPER(REPLACE(REPLACE(TRIM(ws.name), ' ', '_'), '-', '_')) = $1
+             OR UPPER(REPLACE(ws.slug, '-', '_')) LIKE '%' || $1 || '%'
+             OR UPPER(TRIM(wp.sku)) = UPPER($2)
+           )
+           AND (
+             $3 = ''
+             OR UPPER(REPLACE(REPLACE(TRIM(ws.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
+             OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
+             OR UPPER(REPLACE(ws.slug, '-', ' ')) LIKE '%' || $3 || '%'
+           )
+         ORDER BY wp.design_group, wp.size, wp.name`,
+        [skuNorm, sku, styleNorm],
+    );
 }
 
 function mapDesignSku(row) {
@@ -133,6 +340,164 @@ async function loadSkuSizes(query, skuId, resellerUserId) {
         fixed_price_mrp: r.fixed_price_mrp != null ? Number(r.fixed_price_mrp) : null,
         sort_order: r.sort_order,
     }));
+}
+
+async function importStyleCatalogFromWeb(query, resellerUserId, styleId) {
+    const styleRows = await query(
+        `SELECT id, style_code FROM reseller_erp_design_styles
+         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+        [styleId, resellerUserId],
+    );
+    if (!styleRows.length) throw new Error('Style not found');
+    const styleCode = String(styleRows[0].style_code || '').trim();
+    const skus = await queryCatalogSkusForStyle(query, styleCode);
+    let skusCreated = 0;
+    let skusUpdated = 0;
+    for (const sku of skus) {
+        const skuNorm = normKey(sku);
+        if (!skuNorm) continue;
+        let skuRows = await query(
+            `SELECT id FROM reseller_erp_design_skus
+             WHERE style_id = $1 AND reseller_user_id = $2 AND upper(trim(sku)) = $3
+             LIMIT 1`,
+            [styleId, resellerUserId, skuNorm],
+        );
+        let skuId;
+        if (!skuRows.length) {
+            const ins = await query(
+                `INSERT INTO reseller_erp_design_skus (reseller_user_id, style_id, sku)
+                 VALUES ($1, $2, $3) RETURNING id`,
+                [resellerUserId, styleId, sku.trim()],
+            );
+            skuId = ins[0].id;
+            skusCreated += 1;
+        } else {
+            skuId = skuRows[0].id;
+        }
+        const catalogRows = await queryCatalogRows(query, styleCode, sku);
+        const products = buildCatalogProductDetails(catalogRows);
+        if (!products.length) continue;
+        const lead = products[0];
+        await query(
+            `UPDATE reseller_erp_design_skus SET
+                product_names = $1::jsonb,
+                mc_rate = COALESCE($2, mc_rate),
+                mc_type = COALESCE(NULLIF($3, ''), mc_type),
+                wastage_pct = COALESCE($4, wastage_pct),
+                purity = COALESCE($5, purity),
+                metal_type = COALESCE(NULLIF($6, ''), metal_type),
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = $7 AND reseller_user_id = $8`,
+            [
+                JSON.stringify(products),
+                lead.mc_rate,
+                lead.mc_type || null,
+                lead.wastage_pct,
+                lead.purity,
+                lead.metal_type || 'silver',
+                skuId,
+                resellerUserId,
+            ],
+        );
+        skusUpdated += 1;
+    }
+    return {
+        style_code: styleCode,
+        skuCount: skus.length,
+        skusCreated,
+        skusUpdated,
+    };
+}
+
+async function loadDesignMasterTreeForOffline(query, resellerUserId) {
+    const styles = await query(
+        `SELECT id, style_code, style_name
+         FROM reseller_erp_design_styles
+         WHERE reseller_user_id = $1
+         ORDER BY style_code`,
+        [resellerUserId],
+    );
+    const skus = await query(
+        `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.product_names,
+                sk.purity, sk.metal_type, sk.wastage_pct, sk.mc_rate,
+                sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
+                sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct,
+                sk.mc_type, sk.invoice_item_name, sk.hsn_code, sk.fixed_price,
+                ds.style_code
+         FROM reseller_erp_design_skus sk
+         JOIN reseller_erp_design_styles ds ON ds.id = sk.style_id
+         WHERE sk.reseller_user_id = $1
+         ORDER BY ds.style_code, sk.sku`,
+        [resellerUserId],
+    );
+    const byStyle = Object.create(null);
+    for (const s of styles) {
+        byStyle[s.id] = {
+            id: s.id,
+            style_code: s.style_code,
+            style_name: s.style_name,
+            skus: [],
+        };
+    }
+    for (const row of skus) {
+        const style = byStyle[row.style_id];
+        if (!style) continue;
+        style.skus.push(mapDesignSku(row));
+    }
+    return Object.values(byStyle);
+}
+
+async function loadBillingCatalogForInvoiceItem(query, resellerUserId, invoiceItem) {
+    const norm = String(invoiceItem || '').trim().toUpperCase();
+    if (!norm) return [];
+    const rows = await query(
+        `SELECT ds.style_code, sk.sku, sk.product_name, sk.product_names, sk.invoice_item_name
+         FROM reseller_erp_design_styles ds
+         JOIN reseller_erp_design_skus sk
+           ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
+         WHERE ds.reseller_user_id = $1
+           AND upper(trim(coalesce(sk.invoice_item_name, ''))) = $2
+         ORDER BY ds.style_code, sk.sku`,
+        [resellerUserId, norm],
+    );
+    const byStyle = Object.create(null);
+    for (const r of rows) {
+        const code = r.style_code;
+        if (!byStyle[code]) byStyle[code] = { style_code: code, skus: [] };
+        const skuKey = String(r.sku || '').trim().toUpperCase();
+        if (byStyle[code].skus.some((s) => String(s.sku).trim().toUpperCase() === skuKey)) continue;
+        byStyle[code].skus.push({
+            sku: r.sku,
+            product_name: r.product_name,
+            product_names: parseProductNames(r.product_names),
+        });
+    }
+    return Object.values(byStyle);
+}
+
+async function loadAllBillingCatalogsForOffline(query, resellerUserId, invoiceItems) {
+    const names = new Set();
+    for (const it of invoiceItems || []) {
+        const n = String(it?.name || '').trim();
+        if (n) names.add(n.toUpperCase());
+    }
+    const fromDb = await query(
+        `SELECT DISTINCT upper(trim(invoice_item_name)) AS name
+         FROM reseller_erp_design_skus
+         WHERE reseller_user_id = $1 AND trim(coalesce(invoice_item_name, '')) <> ''`,
+        [resellerUserId],
+    );
+    for (const row of fromDb || []) {
+        if (row.name) names.add(String(row.name).trim().toUpperCase());
+    }
+    const out = Object.create(null);
+    for (const upper of names) {
+        const catalog = await loadBillingCatalogForInvoiceItem(query, resellerUserId, upper);
+        const displayName =
+            (invoiceItems || []).find((it) => it.name.trim().toUpperCase() === upper)?.name || upper;
+        out[displayName] = catalog;
+    }
+    return out;
 }
 
 async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
@@ -457,47 +822,59 @@ function registerDesignMasterRoutes(app, deps) {
         }
     });
 
-    /** Catalogue product names (Ganesh, Murugan, …) for a design style + SKU. */
+    /** All catalogue SKUs + products under a design style (web shop). */
+    app.get('/api/reseller/erp/design-master/catalog-by-style', checkAuth, erpGate, async (req, res) => {
+        try {
+            const styleCode = String(req.query.style_code || req.query.style || '').trim();
+            if (!styleCode) return res.status(400).json({ error: 'style_code required' });
+            const detailed = String(req.query.detailed || req.query.import || '') === '1';
+            const skus = await queryCatalogSkusForStyle(query, styleCode);
+            const payload = [];
+            for (const sku of skus) {
+                const rows = await queryCatalogRows(query, styleCode, sku);
+                const products = buildCatalogProductDetails(rows);
+                payload.push({
+                    sku,
+                    products: detailed
+                        ? products
+                        : products.map((p) => ({ name: p.name, image_url: p.image_url })),
+                });
+            }
+            res.json({ style_code: styleCode, skus: payload });
+        } catch (e) {
+            console.error('design master catalog-by-style:', e);
+            res.status(500).json({ error: e.message || 'Failed to load style catalogue' });
+        }
+    });
+
+    /** Import all web catalogue SKUs + product names into design master for one style. */
+    app.post('/api/reseller/erp/design-master/import-style-catalog', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const styleId = parseInt(String(req.body.style_id || req.params?.id || ''), 10);
+            if (!Number.isFinite(styleId)) return res.status(400).json({ error: 'style_id required' });
+            const result = await importStyleCatalogFromWeb(query, req.user.id, styleId);
+            res.json({ success: true, ...result });
+        } catch (e) {
+            console.error('design master import-style-catalog:', e);
+            res.status(500).json({ error: e.message || 'Failed to import style catalogue' });
+        }
+    });
+
+    /** Catalogue products for a design style + SKU (names only, or detailed import). */
     app.get('/api/reseller/erp/design-master/catalog-products', checkAuth, erpGate, async (req, res) => {
         try {
             const styleCode = String(req.query.style_code || req.query.style || '').trim();
             const sku = String(req.query.sku || '').trim();
             if (!sku) return res.status(400).json({ error: 'sku required' });
-            const skuNorm = sku.toUpperCase().replace(/[\s-]+/g, '_');
-            const styleNorm = styleCode.toUpperCase().replace(/[_-]+/g, ' ').trim();
-            const rows = await query(
-                `SELECT
-                    COALESCE(NULLIF(TRIM(wp.design_group), ''), NULLIF(TRIM(wp.name), ''), 'ITEM') AS product_name,
-                    (ARRAY_AGG(wp.image_url ORDER BY wp.updated_at DESC NULLS LAST)
-                      FILTER (WHERE wp.image_url IS NOT NULL AND TRIM(wp.image_url) <> ''))[1] AS image_url
-                 FROM web_products wp
-                 JOIN web_subcategories ws ON ws.id = wp.subcategory_id
-                 JOIN web_categories wc ON wc.id = ws.category_id
-                 WHERE (wp.is_active IS NULL OR wp.is_active = true)
-                   AND (
-                     UPPER(REPLACE(REPLACE(TRIM(ws.name), ' ', '_'), '-', '_')) = $1
-                     OR UPPER(REPLACE(ws.slug, '-', '_')) LIKE '%' || $1 || '%'
-                     OR UPPER(TRIM(wp.sku)) = UPPER($2)
-                   )
-                   AND (
-                     $3 = ''
-                     OR UPPER(REPLACE(REPLACE(TRIM(ws.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
-                     OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
-                     OR UPPER(REPLACE(ws.slug, '-', ' ')) LIKE '%' || $3 || '%'
-                   )
-                 GROUP BY 1
-                 ORDER BY 1`,
-                [skuNorm, sku, styleNorm],
-            );
-            const seen = new Set();
-            const products = [];
-            for (const r of rows) {
-                const name = String(r.product_name || '').trim();
-                const key = name.toUpperCase();
-                if (!name || seen.has(key)) continue;
-                seen.add(key);
-                products.push({ name, image_url: r.image_url || null });
+            const detailed = String(req.query.detailed || req.query.import || '') === '1';
+            const rows = await queryCatalogRows(query, styleCode, sku);
+            if (detailed) {
+                return res.json({ products: buildCatalogProductDetails(rows) });
             }
+            const products = buildCatalogProductDetails(rows).map((p) => ({
+                name: p.name,
+                image_url: p.image_url,
+            }));
             res.json({ products });
         } catch (e) {
             console.error('design master catalog-products:', e);
@@ -784,4 +1161,8 @@ module.exports = {
     propagateDesignSkuToStock,
     seedDesignMasterFromStock,
     registerDesignMasterRoutes,
+    loadDesignMasterTreeForOffline,
+    loadAllBillingCatalogsForOffline,
+    importStyleCatalogFromWeb,
+    queryCatalogSkusForStyle,
 };

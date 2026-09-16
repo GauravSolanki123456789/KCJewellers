@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import { useRouter } from 'next/navigation'
 import axios from '@/lib/axios'
 import { Download, Lock, Trash2, Upload } from 'lucide-react'
@@ -47,6 +48,20 @@ export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean })
     barcode: '',
     laneOverride: '' as '' | 'hitesh' | 'jainav',
   })
+
+  const sessionRestore = useErpModuleSession(
+    'shadow',
+    () => ({ lane, date, billForm }),
+    [lane, date, billForm],
+  )
+  const sessionAppliedRef = useRef(false)
+  useEffect(() => {
+    if (sessionAppliedRef.current || !sessionRestore) return
+    sessionAppliedRef.current = true
+    if (sessionRestore.lane) setLane(sessionRestore.lane)
+    if (sessionRestore.date) setDate(sessionRestore.date)
+    if (sessionRestore.billForm) setBillForm(sessionRestore.billForm)
+  }, [sessionRestore])
 
   const load = useCallback(async () => {
     if (!shadowUnlocked) return

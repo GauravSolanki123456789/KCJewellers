@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import Link from 'next/link'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
@@ -48,6 +49,22 @@ export function ErpSalesBillsWorkspace() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [viewBill, setViewBill] = useState<ErpBill | null>(null)
   const [complianceBill, setComplianceBill] = useState<ErpBill | null>(null)
+
+  const sessionRestore = useErpModuleSession(
+    'sales-bills',
+    () => ({ q, status, from, to, onDate }),
+    [q, status, from, to, onDate],
+  )
+  const sessionAppliedRef = useRef(false)
+  useEffect(() => {
+    if (sessionAppliedRef.current || !sessionRestore) return
+    sessionAppliedRef.current = true
+    if (sessionRestore.q) setQ(sessionRestore.q)
+    if (sessionRestore.status) setStatus(sessionRestore.status)
+    if (sessionRestore.from) setFrom(sessionRestore.from)
+    if (sessionRestore.to) setTo(sessionRestore.to)
+    if (sessionRestore.onDate) setOnDate(sessionRestore.onDate)
+  }, [sessionRestore])
   const [complianceKind, setComplianceKind] = useState<'e-invoice' | 'e-way'>('e-invoice')
   const [complianceOpen, setComplianceOpen] = useState(false)
   const [complianceSuccessOpen, setComplianceSuccessOpen] = useState(false)

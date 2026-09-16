@@ -70,6 +70,14 @@ import {
   uniqueSkusFromCatalog,
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
+import {
+  findCatalogProduct,
+  nextFieldAfterCatalogProduct,
+  nextFieldAfterCatalogSize,
+  patchLineFromCatalogProduct,
+  patchLineFromCatalogSize,
+  type DesignCatalogProduct,
+} from '@/lib/erp-catalog-product'
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import { applyGiftMrpForSlabChange, giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
@@ -1069,7 +1077,8 @@ export function ErpBillingWorkspace() {
             ? displayRates
             : await loadDisplayRates()
         const pg = displayRatesToPerGram(rates)
-        const line = recalcLine(createManualBillLine(shortcut, invoiceItem, rateSlab), {
+        const usedCodes = lines.flatMap((l) => [l.code, l.barcode].filter(Boolean) as string[])
+        const line = recalcLine(createManualBillLine(shortcut, invoiceItem, rateSlab, usedCodes), {
           rates,
           goldPerG: pg.gold,
           silverPerG: pg.silver,
@@ -1212,6 +1221,25 @@ export function ErpBillingWorkspace() {
     )
   }
 
+  const applyCatalogProductSelection = useCallback(
+    (lineIdx: number, productName: string, after?: () => void) => {
+      setLines((prev) => {
+        const line = prev[lineIdx]
+        if (!line) return prev
+        const product = findCatalogProduct(line.designProductCatalog, productName)
+        if (!product) {
+          return prev.map((l, i) =>
+            i === lineIdx ? recalcLine({ ...l, name: productName.trim() }) : l,
+          )
+        }
+        const patch = patchLineFromCatalogProduct(line, product)
+        return prev.map((l, i) => (i === lineIdx ? recalcLine({ ...l, ...patch }) : l))
+      })
+      after?.()
+    },
+    [recalcLine],
+  )
+
   const applyDesignDefaults = useCallback(
     async (lineIdx: number, styleCode: string, sku: string, afterApply?: () => void) => {
       try {
@@ -1220,11 +1248,11 @@ export function ErpBillingWorkspace() {
           { params: { style_code: styleCode, sku } },
         )
         const d = res.data.defaults
-        let catalogProducts: { name: string; image_url?: string | null }[] = []
+        let catalogProducts: DesignCatalogProduct[] = []
         try {
-          const cat = await axios.get<{ products: { name: string; image_url?: string | null }[] }>(
+          const cat = await axios.get<{ products: DesignCatalogProduct[] }>(
             '/api/reseller/erp/design-master/catalog-products',
-            { params: { style_code: styleCode, sku } },
+            { params: { style_code: styleCode, sku, detailed: '1' } },
           )
           catalogProducts = cat.data.products || []
         } catch {
@@ -1243,7 +1271,11 @@ export function ErpBillingWorkspace() {
                 style_code: styleCode,
                 sku,
                 name,
-                designProductOptions: catalogProducts,
+                designProductOptions: catalogProducts.map((p) => ({
+                  name: p.name,
+                  image_url: p.image_url ?? null,
+                })),
+                designProductCatalog: catalogProducts,
               })
             }),
           )
@@ -1251,19 +1283,23 @@ export function ErpBillingWorkspace() {
           return
         }
         const storedNames = Array.isArray((d as { product_names?: unknown }).product_names)
-          ? ((d as { product_names: { name: string; image_url?: string | null }[] }).product_names)
+          ? ((d as { product_names: DesignCatalogProduct[] }).product_names)
           : []
-        const mergedProducts = (() => {
+        const mergedCatalog = (() => {
           const seen = new Set<string>()
-          const out: { name: string; image_url?: string | null }[] = []
+          const out: DesignCatalogProduct[] = []
           for (const p of [...storedNames, ...catalogProducts]) {
             const key = String(p.name || '').trim().toUpperCase()
             if (!key || seen.has(key)) continue
             seen.add(key)
-            out.push({ name: p.name.trim(), image_url: p.image_url ?? null })
+            out.push(p)
           }
           return out
         })()
+        const mergedProducts = mergedCatalog.map((p) => ({
+          name: p.name,
+          image_url: p.image_url ?? null,
+        }))
         setLines((prev) =>
           prev.map((l, i) => {
             if (i !== lineIdx) return l
@@ -1286,7 +1322,7 @@ export function ErpBillingWorkspace() {
               ? keepName && keepName.toUpperCase() !== skuUpper
                 ? keepName
                 : ''
-              : String(d.product_name || l.name || sku)
+              : ''
             let fixedPrice = num('fixed_price') ?? l.fixed_price
             let mrpList: number | null = null
             if (isGift && fixedPrice != null && fixedPrice > 0) {
@@ -1313,6 +1349,7 @@ export function ErpBillingWorkspace() {
               hsn_code: (d.hsn_code as string) || l.hsn_code,
               designSizeOptions: sizeVariants,
               designProductOptions: mergedProducts,
+              designProductCatalog: mergedCatalog,
               mrpMode: isGift ? true : l.mrpMode,
               mrpListPrice: mrpList ?? l.mrpListPrice,
               fixed_price: fixedPrice,
@@ -2537,7 +2574,7 @@ export function ErpBillingWorkspace() {
                     const skuDraft = String(line.sku || '')
                     const stacked = !!line.manualEntry && line.manualEntryOpen === true
                     const gift = isGiftManualLine(line)
-                    const nextAfterSku = gift ? 'name' : 'weightGm'
+                    const nextAfterSku = 'name' as keyof ErpBillLine
 
                     if (stacked) {
                       return (
@@ -2579,27 +2616,42 @@ export function ErpBillingWorkspace() {
                             focusManualCell(lineKey, 'sku')
                           }}
                           onProductChange={(name) => updateLine(idx, { name })}
-                          onProductCommit={(name, imageUrl) => {
-                            updateLine(idx, { name, imageUrl: imageUrl || line.imageUrl })
-                            focusManualCell(lineKey, 'size')
+                          onProductCommit={(name) => {
+                            const product = findCatalogProduct(line.designProductCatalog, name)
+                            applyCatalogProductSelection(idx, name, () => {
+                              focusManualCell(
+                                lineKey,
+                                product ? nextFieldAfterCatalogProduct(product) : 'size',
+                              )
+                            })
                           }}
                           onSizeChange={(label) => updateLine(idx, { size: label || null })}
                           onSizeCommit={(label) => {
-                            const hit = (line.designSizeOptions || []).find((s) => s.size_label === label)
+                            const product = findCatalogProduct(line.designProductCatalog, String(line.name || ''))
                             let patch: Partial<ErpBillLine> = { size: label || null }
-                            if (hit?.fixed_price_mrp != null) {
-                              const mrp = hit.fixed_price_mrp
-                              const slabPrice = giftMrpSlabPrice(mrp, rateSlab, slabSettings)
-                              patch = {
-                                ...patch,
-                                mrpListPrice: mrp,
-                                fixed_price: slabPrice,
-                                unitInr: slabPrice,
-                                mrpMode: true,
+                            if (product) {
+                              patch = { ...patch, ...patchLineFromCatalogSize(line, product, label) }
+                            } else {
+                              const hit = (line.designSizeOptions || []).find((s) => s.size_label === label)
+                              if (hit?.fixed_price_mrp != null) {
+                                const mrp = hit.fixed_price_mrp
+                                const slabPrice = giftMrpSlabPrice(mrp, rateSlab, slabSettings)
+                                patch = {
+                                  ...patch,
+                                  mrpListPrice: mrp,
+                                  fixed_price: slabPrice,
+                                  unitInr: slabPrice,
+                                  mrpMode: true,
+                                }
                               }
                             }
                             updateLine(idx, patch)
-                            advanceBillField(lineKey, 'size', { ...line, ...patch }, idx)
+                            const nextField = product ? nextFieldAfterCatalogSize(product) : null
+                            if (nextField && nextField !== 'size') {
+                              focusManualCell(lineKey, nextField)
+                            } else {
+                              advanceBillField(lineKey, 'size', { ...line, ...patch }, idx)
+                            }
                           }}
                           onNumericChange={(field, raw) => {
                             if (NUMERIC_EDIT_KEYS.includes(field)) {
@@ -2661,7 +2713,7 @@ export function ErpBillingWorkspace() {
                                   const style = v.trim().toUpperCase()
                                   if (line.sku) {
                                     void applyDesignDefaults(idx, style, String(line.sku), () => {
-                                      focusManualCell(lineKey, isGiftManualLine(line) ? 'name' : 'weightGm')
+                                      focusManualCell(lineKey, 'name')
                                     })
                                     return
                                   }
@@ -2698,7 +2750,7 @@ export function ErpBillingWorkspace() {
                                     return
                                   }
                                   void applyDesignDefaults(idx, styleCode, sku, () => {
-                                    focusManualCell(lineKey, isGiftManualLine(line) ? 'name' : 'weightGm')
+                                    focusManualCell(lineKey, 'name')
                                   })
                                 }}
                               />
@@ -2720,11 +2772,13 @@ export function ErpBillingWorkspace() {
                                 }}
                                 onChange={(v) => updateLine(idx, { name: v })}
                                 onCommit={(name) => {
-                                  const hit = line.designProductOptions?.find(
-                                    (p) => p.name.trim().toUpperCase() === name.trim().toUpperCase(),
-                                  )
-                                  updateLine(idx, { name, imageUrl: hit?.image_url || line.imageUrl })
-                                  focusManualCell(lineKey, 'size')
+                                  const product = findCatalogProduct(line.designProductCatalog, name)
+                                  applyCatalogProductSelection(idx, name, () => {
+                                    focusManualCell(
+                                      lineKey,
+                                      product ? nextFieldAfterCatalogProduct(product) : 'size',
+                                    )
+                                  })
                                 }}
                               />
                             </td>
@@ -2746,21 +2800,99 @@ export function ErpBillingWorkspace() {
                                 }}
                                 onChange={(label) => updateLine(idx, { size: label || null })}
                                 onCommit={(label) => {
-                                  const hit = sizeOpts.find((s) => s.size_label === label)
+                                  const product = findCatalogProduct(
+                                    line.designProductCatalog,
+                                    String(line.name || ''),
+                                  )
                                   let patch: Partial<ErpBillLine> = { size: label || null }
-                                  if (hit?.fixed_price_mrp != null) {
-                                    const mrp = hit.fixed_price_mrp
-                                    const slabPrice = giftMrpSlabPrice(mrp, rateSlab, slabSettings)
-                                    patch = {
-                                      ...patch,
-                                      mrpListPrice: mrp,
-                                      fixed_price: slabPrice,
-                                      unitInr: slabPrice,
-                                      mrpMode: true,
+                                  if (product) {
+                                    patch = { ...patch, ...patchLineFromCatalogSize(line, product, label) }
+                                  } else {
+                                    const hit = sizeOpts.find((s) => s.size_label === label)
+                                    if (hit?.fixed_price_mrp != null) {
+                                      const mrp = hit.fixed_price_mrp
+                                      const slabPrice = giftMrpSlabPrice(mrp, rateSlab, slabSettings)
+                                      patch = {
+                                        ...patch,
+                                        mrpListPrice: mrp,
+                                        fixed_price: slabPrice,
+                                        unitInr: slabPrice,
+                                        mrpMode: true,
+                                      }
                                     }
                                   }
                                   updateLine(idx, patch)
-                                  advanceBillField(lineKey, 'size', { ...line, ...patch }, idx)
+                                  const nextField = product ? nextFieldAfterCatalogSize(product) : null
+                                  if (nextField && nextField !== 'size') {
+                                    focusManualCell(lineKey, nextField)
+                                  } else {
+                                    advanceBillField(lineKey, 'size', { ...line, ...patch }, idx)
+                                  }
+                                }}
+                              />
+                            </td>
+                          )
+                        }
+
+                        if (col.key === 'box_charges' && line.designBoxOptions?.length) {
+                          const refKey = `${lineKey}-box_charges`
+                          return (
+                            <td key={col.key} className="px-0.5 py-0.5">
+                              <ErpBillingStyleSkuCell
+                                value={
+                                  line.designBoxOptions.find((o) => o.box_charges === (line.box_charges || 0))
+                                    ?.label || ''
+                                }
+                                placeholder="Box…"
+                                options={line.designBoxOptions.map((o) => o.label)}
+                                autoFocus={
+                                  manualFocus?.lineKey === lineKey && manualFocus.field === 'box_charges'
+                                }
+                                inputRef={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                onChange={() => {}}
+                                onCommit={(label) => {
+                                  const hit = line.designBoxOptions?.find((o) => o.label === label)
+                                  const patch: Partial<ErpBillLine> = {
+                                    box_charges: hit?.box_charges ?? 0,
+                                    fixed_price: hit?.fixed_price ?? line.fixed_price,
+                                  }
+                                  updateLine(idx, patch)
+                                  focusManualCell(lineKey, 'weightGm')
+                                }}
+                              />
+                            </td>
+                          )
+                        }
+
+                        if (col.key === 'stone_charges' && line.designFinishOptions?.length) {
+                          const refKey = `${lineKey}-stone_charges`
+                          return (
+                            <td key={col.key} className="px-0.5 py-0.5">
+                              <ErpBillingStyleSkuCell
+                                value={
+                                  line.designFinishOptions.find(
+                                    (o) => o.stone_charges === (line.stone_charges || 0),
+                                  )?.label || ''
+                                }
+                                placeholder="Finish…"
+                                options={line.designFinishOptions.map((o) => o.label)}
+                                autoFocus={
+                                  manualFocus?.lineKey === lineKey && manualFocus.field === 'stone_charges'
+                                }
+                                inputRef={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                onChange={() => {}}
+                                onCommit={(label) => {
+                                  const hit = line.designFinishOptions?.find((o) => o.label === label)
+                                  const patch: Partial<ErpBillLine> = {
+                                    stone_charges: hit?.stone_charges ?? 0,
+                                    fixed_price: hit?.fixed_price ?? line.fixed_price,
+                                  }
+                                  updateLine(idx, patch)
+                                  focusManualCell(lineKey, 'weightGm')
                                 }}
                               />
                             </td>

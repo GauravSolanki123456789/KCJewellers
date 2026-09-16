@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import axios from '@/lib/axios'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { downloadLocationQrImages, type LocationLabelRow } from '@/lib/erp-location-label-print'
@@ -70,6 +71,22 @@ export function ErpFloorsWorkspace() {
   const [transferScanInput, setTransferScanInput] = useState('')
   const [transferFloorId, setTransferFloorId] = useState('')
   const [transferBoxId, setTransferBoxId] = useState('')
+
+  const sessionRestore = useErpModuleSession(
+    'floors',
+    () => ({ tab, expandedFloor, lookupQ, transferFloorId, transferBoxId }),
+    [tab, expandedFloor, lookupQ, transferFloorId, transferBoxId],
+  )
+  const sessionAppliedRef = useRef(false)
+  useEffect(() => {
+    if (sessionAppliedRef.current || !sessionRestore) return
+    sessionAppliedRef.current = true
+    if (sessionRestore.tab) setTab(sessionRestore.tab)
+    if (sessionRestore.expandedFloor) setExpandedFloor(sessionRestore.expandedFloor)
+    if (sessionRestore.lookupQ) setLookupQ(sessionRestore.lookupQ)
+    if (sessionRestore.transferFloorId) setTransferFloorId(sessionRestore.transferFloorId)
+    if (sessionRestore.transferBoxId) setTransferBoxId(sessionRestore.transferBoxId)
+  }, [sessionRestore])
 
   const loadFloors = useCallback(async () => {
     setLoading(true)

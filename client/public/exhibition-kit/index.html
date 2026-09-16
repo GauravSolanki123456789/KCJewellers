@@ -33,7 +33,7 @@
     }
     h1 { font-size: 1.1rem; margin: 0; }
     .sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
-    main { padding: 12px; max-width: 720px; margin: 0 auto; }
+    main { padding: 12px; max-width: 960px; margin: 0 auto; }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -52,6 +52,7 @@
       background: #fff;
       color: var(--text);
     }
+    textarea { min-height: 72px; resize: vertical; }
     button {
       background: var(--accent);
       color: #fff;
@@ -60,15 +61,10 @@
       cursor: pointer;
     }
     button.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+    button.linkish { background: transparent; color: var(--accent); border: none; min-height: auto; padding: 4px 0; width: auto; font-size: 0.85rem; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     .row { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
     @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
-    .lines { margin-top: 10px; }
-    .line {
-      display: flex; justify-content: space-between; gap: 8px;
-      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
-    }
-    .line small { display: block; color: var(--muted); font-size: 0.72rem; }
     .msg { font-size: 0.85rem; padding: 10px 12px; border-radius: 12px; margin-top: 8px; }
     .msg.ok { background: #ecfdf5; color: #065f46; }
     .msg.err { background: #fff1f2; color: var(--danger); }
@@ -88,8 +84,19 @@
       padding: 10px 12px; border: none; border-radius: 0;
       background: #fff; color: var(--text); font-size: 0.85rem;
     }
-    .suggest-item:hover, .suggest-item.active { background: rgba(196,30,58,.06); }
+    .suggest-item:hover, .suggest-item.active { background: rgba(4,120,87,.08); }
     .suggest-item small { color: var(--muted); margin-left: 6px; }
+    .hint { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+    .bill-table-wrap { overflow-x: auto; margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; }
+    table.bill-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; min-width: 720px; }
+    table.bill-table th, table.bill-table td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+    table.bill-table th { background: #faf8f4; font-size: 0.68rem; text-transform: uppercase; color: var(--muted); position: sticky; top: 0; }
+    table.bill-table tr.manual { background: rgba(4,120,87,.04); }
+    table.bill-table input, table.bill-table select {
+      min-height: 34px; padding: 4px 6px; font-size: 0.78rem; border-radius: 8px;
+    }
+    .cell-amt { font-weight: 700; white-space: nowrap; }
+    .cust-form { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
   </style>
 </head>
 <body>
@@ -109,17 +116,46 @@
     </section>
 
     <section class="card hidden" id="billing">
-      <div class="row">
-        <div class="suggest-wrap">
-          <label>Customer</label>
-          <input id="custQ" placeholder="Search name or mobile…" autocomplete="off" />
-          <div id="custMenu" class="suggest-menu hidden"></div>
+      <div class="suggest-wrap">
+        <label>Customer</label>
+        <input id="custQ" placeholder="Search name or mobile…" autocomplete="off" />
+        <div id="custMenu" class="suggest-menu hidden"></div>
+        <button type="button" class="linkish" id="toggleCustForm">+ Customer</button>
+      </div>
+      <div id="custForm" class="cust-form hidden">
+        <div class="row">
+          <div><label>Name</label><input id="cfName" /></div>
+          <div><label>Mobile</label><input id="cfMobile" inputmode="tel" /></div>
         </div>
-        <div>
-          <label>Scan barcode</label>
-          <input id="scan" placeholder="Scan or type barcode…" autocomplete="off" />
+        <div class="row" style="margin-top:8px">
+          <div><label>PAN</label><input id="cfPan" /></div>
+          <div><label>GSTIN</label><input id="cfGst" /></div>
+        </div>
+        <label style="margin-top:8px">Address</label>
+        <textarea id="cfAddress"></textarea>
+        <div class="row" style="margin-top:8px">
+          <div><label>Birthday</label><input id="cfBirth" type="date" /></div>
+          <div><label>Anniversary</label><input id="cfAnniv" type="date" /></div>
+        </div>
+        <label style="margin-top:8px">Notes</label>
+        <textarea id="cfNotes"></textarea>
+        <div class="actions">
+          <button type="button" class="secondary" id="useCustForm">Use for quote</button>
         </div>
       </div>
+
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label>Scan barcode · A / S / B / G</label>
+          <input id="scan" placeholder="Scan, barcode, or A/S/B/G…" autocomplete="off" />
+          <p class="hint">A=Articles · S=Jewellery · B=Bullion · G=Gift (manual SKU → Style → Product)</p>
+        </div>
+        <div>
+          <label>Quote no.</label>
+          <input id="estNo" readonly />
+        </div>
+      </div>
+
       <div class="row" style="margin-top:10px">
         <div>
           <label>Gold rate (₹/g)</label>
@@ -139,12 +175,19 @@
             <option value="F">F</option>
           </select>
         </div>
-        <div>
-          <label>Quote no.</label>
-          <input id="estNo" readonly />
-        </div>
+        <div></div>
       </div>
-      <div class="lines" id="lines"></div>
+
+      <div class="bill-table-wrap">
+        <table class="bill-table">
+          <thead>
+            <tr>
+              <th>Code</th><th>SKU</th><th>Style</th><th>Product</th><th>Size</th><th>NetWt</th><th>PCS</th><th>₹</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="lines"></tbody>
+        </table>
+      </div>
       <p class="total">Total: ₹<span id="total">0</span></p>
       <div class="row">
         <div>
@@ -164,9 +207,26 @@
       <div id="queueList" style="font-size:0.85rem;color:var(--muted)"></div>
     </section>
   </main>
+  <script src="billing-core.js"></script>
   <script>
+    const KB = window.KcExhibitionBilling;
     const STORAGE = 'kc-exhibition-v2';
-    let state = { pack: null, cart: [], queue: [], counters: {}, rates: { gold_per_gram: 0, silver_per_gram: 0 }, rateSlab: 'R', selectedCustomer: null };
+    let state = {
+      pack: null,
+      cart: [],
+      queue: [],
+      counters: {},
+      rates: { gold_per_gram: 0, silver_per_gram: 0 },
+      rateSlab: 'R',
+      selectedCustomer: null,
+      inlineCustomer: null,
+      gstInvoiceItems: [],
+      billingCatalogs: {},
+    };
+    let custPickIdx = -1;
+    let custKeyboardNav = false;
+    let focusLineIdx = -1;
+    let focusField = null;
 
     function loadState() {
       try {
@@ -194,61 +254,8 @@
       return (Math.round(Number(n || 0) * 100) / 100).toLocaleString('en-IN');
     }
     function norm(v) { return String(v || '').trim().toLowerCase(); }
-
-    function parseMetalSlabFraction(raw) {
-      if (raw == null || raw === '') return 1;
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return 1;
-      if (n > 1) return Math.min(1, Math.max(0, n / 100));
-      if (n > 0 && n <= 1) return n;
-      return 1;
-    }
-    function pieceSlabMcRate(piece, slab) {
-      if (slab === 'W') return piece.mc_rate_slab_w ?? piece.mc_rate_slab_r ?? piece.mc_rate ?? 0;
-      if (slab === 'F') return piece.mc_rate_slab_f ?? piece.mc_rate_slab_w ?? piece.mc_rate ?? 0;
-      return piece.mc_rate_slab_r ?? piece.mc_rate ?? 0;
-    }
-    function pieceSlabMetalFraction(piece, slab) {
-      if (slab === 'W') return parseMetalSlabFraction(piece.metal_slab_w_pct ?? piece.metal_slab_r_pct ?? 1);
-      if (slab === 'F') return parseMetalSlabFraction(piece.metal_slab_f_pct ?? piece.metal_slab_w_pct ?? 1);
-      return parseMetalSlabFraction(piece.metal_slab_r_pct ?? 1);
-    }
-    function isMcPerGm(mcType) {
-      const t = String(mcType || '').toLowerCase();
-      return !(t.includes('piece') || t.includes('pcs'));
-    }
-    function calcLineTotal(piece, rates, slab) {
-      const silverPerG = Number(rates.silver_per_gram) || 0;
-      const goldPerG = Number(rates.gold_per_gram) || 0;
-      const net = Number(piece.net_weight) || 0;
-      const fixed = Number(piece.fixed_price) || 0;
-      const qty = Number(piece.pcs) || 1;
-      if (fixed > 0 && net <= 0) return Math.round(fixed * qty * 1.03);
-      const metal = String(piece.metal_type || 'silver').toLowerCase();
-      const frac = pieceSlabMetalFraction(piece, slab);
-      const billWt = Math.round(net * frac * 1000) / 1000;
-      const mcRate = Number(pieceSlabMcRate(piece, slab)) || 0;
-      let metalRate = silverPerG;
-      if (metal.startsWith('gold')) {
-        const p = Number(piece.purity) || 75;
-        if (p >= 90) metalRate = rates.gold_22k_per_gram || goldPerG;
-        else if (p >= 74) metalRate = rates.gold_18k_per_gram || goldPerG * 0.75;
-        else metalRate = goldPerG;
-      }
-      const stone = Number(piece.stone_charges) || 0;
-      const box = Number(piece.box_charges) || 0;
-      const mcGm = isMcPerGm(piece.mc_type);
-      let metalPart, mc;
-      if (mcGm) {
-        const combined = Math.round((metalRate + mcRate) * billWt);
-        metalPart = Math.round(metalRate * billWt);
-        mc = combined - metalPart;
-      } else {
-        metalPart = Math.round(metalRate * billWt);
-        mc = Math.round(mcRate * qty);
-      }
-      const taxable = metalPart + mc + stone + box;
-      return Math.round(taxable * 1.03);
+    function esc(v) {
+      return String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
     }
 
     function currentRates() {
@@ -260,11 +267,21 @@
       };
     }
 
+    function catalogForLine(line) {
+      const name = line.invoice_item_name || '';
+      return state.billingCatalogs[name] || [];
+    }
+
+    function recalcLine(line) {
+      const slab = document.getElementById('rateSlab').value || 'R';
+      const total = KB.calcLineTotal(line, currentRates(), slab);
+      return { ...line, lineTotalInr: total };
+    }
+
     function parseQuoteSlot(raw) {
       const m = String(raw || 'QUOTE-001').match(/QUOTE-(\d+)/i);
       return m ? parseInt(m[1], 10) || 1 : 1;
     }
-
     function peekNextQuoteNo() {
       let n = state.counters.nextQuoteSlot || 1;
       const used = new Set((state.queue || []).filter(q => q.type === 'estimate').map(q => q.localBillNumber));
@@ -272,13 +289,11 @@
       while (used.has(num)) { n++; num = `QUOTE-${String(n).padStart(3, '0')}`; }
       return { num, slot: n };
     }
-
     function allocateQuoteNo() {
       const { num, slot } = peekNextQuoteNo();
       state.counters.nextQuoteSlot = slot + 1;
       return num;
     }
-
     function refreshQuoteNo() {
       document.getElementById('estNo').value = peekNextQuoteNo().num;
     }
@@ -293,16 +308,17 @@
 
     function applyPack(pack) {
       state.pack = pack;
-      state.rates = pack.snapshot?.rates || state.rates;
+      const snap = pack.snapshot || {};
+      state.rates = snap.rates || state.rates;
+      state.gstInvoiceItems = snap.gstInvoiceItems || [];
+      state.billingCatalogs = snap.billingCatalogs || {};
       const quoteHint = pack.counters?.nextQuoteNumber || pack.counters?.nextEstimateNumber;
-      state.counters = {
-        nextQuoteNumber: quoteHint,
-        nextQuoteSlot: parseQuoteSlot(quoteHint),
-      };
+      state.counters = { nextQuoteNumber: quoteHint, nextQuoteSlot: parseQuoteSlot(quoteHint) };
       saveState();
       setShopTitle(pack);
+      const catCount = Object.keys(state.billingCatalogs).length;
       document.getElementById('status').textContent =
-        `${(pack.snapshot?.customers || []).length} customers · ${(pack.snapshot?.pieces || []).length} barcodes`;
+        `${(snap.customers || []).length} customers · ${(snap.pieces || []).length} barcodes · ${catCount} billing catalog(s)`;
       document.getElementById('billing').classList.remove('hidden');
       document.getElementById('queueSec').classList.remove('hidden');
       document.getElementById('exportBtn').disabled = false;
@@ -312,6 +328,7 @@
       document.getElementById('rateSlab').value = state.rateSlab || 'R';
       refreshQuoteNo();
       renderQueue();
+      renderCart();
     }
 
     function refreshForNextExhibition() {
@@ -319,13 +336,14 @@
       state.queue = [];
       state.cart = [];
       state.selectedCustomer = null;
+      state.inlineCustomer = null;
       state.counters.nextQuoteSlot = parseQuoteSlot(state.pack.counters?.nextQuoteNumber);
       document.getElementById('custQ').value = '';
       saveState();
       renderCart();
       renderQueue();
       refreshQuoteNo();
-      showMsg(document.getElementById('setupMsg'), 'Cleared saved quotes on this device. Next quote: ' + peekNextQuoteNo().num, true);
+      showMsg(document.getElementById('setupMsg'), 'Cleared saved quotes. Next: ' + peekNextQuoteNo().num, true);
     }
 
     function findPiece(code) {
@@ -334,67 +352,188 @@
       const blocked = new Set((state.pack.snapshot.blockedBarcodes || []).map(b => String(b).toLowerCase()));
       if (blocked.has(c)) return { error: 'Already sold in shop' };
       const soldLocal = new Set();
-      (state.queue || []).forEach(q => {
-        (q.payload?.lines || []).forEach(l => soldLocal.add(String(l.barcode || l.code || '').toLowerCase()));
-      });
-      state.cart.forEach(l => soldLocal.add(String(l.barcode || '').toLowerCase()));
+      (state.queue || []).forEach(q => (q.payload?.lines || []).forEach(l => soldLocal.add(String(l.barcode || l.code || '').toLowerCase())));
+      state.cart.forEach(l => soldLocal.add(String(l.barcode || l.code || '').toLowerCase()));
       if (soldLocal.has(c)) return { error: 'Already in cart or saved' };
       return state.pack.snapshot.pieces.find(p => String(p.barcode || '').toLowerCase() === c) || null;
     }
 
     function pieceToLine(piece) {
-      const slab = document.getElementById('rateSlab').value || 'R';
-      const rates = currentRates();
-      const lineTotalInr = calcLineTotal(piece, rates, slab);
-      return {
+      const netWt = Number(piece.net_weight) || Number(piece.avg_weight) || 0;
+      const line = recalcLine({
+        ...piece,
         barcode: piece.barcode,
         code: piece.barcode,
         name: piece.name || piece.product_name,
         product_name: piece.product_name || piece.name,
-        sku: piece.sku,
-        style_code: piece.style_code,
-        weightGm: piece.net_weight,
-        originalWeightGm: piece.net_weight,
-        net_weight: piece.net_weight,
-        purity: piece.purity,
-        metal_type: piece.metal_type || 'silver',
-        mc_rate: piece.mc_rate,
-        mc_type: piece.mc_type,
-        mc_rate_slab_r: piece.mc_rate_slab_r,
-        mc_rate_slab_w: piece.mc_rate_slab_w,
-        mc_rate_slab_f: piece.mc_rate_slab_f,
-        metal_slab_r_pct: piece.metal_slab_r_pct,
-        metal_slab_w_pct: piece.metal_slab_w_pct,
-        metal_slab_f_pct: piece.metal_slab_f_pct,
-        stone_charges: piece.stone_charges,
-        box_charges: piece.box_charges,
-        fixed_price: piece.fixed_price,
+        weightGm: netWt || null,
+        net_weight: netWt || null,
         qty: piece.pcs || 1,
-        lineTotalInr,
-      };
+      });
+      return line;
     }
 
-    function recalcCart() {
-      const slab = document.getElementById('rateSlab').value || 'R';
-      state.rateSlab = slab;
-      const rates = currentRates();
-      state.rates = { ...state.rates, ...rates };
-      state.cart = state.cart.map(l => {
-        const total = calcLineTotal(l, rates, slab);
-        return { ...l, lineTotalInr: total };
-      });
+    function updateLine(idx, patch) {
+      state.cart = state.cart.map((l, i) => (i === idx ? recalcLine({ ...l, ...patch }) : l));
       saveState();
       renderCart();
     }
 
+    function removeLine(idx) {
+      state.cart = state.cart.filter((_, i) => i !== idx);
+      saveState();
+      renderCart();
+    }
+
+    function applyManualField(idx, field, rawValue) {
+      const line = state.cart[idx];
+      if (!line?.manualEntry) return;
+      const catalog = catalogForLine(line);
+      let patch = {};
+      const val = String(rawValue || '').trim();
+
+      if (field === 'sku') {
+        patch.sku = val;
+        const style = KB.findStyleForSku(catalog, val);
+        if (style) patch.style_code = style;
+      } else if (field === 'style_code') {
+        patch.style_code = val;
+      } else if (field === 'name') {
+        patch.name = val;
+        const products = KB.productNamesForSku(catalog, line.sku || val);
+        const product = KB.findCatalogProduct(products, val);
+        if (product) Object.assign(patch, KB.patchLineFromCatalogProduct(line, product));
+      } else if (field === 'size') {
+        const products = KB.productNamesForSku(catalog, line.sku || '');
+        const product = KB.findCatalogProduct(products, line.name || '');
+        if (product) Object.assign(patch, KB.patchLineFromCatalogSize(line, product, val));
+        else patch.size = val || null;
+      } else if (field === 'weightGm') {
+        const n = Number(val);
+        patch.weightGm = Number.isFinite(n) ? n : null;
+        patch.net_weight = patch.weightGm;
+      } else if (field === 'qty') {
+        patch.qty = Math.max(0, parseInt(val, 10) || 0);
+      } else if (field === 'box_charges' || field === 'stone_charges') {
+        const products = KB.productNamesForSku(catalog, line.sku || '');
+        const product = KB.findCatalogProduct(products, line.name || '');
+        if (field === 'box_charges' && product?.box_options?.length) {
+          const hit = product.box_options.find((b) => norm(b.label) === norm(val) || String(b.box_charges) === val);
+          if (hit) patch.box_charges = hit.box_charges;
+          else patch.box_charges = Number(val) || 0;
+        } else if (field === 'stone_charges' && product?.finish_options?.length) {
+          const hit = product.finish_options.find((f) => norm(f.label) === norm(val));
+          if (hit) patch.stone_charges = hit.stone_charges;
+          else patch.stone_charges = Number(val) || 0;
+        } else {
+          patch[field] = Number(val) || 0;
+        }
+      } else if (['gross_weight','bag_wt','bags','purity','wastage_pct','mc_rate','fixed_price'].includes(field)) {
+        const n = Number(val);
+        patch[field] = val === '' ? null : (Number.isFinite(n) ? n : line[field]);
+      } else if (field === 'mc_type') {
+        patch.mc_type = val;
+      } else {
+        patch[field] = val;
+      }
+
+      updateLine(idx, patch);
+
+      const updated = state.cart[idx];
+      let next = KB.nextManualEntryField(field, updated);
+      if (field === 'name') {
+        const products = KB.productNamesForSku(catalog, updated.sku || '');
+        const product = KB.findCatalogProduct(products, updated.name || '');
+        if (product) next = KB.nextFieldAfterCatalogProduct(product);
+      }
+      if (next) {
+        focusLineIdx = idx;
+        focusField = next;
+        renderCart();
+      }
+    }
+
     function renderCart() {
-      const el = document.getElementById('lines');
-      el.innerHTML = state.cart.map(l =>
-        `<div class="line"><span>${l.barcode} · ${l.name || l.product_name || ''}<small>${l.weightGm ? l.weightGm + ' g' : ''}${l.purity ? ' · ' + l.purity : ''}</small></span><span>₹${fmt(l.lineTotalInr)}</span></div>`
-      ).join('') || '<p style="color:var(--muted);font-size:0.85rem">Scan items to add</p>';
+      const tbody = document.getElementById('lines');
+      if (!state.cart.length) {
+        tbody.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:12px">Scan barcodes or type A / S / B / G for manual entry</td></tr>';
+      } else {
+        tbody.innerHTML = state.cart.map((l, idx) => {
+          const code = l.barcode || l.code || '—';
+          const manual = !!l.manualEntry;
+          const catalog = catalogForLine(l);
+          const products = manual ? KB.productNamesForSku(catalog, l.sku || '') : [];
+          const product = manual ? KB.findCatalogProduct(products, l.name || '') : null;
+
+          function cellInput(field, val, list) {
+            const id = `line-${idx}-${field}`;
+            const autoFocus = focusLineIdx === idx && focusField === field ? ' autofocus' : '';
+            if (list?.length) {
+              return `<select data-idx="${idx}" data-field="${field}" id="${id}"${autoFocus}>` +
+                `<option value="">—</option>` +
+                list.map((o) => `<option value="${esc(typeof o === 'string' ? o : (o.label || o.name || o))}"${norm(val) === norm(typeof o === 'string' ? o : (o.label || o.name)) ? ' selected' : ''}>${esc(typeof o === 'string' ? o : (o.label || o.name))}</option>`).join('') +
+                `</select>`;
+            }
+            return `<input data-idx="${idx}" data-field="${field}" id="${id}" value="${esc(val ?? '')}"${autoFocus} />`;
+          }
+
+          const skuCell = manual ? cellInput('sku', l.sku, KB.uniqueSkusFromCatalog(catalog).map((s) => s.sku)) : esc(l.sku || '');
+          const styleCell = manual ? cellInput('style_code', l.style_code, KB.findStylesForSku(catalog, l.sku || '')) : esc(l.style_code || '');
+          const nameCell = manual ? cellInput('name', l.name, products.map((p) => p.name)) : esc(l.name || l.product_name || '');
+          let sizeCell;
+          if (manual && product?.sizes?.length > 1) {
+            sizeCell = cellInput('size', l.size, product.sizes.map((s) => s.size_label));
+          } else if (manual) {
+            sizeCell = cellInput('size', l.size);
+          } else {
+            sizeCell = esc(l.size || '');
+          }
+          const wtCell = manual ? cellInput('weightGm', l.weightGm ?? l.net_weight) : esc(l.weightGm || l.net_weight || '');
+          const qtyCell = manual ? cellInput('qty', l.qty ?? l.pcs ?? 1) : esc(l.qty ?? l.pcs ?? 1);
+
+          return `<tr class="${manual ? 'manual' : ''}">
+            <td>${esc(code)}</td>
+            <td>${skuCell}</td>
+            <td>${styleCell}</td>
+            <td>${nameCell}</td>
+            <td>${sizeCell}</td>
+            <td>${wtCell}</td>
+            <td>${qtyCell}</td>
+            <td class="cell-amt">₹${fmt(l.lineTotalInr)}</td>
+            <td><button type="button" class="secondary" data-del="${idx}" style="min-height:34px;padding:4px 8px">✕</button></td>
+          </tr>`;
+        }).join('');
+      }
+      focusLineIdx = -1;
+      focusField = null;
       const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
       document.getElementById('total').textContent = fmt(total);
       document.getElementById('collected').value = total ? String(Math.round(total)) : '';
+    }
+
+    function recalcCart() {
+      state.rateSlab = document.getElementById('rateSlab').value || 'R';
+      state.rates = { ...state.rates, ...currentRates() };
+      state.cart = state.cart.map((l) => recalcLine(l));
+      saveState();
+      renderCart();
+    }
+
+    function addManualLine(category) {
+      const invoiceItem = KB.findInvoiceItemForCategory(category, state.gstInvoiceItems);
+      if (!invoiceItem) {
+        showMsg(document.getElementById('billMsg'), 'Re-download pack — GST invoice items missing.', false);
+        return;
+      }
+      const usedCodes = state.cart.flatMap((l) => [l.code, l.barcode].filter(Boolean));
+      const slab = document.getElementById('rateSlab').value || 'R';
+      const line = recalcLine(KB.createManualBillLine(category, invoiceItem, slab, usedCodes));
+      state.cart.push(line);
+      focusLineIdx = state.cart.length - 1;
+      focusField = KB.firstManualEntryField(line);
+      saveState();
+      renderCart();
+      showMsg(document.getElementById('billMsg'), `Manual ${category} line — fill SKU, Style, Product`, true);
     }
 
     function renderQueue() {
@@ -413,41 +552,75 @@
       ).slice(0, 12);
     }
 
-    function renderCustMenu() {
-      const q = document.getElementById('custQ').value;
-      const menu = document.getElementById('custMenu');
-      const list = filterCustomers(q);
-      if (!list.length) { menu.classList.add('hidden'); return; }
-      menu.innerHTML = list.map(c =>
-        `<button type="button" class="suggest-item" data-id="${c.id}" data-name="${c.name}" data-mobile="${c.mobile || ''}">${c.name}${c.mobile ? `<small>${c.mobile}</small>` : ''}</button>`
-      ).join('');
-      menu.classList.remove('hidden');
-    }
-
-    document.getElementById('custQ').addEventListener('input', renderCustMenu);
-    document.getElementById('custQ').addEventListener('focus', renderCustMenu);
-    document.getElementById('custMenu').addEventListener('click', (e) => {
-      const btn = e.target.closest('.suggest-item');
-      if (!btn) return;
-      const custId = Number(btn.dataset.id);
-      const customers = state.pack?.snapshot?.customers || [];
-      const full = customers.find(c => Number(c.id) === custId) || null;
-      state.selectedCustomer = full || {
-        id: custId,
-        name: btn.dataset.name,
-        mobile: btn.dataset.mobile,
-      };
-      document.getElementById('custQ').value = state.selectedCustomer.mobile
-        ? `${state.selectedCustomer.name} · ${state.selectedCustomer.mobile}`
-        : state.selectedCustomer.name;
-      const slab = String(state.selectedCustomer.rate_slab || 'R').toUpperCase();
+    function selectCustomer(c) {
+      if (!c) return;
+      state.selectedCustomer = c;
+      state.inlineCustomer = null;
+      document.getElementById('custQ').value = c.mobile ? `${c.name} · ${c.mobile}` : c.name;
+      const slab = String(c.rate_slab || 'R').toUpperCase();
       if (['R', 'W', 'F'].includes(slab)) {
         document.getElementById('rateSlab').value = slab;
         state.rateSlab = slab;
         recalcCart();
       }
       document.getElementById('custMenu').classList.add('hidden');
+      custPickIdx = -1;
       saveState();
+    }
+
+    function renderCustMenu() {
+      const q = document.getElementById('custQ').value;
+      const menu = document.getElementById('custMenu');
+      const list = filterCustomers(q);
+      if (!list.length) { menu.classList.add('hidden'); return; }
+      menu.innerHTML = list.map((c, i) =>
+        `<button type="button" class="suggest-item${custPickIdx === i ? ' active' : ''}" data-id="${c.id}">${c.name}${c.mobile ? `<small>${c.mobile}</small>` : ''}</button>`
+      ).join('');
+      menu.classList.remove('hidden');
+      if (custKeyboardNav && custPickIdx >= 0) {
+        const active = menu.querySelector('.suggest-item.active');
+        if (active) active.scrollIntoView({ block: 'nearest' });
+        custKeyboardNav = false;
+      }
+    }
+
+    document.getElementById('toggleCustForm').addEventListener('click', () => {
+      document.getElementById('custForm').classList.toggle('hidden');
+    });
+    document.getElementById('useCustForm').addEventListener('click', () => {
+      const name = document.getElementById('cfName').value.trim();
+      if (!name) { showMsg(document.getElementById('billMsg'), 'Customer name required', false); return; }
+      state.inlineCustomer = {
+        name,
+        mobile: document.getElementById('cfMobile').value.trim(),
+        pan: document.getElementById('cfPan').value.trim(),
+        gstin: document.getElementById('cfGst').value.trim(),
+        address: document.getElementById('cfAddress').value.trim(),
+        birthdate: document.getElementById('cfBirth').value || null,
+        anniversary_date: document.getElementById('cfAnniv').value || null,
+        notes: document.getElementById('cfNotes').value.trim(),
+      };
+      state.selectedCustomer = null;
+      document.getElementById('custQ').value = name + (state.inlineCustomer.mobile ? ' · ' + state.inlineCustomer.mobile : '');
+      document.getElementById('custForm').classList.add('hidden');
+      saveState();
+      showMsg(document.getElementById('billMsg'), 'Customer set for this quote', true);
+    });
+
+    document.getElementById('custQ').addEventListener('input', () => { custPickIdx = -1; renderCustMenu(); });
+    document.getElementById('custQ').addEventListener('focus', renderCustMenu);
+    document.getElementById('custQ').addEventListener('keydown', (e) => {
+      const list = filterCustomers(e.target.value);
+      if (e.key === 'ArrowDown') { e.preventDefault(); custKeyboardNav = true; custPickIdx = Math.min(custPickIdx + 1, list.length - 1); renderCustMenu(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); custKeyboardNav = true; custPickIdx = Math.max(custPickIdx - 1, 0); renderCustMenu(); }
+      else if (e.key === 'Enter' && custPickIdx >= 0 && list[custPickIdx]) { e.preventDefault(); selectCustomer(list[custPickIdx]); }
+    });
+    document.getElementById('custMenu').addEventListener('click', (e) => {
+      const btn = e.target.closest('.suggest-item');
+      if (!btn) return;
+      const custId = Number(btn.dataset.id);
+      const customers = state.pack?.snapshot?.customers || [];
+      selectCustomer(customers.find(c => Number(c.id) === custId) || null);
     });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.suggest-wrap')) document.getElementById('custMenu').classList.add('hidden');
@@ -460,7 +633,7 @@
         const pack = JSON.parse(await f.text());
         if (!pack.snapshot?.pieces) throw new Error('Invalid exhibition pack');
         applyPack(pack);
-        showMsg(document.getElementById('setupMsg'), 'Pack loaded. Set rates and scan barcodes.', true);
+        showMsg(document.getElementById('setupMsg'), 'Pack loaded. Scan barcodes or use A/S/B/G.', true);
       } catch (err) {
         showMsg(document.getElementById('setupMsg'), err.message || 'Could not read pack', false);
       }
@@ -471,16 +644,41 @@
       document.getElementById(id).addEventListener('input', recalcCart);
     });
 
+    document.getElementById('lines').addEventListener('change', (e) => {
+      const t = e.target;
+      const idx = Number(t.dataset.idx);
+      const field = t.dataset.field;
+      if (!Number.isFinite(idx) || !field) return;
+      applyManualField(idx, field, t.value);
+    });
+    document.getElementById('lines').addEventListener('keydown', (e) => {
+      const t = e.target;
+      if (e.key !== 'Enter' || !t.dataset?.idx) return;
+      e.preventDefault();
+      applyManualField(Number(t.dataset.idx), t.dataset.field, t.value);
+    });
+    document.getElementById('lines').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-del]');
+      if (!btn) return;
+      removeLine(Number(btn.dataset.del));
+    });
+
     document.getElementById('scan').addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
+      const code = e.target.value.trim();
+      e.target.value = '';
       const rates = currentRates();
       if (!rates.silver_per_gram && !rates.gold_per_gram) {
         showMsg(document.getElementById('billMsg'), 'Enter gold/silver rate first', false);
         return;
       }
-      const hit = findPiece(e.target.value);
-      e.target.value = '';
+      const shortcut = KB.resolveBillingScanShortcut(code);
+      if (shortcut) {
+        addManualLine(shortcut);
+        return;
+      }
+      const hit = findPiece(code);
       if (!hit) { showMsg(document.getElementById('billMsg'), 'Barcode not found', false); return; }
       if (hit.error) { showMsg(document.getElementById('billMsg'), hit.error, false); return; }
       state.cart.push(pieceToLine(hit));
@@ -499,17 +697,15 @@
     document.getElementById('saveBtn').addEventListener('click', () => {
       if (!state.cart.length) { showMsg(document.getElementById('billMsg'), 'Add at least one item', false); return; }
       const cust = state.selectedCustomer;
+      const inline = state.inlineCustomer;
       const custQ = document.getElementById('custQ').value.trim();
-      let customerName = cust?.name || custQ || 'Walk-in';
-      let customerMobile = cust?.mobile || '';
-      if (!cust && custQ) {
+      let customerName = cust?.name || inline?.name || custQ || 'Walk-in';
+      let customerMobile = cust?.mobile || inline?.mobile || '';
+      let customerMeta = inline || cust || null;
+      if (!cust && !inline && custQ) {
         const customers = state.pack?.snapshot?.customers || [];
         const match = customers.find(c => norm(c.name) === norm(custQ) || norm(c.mobile) === norm(custQ));
-        if (match) {
-          customerName = match.name;
-          customerMobile = match.mobile || '';
-          state.selectedCustomer = match;
-        }
+        if (match) { customerName = match.name; customerMobile = match.mobile || ''; customerMeta = match; state.selectedCustomer = match; }
       }
       const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
       const collected = Number(document.getElementById('collected').value) || total;
@@ -528,6 +724,12 @@
           customer_id: state.selectedCustomer?.id || null,
           customer_name: customerName,
           customer_mobile: customerMobile || null,
+          customer_pan: customerMeta?.pan || null,
+          customer_gstin: customerMeta?.gstin || null,
+          customer_address: customerMeta?.address || null,
+          customer_birthdate: customerMeta?.birthdate || null,
+          customer_anniversary: customerMeta?.anniversary_date || null,
+          customer_notes: customerMeta?.notes || null,
           total_inr: collected,
           status: 'draft',
           payment_method: 'cash',
@@ -552,6 +754,7 @@
       state.queue.push(item);
       state.cart = [];
       state.selectedCustomer = null;
+      state.inlineCustomer = null;
       document.getElementById('custQ').value = '';
       saveState();
       renderCart();
@@ -561,7 +764,6 @@
     });
 
     document.getElementById('refreshBtn').addEventListener('click', refreshForNextExhibition);
-
     document.getElementById('exportBtn').addEventListener('click', () => {
       const blob = new Blob([JSON.stringify({
         kind: 'kc-exhibition-return',
@@ -577,8 +779,7 @@
 
     loadState();
     if (state.pack) applyPack(state.pack);
-    renderCart();
-    renderQueue();
+    else { renderCart(); renderQueue(); }
   </script>
 </body>
 </html>

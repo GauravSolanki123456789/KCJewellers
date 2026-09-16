@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
@@ -77,6 +78,20 @@ export function ErpProductsWorkspace() {
     pending_weight_kg: number
     status: string
   } | null>(null)
+
+  const sessionRestore = useErpModuleSession(
+    'products',
+    () => ({ activeBatchId, pvNumber, tagDeleteCode }),
+    [activeBatchId, pvNumber, tagDeleteCode],
+  )
+  const sessionAppliedRef = useRef(false)
+  useEffect(() => {
+    if (sessionAppliedRef.current || !sessionRestore) return
+    sessionAppliedRef.current = true
+    if (sessionRestore.activeBatchId) setActiveBatchId(sessionRestore.activeBatchId)
+    if (sessionRestore.pvNumber) setPvNumber(sessionRestore.pvNumber)
+    if (sessionRestore.tagDeleteCode) setTagDeleteCode(sessionRestore.tagDeleteCode)
+  }, [sessionRestore])
 
   const loadDesignTree = useCallback(async () => {
     try {

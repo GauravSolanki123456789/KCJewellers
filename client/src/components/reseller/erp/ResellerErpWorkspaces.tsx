@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import Link from 'next/link'
 import axios from '@/lib/axios'
 import { Loader2, MessageCircle, Plus, Search, Trash2, ScanLine, Download, Upload, FileSpreadsheet, ClipboardList } from 'lucide-react'
@@ -128,6 +129,20 @@ export function CustomersWorkspace() {
     rate_slab: 'R' as 'R' | 'W' | 'F',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
+
+  const sessionRestore = useErpModuleSession(
+    'customers',
+    () => ({ q, form, editingId }),
+    [q, form, editingId],
+  )
+  const sessionAppliedRef = useRef(false)
+  useEffect(() => {
+    if (sessionAppliedRef.current || !sessionRestore) return
+    sessionAppliedRef.current = true
+    if (sessionRestore.q) setQ(sessionRestore.q)
+    if (sessionRestore.form) setForm(sessionRestore.form)
+    if (sessionRestore.editingId != null) setEditingId(sessionRestore.editingId)
+  }, [sessionRestore])
 
   const emptyForm = () => ({
     name: '',

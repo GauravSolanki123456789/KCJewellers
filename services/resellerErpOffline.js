@@ -4,6 +4,19 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+    loadDesignMasterTreeForOffline,
+    loadAllBillingCatalogsForOffline,
+} = require('./resellerErpDesignMaster');
+
+const DEFAULT_GST_INVOICE_ITEMS = [
+    { id: 'silver-jewellery', name: 'SILVER JEWELLERY', hsn: '711311' },
+    { id: 'silver-bar', name: 'SILVER BAR', hsn: '710692' },
+    { id: 'silver-articles', name: 'SILVER ARTICLES', hsn: '711411' },
+    { id: 'gift-items', name: 'GIFT ITEMS', hsn: '711311' },
+    { id: 'grains', name: 'GRAINS', hsn: '710692' },
+    { id: 'mix-silver-god', name: 'MIX SILVER GOD IMAGES', hsn: '711411', mrp: true },
+];
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -146,6 +159,22 @@ async function loadOfflineSnapshot(query, resellerUserId) {
     } catch {
         /* keep defaults */
     }
+    const gstInvoiceItems = Array.isArray(settings?.gst?.invoiceItems) && settings.gst.invoiceItems.length
+        ? settings.gst.invoiceItems.map((it) => ({
+            id: it.id || it.name,
+            name: String(it.name || '').trim(),
+            hsn: String(it.hsn || '').trim(),
+            mrp: !!it.mrp,
+        })).filter((it) => it.name && it.hsn)
+        : DEFAULT_GST_INVOICE_ITEMS;
+    let designMasterTree = [];
+    let billingCatalogs = {};
+    try {
+        designMasterTree = await loadDesignMasterTreeForOffline(query, resellerUserId);
+        billingCatalogs = await loadAllBillingCatalogsForOffline(query, resellerUserId, gstInvoiceItems);
+    } catch (e) {
+        console.warn('offline snapshot billing catalog:', e.message || e);
+    }
     return {
         capturedAt: new Date().toISOString(),
         customers: (customers || []).map(mapOfflineCustomer),
@@ -156,6 +185,9 @@ async function loadOfflineSnapshot(query, resellerUserId) {
         settings,
         rates,
         slabSettings: settings?.reseller_slab_settings || settings?.slabSettings || null,
+        gstInvoiceItems,
+        designMasterTree,
+        billingCatalogs,
     };
 }
 
@@ -243,16 +275,35 @@ async function nextShadowBillHint(query, resellerUserId) {
     return `${prefix}${seq}`;
 }
 
-function resolveExhibitionAppPath() {
+function resolveExhibitionKitDir() {
     const candidates = [
-        path.join(__dirname, '../client/public/exhibition-kit/index.html'),
-        path.join(process.cwd(), 'client/public/exhibition-kit/index.html'),
-        path.join(process.cwd(), 'public/exhibition-kit/index.html'),
+        path.join(__dirname, '../client/public/exhibition-kit'),
+        path.join(process.cwd(), 'client/public/exhibition-kit'),
+        path.join(process.cwd(), 'public/exhibition-kit'),
     ];
     for (const p of candidates) {
         if (fs.existsSync(p)) return p;
     }
     return null;
+}
+
+function resolveExhibitionAppPath() {
+    const dir = resolveExhibitionKitDir();
+    if (!dir) return null;
+    const filePath = path.join(dir, 'index.html');
+    return fs.existsSync(filePath) ? filePath : null;
+}
+
+/** Single-file offline app — inline billing-core.js when downloading. */
+function inlineExhibitionBillingCore(html) {
+    const marker = '<script src="billing-core.js"></script>';
+    if (!html.includes(marker)) return html;
+    const dir = resolveExhibitionKitDir();
+    if (!dir) return html;
+    const corePath = path.join(dir, 'billing-core.js');
+    if (!fs.existsSync(corePath)) return html;
+    const core = fs.readFileSync(corePath, 'utf8');
+    return html.replace(marker, `<script>\n${core}\n</script>`);
 }
 
 function registerResellerErpOfflineRoutes(app, deps) {
@@ -269,6 +320,7 @@ function registerResellerErpOfflineRoutes(app, deps) {
             if (!html || !html.trim()) {
                 return res.status(404).json({ error: 'Exhibition app file is empty' });
             }
+            html = inlineExhibitionBillingCore(html);
             const shopName = await loadShopDisplayName(query, req.user.id);
             const safeTitle = shopName.replace(/[<>&"]/g, '');
             html = html
@@ -305,7 +357,7 @@ function registerResellerErpOfflineRoutes(app, deps) {
             const snap = await loadOfflineSnapshot(query, req.user.id);
             const shopName = await loadShopDisplayName(query, req.user.id);
             const pack = {
-                packVersion: 2,
+                packVersion: 3,
                 kind: 'kc-exhibition-pack',
                 exportedAt: new Date().toISOString(),
                 resellerUserId: req.user.id,
