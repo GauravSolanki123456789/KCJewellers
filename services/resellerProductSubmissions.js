@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const multer = require('multer');
+const archiver = require('archiver');
 const {
     upsertWebProductFromSyncItem,
     normalizeSyncItem,
@@ -22,6 +23,96 @@ const {
 } = require('./productBrandUtils');
 
 const SUBMISSION_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected', 'withdrawn']);
+
+function csvCell(v) {
+    const s = v == null ? '' : String(v);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+}
+
+function submissionRowsToCsv(rows) {
+    const headers = [
+        'StyleCode',
+        'SKU',
+        'Barcode',
+        'ProductName',
+        'Size',
+        'NetWeight',
+        'GrossWeight',
+        'WastagePct',
+        'Purity',
+        'MC',
+        'MCType',
+        'MetalType',
+        'FixedPrice',
+        'StoneCharges',
+        'BoxCharges',
+        'Quantity',
+        'DesignGroup',
+        'Brand',
+    ];
+    const lines = [headers.join(',')];
+    for (const r of rows) {
+        lines.push(
+            [
+                csvCell(r.style_code),
+                csvCell(r.sku),
+                csvCell(r.barcode),
+                csvCell(r.product_name),
+                csvCell(r.size),
+                csvCell(r.net_weight),
+                csvCell(r.gross_weight),
+                csvCell(r.wastage_pct),
+                csvCell(r.purity),
+                csvCell(r.mc_rate),
+                csvCell(r.mc_type),
+                csvCell(r.metal_type),
+                csvCell(r.fixed_price),
+                csvCell(r.stone_charges),
+                csvCell(r.box_charges),
+                csvCell(r.quantity),
+                csvCell(r.design_group),
+                csvCell(r.brand),
+            ].join(','),
+        );
+    }
+    return `${lines.join('\n')}\n`;
+}
+
+function resolvePublicUploadPath(url) {
+    const rel = String(url || '').trim().replace(/^\//, '');
+    if (!rel || rel.includes('..')) return null;
+    const abs = path.join(__dirname, '..', 'public', rel);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return null;
+    return abs;
+}
+
+function pipeSubmissionImagesZip(res, rows, zipName) {
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+    archive.on('error', (err) => {
+        if (!res.headersSent) res.status(500);
+        res.end(String(err.message || err));
+    });
+    archive.pipe(res);
+    for (const r of rows) {
+        const base = String(r.barcode || r.product_name || r.id || 'item')
+            .replace(/[^\w.-]+/g, '_')
+            .slice(0, 80);
+        const pairs = [
+            ['image_url', 'front'],
+            ['secondary_image_url', 'back'],
+            ['box_image_url', 'box'],
+        ];
+        for (const [field, suffix] of pairs) {
+            const abs = resolvePublicUploadPath(r[field]);
+            if (!abs) continue;
+            archive.file(abs, { name: `${base}-${suffix}${path.extname(abs) || '.jpg'}` });
+        }
+    }
+    void archive.finalize();
+}
 
 function submissionRowToSyncItem(row) {
     if (!row) return null;
@@ -1581,6 +1672,99 @@ function registerResellerProductRoutes(app, deps) {
             }
         },
     );
+
+    app.get('/api/reseller/product-batches/:batchId/export.csv', requireResellerUpload, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            if (!batchId) return res.status(400).json({ error: 'batchId required' });
+            const rows = await query(
+                `SELECT * FROM reseller_product_submissions
+                 WHERE batch_id = $1::uuid AND submitted_by_user_id = $2
+                 ORDER BY id ASC`,
+                [batchId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Batch not found' });
+            const label = String(rows[0].batch_label || 'batch').replace(/[^\w.-]+/g, '_');
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${label}.csv"`);
+            res.send(submissionRowsToCsv(rows));
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.get('/api/reseller/product-batches/:batchId/images.zip', requireResellerUpload, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            if (!batchId) return res.status(400).json({ error: 'batchId required' });
+            const rows = await query(
+                `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url
+                 FROM reseller_product_submissions
+                 WHERE batch_id = $1::uuid AND submitted_by_user_id = $2`,
+                [batchId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Batch not found' });
+            pipeSubmissionImagesZip(res, rows, `batch-${batchId.slice(0, 8)}-images.zip`);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.get('/api/reseller/product-submissions/export-all.csv', requireResellerUpload, async (req, res) => {
+        try {
+            const batchId = String(req.query.batch_id || '').trim();
+            let rows;
+            if (batchId) {
+                rows = await query(
+                    `SELECT * FROM reseller_product_submissions
+                     WHERE batch_id = $1::uuid AND submitted_by_user_id = $2
+                     ORDER BY id ASC`,
+                    [batchId, req.user.id],
+                );
+            } else {
+                rows = await query(
+                    `SELECT * FROM reseller_product_submissions
+                     WHERE submitted_by_user_id = $1
+                     ORDER BY created_at DESC, id ASC`,
+                    [req.user.id],
+                );
+            }
+            if (!rows.length) return res.status(404).json({ error: 'No products found' });
+            const fname = batchId ? `batch-${batchId.slice(0, 8)}.csv` : 'all-reseller-products.csv';
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            res.send(submissionRowsToCsv(rows));
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.get('/api/reseller/product-submissions/images-all.zip', requireResellerUpload, async (req, res) => {
+        try {
+            const batchId = String(req.query.batch_id || '').trim();
+            let rows;
+            if (batchId) {
+                rows = await query(
+                    `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url
+                     FROM reseller_product_submissions
+                     WHERE batch_id = $1::uuid AND submitted_by_user_id = $2`,
+                    [batchId, req.user.id],
+                );
+            } else {
+                rows = await query(
+                    `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url
+                     FROM reseller_product_submissions
+                     WHERE submitted_by_user_id = $1`,
+                    [req.user.id],
+                );
+            }
+            if (!rows.length) return res.status(404).json({ error: 'No images found' });
+            const zipName = batchId ? `batch-${batchId.slice(0, 8)}-images.zip` : 'all-reseller-images.zip';
+            pipeSubmissionImagesZip(res, rows, zipName);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
 
     // ---- Reseller: submit Excel batch for KC admin review ----
     app.post('/api/reseller/product-batches/:batchId/submit-for-review', requireResellerUpload, async (req, res) => {

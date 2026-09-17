@@ -22,7 +22,8 @@
     "restore-db": "node scripts/restore-database.js",
     "sync-db": "node scripts/sync-database.js",
     "update": "bash update.sh",
-    "erp-print-agent": "node scripts/erp-local-print-agent.js"
+    "erp-print-agent": "node scripts/erp-local-print-agent.js",
+    "preview-estimate": "node scripts/preview-estimate-thermal.js --sample silver"
   },
   "dependencies": {
     "archiver": "^5.3.2",

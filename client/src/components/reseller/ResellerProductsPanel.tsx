@@ -31,7 +31,32 @@ import {
 import { calculateBreakdown, getCustomerDisplaySize, isFixedPriceCatalogItem } from '@/lib/pricing'
 import { ResellerBatchExcelEditor } from '@/components/reseller/ResellerBatchExcelEditor'
 import { ResellerProductEditModal } from '@/components/reseller/ResellerProductEditModal'
-import { FileSpreadsheet, ImagePlus, Images, Loader2, Package, Pencil, Plus, Send, Upload } from 'lucide-react'
+import {
+  Download,
+  FileSpreadsheet,
+  ImagePlus,
+  Images,
+  Loader2,
+  Package,
+  Pencil,
+  Plus,
+  Send,
+  Upload,
+} from 'lucide-react'
+
+async function downloadAuthenticatedFile(url: string, filename: string) {
+  const res = await axios.get(url, { responseType: 'blob' })
+  const blob = res.data as Blob
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = filename
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objectUrl)
+}
 
 type Tab = 'add' | 'batches' | 'list'
 
@@ -801,6 +826,37 @@ export function ResellerProductsPanel({
             ) : null}
           </div>
 
+          {!batchesLoading && batches.length > 0 ? (
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+                onClick={() =>
+                  void downloadAuthenticatedFile(
+                    '/api/reseller/product-submissions/export-all.csv',
+                    'all-reseller-products.csv',
+                  ).catch(() => setError('Could not download product Excel'))
+                }
+              >
+                <Download className="size-4" aria-hidden />
+                Download all products (CSV)
+              </button>
+              <button
+                type="button"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+                onClick={() =>
+                  void downloadAuthenticatedFile(
+                    '/api/reseller/product-submissions/images-all.zip',
+                    'all-reseller-images.zip',
+                  ).catch(() => setError('Could not download images'))
+                }
+              >
+                <Images className="size-4" aria-hidden />
+                Download all images (ZIP)
+              </button>
+            </div>
+          ) : null}
+
           {batchesLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="size-8 animate-spin text-[var(--color-jewelry-black,#1a1814)]/40" />
@@ -841,6 +897,34 @@ export function ResellerProductsPanel({
                     </button>
                     {open ? (
                       <div className="border-t border-[var(--color-slate-700,#e8e4df)] px-4 pb-4 sm:px-5 sm:pb-5">
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+                            onClick={() =>
+                              void downloadAuthenticatedFile(
+                                `/api/reseller/product-batches/${b.batch_id}/export.csv`,
+                                `${(b.batch_label || 'batch').replace(/[^\w.-]+/g, '_')}.csv`,
+                              ).catch(() => setError('Could not download batch Excel'))
+                            }
+                          >
+                            <Download className="size-4" aria-hidden />
+                            Download batch Excel
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+                            onClick={() =>
+                              void downloadAuthenticatedFile(
+                                `/api/reseller/product-batches/${b.batch_id}/images.zip`,
+                                `batch-${String(b.batch_id).slice(0, 8)}-images.zip`,
+                              ).catch(() => setError('Could not download batch images'))
+                            }
+                          >
+                            <Images className="size-4" aria-hidden />
+                            Download batch images
+                          </button>
+                        </div>
                         {canSubmit ? (
                           <button
                             type="button"

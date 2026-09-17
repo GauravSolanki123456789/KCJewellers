@@ -8,6 +8,7 @@ import {
   isFixedPriceCatalogItem,
   isGiftingItem,
   isMcPerPiece,
+  linePieceCount,
   metalBillableWeight,
   netWeight,
   purityPct,
@@ -288,7 +289,8 @@ function resolveMcDiscountPct(item: Item, settings: ResellerSlabTierSettings): n
 function mcPart(item: Item, mcDiscountPct: number): number {
   const val = Number(item.mc_rate ?? item.mc_value ?? 0) || 0
   const wt = netWeight(item)
-  const raw = isMcPerPiece(item.mc_type) ? val : wt * val
+  const pcs = linePieceCount(item)
+  const raw = isMcPerPiece(item.mc_type) ? val * pcs : wt * val * pcs
   const disc = clampPct(mcDiscountPct, 0, 100)
   return raw * (1 - disc / 100)
 }
@@ -415,38 +417,41 @@ export function calculateBreakdownWithSlab(
 
   let metalPart: number
   let mc: number
+  let stone: number
   let wastagePctVal = 0
   let wastageAmount: number | undefined
   let mcBeforeDiscount: number | undefined
+  const pcs = linePieceCount(item)
 
   if (isGold && kind === 'slab_r' && slab.goldSlabRUseMcPricing !== false) {
     const effectiveWastage = effectiveGoldWastagePct(item, wastageDiscPts)
-    metalPart = Math.floor(netWt * metalRate)
-    const wastageAsMc = Math.floor((netWt * metalRate * effectiveWastage) / 100)
+    metalPart = Math.floor(netWt * metalRate) * pcs
+    const wastageAsMc = Math.floor((netWt * metalRate * effectiveWastage) / 100) * pcs
     const itemMcRaw = Math.round(mcPart(item, 0))
     mcBeforeDiscount = wastageAsMc + itemMcRaw
     mc =
       mcDisc > 0
         ? Math.round(mcBeforeDiscount * (1 - mcDisc / 100))
         : mcBeforeDiscount
+    stone = Math.round(stonePart(item)) * pcs
   } else if (isGold) {
     wastagePctVal = effectiveGoldWastagePct(
       item,
       kind === 'slab_w' || kind === 'slab_f' ? wastageDiscPts : 0,
     )
-    metalPart = Math.floor((netWt * metalRate * (100 + wastagePctVal)) / 100)
+    metalPart = Math.floor((netWt * metalRate * (100 + wastagePctVal)) / 100) * pcs
     const mcRaw = Math.round(mcPart(item, 0))
     mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw
     if (mcDisc > 0 && mcRaw > mc) mcBeforeDiscount = mcRaw
-    wastageAmount = Math.max(0, metalPart - Math.floor(netWt * metalRate))
+    wastageAmount = Math.max(0, metalPart - Math.floor(netWt * metalRate) * pcs)
+    stone = Math.round(stonePart(item)) * pcs
   } else {
-    metalPart = metalRate * billWt
+    metalPart = metalRate * billWt * pcs
     const mcRaw = mcPart(item, 0)
     mc = mcPart(item, mcDisc)
     if (mcDisc > 0 && mcRaw > mc) mcBeforeDiscount = Math.round(mcRaw)
+    stone = stonePart(item) * pcs
   }
-
-  const stone = isGold ? Math.round(stonePart(item)) : stonePart(item)
   const baseRetail = metalPart + mc + stone
   const gstPct = gst
 

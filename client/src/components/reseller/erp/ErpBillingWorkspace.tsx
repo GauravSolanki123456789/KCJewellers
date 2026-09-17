@@ -348,6 +348,8 @@ export function ErpBillingWorkspace() {
   const [editingBillNumber, setEditingBillNumber] = useState<string | null>(null)
   const [editingBillType, setEditingBillType] = useState<string | null>(null)
   const [editingBillStatus, setEditingBillStatus] = useState<string | null>(null)
+  const [billedSaleBillId, setBilledSaleBillId] = useState<number | null>(null)
+  const [billedSaleBillNumber, setBilledSaleBillNumber] = useState<string | null>(null)
   const [advancePaidInr, setAdvancePaidInr] = useState('')
   const [collectedAmountInr, setCollectedAmountInr] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<ErpPaymentMethod>('bank')
@@ -743,6 +745,14 @@ export function ErpBillingWorkspace() {
         recalcLine(l, { slab: restoredSlab, goldSlabRShowMc: mcMode }),
       )
       setLines(recalcedLines)
+      const billedId =
+        session.billedSaleBillId != null ? Number(session.billedSaleBillId) : null
+      const billedNo =
+        typeof session.billedSaleBillNumber === 'string'
+          ? session.billedSaleBillNumber.trim()
+          : ''
+      setBilledSaleBillId(Number.isFinite(billedId) && billedId! > 0 ? billedId : null)
+      setBilledSaleBillNumber(billedNo || null)
       saveDraft({
         customerId: bill.customer_id ?? null,
         customerName: bill.customer_name || '',
@@ -2038,21 +2048,54 @@ export function ErpBillingWorkspace() {
       ) : null}
 
       {editingBillNumber && String(editingBillStatus || '').toLowerCase() === 'billed' ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-900">
-          {editingBillNumber} is already billed
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-4 shadow-sm sm:px-5">
+          <p className="text-sm font-semibold text-amber-950">
+            Estimate billed — {editingBillNumber}
+          </p>
+          <p className="mt-1 text-sm text-amber-950/80">
+            This estimate is read-only. Products are shown for reference.
+            {billedSaleBillNumber ? (
+              <>
+                {' '}
+                Sales bill:{' '}
+                <span className="font-semibold text-amber-950">{billedSaleBillNumber}</span>
+              </>
+            ) : null}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {billedSaleBillId ? (
+              <Link
+                href={`${resellerErpModulePath('billing')}?edit=${billedSaleBillId}`}
+                className="inline-flex min-h-[40px] items-center rounded-xl bg-amber-900 px-4 py-2 text-xs font-semibold text-white"
+              >
+                Open sales bill
+              </Link>
+            ) : null}
+            <Link
+              href={resellerErpModulePath('estimations')}
+              className="inline-flex min-h-[40px] items-center rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-semibold text-amber-950"
+            >
+              Back to estimations
+            </Link>
+          </div>
         </div>
       ) : editingBillNumber ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
-          <span className="font-semibold text-blue-900">Editing {editingBillNumber}</span>
+        <div className="rounded-2xl border border-blue-200 bg-blue-50/90 px-4 py-4 shadow-sm sm:px-5">
+          <p className="text-sm font-semibold text-blue-950">
+            {editingBillType === 'estimate' ? 'Estimate open' : 'Bill open'} — {editingBillNumber}
+          </p>
           {editingBillType === 'estimate' ? (
-            <span className="text-blue-800/70">
-              Update quote with <strong>Generate quote</strong>, or use <strong>Save bill</strong> to create a sales bill
-              and mark this estimate as billed.
-            </span>
+            <p className="mt-1 text-sm text-blue-950/75">
+              Update the quote with <strong>Generate quote</strong>, or use <strong>Save bill</strong> to create a sales
+              bill and mark this estimate as billed.
+            </p>
           ) : (
-            <span className="text-blue-800/70">Changes update this bill — no new number.</span>
+            <p className="mt-1 text-sm text-blue-950/75">Changes update this bill — no new number.</p>
           )}
-          <Link href={resellerErpModulePath('estimations')} className="ml-auto text-xs font-semibold text-blue-700 underline">
+          <Link
+            href={resellerErpModulePath('estimations')}
+            className="mt-3 inline-flex min-h-[40px] items-center rounded-xl border border-blue-300 bg-white px-4 py-2 text-xs font-semibold text-blue-900"
+          >
             Back to estimations
           </Link>
         </div>

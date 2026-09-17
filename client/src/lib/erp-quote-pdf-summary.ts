@@ -24,7 +24,8 @@ export function computeMcValueForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): 
   if (!Number.isFinite(mc) || mc <= 0) return null
   const mcType = String(line.mc_type || '').toUpperCase()
   if (mcType.includes('/PC') || mcType === 'MC/PC' || mcType.includes('PER PC')) {
-    return Math.round(mc)
+    const qty = Math.max(1, Number(line.qty) || 1)
+    return Math.round(mc * qty)
   }
   const wt = line.weightGm
   if (wt == null || !Number.isFinite(Number(wt))) return null
@@ -73,7 +74,7 @@ export function groupBillLinesForSummaryPdf(lines: ErpBillLine[], rateSlab: ErpR
       netOrig += num(line.originalWeightGm ?? line.weightGm)
       billWt += num(line.weightGm)
       const mv = computeMcValueForPdf(line, rateSlab)
-      if (mv != null) mcValue += mv * num(line.qty ?? 1)
+      if (mv != null) mcValue += mv
       if (line.fixed_price != null && line.fixed_price > 0) fixed += num(line.fixed_price)
       if (line.lineTotalInr != null) amount += num(line.lineTotalInr)
     }

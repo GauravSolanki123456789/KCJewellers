@@ -3,7 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
-import { groupMarlechaInvoiceLines, isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
+import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
 import {
@@ -19,7 +19,6 @@ import type {
 import {
   DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE,
   mergeTemplateWithGstSettings,
-  mrpTableColumns,
   normalizeTaxInvoiceTemplate,
   type ErpTaxInvoiceTemplateConfig,
 } from '@/lib/erp-tax-invoice-template'
@@ -35,8 +34,17 @@ export type ConfigurableTaxInvoiceProps = ErpTaxInvoicePdfDocumentProps & {
   mrpItemNames?: Set<string>
 }
 
-const WEIGHT_COL_W = ['5%', '28%', '10%', '12%', '12%', '14%', '19%'] as const
-const MRP_COL_W = ['5%', '34%', '12%', '10%', '14%', '25%'] as const
+const UNIFIED_COL_W = ['5%', '22%', '10%', '8%', '12%', '12%', '12%', '19%'] as const
+const UNIFIED_COLS = [
+  'SINO',
+  'Description of\nGoods',
+  'HSN\nCode',
+  'Qty',
+  'Gross Wt\n(Kgs)',
+  'Net Wt\n(Kgs)',
+  'Rate',
+  'Amount\n(in Rs.)',
+] as const
 
 const styles = StyleSheet.create({
   page: {
@@ -365,39 +373,36 @@ function InvoicePage({
   const roundOff = Math.round((roundedTotal - rawTotal) * 100) / 100
   const payLabel = paymentMethodInvoiceLabel(String(session.paymentMethod || ''))
   const shopDisplay = template.shopName || gst.legalName || 'Shop'
-  const weightLines = lines.filter((l) => !isMrpInvoiceLine(l, mrpItemNames))
-  const mrpLines = lines.filter((l) => isMrpInvoiceLine(l, mrpItemNames))
-  const weightCols = template.tableColumns.length >= 7 ? template.tableColumns : DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE.tableColumns
-  const mrpCols = mrpTableColumns()
-  let slNo = 0
-
-  const weightRows: string[][] = weightLines.map((line) => {
-    slNo += 1
+  const unifiedRows: string[][] = lines.map((line, idx) => {
+    const slNo = `${idx + 1}.`
+    const desc = line.invoice_item_name || line.name || 'JEWELLERY'
+    const hsn = line.hsn_code || '711311'
+    const amt = Number(line.lineTotalInr) || 0
+    const mrp = isMrpInvoiceLine(line, mrpItemNames)
+    if (mrp) {
+      const qty = Math.max(1, Number(line.qty) || 1)
+      const rate = linePieceRate(line)
+      return [
+        slNo,
+        desc,
+        hsn,
+        String(qty),
+        '—',
+        '—',
+        rate > 0 ? rate.toFixed(2) : '—',
+        amt.toFixed(2),
+      ]
+    }
     const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
     const netKg = gmToKg(Number(line.weightGm) || 0)
     const rate = lineRatePerKg(line)
-    const amt = Number(line.lineTotalInr) || 0
     return [
-      `${slNo}.`,
-      line.invoice_item_name || line.name || 'JEWELLERY',
-      line.hsn_code || '711311',
-      grossKg.toFixed(4),
-      netKg.toFixed(4),
-      rate > 0 ? rate.toFixed(2) : '—',
-      amt.toFixed(2),
-    ]
-  })
-
-  const mrpRows: string[][] = mrpLines.map((line) => {
-    slNo += 1
-    const qty = Math.max(1, Number(line.qty) || 1)
-    const rate = linePieceRate(line)
-    const amt = Number(line.lineTotalInr) || 0
-    return [
-      `${slNo}.`,
-      line.invoice_item_name || line.name || 'GIFT ITEMS',
-      line.hsn_code || '711311',
-      String(qty),
+      slNo,
+      desc,
+      hsn,
+      '—',
+      grossKg > 0 ? grossKg.toFixed(4) : '—',
+      netKg > 0 ? netKg.toFixed(4) : '—',
       rate > 0 ? rate.toFixed(2) : '—',
       amt.toFixed(2),
     ]
@@ -497,13 +502,10 @@ function InvoicePage({
       </View>
 
       <View style={styles.table}>
-        {weightRows.length > 0
-          ? renderColumnTable('wt', weightCols, WEIGHT_COL_W, weightRows, {
-              fillRemaining: mrpRows.length === 0,
+        {unifiedRows.length > 0
+          ? renderColumnTable('unified', [...UNIFIED_COLS], [...UNIFIED_COL_W], unifiedRows, {
+              fillRemaining: true,
             })
-          : null}
-        {mrpRows.length > 0
-          ? renderColumnTable('mrp', mrpCols, MRP_COL_W, mrpRows, { fillRemaining: true })
           : null}
       </View>
       </View>
@@ -586,10 +588,7 @@ function InvoicePage({
 
 export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoiceProps) {
   const mrpNames = props.mrpItemNames || new Set<string>()
-  const lines = useMemo(
-    () => groupMarlechaInvoiceLines(props.bill.lines ?? [], mrpNames),
-    [props.bill.lines, mrpNames],
-  )
+  const lines = useMemo(() => props.bill.lines ?? [], [props.bill.lines])
   const session = (props.bill.session && typeof props.bill.session === 'object'
     ? props.bill.session
     : {}) as Record<string, unknown>

@@ -398,11 +398,18 @@ export function isMcPerPiece(mcType: unknown): boolean {
   return normalizeMcType(mcType) === 'MC/PC'
 }
 
+/** Bill line quantity (pieces) — defaults to 1. */
+export function linePieceCount(item: Item): number {
+  const n = Number(item.pcs ?? 1)
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 9999) : 1
+}
+
 function mcAmount(item: Item): number {
   const val = Number(item.mc_rate ?? item.mc_value ?? 0) || 0
-  if (isMcPerPiece(item.mc_type)) return val
+  const pcs = linePieceCount(item)
+  if (isMcPerPiece(item.mc_type)) return val * pcs
   const wt = netWeight(item)
-  return wt * val
+  return wt * val * pcs
 }
 
 function stone(item: Item): number {
@@ -568,24 +575,25 @@ export function calculateBreakdown(
       isSilver ? silverEffectivePurityPct(purity) : isGold ? 100 : purity
     const metalRate = isGold ? rate : rate * (effectivePurity > 0 ? effectivePurity / 100 : 1)
     const wastagePct = isGold ? resolveProductWastagePercent(item) : 0
+    const pcs = linePieceCount(item)
     const metalPart = isGold
-      ? Math.floor((netWt * metalRate * (100 + wastagePct)) / 100)
-      : metalRate * billWt
-    const mcPart = isGold ? Math.round(mcAmount(item)) : mcAmount(item)
-    const stoneAmt = isGold ? Math.round(stone(item)) : stone(item)
-    const baseRetail = metalPart + mcPart + stoneAmt
+      ? Math.floor((netWt * metalRate * (100 + wastagePct)) / 100) * pcs
+      : metalRate * billWt * pcs
+    const mcPartVal = isGold ? Math.round(mcAmount(item)) : mcAmount(item)
+    const stoneAmt = (isGold ? Math.round(stone(item)) : stone(item)) * pcs
+    const baseRetail = metalPart + mcPartVal + stoneAmt
     const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3
     const categoryDisc = categoryDiscountPct(item)
 
     if (categoryDisc > 0) {
       const totalBeforeDiscount = isGold
-        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPart, stoneAmt)
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPartVal, stoneAmt)
         : baseRetail * (1 + gstPct / 100)
       const total = totalBeforeDiscount * (1 - categoryDisc / 100)
       const gstAmt = totalBeforeDiscount - baseRetail
       return attachWastageFields(item, isGold, netWt, metalRate, metalPart, {
         metal: metalPart,
-        mc: mcPart,
+        mc: mcPartVal,
         stone: stoneAmt,
         cgst: gstAmt / 2,
         sgst: gstAmt / 2,
@@ -604,7 +612,7 @@ export function calculateBreakdown(
     const acctDisc = accountDiscountPct(wIn, 0)
     const base = baseRetail * (1 + markup / 100)
     const useGoldTagFormula =
-      isGold && !wIn && Math.abs(markup) < 1e-6 && mcPart === 0 && stoneAmt === 0
+      isGold && !wIn && Math.abs(markup) < 1e-6 && mcPartVal === 0 && stoneAmt === 0
     const totalBeforeDiscount = isGold
       ? useGoldTagFormula
         ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0)
@@ -613,7 +621,7 @@ export function calculateBreakdown(
     const total =
       acctDisc > 0 ? totalBeforeDiscount * (1 - acctDisc / 100) : totalBeforeDiscount
     const retailBeforePromo = isGold
-      ? mcPart === 0 && stoneAmt === 0
+      ? mcPartVal === 0 && stoneAmt === 0
         ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0)
         : goldStorefrontTotal(baseRetail, gstPct)
       : baseRetail * (1 + gstPct / 100)
@@ -621,7 +629,7 @@ export function calculateBreakdown(
     const wholesaleActive = !!wIn && (acctDisc > 0 || Math.abs(markup) > 1e-6)
     return attachWastageFields(item, isGold, netWt, metalRate, metalPart, {
       metal: metalPart,
-      mc: mcPart,
+      mc: mcPartVal,
       stone: stoneAmt,
       cgst: gstAmt / 2,
       sgst: gstAmt / 2,
