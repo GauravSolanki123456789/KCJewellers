@@ -125,7 +125,11 @@ export function ErpBillingSuggestField({
 
   const commit = (raw: string) => {
     const v = raw.trim().toUpperCase()
-    if (!v) return
+    if (!v) {
+      setOpen(false)
+      setPickIdx(-1)
+      return
+    }
     onChange(v)
     onCommit(v)
     setOpen(false)
@@ -154,12 +158,23 @@ export function ErpBillingSuggestField({
     }
     if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
       e.preventDefault()
+      const q = norm(value)
+      if (!q) {
+        setOpen(false)
+        setPickIdx(-1)
+        onCommit('')
+        return
+      }
       if (pickIdx >= 0 && filtered[pickIdx]) {
         commit(filtered[pickIdx].value)
         return
       }
-      const exact = filtered.find((o) => norm(o.value) === norm(value))
-      commit(exact?.value || value)
+      const exact = filtered.find((o) => norm(o.value) === q)
+      if (exact) {
+        commit(exact.value)
+        return
+      }
+      commit(value)
     }
   }
 

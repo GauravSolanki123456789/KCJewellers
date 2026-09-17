@@ -28,7 +28,7 @@ const CHARGE_BAND: { key: keyof ErpBillLine; label: string }[] = [
   { key: 'mc_type', label: 'MCTYPE' },
   { key: 'qty', label: 'PCS' },
   { key: 'box_charges', label: 'BOX' },
-  { key: 'stone_charges', label: 'STONE' },
+  { key: 'stone_charges', label: 'FINISH' },
   { key: 'metal_type', label: 'METAL' },
   { key: 'fixed_price', label: 'FIXED' },
 ]
@@ -272,9 +272,15 @@ export function ErpBillingStackedRow({
                         onChange={() => {}}
                         onCommit={(label) => {
                           const hit = line.designBoxOptions?.find((o) => o.label === label)
+                          const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
                           onPatch({
                             box_charges: hit?.box_charges ?? 0,
-                            fixed_price: hit?.fixed_price ?? line.fixed_price,
+                            ...(line.mrpMode || wt <= 0
+                              ? {
+                                  fixed_price: hit?.fixed_price ?? line.fixed_price,
+                                  unitInr: hit?.fixed_price ?? line.unitInr,
+                                }
+                              : {}),
                           })
                           onAdvance('box_charges')
                         }}
@@ -313,12 +319,16 @@ export function ErpBillingStackedRow({
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {line.designFinishOptions?.length ? (
                     <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                      Stone
+                      Finish
                       <ErpBillingSuggestField
                         value={
                           line.designFinishOptions.find(
                             (o) => o.stone_charges === (line.stone_charges || 0),
-                          )?.label || ''
+                          )?.label ||
+                          line.designFinishOptions.find(
+                            (o) => o.label === String(line.size || ''),
+                          )?.label ||
+                          ''
                         }
                         placeholder="GP / Standard…"
                         options={line.designFinishOptions.map((o) => o.label)}
@@ -331,6 +341,8 @@ export function ErpBillingStackedRow({
                             stone_charges: hit?.stone_charges ?? 0,
                             fixed_price: hit?.fixed_price ?? line.fixed_price,
                             unitInr: hit?.fixed_price ?? line.unitInr,
+                            mrpMode: true,
+                            mrpListPrice: hit?.fixed_price ?? line.mrpListPrice,
                           })
                           onAdvance('stone_charges')
                         }}

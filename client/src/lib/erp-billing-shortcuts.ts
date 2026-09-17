@@ -49,9 +49,8 @@ export function createManualBillLine(
   usedCodes: Iterable<string> = [],
 ): ErpBillLine {
   const lineId = generateManualBarcode(usedCodes)
-  const isGiftOrMrp = category === 'gift' || !!invoiceItem.mrp
   const base: ErpBillLine = {
-    name: category === 'gift' ? '' : invoiceItem.name,
+    name: '',
     code: lineId,
     barcode: '',
     sku: undefined,
@@ -80,18 +79,19 @@ export function createManualBillLine(
     manualEntry: true,
     manualEntryOpen: true,
     manualCategory: category,
-    mrpMode: isGiftOrMrp ? true : undefined,
+    mrpMode: undefined,
   }
-  if (isGiftOrMrp) return base
+  if (category === 'gift') return base
   return applyPieceSlabToLine(base, slab)
 }
 
-/** Gift flow: SKU → Style → Product → Size → PCS */
+/** Gift flow: SKU → Style → Product → Size → Finish → PCS */
 export const GIFT_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'sku',
   'style_code',
   'name',
   'size',
+  'stone_charges',
   'qty',
 ]
 

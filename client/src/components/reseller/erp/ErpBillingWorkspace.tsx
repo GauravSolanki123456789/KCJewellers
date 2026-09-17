@@ -13,8 +13,9 @@ import {
   computeLineBreakdown,
   displayRatesToPerGram,
   isPiecePricedBillLine,
+  isSilverGiftStockLine,
+  isWeightBasedSilverGiftLine,
   lineHasPieceSlabFields,
-  normalizeLineForCatalogSlabPricing,
   parseRateSlabFromNotes,
   parseSlabSettingsFromUser,
   perGramToDisplayRates,
@@ -72,7 +73,9 @@ import {
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
 import {
+  catalogProductUsesMrpPricing,
   findCatalogProduct,
+  mergeCatalogProductsForStyleSku,
   nextFieldAfterCatalogProduct,
   nextFieldAfterCatalogSize,
   patchLineFromCatalogProduct,
@@ -180,7 +183,7 @@ const TABLE_COLS: BillTableCol[] = [
   { key: 'mc_type', label: 'MCType', w: 'w-[4.5%]', edit: true },
   { key: 'qty', label: 'PCS', w: 'w-[3.5%]', edit: true },
   { key: 'box_charges', label: 'Box', w: 'w-[3.5%]', edit: true },
-  { key: 'stone_charges', label: 'Stone', w: 'w-[3.5%]', edit: true },
+  { key: 'stone_charges', label: 'Finish', w: 'w-[4%]', edit: true },
   { key: 'metal_type', label: 'Metal', w: 'w-[4.5%]' },
   { key: 'fixed_price', label: 'Fixed', w: 'w-[4.5%]', edit: true },
   { key: 'amount', label: 'Amt', w: 'w-[6%]' },
@@ -480,11 +483,15 @@ export function ErpBillingWorkspace() {
       const mcMode = opts?.goldSlabRShowMc ?? goldSlabRShowMc
       const whGold = opts?.wholesaleGold !== undefined ? opts.wholesaleGold : wholesaleGold
       const whSilver = opts?.wholesaleSilver !== undefined ? opts.wholesaleSilver : wholesaleSilver
-      const withOriginal = normalizeLineForCatalogSlabPricing({
+      const withOriginal = {
         ...line,
         originalWeightGm: line.originalWeightGm ?? line.weightGm,
-      })
-      const slabLine = applyPieceSlabToLine(withOriginal, slab)
+      }
+      const skipPieceSlabWeight =
+        isWeightBasedSilverGiftLine(withOriginal) || isSilverGiftStockLine(withOriginal)
+      const slabLine = skipPieceSlabWeight
+        ? withOriginal
+        : applyPieceSlabToLine(withOriginal, slab)
       const bd = computeLineBreakdown(
         slabLine,
         rates,
@@ -1225,12 +1232,23 @@ export function ErpBillingWorkspace() {
             i === lineIdx ? recalcLine({ ...l, name: productName.trim() }) : l,
           )
         }
-        const patch = patchLineFromCatalogProduct(line, product)
+        let patch = patchLineFromCatalogProduct(line, product) as Partial<ErpBillLine>
+        if (patch.mrpMode && product.fixed_price) {
+          const list = product.fixed_price
+          const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
+          patch = {
+            ...patch,
+            mrpListPrice: list,
+            fixed_price: slabPrice,
+            unitInr: slabPrice,
+            qty: Math.max(1, Number(line.qty) || 1),
+          }
+        }
         return prev.map((l, i) => (i === lineIdx ? recalcLine({ ...l, ...patch }) : l))
       })
       after?.()
     },
-    [recalcLine],
+    [recalcLine, rateSlab, slabSettings],
   )
 
   const applyDesignDefaults = useCallback(
@@ -1255,15 +1273,19 @@ export function ErpBillingWorkspace() {
           setLines((prev) =>
             prev.map((l, i) => {
               if (i !== lineIdx) return l
-              const gift = isGiftManualLine(l)
-              const keepName = String(l.name || '').trim()
-              const name =
-                gift && (!keepName || keepName.toUpperCase() === sku.toUpperCase()) ? '' : gift ? keepName : sku
               return recalcLine({
                 ...l,
                 style_code: styleCode,
                 sku,
-                name,
+                name: '',
+                mrpMode: undefined,
+                fixed_price: null,
+                unitInr: null,
+                weightGm: null,
+                originalWeightGm: null,
+                designSizeOptions: undefined,
+                designBoxOptions: undefined,
+                designFinishOptions: undefined,
                 designProductOptions: catalogProducts.map((p) => ({
                   name: p.name,
                   image_url: p.image_url ?? null,
@@ -1278,17 +1300,7 @@ export function ErpBillingWorkspace() {
         const storedNames = Array.isArray((d as { product_names?: unknown }).product_names)
           ? ((d as { product_names: DesignCatalogProduct[] }).product_names)
           : []
-        const mergedCatalog = (() => {
-          const seen = new Set<string>()
-          const out: DesignCatalogProduct[] = []
-          for (const p of [...storedNames, ...catalogProducts]) {
-            const key = String(p.name || '').trim().toUpperCase()
-            if (!key || seen.has(key)) continue
-            seen.add(key)
-            out.push(p)
-          }
-          return out
-        })()
+        const mergedCatalog = mergeCatalogProductsForStyleSku(storedNames, catalogProducts)
         const mergedProducts = mergedCatalog.map((p) => ({
           name: p.name,
           image_url: p.image_url ?? null,
@@ -1302,31 +1314,11 @@ export function ErpBillingWorkspace() {
               const n = Number(v)
               return Number.isFinite(n) ? n : null
             }
-            const sizeVariants = Array.isArray((d as { size_variants?: unknown }).size_variants)
-              ? ((d as { size_variants: { size_label: string; fixed_price_mrp: number | null }[] }).size_variants)
-              : undefined
-            const isGift =
-              l.manualCategory === 'gift' ||
-              String(d.invoice_item_name || '').toUpperCase().includes('GIFT') ||
-              isGiftManualLine(l)
-            const keepName = String(l.name || '').trim()
-            const skuUpper = sku.toUpperCase()
-            const productName = isGift
-              ? keepName && keepName.toUpperCase() !== skuUpper
-                ? keepName
-                : ''
-              : ''
-            let fixedPrice = num('fixed_price') ?? l.fixed_price
-            let mrpList: number | null = null
-            if (isGift && fixedPrice != null && fixedPrice > 0) {
-              mrpList = fixedPrice
-              fixedPrice = giftMrpSlabPrice(fixedPrice, rateSlab, slabSettings)
-            }
             return recalcLine({
               ...l,
               style_code: styleCode,
               sku,
-              name: productName,
+              name: '',
               purity: num('purity') ?? l.purity,
               metal_type: String(d.metal_type || l.metal_type || 'silver'),
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
@@ -1340,13 +1332,20 @@ export function ErpBillingWorkspace() {
               metal_slab_f_pct: num('metal_slab_f_pct') ?? l.metal_slab_f_pct,
               invoice_item_name: (d.invoice_item_name as string) || l.invoice_item_name,
               hsn_code: (d.hsn_code as string) || l.hsn_code,
-              designSizeOptions: sizeVariants,
+              designSizeOptions: undefined,
               designProductOptions: mergedProducts,
               designProductCatalog: mergedCatalog,
-              mrpMode: isGift ? true : l.mrpMode,
-              mrpListPrice: mrpList ?? l.mrpListPrice,
-              fixed_price: fixedPrice,
-              unitInr: isGift && fixedPrice ? fixedPrice : l.unitInr,
+              designBoxOptions: undefined,
+              designFinishOptions: undefined,
+              mrpMode: undefined,
+              mrpListPrice: null,
+              fixed_price: null,
+              unitInr: null,
+              weightGm: null,
+              originalWeightGm: null,
+              size: null,
+              box_charges: 0,
+              stone_charges: 0,
             })
           }),
         )
@@ -1355,20 +1354,18 @@ export function ErpBillingWorkspace() {
         setLines((prev) =>
           prev.map((l, i) => {
             if (i !== lineIdx) return l
-            const gift = isGiftManualLine(l)
-            const keepName = String(l.name || '').trim()
             return recalcLine({
               ...l,
               style_code: styleCode,
               sku,
-              name: gift && (!keepName || keepName.toUpperCase() === sku.toUpperCase()) ? '' : gift ? keepName : sku,
+              name: '',
             })
           }),
         )
         afterApply?.()
       }
     },
-    [recalcLine, rateSlab, slabSettings],
+    [recalcLine],
   )
 
   const unlockLineRates = (list: ErpBillLine[]) =>
@@ -2660,7 +2657,25 @@ export function ErpBillingWorkspace() {
                             }
                           }}
                           onAdvance={(field) => advanceBillField(lineKey, field, line, idx)}
-                          onPatch={(patch) => updateLine(idx, patch)}
+                          onPatch={(patch) => {
+                            let next = { ...patch }
+                            if (
+                              next.fixed_price != null &&
+                              Number(next.fixed_price) > 0 &&
+                              (line.designFinishOptions?.length || next.mrpMode)
+                            ) {
+                              const list = Number(next.mrpListPrice ?? next.fixed_price)
+                              const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
+                              next = {
+                                ...next,
+                                mrpListPrice: list,
+                                fixed_price: slabPrice,
+                                unitInr: slabPrice,
+                                mrpMode: true,
+                              }
+                            }
+                            updateLine(idx, next)
+                          }}
                           onDelete={() => setLines((p) => p.filter((_, i) => i !== idx))}
                         />
                       )
@@ -2848,12 +2863,18 @@ export function ErpBillingWorkspace() {
                                 onChange={() => {}}
                                 onCommit={(label) => {
                                   const hit = line.designBoxOptions?.find((o) => o.label === label)
+                                  const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
                                   const patch: Partial<ErpBillLine> = {
                                     box_charges: hit?.box_charges ?? 0,
-                                    fixed_price: hit?.fixed_price ?? line.fixed_price,
+                                  }
+                                  if (line.mrpMode || wt <= 0) {
+                                    if (hit?.fixed_price != null) {
+                                      patch.fixed_price = hit.fixed_price
+                                      patch.unitInr = hit.fixed_price
+                                    }
                                   }
                                   updateLine(idx, patch)
-                                  focusManualCell(lineKey, 'weightGm')
+                                  advanceBillField(lineKey, 'box_charges', { ...line, ...patch }, idx)
                                 }}
                               />
                             </td>
@@ -2867,10 +2888,18 @@ export function ErpBillingWorkspace() {
                               <ErpBillingStyleSkuCell
                                 value={
                                   line.designFinishOptions.find(
-                                    (o) => o.stone_charges === (line.stone_charges || 0),
-                                  )?.label || ''
+                                    (o) =>
+                                      o.label.trim().toUpperCase() ===
+                                      String(line.size || '').trim().toUpperCase(),
+                                  )?.label ||
+                                  line.designFinishOptions.find(
+                                    (o) =>
+                                      Number(o.fixed_price) > 0 &&
+                                      Number(o.fixed_price) === Number(line.mrpListPrice),
+                                  )?.label ||
+                                  ''
                                 }
-                                placeholder="Finish…"
+                                placeholder="GP / Standard…"
                                 options={line.designFinishOptions.map((o) => o.label)}
                                 autoFocus={
                                   manualFocus?.lineKey === lineKey && manualFocus.field === 'stone_charges'
@@ -2881,12 +2910,22 @@ export function ErpBillingWorkspace() {
                                 onChange={() => {}}
                                 onCommit={(label) => {
                                   const hit = line.designFinishOptions?.find((o) => o.label === label)
+                                  const list = Number(hit?.fixed_price ?? line.fixed_price ?? 0)
+                                  const slabPrice =
+                                    list > 0 ? giftMrpSlabPrice(list, rateSlab, slabSettings) : line.fixed_price
                                   const patch: Partial<ErpBillLine> = {
                                     stone_charges: hit?.stone_charges ?? 0,
-                                    fixed_price: hit?.fixed_price ?? line.fixed_price,
+                                    fixed_price: slabPrice,
+                                    unitInr: slabPrice,
+                                    mrpListPrice: list > 0 ? list : line.mrpListPrice,
+                                    mrpMode: list > 0 ? true : line.mrpMode,
+                                    size:
+                                      line.designSizeOptions?.length
+                                        ? line.size
+                                        : label || line.size,
                                   }
                                   updateLine(idx, patch)
-                                  focusManualCell(lineKey, 'weightGm')
+                                  focusManualCell(lineKey, 'qty')
                                 }}
                               />
                             </td>

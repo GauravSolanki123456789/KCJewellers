@@ -99,6 +99,10 @@ export function ErpDesignMasterWorkspace() {
   const [styleRenameDraft, setStyleRenameDraft] = useState('')
   const [editingSkuId, setEditingSkuId] = useState<number | null>(null)
   const [skuRenameDraft, setSkuRenameDraft] = useState('')
+  const stylesListRef = useRef<HTMLUListElement>(null)
+  const stylesScrollTopRef = useRef(0)
+  const skusListRef = useRef<HTMLUListElement>(null)
+  const skusScrollTopRef = useRef(0)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -149,6 +153,16 @@ export function ErpDesignMasterWorkspace() {
   useEffect(() => {
     void fetchGstInvoiceItems().then(setInvoiceItems)
   }, [])
+
+  useEffect(() => {
+    const el = stylesListRef.current
+    if (el) el.scrollTop = stylesScrollTopRef.current
+  }, [selectedStyleId])
+
+  useEffect(() => {
+    const el = skusListRef.current
+    if (el) el.scrollTop = skusScrollTopRef.current
+  }, [selectedSkuId])
 
   useEffect(() => {
     if (selectedSku) {
@@ -511,9 +525,9 @@ export function ErpDesignMasterWorkspace() {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <div className={erpCardCls}>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="grid min-h-[min(720px,calc(100vh-11rem))] gap-3 lg:grid-cols-3 lg:items-stretch">
+        <div className={`${erpCardCls} flex min-h-0 flex-col`}>
+          <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Styles</p>
             {selectedStyle ? (
               <button
@@ -527,7 +541,13 @@ export function ErpDesignMasterWorkspace() {
               </button>
             ) : null}
           </div>
-          <ul className="max-h-[420px] space-y-1 overflow-y-auto">
+          <ul
+            ref={stylesListRef}
+            className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain"
+            onScroll={(e) => {
+              stylesScrollTopRef.current = e.currentTarget.scrollTop
+            }}
+          >
             {tree.length === 0 ? (
               <li className="text-xs text-[var(--color-jewelry-black,#1a1814)]/45">Add a style to begin.</li>
             ) : (
@@ -564,6 +584,9 @@ export function ErpDesignMasterWorkspace() {
                           selectedStyleId === s.id ? '' : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
                         }`}
                         onClick={() => {
+                          if (stylesListRef.current) {
+                            stylesScrollTopRef.current = stylesListRef.current.scrollTop
+                          }
                           setSelectedStyleId(s.id)
                           setSelectedSkuId(null)
                         }}
@@ -598,8 +621,8 @@ export function ErpDesignMasterWorkspace() {
           </ul>
         </div>
 
-        <div className={erpCardCls}>
-          <p className="mb-2 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">SKUs</p>
+        <div className={`${erpCardCls} flex min-h-0 flex-col`}>
+          <p className="mb-2 shrink-0 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">SKUs</p>
           {selectedStyle ? (
             <>
               <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5">
@@ -645,7 +668,13 @@ export function ErpDesignMasterWorkspace() {
                   <Plus className="size-4" />
                 </button>
               </div>
-              <ul className="max-h-[380px] space-y-1 overflow-y-auto">
+              <ul
+                ref={skusListRef}
+                className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain"
+                onScroll={(e) => {
+                  skusScrollTopRef.current = e.currentTarget.scrollTop
+                }}
+              >
                 {selectedStyle.skus.map((sk) => (
                   <li key={sk.id}>
                     {editingSkuId === sk.id ? (
@@ -678,7 +707,12 @@ export function ErpDesignMasterWorkspace() {
                           className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
                             selectedSkuId === sk.id ? '' : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
                           }`}
-                          onClick={() => setSelectedSkuId(sk.id)}
+                          onClick={() => {
+                            if (skusListRef.current) {
+                              skusScrollTopRef.current = skusListRef.current.scrollTop
+                            }
+                            setSelectedSkuId(sk.id)
+                          }}
                         >
                           {sk.sku}
                         </button>
@@ -712,12 +746,12 @@ export function ErpDesignMasterWorkspace() {
           )}
         </div>
 
-        <div className={erpCardCls}>
-          <p className="mb-2 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+        <div className={`${erpCardCls} flex min-h-0 flex-col`}>
+          <p className="mb-2 shrink-0 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
             Calculation defaults
           </p>
           {selectedSku ? (
-            <div className="space-y-2">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
               <label className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
                 Invoice item (GST)
                 <select
@@ -805,7 +839,7 @@ export function ErpDesignMasterWorkspace() {
                   </button>
                 </div>
                 <p className="mb-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                  Names like GANESH / MURUGAN under this SKU. Billing G flow lets you pick one after style.
+                  Each product keeps its own MC, wastage, sizes, box and GP/Standard — not shared across the SKU.
                 </p>
                 <div className="mb-2 flex gap-1">
                   <input

@@ -1,3 +1,4 @@
+import { isGiftingItem, type Item } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
 export type DesignCatalogSize = {
@@ -30,6 +31,36 @@ export type DesignCatalogProduct = {
   stone_charges?: number | null
 }
 
+/** Live catalogue wins; stored names kept only if they appear in live data for this style+SKU. */
+export function mergeCatalogProductsForStyleSku(
+  stored: DesignCatalogProduct[],
+  live: DesignCatalogProduct[],
+): DesignCatalogProduct[] {
+  if (!live.length) return stored
+  if (!stored.length) return live
+  const liveKeys = new Set(live.map((p) => p.name.trim().toUpperCase()))
+  const fromStored = stored.filter((p) => liveKeys.has(p.name.trim().toUpperCase()))
+  const seen = new Set<string>()
+  const out: DesignCatalogProduct[] = []
+  for (const p of [...live, ...fromStored]) {
+    const key = p.name.trim().toUpperCase()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(p)
+  }
+  return out
+}
+
+export function catalogProductUsesMrpPricing(product: DesignCatalogProduct): boolean {
+  const mt = String(product.metal_type || '').toLowerCase()
+  if (isGiftingItem({ metal_type: mt } as Item)) return true
+  const hasWeight =
+    (product.net_weight ?? 0) > 0 ||
+    (product.sizes || []).some((s) => (s.net_weight ?? 0) > 0)
+  if (hasWeight && mt.startsWith('silver')) return false
+  return (product.fixed_price ?? 0) > 0
+}
+
 export function findCatalogProduct(
   catalog: DesignCatalogProduct[] | undefined,
   name: string,
@@ -43,6 +74,7 @@ export function patchLineFromCatalogProduct(
   line: ErpBillLine,
   product: DesignCatalogProduct,
 ): Partial<ErpBillLine> {
+  const mrpMode = catalogProductUsesMrpPricing(product)
   const patch: Partial<ErpBillLine> = {
     name: product.name,
     imageUrl: product.image_url ?? line.imageUrl ?? null,
@@ -52,22 +84,31 @@ export function patchLineFromCatalogProduct(
     purity: product.purity ?? line.purity,
     metal_type: product.metal_type ?? line.metal_type ?? 'silver',
     fixed_price: product.fixed_price ?? line.fixed_price,
-    designSizeOptions: (product.sizes || []).map((s) => ({
-      size_label: s.size_label,
-      fixed_price_mrp: s.fixed_price ?? null,
-    })),
-    designBoxOptions: product.box_options?.length ? product.box_options : undefined,
-    designFinishOptions: product.finish_options?.length ? product.finish_options : undefined,
+    designSizeOptions: (product.sizes || []).length
+      ? (product.sizes || []).map((s) => ({
+          size_label: s.size_label,
+          fixed_price_mrp: s.fixed_price ?? null,
+        }))
+      : undefined,
+    designBoxOptions: (product.box_options?.length || 0) >= 2 ? product.box_options : undefined,
+    designFinishOptions:
+      (product.finish_options?.length || 0) >= 2 ? product.finish_options : undefined,
     size: null,
+    /** Weight stays blank for silver weight-based lines so the cashier enters net wt. */
     weightGm: null,
+    originalWeightGm: null,
     box_charges: 0,
     stone_charges: product.stone_charges ?? 0,
+    mrpMode: mrpMode || undefined,
   }
 
   if (product.sizes?.length === 1) {
     const s = product.sizes[0]
     patch.size = s.size_label
-    if (s.net_weight != null) patch.weightGm = s.net_weight
+    if (mrpMode && s.net_weight != null) {
+      patch.weightGm = s.net_weight
+      patch.originalWeightGm = s.net_weight
+    }
     if (s.gross_weight != null) patch.gross_weight = s.gross_weight
     if (s.mc_rate != null) patch.mc_rate = s.mc_rate
     if (s.mc_type) patch.mc_type = s.mc_type
@@ -89,10 +130,6 @@ export function patchLineFromCatalogProduct(
   if (product.box_options?.length === 1) {
     const b = product.box_options[0]
     patch.box_charges = b.box_charges ?? 0
-    if (b.fixed_price != null) {
-      patch.fixed_price = b.fixed_price
-      patch.unitInr = b.fixed_price
-    }
   }
 
   return patch
@@ -105,8 +142,12 @@ export function nextFieldAfterCatalogProduct(product: DesignCatalogProduct): key
 }
 
 export function nextFieldAfterCatalogSize(product: DesignCatalogProduct): keyof ErpBillLine {
+  if (catalogProductUsesMrpPricing(product)) {
+    if ((product.finish_options?.length || 0) >= 2) return 'stone_charges'
+    if ((product.box_options?.length || 0) >= 2) return 'box_charges'
+    return 'qty'
+  }
   if ((product.finish_options?.length || 0) >= 2) return 'stone_charges'
-  if ((product.box_options?.length || 0) >= 2) return 'box_charges'
   return 'weightGm'
 }
 
@@ -117,14 +158,17 @@ export function patchLineFromCatalogSize(
 ): Partial<ErpBillLine> {
   const hit = product.sizes?.find((s) => s.size_label === sizeLabel)
   if (!hit) return { size: sizeLabel || null }
+  const mrp = catalogProductUsesMrpPricing(product)
   return {
     size: sizeLabel,
-    weightGm: hit.net_weight ?? line.weightGm,
+    weightGm: mrp ? (hit.net_weight ?? line.weightGm) : null,
+    originalWeightGm: mrp ? (hit.net_weight ?? line.originalWeightGm) : null,
     gross_weight: hit.gross_weight ?? line.gross_weight,
     mc_rate: hit.mc_rate ?? line.mc_rate,
     mc_type: hit.mc_type ?? line.mc_type,
     wastage_pct: hit.wastage_pct ?? line.wastage_pct,
     purity: hit.purity ?? line.purity,
     fixed_price: hit.fixed_price ?? line.fixed_price,
+    box_charges: hit.box_charges ?? line.box_charges,
   }
 }

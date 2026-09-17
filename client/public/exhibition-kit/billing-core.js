@@ -14,12 +14,12 @@
 
   const BILLING_SCAN_SHORTCUTS = { A: 'articles', S: 'jewellery', B: 'bullion', G: 'gift' };
 
+  const GIFT_ENTRY_FIELD_ORDER = ['sku', 'style_code', 'name', 'size', 'stone_charges', 'qty'];
+
   const MANUAL_ENTRY_FIELD_ORDER = [
     'sku', 'style_code', 'name', 'size', 'weightGm', 'gross_weight', 'bags', 'bag_wt',
     'purity', 'wastage_pct', 'mc_rate', 'mc_type', 'qty', 'box_charges', 'stone_charges',
   ];
-
-  const GIFT_ENTRY_FIELD_ORDER = ['sku', 'style_code', 'name', 'size', 'qty'];
 
   function loadUsedBarcodes() {
     try {
@@ -187,7 +187,9 @@
     if (product.sizes?.length === 1) {
       const s = product.sizes[0];
       patch.size = s.size_label;
-      if (s.net_weight != null) {
+      const mt = String(product.metal_type || '').toLowerCase();
+      const isMrp = mt.includes('gift') || (Number(product.fixed_price) > 0 && !(Number(product.net_weight) > 0));
+      if (isMrp && s.net_weight != null) {
         patch.weightGm = s.net_weight;
         patch.net_weight = s.net_weight;
       }
@@ -245,9 +247,8 @@
 
   function createManualBillLine(category, invoiceItem, slab, usedCodes) {
     const lineId = generateManualBarcode(usedCodes);
-    const isGiftOrMrp = category === 'gift' || !!invoiceItem.mrp;
     return {
-      name: category === 'gift' ? '' : invoiceItem.name,
+      name: '',
       code: lineId,
       barcode: lineId,
       sku: '',
@@ -273,7 +274,7 @@
       manualEntry: true,
       manualEntryOpen: true,
       manualCategory: category,
-      mrpMode: isGiftOrMrp ? true : undefined,
+      mrpMode: undefined,
     };
   }
 
@@ -299,8 +300,18 @@
   }
 
   function isMcPerGm(mcType) {
-    const t = String(mcType || '').toLowerCase();
-    return !(t.includes('piece') || t.includes('pcs'));
+    const t = String(mcType || '').toLowerCase().replace(/\s+/g, '');
+    if (
+      t.includes('piece') ||
+      t.includes('pcs') ||
+      t.includes('mc/pc') ||
+      t.includes('mcpc') ||
+      t === 'pc' ||
+      t === 'fixed'
+    ) {
+      return false;
+    }
+    return true;
   }
 
   function isSilverGiftLine(piece) {
@@ -313,9 +324,8 @@
   function billableSilverWeight(piece) {
     const net = Number(piece.net_weight ?? piece.weightGm) || 0;
     if (net <= 0) return 0;
-    if (isSilverGiftLine(piece)) return net;
     const wastage = Number(piece.wastage_pct) || 0;
-    if (wastage > 0) return Math.round(net * (1 + wastage / 100) * 1000) / 1000;
+    if (wastage > 0) return net * (1 + wastage / 100);
     return net;
   }
 
@@ -354,14 +364,14 @@
     const net = Number(piece.net_weight ?? piece.weightGm) || 0;
     const fixed = Number(piece.fixed_price) || 0;
     const qty = Number(piece.qty ?? piece.pcs) || 1;
-    if (fixed > 0 && net <= 0 && (piece.mrpMode || piece.manualCategory === 'gift')) {
-      return Math.round(fixed * qty * 1.03);
+    const box = Number(piece.box_charges) || 0;
+    if (fixed > 0 && net <= 0) {
+      return Math.round((fixed * qty + box) * 1.03);
     }
-    if (fixed > 0 && net <= 0) return Math.round(fixed * qty * 1.03);
     const metal = String(piece.metal_type || 'silver').toLowerCase();
-    const frac = pieceSlabMetalFraction(piece, slab);
-    const billWt = Math.round(billableSilverWeight(piece) * frac * 1000) / 1000;
-    const mcRate = Number(pieceSlabMcRate(piece, slab)) || 0;
+    const frac = isSilverGiftLine(piece) ? 1 : pieceSlabMetalFraction(piece, slab);
+    const billWt = billableSilverWeight(piece) * frac;
+    const mcRate = Number(pieceSlabMcRate(piece, slab)) || Number(piece.mc_rate) || 0;
     const mcDisc = mcDiscountPct(piece, slab, settings);
     let metalRate = silverPerG;
     if (metal.startsWith('gold')) {
@@ -371,18 +381,16 @@
       else metalRate = goldPerG;
     }
     const stone = Number(piece.stone_charges) || 0;
-    const box = Number(piece.box_charges) || 0;
     const mcGm = isMcPerGm(piece.mc_type);
     let metalPart, mc;
     if (mcGm) {
-      const combined = Math.round((metalRate + mcRate) * billWt);
-      metalPart = Math.round(metalRate * billWt);
-      mc = combined - metalPart;
-      if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100));
+      metalPart = metalRate * billWt;
+      const mcRaw = mcRate * billWt;
+      mc = mcDisc > 0 ? mcRaw * (1 - mcDisc / 100) : mcRaw;
     } else {
-      metalPart = Math.round(metalRate * billWt);
-      const mcRaw = Math.round(mcRate * qty);
-      mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw;
+      metalPart = metalRate * billWt;
+      const mcRaw = mcRate;
+      mc = mcDisc > 0 ? mcRaw * (1 - mcDisc / 100) : mcRaw;
     }
     const taxable = metalPart + mc + stone + box;
     return Math.round(taxable * 1.03);

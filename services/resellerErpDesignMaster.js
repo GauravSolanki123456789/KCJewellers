@@ -125,11 +125,39 @@ function normalizeCatalogProductName(name) {
 
 function detectFinishLabel(row) {
     const name = String(row.name || row.product_name || '').trim();
-    if (/\bGP\b/i.test(name) || String(row.attr_stone || '').toUpperCase().includes('GP')) return 'GP';
-    if (/\bSTANDARD\b/i.test(name)) return 'Standard';
-    const stone = numOrNull(row.stone_charges);
-    if (stone != null && stone > 0 && /\bGP\b/i.test(String(row.design_group || ''))) return 'GP';
+    const dg = String(row.design_group || '').trim();
+    if (/\bGP\b/i.test(name) || /\bGP\b/i.test(dg)) return 'GP';
+    if (/\bSTANDARD\b/i.test(name) || /\bSTANDARD\b/i.test(dg)) return 'Standard';
     return null;
+}
+
+/** Normalize catalogue labels for exact Style/SKU matching (spaces/underscores/hyphens). */
+function normCatalogLabel(s) {
+    return String(s || '')
+        .toUpperCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/** Exact category (style) match — avoids SILVER GIFT matching SILVER GIFT ITEMS via LIKE. */
+function styleCatalogExactSql(paramRef) {
+    return `(
+             ${paramRef} = ''
+             OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) = ${paramRef}
+             OR UPPER(REPLACE(COALESCE(wc.slug, ''), '-', ' ')) = ${paramRef}
+             OR UPPER(REPLACE(COALESCE(wc.slug, ''), '-', '_')) = REPLACE(${paramRef}, ' ', '_')
+           )`;
+}
+
+/** Exact subcategory (SKU) match. */
+function skuCatalogExactSql(paramRef) {
+    return `(
+             UPPER(REPLACE(REPLACE(TRIM(ws.name), ' ', '_'), '-', '_')) = ${paramRef}
+             OR UPPER(REPLACE(REPLACE(TRIM(ws.name), '_', ' '), '-', ' ')) = REPLACE(${paramRef}, '_', ' ')
+             OR UPPER(REPLACE(COALESCE(ws.slug, ''), '-', '_')) = ${paramRef}
+             OR UPPER(REPLACE(COALESCE(ws.slug, ''), '-', ' ')) = REPLACE(${paramRef}, '_', ' ')
+           )`;
 }
 
 function buildCatalogProductDetails(rows) {
@@ -177,18 +205,26 @@ function buildCatalogProductDetails(rows) {
             }
 
             const boxCharge = numOrNull(r.box_charges);
-            if (boxCharge != null && boxCharge > 0) {
+            const nameHint = `${r.name || ''} ${r.design_group || ''}`.toUpperCase();
+            const looksLikeBoxVariant =
+                (boxCharge != null && boxCharge > 0) ||
+                /\bWITH\s*BOX\b/.test(nameHint) ||
+                /\bWITHOUT\s*BOX\b/.test(nameHint);
+            if (looksLikeBoxVariant) {
                 const withoutKey = 'WITHOUT BOX';
                 const withKey = 'WITH BOX';
                 if (!boxSeen.has(withoutKey)) {
                     boxSeen.add(withoutKey);
+                    const baseRow =
+                        groupRows.find((x) => !numOrNull(x.box_charges) || numOrNull(x.box_charges) === 0) ||
+                        r;
                     boxOptions.push({
                         label: 'Without box',
                         box_charges: 0,
-                        fixed_price: numOrNull(r.fixed_price),
+                        fixed_price: numOrNull(baseRow.fixed_price),
                     });
                 }
-                if (!boxSeen.has(withKey)) {
+                if (!boxSeen.has(withKey) && boxCharge != null && boxCharge > 0) {
                     boxSeen.add(withKey);
                     boxOptions.push({
                         label: 'With box',
@@ -242,12 +278,13 @@ function isLikelyProductSlugSku(sku) {
     const s = String(sku || '').trim();
     if (!s) return true;
     if (/[a-z]/.test(s) && s.includes('-')) return true;
-    if (/\d+\.\d+$/.test(s) && s.includes('-')) return true;
+    if (/\d+\.\d+/.test(s) && s.includes('-')) return true;
+    if ((s.match(/-/g) || []).length >= 2) return true;
     return false;
 }
 
 async function queryCatalogSkusForStyle(query, styleCode) {
-    const styleNorm = String(styleCode || '').toUpperCase().replace(/[_-]+/g, ' ').trim();
+    const styleNorm = normCatalogLabel(styleCode);
     const rows = await query(
         `SELECT DISTINCT TRIM(ws.name) AS sku
          FROM web_subcategories ws
@@ -257,10 +294,7 @@ async function queryCatalogSkusForStyle(query, styleCode) {
              WHERE wp.subcategory_id = ws.id
                AND (wp.is_active IS NULL OR wp.is_active = true)
          )
-           AND (
-             $1 = ''
-             OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) LIKE '%' || $1 || '%'
-           )
+           AND ${styleCatalogExactSql('$1')}
          ORDER BY TRIM(ws.name)`,
         [styleNorm],
     );
@@ -270,8 +304,8 @@ async function queryCatalogSkusForStyle(query, styleCode) {
 }
 
 async function queryCatalogRows(query, styleCode, sku) {
-    const skuNorm = sku.toUpperCase().replace(/[\s-]+/g, '_');
-    const styleNorm = styleCode.toUpperCase().replace(/[_-]+/g, ' ').trim();
+    const skuNorm = String(sku || '').toUpperCase().replace(/[\s-]+/g, '_');
+    const styleNorm = normCatalogLabel(styleCode);
     return query(
         `SELECT
             wp.id, wp.subcategory_id, wp.sku, wp.barcode, wp.name, wp.size, wp.image_url,
@@ -286,25 +320,15 @@ async function queryCatalogRows(query, styleCode, sku) {
             COALESCE(wp.fixed_price, 0)::float AS fixed_price,
             COALESCE(wp.stone_charges, 0)::float AS stone_charges,
             COALESCE(wp.box_charges, 0)::float AS box_charges,
-            COALESCE(wp.metal_type, 'silver') AS metal_type,
-            wp.attr_stone
+            COALESCE(wp.metal_type, 'silver') AS metal_type
          FROM web_products wp
          JOIN web_subcategories ws ON ws.id = wp.subcategory_id
          JOIN web_categories wc ON wc.id = ws.category_id
          WHERE (wp.is_active IS NULL OR wp.is_active = true)
-           AND (
-             UPPER(REPLACE(REPLACE(TRIM(ws.name), ' ', '_'), '-', '_')) = $1
-             OR UPPER(REPLACE(ws.slug, '-', '_')) LIKE '%' || $1 || '%'
-             OR UPPER(TRIM(wp.sku)) = UPPER($2)
-           )
-           AND (
-             $3 = ''
-             OR UPPER(REPLACE(REPLACE(TRIM(ws.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
-             OR UPPER(REPLACE(REPLACE(TRIM(wc.name), '_', ' '), '-', ' ')) LIKE '%' || $3 || '%'
-             OR UPPER(REPLACE(ws.slug, '-', ' ')) LIKE '%' || $3 || '%'
-           )
+           AND ${skuCatalogExactSql('$1')}
+           AND ${styleCatalogExactSql('$2')}
          ORDER BY wp.design_group, wp.size, wp.name`,
-        [skuNorm, sku, styleNorm],
+        [skuNorm, styleNorm],
     );
 }
 
@@ -391,11 +415,11 @@ async function importStyleCatalogFromWeb(query, resellerUserId, styleId) {
         await query(
             `UPDATE reseller_erp_design_skus SET
                 product_names = $1::jsonb,
-                mc_rate = COALESCE($2, mc_rate),
-                mc_type = COALESCE(NULLIF($3, ''), mc_type),
-                wastage_pct = COALESCE($4, wastage_pct),
-                purity = COALESCE($5, purity),
-                metal_type = COALESCE(NULLIF($6, ''), metal_type),
+                mc_rate = COALESCE($2::float, mc_rate),
+                mc_type = COALESCE(NULLIF($3::text, ''), mc_type),
+                wastage_pct = COALESCE($4::float, wastage_pct),
+                purity = COALESCE($5::float, purity),
+                metal_type = COALESCE(NULLIF($6::text, ''), metal_type),
                 updated_at = CURRENT_TIMESTAMP
              WHERE id = $7 AND reseller_user_id = $8`,
             [
