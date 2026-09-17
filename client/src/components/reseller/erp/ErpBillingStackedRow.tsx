@@ -10,6 +10,10 @@ import {
   uniqueSkusFromCatalog,
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
+import { findDesignOptionLabel } from '@/lib/erp-catalog-product'
+import { giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
+import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { X } from 'lucide-react'
 
@@ -71,6 +75,8 @@ type Props = {
   onPatch: (patch: Partial<ErpBillLine>) => void
   onDelete: () => void
   rowRef: (el: HTMLTableRowElement | null) => void
+  rateSlab: ErpRateSlab
+  slabSettings: ResellerSlabSettings
 }
 
 export function ErpBillingStackedRow({
@@ -96,6 +102,8 @@ export function ErpBillingStackedRow({
   onPatch,
   onDelete,
   rowRef,
+  rateSlab,
+  slabSettings,
 }: Props) {
   const gift = isGiftManualLine(line)
   const skuValue = String(line.sku || '')
@@ -261,47 +269,50 @@ export function ErpBillingStackedRow({
                       </p>
                     ) : f.key === 'box_charges' && line.designBoxOptions?.length ? (
                       <ErpBillingSuggestField
-                        value={
-                          line.designBoxOptions.find((o) => o.box_charges === (line.box_charges || 0))
-                            ?.label || ''
-                        }
+                        value={line.packaging_label || ''}
                         placeholder="Box…"
                         options={line.designBoxOptions.map((o) => o.label)}
                         autoFocus={focused('box_charges')}
                         inputRef={(el) => inputRef('box_charges', el)}
                         onChange={() => {}}
                         onCommit={(label) => {
-                          const hit = line.designBoxOptions?.find((o) => o.label === label)
+                          const hit = findDesignOptionLabel(line.designBoxOptions, label)
                           const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
-                          onPatch({
+                          const patch: Partial<ErpBillLine> = {
+                            packaging_label: hit?.label ?? label,
                             box_charges: hit?.box_charges ?? 0,
-                            ...(line.mrpMode || wt <= 0
-                              ? {
-                                  fixed_price: hit?.fixed_price ?? line.fixed_price,
-                                  unitInr: hit?.fixed_price ?? line.unitInr,
-                                }
-                              : {}),
-                          })
+                          }
+                          if ((line.mrpMode || wt <= 0) && hit?.fixed_price != null) {
+                            const list = hit.fixed_price
+                            const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
+                            patch.fixed_price = slabPrice
+                            patch.unitInr = slabPrice
+                            patch.mrpListPrice = list
+                          }
+                          onPatch(patch)
                           onAdvance('box_charges')
                         }}
                       />
                     ) : f.key === 'stone_charges' && line.designFinishOptions?.length ? (
                       <ErpBillingSuggestField
-                        value={
-                          line.designFinishOptions.find(
-                            (o) => o.stone_charges === (line.stone_charges || 0),
-                          )?.label || ''
-                        }
+                        value={line.finish_label || ''}
                         placeholder="Finish…"
                         options={line.designFinishOptions.map((o) => o.label)}
                         autoFocus={focused('stone_charges')}
                         inputRef={(el) => inputRef('stone_charges', el)}
                         onChange={() => {}}
                         onCommit={(label) => {
-                          const hit = line.designFinishOptions?.find((o) => o.label === label)
+                          const hit = findDesignOptionLabel(line.designFinishOptions, label)
+                          const list = Number(hit?.fixed_price ?? 0)
+                          const slabPrice =
+                            list > 0 ? giftMrpSlabPrice(list, rateSlab, slabSettings) : null
                           onPatch({
+                            finish_label: hit?.label ?? label,
                             stone_charges: hit?.stone_charges ?? 0,
-                            fixed_price: hit?.fixed_price ?? line.fixed_price,
+                            fixed_price: slabPrice,
+                            unitInr: slabPrice,
+                            mrpListPrice: list > 0 ? list : null,
+                            mrpMode: list > 0 ? true : line.mrpMode,
                           })
                           onAdvance('stone_charges')
                         }}
@@ -321,28 +332,24 @@ export function ErpBillingStackedRow({
                     <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
                       Finish
                       <ErpBillingSuggestField
-                        value={
-                          line.designFinishOptions.find(
-                            (o) => o.stone_charges === (line.stone_charges || 0),
-                          )?.label ||
-                          line.designFinishOptions.find(
-                            (o) => o.label === String(line.size || ''),
-                          )?.label ||
-                          ''
-                        }
+                        value={line.finish_label || ''}
                         placeholder="GP / Standard…"
                         options={line.designFinishOptions.map((o) => o.label)}
                         autoFocus={focused('stone_charges')}
                         inputRef={(el) => inputRef('stone_charges', el)}
                         onChange={() => {}}
                         onCommit={(label) => {
-                          const hit = line.designFinishOptions?.find((o) => o.label === label)
+                          const hit = findDesignOptionLabel(line.designFinishOptions, label)
+                          const list = Number(hit?.fixed_price ?? 0)
+                          const slabPrice =
+                            list > 0 ? giftMrpSlabPrice(list, rateSlab, slabSettings) : null
                           onPatch({
+                            finish_label: hit?.label ?? label,
                             stone_charges: hit?.stone_charges ?? 0,
-                            fixed_price: hit?.fixed_price ?? line.fixed_price,
-                            unitInr: hit?.fixed_price ?? line.unitInr,
-                            mrpMode: true,
-                            mrpListPrice: hit?.fixed_price ?? line.mrpListPrice,
+                            fixed_price: slabPrice,
+                            unitInr: slabPrice,
+                            mrpMode: list > 0 ? true : line.mrpMode,
+                            mrpListPrice: list > 0 ? list : null,
                           })
                           onAdvance('stone_charges')
                         }}
@@ -353,22 +360,26 @@ export function ErpBillingStackedRow({
                     <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
                       Box
                       <ErpBillingSuggestField
-                        value={
-                          line.designBoxOptions.find((o) => o.box_charges === (line.box_charges || 0))
-                            ?.label || ''
-                        }
+                        value={line.packaging_label || ''}
                         placeholder="With / without box…"
                         options={line.designBoxOptions.map((o) => o.label)}
                         autoFocus={focused('box_charges')}
                         inputRef={(el) => inputRef('box_charges', el)}
                         onChange={() => {}}
                         onCommit={(label) => {
-                          const hit = line.designBoxOptions?.find((o) => o.label === label)
-                          onPatch({
+                          const hit = findDesignOptionLabel(line.designBoxOptions, label)
+                          const patch: Partial<ErpBillLine> = {
+                            packaging_label: hit?.label ?? label,
                             box_charges: hit?.box_charges ?? 0,
-                            fixed_price: hit?.fixed_price ?? line.fixed_price,
-                            unitInr: hit?.fixed_price ?? line.unitInr,
-                          })
+                          }
+                          if (hit?.fixed_price != null) {
+                            const list = hit.fixed_price
+                            const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
+                            patch.fixed_price = slabPrice
+                            patch.unitInr = slabPrice
+                            patch.mrpListPrice = list
+                          }
+                          onPatch(patch)
                           onAdvance('box_charges')
                         }}
                       />

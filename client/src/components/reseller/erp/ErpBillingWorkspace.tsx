@@ -78,6 +78,7 @@ import {
   mergeCatalogProductsForStyleSku,
   nextFieldAfterCatalogProduct,
   nextFieldAfterCatalogSize,
+  findDesignOptionLabel,
   patchLineFromCatalogProduct,
   patchLineFromCatalogSize,
   type DesignCatalogProduct,
@@ -523,6 +524,38 @@ export function ErpBillingWorkspace() {
         next.displayMcInr = null
         next.displayMcBeforeDiscount = null
         next.displayMcDiscountPct = null
+      } else if (
+        slab === 'R' &&
+        String(line.metal_type || '').toLowerCase().startsWith('silver') &&
+        !line.mrpMode
+      ) {
+        const qty = Math.max(1, Number(line.qty) || 1)
+        const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
+        const mcType = String(line.mc_type || '').toUpperCase()
+        const perPiece = mcType.includes('/PC') || mcType.includes('PER PC')
+        if (bd.mc_before_discount != null && bd.mc_before_discount > bd.mc) {
+          next.displayMcBeforeDiscount = Math.round(bd.mc_before_discount)
+          next.displayMcInr = Math.round(bd.mc)
+          next.displayMcDiscountPct = bd.mc_discount_pct ?? null
+          const baseUnit = perPiece
+            ? Number(line.mc_rate) || bd.mc_before_discount / qty
+            : wt > 0
+              ? bd.mc_before_discount / wt
+              : null
+          const slabUnit = perPiece
+            ? bd.mc / qty
+            : wt > 0
+              ? bd.mc / wt
+              : null
+          if (baseUnit != null && slabUnit != null && baseUnit > slabUnit) {
+            next.mc_rate_slab_r = Math.round(slabUnit * 100) / 100
+          }
+        } else {
+          next.displayMcBeforeDiscount = null
+          next.displayMcInr = null
+          next.displayMcDiscountPct = null
+        }
+        next.displayWastagePct = null
       } else {
         next.displayWastagePct = null
         next.displayMcInr = null
@@ -1233,7 +1266,8 @@ export function ErpBillingWorkspace() {
           )
         }
         let patch = patchLineFromCatalogProduct(line, product) as Partial<ErpBillLine>
-        if (patch.mrpMode && product.fixed_price) {
+        const needsFinishPick = (product.finish_options?.length || 0) >= 2
+        if (patch.mrpMode && product.fixed_price && !needsFinishPick) {
           const list = product.fixed_price
           const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
           patch = {
@@ -2677,6 +2711,8 @@ export function ErpBillingWorkspace() {
                             updateLine(idx, next)
                           }}
                           onDelete={() => setLines((p) => p.filter((_, i) => i !== idx))}
+                          rateSlab={rateSlab}
+                          slabSettings={slabSettings}
                         />
                       )
                     }
@@ -2848,10 +2884,7 @@ export function ErpBillingWorkspace() {
                           return (
                             <td key={col.key} className="px-0.5 py-0.5">
                               <ErpBillingStyleSkuCell
-                                value={
-                                  line.designBoxOptions.find((o) => o.box_charges === (line.box_charges || 0))
-                                    ?.label || ''
-                                }
+                                value={line.packaging_label || ''}
                                 placeholder="Box…"
                                 options={line.designBoxOptions.map((o) => o.label)}
                                 autoFocus={
@@ -2862,15 +2895,19 @@ export function ErpBillingWorkspace() {
                                 }}
                                 onChange={() => {}}
                                 onCommit={(label) => {
-                                  const hit = line.designBoxOptions?.find((o) => o.label === label)
+                                  const hit = findDesignOptionLabel(line.designBoxOptions, label)
                                   const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
                                   const patch: Partial<ErpBillLine> = {
+                                    packaging_label: hit?.label ?? label,
                                     box_charges: hit?.box_charges ?? 0,
                                   }
                                   if (line.mrpMode || wt <= 0) {
                                     if (hit?.fixed_price != null) {
-                                      patch.fixed_price = hit.fixed_price
-                                      patch.unitInr = hit.fixed_price
+                                      const list = hit.fixed_price
+                                      const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
+                                      patch.fixed_price = slabPrice
+                                      patch.unitInr = slabPrice
+                                      patch.mrpListPrice = list
                                     }
                                   }
                                   updateLine(idx, patch)
@@ -2886,19 +2923,7 @@ export function ErpBillingWorkspace() {
                           return (
                             <td key={col.key} className="px-0.5 py-0.5">
                               <ErpBillingStyleSkuCell
-                                value={
-                                  line.designFinishOptions.find(
-                                    (o) =>
-                                      o.label.trim().toUpperCase() ===
-                                      String(line.size || '').trim().toUpperCase(),
-                                  )?.label ||
-                                  line.designFinishOptions.find(
-                                    (o) =>
-                                      Number(o.fixed_price) > 0 &&
-                                      Number(o.fixed_price) === Number(line.mrpListPrice),
-                                  )?.label ||
-                                  ''
-                                }
+                                value={line.finish_label || ''}
                                 placeholder="GP / Standard…"
                                 options={line.designFinishOptions.map((o) => o.label)}
                                 autoFocus={
@@ -2909,20 +2934,17 @@ export function ErpBillingWorkspace() {
                                 }}
                                 onChange={() => {}}
                                 onCommit={(label) => {
-                                  const hit = line.designFinishOptions?.find((o) => o.label === label)
-                                  const list = Number(hit?.fixed_price ?? line.fixed_price ?? 0)
+                                  const hit = findDesignOptionLabel(line.designFinishOptions, label)
+                                  const list = Number(hit?.fixed_price ?? 0)
                                   const slabPrice =
-                                    list > 0 ? giftMrpSlabPrice(list, rateSlab, slabSettings) : line.fixed_price
+                                    list > 0 ? giftMrpSlabPrice(list, rateSlab, slabSettings) : null
                                   const patch: Partial<ErpBillLine> = {
+                                    finish_label: hit?.label ?? label,
                                     stone_charges: hit?.stone_charges ?? 0,
                                     fixed_price: slabPrice,
                                     unitInr: slabPrice,
-                                    mrpListPrice: list > 0 ? list : line.mrpListPrice,
+                                    mrpListPrice: list > 0 ? list : null,
                                     mrpMode: list > 0 ? true : line.mrpMode,
-                                    size:
-                                      line.designSizeOptions?.length
-                                        ? line.size
-                                        : label || line.size,
                                   }
                                   updateLine(idx, patch)
                                   focusManualCell(lineKey, 'qty')

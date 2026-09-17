@@ -124,14 +124,14 @@ export function ErpBillingSuggestField({
   }, [])
 
   const commit = (raw: string) => {
-    const v = raw.trim().toUpperCase()
-    if (!v) {
+    const trimmed = raw.trim()
+    if (!trimmed) {
       setOpen(false)
       setPickIdx(-1)
       return
     }
-    onChange(v)
-    onCommit(v)
+    onChange(trimmed.toUpperCase())
+    onCommit(trimmed)
     setOpen(false)
     setPickIdx(-1)
     requestAnimationFrame(() => localInput.current?.blur())
@@ -142,7 +142,11 @@ export function ErpBillingSuggestField({
       e.preventDefault()
       keyboardNavRef.current = true
       setOpen(true)
-      setPickIdx((i) => Math.min(i + 1, filtered.length - 1))
+      setPickIdx((i) => {
+        if (filtered.length === 0) return -1
+        if (i < 0) return 0
+        return Math.min(i + 1, filtered.length - 1)
+      })
       return
     }
     if (e.key === 'ArrowUp') {
@@ -158,15 +162,15 @@ export function ErpBillingSuggestField({
     }
     if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
       e.preventDefault()
+      if (pickIdx >= 0 && filtered[pickIdx]) {
+        commit(filtered[pickIdx].value)
+        return
+      }
       const q = norm(value)
       if (!q) {
         setOpen(false)
         setPickIdx(-1)
         onCommit('')
-        return
-      }
-      if (pickIdx >= 0 && filtered[pickIdx]) {
-        commit(filtered[pickIdx].value)
         return
       }
       const exact = filtered.find((o) => norm(o.value) === q)

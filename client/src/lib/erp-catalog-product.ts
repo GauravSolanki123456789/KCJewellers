@@ -70,6 +70,18 @@ export function findCatalogProduct(
   return catalog.find((p) => p.name.trim().toUpperCase() === q) ?? null
 }
 
+function isGoldStockLine(line: ErpBillLine): boolean {
+  if (line.stock_piece_id != null) return true
+  const metal = String(line.metal_type || '').toLowerCase()
+  return metal.startsWith('gold') && !line.manualEntry
+}
+
+function shouldKeepCatalogWeights(line: ErpBillLine, mrpMode: boolean): boolean {
+  if (isGoldStockLine(line)) return true
+  if (mrpMode) return true
+  return false
+}
+
 export function patchLineFromCatalogProduct(
   line: ErpBillLine,
   product: DesignCatalogProduct,
@@ -97,19 +109,33 @@ export function patchLineFromCatalogProduct(
     /** Weight stays blank for silver weight-based lines so the cashier enters net wt. */
     weightGm: null,
     originalWeightGm: null,
-    box_charges: 0,
+    gross_weight: null,
+    box_charges:
+      (product.box_options?.length || 0) >= 2 ? null : (product.box_options?.[0]?.box_charges ?? 0),
+    packaging_label: (product.box_options?.length || 0) >= 2 ? null : undefined,
+    finish_label: (product.finish_options?.length || 0) >= 2 ? null : undefined,
     stone_charges: product.stone_charges ?? 0,
     mrpMode: mrpMode || undefined,
+  }
+
+  const multiFinish = (product.finish_options?.length || 0) >= 2
+  if (multiFinish) {
+    patch.fixed_price = null
+    patch.unitInr = null
+    patch.mrpListPrice = null
+    patch.mrpMode = true
   }
 
   if (product.sizes?.length === 1) {
     const s = product.sizes[0]
     patch.size = s.size_label
-    if (mrpMode && s.net_weight != null) {
+    if (shouldKeepCatalogWeights(line, mrpMode) && s.net_weight != null) {
       patch.weightGm = s.net_weight
       patch.originalWeightGm = s.net_weight
     }
-    if (s.gross_weight != null) patch.gross_weight = s.gross_weight
+    if (shouldKeepCatalogWeights(line, mrpMode) && s.gross_weight != null) {
+      patch.gross_weight = s.gross_weight
+    }
     if (s.mc_rate != null) patch.mc_rate = s.mc_rate
     if (s.mc_type) patch.mc_type = s.mc_type
     if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct
@@ -130,6 +156,7 @@ export function patchLineFromCatalogProduct(
   if (product.box_options?.length === 1) {
     const b = product.box_options[0]
     patch.box_charges = b.box_charges ?? 0
+    patch.packaging_label = b.label
   }
 
   return patch
@@ -139,6 +166,15 @@ export function patchLineFromCatalogProduct(
 export function nextFieldAfterCatalogProduct(product: DesignCatalogProduct): keyof ErpBillLine {
   if ((product.sizes?.length || 0) > 1) return 'size'
   return nextFieldAfterCatalogSize(product)
+}
+
+export function findDesignOptionLabel<T extends { label: string }>(
+  options: T[] | undefined,
+  label: string,
+): T | undefined {
+  const q = label.trim().toUpperCase()
+  if (!q || !options?.length) return undefined
+  return options.find((o) => o.label.trim().toUpperCase() === q)
 }
 
 export function nextFieldAfterCatalogSize(product: DesignCatalogProduct): keyof ErpBillLine {
@@ -159,11 +195,12 @@ export function patchLineFromCatalogSize(
   const hit = product.sizes?.find((s) => s.size_label === sizeLabel)
   if (!hit) return { size: sizeLabel || null }
   const mrp = catalogProductUsesMrpPricing(product)
+  const keepWt = shouldKeepCatalogWeights(line, mrp)
   return {
     size: sizeLabel,
-    weightGm: mrp ? (hit.net_weight ?? line.weightGm) : null,
-    originalWeightGm: mrp ? (hit.net_weight ?? line.originalWeightGm) : null,
-    gross_weight: hit.gross_weight ?? line.gross_weight,
+    weightGm: keepWt ? (hit.net_weight ?? line.weightGm) : null,
+    originalWeightGm: keepWt ? (hit.net_weight ?? line.originalWeightGm) : null,
+    gross_weight: keepWt ? (hit.gross_weight ?? line.gross_weight) : null,
     mc_rate: hit.mc_rate ?? line.mc_rate,
     mc_type: hit.mc_type ?? line.mc_type,
     wastage_pct: hit.wastage_pct ?? line.wastage_pct,

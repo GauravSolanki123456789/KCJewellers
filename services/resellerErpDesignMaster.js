@@ -248,6 +248,68 @@ function buildCatalogProductDetails(rows) {
             }
         }
 
+        const distinctBoxCharges = [
+            ...new Set(groupRows.map((r) => numOrNull(r.box_charges) || 0)),
+        ].sort((a, b) => a - b);
+        const maxBoxCharge = Math.max(...distinctBoxCharges, 0);
+        if (maxBoxCharge > 0 || distinctBoxCharges.length > 1) {
+            const withoutKey = 'WITHOUT BOX';
+            const withKey = 'WITH BOX';
+            if (!boxSeen.has(withoutKey)) {
+                const baseRow =
+                    groupRows.find((x) => !numOrNull(x.box_charges) || numOrNull(x.box_charges) === 0) ||
+                    groupRows[0];
+                boxSeen.add(withoutKey);
+                boxOptions.push({
+                    label: 'Without box',
+                    box_charges: 0,
+                    fixed_price: numOrNull(baseRow.fixed_price),
+                });
+            }
+            if (!boxSeen.has(withKey) && maxBoxCharge > 0) {
+                const withRow =
+                    groupRows.find((x) => (numOrNull(x.box_charges) || 0) === maxBoxCharge) ||
+                    groupRows[0];
+                boxSeen.add(withKey);
+                boxOptions.push({
+                    label: 'With box',
+                    box_charges: maxBoxCharge,
+                    fixed_price: numOrNull(withRow.fixed_price),
+                });
+            }
+        }
+
+        const distinctFixed = [
+            ...new Map(
+                groupRows
+                    .map((r) => numOrNull(r.fixed_price))
+                    .filter((p) => p != null && p > 0)
+                    .map((p) => [p, p]),
+            ).values(),
+        ].sort((a, b) => a - b);
+        if (finishOptions.length < 2 && distinctFixed.length >= 2) {
+            const lower = distinctFixed[0];
+            const upper = distinctFixed[distinctFixed.length - 1];
+            const lowerRow =
+                groupRows.find((r) => numOrNull(r.fixed_price) === lower) || groupRows[0];
+            const upperRow =
+                groupRows.find((r) => numOrNull(r.fixed_price) === upper) || groupRows[0];
+            finishOptions.length = 0;
+            finishSeen.clear();
+            finishOptions.push({
+                label: 'Standard',
+                stone_charges: numOrNull(lowerRow.stone_charges) || 0,
+                fixed_price: lower,
+            });
+            finishOptions.push({
+                label: 'GP',
+                stone_charges: numOrNull(upperRow.stone_charges) || 0,
+                fixed_price: upper,
+            });
+            finishSeen.add('STANDARD');
+            finishSeen.add('GP');
+        }
+
         const product = {
             name,
             image_url,

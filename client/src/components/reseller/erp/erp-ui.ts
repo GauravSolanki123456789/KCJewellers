@@ -184,6 +184,10 @@ export type ErpBillLine = {
   designBoxOptions?: { label: string; box_charges: number; fixed_price?: number | null }[]
   /** Per-product finish choices (GP / Standard) — shown in Stone column */
   designFinishOptions?: { label: string; stone_charges: number; fixed_price?: number | null }[]
+  /** Selected packaging label (With box / Without box) when designBoxOptions exist */
+  packaging_label?: string | null
+  /** Selected finish label (GP / Standard) when designFinishOptions exist */
+  finish_label?: string | null
   /** MRP before slab discount (display only) */
   mrpListPrice?: number | null
   /** Per-line karigar tracking (orders only) */
