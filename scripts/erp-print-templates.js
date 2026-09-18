@@ -1042,6 +1042,27 @@ function roughVAddnGrams(line, rateSlab, printFormats) {
     return (wt * (wastPct / 100)).toFixed(3);
 }
 
+function roughTodaySilverPerG(session, rates) {
+    const dr = Array.isArray(session?.displayRates) ? session.displayRates : [];
+    const row = dr.find((r) => String(r?.metal_type || '').toLowerCase() === 'silver');
+    if (row?.display_rate != null) {
+        const n = Number(row.display_rate);
+        if (Number.isFinite(n) && n > 0) return n / 1000;
+    }
+    if (rates?.silver != null && Number.isFinite(Number(rates.silver))) {
+        return Number(rates.silver);
+    }
+    return null;
+}
+
+function enrichPrintRatesFromBill(bill, rates) {
+    const session = bill?.session && typeof bill.session === 'object' ? bill.session : {};
+    const todaySilver = roughTodaySilverPerG(session, rates);
+    const next = rates && typeof rates === 'object' ? { ...rates } : {};
+    if (todaySilver != null) next.silver = todaySilver;
+    return next;
+}
+
 function roughRateForLine(line, rates) {
     const metal = String(line.metal_type || '').toLowerCase();
     if (metal.startsWith('silver') && rates?.silver != null) {
@@ -1548,7 +1569,8 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
 }
 
 function buildRoughEstimateBody(bill, printFormats, rates) {
-    return buildRoughEstimateCopy(bill, printFormats, rates, false);
+    const printRates = enrichPrintRatesFromBill(bill, rates);
+    return buildRoughEstimateCopy(bill, printFormats, printRates, false);
 }
 
 function buildSampleBillForPreview(kind) {
@@ -1608,9 +1630,10 @@ function buildSampleBillForPreview(kind) {
 
 function renderEstimateEscPos(bill, printFormats, rates) {
     const pf = migratePrintFormats(printFormats);
+    const printRates = enrichPrintRatesFromBill(bill, rates);
     if (pf.estimatePrintMode === 'custom') {
         const template = resolveEstimateTemplateForBill(bill.lines, pf);
-        const vars = buildBillTemplateVars(bill, printFormats, rates);
+        const vars = buildBillTemplateVars(bill, printFormats, printRates);
         const body = renderTemplate(template, vars, { plainText: true });
         return textToEscPos(body);
     }

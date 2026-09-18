@@ -9,7 +9,7 @@ import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '
 import { GST_STATE_OPTIONS } from '@/lib/erp-place-of-supply'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
-import { formatErpDateDdMmYyyy, toIsoDateInput } from '@/lib/erp-date-format'
+import { formatErpDateDdMmYyyy, formatErpDateTime, toIsoDateInput } from '@/lib/erp-date-format'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { ErpWhatsAppCloudPanel } from '@/components/reseller/erp/ErpWhatsAppCloudPanel'
@@ -847,7 +847,7 @@ export function DigiRatesWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
         </ul>
         {updatedAt ? (
           <p className="mt-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/45">
-            Updated {new Date(updatedAt).toLocaleString('en-IN')}
+            Updated {formatErpDateTime(updatedAt)}
           </p>
         ) : null}
       </div>

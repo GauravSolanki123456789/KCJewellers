@@ -1,14 +1,36 @@
+/** Calendar parts in IST — stable for SSR and client (avoids hydration mismatch). */
+function istCalendarParts(iso: string): { dd: string; mm: string; yyyy: number } | null {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const utcMs = d.getTime() + d.getTimezoneOffset() * 60_000
+  const ist = new Date(utcMs + 330 * 60_000)
+  return {
+    dd: String(ist.getDate()).padStart(2, '0'),
+    mm: String(ist.getMonth() + 1).padStart(2, '0'),
+    yyyy: ist.getFullYear(),
+  }
+}
+
+function formatIstTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const utcMs = d.getTime() + d.getTimezoneOffset() * 60_000
+  const ist = new Date(utcMs + 330 * 60_000)
+  let h = ist.getHours()
+  const ampm = h >= 12 ? 'pm' : 'am'
+  h = h % 12 || 12
+  const min = String(ist.getMinutes()).padStart(2, '0')
+  return `${String(h).padStart(2, '0')}:${min} ${ampm}`
+}
+
 export function formatErpDateDdMmYyyy(iso?: string | null): string {
   if (!iso) return '—'
   const s = String(iso).trim().slice(0, 10)
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
   if (m) return `${m[3]}/${m[2]}/${m[1]}`
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return s
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const yyyy = d.getFullYear()
-  return `${dd}/${mm}/${yyyy}`
+  const parts = istCalendarParts(String(iso))
+  if (parts) return `${parts.dd}/${parts.mm}/${parts.yyyy}`
+  return s
 }
 
 /** Date + time as dd/mm/yyyy, hh:mm am/pm (India). */
@@ -17,8 +39,8 @@ export function formatErpDateTime(iso?: string | null): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return formatErpDateDdMmYyyy(iso)
   const date = formatErpDateDdMmYyyy(iso)
-  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
-  return `${date}, ${time}`
+  const time = formatIstTime(String(iso))
+  return time ? `${date}, ${time}` : date
 }
 
 export function toIsoDateInput(raw?: string | null): string {
