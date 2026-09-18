@@ -1,0 +1,19 @@
+{
+  "session": {
+    "customer_name": "Test Customer",
+    "bill_number": "1043",
+    "silverPerG": 250
+  },
+  "lines": [
+    {
+      "name": "VLK KUTHU V",
+      "barcode": "VLK-657",
+      "metal_type": "silver",
+      "weightGm": 212.8,
+      "ratePerGram": 250,
+      "mc_type": "MC/PC",
+      "mc_rate": 851,
+      "lineTotalInr": 54051
+    }
+  ]
+}

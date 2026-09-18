@@ -18,6 +18,19 @@ function isSilverMetal(line: ErpBillLine): boolean {
   return String(line.metal_type || '').toLowerCase().startsWith('silver')
 }
 
+/** Billable gross weight for PDF Wt column (net + wastage %), display only. */
+function pdfBillWtGrossDisplay(line: ErpBillLine, rateSlab: ErpRateSlab): string {
+  const netRaw = line.originalWeightGm ?? line.weightGm
+  if (netRaw == null || !Number.isFinite(Number(netRaw))) return '—'
+  const net = Number(netRaw)
+  const wastRaw = billingWastageDisplay(line, rateSlab)
+  const wast = typeof wastRaw === 'number' ? wastRaw : Number(wastRaw)
+  if (Number.isFinite(wast) && wast > 0) {
+    return (net * (1 + wast / 100)).toFixed(3)
+  }
+  return `${net}`
+}
+
 function metalSlabPctDisplay(line: ErpBillLine, slab: ErpRateSlab): string {
   let raw: unknown = null
   if (slab === 'W') raw = line.metal_slab_w_pct ?? line.metal_slab_r_pct
@@ -244,7 +257,7 @@ function cell(
     case 'slabPct':
       return metalSlabPctDisplay(line, rateSlab) || '—'
     case 'wt':
-      return line.weightGm != null ? `${line.weightGm}` : '—'
+      return pdfBillWtGrossDisplay(line, rateSlab)
     case 'purity':
       if (isSilverMetal(line)) return '—'
       return line.purity != null ? String(line.purity) : '—'

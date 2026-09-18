@@ -7,7 +7,7 @@ import {
   type ErpModuleSessionId,
 } from '@/lib/erp-module-session'
 
-/** Restore once on mount; debounce-save whenever deps change. */
+/** Restore once after mount (avoids SSR/client sessionStorage mismatch); debounce-save on change. */
 export function useErpModuleSession<T>(
   moduleId: ErpModuleSessionId | string,
   buildSnapshot: () => T,
@@ -15,8 +15,13 @@ export function useErpModuleSession<T>(
   options?: { enabled?: boolean },
 ): T | null {
   const enabled = options?.enabled !== false
-  const [restored] = useState(() => (enabled ? loadErpModuleSession<T>(moduleId) : null))
+  const [restored, setRestored] = useState<T | null>(null)
   const readyRef = useRef(false)
+
+  useEffect(() => {
+    if (!enabled) return
+    setRestored(loadErpModuleSession<T>(moduleId))
+  }, [moduleId, enabled])
 
   useEffect(() => {
     readyRef.current = true

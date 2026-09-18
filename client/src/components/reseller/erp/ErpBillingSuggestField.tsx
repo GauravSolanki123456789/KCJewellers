@@ -40,6 +40,7 @@ export function ErpBillingSuggestField({
   const [open, setOpen] = useState(false)
   const [pickIdx, setPickIdx] = useState(-1)
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
+  const [mounted, setMounted] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLUListElement>(null)
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -90,6 +91,10 @@ export function ErpBillingSuggestField({
         : { top: r.bottom + gap }),
     })
   }
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -241,7 +246,7 @@ export function ErpBillingSuggestField({
         }}
         onKeyDown={onKeyDown}
       />
-      {typeof document !== 'undefined' && menu ? createPortal(menu, document.body) : null}
+      {mounted && menu ? createPortal(menu, document.body) : null}
     </div>
   )
 }
