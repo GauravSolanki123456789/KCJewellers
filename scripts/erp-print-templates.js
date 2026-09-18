@@ -1000,6 +1000,94 @@ function isMcPerPieceType(mcType) {
     return t.includes('PC') || t.includes('PIECE') || t === 'MC/PCS';
 }
 
+function lineHasPieceSlabFields(line) {
+    return (
+        line?.mc_rate_slab_r != null ||
+        line?.mc_rate_slab_w != null ||
+        line?.mc_rate_slab_f != null ||
+        line?.metal_slab_r_pct != null ||
+        line?.metal_slab_w_pct != null ||
+        line?.metal_slab_f_pct != null
+    );
+}
+
+function printPieceSlabMcRatePerUnit(line, rateSlab) {
+    if (rateSlab === 'W') {
+        return line?.mc_rate_slab_w ?? line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
+    }
+    if (rateSlab === 'F') {
+        return line?.mc_rate_slab_f ?? line?.mc_rate_slab_w ?? line?.mc_rate ?? null;
+    }
+    return line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
+}
+
+/** Catalog / list MC before slab overlay (stock mc_rate column). */
+function roughCatalogMcRatePerUnit(line) {
+    const raw =
+        line?.mc_rate_catalog ??
+        line?.mc_rate_standard ??
+        line?.catalog_mc_rate ??
+        null;
+    if (raw != null && Number.isFinite(Number(raw)) && Number(raw) > 0) {
+        return Number(raw);
+    }
+    if (!lineHasPieceSlabFields(line)) {
+        const r = Number(line?.mc_rate);
+        if (Number.isFinite(r) && r > 0) return r;
+    }
+    return null;
+}
+
+function roughAppliedMcRatePerUnit(line, rateSlab) {
+    if (lineHasPieceSlabFields(line)) {
+        const slab = printPieceSlabMcRatePerUnit(line, rateSlab);
+        if (slab != null && Number.isFinite(Number(slab))) return Number(slab);
+        return 0;
+    }
+    const r = Number(line?.mc_rate);
+    return Number.isFinite(r) && r > 0 ? r : 0;
+}
+
+function roughMcWeightOrQty(line) {
+    const wt = Number(line?.weightGm ?? line?.net_weight ?? line?.originalWeightGm) || 0;
+    const qty = Number(line?.qty) || 1;
+    return { wt, qty };
+}
+
+/**
+ * Attach catalog mc_rate from stock lookup for legacy bills (display/print only).
+ * lookup: { byStockId?: Map|Record, byBarcode?: Map|Record }
+ */
+function enrichBillLinesMcCatalogForPrint(bill, lookup) {
+    if (!bill || !lookup) return bill;
+    const lines = Array.isArray(bill.lines) ? bill.lines : [];
+    const byId = lookup.byStockId || lookup.byId;
+    const byBarcode = lookup.byBarcode || lookup.byCode;
+    const idGet = (id) => {
+        if (id == null) return null;
+        if (byId instanceof Map) return byId.get(Number(id));
+        if (byId && typeof byId === 'object') return byId[String(id)] ?? byId[Number(id)];
+        return null;
+    };
+    const codeGet = (code) => {
+        const c = String(code || '').trim();
+        if (!c) return null;
+        if (byBarcode instanceof Map) return byBarcode.get(c);
+        if (byBarcode && typeof byBarcode === 'object') return byBarcode[c];
+        return null;
+    };
+    bill.lines = lines.map((line) => {
+        if (roughCatalogMcRatePerUnit(line) != null) return line;
+        let cat = line?.stock_piece_id != null ? idGet(line.stock_piece_id) : null;
+        if (cat == null) cat = codeGet(line?.barcode || line?.code);
+        if (cat != null && Number.isFinite(Number(cat)) && Number(cat) > 0) {
+            return { ...line, mc_rate_catalog: Number(cat) };
+        }
+        return line;
+    });
+    return bill;
+}
+
 function formatPurityForEstimate(line) {
     if (isSilverLine(line)) return '';
     return purityToKarats(line.purity);
@@ -1288,35 +1376,58 @@ function roughMcDisplayValue(line, rateSlab, printFormats) {
     return null;
 }
 
-function roughMcAmountInr(line, rateSlab, printFormats) {
+function roughStandardMcAmountInr(line, rateSlab, printFormats) {
     if (!shouldShowRoughMcLine(line, rateSlab, printFormats)) return 0;
     if (line?.displayMcBeforeDiscount != null && Number(line.displayMcBeforeDiscount) > 0) {
         return Math.round(Number(line.displayMcBeforeDiscount));
     }
-    const mcRate = Number(line?.mc_rate);
-    if (!Number.isFinite(mcRate) || mcRate <= 0) {
-        if (isGoldSlabRMcMode(line, rateSlab, printFormats) && Number(line?.displayMcInr) > 0) {
-            return Math.round(Number(line.displayMcInr));
-        }
-        return 0;
+    const mcRate = roughCatalogMcRatePerUnit(line);
+    if (mcRate != null && mcRate > 0) {
+        const { wt, qty } = roughMcWeightOrQty(line);
+        if (isMcPerPieceType(line?.mc_type)) return Math.round(mcRate * qty);
+        if (wt > 0) return Math.round(mcRate * wt);
+        return Math.round(mcRate);
     }
-    const wt = Number(line?.weightGm ?? line?.net_weight) || 0;
-    const qty = Number(line?.qty) || 1;
-    if (isMcPerPieceType(line?.mc_type)) return Math.round(mcRate * qty);
-    if (wt > 0) return Math.round(mcRate * wt);
-    return Math.round(mcRate);
+    const legacyRate = Number(line?.mc_rate);
+    if (Number.isFinite(legacyRate) && legacyRate > 0) {
+        const { wt, qty } = roughMcWeightOrQty(line);
+        if (isMcPerPieceType(line?.mc_type)) return Math.round(legacyRate * qty);
+        if (wt > 0) return Math.round(legacyRate * wt);
+        return Math.round(legacyRate);
+    }
+    if (isGoldSlabRMcMode(line, rateSlab, printFormats) && Number(line?.displayMcInr) > 0) {
+        return Math.round(Number(line.displayMcInr));
+    }
+    return 0;
 }
 
-function roughMcDiscountAmount(line, rateSlab, rates) {
-    if (isGoldEstimateLine(line)) return 0;
+function roughAppliedMcAmountInr(line, rateSlab, printFormats) {
+    if (!shouldShowRoughMcLine(line, rateSlab, printFormats)) return 0;
     if (
         line?.displayMcBeforeDiscount != null &&
         line?.displayMcInr != null &&
         Number(line.displayMcBeforeDiscount) > Number(line.displayMcInr)
     ) {
-        return Math.round(Number(line.displayMcBeforeDiscount) - Number(line.displayMcInr));
+        return Math.round(Number(line.displayMcInr));
     }
-    if (rateSlab === 'R') return computeSlabRLineDiscounts(line, rates).mcDisc;
+    const mcRate = roughAppliedMcRatePerUnit(line, rateSlab);
+    const { wt, qty } = roughMcWeightOrQty(line);
+    if (isMcPerPieceType(line?.mc_type)) return Math.round(mcRate * qty);
+    if (wt > 0) return Math.round(mcRate * wt);
+    return Math.round(mcRate);
+}
+
+function roughMcAmountInr(line, rateSlab, printFormats) {
+    return roughStandardMcAmountInr(line, rateSlab, printFormats);
+}
+
+function roughMcDiscountAmount(line, rateSlab, rates, printFormats) {
+    if (isGoldEstimateLine(line)) return 0;
+    const pf = printFormats || {};
+    const std = roughStandardMcAmountInr(line, rateSlab, pf);
+    const applied = roughAppliedMcAmountInr(line, rateSlab, pf);
+    if (std > applied) return Math.round(std - applied);
+    if (rateSlab === 'R') return computeSlabRLineDiscounts(line, rates, rateSlab).mcDisc;
     return 0;
 }
 
@@ -1400,7 +1511,7 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     out.push(roughDottedAmount(preDisc));
 
     const silverDisc = roughSilverRateDiscountInfo(line, rates);
-    const mcDisc = roughMcDiscountAmount(line, rateSlab, rates);
+    const mcDisc = roughMcDiscountAmount(line, rateSlab, rates, printFormats);
     if (roughDiscountVisible(silverDisc.amount)) {
         pushIf(out, roughKvRow(silverDisc.label, -silverDisc.amount, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }));
     }
@@ -1480,7 +1591,7 @@ function buildMarlechaEstimateItemSection(line, idx, rateSlab, rates, printForma
     return buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats);
 }
 
-function computeSlabRLineDiscounts(line, rates) {
+function computeSlabRLineDiscounts(line, rates, rateSlab = 'R') {
     const out = { metalDisc: 0, mcDisc: 0 };
     const wt = Number(line.weightGm ?? line.net_weight) || 0;
     if (wt <= 0) return out;
@@ -1489,14 +1600,14 @@ function computeSlabRLineDiscounts(line, rates) {
     if (isSilverLine(line) && liveSilver != null && lineRate != null && liveSilver > lineRate) {
         out.metalDisc = Math.round((liveSilver - lineRate) * wt);
     }
-    const baseMc = Number(line.mc_rate);
-    const slabMc = line.mc_rate_slab_r != null ? Number(line.mc_rate_slab_r) : null;
-    if (Number.isFinite(baseMc) && baseMc > 0 && slabMc != null && baseMc > slabMc) {
+    const baseMc = roughCatalogMcRatePerUnit(line);
+    const slabMc = printPieceSlabMcRatePerUnit(line, rateSlab);
+    if (baseMc != null && baseMc > 0 && slabMc != null && baseMc > Number(slabMc)) {
         const mcType = String(line.mc_type || '').toUpperCase();
         if (mcType.includes('/PC') || mcType.includes('PER PC')) {
-            out.mcDisc = Math.round((baseMc - slabMc) * (Number(line.qty) || 1));
+            out.mcDisc = Math.round((baseMc - Number(slabMc)) * (Number(line.qty) || 1));
         } else {
-            out.mcDisc = Math.round((baseMc - slabMc) * wt);
+            out.mcDisc = Math.round((baseMc - Number(slabMc)) * wt);
         }
     }
     return out;
@@ -1714,6 +1825,7 @@ module.exports = {
     buildBillTemplateVars,
     buildLinesTable,
     buildRoughEstimateBody,
+    enrichBillLinesMcCatalogForPrint,
     buildSampleBillForPreview,
     previewTemplateText,
     renderBillEscPos,

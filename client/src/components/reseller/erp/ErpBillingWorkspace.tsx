@@ -238,6 +238,7 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     wastage_pct: p.wastage_pct ?? null,
     ratePerGram: null,
     mc_rate: p.mc_rate ?? null,
+    mc_rate_catalog: p.mc_rate ?? null,
     mc_type: p.mc_type ?? null,
     mc_rate_slab_r: p.mc_rate_slab_r ?? null,
     mc_rate_slab_w: p.mc_rate_slab_w ?? null,
@@ -553,8 +554,27 @@ export function ErpBillingWorkspace() {
             next.mc_rate_slab_r = Math.round(slabUnit * 100) / 100
           }
         } else {
-          next.displayMcBeforeDiscount = null
-          next.displayMcInr = null
+          const catalogRate = Number(line.mc_rate_catalog)
+          const billWt = Number(line.originalWeightGm ?? line.weightGm ?? wt) || 0
+          const usePieceSlab =
+            lineHasPieceSlabFields(line) &&
+            catalogRate > 0 &&
+            billWt > 0 &&
+            !perPiece
+          if (usePieceSlab) {
+            const stdMc = Math.round(catalogRate * billWt)
+            const appliedMc = Math.round(Number(bd.mc) || 0)
+            if (stdMc > appliedMc) {
+              next.displayMcBeforeDiscount = stdMc
+              next.displayMcInr = appliedMc
+            } else {
+              next.displayMcBeforeDiscount = null
+              next.displayMcInr = null
+            }
+          } else {
+            next.displayMcBeforeDiscount = null
+            next.displayMcInr = null
+          }
           next.displayMcDiscountPct = null
         }
         next.displayWastagePct = null

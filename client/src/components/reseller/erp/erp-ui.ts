@@ -132,6 +132,8 @@ export type ErpBillLine = {
   /** When true, Rate column stays empty (rate unfix). */
   rateLocked?: boolean
   mc_rate?: number | null
+  /** List/catalog MC rate before slab overlay (stock mc_rate); used for print/display. */
+  mc_rate_catalog?: number | null
   mc_type?: string | null
   mc_rate_slab_r?: number | null
   mc_rate_slab_w?: number | null

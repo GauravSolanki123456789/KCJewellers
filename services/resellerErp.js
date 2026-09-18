@@ -566,6 +566,60 @@ function billRatesUnfixedFromPayload(session, lines) {
     return false;
 }
 
+/** Load catalog mc_rate from stock for thermal print (legacy bills without mc_rate_catalog). */
+async function enrichEstimateLinesMcFromStock(query, resellerUserId, bill) {
+    if (!bill || !Array.isArray(bill.lines) || !bill.lines.length) return bill;
+    const missing = bill.lines.some(
+        (l) =>
+            l &&
+            !l.mc_rate_catalog &&
+            !l.mc_rate_standard &&
+            !l.catalog_mc_rate &&
+            (l.stock_piece_id || l.barcode || l.code),
+    );
+    if (!missing) return bill;
+
+    const ids = [
+        ...new Set(
+            bill.lines
+                .map((l) => Number(l?.stock_piece_id))
+                .filter((n) => Number.isFinite(n) && n > 0),
+        ),
+    ];
+    const codes = [
+        ...new Set(
+            bill.lines
+                .map((l) => String(l?.barcode || l?.code || '').trim())
+                .filter(Boolean),
+        ),
+    ];
+    if (!ids.length && !codes.length) return bill;
+
+    const parts = [];
+    const params = [resellerUserId];
+    if (ids.length) {
+        params.push(ids);
+        parts.push(`id = ANY($${params.length}::int[])`);
+    }
+    if (codes.length) {
+        params.push(codes);
+        parts.push(`barcode = ANY($${params.length}::text[])`);
+    }
+    const rows = await query(
+        `SELECT id, barcode, mc_rate::float AS mc_rate
+         FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND (${parts.join(' OR ')})`,
+        params,
+    );
+    const byId = new Map();
+    const byBarcode = new Map();
+    for (const r of rows) {
+        if (r.id != null && r.mc_rate != null) byId.set(Number(r.id), Number(r.mc_rate));
+        if (r.barcode && r.mc_rate != null) byBarcode.set(String(r.barcode), Number(r.mc_rate));
+    }
+    return erpPrint.enrichBillLinesMcCatalogForPrint(bill, { byStockId: byId, byBarcode });
+}
+
 function mapBill(row) {
     if (!row) return row;
     let lines = row.lines_json;
@@ -2547,6 +2601,8 @@ function registerResellerErpRoutes(app, deps) {
             if (bill.bill_type !== 'estimate') {
                 return res.status(400).json({ error: 'Only estimate bills can be printed with this action.' });
             }
+
+            await enrichEstimateLinesMcFromStock(query, req.user.id, bill);
 
             const settingsRows = await query(
                 `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
