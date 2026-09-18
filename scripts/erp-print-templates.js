@@ -927,7 +927,7 @@ function textToEscPos(text, opts = {}) {
     const GS = '\x1D';
     let out = ESC + '@';
     const qrData = opts.qrData != null ? String(opts.qrData).trim() : '';
-    if (qrData) {
+    if (qrData && !opts.qrAfterInit) {
         out += ESC + 'a' + '\x02';
         out += escPosQrCode(qrData, opts.qrModuleSize || 4);
         out += '\r\n';
@@ -935,6 +935,28 @@ function textToEscPos(text, opts = {}) {
     }
     const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     out += normalized.split('\n').join('\r\n');
+    out += '\r\n\r\n\r\n';
+    out += GS + 'V' + '\x00';
+    return out;
+}
+
+/** Epson estimate: QR top-right, then two-column header, then body (no extra blank band). */
+function assembleRoughEstimateEscPos(headerLines, bodyText, qrData) {
+    const ESC = '\x1B';
+    const GS = '\x1D';
+    let out = ESC + '@';
+    const qr = String(qrData || '').trim();
+    if (qr) {
+        out += ESC + 'a' + '\x02';
+        out += escPosQrCode(qr, 3);
+        out += ESC + 'a' + '\x00';
+        out += '\n';
+    }
+    const header = (headerLines || []).filter(Boolean).join('\n');
+    const body = String(bodyText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    out += header;
+    if (header && body) out += '\n';
+    out += body.split('\n').join('\r\n');
     out += '\r\n\r\n\r\n';
     out += GS + 'V' + '\x00';
     return out;
@@ -1270,14 +1292,57 @@ function roughSplitRow(left, right, width = ROUGH_ESTIMATE_WIDTH) {
     return roughPadRow(l, r, width);
 }
 
+/** Right column width reserved for date/time on estimate header. */
+const ROUGH_HEADER_RIGHT_RESERVE = 18;
+
+function roughHeaderTwoCol(left, right, width = ROUGH_ESTIMATE_WIDTH) {
+    const l = String(left || '');
+    const r = String(right || '').trim();
+    if (!r) return l;
+    const maxLeft = Math.max(8, width - ROUGH_HEADER_RIGHT_RESERVE);
+    let lVis = roughVisibleLen(l);
+    let leftOut = l;
+    if (lVis > maxLeft) {
+        leftOut = l.slice(0, maxLeft);
+        lVis = roughVisibleLen(leftOut);
+    }
+    const gap = Math.max(1, width - lVis - roughVisibleLen(r));
+    return `${leftOut}${' '.repeat(gap)}${r}`;
+}
+
+/** Discount rows — amount column fixed to the right edge (matches Silver + MC lines). */
+function roughDiscountRow(label, amount, width = ROUGH_ESTIMATE_WIDTH) {
+    const plainLabel = String(label || '').trim();
+    const val = formatRoughRowValue(-Math.abs(Number(amount) || 0));
+    const gap = Math.max(1, width - plainLabel.length - val.length);
+    return `${roughBold(plainLabel)}${' '.repeat(gap)}${val}`;
+}
+
 function roughDottedAmount(amount, width = ROUGH_ESTIMATE_WIDTH) {
     const val = roughMoney(amount);
     const dotsLen = Math.max(1, width - val.length);
     return `${'.'.repeat(dotsLen)}${val}`;
 }
 
+function resolveRoughBillDateTime(bill) {
+    const createdRaw = bill?.created_at;
+    const billRaw = bill?.bill_date || createdRaw;
+    const created = createdRaw ? new Date(createdRaw) : null;
+    const billD = billRaw ? new Date(billRaw) : new Date();
+    if (Number.isNaN(billD.getTime())) return new Date();
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(billRaw || '').trim().slice(0, 10));
+    if (dateOnly) {
+        const base = new Date(String(billRaw).trim().slice(0, 10) + 'T00:00:00');
+        const timeSrc =
+            created && !Number.isNaN(created.getTime()) ? created : new Date();
+        base.setHours(timeSrc.getHours(), timeSrc.getMinutes(), 0, 0);
+        return base;
+    }
+    return billD;
+}
+
 function formatRoughHeaderDate(raw) {
-    const d = raw ? new Date(raw) : new Date();
+    const d = raw instanceof Date ? raw : raw ? new Date(raw) : new Date();
     if (Number.isNaN(d.getTime())) return '';
     const dd = String(d.getDate()).padStart(2, '0');
     const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -1286,13 +1351,33 @@ function formatRoughHeaderDate(raw) {
 }
 
 function formatRoughHeaderTime(raw) {
-    const d = raw ? new Date(raw) : new Date();
+    const d = raw instanceof Date ? raw : raw ? new Date(raw) : new Date();
     if (Number.isNaN(d.getTime())) return '';
     let h = d.getHours();
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
     const min = String(d.getMinutes()).padStart(2, '0');
     return `${String(h).padStart(2, '0')}:${min} ${ampm}`;
+}
+
+function buildRoughEstimateHeaderLines(bill, printFormats) {
+    const pf = migratePrintFormats(printFormats);
+    const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    const shopName = String(pf.shopName || bill.shop_name || 'B N MARLECHA SILVER').trim();
+    const estNo = extractEstimateNo(bill.bill_number);
+    const when = resolveRoughBillDateTime(bill);
+    const customerName = String(bill.customer_name || 'Walk-in').trim();
+    const customerMobile = String(
+        bill.customer_mobile || session.mobile || session.customerMobile || '',
+    ).trim();
+    const customerLine = customerMobile ? `${customerName} / ${customerMobile}` : customerName;
+    const dateLabel = formatRoughHeaderDate(when);
+    const timeLabel = formatRoughHeaderTime(when);
+    return [
+        roughHeaderTwoCol(roughBold(shopName.toUpperCase()), ''),
+        roughHeaderTwoCol(roughBold(`ESTIMATE NO ${estNo}`), `DATE : ${dateLabel}`),
+        roughHeaderTwoCol(customerLine, `TIME : ${timeLabel}`),
+    ];
 }
 
 function extractHeaderRates(session, rates) {
@@ -1513,10 +1598,10 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     const silverDisc = roughSilverRateDiscountInfo(line, rates);
     const mcDisc = roughMcDiscountAmount(line, rateSlab, rates, printFormats);
     if (roughDiscountVisible(silverDisc.amount)) {
-        pushIf(out, roughKvRow(silverDisc.label, -silverDisc.amount, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }));
+        pushIf(out, roughDiscountRow(silverDisc.label, silverDisc.amount));
     }
     if (roughDiscountVisible(mcDisc)) {
-        pushIf(out, roughKvRow('Discount on MC Value', -mcDisc, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }));
+        pushIf(out, roughDiscountRow('Discount on MC Value', mcDisc));
     }
 
     const taxable = lineTaxableFromTotal(line?.lineTotalInr);
@@ -1613,30 +1698,14 @@ function computeSlabRLineDiscounts(line, rates, rateSlab = 'R') {
     return out;
 }
 
-function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
+function buildRoughEstimateContent(bill, printFormats, rates, isDuplicate) {
     const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
     if (session.goldSlabRShowMc === false) {
         pf.goldSlabRShowMc = false;
     }
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
-    const shopName = String(pf.shopName || bill.shop_name || 'B N MARLECHA SILVER').trim();
-    const estNo = extractEstimateNo(bill.bill_number);
-    const billDate = bill.bill_date || bill.created_at || new Date();
-    const customerName = String(bill.customer_name || 'Walk-in').trim();
-    const customerMobile = String(
-        bill.customer_mobile || session.mobile || session.customerMobile || '',
-    ).trim();
-    const dateLabel = formatRoughHeaderDate(billDate);
-    const timeLabel = formatRoughHeaderTime(billDate);
     const out = [];
-
-    out.push(roughBold(shopName.toUpperCase()));
-    out.push(roughBold(`ESTIMATE NO ${estNo}`));
-    if (customerMobile) out.push(`${customerName} / ${customerMobile}`);
-    else out.push(customerName);
-    out.push(roughSplitRow('', `DATE : ${dateLabel}`));
-    out.push(roughSplitRow('', `TIME : ${timeLabel}`));
 
     out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
 
@@ -1677,6 +1746,14 @@ function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
     out.push('Join Our Savings Plan');
 
     return out.join('\n');
+}
+
+function buildRoughEstimateCopy(bill, printFormats, rates, isDuplicate) {
+    const pf = migratePrintFormats(printFormats);
+    const printRates = enrichPrintRatesFromBill(bill, rates);
+    const headerLines = buildRoughEstimateHeaderLines(bill, pf);
+    const content = buildRoughEstimateContent(bill, printFormats, printRates, isDuplicate);
+    return [...headerLines, content].join('\n');
 }
 
 function buildRoughEstimateBody(bill, printFormats, rates) {
@@ -1748,9 +1825,10 @@ function renderEstimateEscPos(bill, printFormats, rates) {
         const body = renderTemplate(template, vars, { plainText: true });
         return textToEscPos(body);
     }
-    const body = buildRoughEstimateBody(bill, printFormats, rates);
+    const headerLines = buildRoughEstimateHeaderLines(bill, pf);
+    const bodyText = buildRoughEstimateContent(bill, printFormats, printRates, false);
     const estNo = extractEstimateNo(bill.bill_number);
-    return textToEscPos(body, { qrData: estNo });
+    return assembleRoughEstimateEscPos(headerLines, bodyText, estNo);
 }
 
 function previewTemplateText(template, bill, printFormats, rates) {

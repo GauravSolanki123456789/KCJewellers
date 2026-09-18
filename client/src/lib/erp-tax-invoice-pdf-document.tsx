@@ -3,7 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
-import { groupInvoiceLinesForTax } from '@/lib/erp-invoice-defaults'
+import { groupMarlechaInvoiceLines, isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
 export type ErpGstSettings = {
@@ -43,6 +43,8 @@ export type ErpTaxInvoicePdfDocumentProps = {
   customerPan?: string | null
   customerGst?: string | null
   compliance?: ErpTaxInvoiceCompliance | null
+  /** Invoice categories flagged MRP in GST settings (qty-based groups). */
+  mrpItemNames?: Set<string>
   /** customer | office — render one copy per page */
   copyLabel?: 'CUSTOMER COPY' | 'OFFICE COPY'
 }
@@ -254,6 +256,7 @@ function InvoiceCopyPage({
   customerGst,
   compliance,
   lines,
+  mrpItemNames,
 }: ErpTaxInvoicePdfDocumentProps & { lines: ErpBillLine[] }) {
   const gstValue = totals.subtotal
   const cgst = totals.gst / 2
@@ -261,8 +264,14 @@ function InvoiceCopyPage({
   const rawTotal = gstValue + cgst + sgst
   const roundedTotal = Math.round(rawTotal)
   const roundOff = Math.round((roundedTotal - rawTotal) * 100) / 100
-  const totalPcs = lines.reduce((s, l) => s + (Number(l.qty) || 1), 0)
-  const totalWeight = lines.reduce((s, l) => s + (Number(l.weightGm) || 0), 0)
+  const totalPcs = lines.reduce(
+    (s, l) => (isMrpInvoiceLine(l, mrpItemNames) ? s + (Number(l.qty) || 1) : s),
+    0,
+  )
+  const totalWeight = lines.reduce((s, l) => {
+    if (isMrpInvoiceLine(l, mrpItemNames)) return s
+    return s + (Number(l.originalWeightGm ?? l.weightGm) || 0)
+  }, 0)
   const shopDisplay = gst.legalName?.trim() || brandName
   const isTaxInvoice = !!compliance?.irn
 
@@ -337,7 +346,16 @@ function InvoiceCopyPage({
         </View>
         {lines.map((line, i) => {
           const taxable = lineTaxable(line, totals, lines.length)
-          const rate = line.ratePerGram != null ? Number(line.ratePerGram) : null
+          const mrp = isMrpInvoiceLine(line, mrpItemNames)
+          const netGm = Number(line.originalWeightGm ?? line.weightGm) || 0
+          const qty = Math.max(1, Number(line.qty) || 1)
+          const rate = mrp
+            ? taxable / qty
+            : netGm > 0
+              ? taxable / netGm
+              : line.ratePerGram != null
+                ? Number(line.ratePerGram)
+                : null
           return (
             <View key={`line-${i}`} style={styles.tableRow}>
               <Text style={[styles.tableCell, { width: COL_WIDTHS.sl }]}>{i + 1}</Text>
@@ -345,15 +363,15 @@ function InvoiceCopyPage({
                 {sanitizePdfText(lineItemName(line))}
               </Text>
               <Text style={[styles.tableCell, { width: COL_WIDTHS.hsn }]}>{sanitizePdfText(lineHsn(line))}</Text>
-              <Text style={[styles.tableCell, { width: COL_WIDTHS.pcs }]}>{line.qty ?? 1}</Text>
+              <Text style={[styles.tableCell, { width: COL_WIDTHS.pcs }]}>{mrp ? qty : '—'}</Text>
               <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.wt }]}>
-                {line.weightGm != null ? Number(line.weightGm).toFixed(3) : '—'}
+                {!mrp && netGm > 0 ? netGm.toFixed(3) : '—'}
               </Text>
               <Text style={[styles.tableCell, { width: COL_WIDTHS.purity }]}>
-                {formatPurityDisplay(line.purity)}
+                {mrp ? '—' : formatPurityDisplay(line.purity)}
               </Text>
               <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.rate }]}>
-                {rate != null && !line.rateLocked ? rate.toFixed(2) : '—'}
+                {rate != null && Number.isFinite(rate) ? rate.toFixed(2) : '—'}
               </Text>
               <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.total, borderRightWidth: 0 }]}>
                 {taxable.toFixed(2)}
@@ -469,8 +487,12 @@ function InvoiceCopyPage({
 }
 
 export function ErpTaxInvoicePdfDocument(props: ErpTaxInvoicePdfDocumentProps) {
-  const lines = groupInvoiceLinesForTax(props.bill.lines ?? [])
-  const pageProps = useMemo(() => ({ ...props, lines }), [props, lines])
+  const mrpNames = props.mrpItemNames || new Set<string>()
+  const lines = useMemo(
+    () => groupMarlechaInvoiceLines(props.bill.lines ?? [], mrpNames),
+    [props.bill.lines, mrpNames],
+  )
+  const pageProps = useMemo(() => ({ ...props, lines, mrpItemNames: mrpNames }), [props, lines, mrpNames])
 
   return (
     <Document>

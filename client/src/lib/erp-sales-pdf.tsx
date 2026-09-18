@@ -133,7 +133,7 @@ export async function buildErpSalesPdfPayload(params: {
         variant={isEinvoicePdf ? 'einvoice' : 'bill'}
       />
     ) : (
-      <ErpTaxInvoicePdfDocument {...docProps} />
+      <ErpTaxInvoicePdfDocument {...docProps} mrpItemNames={mrpNames} />
     ),
   ).toBlob()
 

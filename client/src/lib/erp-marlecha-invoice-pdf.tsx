@@ -3,7 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
-import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
+import { groupMarlechaInvoiceLines, isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
 import {
@@ -248,8 +248,12 @@ function gmToKg(gm: number): number {
   return (Number(gm) || 0) / 1000
 }
 
+function lineNetGm(line: ErpBillLine): number {
+  return Number(line.originalWeightGm ?? line.weightGm) || 0
+}
+
 function lineRatePerKg(line: ErpBillLine): number {
-  const wtKg = gmToKg(Number(line.weightGm) || 0)
+  const wtKg = gmToKg(lineNetGm(line))
   const amt = Number(line.lineTotalInr) || 0
   if (wtKg <= 0) return 0
   return amt / wtKg
@@ -263,7 +267,13 @@ function linePieceRate(line: ErpBillLine): number {
 
 type ColumnAlign = 'left' | 'center' | 'right'
 
-function columnAlignments(count: number, kind: 'weight' | 'mrp'): ColumnAlign[] {
+function columnAlignments(count: number, kind: 'weight' | 'mrp' | 'unified'): ColumnAlign[] {
+  if (kind === 'unified' || count >= 8) {
+    return (['center', 'left', 'center', 'center', 'right', 'right', 'right', 'right'] as ColumnAlign[]).slice(
+      0,
+      count,
+    )
+  }
   if (kind === 'mrp') {
     return (['center', 'left', 'center', 'right', 'right', 'right'] as ColumnAlign[]).slice(0, count)
   }
@@ -278,7 +288,8 @@ function renderColumnTable(
   rows: string[][],
   opts?: { fillRemaining?: boolean },
 ) {
-  const kind: 'weight' | 'mrp' = widths.length >= 7 ? 'weight' : 'mrp'
+  const kind: 'weight' | 'mrp' | 'unified' =
+    widths.length >= 8 ? 'unified' : widths.length >= 7 ? 'weight' : 'mrp'
   const aligns = columnAlignments(widths.length, kind)
   const last = widths.length - 1
   const rowStyle = opts?.fillRemaining ? styles.tableColumnsRow : styles.tableColumnsRowFixed
@@ -393,8 +404,8 @@ function InvoicePage({
         amt.toFixed(2),
       ]
     }
-    const grossKg = gmToKg(Number(line.gross_weight) || Number(line.weightGm) || 0)
-    const netKg = gmToKg(Number(line.weightGm) || 0)
+    const grossKg = gmToKg(Number(line.gross_weight) || lineNetGm(line))
+    const netKg = gmToKg(lineNetGm(line))
     const rate = lineRatePerKg(line)
     return [
       slNo,
@@ -588,7 +599,10 @@ function InvoicePage({
 
 export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoiceProps) {
   const mrpNames = props.mrpItemNames || new Set<string>()
-  const lines = useMemo(() => props.bill.lines ?? [], [props.bill.lines])
+  const lines = useMemo(
+    () => groupMarlechaInvoiceLines(props.bill.lines ?? [], mrpNames),
+    [props.bill.lines, mrpNames],
+  )
   const session = (props.bill.session && typeof props.bill.session === 'object'
     ? props.bill.session
     : {}) as Record<string, unknown>

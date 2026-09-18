@@ -70,13 +70,14 @@ export function groupMarlechaInvoiceLines(
     const mrp = isMrpInvoiceLine(line, mrpItemNames)
     const key = `${itemName}|${hsn}|${mrp ? 'MRP' : 'WT'}`
     const existing = map.get(key)
+    const netGm = Number(line.originalWeightGm ?? line.weightGm) || 0
+    const grossGm = Number(line.gross_weight) || netGm
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + (Number(line.qty) || 1)
       if (!mrp) {
-        existing.weightGm = (Number(existing.weightGm) || 0) + (Number(line.weightGm) || 0)
-        existing.gross_weight =
-          (Number(existing.gross_weight) || Number(existing.weightGm) || 0) +
-          (Number(line.gross_weight) || Number(line.weightGm) || 0)
+        existing.weightGm = (Number(existing.weightGm) || 0) + netGm
+        existing.gross_weight = (Number(existing.gross_weight) || 0) + grossGm
+        existing.originalWeightGm = existing.weightGm
       }
       existing.lineTotalInr = (Number(existing.lineTotalInr) || 0) + (Number(line.lineTotalInr) || 0)
     } else {
@@ -86,8 +87,9 @@ export function groupMarlechaInvoiceLines(
         hsn_code: hsn,
         name: itemName,
         qty: line.qty ?? 1,
-        weightGm: mrp ? null : line.weightGm ?? 0,
-        gross_weight: mrp ? null : line.gross_weight ?? line.weightGm ?? 0,
+        weightGm: mrp ? null : netGm,
+        originalWeightGm: mrp ? null : netGm,
+        gross_weight: mrp ? null : grossGm,
         lineTotalInr: line.lineTotalInr ?? 0,
         mrpMode: mrp || undefined,
       })
