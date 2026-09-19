@@ -14,6 +14,10 @@ type Props = {
   options: Array<string | BillingSuggestOption>
   autoFocus?: boolean
   emptyText?: string
+  /** When true, Enter / list shows Create "…" if no exact match. */
+  allowCreate?: boolean
+  /** Preserve typed casing on create (default uppercases like billing). */
+  preserveCase?: boolean
   onChange: (value: string) => void
   onCommit: (value: string) => void
   inputRef?: (el: HTMLInputElement | null) => void
@@ -33,6 +37,8 @@ export function ErpBillingSuggestField({
   options,
   autoFocus,
   emptyText = 'No matches',
+  allowCreate = false,
+  preserveCase = false,
   onChange,
   onCommit,
   inputRef,
@@ -62,11 +68,18 @@ export function ErpBillingSuggestField({
 
   const filtered = useMemo(() => {
     const q = norm(value)
-    if (!q) return parsed
-    return parsed.filter(
-      (o) => norm(o.value).includes(q) || norm(o.hint || '').includes(q),
-    )
-  }, [parsed, value])
+    const base = !q
+      ? parsed
+      : parsed.filter(
+          (o) => norm(o.value).includes(q) || norm(o.hint || '').includes(q),
+        )
+    if (!allowCreate) return base
+    const typed = value.trim()
+    if (!typed) return base
+    const exact = base.some((o) => norm(o.value) === norm(typed))
+    if (exact) return base
+    return [{ value: typed, hint: 'Create new' }, ...base]
+  }, [parsed, value, allowCreate])
 
   const placeMenu = () => {
     const el = localInput.current
@@ -135,7 +148,7 @@ export function ErpBillingSuggestField({
       setPickIdx(-1)
       return
     }
-    onChange(trimmed.toUpperCase())
+    onChange(preserveCase ? trimmed : trimmed.toUpperCase())
     onCommit(trimmed)
     setOpen(false)
     setPickIdx(-1)
@@ -211,8 +224,14 @@ export function ErpBillingSuggestField({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => commit(opt.value)}
               >
-                {opt.value}
-                {opt.hint ? (
+                {opt.hint === 'Create new' ? (
+                  <>
+                    Create &ldquo;{opt.value}&rdquo;
+                  </>
+                ) : (
+                  opt.value
+                )}
+                {opt.hint && opt.hint !== 'Create new' ? (
                   <span className="ml-1 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
                     · {opt.hint}
                   </span>
@@ -240,7 +259,8 @@ export function ErpBillingSuggestField({
           requestAnimationFrame(placeMenu)
         }}
         onChange={(e) => {
-          onChange(e.target.value.toUpperCase())
+          const v = e.target.value
+          onChange(preserveCase ? v : v.toUpperCase())
           setOpen(true)
           setPickIdx(-1)
         }}

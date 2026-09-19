@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios from '@/lib/axios'
 
 export type PricelistCategory = {
   id: number
@@ -134,6 +134,82 @@ export async function bulkSavePricelistProducts(
     { products, deletedIds },
   )
   return data
+}
+
+export async function fetchPricelistProductSuggestions(q?: string): Promise<string[]> {
+  const { data } = await axios.get<{ names?: string[] }>(
+    '/api/reseller/pricelist/product-suggestions',
+    { params: q?.trim() ? { q: q.trim() } : {} },
+  )
+  return data.names ?? []
+}
+
+export async function patchPricelistProduct(
+  productId: number,
+  patch: {
+    product_name?: string
+    avg_weight?: number | null
+    slab_rates?: Record<string, number>
+  },
+): Promise<{ product: PricelistProduct }> {
+  const { data } = await axios.patch<{ product: PricelistProduct }>(
+    `/api/reseller/pricelist/products/${productId}`,
+    patch,
+  )
+  return data
+}
+
+export async function createPricelistProductInline(
+  categoryId: number,
+  payload: {
+    subcategory_name: string
+    product_name: string
+    avg_weight?: number | null
+    slab_rates?: Record<string, number>
+  },
+): Promise<{ created: number; product?: PricelistProduct }> {
+  const res = await bulkSavePricelistProducts(categoryId, [
+    {
+      subcategory_name: payload.subcategory_name,
+      product_name: payload.product_name,
+      avg_weight: payload.avg_weight ?? null,
+      slab_rates: payload.slab_rates ?? {},
+    },
+  ])
+  return { created: res.created ?? 0 }
+}
+
+export async function downloadPricelistCategoryExcel(
+  categoryName: string,
+  treeCat: PricelistTreeCategory | undefined,
+  slabKeys: string[],
+): Promise<void> {
+  const XLSX = await import('xlsx')
+  const keys = slabKeys.length ? slabKeys : ['1', 'r', 'w']
+  const header = [
+    'PRICELISTSUBCATEGORY',
+    'PRICELISTPRODUCTNAME',
+    'PRICELISTAVGWT',
+    ...keys.map((k) => formatSlabKeyLabel(k)),
+  ]
+  const rows: unknown[][] = [header]
+  if (treeCat) {
+    for (const sc of treeCat.subcategories) {
+      for (const p of sc.products) {
+        const row: unknown[] = [sc.name, p.product_name, p.avg_weight ?? '']
+        for (const k of keys) {
+          const v = p.slab_rates?.[k]
+          row.push(v != null && Number.isFinite(Number(v)) ? Number(v) : '')
+        }
+        rows.push(row)
+      }
+    }
+  }
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Pricelist')
+  const safe = (categoryName || 'pricelist').replace(/[^\w.-]+/g, '_').slice(0, 48)
+  XLSX.writeFile(wb, `${safe}_PRICELIST.xlsx`)
 }
 
 export async function uploadPricelistExcelRows(

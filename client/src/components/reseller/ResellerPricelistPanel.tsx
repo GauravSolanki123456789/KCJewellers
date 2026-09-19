@@ -1,12 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import axios from 'axios'
 import {
   Check,
   ChevronDown,
   ChevronRight,
   Copy,
+  Download,
   FileSpreadsheet,
   ImagePlus,
   Link2,
@@ -20,13 +20,19 @@ import {
 } from 'lucide-react'
 import { PricelistSpreadsheetEditor } from '@/components/reseller/PricelistSpreadsheetEditor'
 import {
+  PricelistAddProductInline,
+  PricelistInlineProductRow,
+} from '@/components/reseller/PricelistInlineProduct'
+import {
   createPricelistCategory,
   createPricelistSharedLink,
   deletePricelistCategory,
   deletePricelistImportBatch,
+  downloadPricelistCategoryExcel,
   fetchPricelistBootstrap,
   fetchPricelistCategories,
   fetchPricelistImportBatches,
+  fetchPricelistProductSuggestions,
   fetchPricelistTree,
   formatSlabKeyLabel,
   uploadPricelistBulkPhotos,
@@ -36,6 +42,7 @@ import {
   type PricelistImportBatch,
   type PricelistTreeCategory,
 } from '@/lib/reseller-pricelist'
+import axios from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 
@@ -323,6 +330,10 @@ export function ResellerPricelistPanel() {
   const photoInputRef = useRef<HTMLInputElement>(null)
   const productPhotoInputRef = useRef<HTMLInputElement>(null)
   const pendingProductPhotoId = useRef<number | null>(null)
+  const pendingExcelCategoryId = useRef<number | null>(null)
+  const pendingPhotoCategoryId = useRef<number | null>(null)
+  const [suggestionNames, setSuggestionNames] = useState<string[]>([])
+  const [downloadBusyId, setDownloadBusyId] = useState<number | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -353,6 +364,9 @@ export function ResellerPricelistPanel() {
       const u = res.data as { reseller_hide_shared_catalog_pdf?: boolean }
       setHidePdf(!!u?.reseller_hide_shared_catalog_pdf)
     }).catch(() => {})
+    void fetchPricelistProductSuggestions()
+      .then(setSuggestionNames)
+      .catch(() => setSuggestionNames([]))
   }, [reload])
 
   const loadBatches = useCallback(async (categoryId: number) => {
@@ -452,17 +466,25 @@ export function ResellerPricelistPanel() {
       const n = res.upserted ?? 0
       if (res.batch_id) setLastBatchId(res.batch_id)
       const errN = res.errors?.length ?? 0
+      if (n === 0) {
+        const sample =
+          res.errors?.slice(0, 3).map((e) => `Row ${e.row + 1}: ${e.error}`).join(' · ') ||
+          'Check columns PRICELISTSUBCATEGORY + PRICELISTPRODUCTNAME (or SUBCATEGORY + PRODUCTNAME).'
+        setError(`No products imported from "${file.name}". ${sample}`)
+        return
+      }
       setMessage(
         `${n} product${n === 1 ? '' : 's'} imported from "${file.name}"${errN ? ` (${errN} row${errN === 1 ? '' : 's'} skipped)` : ''}. Re-upload the same Excel anytime to update weights or slab rates.`,
       )
       await reload()
       if (manageExpandedCatId === categoryId) await loadBatches(categoryId)
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === 'object' && 'response' in e
-          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
-          : null
-      setError(msg || 'Excel import failed')
+      const resp = e && typeof e === 'object' && 'response' in e
+        ? (e as { response?: { data?: { error?: string; errors?: { row: number; error: string }[] } } })
+            .response?.data
+        : null
+      const detail = resp?.errors?.slice(0, 2).map((x) => `Row ${x.row + 1}: ${x.error}`).join(' · ')
+      setError(detail ? `${resp?.error || 'Excel import failed'} — ${detail}` : resp?.error || 'Excel import failed')
     } finally {
       setExcelBusy(false)
       if (excelInputRef.current) excelInputRef.current.value = ''
@@ -631,6 +653,28 @@ export function ResellerPricelistPanel() {
           ) : (
             <ul className="space-y-3">
               <input
+                ref={excelInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  const cid = pendingExcelCategoryId.current
+                  if (f && cid != null) void handleExcel(f, cid)
+                }}
+              />
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const cid = pendingPhotoCategoryId.current
+                  if (cid != null) void handlePhotos(e.target.files, cid)
+                }}
+              />
+              <input
                 ref={productPhotoInputRef}
                 type="file"
                 accept="image/*"
@@ -684,21 +728,14 @@ export function ResellerPricelistPanel() {
 
                     {isOpen ? (
                       <div className="space-y-4 border-t border-[var(--color-slate-700,#e8e4df)] px-4 pb-4 pt-4">
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <input
-                            ref={excelInputRef}
-                            type="file"
-                            accept=".xlsx,.xls,.csv"
-                            className="hidden"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0]
-                              if (f) void handleExcel(f, cat.id)
-                            }}
-                          />
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                           <button
                             type="button"
                             disabled={excelBusy}
-                            onClick={() => excelInputRef.current?.click()}
+                            onClick={() => {
+                              pendingExcelCategoryId.current = cat.id
+                              excelInputRef.current?.click()
+                            }}
                             className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] text-sm font-medium text-[var(--color-jewelry-black,#1a1814)] disabled:opacity-60"
                           >
                             {excelBusy ? (
@@ -710,6 +747,26 @@ export function ResellerPricelistPanel() {
                           </button>
                           <button
                             type="button"
+                            disabled={downloadBusyId === cat.id || !treeCat?.subcategories.length}
+                            onClick={() => {
+                              setDownloadBusyId(cat.id)
+                              setError('')
+                              void downloadPricelistCategoryExcel(cat.name, treeCat, slabKeys)
+                                .then(() => setMessage(`Downloaded ${cat.name} pricelist Excel`))
+                                .catch(() => setError('Could not generate Excel file'))
+                                .finally(() => setDownloadBusyId(null))
+                            }}
+                            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white text-sm font-medium text-[var(--color-jewelry-black,#1a1814)] disabled:opacity-50"
+                          >
+                            {downloadBusyId === cat.id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Download className="size-4" />
+                            )}
+                            Download Excel
+                          </button>
+                          <button
+                            type="button"
                             disabled={!treeCat?.subcategories.length}
                             onClick={() => setSpreadsheetCatId(cat.id)}
                             className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-600/30 bg-emerald-50 text-sm font-semibold text-emerald-900 disabled:opacity-50"
@@ -717,18 +774,13 @@ export function ResellerPricelistPanel() {
                             <Pencil className="size-4" />
                             Edit spreadsheet
                           </button>
-                          <input
-                            ref={photoInputRef}
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => void handlePhotos(e.target.files, cat.id)}
-                          />
                           <button
                             type="button"
                             disabled={photoBusy}
-                            onClick={() => photoInputRef.current?.click()}
+                            onClick={() => {
+                              pendingPhotoCategoryId.current = cat.id
+                              photoInputRef.current?.click()
+                            }}
                             className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white text-sm font-medium text-[var(--color-jewelry-black,#1a1814)] disabled:opacity-60"
                           >
                             {photoBusy ? (
@@ -851,51 +903,31 @@ export function ResellerPricelistPanel() {
                                   {scOpen ? (
                                     <ul className="divide-y divide-[var(--color-slate-700,#e8e4df)]/50">
                                       {sc.products.map((p) => (
-                                        <li
+                                        <PricelistInlineProductRow
                                           key={p.id}
-                                          className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center"
-                                        >
-                                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                                            {p.image_url ? (
-                                              // eslint-disable-next-line @next/next/no-img-element
-                                              <img
-                                                src={normalizeCatalogImageSrc(p.image_url) || p.image_url}
-                                                alt=""
-                                                className="size-12 shrink-0 rounded-lg object-cover"
-                                              />
-                                            ) : (
-                                              <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-[var(--color-slate-900,#f7f4ef)] text-[var(--color-jewelry-black,#1a1814)]/25">
-                                                <ImagePlus className="size-5" />
-                                              </div>
-                                            )}
-                                            <div className="min-w-0 flex-1">
-                                              <p className="truncate text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
-                                                {p.product_name}
-                                              </p>
-                                              <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/50">
-                                                Photo: <code className="text-[10px]">{p.product_slug}.webp</code>
-                                                {p.avg_weight != null ? ` · ${p.avg_weight} gm` : ''}
-                                              </p>
-                                            </div>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            disabled={productPhotoBusyId === p.id}
-                                            onClick={() => {
-                                              pendingProductPhotoId.current = p.id
-                                              productPhotoInputRef.current?.click()
-                                            }}
-                                            className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)] disabled:opacity-60"
-                                          >
-                                            {productPhotoBusyId === p.id ? (
-                                              <Loader2 className="size-3.5 animate-spin" />
-                                            ) : (
-                                              <ImagePlus className="size-3.5" />
-                                            )}
-                                            Upload photo
-                                          </button>
-                                        </li>
+                                          product={p}
+                                          subcategoryName={sc.name}
+                                          slabKeys={slabKeys}
+                                          photoBusy={productPhotoBusyId === p.id}
+                                          onPhotoClick={(pid) => {
+                                            pendingProductPhotoId.current = pid
+                                            productPhotoInputRef.current?.click()
+                                          }}
+                                          onSaved={() => void reload()}
+                                          onError={setError}
+                                        />
                                       ))}
+                                      <PricelistAddProductInline
+                                        subcategoryName={sc.name}
+                                        categoryId={cat.id}
+                                        suggestionNames={suggestionNames}
+                                        onAdded={() => {
+                                          setMessage(`Added item under ${sc.name}`)
+                                          void reload()
+                                          void fetchPricelistProductSuggestions().then(setSuggestionNames)
+                                        }}
+                                        onError={setError}
+                                      />
                                     </ul>
                                   ) : null}
                                 </div>

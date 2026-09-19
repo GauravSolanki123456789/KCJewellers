@@ -50,11 +50,16 @@ function parsePricelistExcelRow(row) {
     const norm = normalizeExcelRow(row);
     const subName = pickExcelField(norm, [
         'PRICELISTSUBCATEGORY',
+        'PRICELISTGROUP',
+        'PRICELISTSUBCAT',
         'SUBCATEGORY',
         'SUB_CATEGORY',
         'SUBCAT',
-        'CATEGORY',
+        'SUBCATEGORYNAME',
+        'GROUP',
+        'GROUPNAME',
         'STYLE',
+        'TYPE',
     ]);
     const prodName = pickExcelField(norm, [
         'PRICELISTPRODUCTNAME',
@@ -63,7 +68,11 @@ function parsePricelistExcelRow(row) {
         'PRODUCT',
         'NAME',
         'ITEM',
+        'ITEMNAME',
         'DESCRIPTION',
+        'TITLE',
+        'PRICELISTITEM',
+        'ITEMDESCRIPTION',
     ]);
     const avgRaw = pickExcelField(norm, [
         'PRICELISTAVGWT',
@@ -73,6 +82,10 @@ function parsePricelistExcelRow(row) {
         'NETWT',
         'NET_WEIGHT',
         'AVGWEIGHT',
+        'WEIGHTGM',
+        'WEIGHT(G)',
+        'WT',
+        'WTGM',
     ]);
     const avgNum = parseFloat(String(avgRaw || '').replace(/,/g, '').trim());
     const avgWeight = Number.isFinite(avgNum) ? avgNum : null;
@@ -93,6 +106,12 @@ function extractSlabRates(row) {
             slabKey = k.slice('RATE'.length);
         } else if (/^MC\d+$/i.test(k)) {
             slabKey = `mc${k.slice('MC'.length)}`;
+        } else if (k === 'PRICELISTSLABR' || k === 'SLABR') {
+            slabKey = 'r';
+        } else if (k === 'PRICELISTSLABW' || k === 'SLABW') {
+            slabKey = 'w';
+        } else if (k === 'PRICELISTSLABF' || k === 'SLABF') {
+            slabKey = 'f';
         }
         if (!slabKey) continue;
         const num = parseFloat(String(v ?? '').replace(/,/g, '').trim());
@@ -763,6 +782,103 @@ function registerResellerPricelistRoutes(app, deps) {
             } catch (e) {
                 console.error('pricelist delete batch:', e);
                 res.status(e.status || 500).json({ error: e.message || 'Failed to delete import' });
+            }
+        },
+    );
+
+    app.get('/api/reseller/pricelist/product-suggestions', checkAuth, pricelistGate, async (req, res) => {
+        try {
+            const q = String(req.query.q || '')
+                .trim()
+                .slice(0, 80);
+            const params = [req.user.id];
+            let sql = `SELECT DISTINCT product_name FROM reseller_pricelist_products
+                       WHERE owner_user_id = $1 AND is_active = true`;
+            if (q) {
+                params.push(`%${q}%`);
+                sql += ` AND product_name ILIKE $2`;
+            }
+            sql += ` ORDER BY product_name LIMIT 400`;
+            const rows = await query(sql, params);
+            const names = rows.map((r) => String(r.product_name || '').trim()).filter(Boolean);
+            res.json({ names });
+        } catch (e) {
+            console.error('pricelist suggestions:', e);
+            res.status(500).json({ error: e.message || 'Failed to load suggestions' });
+        }
+    });
+
+    app.patch(
+        '/api/reseller/pricelist/products/:productId',
+        checkAuth,
+        pricelistGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                const productId = parseInt(String(req.params.productId), 10);
+                if (!Number.isFinite(productId) || productId <= 0) {
+                    return res.status(400).json({ error: 'Invalid product id' });
+                }
+                const rows = await query(
+                    `SELECT * FROM reseller_pricelist_products
+                     WHERE id = $1 AND owner_user_id = $2 AND is_active = true LIMIT 1`,
+                    [productId, req.user.id],
+                );
+                if (!rows.length) {
+                    return res.status(404).json({ error: 'Product not found' });
+                }
+                const existing = rows[0];
+                const prodName =
+                    req.body.product_name != null
+                        ? String(req.body.product_name).trim().slice(0, 255)
+                        : existing.product_name;
+                let avgWeight = existing.avg_weight;
+                if (req.body.avg_weight !== undefined) {
+                    if (req.body.avg_weight == null || req.body.avg_weight === '') {
+                        avgWeight = null;
+                    } else {
+                        const n = parseFloat(String(req.body.avg_weight).replace(/,/g, ''));
+                        avgWeight = Number.isFinite(n) ? n : null;
+                    }
+                }
+                let slabRates = parseSlabRatesJson(existing.slab_rates);
+                if (req.body.slab_rates && typeof req.body.slab_rates === 'object') {
+                    slabRates = { ...slabRates };
+                    for (const [k, v] of Object.entries(req.body.slab_rates)) {
+                        const key = String(k || '').trim().toLowerCase();
+                        if (!key) continue;
+                        if (v == null || v === '') {
+                            delete slabRates[key];
+                            continue;
+                        }
+                        const num = parseFloat(String(v).replace(/,/g, ''));
+                        if (Number.isFinite(num)) slabRates[key] = num;
+                    }
+                }
+                const productSlug = slugify(prodName);
+                await query(
+                    `UPDATE reseller_pricelist_products SET
+                        product_name = $1,
+                        product_slug = $2,
+                        avg_weight = $3,
+                        slab_rates = $4::jsonb,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $5 AND owner_user_id = $6`,
+                    [prodName, productSlug, avgWeight, JSON.stringify(slabRates), productId, req.user.id],
+                );
+                res.json({
+                    product: {
+                        id: productId,
+                        product_name: prodName,
+                        product_slug: productSlug,
+                        avg_weight: avgWeight != null ? Number(avgWeight) : null,
+                        slab_rates: slabRates,
+                        image_url: existing.image_url,
+                    },
+                });
+            } catch (e) {
+                console.error('pricelist patch product:', e);
+                res.status(e.status || 500).json({ error: e.message || 'Failed to update product' });
             }
         },
     );
