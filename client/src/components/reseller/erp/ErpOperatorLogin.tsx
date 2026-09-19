@@ -132,7 +132,7 @@ export function useShadowKeyUnlock(enabled: boolean) {
       if (e.key === 'Enter') {
         const seq = bufferRef.current
         bufferRef.current = ''
-        if (seq.length >= 3 && !unlockingRef.current) {
+        if (seq.startsWith('F9') && seq.length >= 5 && !unlockingRef.current) {
           unlockingRef.current = true
           void unlockShadow(seq)
             .then(() => router.push(RESELLER_ERP_PATH))

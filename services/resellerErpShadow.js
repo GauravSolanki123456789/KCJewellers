@@ -858,7 +858,7 @@ function registerShadowRoutes(app, deps) {
             const sequence = String(req.body.sequence || '').trim();
             const settings = await loadShadowSettings(query, req.user.id);
             if (sequence !== settings.secretSequence) {
-                return res.status(403).json({ error: 'Invalid sequence' });
+                return res.json({ success: false, error: 'Invalid sequence' });
             }
             req.session.shadowUnlocked = true;
             res.json({ success: true, shadowUnlocked: true, companies: settings.companies });

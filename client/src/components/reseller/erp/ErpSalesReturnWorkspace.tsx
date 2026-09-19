@@ -99,7 +99,7 @@ export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boole
   const [bulkInvoiceItem, setBulkInvoiceItem] = useState('')
   const [customGold, setCustomGold] = useState('')
   const [customSilver, setCustomSilver] = useState('')
-  const [rateMode, setRateMode] = useState<'original' | 'custom'>('original')
+  const [rateMode, setRateMode] = useState<'original' | 'custom' | 'difference'>('original')
   const [extraBox, setExtraBox] = useState('')
   const [extraStone, setExtraStone] = useState('')
   const [extraAmt, setExtraAmt] = useState('')
@@ -396,6 +396,28 @@ export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boole
   const origTotals = useMemo(() => computeReturnTotals(sameRatePreview), [sameRatePreview])
   const custTotals = useMemo(() => computeReturnTotals(customPreview), [customPreview])
 
+  const previewLinesForSubmit = useMemo(() => {
+    if (!previewSelectedKeys.size) return previewLines
+    return previewLines.filter((l) => previewSelectedKeys.has(l.source_line_key))
+  }, [previewLines, previewSelectedKeys])
+
+  const submitOrigTotals = useMemo(() => {
+    const keys = new Set(previewLinesForSubmit.map((l) => l.source_line_key))
+    const lines = sameRatePreview.filter((l) => keys.has(l.source_line_key))
+    return computeReturnTotals(lines.length ? lines : sameRatePreview)
+  }, [sameRatePreview, previewLinesForSubmit])
+
+  const submitCustTotals = useMemo(() => {
+    const keys = new Set(previewLinesForSubmit.map((l) => l.source_line_key))
+    const lines = customPreview.filter((l) => keys.has(l.source_line_key))
+    return computeReturnTotals(lines.length ? lines : customPreview)
+  }, [customPreview, previewLinesForSubmit])
+
+  const rateDifferenceInr = useMemo(
+    () => Math.round(Math.abs(submitCustTotals.net - submitOrigTotals.net) * 100) / 100,
+    [submitCustTotals.net, submitOrigTotals.net],
+  )
+
   const billedRates = useMemo(() => uniqueBilledRates(previewLines, billById), [previewLines, billById])
   const billedRateLabel = useMemo(() => {
     const parts: string[] = []
@@ -436,6 +458,75 @@ export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boole
     if (!previewLines.length) return
     if (rateMode === 'custom' && !(goldN > 0 || silverN > 0)) {
       setMsg('Enter a gold or silver rate, or choose Same billed rate.')
+      return
+    }
+    if (rateMode === 'difference') {
+      if (!(goldN > 0 || silverN > 0)) {
+        setMsg('Enter custom gold or silver rate to compute the rate difference.')
+        return
+      }
+      if (!(rateDifferenceInr > 0)) {
+        setMsg('There is no rate difference between billed and custom totals.')
+        return
+      }
+      const diffSigned = submitCustTotals.net - submitOrigTotals.net
+      const kind = diffSigned > 0 ? 'credit' : 'debit'
+      const absDiff = rateDifferenceInr
+      const first = selectedBills[0]
+      const lane = laneMode || sourceBillsUseLaneLedger(selectedBills)
+      const taxable = Math.round((absDiff / 1.03) * 100) / 100
+      const gst = Math.round((absDiff - taxable) * 100) / 100
+      setBusy(true)
+      setMsg(null)
+      try {
+        const res = await axios.post<{ bill: ErpBill }>('/api/reseller/erp/bills', {
+          bill_type: kind,
+          status: 'completed',
+          customer_id: first?.customer_id || customer?.id || null,
+          customer_name: first?.customer_name || customer?.name || '',
+          total_inr: absDiff,
+          bill_date: new Date().toISOString().slice(0, 10),
+          lines: [],
+          session: {
+            differenceAdjustment: true,
+            skipStockRestore: true,
+            reason: 'Rate difference adjustment (no stock return)',
+            sourceBillIds: selectedBills.map((b) => b.id),
+            againstBills: selectedBills.map((b) => b.bill_number).filter(Boolean).join(', '),
+            rateMode: 'difference_adjustment',
+            originalNet: submitOrigTotals.net,
+            customNet: submitCustTotals.net,
+            adjustmentInr: absDiff,
+            customGoldPerG: goldN || null,
+            customSilverPerG: silverN || null,
+            taxableInr: taxable,
+            gstInr: gst,
+            mobile: customer?.mobile || first?.session?.mobile || '',
+            ledgerScope: lane ? 'lane' : 'official',
+            paymentMethod: first?.session?.paymentMethod || null,
+          },
+        })
+        setPreviewKind(null)
+        setSelectedKeys(new Set())
+        setSelectedBills([])
+        setPreviewLines([])
+        setRateMode('original')
+        await loadHistory()
+        setMsg(
+          `${kind === 'credit' ? 'Credit' : 'Debit'} note ${res.data.bill.bill_number} for ${formatErpInr(absDiff)} — stock unchanged.`,
+        )
+        await downloadCreditDebitNotePdf({
+          kind,
+          bill: res.data.bill,
+          shopName,
+          customerMobile: customer?.mobile || first?.session?.mobile || null,
+          slabSettingsRaw: auth.user && (auth.user as WholesaleUserFields).reseller_slab_settings,
+        })
+      } catch (e) {
+        setMsg(erpErr(e))
+      } finally {
+        setBusy(false)
+      }
       return
     }
     const useCustom = rateMode === 'custom'
@@ -1257,8 +1348,19 @@ export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boole
                     {customRateLabel ? ` ${customRateLabel}` : ''}
                     {goldN > 0 || silverN > 0 ? ` ${formatErpInr(custTotals.net)}` : ''}
                   </button>
+                  {goldN > 0 || silverN > 0 ? (
+                    <button
+                      type="button"
+                      className={rateMode === 'difference' ? erpBtnPrimary : erpBtnGhost}
+                      disabled={!(rateDifferenceInr > 0)}
+                      onClick={() => setRateMode('difference')}
+                    >
+                      Difference adjustment
+                      {rateDifferenceInr > 0 ? ` ${formatErpInr(rateDifferenceInr)}` : ''}
+                    </button>
+                  ) : null}
                 </div>
-                {rateMode === 'custom' ? (
+                {rateMode === 'custom' || rateMode === 'difference' ? (
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Gold ₹/g</p>
@@ -1279,7 +1381,16 @@ export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boole
                   {[
                     { l: 'Original net', v: origTotals.net, show: true },
                     { l: 'Rate I put', v: custTotals.net, show: goldN > 0 || silverN > 0 },
-                    { l: rateMode === 'custom' ? 'GST (new)' : 'GST', v: rateMode === 'custom' ? custTotals.gst : origTotals.gst, show: true },
+                    {
+                      l: 'Difference',
+                      v: rateDifferenceInr,
+                      show: (goldN > 0 || silverN > 0) && rateDifferenceInr > 0,
+                    },
+                    {
+                      l: rateMode === 'custom' || rateMode === 'difference' ? 'GST (new)' : 'GST',
+                      v: rateMode === 'custom' || rateMode === 'difference' ? custTotals.gst : origTotals.gst,
+                      show: true,
+                    },
                     { l: 'Weight', v: origTotals.weightGm, show: true, weight: true },
                   ]
                     .filter((x) => x.show)
@@ -1293,8 +1404,14 @@ export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boole
                     ))}
                 </div>
                 <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void takeReturn()}>
-                  <Undo2 className="size-4" /> Take return
+                  <Undo2 className="size-4" />{' '}
+                  {rateMode === 'difference' ? 'Post difference note' : 'Take return'}
                 </button>
+                {rateMode === 'difference' ? (
+                  <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/70">
+                    Items stay sold — only the rate difference posts as a credit or debit note on the ledger.
+                  </p>
+                ) : null}
               </div>
             ) : (
               <div className="mt-4 space-y-3">

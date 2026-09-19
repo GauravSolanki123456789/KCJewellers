@@ -233,31 +233,37 @@ export function recalcReturnLine(
   } as ReturnLine
   const rates = perGramToDisplayRates(goldPerG, silverPerG)
   const goldSlabRShowMc = session.goldSlabRShowMc !== false
+  const literalCustomMetal = usingCustomGold || usingCustomSilver
   const bd = computeLineBreakdown(
     slabLineWithEdits,
     rates,
     slab,
     slabSettings,
-    usingCustomGold ? null : session.wholesaleGold,
-    usingCustomSilver ? null : session.wholesaleSilver,
+    session.wholesaleGold ?? null,
+    session.wholesaleSilver ?? null,
     goldPerG,
     silverPerG,
     goldSlabRShowMc,
+    { literalCustomMetalRate: literalCustomMetal },
   )
   const total = Math.round((Number(bd.total) || 0) * 100) / 100
   const metal = String(line.metal_type || '').toLowerCase()
   let ratePerGram = appliedRate > 0 ? appliedRate : line.ratePerGram
   if (!line.rateLocked) {
     if (lineHasPieceSlabFields(slabLineWithEdits) && metal.startsWith('silver')) {
-      const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
-      const silverOffset =
-        slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
-      ratePerGram = resolveErpSilverMetalRatePerG(
-        slab,
-        silverPerG,
-        usingCustomSilver ? null : session.wholesaleSilver,
-        silverOffset,
-      )
+      if (usingCustomSilver && silverPerG > 0) {
+        ratePerGram = silverPerG
+      } else {
+        const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
+        const silverOffset =
+          slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
+        ratePerGram = resolveErpSilverMetalRatePerG(
+          slab,
+          silverPerG,
+          session.wholesaleSilver,
+          silverOffset,
+        )
+      }
     } else {
       ratePerGram = metal.startsWith('gold') ? goldPerG : silverPerG
     }

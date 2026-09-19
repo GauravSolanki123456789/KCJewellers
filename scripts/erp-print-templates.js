@@ -1318,45 +1318,66 @@ function roughDiscountRow(label, amount, width = ROUGH_ESTIMATE_WIDTH) {
     return `${roughBold(plainLabel)}${' '.repeat(gap)}${val}`;
 }
 
-function roughDottedAmount(amount, width = ROUGH_ESTIMATE_WIDTH) {
+function roughSandwichAmount(amount, width = ROUGH_ESTIMATE_WIDTH) {
     const val = roughMoney(amount);
-    const dotsLen = Math.max(1, width - val.length);
-    return `${'.'.repeat(dotsLen)}${val}`;
+    const dash = '--------';
+    const pad = Math.max(0, width - dash.length);
+    const dashLine = `${' '.repeat(pad)}${dash}`;
+    const valPad = Math.max(0, width - val.length);
+    const valLine = `${' '.repeat(valPad)}${val}`;
+    return `${dashLine}\n${valLine}\n${dashLine}`;
+}
+
+function roughIstParts(iso) {
+    const d = iso instanceof Date ? iso : new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    const utcMs = d.getTime() + d.getTimezoneOffset() * 60_000;
+    const ist = new Date(utcMs + 330 * 60_000);
+    return {
+        dd: String(ist.getDate()).padStart(2, '0'),
+        mm: String(ist.getMonth() + 1).padStart(2, '0'),
+        yyyy: ist.getFullYear(),
+        h: ist.getHours(),
+        min: ist.getMinutes(),
+    };
 }
 
 function resolveRoughBillDateTime(bill) {
     const createdRaw = bill?.created_at;
-    const billRaw = bill?.bill_date || createdRaw;
-    const created = createdRaw ? new Date(createdRaw) : null;
-    const billD = billRaw ? new Date(billRaw) : new Date();
-    if (Number.isNaN(billD.getTime())) return new Date();
-    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(billRaw || '').trim().slice(0, 10));
-    if (dateOnly) {
-        const base = new Date(String(billRaw).trim().slice(0, 10) + 'T00:00:00');
-        const timeSrc =
-            created && !Number.isNaN(created.getTime()) ? created : new Date();
-        base.setHours(timeSrc.getHours(), timeSrc.getMinutes(), 0, 0);
-        return base;
+    if (createdRaw) {
+        const created = new Date(createdRaw);
+        if (!Number.isNaN(created.getTime())) return created;
     }
-    return billD;
+    const billRaw = bill?.bill_date;
+    const s = String(billRaw || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s.slice(0, 10))) {
+        const nowParts = roughIstParts(new Date());
+        if (nowParts) {
+            return new Date(
+                `${s.slice(0, 10)}T${String(nowParts.h).padStart(2, '0')}:${String(nowParts.min).padStart(2, '0')}:00`,
+            );
+        }
+    }
+    if (billRaw) {
+        const billD = new Date(billRaw);
+        if (!Number.isNaN(billD.getTime())) return billD;
+    }
+    return new Date();
 }
 
 function formatRoughHeaderDate(raw) {
-    const d = raw instanceof Date ? raw : raw ? new Date(raw) : new Date();
-    if (Number.isNaN(d.getTime())) return '';
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = String(d.getFullYear());
-    return `${dd}-${mm}-${yyyy}`;
+    const parts = roughIstParts(raw instanceof Date ? raw : raw ? new Date(raw) : new Date());
+    if (!parts) return '';
+    return `${parts.dd}-${parts.mm}-${parts.yyyy}`;
 }
 
 function formatRoughHeaderTime(raw) {
-    const d = raw instanceof Date ? raw : raw ? new Date(raw) : new Date();
-    if (Number.isNaN(d.getTime())) return '';
-    let h = d.getHours();
+    const parts = roughIstParts(raw instanceof Date ? raw : raw ? new Date(raw) : new Date());
+    if (!parts) return '';
+    let h = parts.h;
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
-    const min = String(d.getMinutes()).padStart(2, '0');
+    const min = String(parts.min).padStart(2, '0');
     return `${String(h).padStart(2, '0')}:${min} ${ampm}`;
 }
 
@@ -1373,10 +1394,11 @@ function buildRoughEstimateHeaderLines(bill, printFormats) {
     const customerLine = customerMobile ? `${customerName} / ${customerMobile}` : customerName;
     const dateLabel = formatRoughHeaderDate(when);
     const timeLabel = formatRoughHeaderTime(when);
+    const staffName = roughEmpName(bill, session);
     return [
-        roughHeaderTwoCol(roughBold(shopName.toUpperCase()), ''),
-        roughHeaderTwoCol(roughBold(`ESTIMATE NO ${estNo}`), `DATE : ${dateLabel}`),
-        roughHeaderTwoCol(customerLine, `TIME : ${timeLabel}`),
+        roughHeaderTwoCol(roughBold(shopName.toUpperCase()), `DATE : ${dateLabel}`),
+        roughHeaderTwoCol(roughBold(`ESTIMATE NO ${estNo}`), `TIME : ${timeLabel}`),
+        roughHeaderTwoCol(customerLine, staffName),
     ];
 }
 
@@ -1427,7 +1449,12 @@ function isGoldEstimateLine(line) {
 
 function roughItemDisplayName(line) {
     return String(
-        line?.name || line?.product_name || line?.sku || line?.style_code || line?.invoice_item_name || 'Item',
+        line?.style_code ||
+            line?.name ||
+            line?.invoice_item_name ||
+            line?.sku ||
+            line?.product_name ||
+            'Item',
     ).trim();
 }
 
@@ -1593,7 +1620,7 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     if (mcVal > 0) pushIf(out, roughKvRow('MC Value', mcVal));
 
     const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
-    out.push(roughDottedAmount(preDisc));
+    out.push(roughSandwichAmount(preDisc));
 
     const silverDisc = roughSilverRateDiscountInfo(line, rates);
     const mcDisc = roughMcDiscountAmount(line, rateSlab, rates, printFormats);
@@ -1605,7 +1632,7 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     }
 
     const taxable = lineTaxableFromTotal(line?.lineTotalInr);
-    out.push(roughDottedAmount(taxable));
+    out.push(roughSandwichAmount(taxable));
     const gst = splitRoughGst(taxable);
     const itemTotal = Math.round(gst.gross);
     pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
@@ -1633,7 +1660,7 @@ function buildMarlechaGiftItemSection(line, idx) {
             roughKvRow(`Discount (${gift.pct}% off)`, -gift.disc, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }),
         );
     }
-    out.push(roughDottedAmount(gift.taxable));
+    out.push(roughSandwichAmount(gift.taxable));
     const gst = splitRoughGst(gift.taxable);
     pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
     pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
@@ -1657,10 +1684,10 @@ function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats) 
     pushIf(out, roughKvRow('Diamond Charges', Number(line?.diamond_charges) || 0));
 
     const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
-    out.push(roughDottedAmount(preDisc));
+    out.push(roughSandwichAmount(preDisc));
 
     const taxable = lineTaxableFromTotal(line?.lineTotalInr);
-    out.push(roughDottedAmount(taxable));
+    out.push(roughSandwichAmount(taxable));
     const gst = splitRoughGst(taxable);
     const itemTotal = Math.round(gst.gross);
     pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));

@@ -677,6 +677,29 @@ function billSessionObj(bill) {
     return bill && bill.session && typeof bill.session === 'object' ? bill.session : {};
 }
 
+async function markSourceBillsRateAdjusted(query, userId, sessionObj, adjustmentBillId) {
+    const ids = [];
+    if (sessionObj && Array.isArray(sessionObj.sourceBillIds)) {
+        for (const raw of sessionObj.sourceBillIds) {
+            const n = parseInt(String(raw), 10);
+            if (Number.isFinite(n) && n > 0) ids.push(n);
+        }
+    }
+    if (!ids.length) return;
+    const patch = JSON.stringify({
+        rateDifferenceAdjusted: true,
+        partialReturnAdjustment: true,
+        lastRateAdjustmentBillId: adjustmentBillId,
+        lastRateAdjustmentAt: new Date().toISOString(),
+    });
+    await query(
+        `UPDATE reseller_erp_bills
+         SET session_json = COALESCE(session_json, '{}'::jsonb) || $3::jsonb
+         WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
+        [userId, [...new Set(ids)], patch],
+    );
+}
+
 async function reverseSalesReturnStock(query, userId, bill) {
     const session = billSessionObj(bill);
     const sourceIds = [];
@@ -1428,10 +1451,25 @@ function registerResellerErpRoutes(app, deps) {
                 await markPiecesSold(query, req.user.id, lines, bill.id);
             }
             if (['completed', 'paid', 'final', 'issued'].includes(status) && billType === 'sales_return') {
+                const skipStock =
+                    sessionObj.skipStockRestore === true ||
+                    sessionObj.rateMode === 'difference_adjustment';
+                if (!skipStock) {
+                    try {
+                        await restorePiecesInStock(query, req.user.id, lines);
+                    } catch (re) {
+                        console.warn('erp sales return restore stock:', re.message);
+                    }
+                }
+            }
+            if (
+                sessionObj.differenceAdjustment === true &&
+                (billType === 'credit' || billType === 'debit')
+            ) {
                 try {
-                    await restorePiecesInStock(query, req.user.id, lines);
-                } catch (re) {
-                    console.warn('erp sales return restore stock:', re.message);
+                    await markSourceBillsRateAdjusted(query, req.user.id, sessionObj, bill.id);
+                } catch (me) {
+                    console.warn('erp rate adjustment mark source bills:', me.message);
                 }
             }
             if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {

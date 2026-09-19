@@ -85,13 +85,12 @@ export function ErpProductsWorkspace() {
     [activeBatchId, pvNumber, tagDeleteCode],
   )
   const sessionAppliedRef = useRef(false)
+  const [sessionReady, setSessionReady] = useState(false)
+  const [batchLoading, setBatchLoading] = useState(false)
+
   useEffect(() => {
-    if (sessionAppliedRef.current || !sessionRestore) return
-    sessionAppliedRef.current = true
-    if (sessionRestore.activeBatchId) setActiveBatchId(sessionRestore.activeBatchId)
-    if (sessionRestore.pvNumber) setPvNumber(sessionRestore.pvNumber)
-    if (sessionRestore.tagDeleteCode) setTagDeleteCode(sessionRestore.tagDeleteCode)
-  }, [sessionRestore])
+    setSessionReady(true)
+  }, [])
 
   const loadDesignTree = useCallback(async () => {
     try {
@@ -143,6 +142,24 @@ export function ErpProductsWorkspace() {
     setActiveBatchId(batchId)
     setRenameLabel(res.data.batch?.batch_label || '')
   }, [])
+
+  useEffect(() => {
+    if (!sessionReady || sessionAppliedRef.current) return
+    sessionAppliedRef.current = true
+    if (!sessionRestore) return
+    if (sessionRestore.pvNumber) setPvNumber(sessionRestore.pvNumber)
+    if (sessionRestore.tagDeleteCode) setTagDeleteCode(sessionRestore.tagDeleteCode)
+    const restoreId = sessionRestore.activeBatchId
+    if (restoreId) {
+      setBatchLoading(true)
+      void loadBatch(restoreId)
+        .catch(() => {
+          setActiveBatchId(null)
+          setPieces([])
+        })
+        .finally(() => setBatchLoading(false))
+    }
+  }, [sessionReady, sessionRestore, loadBatch])
 
   const loadImports = useCallback(async (batchId: string) => {
     setImportsLoading(true)
@@ -420,6 +437,15 @@ export function ErpProductsWorkspace() {
 
   const activeBatch = batches.find((b) => b.id === activeBatchId)
 
+  if (!sessionReady || batchLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/60">
+        <Loader2 className="mr-2 size-5 animate-spin" />
+        Loading stock…
+      </div>
+    )
+  }
+
   if (activeBatchId && activeBatch) {
     return (
       <div className="space-y-4">
@@ -530,7 +556,8 @@ export function ErpProductsWorkspace() {
                         {imp.source_filename}
                       </p>
                       <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-                        {imp.live_count ?? imp.piece_count} piece(s) · uploaded {formatErpDateTime(imp.created_at)}
+                        {imp.live_count ?? imp.piece_count} piece(s) · uploaded{' '}
+                        <span suppressHydrationWarning>{formatErpDateTime(imp.created_at)}</span>
                       </p>
                     </div>
                     {canDeleteRecords ? (

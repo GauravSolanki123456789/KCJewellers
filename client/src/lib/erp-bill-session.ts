@@ -49,6 +49,8 @@ export type ErpBillSession = {
   invoiceTemplate?: string
   /** Per-bill PDF layout overrides (copy labels, terms, etc.) */
   invoicePrintOverrides?: ErpInvoicePrintOverrides
+  /** ERP operator display name when estimate/bill was saved */
+  operatorDisplayName?: string
 }
 
 export function buildErpBillSession(input: {
@@ -74,6 +76,7 @@ export function buildErpBillSession(input: {
   paymentMethod?: ErpPaymentMethod
   cashAmountInr?: number | null
   onlineAmountInr?: number | null
+  operatorDisplayName?: string | null
 }): ErpBillSession {
   const ratesUnfixed =
     input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
@@ -126,6 +129,7 @@ export function buildErpBillSession(input: {
       input.onlineAmountInr != null && Number.isFinite(Number(input.onlineAmountInr))
         ? Number(input.onlineAmountInr)
         : undefined,
+    operatorDisplayName: input.operatorDisplayName?.trim() || undefined,
   }
 }
 

@@ -96,8 +96,13 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const unlockShadow = useCallback(async (sequence: string) => {
-    await axios.post('/api/reseller/erp/shadow/unlock', { sequence })
-    setShadowUnlocked(true)
+    const res = await axios.post<{ success?: boolean; shadowUnlocked?: boolean }>(
+      '/api/reseller/erp/shadow/unlock',
+      { sequence },
+    )
+    if (res.data?.success && res.data.shadowUnlocked) {
+      setShadowUnlocked(true)
+    }
   }, [])
 
   const lockShadow = useCallback(async () => {

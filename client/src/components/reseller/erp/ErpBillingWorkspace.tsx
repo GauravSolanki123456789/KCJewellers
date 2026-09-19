@@ -289,7 +289,7 @@ function clearDraftStorage() {
 
 export function ErpBillingWorkspace() {
   const auth = useAuth()
-  const { shadowUnlocked } = useErpOperator()
+  const { shadowUnlocked, operator } = useErpOperator()
   const router = useRouter()
   const searchParams = useSearchParams()
   const editIdParam = searchParams.get('edit')
@@ -1648,6 +1648,7 @@ export function ErpBillingWorkspace() {
         totalDiscountInr: discountSummary.totalDiscountInr,
         netTotalInr: billType === 'sale' ? billTotalInr : totals.net,
         goldSlabRShowMc,
+        operatorDisplayName: operator?.displayName || operator?.username || '',
       }),
       ...(combinedSourceEstimateIds.length > 0
         ? {

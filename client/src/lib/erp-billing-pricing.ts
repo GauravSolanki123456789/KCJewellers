@@ -206,6 +206,11 @@ export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
   }
 }
 
+export type ComputeLineBreakdownOpts = {
+  /** Custom ₹/g from SSR — do not subtract slab R silver offset again. */
+  literalCustomMetalRate?: boolean
+}
+
 export function computeLineBreakdown(
   line: ErpBillLine,
   displayRates: unknown,
@@ -216,6 +221,7 @@ export function computeLineBreakdown(
   goldPerG = 0,
   silverPerG = 0,
   goldSlabRShowMc = true,
+  opts?: ComputeLineBreakdownOpts,
 ) {
   if (isPiecePricedBillLine(line)) {
     const priced = applyPiecePricedLineCalc(line)
@@ -246,8 +252,11 @@ export function computeLineBreakdown(
   if (useStockPieceSlab) {
     const adjusted = applyPieceSlabToLine(slabLine, slab)
     const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
-    const silverOffset =
-      slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
+    const silverOffset = opts?.literalCustomMetalRate
+      ? 0
+      : slab === 'R'
+        ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0)
+        : 0
     const mcDisc = isMcPerPiece(adjusted.mc_type)
       ? Math.max(0, Number(tier.mc_discount_pct) || 0)
       : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0)
