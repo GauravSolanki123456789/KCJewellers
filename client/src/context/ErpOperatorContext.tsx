@@ -21,6 +21,7 @@ export type ErpOperator = {
   fullAccess: boolean
   shadowAccess: boolean
   isActive?: boolean
+  isStoreGreeter?: boolean
 }
 
 type ErpOperatorContextValue = {

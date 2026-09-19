@@ -31,6 +31,7 @@ import { ErpStockCheckWorkspace } from '@/components/reseller/erp/ErpStockCheckW
 import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
 import { ErpJainavBillsWorkspace } from '@/components/reseller/erp/ErpJainavBillsWorkspace'
 import { ErpOfflineWorkspace } from '@/components/reseller/erp/ErpOfflineWorkspace'
+import { ErpCustomerRoutingWorkspace } from '@/components/reseller/erp/ErpCustomerRoutingWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { isJainavModule } from '@/lib/reseller-erp-modules'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
@@ -56,6 +57,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
   switch (moduleId) {
     case 'customers':
       return <CustomersWorkspace />
+    case 'customer-routing':
+      return <ErpCustomerRoutingWorkspace />
     case 'ledger':
       return <ErpLedgerWorkspace />
     case 'products':

@@ -32,6 +32,7 @@ const { ensureCashBookCustomers } = require('./resellerErpCustomerAccount');
 const { registerResellerErpPurchaseVoucherRoutes } = require('./resellerErpPurchaseVouchers');
 const { registerResellerErpBackupRoutes } = require('./resellerErpBackup');
 const { registerResellerErpOfflineRoutes } = require('./resellerErpOffline');
+const { registerResellerErpCustomerRoutingRoutes } = require('./resellerErpCustomerRouting');
 const { registerResellerWhatsAppRoutes, registerWhatsAppWebhookRoutes } = require('./resellerWhatsApp');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./resellerErpDesignMaster');
@@ -835,6 +836,7 @@ function registerResellerErpRoutes(app, deps) {
     registerResellerErpPurchaseVoucherRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpBackupRoutes(app, { query, checkAuth, erpGate });
     registerResellerErpOfflineRoutes(app, { query, checkAuth, requireJson, erpGate });
+    registerResellerErpCustomerRoutingRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerWhatsAppWebhookRoutes(app, { getPublicApiBaseUrl });
     registerResellerWhatsAppRoutes(app, { query, checkAuth, erpGate, getPublicApiBaseUrl });
     registerKarigarRoutes(app, {

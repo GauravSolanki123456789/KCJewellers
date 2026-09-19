@@ -25,6 +25,7 @@ import {
   Undo2,
   UserCog,
   Users,
+  Route,
   Vault,
   Warehouse,
   WifiOff,
@@ -42,6 +43,7 @@ export type ResellerErpModuleId =
   | 'orders'
   | 'estimations'
   | 'customers'
+  | 'customer-routing'
   | 'ledger'
   | 'products'
   | 'design-master'
@@ -156,6 +158,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'CRM',
     description: '',
     icon: Users,
+    group: 'crm',
+    kind: 'workspace',
+  },
+  {
+    id: 'customer-routing',
+    title: 'Customer routing',
+    short: 'Staff routing',
+    description: 'Walk-in queue, counters & staff performance',
+    icon: Route,
     group: 'crm',
     kind: 'workspace',
   },

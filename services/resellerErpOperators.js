@@ -12,6 +12,7 @@ const ALL_MODULE_IDS = [
     'rate-uncut', 'slabs', 'sales-reports', 'sales-percentages',
     'gst', 'e-invoice', 'e-way', 'tally', 'integrations',
     'barcoding', 'tag-splitting', 'scanner', 'hardware', 'print-formats', 'erp-users',
+    'customer-routing',
     'backup',
     'jainav', 'stock-reports', 'stock-check', 'jainav-ledger',
 ];
@@ -38,6 +39,9 @@ async function ensureOperatorsSchema(pool) {
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_operators_username
             ON reseller_erp_operators (reseller_user_id, LOWER(username));
+
+        ALTER TABLE reseller_erp_operators
+            ADD COLUMN IF NOT EXISTS is_store_greeter BOOLEAN NOT NULL DEFAULT false;
     `);
 }
 
@@ -57,6 +61,7 @@ function mapOperator(row, { includeMeta = false } = {}) {
         fullAccess: !!row.full_access,
         shadowAccess: !!row.shadow_access,
         isActive: !!row.is_active,
+        isStoreGreeter: !!row.is_store_greeter,
     };
     if (includeMeta) {
         base.lastLoginAt = row.last_login_at || null;
