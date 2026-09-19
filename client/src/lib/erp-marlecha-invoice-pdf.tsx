@@ -161,17 +161,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#000',
   },
-  colHeadCell: {
-    paddingVertical: 4,
-    paddingHorizontal: 2,
+  /** Single header band — one bottom border across all columns. */
+  tableHeaderRow: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
     borderBottomWidth: 1,
     borderBottomColor: '#000',
-    width: '100%',
+    minHeight: 30,
+    alignItems: 'flex-end',
   },
+  tableHeaderCell: {
+    paddingHorizontal: 2,
+    paddingBottom: 3,
+    paddingTop: 2,
+    borderRightWidth: 1,
+    borderRightColor: '#000',
+    justifyContent: 'flex-end',
+    minHeight: 30,
+  },
+  tableHeaderCellLast: { borderRightWidth: 0 },
   headCellText: {
     fontSize: 6.5,
     fontWeight: 'bold',
     textAlign: 'center',
+    lineHeight: 1.15,
   },
   bodyCell: {
     paddingVertical: 4,
@@ -295,7 +308,24 @@ function renderColumnTable(
   const rowStyle = opts?.fillRemaining ? styles.tableColumnsRow : styles.tableColumnsRowFixed
 
   return (
-    <View style={rowStyle}>
+    <View style={{ alignSelf: 'stretch', flexGrow: opts?.fillRemaining ? 1 : 0 }}>
+      <View style={styles.tableHeaderRow}>
+        {widths.map((w, colIdx) => (
+          <View
+            key={`${tableKey}-head-${colIdx}`}
+            style={[
+              styles.tableHeaderCell,
+              { width: w },
+              ...(colIdx === last ? [styles.tableHeaderCellLast] : []),
+            ]}
+          >
+            <Text style={styles.headCellText}>
+              {sanitizePdfText((columns[colIdx] || '').replace(/\\n/g, '\n'))}
+            </Text>
+          </View>
+        ))}
+      </View>
+      <View style={rowStyle}>
       {widths.map((w, colIdx) => (
         <View
           key={`${tableKey}-col-${colIdx}`}
@@ -305,11 +335,6 @@ function renderColumnTable(
             ...(colIdx === last ? [styles.tableColumnLast] : []),
           ]}
         >
-          <View style={styles.colHeadCell}>
-            <Text style={styles.headCellText}>
-              {sanitizePdfText((columns[colIdx] || '').replace(/\\n/g, '\n'))}
-            </Text>
-          </View>
           {rows.map((row, rowIdx) => (
             <View key={`${tableKey}-row-${rowIdx}`} style={styles.colBodyCell}>
               <Text
@@ -332,6 +357,7 @@ function renderColumnTable(
           {opts?.fillRemaining ? <View style={styles.colSpacer} /> : null}
         </View>
       ))}
+      </View>
     </View>
   )
 }

@@ -120,18 +120,27 @@ const styles = StyleSheet.create({
   },
   tableHead: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     backgroundColor: '#f0ebe3',
     borderBottomWidth: 1,
     borderBottomColor: '#222',
+    minHeight: 30,
+  },
+  tableHeadCellWrap: {
+    justifyContent: 'flex-end',
+    minHeight: 30,
+    paddingBottom: 3,
+    paddingTop: 2,
+    paddingHorizontal: 3,
+    borderRightWidth: 1,
+    borderRightColor: '#222',
   },
   tableHeadCell: {
-    paddingVertical: 4,
-    paddingHorizontal: 3,
     fontSize: 6.5,
     fontWeight: 'bold',
     textAlign: 'center',
-    borderRightWidth: 1,
-    borderRightColor: '#222',
+    lineHeight: 1.15,
+    color: '#1a1814',
   },
   tableRow: {
     flexDirection: 'row',
@@ -338,10 +347,17 @@ function InvoiceCopyPage({
             { w: COL_WIDTHS.purity, label: 'Purity' },
             { w: COL_WIDTHS.rate, label: 'Rate' },
             { w: COL_WIDTHS.total, label: 'TOTAL' },
-          ].map((c) => (
-            <Text key={c.label} style={[styles.tableHeadCell, { width: c.w }]}>
-              {c.label}
-            </Text>
+          ].map((c, idx, arr) => (
+            <View
+              key={c.label}
+              style={[
+                styles.tableHeadCellWrap,
+                { width: c.w },
+                ...(idx === arr.length - 1 ? [{ borderRightWidth: 0 }] : []),
+              ]}
+            >
+              <Text style={styles.tableHeadCell}>{c.label}</Text>
+            </View>
           ))}
         </View>
         {lines.map((line, i) => {
