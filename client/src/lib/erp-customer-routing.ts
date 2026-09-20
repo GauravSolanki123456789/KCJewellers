@@ -37,6 +37,57 @@ export type ActiveVisit = {
   started_at: string
 }
 
+export type FloorTrailStep = {
+  label: string
+  detail: string
+  at: string
+}
+
+export type FloorVisit = {
+  visit_id: number
+  customer_id: number
+  customer_name: string
+  customer_mobile: string | null
+  started_at: string
+  status: string
+  current_label: string
+  current_queue_status: string | null
+  current_counter: string | null
+  trail: FloorTrailStep[]
+  trail_text: string
+}
+
+export type VisitTimeline = {
+  visit: {
+    id: number
+    customer_name: string
+    customer_mobile: string | null
+    status: string
+    started_at: string
+    ended_at: string | null
+  }
+  queue: {
+    id: number
+    counter_name: string
+    status: string
+    queued_at: string
+  }[]
+  interactions: {
+    id: number
+    created_at: string
+    counter_name: string | null
+    forward_counter_name: string | null
+    operator_name: string | null
+    outcome: string
+    outcome_label: string
+    bill_number?: string | null
+    bill_amount_inr?: number | string | null
+    no_sale_reason?: string | null
+    purchase_notes?: string | null
+  }[]
+  trail: FloorTrailStep[]
+}
+
 export async function fetchRoutingBootstrap(): Promise<RoutingBootstrap> {
   const { data } = await axios.get<RoutingBootstrap>('/api/reseller/erp/customer-routing/bootstrap')
   return data
@@ -55,6 +106,26 @@ export async function fetchActiveVisits(): Promise<ActiveVisit[]> {
     '/api/reseller/erp/customer-routing/visits/active',
   )
   return data.visits ?? []
+}
+
+export async function fetchLiveFloor(): Promise<{
+  visits: FloorVisit[]
+  active_count: number
+  counters_busy: { counter_id: number; counter_name: string; active_count: number }[]
+}> {
+  const { data } = await axios.get('/api/reseller/erp/customer-routing/floor/live')
+  return {
+    visits: data.visits ?? [],
+    active_count: data.active_count ?? 0,
+    counters_busy: data.counters_busy ?? [],
+  }
+}
+
+export async function fetchVisitTimeline(visitId: number): Promise<VisitTimeline> {
+  const { data } = await axios.get<VisitTimeline>(
+    `/api/reseller/erp/customer-routing/visits/${visitId}/timeline`,
+  )
+  return data
 }
 
 export async function routeCustomerToCounter(payload: {
@@ -115,6 +186,7 @@ export async function fetchRoutingAnalytics(params: {
   from?: string
   to?: string
   operator_id?: number
+  view?: 'summary' | 'detailed'
 }): Promise<{
   summary: {
     operator_id: number | null
@@ -128,9 +200,29 @@ export async function fetchRoutingAnalytics(params: {
   }[]
   lost_sale_reasons: { reason: string; count: number }[]
   routed_by_counter: { counter_name: string; routed: number }[]
+  detailed: {
+    id: number
+    created_at: string
+    customer_name: string
+    customer_mobile: string | null
+    counter_name: string | null
+    forward_counter_name: string | null
+    operator_name: string | null
+    outcome: string
+    outcome_label: string
+    bill_number?: string | null
+    bill_amount_inr?: number | string | null
+    no_sale_reason?: string | null
+    purchase_notes?: string | null
+  }[]
 }> {
-  const { data } = await axios.get('/api/reseller/erp/customer-routing/analytics', { params })
-  return data
+  const { data } = await axios.get('/api/reseller/erp/customer-routing/analytics', {
+    params: {
+      ...params,
+      view: params.view === 'detailed' ? 'detailed' : undefined,
+    },
+  })
+  return { ...data, detailed: data.detailed ?? [] }
 }
 
 export async function exportRoutingAnalyticsExcel(

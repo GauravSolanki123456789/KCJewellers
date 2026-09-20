@@ -14,6 +14,7 @@ import {
   resolveErpSilverMetalRatePerG,
   pieceSlabMcRate,
 } from '@/lib/erp-piece-slab-pricing'
+import { applyGiftMrpPieceRate } from '@/lib/erp-gift-mrp-pricing'
 import {
   isFixedPriceCatalogItem,
   isGiftingItem,
@@ -166,6 +167,65 @@ export function isWeightBasedSilverGiftLine(line: ErpBillLine): boolean {
   return metal.startsWith('silver')
 }
 
+/** Weight-based silver gift stock billed with MC/GM (combined ₹/g × net wt). */
+export function isSilverGiftMcGmLine(line: ErpBillLine): boolean {
+  if (!isWeightBasedSilverGiftLine(line)) return false
+  return !isMcPerPiece(line.mc_type)
+}
+
+function computeSilverGiftMcGmBreakdown(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+  slabSettings: ResellerSlabSettings,
+  silverPerG: number,
+  wholesaleSilver?: number | null,
+  gstPct = 3,
+): PriceBreakdown {
+  const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
+  const qty = Math.max(1, Number(line.qty) || 1)
+  const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
+  const silverOffset =
+    slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
+  const metalRate = resolveErpSilverMetalRatePerG(
+    slab,
+    silverPerG,
+    wholesaleSilver,
+    silverOffset,
+  )
+  const mcBase = Number(line.mc_rate) || 0
+  const mcDisc = Math.max(
+    0,
+    Math.min(
+      100,
+      Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0,
+    ),
+  )
+  const mcPerG = mcDisc > 0 ? mcBase * (1 - mcDisc / 100) : mcBase
+  const combinedPerG = metalRate + mcPerG
+  const metalPart = Math.round(metalRate * netWt * qty)
+  const mc = Math.round(mcPerG * netWt * qty)
+  const taxable = metalPart + mc
+  const totalWithGst = Math.round(taxable * (1 + gstPct / 100))
+  const gstAmt = totalWithGst - taxable
+  const box = Number(line.box_charges || 0) || 0
+  const total = totalWithGst + box
+  return {
+    metal: metalPart,
+    mc,
+    stone: 0,
+    cgst: gstAmt / 2,
+    sgst: gstAmt / 2,
+    taxable,
+    total,
+    rate_per_gram: metalRate,
+    net_weight: netWt,
+    billable_weight_gm: netWt,
+    mc_before_discount:
+      mcDisc > 0 && mcBase > mcPerG ? Math.round(mcBase * netWt * qty) : undefined,
+    mc_discount_pct: mcDisc > 0 && mcBase > mcPerG ? mcDisc : undefined,
+  }
+}
+
 /** Gift / MRP / fixed piece-rate rows (qty × fixed price, no weight-based metal math). */
 export function isPiecePricedBillLine(line: ErpBillLine): boolean {
   if (isWeightBasedSilverGiftLine(line)) return false
@@ -191,7 +251,8 @@ export function isPiecePricedBillLine(line: ErpBillLine): boolean {
 
 export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
   const parsed = Number(line.qty)
-  const pieceRate = Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram ?? line.mc_rate) || 0
+  const pieceRate =
+    Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram ?? line.mc_rate) || 0
   const isGift = line.manualCategory === 'gift' || !!line.mrpMode
   let qty = Number.isFinite(parsed) && parsed > 0 ? parsed : isGift ? 0 : 1
   if (pieceRate > 0 && qty <= 0 && (line.mrpMode || isFixedPriceCatalogItem(lineToItem(line)))) {
@@ -223,6 +284,18 @@ export function computeLineBreakdown(
   goldSlabRShowMc = true,
   opts?: ComputeLineBreakdownOpts,
 ) {
+  if (isSilverGiftMcGmLine(line)) {
+    const bd = computeSilverGiftMcGmBreakdown(
+      line,
+      slab,
+      slabSettings,
+      silverPerG,
+      wholesaleSilver,
+      3,
+    )
+    return bd
+  }
+
   if (isPiecePricedBillLine(line)) {
     const priced = applyPiecePricedLineCalc(line)
     const total = Number(priced.lineTotalInr) || 0

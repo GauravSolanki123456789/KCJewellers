@@ -85,7 +85,11 @@ import {
 } from '@/lib/erp-catalog-product'
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
-import { applyGiftMrpForSlabChange, giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
+import {
+  applyGiftMrpForSlabChange,
+  applyGiftMrpPieceRate,
+  giftMrpSlabPrice,
+} from '@/lib/erp-gift-mrp-pricing'
 import { ErpBillingStackedRow } from '@/components/reseller/erp/ErpBillingStackedRow'
 import { resolveCustomerPlaceOfSupply } from '@/lib/erp-place-of-supply'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
@@ -478,7 +482,9 @@ export function ErpBillingWorkspace() {
       },
     ): ErpBillLine => {
       if (isPiecePricedBillLine(line)) {
-        return applyPiecePricedLineCalc(line)
+        const slab = opts?.slab ?? rateSlab
+        const withMrp = applyGiftMrpPieceRate(line, slab, slabSettings)
+        return { ...withMrp, ...applyPiecePricedLineCalc(withMrp) }
       }
       const slab = opts?.slab ?? rateSlab
       const rates = opts?.rates ?? displayRates
@@ -2757,16 +2763,12 @@ export function ErpBillingWorkspace() {
                           onAdvance={(field) => advanceBillField(lineKey, field, line, idx)}
                           onPatch={(patch) => {
                             let next = { ...patch }
-                            if (
-                              next.fixed_price != null &&
-                              Number(next.fixed_price) > 0 &&
-                              (line.designFinishOptions?.length || next.mrpMode)
-                            ) {
-                              const list = Number(next.mrpListPrice ?? next.fixed_price)
-                              const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
+                            const listMrp = Number(next.mrpListPrice ?? line.mrpListPrice ?? 0)
+                            if (listMrp > 0) {
+                              const slabPrice = giftMrpSlabPrice(listMrp, rateSlab, slabSettings)
                               next = {
                                 ...next,
-                                mrpListPrice: list,
+                                mrpListPrice: listMrp,
                                 fixed_price: slabPrice,
                                 unitInr: slabPrice,
                                 mrpMode: true,
@@ -2894,9 +2896,9 @@ export function ErpBillingWorkspace() {
                           )
                         }
 
-                        if (col.key === 'size' && line.designSizeOptions?.length) {
+                        if (col.key === 'size' && (line.designSizeOptions?.length ?? 0) > 0) {
                           const refKey = `${lineKey}-size`
-                          const sizeOpts = line.designSizeOptions
+                          const sizeOpts = line.designSizeOptions ?? []
                           return (
                             <td key={col.key} className="px-0.5 py-0.5">
                               <ErpBillingStyleSkuCell
@@ -2943,22 +2945,32 @@ export function ErpBillingWorkspace() {
                           )
                         }
 
-                        if (col.key === 'box_charges' && line.designBoxOptions?.length) {
+                        if (col.key === 'box_charges' && (line.designBoxOptions?.length ?? 0) >= 2) {
                           const refKey = `${lineKey}-box_charges`
                           return (
                             <td key={col.key} className="px-0.5 py-0.5">
                               <ErpBillingStyleSkuCell
                                 value={line.packaging_label || ''}
                                 placeholder="Box…"
-                                options={line.designBoxOptions.map((o) => o.label)}
+                                options={(line.designBoxOptions ?? []).map((o) => o.label)}
                                 autoFocus={
                                   manualFocus?.lineKey === lineKey && manualFocus.field === 'box_charges'
                                 }
                                 inputRef={(el) => {
                                   manualCellRefs.current[refKey] = el
                                 }}
-                                onChange={() => {}}
+                                onChange={(v) => {
+                                  if (!v.trim()) {
+                                    updateLine(idx, { packaging_label: null, box_charges: 0 })
+                                    return
+                                  }
+                                  updateLine(idx, { packaging_label: v })
+                                }}
                                 onCommit={(label) => {
+                                  if (!label.trim()) {
+                                    updateLine(idx, { packaging_label: null, box_charges: 0 })
+                                    return
+                                  }
                                   const hit = findDesignOptionLabel(line.designBoxOptions, label)
                                   const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
                                   const patch: Partial<ErpBillLine> = {
@@ -2982,22 +2994,44 @@ export function ErpBillingWorkspace() {
                           )
                         }
 
-                        if (col.key === 'stone_charges' && line.designFinishOptions?.length) {
+                        if (col.key === 'stone_charges' && (line.designFinishOptions?.length ?? 0) >= 2) {
                           const refKey = `${lineKey}-stone_charges`
                           return (
                             <td key={col.key} className="px-0.5 py-0.5">
                               <ErpBillingStyleSkuCell
                                 value={line.finish_label || ''}
                                 placeholder="GP / Standard…"
-                                options={line.designFinishOptions.map((o) => o.label)}
+                                options={(line.designFinishOptions ?? []).map((o) => o.label)}
                                 autoFocus={
                                   manualFocus?.lineKey === lineKey && manualFocus.field === 'stone_charges'
                                 }
                                 inputRef={(el) => {
                                   manualCellRefs.current[refKey] = el
                                 }}
-                                onChange={() => {}}
+                                onChange={(v) => {
+                                  if (!v.trim()) {
+                                    updateLine(idx, {
+                                      finish_label: null,
+                                      stone_charges: 0,
+                                      fixed_price: null,
+                                      unitInr: null,
+                                      mrpListPrice: null,
+                                    })
+                                    return
+                                  }
+                                  updateLine(idx, { finish_label: v })
+                                }}
                                 onCommit={(label) => {
+                                  if (!label.trim()) {
+                                    updateLine(idx, {
+                                      finish_label: null,
+                                      stone_charges: 0,
+                                      fixed_price: null,
+                                      unitInr: null,
+                                      mrpListPrice: null,
+                                    })
+                                    return
+                                  }
                                   const hit = findDesignOptionLabel(line.designFinishOptions, label)
                                   const list = Number(hit?.fixed_price ?? 0)
                                   const slabPrice =

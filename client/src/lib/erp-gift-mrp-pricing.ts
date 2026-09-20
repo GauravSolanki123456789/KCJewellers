@@ -35,6 +35,23 @@ export function parseResellerSlabSettingsFromUser(raw: unknown): ResellerSlabSet
 }
 
 /** Re-apply Gift / MRP disc % from the stored list MRP when the billing slab changes. */
+/** Re-apply Gift / MRP disc % from catalogue list MRP on every line recalc. */
+export function applyGiftMrpPieceRate(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+  slabSettings: ResellerSlabSettings,
+): ErpBillLine {
+  const list = Number(line.mrpListPrice)
+  if (!Number.isFinite(list) || list <= 0) return line
+  const slabPrice = giftMrpSlabPrice(list, slab, slabSettings)
+  return {
+    ...line,
+    fixed_price: slabPrice,
+    unitInr: slabPrice,
+    mrpMode: true,
+  }
+}
+
 export function applyGiftMrpForSlabChange(
   line: ErpBillLine,
   nextSlab: ErpRateSlab,

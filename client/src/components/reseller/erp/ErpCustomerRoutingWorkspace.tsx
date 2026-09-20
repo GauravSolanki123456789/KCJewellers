@@ -8,24 +8,41 @@ import {
   createCounter,
   deleteCounter,
   exportRoutingAnalyticsExcel,
+  fetchLiveFloor,
   fetchLiveQueue,
   fetchRoutingAnalytics,
   fetchRoutingBootstrap,
+  fetchVisitTimeline,
   routeCustomerToCounter,
   setStoreGreeter,
   startServingQueueItem,
   updateCounter,
+  type FloorVisit,
   type QueueItem,
   type RoutingBootstrap,
+  type VisitTimeline,
 } from '@/lib/erp-customer-routing'
+import { downloadRoutingReportPdf } from '@/lib/erp-routing-report-pdf'
+import {
+  ErpRoutingCustomerSuggest,
+  type RoutingCustomer,
+} from '@/components/reseller/erp/ErpRoutingCustomerSuggest'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { erpTodayIso, erpDaysAgoIso } from '@/lib/erp-date-format'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { cn } from '@/lib/utils'
-import { Loader2, Plus, RefreshCw, Route, Trash2, Users } from 'lucide-react'
+import { Loader2, MapPin, Plus, RefreshCw, Route, Trash2, Users, X } from 'lucide-react'
 
-type ErpCustomer = { id: number; name: string; mobile?: string | null }
+function formatWalkInAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const m = Math.floor(ms / 60000)
+  if (m < 1) return 'Just arrived'
+  if (m < 60) return `${m}m in store`
+  const h = Math.floor(m / 60)
+  return `${h}h ${m % 60}m`
+}
 
 const NO_SALE_PRESETS = [
   'Price too high',
@@ -42,9 +59,15 @@ export function ErpCustomerRoutingWorkspace() {
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [queue, setQueue] = useState<QueueItem[]>([])
-  const [customers, setCustomers] = useState<ErpCustomer[]>([])
   const [operators, setOperators] = useState<{ id: number; displayName: string }[]>([])
-  const [selectedCustomerId, setSelectedCustomerId] = useState<number | ''>('')
+  const [pickedCustomer, setPickedCustomer] = useState<RoutingCustomer | null>(null)
+  const [floorVisits, setFloorVisits] = useState<FloorVisit[]>([])
+  const [floorBusy, setFloorBusy] = useState<{ counter_name: string; active_count: number }[]>([])
+  const [floorSearch, setFloorSearch] = useState('')
+  const [floorExpanded, setFloorExpanded] = useState(false)
+  const [timelineVisitId, setTimelineVisitId] = useState<number | null>(null)
+  const [timeline, setTimeline] = useState<VisitTimeline | null>(null)
+  const [timelineLoading, setTimelineLoading] = useState(false)
   const [routeCounterId, setRouteCounterId] = useState<number | ''>('')
   const [newCounterName, setNewCounterName] = useState('')
   const [greeterOpId, setGreeterOpId] = useState<number | ''>('')
@@ -64,6 +87,7 @@ export function ErpCustomerRoutingWorkspace() {
   )
   const [reportBusy, setReportBusy] = useState(false)
   const [adminTab, setAdminTab] = useState<'counters' | 'analytics'>('counters')
+  const [reportView, setReportView] = useState<'summary' | 'detailed'>('summary')
 
   const reloadBoot = useCallback(async () => {
     const b = await fetchRoutingBootstrap()
@@ -78,17 +102,22 @@ export function ErpCustomerRoutingWorkspace() {
     setQueue(q)
   }, [boot])
 
+  const reloadFloor = useCallback(async () => {
+    if (!boot || (boot.role !== 'greeter' && boot.role !== 'admin')) return
+    try {
+      const f = await fetchLiveFloor()
+      setFloorVisits(f.visits)
+      setFloorBusy(f.counters_busy)
+    } catch {
+      /* keep last snapshot */
+    }
+  }, [boot])
+
   useEffect(() => {
     void (async () => {
       setLoading(true)
       try {
         await reloadBoot()
-        const [custRes] = await Promise.all([
-          axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
-            params: { limit: 200 },
-          }),
-        ])
-        setCustomers(custRes.data.customers || [])
       } catch (e) {
         setErr('Failed to load routing')
       } finally {
@@ -100,9 +129,25 @@ export function ErpCustomerRoutingWorkspace() {
   useEffect(() => {
     if (!boot) return
     void reloadQueue()
-    const t = window.setInterval(() => void reloadQueue(), 4000)
+    void reloadFloor()
+    const t = window.setInterval(() => {
+      void reloadQueue()
+      void reloadFloor()
+    }, 4000)
     return () => window.clearInterval(t)
-  }, [boot, reloadQueue])
+  }, [boot, reloadQueue, reloadFloor])
+
+  useEffect(() => {
+    if (!timelineVisitId) {
+      setTimeline(null)
+      return
+    }
+    setTimelineLoading(true)
+    void fetchVisitTimeline(timelineVisitId)
+      .then(setTimeline)
+      .catch(() => setTimeline(null))
+      .finally(() => setTimelineLoading(false))
+  }, [timelineVisitId])
 
   useEffect(() => {
     if (boot?.role !== 'admin') return
@@ -122,19 +167,19 @@ export function ErpCustomerRoutingWorkspace() {
   const counters = boot?.counters ?? []
 
   const routeCustomer = async () => {
-    if (!selectedCustomerId || !routeCounterId) {
+    if (!pickedCustomer?.id || !routeCounterId) {
       setErr('Choose customer and counter')
       return
     }
     setErr('')
     try {
       await routeCustomerToCounter({
-        customer_id: Number(selectedCustomerId),
+        customer_id: pickedCustomer.id,
         counter_id: Number(routeCounterId),
       })
       setMsg('Customer routed to counter')
-      setSelectedCustomerId('')
-      await reloadQueue()
+      setPickedCustomer(null)
+      await Promise.all([reloadQueue(), reloadFloor()])
     } catch (e: unknown) {
       const m =
         e && typeof e === 'object' && 'response' in e
@@ -166,7 +211,7 @@ export function ErpCustomerRoutingWorkspace() {
       setBillAmount('')
       setPurchaseNotes('')
       setNoSaleReason('')
-      await reloadQueue()
+      await Promise.all([reloadQueue(), reloadFloor()])
     } catch (e: unknown) {
       const m =
         e && typeof e === 'object' && 'response' in e
@@ -182,6 +227,7 @@ export function ErpCustomerRoutingWorkspace() {
       const data = await fetchRoutingAnalytics({
         from: fromDate,
         to: toDate,
+        view: reportView,
       })
       setAnalytics(data)
     } catch {
@@ -195,6 +241,26 @@ export function ErpCustomerRoutingWorkspace() {
     () => queue.find((q) => q.id === activeQueueId) ?? null,
     [queue, activeQueueId],
   )
+
+  const filteredFloor = useMemo(() => {
+    const q = floorSearch.trim().toLowerCase()
+    if (!q) return floorVisits
+    const digits = q.replace(/\D/g, '')
+    return floorVisits.filter(
+      (v) =>
+        v.customer_name.toLowerCase().includes(q) ||
+        (digits.length >= 4 && (v.customer_mobile || '').replace(/\D/g, '').includes(digits)) ||
+        (v.current_counter || '').toLowerCase().includes(q),
+    )
+  }, [floorVisits, floorSearch])
+
+  const floorVisible = useMemo(() => {
+    const list = filteredFloor
+    if (floorExpanded || list.length <= 8) return list
+    return list.slice(0, 8)
+  }, [filteredFloor, floorExpanded])
+
+  const showLiveFloor = role === 'greeter' || role === 'admin'
 
   if (loading) {
     return (
@@ -217,10 +283,104 @@ export function ErpCustomerRoutingWorkspace() {
                 ? 'Your counter queue'
                 : 'View only — ask admin for counter or greeter role'}
         </p>
-        <button type="button" className={erpBtnGhost} onClick={() => void reloadBoot().then(() => reloadQueue())}>
+        <button
+          type="button"
+          className={erpBtnGhost}
+          onClick={() => void reloadBoot().then(() => Promise.all([reloadQueue(), reloadFloor()]))}
+        >
           <RefreshCw className="size-4" /> Refresh
         </button>
       </div>
+
+      {showLiveFloor ? (
+        <div className={`${erpCardCls} space-y-3`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              <MapPin className="mr-1 inline size-4 text-[var(--kc-accent,#c41e3a)]" />
+              Live store floor
+              <span className="ml-2 rounded-full bg-[var(--color-jewelry-black,#1a1814)]/8 px-2 py-0.5 text-xs font-bold tabular-nums">
+                {floorVisits.length} active
+              </span>
+            </p>
+            <input
+              className={`${erpInputCls} max-w-[220px] text-sm`}
+              placeholder="Search name / mobile / counter"
+              value={floorSearch}
+              onChange={(e) => setFloorSearch(e.target.value)}
+            />
+          </div>
+          {floorBusy.length ? (
+            <div className="flex flex-wrap gap-2">
+              {floorBusy.slice(0, 8).map((b) => (
+                <span
+                  key={b.counter_name}
+                  className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1 text-[11px] font-semibold text-[var(--color-jewelry-black,#1a1814)]/80"
+                >
+                  {b.counter_name}
+                  <span className="ml-1 tabular-nums text-[var(--kc-accent,#c41e3a)]">{b.active_count}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {floorVisible.length === 0 ? (
+            <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+              No walk-ins on the floor right now.
+            </p>
+          ) : (
+            <ul className="max-h-[min(52vh,420px)] space-y-2 overflow-y-auto pr-1">
+              {floorVisible.map((v) => (
+                <li key={v.visit_id}>
+                  <button
+                    type="button"
+                    onClick={() => setTimelineVisitId(v.visit_id)}
+                    className="w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 text-left transition hover:border-[var(--kc-accent,#c41e3a)]/35"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                          {v.customer_name}
+                        </p>
+                        <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                          {v.customer_mobile || 'No mobile'} · {formatWalkInAge(v.started_at)}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          'shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                          v.current_queue_status === 'serving'
+                            ? 'bg-emerald-100 text-emerald-900'
+                            : v.current_queue_status === 'waiting'
+                              ? 'bg-amber-100 text-amber-900'
+                              : 'bg-[var(--color-jewelry-black,#1a1814)]/8 text-[var(--color-jewelry-black,#1a1814)]/70',
+                        )}
+                      >
+                        {v.current_queue_status || 'in store'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
+                      {v.current_label}
+                    </p>
+                    {v.trail_text ? (
+                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+                        {v.trail_text}
+                      </p>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {filteredFloor.length > 8 ? (
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() => setFloorExpanded((e) => !e)}
+            >
+              {floorExpanded ? 'Show fewer' : `Show all ${filteredFloor.length} walk-ins`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {msg ? (
         <p className="rounded-xl border border-emerald-600/25 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
@@ -247,21 +407,9 @@ export function ErpCustomerRoutingWorkspace() {
               <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
                 Customer
               </label>
-              <select
-                className={`${erpInputCls} mt-1 w-full`}
-                value={selectedCustomerId}
-                onChange={(e) =>
-                  setSelectedCustomerId(e.target.value ? parseInt(e.target.value, 10) : '')
-                }
-              >
-                <option value="">Select customer…</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                    {c.mobile ? ` · ${c.mobile}` : ''}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1">
+                <ErpRoutingCustomerSuggest selected={pickedCustomer} onSelect={setPickedCustomer} />
+              </div>
             </div>
             <div>
               <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
@@ -554,7 +702,7 @@ export function ErpCustomerRoutingWorkspace() {
             </div>
           ) : (
             <div className={`${erpCardCls} space-y-3`}>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <input
                   type="date"
                   className={erpInputCls}
@@ -567,6 +715,23 @@ export function ErpCustomerRoutingWorkspace() {
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
                 />
+                <div className="flex gap-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] p-1">
+                  {(['summary', 'detailed'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setReportView(v)}
+                      className={cn(
+                        'min-h-[36px] flex-1 rounded-lg text-xs font-semibold capitalize',
+                        reportView === v
+                          ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                          : 'text-[var(--color-jewelry-black,#1a1814)]/75',
+                      )}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
                 <button type="button" className={erpBtnPrimary} disabled={reportBusy} onClick={() => void loadAnalytics()}>
                   {reportBusy ? <Loader2 className="size-4 animate-spin" /> : null}
                   Load report
@@ -615,21 +780,168 @@ export function ErpCustomerRoutingWorkspace() {
                       </ul>
                     </div>
                   ) : null}
-                  <button
-                    type="button"
-                    className={erpBtnGhost}
-                    onClick={() =>
-                      void exportRoutingAnalyticsExcel(analytics, `${fromDate}_${toDate}`)
-                    }
-                  >
-                    Download Excel
-                  </button>
+                  {reportView === 'detailed' && analytics.detailed.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[640px] text-left text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                        <thead>
+                          <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[10px] uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                            <th className="py-2 pr-2">When</th>
+                            <th className="py-2 pr-2">Customer</th>
+                            <th className="py-2 pr-2">Counter</th>
+                            <th className="py-2 pr-2">Staff</th>
+                            <th className="py-2 pr-2">Outcome</th>
+                            <th className="py-2">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {analytics.detailed.map((r) => (
+                            <tr key={r.id} className="border-b border-[var(--color-slate-700,#e8e4df)]/40">
+                              <td className="py-2 pr-2 text-xs whitespace-nowrap">
+                                {new Date(r.created_at).toLocaleString('en-IN', {
+                                  dateStyle: 'short',
+                                  timeStyle: 'short',
+                                })}
+                              </td>
+                              <td className="py-2 pr-2">
+                                {r.customer_name}
+                                {r.customer_mobile ? (
+                                  <span className="block text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                                    {r.customer_mobile}
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td className="py-2 pr-2">{r.counter_name || '—'}</td>
+                              <td className="py-2 pr-2">{r.operator_name || '—'}</td>
+                              <td className="py-2 pr-2">{r.outcome_label}</td>
+                              <td className="py-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
+                                {r.bill_number ? `Bill ${r.bill_number}` : ''}
+                                {r.no_sale_reason ? r.no_sale_reason : r.purchase_notes || '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={erpBtnGhost}
+                      onClick={() =>
+                        void exportRoutingAnalyticsExcel(analytics, `${fromDate}_${toDate}`)
+                      }
+                    >
+                      Download Excel
+                    </button>
+                    <button
+                      type="button"
+                      className={erpBtnGhost}
+                      onClick={() =>
+                        void downloadRoutingReportPdf({
+                          from: fromDate,
+                          to: toDate,
+                          summary: analytics.summary,
+                          detailed: analytics.detailed.map((r) => ({
+                            ...r,
+                            outcome_label: r.outcome_label,
+                          })),
+                          lostReasons: analytics.lost_sale_reasons,
+                          view: reportView,
+                        })
+                      }
+                    >
+                      Preview PDF
+                    </button>
+                  </div>
                 </>
               ) : null}
             </div>
           )}
         </div>
       )}
+
+      {timelineVisitId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-3 sm:items-center"
+          role="dialog"
+          aria-modal
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-pearl,#faf8f5)] shadow-xl">
+            <div className="flex items-center justify-between border-b border-[var(--color-slate-700,#e8e4df)] px-4 py-3">
+              <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Visit timeline</p>
+              <button
+                type="button"
+                className="rounded-lg p-2 text-[var(--color-jewelry-black,#1a1814)]/70"
+                onClick={() => setTimelineVisitId(null)}
+                aria-label="Close"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="max-h-[calc(90vh-56px)] overflow-y-auto p-4">
+              {timelineLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="size-8 animate-spin text-[var(--color-jewelry-black,#1a1814)]/40" />
+                </div>
+              ) : timeline ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                      {timeline.visit.customer_name}
+                    </p>
+                    <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+                      {timeline.visit.customer_mobile || 'No mobile'} · {timeline.visit.status}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Journey
+                    </p>
+                    <ol className="mt-2 space-y-2 border-l-2 border-[var(--kc-accent,#c41e3a)]/25 pl-3">
+                      {timeline.trail.map((t, i) => (
+                        <li key={i} className="text-sm">
+                          <p className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{t.label}</p>
+                          <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/60">{t.detail}</p>
+                          <p className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                            {new Date(t.at).toLocaleString('en-IN', {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })}
+                          </p>
+                        </li>
+                      ))}
+                      {!timeline.trail.length ? (
+                        <li className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">No interactions yet.</li>
+                      ) : null}
+                    </ol>
+                  </div>
+                  {timeline.queue.length ? (
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                        Queue history
+                      </p>
+                      <ul className="mt-2 space-y-1 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                        {timeline.queue.map((q) => (
+                          <li key={q.id} className="flex justify-between gap-2 rounded-lg bg-white px-2 py-1.5">
+                            <span>{q.counter_name}</span>
+                            <span className="text-xs capitalize text-[var(--color-jewelry-black,#1a1814)]/55">
+                              {q.status}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="py-6 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Could not load timeline.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

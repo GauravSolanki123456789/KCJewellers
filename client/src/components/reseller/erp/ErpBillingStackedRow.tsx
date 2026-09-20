@@ -221,18 +221,20 @@ export function ErpBillingStackedRow({
                 readOnly
               />
             </label>
-            <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#8b1e2d)]">
-              Size
-              <ErpBillingSuggestField
-                value={String(line.size || '')}
-                placeholder="Size…"
-                options={sizeOptions}
-                autoFocus={focused('size')}
-                inputRef={(el) => inputRef('size', el)}
-                onChange={onSizeChange}
-                onCommit={onSizeCommit}
-              />
-            </label>
+            {sizeOptions.length > 0 ? (
+              <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#8b1e2d)]">
+                Size
+                <ErpBillingSuggestField
+                  value={String(line.size || '')}
+                  placeholder="Size…"
+                  options={sizeOptions}
+                  autoFocus={focused('size')}
+                  inputRef={(el) => inputRef('size', el)}
+                  onChange={onSizeChange}
+                  onCommit={onSizeCommit}
+                />
+              </label>
+            ) : null}
             <div className="flex items-end justify-end gap-2 sm:col-span-2">
               <p className="text-sm font-bold tabular-nums text-emerald-700">
                 {formatErpInr(line.lineTotalInr ?? 0)}
@@ -257,7 +259,11 @@ export function ErpBillingStackedRow({
                 ))}
               </div>
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                {CHARGE_BAND.map((f) => (
+                {CHARGE_BAND.filter((f) => {
+                  if (f.key === 'stone_charges') return (line.designFinishOptions?.length ?? 0) >= 2
+                  if (f.key === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
+                  return true
+                }).map((f) => (
                   <label
                     key={f.key}
                     className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800"
@@ -267,15 +273,26 @@ export function ErpBillingStackedRow({
                       <p className="rounded-full border border-emerald-200 bg-white px-2 py-1.5 text-xs capitalize text-[var(--color-jewelry-black,#1a1814)]">
                         {line.metal_type || 'silver'}
                       </p>
-                    ) : f.key === 'box_charges' && line.designBoxOptions?.length ? (
+                    ) : f.key === 'box_charges' && (line.designBoxOptions?.length ?? 0) >= 2 ? (
                       <ErpBillingSuggestField
                         value={line.packaging_label || ''}
                         placeholder="Box…"
-                        options={line.designBoxOptions.map((o) => o.label)}
+                        options={line.designBoxOptions!.map((o) => o.label)}
+                        preserveCase
                         autoFocus={focused('box_charges')}
                         inputRef={(el) => inputRef('box_charges', el)}
-                        onChange={() => {}}
+                        onChange={(v) => {
+                          if (!v.trim()) {
+                            onPatch({ packaging_label: null, box_charges: 0 })
+                            return
+                          }
+                          onPatch({ packaging_label: v })
+                        }}
                         onCommit={(label) => {
+                          if (!label.trim()) {
+                            onPatch({ packaging_label: null, box_charges: 0 })
+                            return
+                          }
                           const hit = findDesignOptionLabel(line.designBoxOptions, label)
                           const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
                           const patch: Partial<ErpBillLine> = {
@@ -293,15 +310,38 @@ export function ErpBillingStackedRow({
                           onAdvance('box_charges')
                         }}
                       />
-                    ) : f.key === 'stone_charges' && line.designFinishOptions?.length ? (
+                    ) : f.key === 'stone_charges' && (line.designFinishOptions?.length ?? 0) >= 2 ? (
                       <ErpBillingSuggestField
                         value={line.finish_label || ''}
                         placeholder="Finish…"
-                        options={line.designFinishOptions.map((o) => o.label)}
+                        options={line.designFinishOptions!.map((o) => o.label)}
+                        preserveCase
                         autoFocus={focused('stone_charges')}
                         inputRef={(el) => inputRef('stone_charges', el)}
-                        onChange={() => {}}
+                        onChange={(v) => {
+                          if (!v.trim()) {
+                            onPatch({
+                              finish_label: null,
+                              stone_charges: 0,
+                              fixed_price: null,
+                              unitInr: null,
+                              mrpListPrice: null,
+                            })
+                            return
+                          }
+                          onPatch({ finish_label: v })
+                        }}
                         onCommit={(label) => {
+                          if (!label.trim()) {
+                            onPatch({
+                              finish_label: null,
+                              stone_charges: 0,
+                              fixed_price: null,
+                              unitInr: null,
+                              mrpListPrice: null,
+                            })
+                            return
+                          }
                           const hit = findDesignOptionLabel(line.designFinishOptions, label)
                           const list = Number(hit?.fixed_price ?? 0)
                           const slabPrice =
@@ -326,19 +366,43 @@ export function ErpBillingStackedRow({
             </>
           ) : (
             <div className="space-y-2">
-              {(line.designFinishOptions?.length || line.designBoxOptions?.length) ? (
+              {(line.designFinishOptions?.length ?? 0) >= 2 ||
+              (line.designBoxOptions?.length ?? 0) >= 2 ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {line.designFinishOptions?.length ? (
+                  {(line.designFinishOptions?.length ?? 0) >= 2 ? (
                     <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
                       Finish
                       <ErpBillingSuggestField
                         value={line.finish_label || ''}
                         placeholder="GP / Standard…"
-                        options={line.designFinishOptions.map((o) => o.label)}
+                        options={line.designFinishOptions!.map((o) => o.label)}
+                        preserveCase
                         autoFocus={focused('stone_charges')}
                         inputRef={(el) => inputRef('stone_charges', el)}
-                        onChange={() => {}}
+                        onChange={(v) => {
+                          if (!v.trim()) {
+                            onPatch({
+                              finish_label: null,
+                              stone_charges: 0,
+                              fixed_price: null,
+                              unitInr: null,
+                              mrpListPrice: null,
+                            })
+                            return
+                          }
+                          onPatch({ finish_label: v })
+                        }}
                         onCommit={(label) => {
+                          if (!label.trim()) {
+                            onPatch({
+                              finish_label: null,
+                              stone_charges: 0,
+                              fixed_price: null,
+                              unitInr: null,
+                              mrpListPrice: null,
+                            })
+                            return
+                          }
                           const hit = findDesignOptionLabel(line.designFinishOptions, label)
                           const list = Number(hit?.fixed_price ?? 0)
                           const slabPrice =
@@ -356,17 +420,28 @@ export function ErpBillingStackedRow({
                       />
                     </label>
                   ) : null}
-                  {line.designBoxOptions?.length ? (
+                  {(line.designBoxOptions?.length ?? 0) >= 2 ? (
                     <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
                       Box
                       <ErpBillingSuggestField
                         value={line.packaging_label || ''}
                         placeholder="With / without box…"
-                        options={line.designBoxOptions.map((o) => o.label)}
+                        options={line.designBoxOptions!.map((o) => o.label)}
+                        preserveCase
                         autoFocus={focused('box_charges')}
                         inputRef={(el) => inputRef('box_charges', el)}
-                        onChange={() => {}}
+                        onChange={(v) => {
+                          if (!v.trim()) {
+                            onPatch({ packaging_label: null, box_charges: 0 })
+                            return
+                          }
+                          onPatch({ packaging_label: v })
+                        }}
                         onCommit={(label) => {
+                          if (!label.trim()) {
+                            onPatch({ packaging_label: null, box_charges: 0 })
+                            return
+                          }
                           const hit = findDesignOptionLabel(line.designBoxOptions, label)
                           const patch: Partial<ErpBillLine> = {
                             packaging_label: hit?.label ?? label,

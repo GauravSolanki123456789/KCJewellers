@@ -140,15 +140,19 @@ export function patchLineFromCatalogProduct(
     if (s.mc_type) patch.mc_type = s.mc_type
     if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct
     if (s.purity != null) patch.purity = s.purity
-    if (s.fixed_price != null) patch.fixed_price = s.fixed_price
+    if (s.fixed_price != null) {
+      patch.fixed_price = s.fixed_price
+      patch.mrpListPrice = s.fixed_price
+      patch.mrpMode = true
+    }
   }
 
   if (product.finish_options?.length === 1) {
     const f = product.finish_options[0]
     patch.stone_charges = f.stone_charges ?? 0
+    patch.finish_label = f.label
     if (f.fixed_price != null) {
-      patch.fixed_price = f.fixed_price
-      patch.unitInr = f.fixed_price
+      patch.mrpListPrice = f.fixed_price
       patch.mrpMode = true
     }
   }
@@ -157,6 +161,10 @@ export function patchLineFromCatalogProduct(
     const b = product.box_options[0]
     patch.box_charges = b.box_charges ?? 0
     patch.packaging_label = b.label
+  }
+
+  if (patch.mrpMode && patch.fixed_price != null && patch.mrpListPrice == null) {
+    patch.mrpListPrice = Number(patch.fixed_price)
   }
 
   return patch
@@ -207,5 +215,8 @@ export function patchLineFromCatalogSize(
     purity: hit.purity ?? line.purity,
     fixed_price: hit.fixed_price ?? line.fixed_price,
     box_charges: hit.box_charges ?? line.box_charges,
+    ...(mrp && hit.fixed_price != null
+      ? { mrpListPrice: hit.fixed_price, mrpMode: true as const }
+      : {}),
   }
 }

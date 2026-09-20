@@ -133,6 +133,36 @@ async function mapCounterRow(query, userId, row) {
     };
 }
 
+function formatOutcomeLabel(outcome) {
+    const o = String(outcome || '').toLowerCase();
+    if (o === 'sale_closed') return 'Sale closed';
+    if (o === 'sale_and_forward') return 'Sale + forward';
+    if (o === 'forward') return 'Forwarded';
+    if (o === 'no_sale') return 'No sale';
+    if (o === 'left_shop') return 'Left shop';
+    return outcome || '—';
+}
+
+function buildTrailFromInteractions(interactions) {
+    const steps = [];
+    for (const i of interactions || []) {
+        const counter = i.counter_name || 'Counter';
+        const staff = i.operator_name ? ` · ${i.operator_name}` : '';
+        let detail = formatOutcomeLabel(i.outcome);
+        if (i.outcome === 'sale_closed' || i.outcome === 'sale_and_forward') {
+            if (i.bill_number) detail += ` · Bill ${i.bill_number}`;
+            if (i.bill_amount_inr != null) detail += ` · ₹${i.bill_amount_inr}`;
+        }
+        if (i.forward_counter_name) detail += ` → ${i.forward_counter_name}`;
+        steps.push({
+            label: `${counter}${staff}`,
+            detail,
+            at: i.created_at,
+        });
+    }
+    return steps;
+}
+
 async function getVisitContext(query, userId, visitId) {
     const rows = await query(
         `SELECT v.*, c.name AS customer_name, c.mobile AS customer_mobile
@@ -656,6 +686,16 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                  ORDER BY interactions DESC`,
                 params,
             );
+            const reasonParams = [req.user.id];
+            let reasonDateFilter = '';
+            if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+                reasonParams.push(from);
+                reasonDateFilter += ` AND i.created_at >= $${reasonParams.length}::date`;
+            }
+            if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+                reasonParams.push(to);
+                reasonDateFilter += ` AND i.created_at < ($${reasonParams.length}::date + interval '1 day')`;
+            }
             const reasons = await query(
                 `SELECT COALESCE(NULLIF(TRIM(i.no_sale_reason), ''), 'Unspecified') AS reason,
                         COUNT(*)::int AS count
@@ -664,10 +704,30 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     SELECT 1 FROM reseller_erp_customer_visits v
                     WHERE v.id = i.visit_id AND v.reseller_user_id = $1
                  )
-                 AND i.outcome IN ('no_sale', 'left_shop') ${dateFilter}
+                 AND i.outcome IN ('no_sale', 'left_shop') ${reasonDateFilter}
                  GROUP BY 1 ORDER BY count DESC LIMIT 50`,
-                params.slice(0, dateFilter ? params.length : 1),
+                reasonParams,
             );
+            const detailedMode = String(req.query.view || req.query.detailed || '') === 'detailed';
+            let detailed = [];
+            if (detailedMode) {
+                detailed = await query(
+                    `SELECT i.id, i.created_at, i.outcome, i.bill_number, i.bill_amount_inr,
+                            i.no_sale_reason, i.purchase_notes,
+                            v.id AS visit_id, c.name AS customer_name, c.mobile AS customer_mobile,
+                            sc.name AS counter_name, fc.name AS forward_counter_name,
+                            o.display_name AS operator_name
+                     FROM reseller_erp_visit_interactions i
+                     JOIN reseller_erp_customer_visits v ON v.id = i.visit_id
+                     JOIN reseller_erp_customers c ON c.id = v.customer_id
+                     LEFT JOIN reseller_erp_store_counters sc ON sc.id = i.counter_id
+                     LEFT JOIN reseller_erp_store_counters fc ON fc.id = i.forward_counter_id
+                     LEFT JOIN reseller_erp_operators o ON o.id = i.operator_id
+                     WHERE v.reseller_user_id = $1 ${dateFilter} ${opFilter}
+                     ORDER BY i.created_at DESC LIMIT 500`,
+                    params,
+                );
+            }
             const routed = await query(
                 `SELECT sc.name AS counter_name, COUNT(*)::int AS routed
                  FROM reseller_erp_visit_queue q
@@ -689,10 +749,104 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                 })),
                 lost_sale_reasons: reasons,
                 routed_by_counter: routed,
+                detailed: detailed.map((r) => ({
+                    ...r,
+                    outcome_label: formatOutcomeLabel(r.outcome),
+                })),
             });
         } catch (e) {
             console.error('routing analytics:', e);
             res.status(500).json({ error: e.message || 'Failed to load analytics' });
+        }
+    });
+
+    app.get('/api/reseller/erp/customer-routing/floor/live', checkAuth, erpGate, gate, async (req, res) => {
+        try {
+            const op = req.erpOperator;
+            const flags = await loadOperatorFlags(query, req.user.id, op.id);
+            if (!isAdminOp(op) && !flags?.is_store_greeter) {
+                return res.status(403).json({ error: 'Live floor view is for greeter or admin' });
+            }
+            const limitRaw = parseInt(String(req.query.limit || '40'), 10);
+            const limit = Number.isFinite(limitRaw) ? Math.min(60, Math.max(1, limitRaw)) : 40;
+            const visits = await query(
+                `SELECT v.id, v.customer_id, v.started_at, v.status,
+                        c.name AS customer_name, c.mobile AS customer_mobile
+                 FROM reseller_erp_customer_visits v
+                 JOIN reseller_erp_customers c ON c.id = v.customer_id
+                 WHERE v.reseller_user_id = $1 AND v.status = 'active'
+                 ORDER BY v.started_at DESC LIMIT $2`,
+                [req.user.id, limit],
+            );
+            const busyRows = await query(
+                `SELECT q.counter_id, sc.name AS counter_name, COUNT(*)::int AS active_count
+                 FROM reseller_erp_visit_queue q
+                 JOIN reseller_erp_store_counters sc ON sc.id = q.counter_id
+                 JOIN reseller_erp_customer_visits v ON v.id = q.visit_id
+                 WHERE v.reseller_user_id = $1 AND v.status = 'active'
+                   AND q.status IN ('waiting', 'serving')
+                 GROUP BY q.counter_id, sc.name
+                 ORDER BY active_count DESC`,
+                [req.user.id],
+            );
+            const floor = [];
+            for (const v of visits) {
+                const interactions = await query(
+                    `SELECT i.*, sc.name AS counter_name, fc.name AS forward_counter_name,
+                            o.display_name AS operator_name
+                     FROM reseller_erp_visit_interactions i
+                     LEFT JOIN reseller_erp_store_counters sc ON sc.id = i.counter_id
+                     LEFT JOIN reseller_erp_store_counters fc ON fc.id = i.forward_counter_id
+                     LEFT JOIN reseller_erp_operators o ON o.id = i.operator_id
+                     WHERE i.visit_id = $1 ORDER BY i.created_at ASC`,
+                    [v.id],
+                );
+                const current = await query(
+                    `SELECT q.id, q.status, q.queued_at, sc.name AS counter_name,
+                            o.display_name AS incharge_name
+                     FROM reseller_erp_visit_queue q
+                     JOIN reseller_erp_store_counters sc ON sc.id = q.counter_id
+                     LEFT JOIN reseller_erp_operators o ON o.id = sc.incharge_operator_id
+                     WHERE q.visit_id = $1 AND q.status IN ('waiting', 'serving')
+                     ORDER BY CASE q.status WHEN 'serving' THEN 0 ELSE 1 END, q.queued_at DESC
+                     LIMIT 1`,
+                    [v.id],
+                );
+                const trail = buildTrailFromInteractions(interactions);
+                const cur = current[0];
+                let current_label = 'In store — awaiting next counter';
+                if (cur) {
+                    const who = cur.incharge_name ? ` with ${cur.incharge_name}` : '';
+                    const phase = cur.status === 'serving' ? 'Being served' : 'Waiting';
+                    current_label = `${phase} at ${cur.counter_name}${who}`;
+                } else if (trail.length) {
+                    current_label = 'Between counters';
+                }
+                const trail_text = trail
+                    .map((t) => `${t.label} (${t.detail})`)
+                    .join(' → ');
+                floor.push({
+                    visit_id: v.id,
+                    customer_id: v.customer_id,
+                    customer_name: v.customer_name,
+                    customer_mobile: v.customer_mobile,
+                    started_at: v.started_at,
+                    status: v.status,
+                    current_label,
+                    current_queue_status: cur?.status || null,
+                    current_counter: cur?.counter_name || null,
+                    trail,
+                    trail_text,
+                });
+            }
+            res.json({
+                visits: floor,
+                active_count: floor.length,
+                counters_busy: busyRows,
+            });
+        } catch (e) {
+            console.error('routing floor live:', e);
+            res.status(500).json({ error: e.message || 'Failed to load floor view' });
         }
     });
 
@@ -701,9 +855,13 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
         async (req, res) => {
             try {
+                const op = req.erpOperator;
+                const flags = await loadOperatorFlags(query, req.user.id, op.id);
+                if (!isAdminOp(op) && !flags?.is_store_greeter) {
+                    return res.status(403).json({ error: 'Timeline access denied' });
+                }
                 const visitId = parseInt(String(req.params.id), 10);
                 const visit = await getVisitContext(query, req.user.id, visitId);
                 if (!visit) return res.status(404).json({ error: 'Visit not found' });
@@ -733,7 +891,11 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         ended_at: visit.ended_at,
                     },
                     queue,
-                    interactions,
+                    interactions: interactions.map((i) => ({
+                        ...i,
+                        outcome_label: formatOutcomeLabel(i.outcome),
+                    })),
+                    trail: buildTrailFromInteractions(interactions),
                 });
             } catch (e) {
                 res.status(500).json({ error: e.message || 'Failed to load timeline' });
