@@ -79,12 +79,48 @@ function submissionRowsToCsv(rows) {
     return `${lines.join('\n')}\n`;
 }
 
-function resolvePublicUploadPath(url) {
-    const rel = String(url || '').trim().replace(/^\//, '');
+function resolveSubmissionImagePath(url) {
+    let raw = String(url || '').trim();
+    if (!raw) return null;
+    try {
+        if (/^https?:\/\//i.test(raw)) {
+            const u = new URL(raw);
+            raw = u.pathname || '';
+        }
+    } catch (_) {
+        /* keep raw */
+    }
+    const rel = raw.replace(/^\//, '');
     if (!rel || rel.includes('..')) return null;
-    const abs = path.join(__dirname, '..', 'public', rel);
-    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return null;
-    return abs;
+    const root = path.join(__dirname, '..');
+    const candidates = [
+        path.join(root, rel),
+        path.join(root, 'public', rel),
+        path.join(process.cwd(), rel),
+        path.join(process.cwd(), 'public', rel),
+    ];
+    for (const abs of candidates) {
+        try {
+            if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+        } catch (_) {
+            /* try next */
+        }
+    }
+    return null;
+}
+
+function submissionRowMediaUrls(row) {
+    const payload =
+        row.payload_json && typeof row.payload_json === 'object' ? row.payload_json : {};
+    return {
+        image_url: row.image_url || payload.imageUrl || payload.image_url || null,
+        secondary_image_url:
+            row.secondary_image_url ||
+            payload.secondaryImageUrl ||
+            payload.secondary_image_url ||
+            null,
+        box_image_url: row.box_image_url || payload.boxImageUrl || payload.box_image_url || null,
+    };
 }
 
 function pipeSubmissionImagesZip(res, rows, zipName) {
@@ -96,20 +132,29 @@ function pipeSubmissionImagesZip(res, rows, zipName) {
         res.end(String(err.message || err));
     });
     archive.pipe(res);
+    let fileCount = 0;
     for (const r of rows) {
         const base = String(r.barcode || r.product_name || r.id || 'item')
             .replace(/[^\w.-]+/g, '_')
             .slice(0, 80);
+        const media = submissionRowMediaUrls(r);
         const pairs = [
             ['image_url', 'front'],
             ['secondary_image_url', 'back'],
             ['box_image_url', 'box'],
         ];
         for (const [field, suffix] of pairs) {
-            const abs = resolvePublicUploadPath(r[field]);
+            const abs = resolveSubmissionImagePath(media[field]);
             if (!abs) continue;
             archive.file(abs, { name: `${base}-${suffix}${path.extname(abs) || '.jpg'}` });
+            fileCount += 1;
         }
+    }
+    if (fileCount === 0) {
+        archive.append(
+            'No image files were found on the server for this batch. Re-upload photos or check image URLs in the batch.\r\n',
+            { name: 'README-no-images.txt' },
+        );
     }
     void archive.finalize();
 }
@@ -1698,7 +1743,7 @@ function registerResellerProductRoutes(app, deps) {
             const batchId = String(req.params.batchId || '').trim();
             if (!batchId) return res.status(400).json({ error: 'batchId required' });
             const rows = await query(
-                `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url
+                `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url, payload_json
                  FROM reseller_product_submissions
                  WHERE batch_id = $1::uuid AND submitted_by_user_id = $2`,
                 [batchId, req.user.id],
@@ -1745,14 +1790,14 @@ function registerResellerProductRoutes(app, deps) {
             let rows;
             if (batchId) {
                 rows = await query(
-                    `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url
+                    `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url, payload_json
                      FROM reseller_product_submissions
                      WHERE batch_id = $1::uuid AND submitted_by_user_id = $2`,
                     [batchId, req.user.id],
                 );
             } else {
                 rows = await query(
-                    `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url
+                    `SELECT id, barcode, product_name, image_url, secondary_image_url, box_image_url, payload_json
                      FROM reseller_product_submissions
                      WHERE submitted_by_user_id = $1`,
                     [req.user.id],

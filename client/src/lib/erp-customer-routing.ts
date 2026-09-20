@@ -15,6 +15,7 @@ export type RoutingBootstrap = {
   greeter: { id: number; displayName: string } | null
   counters: RoutingCounter[]
   myCounterIds: number[]
+  isStoreGreeter?: boolean
 }
 
 export type QueueItem = {
@@ -108,17 +109,31 @@ export async function fetchActiveVisits(): Promise<ActiveVisit[]> {
   return data.visits ?? []
 }
 
-export async function fetchLiveFloor(): Promise<{
+export async function fetchLiveFloor(params?: {
+  day?: string
+  from?: string
+  to?: string
+}): Promise<{
   visits: FloorVisit[]
   active_count: number
+  visit_count: number
+  range_from: string
+  range_to: string
   counters_busy: { counter_id: number; counter_name: string; active_count: number }[]
 }> {
-  const { data } = await axios.get('/api/reseller/erp/customer-routing/floor/live')
+  const { data } = await axios.get('/api/reseller/erp/customer-routing/floor/live', { params })
   return {
     visits: data.visits ?? [],
     active_count: data.active_count ?? 0,
+    visit_count: data.visit_count ?? data.visits?.length ?? 0,
+    range_from: data.range_from ?? '',
+    range_to: data.range_to ?? '',
     counters_busy: data.counters_busy ?? [],
   }
+}
+
+export async function deleteRoutingVisit(visitId: number): Promise<void> {
+  await axios.delete(`/api/reseller/erp/customer-routing/visits/${visitId}`)
 }
 
 export async function fetchVisitTimeline(visitId: number): Promise<VisitTimeline> {

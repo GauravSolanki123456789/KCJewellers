@@ -163,6 +163,39 @@ function buildTrailFromInteractions(interactions) {
     return steps;
 }
 
+async function closeVisitWhenNoOpenQueue(query, visitId) {
+    const pending = await query(
+        `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_queue
+         WHERE visit_id = $1 AND status IN ('waiting', 'serving')`,
+        [visitId],
+    );
+    if ((pending[0]?.n ?? 0) === 0) {
+        await query(
+            `UPDATE reseller_erp_customer_visits
+             SET status = 'completed', ended_at = COALESCE(ended_at, NOW())
+             WHERE id = $1 AND status = 'active'`,
+            [visitId],
+        );
+    }
+}
+
+async function autoCloseStaleActiveVisits(query, userId) {
+    await query(
+        `UPDATE reseller_erp_customer_visits v
+         SET status = 'completed', ended_at = COALESCE(v.ended_at, NOW())
+         WHERE v.reseller_user_id = $1 AND v.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM reseller_erp_visit_queue q
+             WHERE q.visit_id = v.id AND q.status IN ('waiting', 'serving')
+           )`,
+        [userId],
+    );
+}
+
+function istDateExpr(col) {
+    return `((${col}) AT TIME ZONE 'Asia/Kolkata')::date`;
+}
+
 async function getVisitContext(query, userId, visitId) {
     const rows = await query(
         `SELECT v.*, c.name AS customer_name, c.mobile AS customer_mobile
@@ -221,6 +254,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     : null,
                 counters: mapped,
                 myCounterIds: myCounters.map((c) => c.id),
+                isStoreGreeter: !!flags?.is_store_greeter,
             });
         } catch (e) {
             console.error('routing bootstrap:', e);
@@ -627,20 +661,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         ],
                     );
                 }
-                if (outcome === 'left_shop' || outcome === 'no_sale') {
-                    const pending = await query(
-                        `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_queue
-                         WHERE visit_id = $1 AND status IN ('waiting', 'serving')`,
-                        [row.visit_id],
-                    );
-                    if ((pending[0]?.n ?? 0) === 0) {
-                        await query(
-                            `UPDATE reseller_erp_customer_visits SET status = 'completed', ended_at = NOW()
-                             WHERE id = $1`,
-                            [row.visit_id],
-                        );
-                    }
-                }
+                await closeVisitWhenNoOpenQueue(query, row.visit_id);
                 res.json({ success: true });
             } catch (e) {
                 console.error('queue complete:', e);
@@ -760,6 +781,34 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         }
     });
 
+    app.delete(
+        '/api/reseller/erp/customer-routing/visits/:id',
+        checkAuth,
+        erpGate,
+        gate,
+        jainavDelete,
+        async (req, res) => {
+            try {
+                const visitId = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(visitId)) {
+                    return res.status(400).json({ error: 'Invalid visit id' });
+                }
+                const visit = await getVisitContext(query, req.user.id, visitId);
+                if (!visit) return res.status(404).json({ error: 'Visit not found' });
+                await query(`DELETE FROM reseller_erp_visit_interactions WHERE visit_id = $1`, [visitId]);
+                await query(`DELETE FROM reseller_erp_visit_queue WHERE visit_id = $1`, [visitId]);
+                await query(
+                    `DELETE FROM reseller_erp_customer_visits WHERE id = $1 AND reseller_user_id = $2`,
+                    [visitId, req.user.id],
+                );
+                res.json({ success: true });
+            } catch (e) {
+                console.error('delete visit:', e);
+                res.status(500).json({ error: e.message || 'Failed to delete visit' });
+            }
+        },
+    );
+
     app.get('/api/reseller/erp/customer-routing/floor/live', checkAuth, erpGate, gate, async (req, res) => {
         try {
             const op = req.erpOperator;
@@ -767,16 +816,48 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
             if (!isAdminOp(op) && !flags?.is_store_greeter) {
                 return res.status(403).json({ error: 'Live floor view is for greeter or admin' });
             }
-            const limitRaw = parseInt(String(req.query.limit || '40'), 10);
-            const limit = Number.isFinite(limitRaw) ? Math.min(60, Math.max(1, limitRaw)) : 40;
+            await autoCloseStaleActiveVisits(query, req.user.id);
+
+            const day = String(req.query.day || '').trim().slice(0, 10);
+            const from = String(req.query.from || '').trim().slice(0, 10);
+            const to = String(req.query.to || '').trim().slice(0, 10);
+            const istTodayRows = await query(`SELECT (NOW() AT TIME ZONE 'Asia/Kolkata')::date AS d`);
+            const todayIst = istTodayRows[0]?.d
+                ? String(istTodayRows[0].d).slice(0, 10)
+                : new Date().toISOString().slice(0, 10);
+
+            let rangeFrom = /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : null;
+            let rangeTo = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : null;
+            if (!rangeFrom && !rangeTo && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+                rangeFrom = day;
+                rangeTo = day;
+            }
+            if (!rangeFrom && !rangeTo) {
+                rangeFrom = todayIst;
+                rangeTo = todayIst;
+            }
+            if (rangeFrom > rangeTo) {
+                const t = rangeFrom;
+                rangeFrom = rangeTo;
+                rangeTo = t;
+            }
+
+            const limitRaw = parseInt(String(req.query.limit || '80'), 10);
+            const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, limitRaw)) : 80;
+            const startedD = istDateExpr('v.started_at');
+            const endedD = istDateExpr('v.ended_at');
             const visits = await query(
-                `SELECT v.id, v.customer_id, v.started_at, v.status,
+                `SELECT v.id, v.customer_id, v.started_at, v.ended_at, v.status,
                         c.name AS customer_name, c.mobile AS customer_mobile
                  FROM reseller_erp_customer_visits v
                  JOIN reseller_erp_customers c ON c.id = v.customer_id
-                 WHERE v.reseller_user_id = $1 AND v.status = 'active'
-                 ORDER BY v.started_at DESC LIMIT $2`,
-                [req.user.id, limit],
+                 WHERE v.reseller_user_id = $1
+                   AND (
+                     ${startedD} BETWEEN $2::date AND $3::date
+                     OR (${endedD} IS NOT NULL AND ${endedD} BETWEEN $2::date AND $3::date)
+                   )
+                 ORDER BY v.started_at DESC LIMIT $4`,
+                [req.user.id, rangeFrom, rangeTo, limit],
             );
             const busyRows = await query(
                 `SELECT q.counter_id, sc.name AS counter_name, COUNT(*)::int AS active_count
@@ -785,9 +866,10 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                  JOIN reseller_erp_customer_visits v ON v.id = q.visit_id
                  WHERE v.reseller_user_id = $1 AND v.status = 'active'
                    AND q.status IN ('waiting', 'serving')
+                   AND ${startedD} BETWEEN $2::date AND $3::date
                  GROUP BY q.counter_id, sc.name
                  ORDER BY active_count DESC`,
-                [req.user.id],
+                [req.user.id, rangeFrom, rangeTo],
             );
             const floor = [];
             for (const v of visits) {
@@ -839,9 +921,13 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     trail_text,
                 });
             }
+            const activeCount = floor.filter((v) => v.status === 'active').length;
             res.json({
                 visits: floor,
-                active_count: floor.length,
+                active_count: activeCount,
+                visit_count: floor.length,
+                range_from: rangeFrom,
+                range_to: rangeTo,
                 counters_busy: busyRows,
             });
         } catch (e) {

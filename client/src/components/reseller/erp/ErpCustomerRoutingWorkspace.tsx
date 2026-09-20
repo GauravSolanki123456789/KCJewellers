@@ -7,6 +7,7 @@ import {
   completeQueueItem,
   createCounter,
   deleteCounter,
+  deleteRoutingVisit,
   exportRoutingAnalyticsExcel,
   fetchLiveFloor,
   fetchLiveQueue,
@@ -65,6 +66,9 @@ export function ErpCustomerRoutingWorkspace() {
   const [floorBusy, setFloorBusy] = useState<{ counter_name: string; active_count: number }[]>([])
   const [floorSearch, setFloorSearch] = useState('')
   const [floorExpanded, setFloorExpanded] = useState(false)
+  const [floorFrom, setFloorFrom] = useState(erpTodayIso())
+  const [floorTo, setFloorTo] = useState(erpTodayIso())
+  const [floorActiveCount, setFloorActiveCount] = useState(0)
   const [timelineVisitId, setTimelineVisitId] = useState<number | null>(null)
   const [timeline, setTimeline] = useState<VisitTimeline | null>(null)
   const [timelineLoading, setTimelineLoading] = useState(false)
@@ -97,21 +101,29 @@ export function ErpCustomerRoutingWorkspace() {
 
   const reloadQueue = useCallback(async () => {
     if (!boot) return
-    const cid = boot.role === 'counter' && boot.myCounterIds[0] ? boot.myCounterIds[0] : undefined
-    const q = await fetchLiveQueue(cid)
-    setQueue(q)
+    const incharge = boot.myCounterIds?.length ?? 0
+    if (boot.role === 'admin') {
+      setQueue(await fetchLiveQueue())
+      return
+    }
+    if (incharge > 0) {
+      setQueue(await fetchLiveQueue())
+      return
+    }
+    setQueue([])
   }, [boot])
 
   const reloadFloor = useCallback(async () => {
     if (!boot || (boot.role !== 'greeter' && boot.role !== 'admin')) return
     try {
-      const f = await fetchLiveFloor()
+      const f = await fetchLiveFloor({ from: floorFrom, to: floorTo })
       setFloorVisits(f.visits)
       setFloorBusy(f.counters_busy)
+      setFloorActiveCount(f.active_count)
     } catch {
       /* keep last snapshot */
     }
-  }, [boot])
+  }, [boot, floorFrom, floorTo])
 
   useEffect(() => {
     void (async () => {
@@ -136,6 +148,11 @@ export function ErpCustomerRoutingWorkspace() {
     }, 4000)
     return () => window.clearInterval(t)
   }, [boot, reloadQueue, reloadFloor])
+
+  useEffect(() => {
+    if (!boot || (boot.role !== 'greeter' && boot.role !== 'admin')) return
+    void reloadFloor()
+  }, [floorFrom, floorTo, boot?.role])
 
   useEffect(() => {
     if (!timelineVisitId) {
@@ -261,6 +278,10 @@ export function ErpCustomerRoutingWorkspace() {
   }, [filteredFloor, floorExpanded])
 
   const showLiveFloor = role === 'greeter' || role === 'admin'
+  const canWorkCounterQueue =
+    role === 'admin' || (boot?.myCounterIds?.length ?? 0) > 0
+  const greeterAlsoCounter =
+    (boot?.isStoreGreeter || role === 'greeter') && (boot?.myCounterIds?.length ?? 0) > 0
 
   if (loading) {
     return (
@@ -278,7 +299,9 @@ export function ErpCustomerRoutingWorkspace() {
           {role === 'admin'
             ? 'Admin — counters, greeter & analytics'
             : role === 'greeter'
-              ? 'Greeter — route walk-ins to counters'
+              ? greeterAlsoCounter
+                ? 'Greeter & counter — route walk-ins and attend your queue'
+                : 'Greeter — route walk-ins to counters'
               : role === 'counter'
                 ? 'Your counter queue'
                 : 'View only — ask admin for counter or greeter role'}
@@ -299,7 +322,10 @@ export function ErpCustomerRoutingWorkspace() {
               <MapPin className="mr-1 inline size-4 text-[var(--kc-accent,#c41e3a)]" />
               Live store floor
               <span className="ml-2 rounded-full bg-[var(--color-jewelry-black,#1a1814)]/8 px-2 py-0.5 text-xs font-bold tabular-nums">
-                {floorVisits.length} active
+                {floorActiveCount} active
+              </span>
+              <span className="ml-1 text-xs font-normal text-[var(--color-jewelry-black,#1a1814)]/55">
+                · {floorVisits.length} visit(s) {floorFrom === floorTo ? `on ${floorFrom}` : `${floorFrom} → ${floorTo}`}
               </span>
             </p>
             <input
@@ -308,6 +334,40 @@ export function ErpCustomerRoutingWorkspace() {
               value={floorSearch}
               onChange={(e) => setFloorSearch(e.target.value)}
             />
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+              From
+              <input
+                type="date"
+                className={`${erpInputCls} mt-1 block`}
+                value={floorFrom}
+                onChange={(e) => setFloorFrom(e.target.value)}
+              />
+            </label>
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+              To
+              <input
+                type="date"
+                className={`${erpInputCls} mt-1 block`}
+                value={floorTo}
+                onChange={(e) => setFloorTo(e.target.value)}
+              />
+            </label>
+            <button type="button" className={erpBtnGhost} onClick={() => void reloadFloor()}>
+              Apply dates
+            </button>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() => {
+                const t = erpTodayIso()
+                setFloorFrom(t)
+                setFloorTo(t)
+              }}
+            >
+              Today
+            </button>
           </div>
           {floorBusy.length ? (
             <div className="flex flex-wrap gap-2">
@@ -330,33 +390,59 @@ export function ErpCustomerRoutingWorkspace() {
             <ul className="max-h-[min(52vh,420px)] space-y-2 overflow-y-auto pr-1">
               {floorVisible.map((v) => (
                 <li key={v.visit_id}>
-                  <button
-                    type="button"
-                    onClick={() => setTimelineVisitId(v.visit_id)}
-                    className="w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 text-left transition hover:border-[var(--kc-accent,#c41e3a)]/35"
-                  >
+                  <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 transition hover:border-[var(--kc-accent,#c41e3a)]/35">
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => setTimelineVisitId(v.visit_id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <p className="truncate font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                           {v.customer_name}
                         </p>
                         <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                          {v.customer_mobile || 'No mobile'} · {formatWalkInAge(v.started_at)}
+                          {v.customer_mobile || 'No mobile'} ·{' '}
+                          {v.status === 'active' ? formatWalkInAge(v.started_at) : 'Completed'}
                         </p>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <span
+                          className={cn(
+                            'rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                            v.status !== 'active'
+                              ? 'bg-slate-200 text-slate-800'
+                              : v.current_queue_status === 'serving'
+                                ? 'bg-emerald-100 text-emerald-900'
+                                : v.current_queue_status === 'waiting'
+                                  ? 'bg-amber-100 text-amber-900'
+                                  : 'bg-[var(--color-jewelry-black,#1a1814)]/8 text-[var(--color-jewelry-black,#1a1814)]/70',
+                          )}
+                        >
+                          {v.status !== 'active'
+                            ? 'done'
+                            : v.current_queue_status || 'in store'}
+                        </span>
+                        {shadowUnlocked && operator?.role === 'admin' ? (
+                          <button
+                            type="button"
+                            className="rounded-lg border border-rose-500/30 p-1.5 text-rose-700"
+                            aria-label="Delete visit"
+                            onClick={() =>
+                              void deleteRoutingVisit(v.visit_id)
+                                .then(() => reloadFloor())
+                                .catch(() => setErr('Delete failed — unlock Jainav mode'))
+                            }
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        ) : null}
                       </div>
-                      <span
-                        className={cn(
-                          'shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
-                          v.current_queue_status === 'serving'
-                            ? 'bg-emerald-100 text-emerald-900'
-                            : v.current_queue_status === 'waiting'
-                              ? 'bg-amber-100 text-amber-900'
-                              : 'bg-[var(--color-jewelry-black,#1a1814)]/8 text-[var(--color-jewelry-black,#1a1814)]/70',
-                        )}
-                      >
-                        {v.current_queue_status || 'in store'}
-                      </span>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setTimelineVisitId(v.visit_id)}
+                      className="mt-2 w-full text-left"
+                    >
                     <p className="mt-2 text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
                       {v.current_label}
                     </p>
@@ -365,7 +451,8 @@ export function ErpCustomerRoutingWorkspace() {
                         {v.trail_text}
                       </p>
                     ) : null}
-                  </button>
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -436,7 +523,7 @@ export function ErpCustomerRoutingWorkspace() {
         </div>
       )}
 
-      {(role === 'counter' || role === 'admin') && (
+      {canWorkCounterQueue && (
         <div className={`${erpCardCls} space-y-3`}>
           <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Live queue</p>
           {queue.length === 0 ? (
