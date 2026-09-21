@@ -85,6 +85,28 @@ PRINT 1,1
 /** Legacy alias — silver standard layout. */
 const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER;
 
+const DEFAULT_LABEL_PRN_MRP = `
+SIZE 92.5 mm, 15 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 738,101,"ROMAN.TTF",180,1,8,"{{product_name}}"
+TEXT 738,77,"ROMAN.TTF",180,1,8,"MRP:"
+TEXT 666,77,"ROMAN.TTF",180,1,9,"{{fixed_price}}"
+TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
+TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
+TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
+QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+PRINT 1,1
+`.trim();
+
 const LABEL_RULE_FIELD_KEYS = [
     'gross_weight',
     'bag_wt',
@@ -96,6 +118,7 @@ const LABEL_RULE_FIELD_KEYS = [
     'box_charges',
     'box_code',
     'box_name',
+    'fixed_price',
     'rfid_tag',
     'pcs_gt_1',
 ];
@@ -107,6 +130,17 @@ function newRuleId() {
 function buildDefaultLabelPrnRules(fallbackTemplate) {
     const silverFallback = normalizePrnTemplate(fallbackTemplate || DEFAULT_LABEL_PRN_SILVER);
     return [
+        {
+            id: 'mrp-only',
+            name: 'MRP / fixed price (no weight)',
+            enabled: true,
+            priority: 40,
+            metalTypes: [],
+            requireAny: ['fixed_price'],
+            requireAll: [],
+            requireNone: ['gross_weight', 'avg_weight'],
+            template: DEFAULT_LABEL_PRN_MRP,
+        },
         {
             id: 'silver-extras',
             name: 'Silver · gross / bag / stone',
@@ -586,14 +620,20 @@ function formatOptionalNumber(piece, field, decimals = 2) {
     return n.toFixed(decimals);
 }
 
+function formatLabelWeight(piece, field) {
+    const n = Number(piece?.[field]);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n.toFixed(3);
+}
+
 function buildLabelTemplateVars(piece, hw, profile) {
     const companyCode = profile?.companyCode || hw?.companyCode || 'BMS925';
-    const net =
-        piece.avg_weight != null ? Number(piece.avg_weight).toFixed(3) : '0.000';
-    const gross =
-        piece.gross_weight != null
-            ? Number(piece.gross_weight).toFixed(3)
-            : net;
+    const net = formatLabelWeight(piece, 'avg_weight');
+    const gross = formatLabelWeight(piece, 'gross_weight') || net;
+    const fixedPrice =
+        piece.fixed_price != null && Number(piece.fixed_price) > 0
+            ? String(Math.round(Number(piece.fixed_price)))
+            : '';
     return {
         barcode: String(piece.barcode || '').trim(),
         product_name: String(piece.product_name || piece.item_code || piece.style_code || '').trim(),
@@ -634,6 +674,7 @@ function buildLabelTemplateVars(piece, hw, profile) {
         box_name: String(piece.box_name || piece.box_label || piece.box_code || '').trim(),
         rfid_tag: String(piece.rfid_tag || '').trim(),
         tag_no: String(piece.rfid_tag || '').trim(),
+        fixed_price: fixedPrice,
     };
 }
 
@@ -1310,12 +1351,12 @@ function roughHeaderTwoCol(left, right, width = ROUGH_ESTIMATE_WIDTH) {
     return `${leftOut}${' '.repeat(gap)}${r}`;
 }
 
-/** Discount rows — amount column fixed to the right edge (matches Silver + MC lines). */
+/** Discount rows — label regular weight; amount bold on the right. */
 function roughDiscountRow(label, amount, width = ROUGH_ESTIMATE_WIDTH) {
     const plainLabel = String(label || '').trim();
     const val = formatRoughRowValue(-Math.abs(Number(amount) || 0));
-    const gap = Math.max(1, width - plainLabel.length - val.length);
-    return `${roughBold(plainLabel)}${' '.repeat(gap)}${val}`;
+    const gap = Math.max(1, width - plainLabel.length - roughVisibleLen(roughBold(val)));
+    return `${plainLabel}${' '.repeat(gap)}${roughBold(val)}`;
 }
 
 function roughSandwichAmount(amount, width = ROUGH_ESTIMATE_WIDTH) {
@@ -1477,6 +1518,15 @@ function roughOtherCharges(line, opts = {}) {
     );
 }
 
+function roughOtherChargesLabel(line) {
+    const stone = Number(line?.stone_charges) || 0;
+    const box = Number(line?.box_charges) || 0;
+    if (stone > 0 && box > 0) return 'Other Charges';
+    if (stone > 0) return 'Stone Charges';
+    if (box > 0) return 'Box Charges';
+    return 'Other Charges';
+}
+
 function roughMcDisplayValue(line, rateSlab, printFormats) {
     if (!shouldShowRoughMcLine(line, rateSlab, printFormats)) return null;
     const mcRate = Number(line?.mc_rate);
@@ -1552,10 +1602,10 @@ function roughSilverRateDiscountInfo(line, rates) {
         const wtLabel = Math.round(wt) === wt ? String(Math.round(wt)) : String(wt);
         return {
             amount: Math.round((liveSilver - lineRate) * wt),
-            label: `Discount on Silver Rate (${wtLabel} x ${perG})`,
+            label: `Disc on Silver Rate (${wtLabel} x ${perG})`,
         };
     }
-    return { amount: 0, label: 'Discount on Silver Rate' };
+    return { amount: 0, label: 'Disc on Silver Rate' };
 }
 
 function roughGoldRateLabel(line) {
@@ -1619,6 +1669,11 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     const mcVal = roughMcValueAmount(line, rateSlab, printFormats);
     if (mcVal > 0) pushIf(out, roughKvRow('MC Value', mcVal));
 
+    const otherCh = roughOtherCharges(line, { excludeDiamond: true });
+    if (otherCh > 0) {
+        pushIf(out, roughKvRow(roughOtherChargesLabel(line), otherCh));
+    }
+
     const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
     out.push(roughSandwichAmount(preDisc));
 
@@ -1628,7 +1683,7 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
         pushIf(out, roughDiscountRow(silverDisc.label, silverDisc.amount));
     }
     if (roughDiscountVisible(mcDisc)) {
-        pushIf(out, roughDiscountRow('Discount on MC Value', mcDisc));
+        pushIf(out, roughDiscountRow('Disc on MC Value', mcDisc));
     }
 
     const taxable = lineTaxableFromTotal(line?.lineTotalInr);
@@ -1761,16 +1816,25 @@ function buildRoughEstimateContent(bill, printFormats, rates, isDuplicate) {
         grandTotal = Math.round(grandTotal);
     }
 
+    const preDiscountTotal = Math.round(grandTotal + (roughDiscountVisible(totalSavings) ? totalSavings : 0));
     out.push('='.repeat(ROUGH_ESTIMATE_WIDTH));
-    out.push(roughPadRow(roughBold('GRAND TOTAL :'), roughBold(roughMoneyRoundedTotal(grandTotal))));
-    out.push('='.repeat(ROUGH_ESTIMATE_WIDTH));
+    out.push(
+        roughPadRow(roughBold('Total :'), roughBold(roughMoneyRoundedTotal(preDiscountTotal))),
+    );
     if (!allGoldBill && roughDiscountVisible(totalSavings)) {
-        out.push(roughPadRow(roughBold('TOTAL SAVINGS :'), roughBold(roughMoneyRoundedTotal(totalSavings))));
-        out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+        out.push(
+            roughPadRow(roughBold('Total Savings :'), roughBold(roughMoneyRoundedTotal(totalSavings))),
+        );
     }
+    out.push(
+        roughPadRow(roughBold('Grand Total :'), roughBold(roughMoneyRoundedTotal(grandTotal))),
+    );
+    out.push('='.repeat(ROUGH_ESTIMATE_WIDTH));
     out.push('Valid for One Hour Only');
     out.push('GST will be issued on Confirmation GST Bill');
     out.push('Join Our Savings Plan');
+    out.push('');
+    out.push('');
 
     return out.join('\n');
 }

@@ -63,6 +63,7 @@ export function ErpProductsWorkspace() {
   const [importsLoading, setImportsLoading] = useState(false)
   const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
   const [dupScanBusy, setDupScanBusy] = useState(false)
+  const [selectedPieceIds, setSelectedPieceIds] = useState<number[]>([])
   const [designTree, setDesignTree] = useState<
     { style_code: string; skus: { sku: string; product_name?: string | null }[] }[]
   >([])
@@ -330,8 +331,16 @@ export function ErpProductsWorkspace() {
     setPrinting(true)
     setMsg(null)
     try {
+      const orderedSelected =
+        selectedPieceIds.length > 0
+          ? pieces
+              .filter((p) => selectedPieceIds.includes(p.id))
+              .sort((a, b) => a.id - b.id)
+              .map((p) => p.id)
+          : undefined
       const result = await printStockLabels({
-        batchId: activeBatchId,
+        batchId: orderedSelected?.length ? undefined : activeBatchId,
+        pieceIds: orderedSelected,
         printerProfileId: workstation.printerProfileId,
         hardware: hw,
       })
@@ -510,7 +519,9 @@ export function ErpProductsWorkspace() {
             </button>
             <button type="button" className={erpBtnPrimary} disabled={printing} onClick={() => void printBarcodes()}>
               {printing ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
-              Generate barcodes
+              {selectedPieceIds.length
+                ? `Generate barcodes (${selectedPieceIds.length} selected)`
+                : 'Generate barcodes'}
             </button>
             <button
               type="button"
@@ -614,6 +625,7 @@ export function ErpProductsWorkspace() {
           scaleProfileId={workstation.scaleProfileId}
           printerProfileId={workstation.printerProfileId}
           rfidEnabled={rfidEnabled}
+          onSelectedIdsChange={setSelectedPieceIds}
         />
       </div>
     )

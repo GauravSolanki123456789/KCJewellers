@@ -142,6 +142,7 @@ export function ErpStockExcelEditor({
   scaleProfileId,
   printerProfileId,
   rfidEnabled = false,
+  onSelectedIdsChange,
 }: {
   batchId: string
   pieces: ErpStockPiece[]
@@ -149,6 +150,7 @@ export function ErpStockExcelEditor({
   scaleProfileId?: string | null
   printerProfileId?: string | null
   rfidEnabled?: boolean
+  onSelectedIdsChange?: (ids: number[]) => void
 }) {
   const { canDeleteRecords } = useErpOperator()
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
@@ -246,6 +248,14 @@ export function ErpStockExcelEditor({
       .then((res) => setFloors(res.data.floors || []))
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    onSelectedIdsChange?.(Array.from(selected))
+  }, [selected, onSelectedIdsChange])
+
+  useEffect(() => {
+    onSelectedIdsChange?.(Array.from(selected))
+  }, [selected, onSelectedIdsChange])
 
   const assignBoxes = useMemo(() => {
     const f = floors.find((x) => x.id === assignFloorId)

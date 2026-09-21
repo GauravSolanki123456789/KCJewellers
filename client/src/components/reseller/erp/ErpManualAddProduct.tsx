@@ -23,6 +23,8 @@ type ManualRow = {
   avg_weight: string
   purity: string
   pcs: string
+  wastage_pct: string
+  fixed_price: string
   rfid_tag: string
 }
 
@@ -48,6 +50,8 @@ function newRow(): ManualRow {
     avg_weight: '',
     purity: '',
     pcs: '1',
+    wastage_pct: '',
+    fixed_price: '',
     rfid_tag: '',
   }
 }
@@ -261,12 +265,17 @@ export function ErpManualAddProduct({
       setMsg('Choose a stock batch first.')
       return
     }
-    const validRows = rows.filter(
-      (r) => r.style_code.trim() && r.sku.trim() && r.avg_weight.trim(),
-    )
+    const validRows = rows.filter((r) => {
+      if (!r.style_code.trim() || !r.sku.trim()) return false
+      const wt = r.avg_weight.trim()
+      const fp = r.fixed_price.trim()
+      if (wt) return true
+      const n = Number(fp)
+      return fp !== '' && Number.isFinite(n) && n > 0
+    })
     if (!validRows.length) {
       setMsgTone('err')
-      setMsg('Add at least one row with style, SKU, and weight.')
+      setMsg('Add at least one row with style, SKU, and weight (g) or fixed price (MRP).')
       return
     }
     setBusy(true)
@@ -287,6 +296,8 @@ export function ErpManualAddProduct({
           AvgWeight: r.avg_weight.trim(),
           Purity: r.purity.trim() || (def?.purity != null ? String(def.purity) : ''),
           PCS: r.pcs.trim() || '1',
+          'Wastage(%)': r.wastage_pct.trim(),
+          FixedPrice: r.fixed_price.trim(),
           RFIDTag: rfidEnabled ? r.rfid_tag.trim() : '',
         }
       })
@@ -411,8 +422,20 @@ export function ErpManualAddProduct({
                     value={row.product_name}
                     placeholder="VLK"
                     options={prodOpts}
+                    allowCreate
+                    emptyText={
+                      row.style_code && row.sku
+                        ? 'Type to search catalogue or create new'
+                        : 'Select style and SKU first'
+                    }
                     onChange={(v) => updateRow(row.id, { product_name: v })}
-                    onCommit={(v) => updateRow(row.id, { product_name: v.trim().toUpperCase() })}
+                    onCommit={(v) => {
+                      const name = v.trim().toUpperCase()
+                      updateRow(row.id, { product_name: name })
+                      if (name && row.style_code && row.sku) {
+                        void ensureSku(row.style_code, row.sku, name)
+                      }
+                    }}
                   />
                 </FieldLabel>
                 <FieldLabel label="Weight (g)">
@@ -422,7 +445,7 @@ export function ErpManualAddProduct({
                     }}
                     className={`${erpInputCls} text-xs`}
                     inputMode="decimal"
-                    placeholder="150.4"
+                    placeholder={row.fixed_price.trim() ? 'Optional if MRP set' : '150.4'}
                     value={row.avg_weight}
                     onChange={(e) => updateRow(row.id, { avg_weight: e.target.value })}
                     onKeyDown={(e) => {
@@ -449,6 +472,24 @@ export function ErpManualAddProduct({
                     inputMode="numeric"
                     value={row.pcs}
                     onChange={(e) => updateRow(row.id, { pcs: e.target.value })}
+                  />
+                </FieldLabel>
+                <FieldLabel label="Wastage (%)">
+                  <input
+                    className={`${erpInputCls} text-xs`}
+                    inputMode="decimal"
+                    placeholder="Optional"
+                    value={row.wastage_pct}
+                    onChange={(e) => updateRow(row.id, { wastage_pct: e.target.value })}
+                  />
+                </FieldLabel>
+                <FieldLabel label="Fixed price (₹) / MRP">
+                  <input
+                    className={`${erpInputCls} text-xs`}
+                    inputMode="decimal"
+                    placeholder="Optional — MRP gift items"
+                    value={row.fixed_price}
+                    onChange={(e) => updateRow(row.id, { fixed_price: e.target.value })}
                   />
                 </FieldLabel>
                 {rfidEnabled ? (

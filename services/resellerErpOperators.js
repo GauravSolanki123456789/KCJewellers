@@ -181,6 +181,43 @@ function normalizeModules(list) {
     ];
 }
 
+const WEAK_OPERATOR_PASSWORDS = new Set([
+    'password',
+    'password1',
+    'password123',
+    '123456',
+    '12345678',
+    '123456789',
+    '1234567890',
+    'qwerty',
+    'qwerty123',
+    'admin',
+    'admin123',
+    'letmein',
+    'welcome',
+    'abc123',
+    'passw0rd',
+    'changeme',
+    'staff',
+    'staff123',
+    'test123',
+    'guest',
+]);
+
+function validateOperatorPassword(password) {
+    const s = String(password || '');
+    if (s.length < 12) {
+        return 'Password must be at least 12 characters (letters and numbers).';
+    }
+    if (!/[a-zA-Z]/.test(s) || !/[0-9]/.test(s)) {
+        return 'Password must include both letters and numbers.';
+    }
+    if (WEAK_OPERATOR_PASSWORDS.has(s.toLowerCase())) {
+        return 'This password is too common. Choose a unique passphrase.';
+    }
+    return null;
+}
+
 async function hashPassword(password) {
     return bcrypt.hash(String(password), 12);
 }
@@ -332,6 +369,8 @@ function registerOperatorRoutes(app, deps) {
             if (!username || !password) {
                 return res.status(400).json({ error: 'Username and password required' });
             }
+            const pwdErr = validateOperatorPassword(password);
+            if (pwdErr) return res.status(400).json({ error: pwdErr });
             const role = String(req.body.role || 'staff').toLowerCase() === 'admin' ? 'admin' : 'staff';
             const displayName = String(req.body.display_name || req.body.displayName || username).trim().slice(0, 255);
             const fullAccess = !!req.body.full_access || !!req.body.fullAccess;
@@ -421,6 +460,8 @@ function registerOperatorRoutes(app, deps) {
                 params.push(allowedModules);
             }
             if (req.body.password) {
+                const pwdErr = validateOperatorPassword(String(req.body.password));
+                if (pwdErr) return res.status(400).json({ error: pwdErr });
                 sets.push(`password_hash = $${idx++}`);
                 params.push(await hashPassword(String(req.body.password)));
             }
@@ -498,6 +539,8 @@ function registerOperatorRoutes(app, deps) {
             if (!username || !password) {
                 return res.status(400).json({ error: 'Username and password required' });
             }
+            const pwdErr = validateOperatorPassword(password);
+            if (pwdErr) return res.status(400).json({ error: pwdErr });
             const role = String(req.body.role || 'staff').toLowerCase() === 'admin' ? 'admin' : 'staff';
             const displayName = String(req.body.display_name || req.body.displayName || username).trim().slice(0, 255);
             const fullAccess = !!req.body.full_access || !!req.body.fullAccess;
@@ -574,6 +617,8 @@ function registerOperatorRoutes(app, deps) {
                 params.push(allowedModules);
             }
             if (req.body.password) {
+                const pwdErr = validateOperatorPassword(String(req.body.password));
+                if (pwdErr) return res.status(400).json({ error: pwdErr });
                 sets.push(`password_hash = $${idx++}`);
                 params.push(await hashPassword(String(req.body.password)));
             }

@@ -252,6 +252,7 @@ export const LABEL_RULE_FIELD_KEYS = [
   'box_charges',
   'box_code',
   'box_name',
+  'fixed_price',
   'rfid_tag',
   'pcs_gt_1',
 ] as const
@@ -599,6 +600,7 @@ export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {
   box_charges: 'Box charges',
   box_code: 'Box code',
   box_name: 'Box name (label)',
+  fixed_price: 'Fixed price / MRP',
   rfid_tag: 'RFID tag',
   pcs_gt_1: 'Pcs greater than 1',
 }

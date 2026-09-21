@@ -177,7 +177,7 @@ function trimCatalogKey(v, max = 255) {
 }
 
 function normalizeItemCodeBase(itemCode, productName) {
-    const raw = String(itemCode || productName || 'ITEM')
+    const raw = String(productName || itemCode || 'ITEM')
         .replace(/\s+/g, '')
         .toUpperCase();
     return raw.slice(0, 32) || 'ITEM';
@@ -1166,7 +1166,7 @@ function registerStockPieceRoutes(app, deps) {
                     p.barcode = await generateUniqueStockBarcode(
                         query,
                         req.user.id,
-                        p.item_code,
+                        p.product_name || p.item_code,
                         p.product_name,
                         usedBarcodes,
                     );
@@ -1666,7 +1666,7 @@ function registerStockPieceRoutes(app, deps) {
                         pieceRow.barcode = await generateUniqueStockBarcode(
                             query,
                             req.user.id,
-                            pieceRow.item_code,
+                            pieceRow.product_name || pieceRow.item_code,
                             pieceRow.product_name,
                             new Set(),
                         );
@@ -2232,12 +2232,14 @@ function registerStockPieceRoutes(app, deps) {
             const batchId = req.body.batch_id ? String(req.body.batch_id) : null;
             let pieces = [];
             if (pieceIds.length) {
+                const ids = pieceIds.map((id) => parseInt(String(id), 10)).filter((n) => n > 0);
                 const rows = await query(
                     `SELECT * FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
-                    [req.user.id, pieceIds.map((id) => parseInt(String(id), 10)).filter((n) => n > 0)],
+                    [req.user.id, ids],
                 );
-                pieces = rows.map(mapPiece);
+                const byId = new Map(rows.map((r) => [r.id, r]));
+                pieces = ids.map((id) => byId.get(id)).filter(Boolean).map(mapPiece);
             } else if (barcodes.length) {
                 const rows = await query(
                     `SELECT * FROM reseller_erp_stock_pieces
@@ -2248,7 +2250,8 @@ function registerStockPieceRoutes(app, deps) {
             } else if (batchId) {
                 const rows = await query(
                     `SELECT * FROM reseller_erp_stock_pieces
-                     WHERE reseller_user_id = $1 AND batch_id = $2::uuid AND status = 'in_stock'`,
+                     WHERE reseller_user_id = $1 AND batch_id = $2::uuid AND status = 'in_stock'
+                     ORDER BY id ASC`,
                     [req.user.id, batchId],
                 );
                 pieces = rows.map(mapPiece);

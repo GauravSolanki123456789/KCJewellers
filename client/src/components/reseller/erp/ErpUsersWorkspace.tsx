@@ -10,6 +10,10 @@ import {
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { appConfirm } from '@/lib/app-notice'
 import type { ErpOperator } from '@/context/ErpOperatorContext'
+import {
+  generateSecureErpPassword,
+  validateErpOperatorPassword,
+} from '@/lib/erp-operator-password'
 
 type OperatorRow = ErpOperator & { lastLoginAt?: string | null }
 
@@ -92,6 +96,13 @@ export function ErpUsersWorkspace() {
     if (!editId && !form.password) {
       setMsg('Password is required for new users.')
       return
+    }
+    if (form.password) {
+      const pwdErr = validateErpOperatorPassword(form.password)
+      if (pwdErr) {
+        setMsg(pwdErr)
+        return
+      }
     }
     if (!form.fullAccess && !editId && form.allowedModules.length === 0) {
       setMsg('Select at least one module, or enable full access.')
@@ -208,15 +219,39 @@ export function ErpUsersWorkspace() {
                 onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
               />
             </label>
-            <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+            <div className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
               Password {editId ? '(leave blank to keep)' : '*'}
-              <input
-                className={`${erpInputCls} mt-1`}
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              />
-            </label>
+              <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  className={`${erpInputCls} flex-1`}
+                  type="password"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
+                  name={`erp-staff-pwd-${editId ?? 'new'}`}
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"
+                  onClick={() => {
+                    const pwd = generateSecureErpPassword()
+                    setForm((f) => ({ ...f, password: pwd }))
+                    setMsg('Secure password generated — copy it now and share it safely with the staff member.')
+                  }}
+                >
+                  Generate secure password
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] leading-snug text-[var(--color-jewelry-black,#1a1814)]/55">
+                Minimum 12 characters with letters and numbers. Stored with bcrypt (12 rounds). Chrome may warn on
+                common passwords — use Generate or a unique passphrase.
+              </p>
+            </div>
             <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
               Role
               <select
