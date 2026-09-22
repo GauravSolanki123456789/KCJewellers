@@ -2,6 +2,7 @@ import { cache } from "react";
 import { CATALOG_METAL_LABELS } from "@/lib/catalog-retail-tags";
 import { normalizeStorefrontProductId } from "@/lib/catalog-product-filters";
 import { getApiUrlForServer } from "@/lib/site";
+import { storefrontServerFetchHeaders } from "@/lib/storefront-api-headers";
 
 /** Mirrors public GET /api/products row (web_products + joins). */
 export type ApiProductRow = {
@@ -56,7 +57,7 @@ export type ApiCatalogCategory = {
 
 const FETCH_OPTS: RequestInit = {
   next: { revalidate: 120 },
-  headers: { Accept: "application/json" },
+  headers: storefrontServerFetchHeaders(),
 };
 
 export const fetchProductByBarcode = cache(async function fetchProductByBarcode(

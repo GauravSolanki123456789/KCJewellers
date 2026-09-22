@@ -153,6 +153,7 @@ const securityHeaders = (req, res, next) => {
     res.setHeader('X-XSS-Protection', '1; mode=block');
     // Referrer policy
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     next();
 };
 

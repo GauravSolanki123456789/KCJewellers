@@ -48,6 +48,7 @@ const {
 } = require('./config/database');
 const { checkRole, checkAuth, checkAdmin, noCache, securityHeaders, getUserPermissions, isAdminStrict, requireB2BWholesale, requireSharedCatalogCreator } = require('./middleware/auth');
 const { antiScrapeMiddleware } = require('./middleware/antiScrape');
+const { createStorefrontProtect } = require('./middleware/storefrontProtect');
 const {
     resolveUserRole,
     hasWholesaleCatalogAccess,
@@ -297,6 +298,10 @@ const allowedOrigins = buildAllowedCorsOrigins();
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
     console.error('❌ Production CORS: set CLIENT_URL and/or CORS_ORIGINS (e.g. https://kcjewellers.co.in,https://www.kcjewellers.co.in).');
 }
+const storefrontProtect = createStorefrontProtect({ query, allowedOrigins });
+if (process.env.NODE_ENV === 'production' && !String(process.env.STOREFRONT_SSR_SECRET || '').trim()) {
+    console.warn('⚠️ STOREFRONT_SSR_SECRET is not set; server-side catalog fetches may be blocked in production.');
+}
 
 /** Apex hostname for matching `users.custom_domain` (RESELLER storefront hosts). */
 function normalizeStorefrontHostname(hostname) {
@@ -448,6 +453,7 @@ app.use(securityHeaders);
 
 // SECURITY: Block common scrapers on public/catalog routes (before rate limits)
 app.use(antiScrapeMiddleware);
+app.use(storefrontProtect.storefrontProtectMiddleware);
 
 // SECURITY: Global input sanitation and baseline rate limit
 app.use(sanitizeMiddleware());
@@ -1368,6 +1374,21 @@ app.put('/api/admin/settings/kc-theme', requireJson, isAdminStrict, async (req, 
         });
     } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to save theme settings' });
+    }
+});
+
+/** Public: whether a Host is allowed to serve the storefront (registered reseller custom domain or platform). */
+app.get('/api/public/storefront-host-allowed', async (req, res) => {
+    try {
+        const raw = String(req.query.domain || req.query.host || '').trim().toLowerCase();
+        const domain = raw.replace(/^https?:\/\//, '').split(':')[0].split('/')[0];
+        if (!domain) return res.json({ allowed: false });
+        const allowed = await storefrontProtect.isStorefrontHostAllowedPublic(domain);
+        res.setHeader('Cache-Control', 'public, max-age=120');
+        res.json({ allowed: !!allowed, domain });
+    } catch (error) {
+        console.error('storefront-host-allowed:', error);
+        res.status(500).json({ allowed: false, error: error.message });
     }
 });
 

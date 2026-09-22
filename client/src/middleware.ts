@@ -19,9 +19,55 @@ function hostname(hostHeader: string | null): string {
   return hostHeader.split(":")[0].trim().toLowerCase();
 }
 
+const HOST_ALLOW_TTL_MS = 5 * 60 * 1000;
+const hostAllowCache = new Map<string, { ok: boolean; at: number }>();
+
+async function fetchStorefrontHostAllowed(host: string): Promise<boolean> {
+  if (isCanonicalPlatformHost(host)) return true;
+  const key = host.trim().toLowerCase();
+  if (!key) return false;
+  const hit = hostAllowCache.get(key);
+  if (hit && Date.now() - hit.at < HOST_ALLOW_TTL_MS) return hit.ok;
+  const api = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(
+    /\/$/,
+    "",
+  );
+  try {
+    const res = await fetch(
+      `${api}/api/public/storefront-host-allowed?domain=${encodeURIComponent(key)}`,
+      { cache: "no-store" },
+    );
+    const data = (await res.json()) as { allowed?: boolean };
+    const ok = !!data.allowed;
+    hostAllowCache.set(key, { ok, at: Date.now() });
+    return ok;
+  } catch {
+    hostAllowCache.set(key, { ok: false, at: Date.now() });
+    return false;
+  }
+}
+
+function unauthorizedHostResponse(): NextResponse {
+  return new NextResponse(
+    `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="robots" content="noindex,nofollow"/><title>Not authorized</title></head><body style="font-family:system-ui,sans-serif;padding:2rem;max-width:36rem;margin:auto;color:#1a1814"><h1>Domain not authorized</h1><p>This website is not licensed to display this catalogue.</p><p><a href="https://kcjewellers.co.in">Visit KC Jewellers</a></p></body></html>`,
+    {
+      status: 403,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
+  );
+}
+
 /** Legacy catalogue query URLs → path-based SEO URLs; custom domains → `x-custom-domain` for branding. */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const host = hostname(request.headers.get("host"));
+
+  if (host && !isCanonicalPlatformHost(host)) {
+    const allowed = await fetchStorefrontHostAllowed(host);
+    if (!allowed) return unauthorizedHostResponse();
+  }
 
   const requestHeaders = new Headers(request.headers);
   if (host && !isCanonicalPlatformHost(host)) {
