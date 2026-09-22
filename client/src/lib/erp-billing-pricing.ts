@@ -229,10 +229,11 @@ function computeSilverGiftMcGmBreakdown(
 /** Gift / MRP / fixed piece-rate rows (qty × fixed price, no weight-based metal math). */
 export function isPiecePricedBillLine(line: ErpBillLine): boolean {
   if (isWeightBasedSilverGiftLine(line)) return false
+  const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
   const mcType = String(line.mc_type || '').toUpperCase()
   if (mcType.includes('FIXED')) {
     const rate = Number(line.fixed_price ?? line.unitInr ?? line.mc_rate ?? 0)
-    if (rate > 0) return true
+    if (rate > 0 && wt <= 0) return true
   }
   const item = lineToItem(line)
   if (isFixedPriceCatalogItem(item) && Number(item.fixed_price ?? 0) > 0) return true
@@ -245,8 +246,34 @@ export function isPiecePricedBillLine(line: ErpBillLine): boolean {
     return pieceRate > 0 && wt <= 0
   }
   const pieceRate = Number(line.unitInr ?? line.fixed_price ?? 0)
-  const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0)
   return pieceRate > 0 && wt <= 0
+}
+
+const ERP_LINE_GST_PCT = 3
+
+/** Extra ₹ added on top of weight-based metal + MC (not MRP-only rows). */
+export function erpAdditiveFixedChargeInr(line: ErpBillLine): number {
+  if (isPiecePricedBillLine(line)) return 0
+  const fixed = Number(line.fixed_price ?? 0) || 0
+  if (fixed <= 0) return 0
+  const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
+  return wt > 0 ? fixed : 0
+}
+
+function appendTaxableExtraToBreakdown(
+  bd: PriceBreakdown,
+  extra: number,
+  gstPct = ERP_LINE_GST_PCT,
+): PriceBreakdown {
+  if (extra <= 0) return bd
+  const taxable = bd.taxable + extra
+  const total = Math.round(taxable * (1 + gstPct / 100))
+  const gstAmt = total - taxable
+  return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 }
+}
+
+function finalizeWeightBasedBreakdown(line: ErpBillLine, bd: PriceBreakdown): PriceBreakdown {
+  return appendTaxableExtraToBreakdown(bd, erpAdditiveFixedChargeInr(line))
 }
 
 export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
@@ -293,7 +320,7 @@ export function computeLineBreakdown(
       wholesaleSilver,
       3,
     )
-    return bd
+    return finalizeWeightBasedBreakdown(line, bd)
   }
 
   if (isPiecePricedBillLine(line)) {
@@ -333,7 +360,7 @@ export function computeLineBreakdown(
     const mcDisc = isMcPerPiece(adjusted.mc_type)
       ? Math.max(0, Number(tier.mc_discount_pct) || 0)
       : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0)
-    const bd = computeErpPieceSlabBreakdown(
+    let bd = computeErpPieceSlabBreakdown(
       adjusted,
       slab,
       silverPerG,
@@ -342,6 +369,7 @@ export function computeLineBreakdown(
       silverOffset,
       mcDisc,
     )
+    bd = finalizeWeightBasedBreakdown(line, bd)
     const box = Number(line.box_charges || 0) || 0
     if (box <= 0) return bd
     const gstPct = 3
@@ -361,7 +389,8 @@ export function computeLineBreakdown(
     goldSlabRShowMc,
   )
   const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
-  const bd = calculateBreakdownWithSlab(item, rates, 3, ctx)
+  let bd = calculateBreakdownWithSlab(item, rates, 3, ctx)
+  bd = finalizeWeightBasedBreakdown(line, bd)
   const box = Number(line.box_charges || 0) || 0
   if (box <= 0) return bd
   const gstPct = 3

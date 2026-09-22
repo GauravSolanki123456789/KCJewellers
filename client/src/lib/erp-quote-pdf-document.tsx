@@ -7,7 +7,11 @@ import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { billingMcPdfText, billingWastageDisplay } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { parseMetalSlabFraction, pieceSlabMetalFraction } from '@/lib/erp-piece-slab-pricing'
+import { pieceSlabMetalFraction } from '@/lib/erp-piece-slab-pricing'
+import {
+  formatMetalSlabPctForDisplay,
+  lineHasMetalSlabPctInput,
+} from '@/lib/erp-metal-slab-field'
 import { computeMcValueForPdf, groupBillLinesForSummaryPdf } from '@/lib/erp-quote-pdf-summary'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
@@ -42,14 +46,7 @@ function pdfBillWtGrossDisplay(line: ErpBillLine, rateSlab: ErpRateSlab): string
 }
 
 function metalSlabPctDisplay(line: ErpBillLine, slab: ErpRateSlab): string {
-  let raw: unknown = null
-  if (slab === 'W') raw = line.metal_slab_w_pct ?? line.metal_slab_r_pct
-  else if (slab === 'F') raw = line.metal_slab_f_pct ?? line.metal_slab_w_pct ?? line.metal_slab_r_pct
-  else raw = line.metal_slab_r_pct
-  if (raw == null || raw === '') return ''
-  const frac = parseMetalSlabFraction(raw)
-  if (frac >= 0.999) return ''
-  return `${Math.round(frac * 100)}%`
+  return formatMetalSlabPctForDisplay(line, slab)
 }
 
 function isEmptyPdfCell(val: string, key: string): boolean {
@@ -66,9 +63,7 @@ function buildPdfColumns(
   ratesUnfixed: boolean,
 ): PdfCol[] {
   const hasGold = lines.some((l) => !isSilverMetal(l))
-  const showSlabDetail = rateSlab === 'W' || rateSlab === 'F'
-  const showSlabPct =
-    showSlabDetail && lines.some((l) => metalSlabPctDisplay(l, rateSlab) !== '')
+  const showSlabPct = lines.some((l) => lineHasMetalSlabPctInput(l, rateSlab))
 
   const rateUnfixAlways = new Set(['rate', 'mcValue', 'amt'])
 
@@ -82,7 +77,7 @@ function buildPdfColumns(
     { key: 'bagWt', label: 'Bag Wt', w: '4%' },
     { key: 'netOrig', label: 'Net Wt', w: '5%' },
     ...(showSlabPct ? [{ key: 'slabPct', label: 'Metal(%)', w: '4%' }] : []),
-    { key: 'wt', label: showSlabDetail && showSlabPct ? 'Pure Wt' : 'Wt', w: '5%' },
+    { key: 'wt', label: showSlabPct ? 'Pure Wt' : 'Wt', w: '5%' },
     ...(hasGold ? [{ key: 'purity', label: 'Pur', w: '4%' }] : []),
     { key: 'wast', label: 'W%', w: '3%' },
     { key: 'rate', label: 'Rate', w: '5%' },
@@ -267,10 +262,7 @@ function cell(
     case 'slabPct':
       return metalSlabPctDisplay(line, rateSlab) || '—'
     case 'wt':
-      if (rateSlab === 'W' || rateSlab === 'F') {
-        const pct = metalSlabPctDisplay(line, rateSlab)
-        if (pct) return pdfPureWtDisplay(line, rateSlab)
-      }
+      if (lineHasMetalSlabPctInput(line, rateSlab)) return pdfPureWtDisplay(line, rateSlab)
       return pdfBillWtGrossDisplay(line, rateSlab)
     case 'purity':
       if (isSilverMetal(line)) return '—'

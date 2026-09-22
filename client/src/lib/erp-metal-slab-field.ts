@@ -17,6 +17,24 @@ export function readMetalSlabPct(line: ErpBillLine, slab: ErpRateSlab): number |
   return Number.isFinite(n) ? n : ''
 }
 
+/** PDF / display — show the value the cashier entered (e.g. 89 → 89%). */
+export function formatMetalSlabPctForDisplay(line: ErpBillLine, slab: ErpRateSlab): string {
+  const key = metalSlabPctStorageKey(slab)
+  const raw = line[key]
+  if (raw == null || raw === '') return ''
+  const s = String(raw).trim()
+  if (!s) return ''
+  if (s.includes('%')) return s
+  const n = Number(s)
+  if (!Number.isFinite(n)) return s
+  if (n > 0 && n <= 1) return `${Math.round(n * 1000) / 10}%`
+  return `${n}%`
+}
+
+export function lineHasMetalSlabPctInput(line: ErpBillLine, slab: ErpRateSlab): boolean {
+  return formatMetalSlabPctForDisplay(line, slab) !== ''
+}
+
 export function patchMetalSlabPct(
   slab: ErpRateSlab,
   value: number | null,

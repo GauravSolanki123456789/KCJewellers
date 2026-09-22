@@ -118,6 +118,8 @@ export const MANUAL_ENTRY_FIELD_ORDER: ManualBillGridField[] = [
   'qty',
   'box_charges',
   'stone_charges',
+  'metal_type',
+  'fixed_price',
 ]
 
 export type DesignBillingProduct = {

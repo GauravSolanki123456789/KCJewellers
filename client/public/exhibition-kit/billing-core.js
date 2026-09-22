@@ -882,10 +882,11 @@ var KcExhibitionBillingModule = (() => {
   }
   function isPiecePricedBillLine(line) {
     if (isWeightBasedSilverGiftLine(line)) return false;
+    const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     const mcType = String(line.mc_type || "").toUpperCase();
     if (mcType.includes("FIXED")) {
       const rate = Number(line.fixed_price ?? line.unitInr ?? line.mc_rate ?? 0);
-      if (rate > 0) return true;
+      if (rate > 0 && wt <= 0) return true;
     }
     const item = lineToItem(line);
     if (isFixedPriceCatalogItem(item) && Number(item.fixed_price ?? 0) > 0) return true;
@@ -898,8 +899,25 @@ var KcExhibitionBillingModule = (() => {
       return pieceRate2 > 0 && wt2 <= 0;
     }
     const pieceRate = Number(line.unitInr ?? line.fixed_price ?? 0);
-    const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0);
     return pieceRate > 0 && wt <= 0;
+  }
+  var ERP_LINE_GST_PCT = 3;
+  function erpAdditiveFixedChargeInr(line) {
+    if (isPiecePricedBillLine(line)) return 0;
+    const fixed = Number(line.fixed_price ?? 0) || 0;
+    if (fixed <= 0) return 0;
+    const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
+    return wt > 0 ? fixed : 0;
+  }
+  function appendTaxableExtraToBreakdown(bd, extra, gstPct = ERP_LINE_GST_PCT) {
+    if (extra <= 0) return bd;
+    const taxable = bd.taxable + extra;
+    const total = Math.round(taxable * (1 + gstPct / 100));
+    const gstAmt = total - taxable;
+    return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 };
+  }
+  function finalizeWeightBasedBreakdown(line, bd) {
+    return appendTaxableExtraToBreakdown(bd, erpAdditiveFixedChargeInr(line));
   }
   function applyPiecePricedLineCalc(line) {
     const parsed = Number(line.qty);
@@ -927,7 +945,7 @@ var KcExhibitionBillingModule = (() => {
         wholesaleSilver,
         3
       );
-      return bd2;
+      return finalizeWeightBasedBreakdown(line, bd2);
     }
     if (isPiecePricedBillLine(line)) {
       const priced = applyPiecePricedLineCalc(line);
@@ -956,7 +974,7 @@ var KcExhibitionBillingModule = (() => {
       const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type);
       const silverOffset = opts?.literalCustomMetalRate ? 0 : slab === "R" ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0;
       const mcDisc = isMcPerPiece(adjusted.mc_type) ? Math.max(0, Number(tier.mc_discount_pct) || 0) : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0);
-      const bd2 = computeErpPieceSlabBreakdown(
+      let bd2 = computeErpPieceSlabBreakdown(
         adjusted,
         slab,
         silverPerG,
@@ -965,6 +983,7 @@ var KcExhibitionBillingModule = (() => {
         silverOffset,
         mcDisc
       );
+      bd2 = finalizeWeightBasedBreakdown(line, bd2);
       const box2 = Number(line.box_charges || 0) || 0;
       if (box2 <= 0) return bd2;
       const gstPct2 = 3;
@@ -983,7 +1002,8 @@ var KcExhibitionBillingModule = (() => {
       goldSlabRShowMc
     );
     const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG);
-    const bd = calculateBreakdownWithSlab(item, rates, 3, ctx);
+    let bd = calculateBreakdownWithSlab(item, rates, 3, ctx);
+    bd = finalizeWeightBasedBreakdown(line, bd);
     const box = Number(line.box_charges || 0) || 0;
     if (box <= 0) return bd;
     const gstPct = 3;
@@ -1169,7 +1189,9 @@ var KcExhibitionBillingModule = (() => {
     "mc_type",
     "qty",
     "box_charges",
-    "stone_charges"
+    "stone_charges",
+    "metal_type",
+    "fixed_price"
   ];
   function skuKey(sku) {
     return sku.trim().toUpperCase();
@@ -1554,6 +1576,3 @@ var KcExhibitionBillingModule = (() => {
   return __toCommonJS(exhibition_billing_bundle_exports);
 })();
 if(typeof window!=="undefined"&&window.KcExhibitionBillingModule){window.KcExhibitionBilling=window.KcExhibitionBillingModule.KcExhibitionBilling||window.KcExhibitionBillingModule;}
-
-
-

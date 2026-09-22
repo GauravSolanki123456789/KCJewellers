@@ -195,7 +195,7 @@ const TABLE_COLS: BillTableCol[] = [
   { key: 'qty', label: 'PCS', w: 'w-[3.5%]', edit: true },
   { key: 'box_charges', label: 'Box', w: 'w-[3.5%]', edit: true },
   { key: 'stone_charges', label: 'Finish', w: 'w-[4%]', edit: true },
-  { key: 'metal_type', label: 'Metal', w: 'w-[4.5%]' },
+  { key: 'metal_type', label: 'Metal', w: 'w-[4.5%]', edit: true },
   { key: 'fixed_price', label: 'Fixed', w: 'w-[4.5%]', edit: true },
   { key: 'amount', label: 'Amt', w: 'w-[6%]' },
 ]
@@ -1990,13 +1990,13 @@ export function ErpBillingWorkspace() {
       if (NUMERIC_EDIT_KEYS.includes(field)) {
         flushNumericDraft(lineKey, idx, line, field)
       }
+      let workingLine = line
       if (line.manualEntry) {
-        for (const k of ['gross_weight', 'bags', 'bag_wt'] as const) {
+        for (const k of ['gross_weight', 'bags', 'bag_wt', 'qty', 'fixed_price', 'metal_slab_pct'] as const) {
           flushNumericDraft(lineKey, idx, line, k)
         }
         let merged = { ...line }
         for (const k of NUMERIC_EDIT_KEYS) {
-          if (k === 'metal_slab_pct') continue
           const refKey = `${lineKey}-${String(k)}`
           const draft = cellDraftsRef.current[refKey]
           if (draft === undefined) continue
@@ -2004,16 +2004,20 @@ export function ErpBillingWorkspace() {
           if (k === 'weightGm') {
             merged.weightGm = parsed
             merged.originalWeightGm = parsed
+          } else if (k === 'metal_slab_pct') {
+            Object.assign(merged, patchMetalSlabPct(rateSlab, parsed))
           } else {
             merged = { ...merged, [k]: parsed } as ErpBillLine
           }
         }
         const weightPatch = applyManualWeightPatch(merged, {})
         if (weightPatch.weightGm != null) {
+          merged = { ...merged, ...weightPatch }
           updateManualLine(idx, weightPatch)
         }
+        workingLine = merged
       }
-      const nextKey = nextBillTableField(tableCols, String(field), line)
+      const nextKey = nextBillTableField(tableCols, String(field), workingLine)
       if (nextKey) {
         focusManualCell(lineKey, nextKey as ManualBillGridField)
       } else {
@@ -2022,7 +2026,7 @@ export function ErpBillingWorkspace() {
         scanRef.current?.focus()
       }
     },
-    [focusManualCell, tableCols, flushNumericDraft, collapseManualRow, updateManualLine],
+    [focusManualCell, tableCols, flushNumericDraft, collapseManualRow, updateManualLine, rateSlab],
   )
 
   if (!hydrated) {

@@ -272,9 +272,7 @@ export function ErpBillingStackedRow({
                   >
                     {f.label}
                     {f.key === 'metal_type' ? (
-                      <p className="rounded-full border border-emerald-200 bg-white px-2 py-1.5 text-xs capitalize text-[var(--color-jewelry-black,#1a1814)]">
-                        {line.metal_type || 'silver'}
-                      </p>
+                      bandInput('metal_type')
                     ) : f.key === 'box_charges' && (line.designBoxOptions?.length ?? 0) >= 2 ? (
                       <ErpBillingSuggestField
                         value={line.packaging_label || ''}
