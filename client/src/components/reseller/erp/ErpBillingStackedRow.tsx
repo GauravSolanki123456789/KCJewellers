@@ -17,11 +17,12 @@ import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { X } from 'lucide-react'
 
-const WEIGHT_BAND: { key: keyof ErpBillLine; label: string }[] = [
+const WEIGHT_BAND: { key: keyof ErpBillLine | 'metal_slab_pct'; label: string }[] = [
   { key: 'weightGm', label: 'NETWT' },
   { key: 'gross_weight', label: 'GROSS' },
   { key: 'bags', label: 'BAGS' },
   { key: 'bag_wt', label: 'BAGWT' },
+  { key: 'metal_slab_pct', label: 'METAL%' },
   { key: 'purity', label: 'PURITY' },
   { key: 'wastage_pct', label: 'WAST%' },
   { key: 'ratePerGram', label: 'RATE' },
@@ -37,11 +38,12 @@ const CHARGE_BAND: { key: keyof ErpBillLine; label: string }[] = [
   { key: 'fixed_price', label: 'FIXED' },
 ]
 
-const NUMERIC_KEYS = new Set<keyof ErpBillLine>([
+const NUMERIC_KEYS = new Set<keyof ErpBillLine | 'metal_slab_pct'>([
   'weightGm',
   'gross_weight',
   'bag_wt',
   'bags',
+  'metal_slab_pct',
   'purity',
   'wastage_pct',
   'ratePerGram',
@@ -58,9 +60,9 @@ type Props = {
   lineKey: string
   catalog: DesignBillingStyle[]
   highlight?: boolean
-  manualFocus: { lineKey: string; field: keyof ErpBillLine } | null
-  cellValue: (key: keyof ErpBillLine) => string
-  inputRef: (field: keyof ErpBillLine, el: HTMLInputElement | null) => void
+  manualFocus: { lineKey: string; field: keyof ErpBillLine | 'metal_slab_pct' } | null
+  cellValue: (key: keyof ErpBillLine | 'metal_slab_pct') => string
+  inputRef: (field: keyof ErpBillLine | 'metal_slab_pct', el: HTMLInputElement | null) => void
   onSkuChange: (v: string) => void
   onStyleChange: (v: string) => void
   onSkuCommit: (sku: string, style: string) => void
@@ -69,9 +71,9 @@ type Props = {
   onProductCommit: (name: string, imageUrl?: string | null) => void
   onSizeChange: (label: string) => void
   onSizeCommit: (label: string) => void
-  onNumericChange: (field: keyof ErpBillLine, raw: string) => void
-  onNumericBlur: (field: keyof ErpBillLine) => void
-  onAdvance: (field: keyof ErpBillLine) => void
+  onNumericChange: (field: keyof ErpBillLine | 'metal_slab_pct', raw: string) => void
+  onNumericBlur: (field: keyof ErpBillLine | 'metal_slab_pct') => void
+  onAdvance: (field: keyof ErpBillLine | 'metal_slab_pct') => void
   onPatch: (patch: Partial<ErpBillLine>) => void
   onDelete: () => void
   rowRef: (el: HTMLTableRowElement | null) => void
@@ -112,10 +114,10 @@ export function ErpBillingStackedRow({
   const styleOptions = styleOptionsForCatalog(catalog, styleValue)
   const productOptions = (line.designProductOptions || []).map((p) => p.name)
   const sizeOptions = (line.designSizeOptions || []).map((s) => s.size_label)
-  const focused = (field: keyof ErpBillLine) =>
+  const focused = (field: keyof ErpBillLine | 'metal_slab_pct') =>
     manualFocus?.lineKey === lineKey && manualFocus.field === field
 
-  const bandInput = (field: keyof ErpBillLine, readOnly = false) => {
+  const bandInput = (field: keyof ErpBillLine | 'metal_slab_pct', readOnly = false) => {
     const numeric = NUMERIC_KEYS.has(field)
     return (
       <input

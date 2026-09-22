@@ -116,7 +116,7 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   if (baseRates && slab) {
     for (const line of lines) {
       count += Number(line.qty) || 1
-      weight += Number(line.weightGm) || 0
+      weight += Number(line.originalWeightGm ?? line.weightGm) || 0
       const rates = resolveLineDisplayRates(line, baseRates, goldPerG, silverPerG)
       const bd = computeLineBreakdown(
         line,
@@ -135,7 +135,7 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   } else {
     for (const line of lines) {
       count += Number(line.qty) || 1
-      weight += Number(line.weightGm) || 0
+      weight += Number(line.originalWeightGm ?? line.weightGm) || 0
       net += Number(line.lineTotalInr) || 0
     }
     if (net > 0) {

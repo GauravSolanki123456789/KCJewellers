@@ -7,7 +7,7 @@ import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { billingMcPdfText, billingWastageDisplay } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { parseMetalSlabFraction } from '@/lib/erp-piece-slab-pricing'
+import { parseMetalSlabFraction, pieceSlabMetalFraction } from '@/lib/erp-piece-slab-pricing'
 import { computeMcValueForPdf, groupBillLinesForSummaryPdf } from '@/lib/erp-quote-pdf-summary'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
@@ -16,6 +16,16 @@ type PdfCol = { key: string; label: string; w: string }
 
 function isSilverMetal(line: ErpBillLine): boolean {
   return String(line.metal_type || '').toLowerCase().startsWith('silver')
+}
+
+/** Pure weight for PDF: Net Wt × Metal(%). */
+function pdfPureWtDisplay(line: ErpBillLine, rateSlab: ErpRateSlab): string {
+  const netRaw = line.originalWeightGm ?? line.weightGm
+  if (netRaw == null || !Number.isFinite(Number(netRaw))) return '—'
+  const net = Number(netRaw)
+  const frac = pieceSlabMetalFraction(line, rateSlab)
+  if (frac >= 0.999) return net.toFixed(2)
+  return (Math.round(net * frac * 100) / 100).toFixed(2)
 }
 
 /** Billable gross weight for PDF Wt column (net + wastage %), display only. */
@@ -71,8 +81,8 @@ function buildPdfColumns(
     { key: 'gross', label: 'Gross', w: '5%' },
     { key: 'bagWt', label: 'Bag Wt', w: '4%' },
     { key: 'netOrig', label: 'Net Wt', w: '5%' },
-    ...(showSlabPct ? [{ key: 'slabPct', label: 'Met %', w: '4%' }] : []),
-    { key: 'wt', label: showSlabDetail && showSlabPct ? 'Bill Wt' : 'Wt', w: '5%' },
+    ...(showSlabPct ? [{ key: 'slabPct', label: 'Metal(%)', w: '4%' }] : []),
+    { key: 'wt', label: showSlabDetail && showSlabPct ? 'Pure Wt' : 'Wt', w: '5%' },
     ...(hasGold ? [{ key: 'purity', label: 'Pur', w: '4%' }] : []),
     { key: 'wast', label: 'W%', w: '3%' },
     { key: 'rate', label: 'Rate', w: '5%' },
@@ -257,6 +267,10 @@ function cell(
     case 'slabPct':
       return metalSlabPctDisplay(line, rateSlab) || '—'
     case 'wt':
+      if (rateSlab === 'W' || rateSlab === 'F') {
+        const pct = metalSlabPctDisplay(line, rateSlab)
+        if (pct) return pdfPureWtDisplay(line, rateSlab)
+      }
       return pdfBillWtGrossDisplay(line, rateSlab)
     case 'purity':
       if (isSilverMetal(line)) return '—'
@@ -315,6 +329,7 @@ export type ErpQuotePdfDocumentProps = {
   products: ItemWithPdfImage[]
   totals: ErpQuoteTotals
   customerName?: string | null
+  customerMobile?: string | null
   ratesUnfixed?: boolean
   documentKind?: 'quote' | 'invoice'
   gstin?: string | null
@@ -328,6 +343,7 @@ export function ErpQuotePdfDocument({
   products,
   totals,
   customerName,
+  customerMobile,
   ratesUnfixed = false,
   documentKind = 'quote',
   gstin,
@@ -355,6 +371,16 @@ export function ErpQuotePdfDocument({
       : isInvoice
         ? 'Invoice details — full breakdown'
         : 'Order summary — full details'
+  const customerHeader = useMemo(() => {
+    const name = sanitizePdfText(customerName || bill.customer_name || '').trim()
+    const mobile = String(customerMobile || bill.session?.mobile || '')
+      .replace(/\D/g, '')
+    if (name && mobile) return `${name} / ${mobile}`
+    if (name) return name
+    if (mobile) return mobile
+    return ''
+  }, [customerName, customerMobile, bill.customer_name, bill.session?.mobile])
+
   const photoEntries = useMemo(
     () =>
       products
@@ -371,8 +397,7 @@ export function ErpQuotePdfDocument({
             <Text style={styles.brand}>{sanitizePdfText(brandName)}</Text>
             <Text style={styles.sub}>
               {docLabel} {bill.bill_number}
-              {customerName ? ` · ${sanitizePdfText(customerName)}` : ''} · {lines.length} line
-              {lines.length !== 1 ? 's' : ''} · {totals.count} pc{totals.count !== 1 ? 's' : ''}
+              {customerHeader ? ` · ${customerHeader}` : ''}
               {isInvoice && gstin ? ` · GSTIN ${sanitizePdfText(gstin)}` : ''}
             </Text>
           </View>

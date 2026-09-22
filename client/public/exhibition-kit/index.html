@@ -87,15 +87,57 @@
     .suggest-item:hover, .suggest-item.active { background: rgba(4,120,87,.08); }
     .suggest-item small { color: var(--muted); margin-left: 6px; }
     .hint { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
-    .bill-table-wrap { overflow-x: auto; margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; }
-    table.bill-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; min-width: 720px; }
-    table.bill-table th, table.bill-table td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
-    table.bill-table th { background: #faf8f4; font-size: 0.68rem; text-transform: uppercase; color: var(--muted); position: sticky; top: 0; }
-    table.bill-table tr.manual { background: rgba(4,120,87,.04); }
-    table.bill-table input, table.bill-table select {
-      min-height: 34px; padding: 4px 6px; font-size: 0.78rem; border-radius: 8px;
+    .scan-head {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+      margin-top: 12px; padding: 10px 12px; border-radius: 12px 12px 0 0;
+      background: linear-gradient(90deg, #1d4ed8, #2563eb); color: #fff;
     }
-    .cell-amt { font-weight: 700; white-space: nowrap; }
+    .scan-head h2 { margin: 0; font-size: 0.95rem; font-weight: 700; }
+    .scan-badge {
+      background: rgba(255,255,255,.2); padding: 4px 10px; border-radius: 999px;
+      font-size: 0.75rem; font-weight: 600;
+    }
+    .bill-table-wrap {
+      overflow-x: auto; margin-top: 0; border: 1px solid var(--border); border-radius: 0 0 12px 12px;
+      background: #fff;
+    }
+    table.bill-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    table.bill-table td { border-bottom: 1px solid var(--border); padding: 8px; vertical-align: top; color: var(--text); }
+    table.bill-table tr.manual td { background: rgba(4,120,87,.03); }
+    .line-grid { display: grid; gap: 8px; }
+    .line-band { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @media (min-width: 640px) { .line-band.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    @media (min-width: 900px) { .line-band.cols-7 { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+    .field-label {
+      display: block; font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; color: #047857; margin-bottom: 2px;
+    }
+    .field-label.accent { color: #8b1e2d; }
+    table.bill-table input, table.bill-table select {
+      min-height: 36px; padding: 6px 8px; font-size: 0.78rem; border-radius: 10px;
+      border: 1px solid #a7f3d0; background: #fff; color: var(--text); width: 100%;
+    }
+    table.bill-table input:read-only { background: #f8fafc; border-color: var(--border); }
+    .cell-amt { font-weight: 800; white-space: nowrap; color: #047857; font-size: 0.95rem; }
+    .line-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px; }
+    .line-idx { font-weight: 700; font-size: 0.9rem; min-width: 28px; }
+    .btn-del {
+      width: auto; min-height: 36px; padding: 4px 10px; background: #fff; color: #be123c;
+      border: 1px solid #fecdd3; font-size: 0.85rem;
+    }
+    .totals-bar {
+      display: grid; gap: 8px; grid-template-columns: repeat(2, 1fr);
+      margin-top: 12px; padding: 12px; border-radius: 12px;
+      border: 1px solid var(--border); background: #faf8f4;
+    }
+    @media (min-width: 640px) { .totals-bar { grid-template-columns: repeat(5, 1fr); } }
+    .totals-bar .lbl { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+    .totals-bar .val { font-size: 0.95rem; font-weight: 700; color: var(--text); }
+    .totals-bar .val.blue { color: #1d4ed8; }
+    .net-pill {
+      display: inline-block; margin-top: 4px; padding: 6px 14px; border-radius: 999px;
+      background: #047857; color: #fff; font-weight: 800; font-size: 1rem;
+    }
     .cust-form { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
   </style>
 </head>
@@ -146,9 +188,8 @@
 
       <div class="row" style="margin-top:10px">
         <div>
-          <label>Scan barcode · A / S / B / G</label>
-          <input id="scan" placeholder="Scan, barcode, or A/S/B/G…" autocomplete="off" />
-          <p class="hint">A=Articles · S=Jewellery · B=Bullion · G=Gift (manual SKU → Style → Product)</p>
+          <label>Scan barcode</label>
+          <input id="scan" placeholder="Scan barcode…" autocomplete="off" />
         </div>
         <div>
           <label>Quote no.</label>
@@ -178,17 +219,22 @@
         <div></div>
       </div>
 
+      <div class="scan-head">
+        <h2>Scanned products</h2>
+        <span class="scan-badge" id="itemCount">0 items</span>
+      </div>
       <div class="bill-table-wrap">
         <table class="bill-table">
-          <thead>
-            <tr>
-              <th>Code</th><th>SKU</th><th>Style</th><th>Product</th><th>Size</th><th>NetWt</th><th>PCS</th><th>₹</th><th></th>
-            </tr>
-          </thead>
           <tbody id="lines"></tbody>
         </table>
       </div>
-      <p class="total">Total: ₹<span id="total">0</span></p>
+      <div class="totals-bar" id="totalsBar">
+        <div><div class="lbl">Items</div><div class="val" id="tItems">0</div></div>
+        <div><div class="lbl">Total weight</div><div class="val blue" id="tWeight">0g</div></div>
+        <div><div class="lbl">Subtotal</div><div class="val" id="tSub">₹0</div></div>
+        <div><div class="lbl">GST (3%)</div><div class="val blue" id="tGst">₹0</div></div>
+        <div><div class="lbl">Net total</div><div class="net-pill" id="tNet">₹0</div></div>
+      </div>
       <div class="row">
         <div>
           <label>Collected (₹)</label>
@@ -222,6 +268,7 @@
       inlineCustomer: null,
       gstInvoiceItems: [],
       billingCatalogs: {},
+      embeddedCustomers: [],
     };
     let custPickIdx = -1;
     let custKeyboardNav = false;
@@ -272,14 +319,36 @@
       return state.billingCatalogs[name] || [];
     }
 
-    function slabSettings() {
+    function slabSettingsRaw() {
       return state.pack?.snapshot?.slabSettings || state.pack?.snapshot?.settings?.reseller_slab_settings || {};
     }
 
     function recalcLine(line) {
       const slab = document.getElementById('rateSlab').value || 'R';
-      const total = KB.calcLineTotal(line, currentRates(), slab, slabSettings());
-      return { ...line, lineTotalInr: total };
+      return KB.recalcBillLine(line, currentRates(), slab, slabSettingsRaw());
+    }
+
+    function allCustomers() {
+      const fromPack = state.pack?.snapshot?.customers;
+      if (fromPack?.length) return fromPack;
+      return state.embeddedCustomers || [];
+    }
+
+    function applyEmbeddedBoot() {
+      const boot = window.__KC_EXHIBITION_EMBED__;
+      if (!boot) return;
+      if (boot.customers?.length) state.embeddedCustomers = boot.customers;
+      if (boot.rates && !state.pack) {
+        state.rates = { ...state.rates, ...boot.rates };
+      }
+      if (boot.gstInvoiceItems?.length && !state.gstInvoiceItems.length) {
+        state.gstInvoiceItems = boot.gstInvoiceItems;
+      }
+      if (boot.shopName && !state.pack) setShopTitle({ shopName: boot.shopName });
+      if (boot.customers?.length && !state.pack) {
+        document.getElementById('status').textContent =
+          `${boot.customers.length} customers embedded · load exhibition pack for barcodes`;
+      }
     }
 
     function parseQuoteSlot(raw) {
@@ -371,8 +440,10 @@
         name: piece.name || piece.product_name,
         product_name: piece.product_name || piece.name,
         weightGm: netWt || null,
+        originalWeightGm: netWt || null,
         net_weight: netWt || null,
         qty: piece.pcs || 1,
+        stock_piece_id: piece.id ?? null,
       });
       return line;
     }
@@ -389,66 +460,91 @@
       renderCart();
     }
 
+    function catalogProductsForLine(line) {
+      const catalog = catalogForLine(line);
+      return KB.productNamesForSku(catalog, line.sku || '');
+    }
+
     function applyManualField(idx, field, rawValue) {
       const line = state.cart[idx];
-      if (!line?.manualEntry) return;
+      if (!line) return;
+      const editable = !!line.manualEntry;
       const catalog = catalogForLine(line);
       let patch = {};
-      const val = String(rawValue || '').trim();
+      const val = String(rawValue ?? '').trim();
+      const products = catalogProductsForLine(line);
+      const product = KB.findCatalogProduct(products, line.name || '');
 
-      if (field === 'sku') {
+      if (field === 'sku' && editable) {
         patch.sku = val;
         const style = KB.findStyleForSku(catalog, val);
         if (style) patch.style_code = style;
-      } else if (field === 'style_code') {
+        patch.designProductOptions = KB.productNamesForSku(catalog, val);
+      } else if (field === 'style_code' && editable) {
         patch.style_code = val;
-      } else if (field === 'name') {
+      } else if (field === 'name' && editable) {
         patch.name = val;
-        const products = KB.productNamesForSku(catalog, line.sku || val);
-        const product = KB.findCatalogProduct(products, val);
-        if (product) Object.assign(patch, KB.patchLineFromCatalogProduct(line, product));
+        const hit = KB.findCatalogProduct(products, val);
+        if (hit) Object.assign(patch, KB.patchLineFromCatalogProduct(line, hit));
       } else if (field === 'size') {
-        const products = KB.productNamesForSku(catalog, line.sku || '');
-        const product = KB.findCatalogProduct(products, line.name || '');
-        if (product) Object.assign(patch, KB.patchLineFromCatalogSize(line, product, val));
+        if (editable && product) Object.assign(patch, KB.patchLineFromCatalogSize(line, product, val));
         else patch.size = val || null;
       } else if (field === 'weightGm') {
         const n = Number(val);
         patch.weightGm = Number.isFinite(n) ? n : null;
         patch.net_weight = patch.weightGm;
+        patch.originalWeightGm = patch.weightGm;
       } else if (field === 'qty') {
         patch.qty = Math.max(0, parseInt(val, 10) || 0);
-      } else if (field === 'box_charges' || field === 'stone_charges') {
-        const products = KB.productNamesForSku(catalog, line.sku || '');
-        const product = KB.findCatalogProduct(products, line.name || '');
-        if (field === 'box_charges' && product?.box_options?.length) {
-          const hit = product.box_options.find((b) => norm(b.label) === norm(val) || String(b.box_charges) === val);
-          if (hit) patch.box_charges = hit.box_charges;
-          else patch.box_charges = Number(val) || 0;
-        } else if (field === 'stone_charges' && product?.finish_options?.length) {
-          const hit = product.finish_options.find((f) => norm(f.label) === norm(val));
-          if (hit) patch.stone_charges = hit.stone_charges;
-          else patch.stone_charges = Number(val) || 0;
-        } else {
-          patch[field] = Number(val) || 0;
+      } else if (field === 'packaging_label' && editable) {
+        const hit = KB.findDesignOptionLabel(line.designBoxOptions, val);
+        const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0;
+        patch.packaging_label = hit?.label ?? val;
+        patch.box_charges = hit?.box_charges ?? 0;
+        if ((line.mrpMode || wt <= 0) && hit?.fixed_price != null) {
+          const list = hit.fixed_price;
+          const slab = document.getElementById('rateSlab').value || 'R';
+          const slabPrice = KB.giftMrpSlabPrice(list, slab, KB.parseSlabSettingsFromUser(slabSettingsRaw()));
+          patch.fixed_price = slabPrice;
+          patch.unitInr = slabPrice;
+          patch.mrpListPrice = list;
         }
-      } else if (['gross_weight','bag_wt','bags','purity','wastage_pct','mc_rate','fixed_price'].includes(field)) {
+      } else if (field === 'finish_label' && editable) {
+        const hit = KB.findDesignOptionLabel(line.designFinishOptions, val);
+        patch.finish_label = hit?.label ?? val;
+        patch.stone_charges = hit?.stone_charges ?? 0;
+        if (hit?.fixed_price != null) {
+          const slab = document.getElementById('rateSlab').value || 'R';
+          const slabPrice = KB.giftMrpSlabPrice(hit.fixed_price, slab, KB.parseSlabSettingsFromUser(slabSettingsRaw()));
+          patch.fixed_price = slabPrice;
+          patch.unitInr = slabPrice;
+          patch.mrpListPrice = hit.fixed_price;
+          patch.mrpMode = true;
+        }
+      } else if (field === 'box_charges' || field === 'stone_charges') {
+        patch[field] = Number(val) || 0;
+      } else if (['gross_weight','bag_wt','bags','purity','wastage_pct','mc_rate','fixed_price','ratePerGram'].includes(field)) {
         const n = Number(val);
         patch[field] = val === '' ? null : (Number.isFinite(n) ? n : line[field]);
+        if (field === 'ratePerGram' && val !== '') patch.rateLocked = true;
       } else if (field === 'mc_type') {
         patch.mc_type = val;
-      } else {
+      } else if (field === 'metal_type') {
+        patch.metal_type = val || 'silver';
+      } else if (editable) {
         patch[field] = val;
+      } else {
+        return;
       }
 
       updateLine(idx, patch);
 
+      if (!editable) return;
       const updated = state.cart[idx];
       let next = KB.nextManualEntryField(field, updated);
       if (field === 'name') {
-        const products = KB.productNamesForSku(catalog, updated.sku || '');
-        const product = KB.findCatalogProduct(products, updated.name || '');
-        if (product) next = KB.nextFieldAfterCatalogProduct(product);
+        const hit = KB.findCatalogProduct(catalogProductsForLine(updated), updated.name || '');
+        if (hit) next = KB.nextFieldAfterCatalogProduct(hit);
       }
       if (next) {
         focusLineIdx = idx;
@@ -459,60 +555,103 @@
 
     function renderCart() {
       const tbody = document.getElementById('lines');
+      const MC_TYPES = ['MC/G', 'MC/GM', 'MC/M', 'MC/PC', 'MC/PCS', 'FIXED'];
+
+      function cellInput(idx, field, val, list, manual, readOnly) {
+        const id = `line-${idx}-${field}`;
+        const autoFocus = focusLineIdx === idx && focusField === field ? ' autofocus' : '';
+        const ro = readOnly ? ' readonly' : '';
+        if (list?.length) {
+          return `<select data-idx="${idx}" data-field="${field}" id="${id}"${autoFocus}${manual ? '' : ' disabled'}>` +
+            `<option value="">—</option>` +
+            list.map((o) => {
+              const label = typeof o === 'string' ? o : (o.label || o.name || o);
+              const sel = norm(val) === norm(label) ? ' selected' : '';
+              return `<option value="${esc(label)}"${sel}>${esc(label)}</option>`;
+            }).join('') +
+            `</select>`;
+        }
+        return `<input data-idx="${idx}" data-field="${field}" id="${id}" value="${esc(val ?? '')}"${autoFocus}${ro} />`;
+      }
+
+      function fieldBlock(label, html, accent) {
+        return `<label class="field-label${accent ? ' accent' : ''}">${label}${html}</label>`;
+      }
+
       if (!state.cart.length) {
-        tbody.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:12px">Scan barcodes or type A / S / B / G for manual entry</td></tr>';
+        tbody.innerHTML = '<tr><td style="color:var(--muted);padding:16px">Scan a barcode to add items.</td></tr>';
       } else {
         tbody.innerHTML = state.cart.map((l, idx) => {
-          const code = l.barcode || l.code || '—';
           const manual = !!l.manualEntry;
           const catalog = catalogForLine(l);
-          const products = manual ? KB.productNamesForSku(catalog, l.sku || '') : [];
+          const products = manual ? (l.designProductOptions || KB.productNamesForSku(catalog, l.sku || '')) : [];
           const product = manual ? KB.findCatalogProduct(products, l.name || '') : null;
+          const skuOpts = manual ? KB.uniqueSkusFromCatalog(catalog).map((s) => s.sku) : [];
+          const styleOpts = manual ? KB.findStylesForSku(catalog, l.sku || '') : [];
+          const sizeOpts = product?.sizes?.length > 1 ? product.sizes.map((s) => s.size_label) : null;
+          const boxOpts = (l.designBoxOptions?.length >= 2) ? l.designBoxOptions.map((o) => o.label) : null;
+          const finishOpts = (l.designFinishOptions?.length >= 2) ? l.designFinishOptions.map((o) => o.label) : null;
 
-          function cellInput(field, val, list) {
-            const id = `line-${idx}-${field}`;
-            const autoFocus = focusLineIdx === idx && focusField === field ? ' autofocus' : '';
-            if (list?.length) {
-              return `<select data-idx="${idx}" data-field="${field}" id="${id}"${autoFocus}>` +
-                `<option value="">—</option>` +
-                list.map((o) => `<option value="${esc(typeof o === 'string' ? o : (o.label || o.name || o))}"${norm(val) === norm(typeof o === 'string' ? o : (o.label || o.name)) ? ' selected' : ''}>${esc(typeof o === 'string' ? o : (o.label || o.name))}</option>`).join('') +
-                `</select>`;
-            }
-            return `<input data-idx="${idx}" data-field="${field}" id="${id}" value="${esc(val ?? '')}"${autoFocus} />`;
-          }
+          const row1 = [
+            fieldBlock('Barcode', cellInput(idx, 'barcode', l.barcode || l.code, null, manual, true), true),
+            fieldBlock('SKU', manual ? cellInput(idx, 'sku', l.sku, skuOpts, true, false) : cellInput(idx, 'sku', l.sku, null, false, true), true),
+            fieldBlock('Style', manual ? cellInput(idx, 'style_code', l.style_code, styleOpts, true, false) : cellInput(idx, 'style_code', l.style_code, null, false, true), true),
+            fieldBlock('Product', manual ? cellInput(idx, 'name', l.name, products.map((p) => p.name), true, false) : cellInput(idx, 'name', l.name || l.product_name, null, false, true), true),
+            fieldBlock('Inv.item', cellInput(idx, 'invoice_item_name', l.invoice_item_name, null, manual, true), true),
+            fieldBlock('HSN', cellInput(idx, 'hsn_code', l.hsn_code, null, manual, true), true),
+            fieldBlock('Size', manual || sizeOpts ? cellInput(idx, 'size', l.size, sizeOpts, manual || !!sizeOpts, !manual && !sizeOpts) : cellInput(idx, 'size', l.size, null, false, true)),
+          ].join('');
 
-          const skuCell = manual ? cellInput('sku', l.sku, KB.uniqueSkusFromCatalog(catalog).map((s) => s.sku)) : esc(l.sku || '');
-          const styleCell = manual ? cellInput('style_code', l.style_code, KB.findStylesForSku(catalog, l.sku || '')) : esc(l.style_code || '');
-          const nameCell = manual ? cellInput('name', l.name, products.map((p) => p.name)) : esc(l.name || l.product_name || '');
-          let sizeCell;
-          if (manual && product?.sizes?.length > 1) {
-            sizeCell = cellInput('size', l.size, product.sizes.map((s) => s.size_label));
-          } else if (manual) {
-            sizeCell = cellInput('size', l.size);
-          } else {
-            sizeCell = esc(l.size || '');
-          }
-          const wtCell = manual ? cellInput('weightGm', l.weightGm ?? l.net_weight) : esc(l.weightGm || l.net_weight || '');
-          const qtyCell = manual ? cellInput('qty', l.qty ?? l.pcs ?? 1) : esc(l.qty ?? l.pcs ?? 1);
+          const weightBand = [
+            ['NetWt', 'weightGm'],
+            ['Gross', 'gross_weight'],
+            ['Bags', 'bags'],
+            ['BagWt', 'bag_wt'],
+            ['Purity', 'purity'],
+            ['Wast%', 'wastage_pct'],
+            ['Rate', 'ratePerGram'],
+          ].map(([lbl, key]) => fieldBlock(lbl, cellInput(idx, key, l[key], null, manual || key === 'weightGm', !manual && key !== 'weightGm'))).join('');
+
+          const chargeBand = [
+            fieldBlock('MC', cellInput(idx, 'mc_rate', l.mc_rate, null, manual, !manual)),
+            fieldBlock('MCType', cellInput(idx, 'mc_type', l.mc_type, MC_TYPES, manual, !manual)),
+            fieldBlock('PCS', cellInput(idx, 'qty', l.qty ?? l.pcs ?? 1, null, true, !manual)),
+            boxOpts
+              ? fieldBlock('Box', cellInput(idx, 'packaging_label', l.packaging_label || '', boxOpts, true, false))
+              : fieldBlock('Box', cellInput(idx, 'box_charges', l.box_charges, null, manual, !manual)),
+            finishOpts
+              ? fieldBlock('Finish', cellInput(idx, 'finish_label', l.finish_label || '', finishOpts, true, false))
+              : fieldBlock('Finish', cellInput(idx, 'stone_charges', l.stone_charges, null, manual, !manual)),
+            fieldBlock('Metal', cellInput(idx, 'metal_type', l.metal_type || 'silver', null, manual, !manual)),
+            fieldBlock('Fixed', cellInput(idx, 'fixed_price', l.fixed_price, null, manual, !manual)),
+          ].join('');
 
           return `<tr class="${manual ? 'manual' : ''}">
-            <td>${esc(code)}</td>
-            <td>${skuCell}</td>
-            <td>${styleCell}</td>
-            <td>${nameCell}</td>
-            <td>${sizeCell}</td>
-            <td>${wtCell}</td>
-            <td>${qtyCell}</td>
-            <td class="cell-amt">₹${fmt(l.lineTotalInr)}</td>
-            <td><button type="button" class="secondary" data-del="${idx}" style="min-height:34px;padding:4px 8px">✕</button></td>
+            <td colspan="2">
+              <div class="line-grid">
+                <div class="line-top">
+                  <span class="line-idx">#${idx + 1}</span>
+                  <span class="cell-amt">₹${fmt(l.lineTotalInr)}</span>
+                  <button type="button" class="btn-del" data-del="${idx}">✕</button>
+                </div>
+                <div class="line-band cols-4">${row1}</div>
+                <div class="line-band cols-7">${weightBand}</div>
+                <div class="line-band cols-7">${chargeBand}</div>
+              </div>
+            </td>
           </tr>`;
         }).join('');
       }
       focusLineIdx = -1;
       focusField = null;
-      const total = state.cart.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
-      document.getElementById('total').textContent = fmt(total);
-      document.getElementById('collected').value = total ? String(Math.round(total)) : '';
+      document.getElementById('itemCount').textContent = `${state.cart.length} item${state.cart.length === 1 ? '' : 's'}`;
+      const totals = KB.cartTotalsFromLines(state.cart);
+      document.getElementById('tItems').textContent = String(totals.items);
+      document.getElementById('tWeight').textContent = `${Math.round(totals.weight * 100) / 100}g`;
+      document.getElementById('tSub').textContent = `₹${fmt(totals.subtotal)}`;
+      document.getElementById('tGst').textContent = `₹${fmt(totals.gst)}`;
+      document.getElementById('tNet').textContent = `₹${fmt(totals.netTotal)}`;
+      document.getElementById('collected').value = totals.netTotal ? String(Math.round(totals.netTotal)) : '';
     }
 
     function recalcCart() {
@@ -548,7 +687,7 @@
     }
 
     function filterCustomers(q) {
-      const customers = state.pack?.snapshot?.customers || [];
+      const customers = allCustomers();
       const n = norm(q);
       if (!n) return customers.slice(0, 12);
       return customers.filter(c =>
@@ -623,7 +762,7 @@
       const btn = e.target.closest('.suggest-item');
       if (!btn) return;
       const custId = Number(btn.dataset.id);
-      const customers = state.pack?.snapshot?.customers || [];
+      const customers = allCustomers();
       selectCustomer(customers.find(c => Number(c.id) === custId) || null);
     });
     document.addEventListener('click', (e) => {
@@ -637,7 +776,7 @@
         const pack = JSON.parse(await f.text());
         if (!pack.snapshot?.pieces) throw new Error('Invalid exhibition pack');
         applyPack(pack);
-        showMsg(document.getElementById('setupMsg'), 'Pack loaded. Scan barcodes or use A/S/B/G.', true);
+        showMsg(document.getElementById('setupMsg'), 'Pack loaded. Scan barcodes to bill.', true);
       } catch (err) {
         showMsg(document.getElementById('setupMsg'), err.message || 'Could not read pack', false);
       }
@@ -707,7 +846,7 @@
       let customerMobile = cust?.mobile || inline?.mobile || '';
       let customerMeta = inline || cust || null;
       if (!cust && !inline && custQ) {
-        const customers = state.pack?.snapshot?.customers || [];
+        const customers = allCustomers();
         const match = customers.find(c => norm(c.name) === norm(custQ) || norm(c.mobile) === norm(custQ));
         if (match) { customerName = match.name; customerMobile = match.mobile || ''; customerMeta = match; state.selectedCustomer = match; }
       }
@@ -782,8 +921,14 @@
     });
 
     loadState();
+    applyEmbeddedBoot();
     if (state.pack) applyPack(state.pack);
-    else { renderCart(); renderQueue(); }
+    else {
+      if (state.rates?.gold_per_gram) document.getElementById('goldRate').value = String(state.rates.gold_per_gram);
+      if (state.rates?.silver_per_gram) document.getElementById('silverRate').value = String(state.rates.silver_per_gram);
+      renderCart();
+      renderQueue();
+    }
   </script>
 </body>
 </html>

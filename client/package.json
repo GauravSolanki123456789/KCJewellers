@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
-    "build": "next build",
+    "build:exhibition-billing": "node scripts/build-exhibition-billing-core.mjs",
+    "build": "npm run build:exhibition-billing && next build",
     "start": "next start",
     "lint": "eslint",
     "og:image": "node scripts/optimize-og-image.mjs"
@@ -36,6 +37,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "esbuild": "^0.25.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "shadcn": "^3.8.4",

@@ -86,6 +86,11 @@ import {
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import {
+  patchMetalSlabPct,
+  readMetalSlabPct,
+  type ManualBillGridField,
+} from '@/lib/erp-metal-slab-field'
+import {
   applyGiftMrpForSlabChange,
   applyGiftMrpPieceRate,
   giftMrpSlabPrice,
@@ -181,6 +186,7 @@ const TABLE_COLS: BillTableCol[] = [
   { key: 'gross_weight', label: 'Gross', w: 'w-[4.5%]', edit: true },
   { key: 'bags', label: 'Bags', w: 'w-[3.5%]', edit: true },
   { key: 'bag_wt', label: 'BagWt', w: 'w-[4%]', edit: true },
+  { key: 'metal_slab_pct', label: 'Metal%', w: 'w-[4%]', edit: true },
   { key: 'purity', label: 'Purity', w: 'w-[4%]', edit: true },
   { key: 'wastage_pct', label: 'Wast%', w: 'w-[3.5%]', edit: true },
   { key: 'ratePerGram', label: 'Rate', w: 'w-[4.5%]', edit: true },
@@ -197,11 +203,12 @@ const TABLE_COLS: BillTableCol[] = [
 
 const MANUAL_EXTRA_COLS: BillTableCol[] = []
 
-const NUMERIC_EDIT_KEYS: (keyof ErpBillLine)[] = [
+const NUMERIC_EDIT_KEYS: (keyof ErpBillLine | 'metal_slab_pct')[] = [
   'weightGm',
   'gross_weight',
   'bag_wt',
   'bags',
+  'metal_slab_pct',
   'purity',
   'wastage_pct',
   'ratePerGram',
@@ -397,7 +404,7 @@ export function ErpBillingWorkspace() {
   const [quoteMenuOpen, setQuoteMenuOpen] = useState(false)
   const [gstInvoiceItems, setGstInvoiceItems] = useState<GstInvoiceItem[]>([])
   const [billingCatalogs, setBillingCatalogs] = useState<Record<string, DesignBillingStyle[]>>({})
-  const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: keyof ErpBillLine } | null>(null)
+  const [manualFocus, setManualFocus] = useState<{ lineKey: string; field: ManualBillGridField } | null>(null)
   const [manualEditingCell, setManualEditingCell] = useState<string | null>(null)
   const [cellDrafts, setCellDrafts] = useState<Record<string, string>>({})
   const cellDraftsRef = useRef<Record<string, string>>({})
@@ -464,7 +471,7 @@ export function ErpBillingWorkspace() {
     return res.data.styles || []
   }, [])
 
-  const focusManualCell = useCallback((lineKey: string, field: keyof ErpBillLine) => {
+  const focusManualCell = useCallback((lineKey: string, field: ManualBillGridField) => {
     setManualFocus({ lineKey, field })
   }, [])
 
@@ -1550,7 +1557,7 @@ export function ErpBillingWorkspace() {
       taxable += bd.taxable
       gst += (bd.cgst || 0) + (bd.sgst || 0)
       net += bd.total
-      weight += Number(l.weightGm) || 0
+      weight += Number(l.originalWeightGm ?? l.weightGm) || 0
     }
     return { subtotal: taxable, gst, net, weight, count: lines.length }
   }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG])
@@ -1876,6 +1883,8 @@ export function ErpBillingWorkspace() {
         return line.bags ?? ''
       case 'bag_wt':
         return line.bag_wt != null && Number.isFinite(Number(line.bag_wt)) ? line.bag_wt : ''
+      case 'metal_slab_pct':
+        return readMetalSlabPct(line, rateSlab)
       case 'purity':
         return line.purity != null && Number.isFinite(Number(line.purity)) ? line.purity : ''
       case 'wastage_pct':
@@ -1916,8 +1925,19 @@ export function ErpBillingWorkspace() {
     return String(raw ?? '')
   }
 
-  const commitNumericCell = (idx: number, line: ErpBillLine, k: keyof ErpBillLine, raw: string) => {
+  const commitNumericCell = (
+    idx: number,
+    line: ErpBillLine,
+    k: keyof ErpBillLine | 'metal_slab_pct',
+    raw: string,
+  ) => {
     const parsed = parseNumericCellValue(raw)
+    if (k === 'metal_slab_pct') {
+      const patch = patchMetalSlabPct(rateSlab, parsed)
+      if (line.manualEntry) updateManualLine(idx, patch)
+      else updateLine(idx, patch)
+      return
+    }
     const patch: Partial<ErpBillLine> = {
       [k]: parsed,
     } as Partial<ErpBillLine>
@@ -1945,7 +1965,7 @@ export function ErpBillingWorkspace() {
   commitNumericCellRef.current = commitNumericCell
 
   const flushNumericDraft = useCallback(
-    (lineKey: string, idx: number, line: ErpBillLine, k: keyof ErpBillLine) => {
+    (lineKey: string, idx: number, line: ErpBillLine, k: keyof ErpBillLine | 'metal_slab_pct') => {
       const refKey = `${lineKey}-${String(k)}`
       const draft = cellDraftsRef.current[refKey]
       if (draft === undefined) return
@@ -1966,20 +1986,43 @@ export function ErpBillingWorkspace() {
   }, [])
 
   const advanceBillField = useCallback(
-    (lineKey: string, field: keyof ErpBillLine, line: ErpBillLine, idx: number) => {
+    (lineKey: string, field: ManualBillGridField, line: ErpBillLine, idx: number) => {
       if (NUMERIC_EDIT_KEYS.includes(field)) {
         flushNumericDraft(lineKey, idx, line, field)
       }
+      if (line.manualEntry) {
+        for (const k of ['gross_weight', 'bags', 'bag_wt'] as const) {
+          flushNumericDraft(lineKey, idx, line, k)
+        }
+        let merged = { ...line }
+        for (const k of NUMERIC_EDIT_KEYS) {
+          if (k === 'metal_slab_pct') continue
+          const refKey = `${lineKey}-${String(k)}`
+          const draft = cellDraftsRef.current[refKey]
+          if (draft === undefined) continue
+          const parsed = parseNumericCellValue(draft)
+          if (k === 'weightGm') {
+            merged.weightGm = parsed
+            merged.originalWeightGm = parsed
+          } else {
+            merged = { ...merged, [k]: parsed } as ErpBillLine
+          }
+        }
+        const weightPatch = applyManualWeightPatch(merged, {})
+        if (weightPatch.weightGm != null) {
+          updateManualLine(idx, weightPatch)
+        }
+      }
       const nextKey = nextBillTableField(tableCols, String(field), line)
       if (nextKey) {
-        focusManualCell(lineKey, nextKey as keyof ErpBillLine)
+        focusManualCell(lineKey, nextKey as ManualBillGridField)
       } else {
         setManualFocus(null)
         collapseManualRow(idx)
         scanRef.current?.focus()
       }
     },
-    [focusManualCell, tableCols, flushNumericDraft, collapseManualRow],
+    [focusManualCell, tableCols, flushNumericDraft, collapseManualRow, updateManualLine],
   )
 
   if (!hydrated) {
@@ -2748,7 +2791,7 @@ export function ErpBillingWorkspace() {
                             }
                           }}
                           onNumericChange={(field, raw) => {
-                            if (NUMERIC_EDIT_KEYS.includes(field)) {
+                            if (NUMERIC_EDIT_KEYS.includes(field as ManualBillGridField)) {
                               if (!isPartialDecimalInput(raw)) return
                               setCellDrafts((prev) => ({ ...prev, [`${lineKey}-${String(field)}`]: raw }))
                               return
@@ -2756,7 +2799,7 @@ export function ErpBillingWorkspace() {
                             updateLine(idx, { [field]: raw } as Partial<ErpBillLine>)
                           }}
                           onNumericBlur={(field) => {
-                            if (NUMERIC_EDIT_KEYS.includes(field)) {
+                            if (NUMERIC_EDIT_KEYS.includes(field as ManualBillGridField)) {
                               flushNumericDraft(lineKey, idx, line, field)
                             }
                           }}
@@ -3053,7 +3096,7 @@ export function ErpBillingWorkspace() {
                         }
 
                         if ('edit' in col && col.edit) {
-                          const k = col.key as keyof ErpBillLine
+                          const k = col.key as ManualBillGridField
                           const goldSlabRField =
                             isGoldSlabRLine(line, rateSlab) &&
                             (k === 'wastage_pct' || k === 'mc_rate')

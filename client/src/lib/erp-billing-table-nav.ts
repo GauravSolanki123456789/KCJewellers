@@ -1,5 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { nextManualEntryField } from '@/lib/erp-billing-shortcuts'
+import type { ManualBillGridField } from '@/lib/erp-metal-slab-field'
 
 export type BillTableColDef = { key: string; edit?: boolean }
 
@@ -10,7 +11,7 @@ export function nextBillTableField(
   line: ErpBillLine,
 ): string | null {
   if (line.manualEntry) {
-    return nextManualEntryField(current as keyof ErpBillLine, line)
+    return nextManualEntryField(current as ManualBillGridField, line)
   }
   const editable = cols.filter((c) => c.edit && c.key !== 'amount').map((c) => c.key)
   const seen = new Set<string>()

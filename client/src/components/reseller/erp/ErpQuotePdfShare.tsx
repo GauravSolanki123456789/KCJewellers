@@ -81,6 +81,7 @@ export async function shareErpQuotePdf(params: {
   const kcThemeId = normalizeKcThemeId(params.kcThemeId ?? null)
   const totals = computeErpQuoteTotals(billForPdf, params.slabSettingsRaw)
   const ratesUnfixed = billRatesUnfixed(billForPdf)
+  const resolvedMobile = await resolveBillCustomerMobile(params.bill, params.mobile)
 
   const blob = await pdf(
     <ErpQuotePdfDocument
@@ -90,6 +91,7 @@ export async function shareErpQuotePdf(params: {
       products={itemsForPdf}
       totals={totals}
       customerName={params.customerName ?? params.bill.customer_name}
+      customerMobile={resolvedMobile || null}
       ratesUnfixed={ratesUnfixed}
       layoutMode={params.layoutMode ?? 'detailed'}
     />,
@@ -109,7 +111,6 @@ export async function shareErpQuotePdf(params: {
     filename,
   })
 
-  const resolvedMobile = await resolveBillCustomerMobile(params.bill, params.mobile)
   const customerWaHref = erpCustomerWhatsAppHref(resolvedMobile || null, text)
 
   const sheetPayload: PdfShareSheetPayload = {

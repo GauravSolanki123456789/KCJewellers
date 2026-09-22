@@ -322,6 +322,21 @@ function registerResellerErpOfflineRoutes(app, deps) {
             }
             html = inlineExhibitionBillingCore(html);
             const shopName = await loadShopDisplayName(query, req.user.id);
+            const snap = await loadOfflineSnapshot(query, req.user.id);
+            const embedPayload = JSON.stringify({
+                shopName,
+                capturedAt: snap.capturedAt,
+                customers: snap.customers || [],
+                rates: snap.rates || {},
+                slabSettings: snap.slabSettings || snap.settings?.reseller_slab_settings || null,
+                gstInvoiceItems: snap.gstInvoiceItems || [],
+            }).replace(/</g, '\\u003c');
+            const embedScript = `<script>window.__KC_EXHIBITION_EMBED__=${embedPayload};</script>`;
+            if (html.includes('</head>')) {
+                html = html.replace('</head>', `${embedScript}\n</head>`);
+            } else {
+                html = embedScript + html;
+            }
             const safeTitle = shopName.replace(/[<>&"]/g, '');
             html = html
                 .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle} Estimates</title>`)

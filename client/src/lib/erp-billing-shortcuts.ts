@@ -2,6 +2,10 @@ import type { GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItem
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { applyPieceSlabToLine, type ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { generateManualBarcode } from '@/lib/erp-manual-barcode'
+import {
+  nextVisibleManualEntryField,
+  type ManualBillGridField,
+} from '@/lib/erp-metal-slab-field'
 
 /** Scanner shortcut keys in billing → invoice item category */
 export type BillingManualCategory = 'articles' | 'jewellery' | 'bullion' | 'gift'
@@ -96,7 +100,7 @@ export const GIFT_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
 ]
 
 /** A/S/B flow: SKU → Style → Product → Size → weights / rates → PCS */
-export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
+export const MANUAL_ENTRY_FIELD_ORDER: ManualBillGridField[] = [
   'sku',
   'style_code',
   'name',
@@ -105,6 +109,7 @@ export const MANUAL_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'gross_weight',
   'bags',
   'bag_wt',
+  'metal_slab_pct',
   'purity',
   'wastage_pct',
   'ratePerGram',
@@ -270,20 +275,21 @@ export function isGiftManualLine(line: ErpBillLine): boolean {
   return line.manualCategory === 'gift' || !!line.mrpMode
 }
 
-export function entryFieldOrderForLine(line: ErpBillLine): (keyof ErpBillLine)[] {
+export function entryFieldOrderForLine(line: ErpBillLine): ManualBillGridField[] {
   return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER
 }
 
 export function nextManualEntryField(
-  current: keyof ErpBillLine,
+  current: ManualBillGridField,
   line?: ErpBillLine,
-): keyof ErpBillLine | null {
+): ManualBillGridField | null {
   const order = line ? entryFieldOrderForLine(line) : MANUAL_ENTRY_FIELD_ORDER
+  if (line) return nextVisibleManualEntryField(current, line, order)
   const idx = order.indexOf(current)
   if (idx < 0 || idx >= order.length - 1) return null
   return order[idx + 1] ?? null
 }
 
-export function firstManualEntryField(line: ErpBillLine): keyof ErpBillLine {
+export function firstManualEntryField(line: ErpBillLine): ManualBillGridField {
   return entryFieldOrderForLine(line)[0] ?? 'sku'
 }
