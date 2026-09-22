@@ -91,6 +91,10 @@ import {
   type ManualBillGridField,
 } from '@/lib/erp-metal-slab-field'
 import {
+  deriveManualNetWeightPatch,
+  isManualArticlesOrJewelleryLine,
+} from '@/lib/erp-manual-as-line-pricing'
+import {
   applyGiftMrpForSlabChange,
   applyGiftMrpPieceRate,
   giftMrpSlabPrice,
@@ -1258,6 +1262,10 @@ export function ErpBillingWorkspace() {
   }
 
   const applyManualWeightPatch = (line: ErpBillLine, patch: Partial<ErpBillLine>): Partial<ErpBillLine> => {
+    if (isManualArticlesOrJewelleryLine(line) || isManualArticlesOrJewelleryLine({ ...line, ...patch })) {
+      const derived = deriveManualNetWeightPatch(line, patch)
+      return derived ?? patch
+    }
     const merged = { ...line, ...patch }
     const gross = merged.gross_weight
     if (gross != null && Number.isFinite(Number(gross))) {
@@ -1277,7 +1285,8 @@ export function ErpBillingWorkspace() {
       }
       const net = Number(gross) - bagDeduction - stone
       if (Number.isFinite(net) && net >= 0) {
-        return { ...patch, weightGm: Math.round(net * 1000) / 1000 }
+        const weightGm = Math.round(net * 1000) / 1000
+        return { ...patch, weightGm, originalWeightGm: weightGm }
       }
     }
     return patch

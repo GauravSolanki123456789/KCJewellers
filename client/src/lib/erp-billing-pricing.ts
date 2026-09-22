@@ -16,6 +16,10 @@ import {
 } from '@/lib/erp-piece-slab-pricing'
 import { applyGiftMrpPieceRate } from '@/lib/erp-gift-mrp-pricing'
 import {
+  computeManualAsLineBreakdown,
+  isManualArticlesOrJewelleryLine,
+} from '@/lib/erp-manual-as-line-pricing'
+import {
   isFixedPriceCatalogItem,
   isGiftingItem,
   isMcPerPiece,
@@ -321,6 +325,10 @@ export function computeLineBreakdown(
       3,
     )
     return finalizeWeightBasedBreakdown(line, bd)
+  }
+
+  if (isManualArticlesOrJewelleryLine(line)) {
+    return computeManualAsLineBreakdown(line, slab, silverPerG, goldPerG)
   }
 
   if (isPiecePricedBillLine(line)) {

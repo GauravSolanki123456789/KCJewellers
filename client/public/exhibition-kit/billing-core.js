@@ -755,6 +755,97 @@ var KcExhibitionBillingModule = (() => {
     };
   }
 
+  // src/lib/erp-metal-slab-field.ts
+  function metalSlabPctStorageKey(slab) {
+    if (slab === "W") return "metal_slab_w_pct";
+    if (slab === "F") return "metal_slab_f_pct";
+    return "metal_slab_r_pct";
+  }
+  function readMetalSlabPct(line, slab) {
+    const key = metalSlabPctStorageKey(slab);
+    const raw = line[key];
+    if (raw == null || raw === "") return "";
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : "";
+  }
+  function isManualGridFieldVisible(field, line) {
+    if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
+    if (field === "stone_charges") return (line.designFinishOptions?.length ?? 0) >= 2;
+    return true;
+  }
+  function nextVisibleManualEntryField(current, line, order) {
+    const idx = order.indexOf(current);
+    if (idx < 0) return null;
+    for (let i = idx + 1; i < order.length; i += 1) {
+      const key = order[i];
+      if (isManualGridFieldVisible(key, line)) return key;
+    }
+    return null;
+  }
+
+  // src/lib/erp-manual-as-line-pricing.ts
+  var GST_PCT = 3;
+  function isManualArticlesOrJewelleryLine(line) {
+    if (!line.manualEntry) return false;
+    return line.manualCategory === "articles" || line.manualCategory === "jewellery";
+  }
+  function isMcPerGmMcType(mcType) {
+    const t = String(mcType || "").toLowerCase().replace(/\s+/g, "");
+    if (!t) return true;
+    if (t.includes("/pc") || t.includes("perpc") || t.includes("mcpc") || t.includes("piece")) return false;
+    return true;
+  }
+  function resolveManualRowRatePerG(line, silverPerG, goldPerG) {
+    const locked = Number(line.ratePerGram);
+    if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked;
+    if (Number.isFinite(locked) && locked > 0) return locked;
+    const metal = String(line.metal_type || "silver").toLowerCase();
+    if (metal.startsWith("gold") && goldPerG > 0) return goldPerG;
+    if (silverPerG > 0) return silverPerG;
+    return 0;
+  }
+  function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0) {
+    const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
+    if (netWt <= 0) {
+      return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 };
+    }
+    const metalPct = readMetalSlabPct(line, slab);
+    const wastPct = Number(line.wastage_pct ?? 0) || 0;
+    let billedWt = netWt;
+    if (metalPct !== "" && Number(metalPct) > 0) {
+      billedWt = netWt * (Number(metalPct) / 100);
+    } else if (wastPct > 0) {
+      billedWt = netWt * (1 + wastPct / 100);
+    }
+    const rate = resolveManualRowRatePerG(line, silverPerG, goldPerG);
+    const metalCost = rate > 0 ? billedWt * rate : 0;
+    const mcRate = Number(line.mc_rate ?? 0) || 0;
+    const pcs = Math.max(1, Number(line.qty) || 1);
+    const totalMc = isMcPerGmMcType(line.mc_type) ? billedWt * mcRate : pcs * mcRate;
+    const subtotalRaw = metalCost + totalMc;
+    const gstRaw = subtotalRaw * (GST_PCT / 100);
+    const fixed = Number(line.fixed_price ?? 0) || 0;
+    const box = Number(line.box_charges ?? 0) || 0;
+    const stone2 = Number(line.stone_charges ?? 0) || 0;
+    const extras = fixed + box + stone2;
+    const taxable = Math.round(subtotalRaw);
+    const total = Math.round(subtotalRaw + gstRaw + extras);
+    const gstRounded = total - taxable - Math.round(extras);
+    return {
+      metal: Math.round(metalCost),
+      mc: Math.round(totalMc),
+      stone: stone2 + box,
+      cgst: gstRounded / 2,
+      sgst: gstRounded / 2,
+      taxable,
+      total,
+      rate_per_gram: rate > 0 ? rate : void 0,
+      net_weight: netWt,
+      billable_weight_gm: Math.round(billedWt * 1e3) / 1e3,
+      wastage_pct: wastPct > 0 && metalPct === "" ? wastPct : void 0
+    };
+  }
+
   // src/lib/erp-billing-pricing.ts
   function erpSlabToKind(slab) {
     if (slab === "W") return "slab_w";
@@ -947,6 +1038,9 @@ var KcExhibitionBillingModule = (() => {
       );
       return finalizeWeightBasedBreakdown(line, bd2);
     }
+    if (isManualArticlesOrJewelleryLine(line)) {
+      return computeManualAsLineBreakdown(line, slab, silverPerG, goldPerG);
+    }
     if (isPiecePricedBillLine(line)) {
       const priced = applyPiecePricedLineCalc(line);
       const total2 = Number(priced.lineTotalInr) || 0;
@@ -1079,22 +1173,6 @@ var KcExhibitionBillingModule = (() => {
     used.add(fallback);
     saveUsed(used);
     return fallback;
-  }
-
-  // src/lib/erp-metal-slab-field.ts
-  function isManualGridFieldVisible(field, line) {
-    if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
-    if (field === "stone_charges") return (line.designFinishOptions?.length ?? 0) >= 2;
-    return true;
-  }
-  function nextVisibleManualEntryField(current, line, order) {
-    const idx = order.indexOf(current);
-    if (idx < 0) return null;
-    for (let i = idx + 1; i < order.length; i += 1) {
-      const key = order[i];
-      if (isManualGridFieldVisible(key, line)) return key;
-    }
-    return null;
   }
 
   // src/lib/erp-billing-shortcuts.ts
