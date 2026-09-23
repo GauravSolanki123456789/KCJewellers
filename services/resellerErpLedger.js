@@ -17,7 +17,11 @@ const PAYMENT_MODES = new Set(['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 
 
 const LEDGER_SCOPES = new Set(['official', 'lane']);
 
-const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');
+const {
+    buildCustomerAccount,
+    buildResellerDaybook,
+    customerAccountToCsv,
+} = require('./resellerErpCustomerAccount');
 const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 
@@ -1153,6 +1157,25 @@ function registerResellerErpLedgerRoutes(app, deps) {
         } catch (e) {
             console.error('erp ledger import:', e);
             res.status(500).json({ error: e.message || 'Import failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/daybook', checkAuth, erpGate, async (req, res) => {
+        try {
+            const date = parseDateOrNull(req.query.date || req.query.on);
+            const laneView = String(req.query.lane_view || '') === '1';
+            const unassignedOnly = String(req.query.unassigned_only || '') === '1';
+            const book = await buildResellerDaybook(query, req.user.id, {
+                date,
+                laneView,
+                unassignedOnly,
+            });
+            res.json(book);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            console.error('erp ledger daybook:', e);
+            res.status(500).json({ error: e.message || 'Failed to load day book' });
         }
     });
 

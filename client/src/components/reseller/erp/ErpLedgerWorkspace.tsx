@@ -41,6 +41,31 @@ type ImportPreviewRow = ParsedBankRow & {
   is_suspense?: boolean
 }
 
+type DaybookRow = {
+  source: 'bill' | 'shadow_bill' | 'ledger_entry'
+  bill_id: number | null
+  ledger_entry_id: number | null
+  entry_date: string
+  entry_type: string
+  kind_label: string
+  customer_id?: number | null
+  customer_name: string
+  payment_mode: string
+  reference_no: string
+  narration?: string
+  amount_inr: number
+  debit_inr: number
+  credit_inr: number
+  weight_gm?: number
+  ledger_scope?: string
+}
+
+type DaybookPayload = {
+  date: string
+  rows: DaybookRow[]
+  summary: { received_inr: number; paid_out_inr: number; net_inr: number; row_count: number }
+}
+
 type LedgerSummary = {
   received_inr: number
   paid_out_inr: number
@@ -378,6 +403,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [to, setTo] = useState(todayIso())
   const [dayBookDate, setDayBookDate] = useState(todayIso())
   const [dayBookUnassignedOnly, setDayBookUnassignedOnly] = useState(false)
+  const [dayBookRows, setDayBookRows] = useState<DaybookRow[]>([])
+  const [dayBookSummary, setDayBookSummary] = useState<DaybookPayload['summary'] | null>(null)
   const [customerFilter, setCustomerFilter] = useState('')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
@@ -488,19 +515,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const loadEntries = useCallback(async () => {
     const params: Record<string, string> = {}
-    if (tab === 'daybook') {
-      if (dayBookDate) {
-        params.from = dayBookDate
-        params.to = dayBookDate
-      }
-      params.daybook = '1'
-      if (dayBookUnassignedOnly) params.unassigned_only = '1'
-    } else {
-      if (from) params.from = from
-      if (to) params.to = to
-      if (customerFilter) params.customer_id = customerFilter
-    }
-    if (q.trim() && tab !== 'daybook') params.q = q.trim()
+    if (from) params.from = from
+    if (to) params.to = to
+    if (customerFilter) params.customer_id = customerFilter
+    if (q.trim()) params.q = q.trim()
     if (tab === 'suspense') params.suspense_only = '1'
     if (laneMode) params.lane_view = '1'
     if (lastBatchId && tab === 'import') params.import_batch_id = String(lastBatchId)
@@ -508,7 +526,16 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       params,
     })
     setEntries(res.data.entries || [])
-  }, [from, to, dayBookDate, dayBookUnassignedOnly, customerFilter, q, tab, laneMode, lastBatchId])
+  }, [from, to, customerFilter, q, tab, laneMode, lastBatchId])
+
+  const loadDayBook = useCallback(async () => {
+    const params: Record<string, string> = { date: dayBookDate || todayIso() }
+    if (laneMode) params.lane_view = '1'
+    if (dayBookUnassignedOnly) params.unassigned_only = '1'
+    const res = await axios.get<DaybookPayload>('/api/reseller/erp/ledger/daybook', { params })
+    setDayBookRows(res.data.rows || [])
+    setDayBookSummary(res.data.summary || null)
+  }, [dayBookDate, dayBookUnassignedOnly, laneMode])
 
   const loadSummary = useCallback(async () => {
     const params: Record<string, string> = {}
@@ -522,11 +549,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const reload = useCallback(async () => {
     setBusy(true)
     try {
-      await Promise.all([loadEntries(), loadSummary()])
+      if (tab === 'daybook') {
+        await Promise.all([loadDayBook(), loadSummary()])
+      } else {
+        await Promise.all([loadEntries(), loadSummary()])
+      }
     } finally {
       setBusy(false)
     }
-  }, [loadEntries, loadSummary])
+  }, [tab, loadEntries, loadDayBook, loadSummary])
 
   const refreshWorkspace = useCallback(async () => {
     try {
@@ -847,6 +878,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   }
 
   const removeEntry = async (id: number) => {
+    if (!canDeleteRecords) return
     if (!(await appConfirm('Delete this ledger entry?'))) return
     setBusy(true)
     try {
@@ -856,6 +888,26 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         .get<{ purchase_vouchers: typeof purchaseVouchers }>('/api/reseller/erp/purchase-vouchers')
         .then((r) => setPurchaseVouchers(r.data.purchase_vouchers || []))
         .catch(() => {})
+      await reload()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeDaybookRow = async (row: DaybookRow) => {
+    if (!canDeleteRecords) return
+    if (!(await appConfirm('Delete this transaction? This removes it from the ledger everywhere.'))) return
+    setBusy(true)
+    try {
+      if (row.source === 'ledger_entry' && row.ledger_entry_id) {
+        await axios.delete(`/api/reseller/erp/ledger/entries/${row.ledger_entry_id}`)
+      } else if (row.source === 'bill' && row.bill_id) {
+        await axios.delete(`/api/reseller/erp/bills/${row.bill_id}`)
+      } else if (row.source === 'shadow_bill' && row.bill_id) {
+        await axios.delete(`/api/reseller/erp/shadow/documents/${row.bill_id}`)
+      }
       await reload()
     } catch (e) {
       alert(erpErr(e))
@@ -1274,17 +1326,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     { id: 'suspense' as const, label: 'Suspense' },
     { id: 'report' as const, label: 'Reports' },
   ]
-
-  const dayBookNet = useMemo(() => {
-    let received = 0
-    let paid = 0
-    for (const e of entries) {
-      const amt = Number(e.amount_inr) || 0
-      if (e.entry_type === 'payment_in' || e.entry_type === 'sales') received += amt
-      else paid += amt
-    }
-    return { received, paid, net: received - paid }
-  }, [entries])
 
   return (
     <div className="space-y-4">
@@ -2212,15 +2253,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
       {tab === 'daybook' && (
         <div className={`${erpCardCls} space-y-3`}>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Day book</p>
-              <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                {laneMode
-                  ? 'Lane ledger — official + Jainav lane entries for the selected day, in posting order.'
-                  : 'Official ledger — all normal entries for the selected day, in posting order.'}
-              </p>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Day book</p>
             <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => void reload()}>
               Refresh
             </button>
@@ -2243,15 +2277,17 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           <div className="grid gap-2 sm:grid-cols-3">
             <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-emerald-800/70">Received</p>
-              <p className="font-bold tabular-nums text-emerald-900">{formatErpInr(dayBookNet.received)}</p>
+              <p className="font-bold tabular-nums text-emerald-900">
+                {formatErpInr(dayBookSummary?.received_inr ?? 0)}
+              </p>
             </div>
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Paid out</p>
-              <p className="font-bold tabular-nums">{formatErpInr(dayBookNet.paid)}</p>
+              <p className="font-bold tabular-nums">{formatErpInr(dayBookSummary?.paid_out_inr ?? 0)}</p>
             </div>
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Net</p>
-              <p className="font-bold tabular-nums">{formatErpInr(dayBookNet.net)}</p>
+              <p className="font-bold tabular-nums">{formatErpInr(dayBookSummary?.net_inr ?? 0)}</p>
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
@@ -2263,19 +2299,46 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                   <th className="px-3 py-2.5">Customer / party</th>
                   <th className="px-3 py-2.5">Mode</th>
                   <th className="px-3 py-2.5">Reference</th>
-                  <th className="px-3 py-2.5 text-right">Amount</th>
-                  <th className="px-3 py-2.5 w-20" />
+                  <th className="px-3 py-2.5 text-right">Debit</th>
+                  <th className="px-3 py-2.5 text-right">Credit</th>
+                  <th className="px-3 py-2.5 w-16" />
                 </tr>
               </thead>
               <tbody>
-                {entries.length === 0 ? (
+                {dayBookRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    <td colSpan={8} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                       No entries on this date.
                     </td>
                   </tr>
                 ) : (
-                  entries.map((e) => renderEntryRow(e, editingId === e.id))
+                  dayBookRows.map((row, i) => (
+                    <tr key={`${row.source}-${row.bill_id ?? row.ledger_entry_id ?? i}`} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
+                      <td className="whitespace-nowrap px-3 py-2.5">{formatErpDateDdMmYyyy(row.entry_date)}</td>
+                      <td className="px-3 py-2.5 font-medium">{row.kind_label}</td>
+                      <td className="max-w-[140px] truncate px-3 py-2.5">{row.customer_name}</td>
+                      <td className="px-3 py-2.5 uppercase">{row.payment_mode || '—'}</td>
+                      <td className="max-w-[120px] truncate px-3 py-2.5">{row.reference_no || '—'}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
+                        {row.debit_inr > 0 ? formatErpInr(row.debit_inr) : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-emerald-800">
+                        {row.credit_inr > 0 ? formatErpInr(row.credit_inr) : '—'}
+                      </td>
+                      <td className="px-2 py-2">
+                        {canDeleteRecords ? (
+                          <button
+                            type="button"
+                            className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"
+                            aria-label="Delete"
+                            onClick={() => void removeDaybookRow(row)}
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
