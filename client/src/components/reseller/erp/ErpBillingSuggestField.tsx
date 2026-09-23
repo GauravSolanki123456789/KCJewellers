@@ -18,6 +18,10 @@ type Props = {
   allowCreate?: boolean
   /** Preserve typed casing on create (default uppercases like billing). */
   preserveCase?: boolean
+  /** When false, keep focus for billing grid Tab/Enter navigation (default true). */
+  blurOnCommit?: boolean
+  /** Fired after Tab confirms (including empty Tab) — billing grid field advance. */
+  onAfterTab?: () => void
   onChange: (value: string) => void
   onCommit: (value: string) => void
   inputRef?: (el: HTMLInputElement | null) => void
@@ -39,6 +43,8 @@ export function ErpBillingSuggestField({
   emptyText = 'No matches',
   allowCreate = false,
   preserveCase = false,
+  blurOnCommit = true,
+  onAfterTab,
   onChange,
   onCommit,
   inputRef,
@@ -152,7 +158,9 @@ export function ErpBillingSuggestField({
     onCommit(trimmed)
     setOpen(false)
     setPickIdx(-1)
-    requestAnimationFrame(() => localInput.current?.blur())
+    if (blurOnCommit) {
+      requestAnimationFrame(() => localInput.current?.blur())
+    }
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -180,6 +188,7 @@ export function ErpBillingSuggestField({
     }
     if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
       e.preventDefault()
+      const isTab = e.key === 'Tab'
       if (pickIdx >= 0 && filtered[pickIdx]) {
         commit(filtered[pickIdx].value)
         return
@@ -189,6 +198,7 @@ export function ErpBillingSuggestField({
         setOpen(false)
         setPickIdx(-1)
         onCommit('')
+        if (isTab) onAfterTab?.()
         return
       }
       const exact = filtered.find((o) => norm(o.value) === q)

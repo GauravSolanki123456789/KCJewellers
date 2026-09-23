@@ -2032,38 +2032,11 @@ export function ErpBillingWorkspace() {
         focusManualCell(lineKey, nextKey as ManualBillGridField)
         return
       }
-      if (workingLine.manualEntryOpen && workingLine.manualCategory) {
-        const cat = workingLine.manualCategory
-        const inv =
-          gstInvoiceItems.find((it) => it.name === workingLine.invoice_item_name) ||
-          findInvoiceItemForCategory(cat, gstInvoiceItems)
-        if (inv) {
-          collapseManualRow(idx)
-          setLines((prev) => {
-            const used = new Set(prev.map((l) => l.code).filter(Boolean) as string[])
-            const newLine = createManualBillLine(cat, inv, rateSlab, used)
-            requestAnimationFrame(() => {
-              const key = newLine.code || newLine.barcode || `row-${prev.length}`
-              focusManualCell(key, firstManualEntryField(newLine))
-            })
-            return [...prev, newLine]
-          })
-          return
-        }
-      }
       setManualFocus(null)
       collapseManualRow(idx)
-      scanRef.current?.focus()
+      requestAnimationFrame(() => scanRef.current?.focus())
     },
-    [
-      focusManualCell,
-      tableCols,
-      flushNumericDraft,
-      collapseManualRow,
-      updateManualLine,
-      rateSlab,
-      gstInvoiceItems,
-    ],
+    [focusManualCell, tableCols, flushNumericDraft, collapseManualRow, updateManualLine, rateSlab],
   )
 
   if (!hydrated) {

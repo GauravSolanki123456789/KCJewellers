@@ -169,8 +169,10 @@ export function ErpBillingStackedRow({
                 placeholder="SKU…"
                 options={skuOptions.length ? skuOptions : filterSkusForStyle(catalog, styleValue, skuValue)}
                 autoFocus={focused('sku')}
+                blurOnCommit={false}
                 inputRef={(el) => inputRef('sku', el)}
                 onChange={onSkuChange}
+                onAfterTab={() => onAdvance('sku')}
                 onCommit={(v) => {
                   const style = findStyleForSku(catalog, v) || styleValue
                   onSkuCommit(v, style)
@@ -184,8 +186,10 @@ export function ErpBillingStackedRow({
                 placeholder="Style…"
                 options={styleOptions}
                 autoFocus={focused('style_code')}
+                blurOnCommit={false}
                 inputRef={(el) => inputRef('style_code', el)}
                 onChange={onStyleChange}
+                onAfterTab={() => onAdvance('style_code')}
                 onCommit={onStyleCommit}
               />
             </label>
@@ -196,8 +200,10 @@ export function ErpBillingStackedRow({
                 placeholder="Product…"
                 options={productOptions}
                 autoFocus={focused('name')}
+                blurOnCommit={false}
                 inputRef={(el) => inputRef('name', el)}
                 onChange={onProductChange}
+                onAfterTab={() => onAdvance('name')}
                 onCommit={(name) => {
                   const hit = (line.designProductOptions || []).find(
                     (p) => p.name.trim().toUpperCase() === name.trim().toUpperCase(),
@@ -210,6 +216,7 @@ export function ErpBillingStackedRow({
               Inv.item
               <input
                 ref={(el) => inputRef('invoice_item_name', el)}
+                tabIndex={-1}
                 className="mt-0.5 w-full rounded-xl border border-emerald-300 bg-white px-2 py-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]"
                 value={String(line.invoice_item_name || '')}
                 readOnly
@@ -218,6 +225,7 @@ export function ErpBillingStackedRow({
             <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#8b1e2d)]">
               HSN
               <input
+                tabIndex={-1}
                 className="mt-0.5 w-full rounded-xl border border-emerald-300 bg-white px-2 py-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]"
                 value={String(line.hsn_code || '')}
                 readOnly
@@ -231,8 +239,10 @@ export function ErpBillingStackedRow({
                   placeholder="Size…"
                   options={sizeOptions}
                   autoFocus={focused('size')}
+                  blurOnCommit={false}
                   inputRef={(el) => inputRef('size', el)}
                   onChange={onSizeChange}
+                  onAfterTab={() => onAdvance('size')}
                   onCommit={onSizeCommit}
                 />
               </label>
@@ -279,6 +289,7 @@ export function ErpBillingStackedRow({
                         placeholder="Box…"
                         options={line.designBoxOptions!.map((o) => o.label)}
                         preserveCase
+                        blurOnCommit={false}
                         autoFocus={focused('box_charges')}
                         inputRef={(el) => inputRef('box_charges', el)}
                         onChange={(v) => {
@@ -316,6 +327,7 @@ export function ErpBillingStackedRow({
                         placeholder="Finish…"
                         options={line.designFinishOptions!.map((o) => o.label)}
                         preserveCase
+                        blurOnCommit={false}
                         autoFocus={focused('stone_charges')}
                         inputRef={(el) => inputRef('stone_charges', el)}
                         onChange={(v) => {

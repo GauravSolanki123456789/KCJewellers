@@ -88,7 +88,16 @@ type LedgerSummary = {
 
 const PAYMENT_MODES = ['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other'] as const
 
-type LedgerTab = 'entries' | 'add' | 'import' | 'suspense' | 'report' | 'daybook' | 'purchase' | 'expense'
+type LedgerTab =
+  | 'entries'
+  | 'customer'
+  | 'add'
+  | 'import'
+  | 'suspense'
+  | 'report'
+  | 'daybook'
+  | 'purchase'
+  | 'expense'
 
 type ImportDraftFile = {
   id: string
@@ -461,7 +470,17 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   useEffect(() => {
     const d = loadLedgerDraft(laneMode)
     if (d) {
-      const allowed: LedgerTab[] = ['entries', 'add', 'import', 'suspense', 'report', 'daybook', 'purchase', 'expense']
+      const allowed: LedgerTab[] = [
+        'entries',
+        'customer',
+        'add',
+        'import',
+        'suspense',
+        'report',
+        'daybook',
+        'purchase',
+        'expense',
+      ]
       if (allowed.includes(d.tab)) setTab(d.tab)
       if (Array.isArray(d.importFiles) && d.importFiles.length) {
         setImportFiles(
@@ -1363,6 +1382,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const tabs = [
     { id: 'entries' as const, label: 'All entries' },
+    { id: 'customer' as const, label: 'Customer ledger' },
     { id: 'daybook' as const, label: 'Day book' },
     { id: 'add' as const, label: 'Add payment' },
     { id: 'purchase' as const, label: 'Purchase (PV)' },
@@ -1447,13 +1467,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
       ) : null}
 
-      <ErpCustomerAccountPanel
-        laneMode={laneMode}
-        from={from}
-        to={to}
-        resetToken={accountResetToken}
-        onCustomerSelected={(id) => setCustomerFilter(id ? String(id) : '')}
-      />
+      {tab === 'customer' ? (
+        <ErpCustomerAccountPanel
+          laneMode={laneMode}
+          from={from}
+          to={to}
+          resetToken={accountResetToken}
+          onCustomerSelected={(id) => setCustomerFilter(id ? String(id) : '')}
+        />
+      ) : null}
 
       {(tab === 'entries' || tab === 'suspense') && (
         <div className={`${erpCardCls} space-y-3`}>
@@ -1473,7 +1495,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               Customer filter
               <input
                 className={`${erpInputCls} mt-1`}
-                placeholder="Set via customer search above, or type customer id"
+                placeholder="Customer id (optional)"
                 value={customerFilter}
                 onChange={(e) => setCustomerFilter(e.target.value.replace(/\D/g, ''))}
               />

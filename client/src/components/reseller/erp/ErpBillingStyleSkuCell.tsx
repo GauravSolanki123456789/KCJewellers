@@ -15,7 +15,7 @@ type Props = {
 }
 
 export function ErpBillingStyleSkuCell(props: Props) {
-  return <ErpBillingSuggestField {...props} />
+  return <ErpBillingSuggestField blurOnCommit={false} {...props} />
 }
 
 export function styleOptionsForCatalog(catalog: DesignBillingStyle[], query: string): string[] {

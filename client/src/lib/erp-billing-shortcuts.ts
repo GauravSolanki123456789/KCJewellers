@@ -3,6 +3,7 @@ import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { applyPieceSlabToLine, type ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { generateManualBarcode } from '@/lib/erp-manual-barcode'
 import {
+  isManualGridFieldVisible,
   nextVisibleManualEntryField,
   type ManualBillGridField,
 } from '@/lib/erp-metal-slab-field'
@@ -307,11 +308,24 @@ export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[
   return [...head, ...STACKED_MANUAL_TAIL_ORDER]
 }
 
+export function isStackedManualFieldVisible(field: ManualBillGridField, line: ErpBillLine): boolean {
+  if (!isManualGridFieldVisible(field, line)) return false
+  if (field === 'size') return (line.designSizeOptions?.length ?? 0) > 0
+  return true
+}
+
 export function nextStackedManualEntryField(
   current: ManualBillGridField,
   line: ErpBillLine,
 ): ManualBillGridField | null {
-  return nextVisibleManualEntryField(current, line, stackedManualFieldOrder(line))
+  const order = stackedManualFieldOrder(line)
+  const idx = order.indexOf(current)
+  if (idx < 0) return null
+  for (let i = idx + 1; i < order.length; i += 1) {
+    const key = order[i]!
+    if (isStackedManualFieldVisible(key, line)) return key
+  }
+  return null
 }
 
 export function nextManualEntryField(
