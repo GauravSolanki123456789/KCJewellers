@@ -86,3 +86,76 @@ export async function downloadCustomerAccountPdf(account: CustomerAccountData) {
     customerMobile: account.customer.mobile ?? null,
   })
 }
+
+export type DaybookExportData = {
+  date: string
+  lane_view?: boolean
+  summary: {
+    received_inr: number
+    paid_out_inr: number
+    net_inr: number
+    transaction_count: number
+  }
+  transactions: {
+    entry_date: string
+    kind: string
+    customer_name: string
+    payment_mode: string
+    reference: string
+    amount_inr: number
+    received_inr: number
+    paid_out_inr: number
+    description?: string
+  }[]
+}
+
+function DaybookDocument({ data }: { data: DaybookExportData }) {
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        <Text style={styles.title}>Day book</Text>
+        <Text style={styles.sub}>{data.date}{data.lane_view ? ' (lane ledger)' : ''}</Text>
+        <View style={styles.row}>
+          <Text style={styles.label}>Received</Text>
+          <Text>{formatPdfInr(data.summary.received_inr)}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>Paid out</Text>
+          <Text>{formatPdfInr(data.summary.paid_out_inr)}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>Net</Text>
+          <Text>{formatPdfInr(data.summary.net_inr)}</Text>
+        </View>
+        <View style={styles.tableHeader}>
+          <Text style={styles.c1}>Date</Text>
+          <Text style={styles.c2}>Type</Text>
+          <Text style={styles.c3}>Party</Text>
+          <Text style={styles.c4}>Reference</Text>
+          <Text style={styles.c5}>Received</Text>
+          <Text style={styles.c6}>Paid</Text>
+        </View>
+        {data.transactions.map((t, i) => (
+          <View key={`${t.reference}-${i}`} style={styles.tableRow}>
+            <Text style={styles.c1}>{t.entry_date}</Text>
+            <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
+            <Text style={styles.c3}>{t.customer_name}</Text>
+            <Text style={styles.c4}>{t.reference || '—'}</Text>
+            <Text style={styles.c5}>{t.received_inr ? formatPdfInr(t.received_inr) : '—'}</Text>
+            <Text style={styles.c6}>{t.paid_out_inr ? formatPdfInr(t.paid_out_inr) : '—'}</Text>
+          </View>
+        ))}
+      </Page>
+    </Document>
+  )
+}
+
+export async function downloadDaybookPdf(data: DaybookExportData) {
+  const blob = await pdf(<DaybookDocument data={data} />).toBlob()
+  const fname = `daybook-${data.date}${data.lane_view ? '-lane' : ''}.pdf`
+  await presentPdfBlob(blob, fname, {
+    title: 'Day book',
+    text: fname,
+    customerMobile: null,
+  })
+}

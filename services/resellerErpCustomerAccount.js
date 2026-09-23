@@ -472,6 +472,236 @@ function fmtLedgerDate(iso) {
     return `${parts[2]}-${parts[1]}-${parts[0].slice(2)}`;
 }
 
+function postingTs(createdAt, fallbackDate) {
+    if (createdAt) return String(createdAt);
+    const d = normDate(fallbackDate);
+    return d ? `${d}T00:00:00.000Z` : '';
+}
+
+function ledgerEntryCashflows(entryType, amountInr) {
+    const amt = Number(amountInr) || 0;
+    const creditTypes = new Set(['payment_in', 'bill_advance', 'suspense_in']);
+    let received = 0;
+    let paid = 0;
+    if (creditTypes.has(entryType)) received = amt;
+    else if (entryType === 'payment_out' || entryType === 'expense' || entryType === 'salary') paid = amt;
+    else if (entryType === 'purchase') received = amt;
+    else if (entryType === 'adjustment') {
+        if (amt >= 0) received = amt;
+        else paid = Math.abs(amt);
+    }
+    return { received_inr: received, paid_out_inr: paid };
+}
+
+function billCashflows(billType, totalInr) {
+    const kind = String(billType || 'sale').toLowerCase();
+    const amt = Number(totalInr) || 0;
+    const isCredit = kind === 'credit' || kind === 'sales_return';
+    return isCredit
+        ? { received_inr: amt, paid_out_inr: 0 }
+        : { received_inr: 0, paid_out_inr: amt };
+}
+
+async function buildDaybook(query, resellerUserId, opts) {
+    const day = parseDateOrNull(opts.date);
+    if (!day) throw Object.assign(new Error('date required'), { status: 400 });
+    const laneView = !!opts.laneView;
+    const unassignedOnly = !!opts.unassignedOnly;
+
+    const rows = [];
+
+    if (!unassignedOnly) {
+        const billParams = [resellerUserId, day];
+        let billSql = `SELECT b.id, b.bill_number, b.bill_date, b.bill_type, b.total_inr, b.status, b.created_at,
+                              b.lines_json, b.session_json, b.customer_id,
+                              COALESCE(c.name, b.customer_name, 'Walk-in') AS customer_name
+                       FROM reseller_erp_bills b
+                       LEFT JOIN reseller_erp_customers c ON c.id = b.customer_id
+                       WHERE b.reseller_user_id = $1
+                         AND b.bill_date = $2::date
+                         AND b.bill_type IN ('sale', 'credit', 'debit', 'sales_return')
+                         AND LOWER(b.status) IN ('completed', 'paid', 'final', 'issued')`;
+        if (!laneView) {
+            billSql += ` AND COALESCE(b.session_json->>'ledgerScope', 'official') <> 'lane'`;
+        }
+        billSql += ' ORDER BY b.created_at ASC NULLS LAST, b.id ASC';
+        const bills = await query(billSql, billParams);
+        for (const b of bills) {
+            const kind = String(b.bill_type || 'sale').toLowerCase();
+            const session = parseJsonObject(b.session_json);
+            const flows = billCashflows(kind, b.total_inr);
+            const mode =
+                String(session.paymentMethod || session.payment_mode || session.payMode || '').trim() || '—';
+            rows.push({
+                row_key: `bill:${b.id}`,
+                source: 'bill',
+                bill_id: b.id,
+                ledger_entry_id: null,
+                shadow_bill_id: null,
+                created_at: postingTs(b.created_at, b.bill_date),
+                entry_date: normDate(b.bill_date),
+                kind,
+                customer_name: b.customer_name || 'Walk-in',
+                payment_mode: mode,
+                reference: b.bill_number || '',
+                amount_inr: Number(b.total_inr) || 0,
+                ...flows,
+            });
+        }
+
+        if (laneView) {
+            const shadowSales = await query(
+                `SELECT id, bill_number, lane, bill_date, total_inr, customer_name, created_at, session_json, lines_json
+                 FROM reseller_erp_shadow_bills
+                 WHERE reseller_user_id = $1 AND bill_date = $2::date
+                 ORDER BY created_at ASC NULLS LAST, id ASC`,
+                [resellerUserId, day],
+            );
+            for (const s of shadowSales) {
+                const flows = billCashflows('sale', s.total_inr);
+                rows.push({
+                    row_key: `shadow:${s.id}`,
+                    source: 'shadow_bill',
+                    bill_id: null,
+                    ledger_entry_id: null,
+                    shadow_bill_id: s.id,
+                    created_at: postingTs(s.created_at, s.bill_date),
+                    entry_date: normDate(s.bill_date),
+                    kind: 'sale',
+                    customer_name: s.customer_name || 'Walk-in',
+                    payment_mode: String(s.payment_method || 'cash').trim() || 'cash',
+                    reference: s.bill_number || '',
+                    amount_inr: Number(s.total_inr) || 0,
+                    ...flows,
+                });
+            }
+        }
+    }
+
+    const entryParams = [resellerUserId, day];
+    let entrySql = `SELECT e.id, e.entry_date, e.entry_type, e.amount_inr, e.payment_mode, e.reference_no,
+                           e.narration, e.bill_id, e.shadow_bill_id, e.customer_id, e.created_at,
+                           e.ledger_scope, e.counterparty_name,
+                           c.name AS customer_name, b.bill_number, pv.pv_number
+                    FROM reseller_erp_ledger_entries e
+                    LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
+                    LEFT JOIN reseller_erp_bills b ON b.id = e.bill_id
+                    LEFT JOIN reseller_erp_purchase_vouchers pv ON pv.id = e.pv_id
+                    WHERE e.reseller_user_id = $1
+                      AND e.entry_date = $2::date
+                      AND e.is_suspense = false`;
+    if (laneView) {
+        entrySql += ` AND (
+            e.ledger_scope = 'lane'
+            OR e.entry_type = 'purchase'
+            OR (e.ledger_scope = 'official' AND LOWER(COALESCE(e.payment_mode, '')) = 'cash')
+        )`;
+    } else {
+        entrySql += ` AND e.ledger_scope = 'official'`;
+    }
+    if (unassignedOnly) {
+        entrySql += ` AND e.customer_id IS NULL`;
+    }
+    entrySql += ' ORDER BY e.created_at ASC NULLS LAST, e.id ASC';
+    const payments = await query(entrySql, entryParams);
+
+    const shadowBillIds = [...new Set(payments.map((p) => p.shadow_bill_id).filter(Boolean))];
+    let shadowBillById = {};
+    if (shadowBillIds.length) {
+        const sbRows = await query(
+            `SELECT id, bill_number, customer_name, bill_date
+             FROM reseller_erp_shadow_bills
+             WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
+            [resellerUserId, shadowBillIds],
+        );
+        shadowBillById = Object.fromEntries((sbRows || []).map((r) => [r.id, r]));
+    }
+
+    const seenShadowPay = new Set();
+    for (const p of payments) {
+        if (p.shadow_bill_id) {
+            const key = String(p.shadow_bill_id);
+            if (seenShadowPay.has(key)) continue;
+            seenShadowPay.add(key);
+        }
+        const flows = ledgerEntryCashflows(p.entry_type, p.amount_inr);
+        const party =
+            p.customer_name ||
+            p.counterparty_name ||
+            (p.pv_number ? `PV ${p.pv_number}` : null) ||
+            '—';
+        const isPay = ['payment_in', 'bill_advance', 'suspense_in', 'payment_out'].includes(p.entry_type);
+        rows.push({
+            row_key: `ledger:${p.id}`,
+            source: 'ledger',
+            bill_id: p.bill_id || null,
+            ledger_entry_id: p.id,
+            shadow_bill_id: p.shadow_bill_id || null,
+            created_at: postingTs(p.created_at, p.entry_date),
+            entry_date: normDate(p.entry_date),
+            kind: p.entry_type,
+            customer_name: party,
+            payment_mode: String(p.payment_mode || '—').trim() || '—',
+            reference: p.reference_no || p.bill_number || p.pv_number || '',
+            amount_inr: Number(p.amount_inr) || 0,
+            ...flows,
+            description: isPay
+                ? formatLedgerPaymentDescription(p, p.customer_name, shadowBillById)
+                : p.narration || String(p.entry_type || '').replace(/_/g, ' '),
+        });
+    }
+
+    rows.sort((a, b) => {
+        const ta = Date.parse(a.created_at) || 0;
+        const tb = Date.parse(b.created_at) || 0;
+        if (ta !== tb) return ta - tb;
+        return String(a.row_key).localeCompare(String(b.row_key));
+    });
+
+    let received = 0;
+    let paid = 0;
+    for (const r of rows) {
+        received += Number(r.received_inr) || 0;
+        paid += Number(r.paid_out_inr) || 0;
+    }
+
+    return {
+        date: day,
+        lane_view: laneView,
+        summary: {
+            received_inr: Math.round(received * 100) / 100,
+            paid_out_inr: Math.round(paid * 100) / 100,
+            net_inr: Math.round((received - paid) * 100) / 100,
+            transaction_count: rows.length,
+        },
+        transactions: rows,
+    };
+}
+
+function daybookToCsv(daybook) {
+    const lines = [];
+    const push = (row) => lines.push(row.map(accountCsvEscape).join(','));
+    push(['Day book', daybook.date]);
+    push(['Received', daybook.summary.received_inr]);
+    push(['Paid out', daybook.summary.paid_out_inr]);
+    push(['Net', daybook.summary.net_inr]);
+    lines.push('');
+    push(['DATE', 'TYPE', 'CUSTOMER / PARTY', 'MODE', 'REFERENCE', 'RECEIVED', 'PAID OUT', 'AMOUNT']);
+    for (const t of daybook.transactions) {
+        push([
+            fmtLedgerDate(t.entry_date),
+            t.kind,
+            t.customer_name,
+            t.payment_mode,
+            t.reference,
+            t.received_inr ? Number(t.received_inr).toFixed(2) : '',
+            t.paid_out_inr ? Number(t.paid_out_inr).toFixed(2) : '',
+            Number(t.amount_inr).toFixed(2),
+        ]);
+    }
+    return lines.join('\r\n');
+}
+
 function customerAccountToCsv(account) {
     const lines = [];
     const push = (row) => lines.push(row.map(accountCsvEscape).join(','));
@@ -504,254 +734,11 @@ function customerAccountToCsv(account) {
     return lines.join('\r\n');
 }
 
-function daybookKindLabel(kind) {
-    const k = String(kind || '').toLowerCase();
-    if (k === 'sale') return 'Sale';
-    if (k === 'credit') return 'Credit note';
-    if (k === 'sales_return') return 'Sales return';
-    if (k === 'debit') return 'Debit note';
-    if (k === 'payment_in') return 'Receipt';
-    if (k === 'payment_out') return 'Payment out';
-    if (k === 'purchase') return 'Purchase (PV)';
-    if (k === 'expense') return 'Expense';
-    if (k === 'salary') return 'Salary';
-    if (k === 'bill_advance') return 'Advance';
-    return k.replace(/_/g, ' ');
-}
-
-function pushOfficialBillDaybookRow(rows, s) {
-    const kind = String(s.bill_type || 'sale').toLowerCase();
-    let session = s.session_json;
-    if (typeof session === 'string') {
-        try {
-            session = JSON.parse(session);
-        } catch {
-            session = null;
-        }
-    }
-    const weightGm =
-        totalWeightGmFromLines(s.lines_json) ||
-        Number(session && session.returnWeightGm) ||
-        0;
-    const isCredit = kind === 'credit' || kind === 'sales_return';
-    const amt = Number(s.total_inr) || 0;
-    let description = `(V NO: ${s.bill_number}) SALES A/C -`;
-    if (kind === 'credit' || kind === 'sales_return') description = `(V NO: ${s.bill_number}) CREDIT NOTE -`;
-    if (kind === 'debit') description = `(V NO: ${s.bill_number}) DEBIT NOTE -`;
-    rows.push({
-        sort_ts: s.created_at || s.bill_date,
-        sort_id: Number(s.id) || 0,
-        source: 'bill',
-        bill_id: s.id,
-        ledger_entry_id: null,
-        entry_date: normDate(s.bill_date),
-        entry_type: kind,
-        kind_label: daybookKindLabel(kind),
-        customer_id: s.customer_id,
-        customer_name: s.customer_name || 'Walk-in',
-        payment_mode: s.payment_method || '',
-        reference_no: s.bill_number,
-        narration: description,
-        amount_inr: amt,
-        debit_inr: isCredit ? 0 : amt,
-        credit_inr: isCredit ? amt : 0,
-        weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
-        ledger_scope: String((session && session.ledgerScope) || 'official').toLowerCase(),
-    });
-}
-
-/**
- * Shop-wide day book for one calendar date — bills + ledger entries in posting order.
- * laneView: false = official only; true = lane + official cash + purchases (same as lane ledger).
- */
-async function buildResellerDaybook(query, resellerUserId, opts) {
-    const onDate = parseDateOrNull(opts.date);
-    if (!onDate) {
-        throw Object.assign(new Error('date required (yyyy-mm-dd)'), { status: 400 });
-    }
-    const laneView = !!opts.laneView;
-    const unassignedOnly = !!opts.unassignedOnly;
-    const rows = [];
-
-    let billSql = `SELECT b.id, b.bill_number, b.bill_date, b.bill_type, b.total_inr, b.status,
-                          b.created_at, b.customer_id, b.payment_method, b.session_json, b.lines_json,
-                          c.name AS customer_name
-                   FROM reseller_erp_bills b
-                   LEFT JOIN reseller_erp_customers c ON c.id = b.customer_id
-                   WHERE b.reseller_user_id = $1
-                     AND b.bill_date = $2::date
-                     AND b.bill_type IN ('sale', 'credit', 'debit', 'sales_return')
-                     AND LOWER(b.status) IN ('completed', 'paid', 'final', 'issued')`;
-    const billParams = [resellerUserId, onDate];
-    if (!laneView) {
-        billSql += ` AND COALESCE(b.session_json->>'ledgerScope', 'official') <> 'lane'`;
-    }
-    if (unassignedOnly) {
-        billSql += ' AND b.customer_id IS NULL';
-    }
-    billSql += ' ORDER BY b.created_at ASC NULLS LAST, b.id ASC';
-    const bills = await query(billSql, billParams);
-    for (const s of bills) pushOfficialBillDaybookRow(rows, s);
-
-    if (laneView) {
-        let shSql = `SELECT s.id, s.bill_number, s.lane, s.bill_date, s.total_inr, s.payment_method,
-                            s.status, s.created_at, s.session_json, s.lines_json, s.customer_id,
-                            s.customer_name
-                     FROM reseller_erp_shadow_bills s
-                     WHERE s.reseller_user_id = $1 AND s.bill_date = $2::date`;
-        const shParams = [resellerUserId, onDate];
-        if (unassignedOnly) {
-            shSql += ' AND s.customer_id IS NULL';
-        }
-        shSql += ' ORDER BY s.created_at ASC NULLS LAST, s.id ASC';
-        const shadowSales = await query(shSql, shParams);
-        for (const s of shadowSales) {
-            const billAmt = Number(s.total_inr) || 0;
-            let session = s.session_json;
-            if (typeof session === 'string') {
-                try {
-                    session = JSON.parse(session);
-                } catch {
-                    session = null;
-                }
-            }
-            const weightGm =
-                totalWeightGmFromLines(s.lines_json) ||
-                Number(session && (session.returnWeightGm || session.totalWeightGm)) ||
-                0;
-            rows.push({
-                sort_ts: s.created_at || s.bill_date,
-                sort_id: Number(s.id) || 0,
-                source: 'shadow_bill',
-                bill_id: s.id,
-                ledger_entry_id: null,
-                entry_date: normDate(s.bill_date),
-                entry_type: 'sale',
-                kind_label: 'Sale (lane)',
-                customer_id: s.customer_id,
-                customer_name: s.customer_name || 'Walk-in',
-                payment_mode: s.payment_method || 'cash',
-                reference_no: s.bill_number,
-                narration: `(V NO: ${s.bill_number}) SALES A/C -`,
-                amount_inr: billAmt,
-                debit_inr: billAmt,
-                credit_inr: 0,
-                weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
-                ledger_scope: 'lane',
-            });
-        }
-    }
-
-    const entryParams = [resellerUserId, onDate];
-    let entrySql = `SELECT e.id, e.entry_date, e.entry_type, e.amount_inr, e.payment_mode, e.reference_no,
-                           e.narration, e.bill_id, e.shadow_bill_id, e.customer_id, e.ledger_scope,
-                           e.counterparty_name, e.created_at, c.name AS customer_name, b.bill_number
-                    FROM reseller_erp_ledger_entries e
-                    LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
-                    LEFT JOIN reseller_erp_bills b ON b.id = e.bill_id
-                    WHERE e.reseller_user_id = $1
-                      AND e.entry_date = $2::date
-                      AND e.is_suspense = false`;
-    if (unassignedOnly) {
-        entrySql += ' AND e.customer_id IS NULL';
-    }
-    if (laneView) {
-        entrySql += ` AND (
-            e.ledger_scope = 'lane'
-            OR e.entry_type = 'purchase'
-            OR (e.ledger_scope = 'official' AND LOWER(COALESCE(e.payment_mode, '')) = 'cash')
-        )`;
-    } else {
-        entrySql += ` AND e.ledger_scope = 'official'`;
-    }
-    entrySql += ' ORDER BY e.created_at ASC NULLS LAST, e.id ASC';
-    const payments = await query(entrySql, entryParams);
-
-    const shadowBillIds = [...new Set(payments.map((p) => p.shadow_bill_id).filter(Boolean))];
-    let shadowBillById = {};
-    if (shadowBillIds.length) {
-        const sbRows = await query(
-            `SELECT id, bill_number, customer_name, bill_date
-             FROM reseller_erp_shadow_bills
-             WHERE reseller_user_id = $1 AND id = ANY($2::int[])`,
-            [resellerUserId, shadowBillIds],
-        );
-        shadowBillById = Object.fromEntries((sbRows || []).map((r) => [r.id, r]));
-    }
-
-    for (const p of payments) {
-        const creditTypes = new Set(['payment_in', 'bill_advance', 'suspense_in']);
-        let credit = 0;
-        let debit = 0;
-        if (creditTypes.has(p.entry_type)) credit = Number(p.amount_inr) || 0;
-        if (p.entry_type === 'payment_out') debit = Number(p.amount_inr) || 0;
-        if (p.entry_type === 'purchase') credit = Number(p.amount_inr) || 0;
-        if (p.entry_type === 'expense' || p.entry_type === 'salary') debit = Number(p.amount_inr) || 0;
-        if (p.entry_type === 'adjustment') {
-            const amt = Number(p.amount_inr) || 0;
-            if (amt >= 0) credit = amt;
-            else debit = Math.abs(amt);
-        }
-        const isPay =
-            creditTypes.has(p.entry_type) ||
-            p.entry_type === 'payment_out' ||
-            p.entry_type === 'purchase';
-        const customerName = p.customer_name || p.counterparty_name || 'Walk-in / unassigned';
-        rows.push({
-            sort_ts: p.created_at || p.entry_date,
-            sort_id: Number(p.id) || 0,
-            source: 'ledger_entry',
-            bill_id: p.bill_id,
-            ledger_entry_id: p.id,
-            entry_date: normDate(p.entry_date),
-            entry_type: p.entry_type,
-            kind_label: daybookKindLabel(p.entry_type),
-            customer_id: p.customer_id,
-            customer_name: customerName,
-            payment_mode: p.payment_mode || '',
-            reference_no: p.reference_no || p.bill_number || '',
-            narration: isPay
-                ? formatLedgerPaymentDescription(p, customerName, shadowBillById)
-                : p.narration || daybookKindLabel(p.entry_type),
-            amount_inr: Number(p.amount_inr) || 0,
-            debit_inr: debit,
-            credit_inr: credit,
-            weight_gm: 0,
-            ledger_scope: p.ledger_scope || 'official',
-        });
-    }
-
-    rows.sort((a, b) => {
-        const ta = new Date(a.sort_ts || a.entry_date).getTime();
-        const tb = new Date(b.sort_ts || b.entry_date).getTime();
-        if (ta !== tb) return ta - tb;
-        return (a.sort_id || 0) - (b.sort_id || 0);
-    });
-
-    let received = 0;
-    let paid = 0;
-    for (const r of rows) {
-        received += Number(r.credit_inr) || 0;
-        paid += Number(r.debit_inr) || 0;
-    }
-
-    return {
-        date: onDate,
-        lane_view: laneView,
-        rows,
-        summary: {
-            received_inr: Math.round(received * 100) / 100,
-            paid_out_inr: Math.round(paid * 100) / 100,
-            net_inr: Math.round((received - paid) * 100) / 100,
-            row_count: rows.length,
-        },
-    };
-}
-
 module.exports = {
     buildCustomerAccount,
-    buildResellerDaybook,
+    buildDaybook,
     customerAccountToCsv,
+    daybookToCsv,
     cashBookKind,
     ensureCashBookCustomers,
     compactCustomerName,

@@ -1270,6 +1270,47 @@ function registerShadowRoutes(app, deps) {
         }
     });
 
+    app.get('/api/reseller/erp/shadow/daybook', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const { buildDaybook } = require('./resellerErpCustomerAccount');
+            const date = parseDateOrNull(req.query.date);
+            const unassignedOnly = String(req.query.unassigned_only || '') === '1';
+            const daybook = await buildDaybook(query, req.user.id, {
+                date,
+                laneView: true,
+                unassignedOnly,
+            });
+            res.json(daybook);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            console.error('shadow daybook:', e);
+            res.status(500).json({ error: e.message || 'Failed to load day book' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/daybook/export', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const { buildDaybook, daybookToCsv } = require('./resellerErpCustomerAccount');
+            const date = parseDateOrNull(req.query.date);
+            const unassignedOnly = String(req.query.unassigned_only || '') === '1';
+            const daybook = await buildDaybook(query, req.user.id, {
+                date,
+                laneView: true,
+                unassignedOnly,
+            });
+            const csv = daybookToCsv(daybook);
+            const fname = `daybook-lane-${daybook.date}.csv`;
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            res.send('\ufeff' + csv);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            res.status(500).json({ error: e.message || 'Export failed' });
+        }
+    });
+
     app.get('/api/reseller/erp/shadow/customer-account', checkAuth, erpGate, shadowGate, async (req, res) => {
         try {
             const { buildCustomerAccount, customerAccountToCsv } = require('./resellerErpCustomerAccount');

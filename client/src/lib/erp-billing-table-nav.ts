@@ -1,10 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
-import {
-  GIFT_ENTRY_FIELD_ORDER,
-  isGiftManualLine,
-  MANUAL_ENTRY_FIELD_ORDER,
-} from '@/lib/erp-billing-shortcuts'
-import { isManualGridFieldVisible, nextVisibleManualEntryField, type ManualBillGridField } from '@/lib/erp-metal-slab-field'
+import { nextManualEntryField, nextStackedManualEntryField } from '@/lib/erp-billing-shortcuts'
+import type { ManualBillGridField } from '@/lib/erp-metal-slab-field'
 
 export type BillTableColDef = { key: string; edit?: boolean }
 
@@ -15,25 +11,10 @@ export function nextBillTableField(
   line: ErpBillLine,
 ): string | null {
   if (line.manualEntry) {
-    const manualOrder = (
-      isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER
-    ) as ManualBillGridField[]
-    const asManual = current as ManualBillGridField
-    if (manualOrder.includes(asManual)) {
-      const next = nextVisibleManualEntryField(asManual, line, manualOrder)
-      if (next) return next
+    if (line.manualEntryOpen) {
+      return nextStackedManualEntryField(current as ManualBillGridField, line)
     }
-    const tableOrder = cols
-      .filter((c) => c.edit && c.key !== 'amount')
-      .map((c) => c.key as ManualBillGridField)
-    const idx = tableOrder.indexOf(asManual)
-    if (idx >= 0) {
-      for (let i = idx + 1; i < tableOrder.length; i += 1) {
-        const key = tableOrder[i]!
-        if (isManualGridFieldVisible(key, line)) return key
-      }
-    }
-    return null
+    return nextManualEntryField(current as ManualBillGridField, line)
   }
   const editable = cols.filter((c) => c.edit && c.key !== 'amount').map((c) => c.key)
   const seen = new Set<string>()

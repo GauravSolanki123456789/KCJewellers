@@ -18,19 +18,24 @@ type Props = {
 
 export function ErpDateInput({ value, onChange, className, placeholder = 'dd/mm/yyyy' }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const [text, setText] = useState(() => isoToDdMmYyyyInput(toIsoDateInput(value) || value))
+  const textRef = useRef('')
+  const focusedRef = useRef(false)
   const skipPropSync = useRef(false)
+  const [text, setText] = useState(() => isoToDdMmYyyyInput(toIsoDateInput(value) || value))
+
+  textRef.current = text
 
   useEffect(() => {
     if (skipPropSync.current) {
       skipPropSync.current = false
       return
     }
+    if (focusedRef.current) return
     setText(isoToDdMmYyyyInput(toIsoDateInput(value) || value))
   }, [value])
 
-  const applyText = (raw: string, caret?: number) => {
-    const digits = digitsFromDateInput(raw)
+  const applyDigits = (digits: string, prevCaret?: number) => {
+    const prevMasked = textRef.current
     const masked = maskDdMmYyyyFromDigits(digits)
     setText(masked)
     if (digits.length === 8) {
@@ -43,13 +48,16 @@ export function ErpDateInput({ value, onChange, className, placeholder = 'dd/mm/
       skipPropSync.current = true
       onChange('')
     }
-    if (caret != null && inputRef.current) {
-      const nextCaret = caretAfterMaskEdit(text, masked, caret)
+    if (prevCaret != null && inputRef.current) {
+      const nextCaret = caretAfterMaskEdit(prevMasked, masked, prevCaret)
       requestAnimationFrame(() => {
         inputRef.current?.setSelectionRange(nextCaret, nextCaret)
       })
     }
   }
+
+  const digitIndexAtCaret = (masked: string, caret: number) =>
+    digitsFromDateInput(masked.slice(0, Math.max(0, caret))).length
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Backspace' && e.key !== 'Delete') return
@@ -57,16 +65,34 @@ export function ErpDateInput({ value, onChange, className, placeholder = 'dd/mm/
     if (!el) return
     const start = el.selectionStart ?? 0
     const end = el.selectionEnd ?? start
-    if (start !== end) return
+    const masked = textRef.current
+    const digits = digitsFromDateInput(masked)
+
+    if (start !== end) {
+      e.preventDefault()
+      const left = digitIndexAtCaret(masked, start)
+      const right = digitIndexAtCaret(masked, end)
+      const nextDigits = digits.slice(0, left) + digits.slice(right)
+      applyDigits(nextDigits, start)
+      return
+    }
+
     if (e.key === 'Backspace' && start > 0) {
-      const ch = text[start - 1]
-      if (ch === '/') {
-        e.preventDefault()
-        const digits = digitsFromDateInput(text)
-        if (!digits.length) return
-        const trimmed = digits.slice(0, -1)
-        applyText(trimmed, start - 1)
+      e.preventDefault()
+      const idx = digitIndexAtCaret(masked, start)
+      if (idx <= 0) {
+        applyDigits('', 0)
+        return
       }
+      applyDigits(digits.slice(0, idx - 1) + digits.slice(idx), start - 1)
+      return
+    }
+
+    if (e.key === 'Delete' && start < masked.length) {
+      e.preventDefault()
+      const idx = digitIndexAtCaret(masked, start)
+      if (idx >= digits.length) return
+      applyDigits(digits.slice(0, idx) + digits.slice(idx + 1), start)
     }
   }
 
@@ -79,11 +105,16 @@ export function ErpDateInput({ value, onChange, className, placeholder = 'dd/mm/
       inputMode="numeric"
       autoComplete="off"
       value={text}
+      onFocus={() => {
+        focusedRef.current = true
+      }}
       onKeyDown={onKeyDown}
       onChange={(e) => {
-        applyText(e.target.value, e.target.selectionStart ?? undefined)
+        const el = e.target
+        applyDigits(digitsFromDateInput(el.value), el.selectionStart ?? undefined)
       }}
       onBlur={() => {
+        focusedRef.current = false
         if (!text.trim()) {
           onChange('')
           return

@@ -281,6 +281,39 @@ export function entryFieldOrderForLine(line: ErpBillLine): ManualBillGridField[]
   return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER
 }
 
+/** Stacked A/S/B editor — weight + charge bands (after header fields). */
+export const STACKED_MANUAL_TAIL_ORDER: ManualBillGridField[] = [
+  'weightGm',
+  'gross_weight',
+  'bags',
+  'bag_wt',
+  'metal_slab_pct',
+  'purity',
+  'wastage_pct',
+  'ratePerGram',
+  'mc_rate',
+  'mc_type',
+  'qty',
+  'box_charges',
+  'stone_charges',
+  'metal_type',
+  'fixed_price',
+]
+
+export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[] {
+  const head = isGiftManualLine(line)
+    ? (GIFT_ENTRY_FIELD_ORDER as ManualBillGridField[])
+    : (MANUAL_ENTRY_FIELD_ORDER.filter((k) => !STACKED_MANUAL_TAIL_ORDER.includes(k)) as ManualBillGridField[])
+  return [...head, ...STACKED_MANUAL_TAIL_ORDER]
+}
+
+export function nextStackedManualEntryField(
+  current: ManualBillGridField,
+  line: ErpBillLine,
+): ManualBillGridField | null {
+  return nextVisibleManualEntryField(current, line, stackedManualFieldOrder(line))
+}
+
 export function nextManualEntryField(
   current: ManualBillGridField,
   line?: ErpBillLine,

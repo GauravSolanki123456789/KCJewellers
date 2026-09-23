@@ -19,8 +19,9 @@ const LEDGER_SCOPES = new Set(['official', 'lane']);
 
 const {
     buildCustomerAccount,
-    buildResellerDaybook,
+    buildDaybook,
     customerAccountToCsv,
+    daybookToCsv,
 } = require('./resellerErpCustomerAccount');
 const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
@@ -1162,20 +1163,42 @@ function registerResellerErpLedgerRoutes(app, deps) {
 
     app.get('/api/reseller/erp/ledger/daybook', checkAuth, erpGate, async (req, res) => {
         try {
-            const date = parseDateOrNull(req.query.date || req.query.on);
+            const date = parseDateOrNull(req.query.date);
             const laneView = String(req.query.lane_view || '') === '1';
             const unassignedOnly = String(req.query.unassigned_only || '') === '1';
-            const book = await buildResellerDaybook(query, req.user.id, {
+            const daybook = await buildDaybook(query, req.user.id, {
                 date,
                 laneView,
                 unassignedOnly,
             });
-            res.json(book);
+            res.json(daybook);
         } catch (e) {
             const status = e.status || 500;
             if (status !== 500) return res.status(status).json({ error: e.message });
             console.error('erp ledger daybook:', e);
             res.status(500).json({ error: e.message || 'Failed to load day book' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/daybook/export', checkAuth, erpGate, async (req, res) => {
+        try {
+            const date = parseDateOrNull(req.query.date);
+            const laneView = String(req.query.lane_view || '') === '1';
+            const unassignedOnly = String(req.query.unassigned_only || '') === '1';
+            const daybook = await buildDaybook(query, req.user.id, {
+                date,
+                laneView,
+                unassignedOnly,
+            });
+            const csv = daybookToCsv(daybook);
+            const fname = `daybook-${daybook.date}${laneView ? '-lane' : ''}.csv`;
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            res.send('\ufeff' + csv);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            res.status(500).json({ error: e.message || 'Export failed' });
         }
     });
 
