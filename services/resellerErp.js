@@ -567,34 +567,78 @@ function billRatesUnfixedFromPayload(session, lines) {
     return false;
 }
 
-/** Load catalog mc_rate from stock for thermal print (legacy bills without mc_rate_catalog). */
+function lineNeedsMcCatalogForPrint(line) {
+    return (
+        line &&
+        !line.mc_rate_catalog &&
+        !line.mc_rate_standard &&
+        !line.catalog_mc_rate
+    );
+}
+
+/** Load catalog mc_rate from stock / design master for thermal print (display mapping only). */
 async function enrichEstimateLinesMcFromStock(query, resellerUserId, bill) {
     if (!bill || !Array.isArray(bill.lines) || !bill.lines.length) return bill;
-    const missing = bill.lines.some(
-        (l) =>
-            l &&
-            !l.mc_rate_catalog &&
-            !l.mc_rate_standard &&
-            !l.catalog_mc_rate &&
-            (l.stock_piece_id || l.barcode || l.code),
+    let next = bill;
+
+    const designPairs = [
+        ...new Set(
+            bill.lines
+                .filter((l) => lineNeedsMcCatalogForPrint(l) && l.style_code && l.sku)
+                .map((l) => `${String(l.style_code).trim().toUpperCase()}\0${String(l.sku).trim().toUpperCase()}`),
+        ),
+    ];
+    if (designPairs.length) {
+        const designMcByKey = new Map();
+        for (const pair of designPairs) {
+            const [styleCode, sku] = pair.split('\0');
+            const rows = await query(
+                `SELECT sk.mc_rate::float AS mc_rate
+                 FROM reseller_erp_design_skus sk
+                 JOIN reseller_erp_design_styles ds ON ds.id = sk.style_id AND ds.reseller_user_id = sk.reseller_user_id
+                 WHERE sk.reseller_user_id = $1
+                   AND upper(trim(ds.style_code)) = upper(trim($2))
+                   AND upper(trim(sk.sku)) = upper(trim($3))
+                 LIMIT 1`,
+                [resellerUserId, styleCode, sku],
+            );
+            if (rows[0]?.mc_rate != null) {
+                designMcByKey.set(pair, Number(rows[0].mc_rate));
+            }
+        }
+        if (designMcByKey.size) {
+            next = {
+                ...next,
+                lines: next.lines.map((l) => {
+                    if (!lineNeedsMcCatalogForPrint(l) || !l.style_code || !l.sku) return l;
+                    const key = `${String(l.style_code).trim().toUpperCase()}\0${String(l.sku).trim().toUpperCase()}`;
+                    const mc = designMcByKey.get(key);
+                    return mc != null && mc > 0 ? { ...l, mc_rate_catalog: mc } : l;
+                }),
+            };
+        }
+    }
+
+    const missingStock = next.lines.some(
+        (l) => lineNeedsMcCatalogForPrint(l) && (l.stock_piece_id || l.barcode || l.code),
     );
-    if (!missing) return bill;
+    if (!missingStock) return next;
 
     const ids = [
         ...new Set(
-            bill.lines
+            next.lines
                 .map((l) => Number(l?.stock_piece_id))
                 .filter((n) => Number.isFinite(n) && n > 0),
         ),
     ];
     const codes = [
         ...new Set(
-            bill.lines
+            next.lines
                 .map((l) => String(l?.barcode || l?.code || '').trim())
                 .filter(Boolean),
         ),
     ];
-    if (!ids.length && !codes.length) return bill;
+    if (!ids.length && !codes.length) return next;
 
     const parts = [];
     const params = [resellerUserId];
@@ -618,7 +662,7 @@ async function enrichEstimateLinesMcFromStock(query, resellerUserId, bill) {
         if (r.id != null && r.mc_rate != null) byId.set(Number(r.id), Number(r.mc_rate));
         if (r.barcode && r.mc_rate != null) byBarcode.set(String(r.barcode), Number(r.mc_rate));
     }
-    return erpPrint.enrichBillLinesMcCatalogForPrint(bill, { byStockId: byId, byBarcode });
+    return erpPrint.enrichBillLinesMcCatalogForPrint(next, { byStockId: byId, byBarcode });
 }
 
 function mapBill(row) {

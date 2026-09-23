@@ -1023,6 +1023,9 @@ function renderBillEscPos(template, bill, printFormats, rates) {
 const ROUGH_ESTIMATE_WIDTH = 42;
 const ESC_BOLD_ON = '\x1B\x45\x01';
 const ESC_BOLD_OFF = '\x1B\x45\x00';
+/** Double width + height (Epson ESC ! n) — used for Grand Total emphasis. */
+const ESC_EMPHASIS_ON = '\x1B\x21\x30';
+const ESC_EMPHASIS_OFF = '\x1B\x21\x00';
 
 function roughVisibleLen(text) {
     return String(text || '')
@@ -1035,6 +1038,11 @@ function roughBold(text) {
     const t = String(text ?? '');
     if (!t) return '';
     return `${ESC_BOLD_ON}${t}${ESC_BOLD_OFF}`;
+}
+
+function roughGrandTotalRow(left, right, width = ROUGH_ESTIMATE_WIDTH) {
+    const row = roughPadRow(roughBold(String(left ?? '')), roughBold(String(right ?? '')), width);
+    return `${ESC_EMPHASIS_ON}${row}${ESC_EMPHASIS_OFF}`;
 }
 
 function roughCenter(text, width = ROUGH_ESTIMATE_WIDTH) {
@@ -1094,11 +1102,55 @@ function roughCatalogMcRatePerUnit(line) {
     if (raw != null && Number.isFinite(Number(raw)) && Number(raw) > 0) {
         return Number(raw);
     }
+    const slabRates = [
+        Number(line?.mc_rate_slab_r),
+        Number(line?.mc_rate_slab_w),
+        Number(line?.mc_rate_slab_f),
+    ].filter((n) => Number.isFinite(n) && n > 0);
+    const billMc = Number(line?.mc_rate);
+    if (slabRates.length && Number.isFinite(billMc) && billMc > 0) {
+        const maxRate = Math.max(billMc, ...slabRates);
+        const minRate = Math.min(billMc, ...slabRates);
+        if (maxRate > minRate) return maxRate;
+    }
     if (!lineHasPieceSlabFields(line)) {
         const r = Number(line?.mc_rate);
         if (Number.isFinite(r) && r > 0) return r;
     }
     return null;
+}
+
+function enrichLineMcDisplayFieldsForPrint(line, rateSlab) {
+    if (!line || typeof line !== 'object') return line;
+    const before = Number(line.displayMcBeforeDiscount);
+    const after = Number(line.displayMcInr);
+    if (Number.isFinite(before) && Number.isFinite(after) && before > after) {
+        return line;
+    }
+    const base = roughCatalogMcRatePerUnit(line);
+    const applied = roughAppliedMcRatePerUnit(line, rateSlab);
+    if (base == null || applied == null || !(base > applied)) return line;
+    const { wt, qty } = roughMcWeightOrQty(line);
+    const std = isMcPerPieceType(line?.mc_type) ? base * qty : base * (wt > 0 ? wt : qty);
+    const app = isMcPerPieceType(line?.mc_type)
+        ? applied * qty
+        : applied * (wt > 0 ? wt : qty);
+    if (!(std > app)) return line;
+    return {
+        ...line,
+        displayMcBeforeDiscount: Math.round(std),
+        displayMcInr: Math.round(app),
+    };
+}
+
+function enrichBillLinesForEstimatePrint(bill, rateSlab) {
+    if (!bill || !Array.isArray(bill.lines)) return bill;
+    const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    const slab = String(rateSlab || session.rateSlab || 'R').toUpperCase();
+    return {
+        ...bill,
+        lines: bill.lines.map((ln) => enrichLineMcDisplayFieldsForPrint(ln, slab)),
+    };
 }
 
 function roughAppliedMcRatePerUnit(line, rateSlab) {
@@ -1490,11 +1542,11 @@ function isGoldEstimateLine(line) {
 
 function roughItemDisplayName(line) {
     return String(
-        line?.style_code ||
+        line?.sku ||
+            line?.product_name ||
             line?.name ||
             line?.invoice_item_name ||
-            line?.sku ||
-            line?.product_name ||
+            line?.style_code ||
             'Item',
     ).trim();
 }
@@ -1586,10 +1638,25 @@ function roughMcAmountInr(line, rateSlab, printFormats) {
 function roughMcDiscountAmount(line, rateSlab, rates, printFormats) {
     if (isGoldEstimateLine(line)) return 0;
     const pf = printFormats || {};
+    const before = Number(line?.displayMcBeforeDiscount);
+    const after = Number(line?.displayMcInr);
+    if (Number.isFinite(before) && Number.isFinite(after) && before > after) {
+        return Math.round(before - after);
+    }
     const std = roughStandardMcAmountInr(line, rateSlab, pf);
     const applied = roughAppliedMcAmountInr(line, rateSlab, pf);
     if (std > applied) return Math.round(std - applied);
     if (rateSlab === 'R') return computeSlabRLineDiscounts(line, rates, rateSlab).mcDisc;
+    const base = roughCatalogMcRatePerUnit(line);
+    const slabMc = roughAppliedMcRatePerUnit(line, rateSlab);
+    if (base != null && base > slabMc) {
+        const { wt, qty } = roughMcWeightOrQty(line);
+        const stdAmt = isMcPerPieceType(line?.mc_type) ? base * qty : base * (wt > 0 ? wt : qty);
+        const appAmt = isMcPerPieceType(line?.mc_type)
+            ? slabMc * qty
+            : slabMc * (wt > 0 ? wt : qty);
+        if (stdAmt > appAmt) return Math.round(stdAmt - appAmt);
+    }
     return 0;
 }
 
@@ -1787,11 +1854,12 @@ function buildRoughEstimateContent(bill, printFormats, rates, isDuplicate) {
         pf.goldSlabRShowMc = false;
     }
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
+    const printBill = enrichBillLinesForEstimatePrint(bill, rateSlab);
     const out = [];
 
     out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
 
-    const items = bill.lines || [];
+    const items = printBill.lines || [];
     let grandTotal = 0;
     let totalSavings = 0;
     const nonGiftItems = items.filter((ln) => !isGiftEstimateLine(ln));
@@ -1826,9 +1894,7 @@ function buildRoughEstimateContent(bill, printFormats, rates, isDuplicate) {
             roughPadRow(roughBold('Total Savings :'), roughBold(roughMoneyRoundedTotal(totalSavings))),
         );
     }
-    out.push(
-        roughPadRow(roughBold('Grand Total :'), roughBold(roughMoneyRoundedTotal(grandTotal))),
-    );
+    out.push(roughGrandTotalRow('Grand Total :', roughMoneyRoundedTotal(grandTotal)));
     out.push('='.repeat(ROUGH_ESTIMATE_WIDTH));
     out.push('Valid for One Hour Only');
     out.push('GST will be issued on Confirmation GST Bill');
@@ -1909,6 +1975,9 @@ function buildSampleBillForPreview(kind) {
 
 function renderEstimateEscPos(bill, printFormats, rates) {
     const pf = migratePrintFormats(printFormats);
+    const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    const rateSlab = String(session.rateSlab || 'R').toUpperCase();
+    bill = enrichBillLinesForEstimatePrint(bill, rateSlab);
     const printRates = enrichPrintRatesFromBill(bill, rates);
     if (pf.estimatePrintMode === 'custom') {
         const template = resolveEstimateTemplateForBill(bill.lines, pf);
@@ -1995,6 +2064,7 @@ module.exports = {
     buildLinesTable,
     buildRoughEstimateBody,
     enrichBillLinesMcCatalogForPrint,
+    enrichBillLinesForEstimatePrint,
     buildSampleBillForPreview,
     previewTemplateText,
     renderBillEscPos,

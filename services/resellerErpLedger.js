@@ -590,6 +590,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const suspenseOnly = String(req.query.suspense_only || '') === '1';
             const importBatchId = parseInt(String(req.query.import_batch_id || ''), 10);
             const laneView = String(req.query.lane_view || '') === '1';
+            const daybook = String(req.query.daybook || '') === '1';
+            const unassignedOnly = String(req.query.unassigned_only || '') === '1';
             const q = trimStr(req.query.q, 120);
             const params = [req.user.id];
             let cashBook = null;
@@ -643,7 +645,9 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 params.push(to);
                 sql += ` AND e.entry_date <= $${params.length}::date`;
             }
-            if (Number.isFinite(customerId) && customerId > 0 && !cashBook) {
+            if (unassignedOnly) {
+                sql += ` AND e.customer_id IS NULL`;
+            } else if (Number.isFinite(customerId) && customerId > 0 && !cashBook) {
                 params.push(customerId);
                 sql += ` AND e.customer_id = $${params.length}`;
             }
@@ -666,7 +670,9 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     OR emp.name ILIKE $${idx}
                 )`;
             }
-            sql += ` ORDER BY e.entry_date DESC, e.id DESC LIMIT 2000`;
+            sql += daybook
+                ? ` ORDER BY e.created_at ASC NULLS LAST, e.id ASC LIMIT 5000`
+                : ` ORDER BY e.entry_date DESC, e.id DESC LIMIT 2000`;
             const rows = await query(sql, params);
             res.json({ entries: rows.map((r) => mapLedgerEntry(r)) });
         } catch (e) {

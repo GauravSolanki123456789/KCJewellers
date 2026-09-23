@@ -26,6 +26,9 @@ import {
   saveErpOrderDraft,
 } from '@/lib/erp-order-draft'
 import { BarcodeLookupField } from '@/components/reseller/erp/ResellerErpWorkspaces'
+import { ErpCustomerSuggestField } from '@/components/reseller/erp/ErpCustomerSuggestField'
+import { useErpOperator } from '@/context/ErpOperatorContext'
+import type { ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { ErpOrderLineCard } from '@/components/reseller/erp/ErpOrderLineCard'
 import { ErpOrderMediaControls } from '@/components/reseller/erp/ErpOrderMediaControls'
 import {
@@ -153,10 +156,12 @@ function OrderJobCard({
   job,
   karigars,
   onRefresh,
+  canDeleteRecords,
 }: {
   job: ErpOrderJob
   karigars: ErpKarigar[]
   onRefresh: () => Promise<void>
+  canDeleteRecords: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -194,6 +199,7 @@ function OrderJobCard({
   const canCancel = !jobClosed
 
   const deleteOrder = async () => {
+    if (!canDeleteRecords) return
     if (busy) return
     if (
       !await appConfirm(
@@ -443,15 +449,17 @@ function OrderJobCard({
             <p className="text-xs text-amber-800">Add at least one karigar in the Karigars tab to assign work.</p>
           ) : null}
 
-          <button
-            type="button"
-            disabled={busy}
-            className={`${erpBtnGhost} w-full border-rose-200 text-rose-700`}
-            onClick={() => void deleteOrder()}
-          >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            Delete order
-          </button>
+          {canDeleteRecords ? (
+            <button
+              type="button"
+              disabled={busy}
+              className={`${erpBtnGhost} w-full border-rose-200 text-rose-700`}
+              onClick={() => void deleteOrder()}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              Delete order
+            </button>
+          ) : null}
         </div>
       ) : null}
     </li>
@@ -597,6 +605,7 @@ function KarigarsPanel({ karigars, onRefresh }: { karigars: ErpKarigar[]; onRefr
 }
 
 export function ErpOrderManagementWorkspace() {
+  const { canDeleteRecords } = useErpOperator()
   const initialDraft = useMemo(() => loadErpOrderDraft(), [])
   const [tab, setTab] = useState<'orders' | 'karigars'>(initialDraft.tab)
   const [jobs, setJobs] = useState<ErpOrderJob[]>([])
@@ -605,6 +614,7 @@ export function ErpOrderManagementWorkspace() {
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
   const [customerName, setCustomerName] = useState(initialDraft.customerName)
+  const [customerId, setCustomerId] = useState<number | null>(null)
   const [notes, setNotes] = useState(initialDraft.notes)
   const [lines, setLines] = useState<ErpBillLine[]>(initialDraft.lines)
   const [freeTextLine, setFreeTextLine] = useState(initialDraft.freeTextLine)
@@ -688,13 +698,15 @@ export function ErpOrderManagementWorkspace() {
     try {
       await axios.post('/api/reseller/erp/bills', {
         bill_type: 'order',
-        customer_name: customerName,
+        customer_id: customerId,
+        customer_name: customerName.trim() || undefined,
         total_inr: total,
         notes,
         status: 'pending',
         lines,
       })
       setCustomerName('')
+      setCustomerId(null)
       setNotes('')
       setLines([])
       setFreeTextLine('')
@@ -759,12 +771,24 @@ export function ErpOrderManagementWorkspace() {
           <div className={erpCardCls}>
             <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">New order</p>
             <div className="space-y-3">
-              <input
-                className={erpInputCls}
-                placeholder="Customer name"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-              />
+              <label className="block text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                Customer
+                <ErpCustomerSuggestField
+                  className="mt-1"
+                  customerId={customerId}
+                  customerName={customerName}
+                  onQueryChange={(q) => {
+                    setCustomerName(q)
+                    setCustomerId(null)
+                  }}
+                  onClearLink={() => setCustomerId(null)}
+                  onSelect={(c: ErpCustomer) => {
+                    setCustomerId(c.id)
+                    setCustomerName(c.name)
+                  }}
+                  placeholder="Search name or mobile"
+                />
+              </label>
               <BarcodeLookupField onHit={addLineFromProduct} />
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
@@ -882,7 +906,13 @@ export function ErpOrderManagementWorkspace() {
               </li>
             ) : (
               visibleJobs.map((job) => (
-                <OrderJobCard key={job.id} job={job} karigars={karigars} onRefresh={refreshAll} />
+                <OrderJobCard
+                  key={job.id}
+                  job={job}
+                  karigars={karigars}
+                  onRefresh={refreshAll}
+                  canDeleteRecords={canDeleteRecords}
+                />
               ))
             )}
           </ul>

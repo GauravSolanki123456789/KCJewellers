@@ -1409,6 +1409,7 @@ export function ErpBillingWorkspace() {
               metal_type: String(d.metal_type || l.metal_type || 'silver'),
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
               mc_rate: num('mc_rate') ?? l.mc_rate,
+              mc_rate_catalog: num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate,
               mc_type: (d.mc_type as string) ?? l.mc_type,
               mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
               mc_rate_slab_w: num('mc_rate_slab_w') ?? l.mc_rate_slab_w,

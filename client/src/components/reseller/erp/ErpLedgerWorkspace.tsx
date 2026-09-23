@@ -57,7 +57,7 @@ type LedgerSummary = {
 
 const PAYMENT_MODES = ['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other'] as const
 
-type LedgerTab = 'entries' | 'add' | 'import' | 'suspense' | 'report' | 'purchase' | 'expense'
+type LedgerTab = 'entries' | 'add' | 'import' | 'suspense' | 'report' | 'daybook' | 'purchase' | 'expense'
 
 type ImportDraftFile = {
   id: string
@@ -376,6 +376,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [summary, setSummary] = useState<LedgerSummary | null>(null)
   const [from, setFrom] = useState(firstOfMonthIso())
   const [to, setTo] = useState(todayIso())
+  const [dayBookDate, setDayBookDate] = useState(todayIso())
+  const [dayBookUnassignedOnly, setDayBookUnassignedOnly] = useState(false)
   const [customerFilter, setCustomerFilter] = useState('')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
@@ -427,7 +429,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   useEffect(() => {
     const d = loadLedgerDraft(laneMode)
     if (d) {
-      const allowed: LedgerTab[] = ['entries', 'add', 'import', 'suspense', 'report', 'purchase', 'expense']
+      const allowed: LedgerTab[] = ['entries', 'add', 'import', 'suspense', 'report', 'daybook', 'purchase', 'expense']
       if (allowed.includes(d.tab)) setTab(d.tab)
       if (Array.isArray(d.importFiles) && d.importFiles.length) {
         setImportFiles(
@@ -486,10 +488,19 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const loadEntries = useCallback(async () => {
     const params: Record<string, string> = {}
-    if (from) params.from = from
-    if (to) params.to = to
-    if (customerFilter) params.customer_id = customerFilter
-    if (q.trim()) params.q = q.trim()
+    if (tab === 'daybook') {
+      if (dayBookDate) {
+        params.from = dayBookDate
+        params.to = dayBookDate
+      }
+      params.daybook = '1'
+      if (dayBookUnassignedOnly) params.unassigned_only = '1'
+    } else {
+      if (from) params.from = from
+      if (to) params.to = to
+      if (customerFilter) params.customer_id = customerFilter
+    }
+    if (q.trim() && tab !== 'daybook') params.q = q.trim()
     if (tab === 'suspense') params.suspense_only = '1'
     if (laneMode) params.lane_view = '1'
     if (lastBatchId && tab === 'import') params.import_batch_id = String(lastBatchId)
@@ -497,7 +508,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       params,
     })
     setEntries(res.data.entries || [])
-  }, [from, to, customerFilter, q, tab, laneMode, lastBatchId])
+  }, [from, to, dayBookDate, dayBookUnassignedOnly, customerFilter, q, tab, laneMode, lastBatchId])
 
   const loadSummary = useCallback(async () => {
     const params: Record<string, string> = {}
@@ -1255,6 +1266,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const tabs = [
     { id: 'entries' as const, label: 'All entries' },
+    { id: 'daybook' as const, label: 'Day book' },
     { id: 'add' as const, label: 'Add payment' },
     { id: 'purchase' as const, label: 'Purchase (PV)' },
     { id: 'expense' as const, label: 'Expenses / staff' },
@@ -1262,6 +1274,17 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     { id: 'suspense' as const, label: 'Suspense' },
     { id: 'report' as const, label: 'Reports' },
   ]
+
+  const dayBookNet = useMemo(() => {
+    let received = 0
+    let paid = 0
+    for (const e of entries) {
+      const amt = Number(e.amount_inr) || 0
+      if (e.entry_type === 'payment_in' || e.entry_type === 'sales') received += amt
+      else paid += amt
+    }
+    return { received, paid, net: received - paid }
+  }, [entries])
 
   return (
     <div className="space-y-4">
@@ -2187,6 +2210,79 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         </div>
       )}
 
+      {tab === 'daybook' && (
+        <div className={`${erpCardCls} space-y-3`}>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Day book</p>
+              <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                {laneMode
+                  ? 'Lane ledger — official + Jainav lane entries for the selected day, in posting order.'
+                  : 'Official ledger — all normal entries for the selected day, in posting order.'}
+              </p>
+            </div>
+            <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => void reload()}>
+              Refresh
+            </button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
+              Date
+              <ErpDateInput className={`${erpInputCls} mt-1`} value={dayBookDate} onChange={setDayBookDate} />
+            </label>
+            <label className="flex min-h-[44px] items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
+                checked={dayBookUnassignedOnly}
+                onChange={(e) => setDayBookUnassignedOnly(e.target.checked)}
+              />
+              Unassigned only
+            </label>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-emerald-800/70">Received</p>
+              <p className="font-bold tabular-nums text-emerald-900">{formatErpInr(dayBookNet.received)}</p>
+            </div>
+            <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Paid out</p>
+              <p className="font-bold tabular-nums">{formatErpInr(dayBookNet.paid)}</p>
+            </div>
+            <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Net</p>
+              <p className="font-bold tabular-nums">{formatErpInr(dayBookNet.net)}</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+                <tr>
+                  <th className="px-3 py-2.5">Date</th>
+                  <th className="px-3 py-2.5">Type</th>
+                  <th className="px-3 py-2.5">Customer / party</th>
+                  <th className="px-3 py-2.5">Mode</th>
+                  <th className="px-3 py-2.5">Reference</th>
+                  <th className="px-3 py-2.5 text-right">Amount</th>
+                  <th className="px-3 py-2.5 w-20" />
+                </tr>
+              </thead>
+              <tbody>
+                {entries.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                      No entries on this date.
+                    </td>
+                  </tr>
+                ) : (
+                  entries.map((e) => renderEntryRow(e, editingId === e.id))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {tab === 'report' && (
         <div className={`${erpCardCls} space-y-3`}>
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Customer-wise receipts</p>
@@ -2208,12 +2304,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                   <th className="px-3 py-2.5 text-right">Received</th>
                   <th className="px-3 py-2.5 text-right">Paid out</th>
                   <th className="px-3 py-2.5 text-right">Net</th>
+                  <th className="px-3 py-2.5 w-28" />
                 </tr>
               </thead>
               <tbody>
                 {(summary?.by_customer || []).length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    <td colSpan={5} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                       No customer payments in this period.
                     </td>
                   </tr>
@@ -2225,6 +2322,21 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <td className="px-3 py-2.5 text-right tabular-nums">{formatErpInr(row.paid_out)}</td>
                       <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                         {formatErpInr((row.received || 0) - (row.paid_out || 0))}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {row.customer_id == null && (row.paid_out || 0) > 0 ? (
+                          <button
+                            type="button"
+                            className="text-[10px] font-semibold text-blue-800 underline"
+                            onClick={() => {
+                              setDayBookDate(to || todayIso())
+                              setDayBookUnassignedOnly(true)
+                              setTab('daybook')
+                            }}
+                          >
+                            Day book
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                   ))

@@ -15,6 +15,7 @@ async function ensureDesignMasterSchema(pool) {
             reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             style_code VARCHAR(128) NOT NULL,
             style_name VARCHAR(255),
+            metal_type VARCHAR(64),
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (reseller_user_id, style_code)
@@ -44,6 +45,7 @@ async function ensureDesignMasterSchema(pool) {
         );
     `);
     await pool.query(`
+        ALTER TABLE reseller_erp_design_styles ADD COLUMN IF NOT EXISTS metal_type VARCHAR(64);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS invoice_item_name VARCHAR(255);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(32);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS fixed_price NUMERIC(12, 2);
@@ -824,7 +826,7 @@ function registerDesignMasterRoutes(app, deps) {
     app.get('/api/reseller/erp/design-master/tree', checkAuth, erpGate, async (req, res) => {
         try {
             const styles = await query(
-                `SELECT id, style_code, style_name, created_at, updated_at
+                `SELECT id, style_code, style_name, metal_type, created_at, updated_at
                  FROM reseller_erp_design_styles
                  WHERE reseller_user_id = $1
                  ORDER BY style_code`,
@@ -1015,14 +1017,16 @@ function registerDesignMasterRoutes(app, deps) {
             const code = String(req.body.style_code || '').trim().slice(0, 128);
             if (!code) return res.status(400).json({ error: 'style_code required' });
             const name = String(req.body.style_name || code).trim().slice(0, 255);
+            const metalType = String(req.body.metal_type || '').trim().slice(0, 64) || null;
             const rows = await query(
-                `INSERT INTO reseller_erp_design_styles (reseller_user_id, style_code, style_name)
-                 VALUES ($1, $2, $3)
+                `INSERT INTO reseller_erp_design_styles (reseller_user_id, style_code, style_name, metal_type)
+                 VALUES ($1, $2, $3, $4)
                  ON CONFLICT (reseller_user_id, style_code) DO UPDATE SET
                     style_name = EXCLUDED.style_name,
+                    metal_type = COALESCE(EXCLUDED.metal_type, reseller_erp_design_styles.metal_type),
                     updated_at = CURRENT_TIMESTAMP
                  RETURNING *`,
-                [req.user.id, code, name],
+                [req.user.id, code, name, metalType],
             );
             res.json({ style: rows[0] });
         } catch (e) {

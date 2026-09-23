@@ -1,8 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import axios from '@/lib/axios'
+import { useErpOperator } from '@/context/ErpOperatorContext'
+import {
+  DESIGN_METAL_TYPE_OPTIONS,
+  groupDesignStylesByMetalType,
+  type DesignMetalType,
+} from '@/lib/design-master-metal-type'
 import {
   erpBtnGhost,
   erpBtnPrimary,
@@ -13,7 +19,7 @@ import {
   erpListItemSelectedAlt,
 } from '@/components/reseller/erp/erp-ui'
 import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
-import { Layers, Loader2, Pencil, Plus, Save, Download, Trash2, X, Check } from 'lucide-react'
+import { ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Save, Download, Trash2, X, Check } from 'lucide-react'
 import { appConfirm } from '@/lib/app-notice'
 
 type SizeVariant = {
@@ -59,10 +65,11 @@ type DesignSku = {
   size_variants?: SizeVariant[]
 }
 
-type DesignStyle = {
+export type DesignStyle = {
   id: number
   style_code: string
   style_name?: string | null
+  metal_type?: string | null
   skus: DesignSku[]
 }
 
@@ -78,6 +85,7 @@ const NUM_FIELDS: { key: string; label: string }[] = [
 ]
 
 export function ErpDesignMasterWorkspace() {
+  const { canDeleteRecords } = useErpOperator()
   const [tree, setTree] = useState<DesignStyle[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedStyleId, setSelectedStyleId] = useState<number | null>(null)
@@ -86,6 +94,8 @@ export function ErpDesignMasterWorkspace() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [newStyleCode, setNewStyleCode] = useState('')
+  const [newStyleMetalType, setNewStyleMetalType] = useState<DesignMetalType>('Silver')
+  const [expandedMetalGroups, setExpandedMetalGroups] = useState<Record<string, boolean>>({})
   const [newSku, setNewSku] = useState('')
   const [seedBusy, setSeedBusy] = useState(false)
   const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
@@ -146,6 +156,8 @@ export function ErpDesignMasterWorkspace() {
     if (sessionRestore.sizeVariants?.length) setSizeVariants(sessionRestore.sizeVariants)
     if (sessionRestore.productNames?.length) setProductNames(sessionRestore.productNames)
   }, [sessionRestore, loading])
+
+  const styleGroups = useMemo(() => groupDesignStylesByMetalType(tree), [tree])
 
   const selectedStyle = tree.find((s) => s.id === selectedStyleId) || null
   const selectedSku = selectedStyle?.skus.find((s) => s.id === selectedSkuId) || null
@@ -451,7 +463,11 @@ export function ErpDesignMasterWorkspace() {
     if (!code) return
     setBusy(true)
     try {
-      await axios.post('/api/reseller/erp/design-master/styles', { style_code: code, style_name: code })
+      await axios.post('/api/reseller/erp/design-master/styles', {
+        style_code: code,
+        style_name: code,
+        metal_type: newStyleMetalType,
+      })
       setNewStyleCode('')
       await reload()
     } catch (e) {
@@ -512,6 +528,18 @@ export function ErpDesignMasterWorkspace() {
             {seedBusy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
             Import from stock
           </button>
+          <select
+            className={`${erpInputCls} w-28 text-xs`}
+            value={newStyleMetalType}
+            onChange={(e) => setNewStyleMetalType(e.target.value as DesignMetalType)}
+            aria-label="Metal type for new style"
+          >
+            {DESIGN_METAL_TYPE_OPTIONS.map((mt) => (
+              <option key={mt} value={mt}>
+                {mt}
+              </option>
+            ))}
+          </select>
           <input
             className={`${erpInputCls} w-36 text-xs`}
             placeholder="New style code"
@@ -551,72 +579,96 @@ export function ErpDesignMasterWorkspace() {
             {tree.length === 0 ? (
               <li className="text-xs text-[var(--color-jewelry-black,#1a1814)]/45">Add a style to begin.</li>
             ) : (
-              tree.map((s) => (
-                <li key={s.id}>
-                  {editingStyleId === s.id ? (
-                    <div className="flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5">
-                      <input
-                        className={`${erpInputCls} flex-1 text-xs`}
-                        value={styleRenameDraft}
-                        onChange={(e) => setStyleRenameDraft(e.target.value.toUpperCase())}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void renameStyle(s.id)
-                          if (e.key === 'Escape') setEditingStyleId(null)
-                        }}
-                        autoFocus
-                      />
-                      <button type="button" className={erpBtnGhost} onClick={() => void renameStyle(s.id)}>
-                        <Check className="size-3.5" />
-                      </button>
-                      <button type="button" className={erpBtnGhost} onClick={() => setEditingStyleId(null)}>
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div
-                      className={`flex items-center gap-1 rounded-lg px-1 py-0.5 ${
-                        selectedStyleId === s.id ? erpListItemSelected : ''
-                      }`}
+              styleGroups.map((group) => {
+                const open = expandedMetalGroups[group.metalType] !== false
+                return (
+                  <li key={group.metalType} className="space-y-1">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1 rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-2 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/70"
+                      onClick={() =>
+                        setExpandedMetalGroups((m) => ({ ...m, [group.metalType]: !open }))
+                      }
                     >
-                      <button
-                        type="button"
-                        className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
-                          selectedStyleId === s.id ? '' : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
-                        }`}
-                        onClick={() => {
-                          if (stylesListRef.current) {
-                            stylesScrollTopRef.current = stylesListRef.current.scrollTop
-                          }
-                          setSelectedStyleId(s.id)
-                          setSelectedSkuId(null)
-                        }}
-                      >
-                        {s.style_code}
-                        <span className="ml-1 text-[10px] opacity-60">({s.skus.length} SKU)</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={erpBtnGhost}
-                        title="Rename style"
-                        onClick={() => {
-                          setEditingStyleId(s.id)
-                          setStyleRenameDraft(s.style_code)
-                        }}
-                      >
-                        <Pencil className="size-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className={`${erpBtnGhost} text-red-700`}
-                        title="Delete style"
-                        onClick={() => void deleteStyle(s)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </li>
-              ))
+                      {open ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
+                      {group.metalType}
+                      <span className="ml-auto text-[10px] font-semibold normal-case opacity-60">
+                        {group.styles.length} style{group.styles.length === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                    {open
+                      ? group.styles.map((s) => (
+                          <div key={s.id} className="pl-1">
+                            {editingStyleId === s.id ? (
+                              <div className="flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5">
+                                <input
+                                  className={`${erpInputCls} flex-1 text-xs`}
+                                  value={styleRenameDraft}
+                                  onChange={(e) => setStyleRenameDraft(e.target.value.toUpperCase())}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') void renameStyle(s.id)
+                                    if (e.key === 'Escape') setEditingStyleId(null)
+                                  }}
+                                  autoFocus
+                                />
+                                <button type="button" className={erpBtnGhost} onClick={() => void renameStyle(s.id)}>
+                                  <Check className="size-3.5" />
+                                </button>
+                                <button type="button" className={erpBtnGhost} onClick={() => setEditingStyleId(null)}>
+                                  <X className="size-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div
+                                className={`flex items-center gap-1 rounded-lg px-1 py-0.5 ${
+                                  selectedStyleId === s.id ? erpListItemSelected : ''
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] ${
+                                    selectedStyleId === s.id ? '' : 'hover:bg-[var(--color-slate-900,#f7f4ef)]'
+                                  }`}
+                                  onClick={() => {
+                                    if (stylesListRef.current) {
+                                      stylesScrollTopRef.current = stylesListRef.current.scrollTop
+                                    }
+                                    setSelectedStyleId(s.id)
+                                    setSelectedSkuId(null)
+                                  }}
+                                >
+                                  {s.style_code}
+                                  <span className="ml-1 text-[10px] opacity-60">({s.skus.length} SKU)</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className={erpBtnGhost}
+                                  title="Rename style"
+                                  onClick={() => {
+                                    setEditingStyleId(s.id)
+                                    setStyleRenameDraft(s.style_code)
+                                  }}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </button>
+                                {canDeleteRecords ? (
+                                  <button
+                                    type="button"
+                                    className={`${erpBtnGhost} text-red-700`}
+                                    title="Delete style (Jainav mode)"
+                                    onClick={() => void deleteStyle(s)}
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      : null}
+                  </li>
+                )
+              })
             )}
           </ul>
         </div>
@@ -727,14 +779,16 @@ export function ErpDesignMasterWorkspace() {
                         >
                           <Pencil className="size-3.5" />
                         </button>
-                        <button
-                          type="button"
-                          className={`${erpBtnGhost} text-red-700`}
-                          title="Delete SKU"
-                          onClick={() => void deleteSku(sk)}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        {canDeleteRecords ? (
+                          <button
+                            type="button"
+                            className={`${erpBtnGhost} text-red-700`}
+                            title="Delete SKU (Jainav mode)"
+                            onClick={() => void deleteSku(sk)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        ) : null}
                       </div>
                     )}
                   </li>
