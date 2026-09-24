@@ -34,6 +34,68 @@ export type DesignCatalogProduct = {
   stone_charges?: number | null
 }
 
+function sizeLabelKey(label: string): string {
+  return String(label || '').trim().toUpperCase()
+}
+
+/** Union size rows by label — design-master stored sizes are kept when web import is incomplete. */
+export function mergeDesignCatalogSizes(
+  a: DesignCatalogSize[] | undefined,
+  b: DesignCatalogSize[] | undefined,
+): DesignCatalogSize[] {
+  const map = new Map<string, DesignCatalogSize>()
+  for (const s of [...(a || []), ...(b || [])]) {
+    const key = sizeLabelKey(s.size_label)
+    if (!key) continue
+    const prev = map.get(key)
+    map.set(key, prev ? { ...prev, ...s, fixed_price: s.fixed_price ?? prev.fixed_price } : s)
+  }
+  return [...map.values()]
+}
+
+function mergeDesignCatalogProduct(
+  stored: DesignCatalogProduct,
+  live: DesignCatalogProduct,
+): DesignCatalogProduct {
+  const sizes = mergeDesignCatalogSizes(stored.sizes, live.sizes)
+  return {
+    ...stored,
+    ...live,
+    sizes: sizes.length ? sizes : undefined,
+    box_options:
+      (live.box_options?.length || 0) >= 2
+        ? live.box_options
+        : stored.box_options?.length
+          ? stored.box_options
+          : live.box_options,
+    finish_options:
+      (live.finish_options?.length || 0) >= 2
+        ? live.finish_options
+        : stored.finish_options?.length
+          ? stored.finish_options
+          : live.finish_options,
+    mc_rate: live.mc_rate ?? stored.mc_rate,
+    fixed_price: live.fixed_price ?? stored.fixed_price,
+    net_weight: live.net_weight ?? stored.net_weight,
+  }
+}
+
+/** Attach SKU-level size variants (design master) when a product has no sizes yet. */
+export function enrichCatalogWithSkuSizeVariants(
+  products: DesignCatalogProduct[],
+  skuSizeVariants: { size_label: string; fixed_price_mrp?: number | null }[] | undefined,
+): DesignCatalogProduct[] {
+  if (!skuSizeVariants?.length) return products
+  const fromSku: DesignCatalogSize[] = skuSizeVariants.map((s) => ({
+    size_label: s.size_label,
+    fixed_price: s.fixed_price_mrp ?? null,
+  }))
+  return products.map((p) => {
+    const sizes = mergeDesignCatalogSizes(p.sizes, p.sizes?.length ? [] : fromSku)
+    return sizes.length ? { ...p, sizes } : p
+  })
+}
+
 /** Live catalogue wins; stored names kept only if they appear in live data for this style+SKU. */
 export function mergeCatalogProductsForStyleSku(
   stored: DesignCatalogProduct[],
@@ -41,15 +103,23 @@ export function mergeCatalogProductsForStyleSku(
 ): DesignCatalogProduct[] {
   if (!live.length) return stored
   if (!stored.length) return live
-  const liveKeys = new Set(live.map((p) => p.name.trim().toUpperCase()))
-  const fromStored = stored.filter((p) => liveKeys.has(p.name.trim().toUpperCase()))
+  const storedByName = new Map(
+    stored.map((p) => [p.name.trim().toUpperCase(), p] as const),
+  )
   const seen = new Set<string>()
   const out: DesignCatalogProduct[] = []
-  for (const p of [...live, ...fromStored]) {
-    const key = p.name.trim().toUpperCase()
+  for (const liveP of live) {
+    const key = liveP.name.trim().toUpperCase()
     if (!key || seen.has(key)) continue
     seen.add(key)
-    out.push(p)
+    const storedP = storedByName.get(key)
+    out.push(storedP ? mergeDesignCatalogProduct(storedP, liveP) : liveP)
+  }
+  for (const storedP of stored) {
+    const key = storedP.name.trim().toUpperCase()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(storedP)
   }
   return out
 }

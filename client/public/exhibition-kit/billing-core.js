@@ -814,6 +814,11 @@ var KcExhibitionBillingModule = (() => {
     if (silverPerG > 0) return silverPerG;
     return 0;
   }
+  function manualSilverRateDiscountInr(line, billedWt, lineRate, silverPerG) {
+    if (billedWt <= 0 || silverPerG <= 0 || lineRate <= 0) return 0;
+    if (silverPerG <= lineRate) return 0;
+    return Math.round((silverPerG - lineRate) * billedWt);
+  }
   function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0) {
     const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     if (netWt <= 0) {
@@ -835,15 +840,16 @@ var KcExhibitionBillingModule = (() => {
     const perGm = isMcPerGmMcType(line.mc_type);
     const totalMcBase = perGm ? billedWt * baseMcRate : pcs * baseMcRate;
     const totalMc = perGm ? billedWt * effMcRate : pcs * effMcRate;
-    const subtotalRaw = metalCost + totalMc;
-    const gstRaw = subtotalRaw * (GST_PCT / 100);
     const fixed = Number(line.fixed_price ?? 0) || 0;
     const box = Number(line.box_charges ?? 0) || 0;
     const stone2 = Number(line.stone_charges ?? 0) || 0;
-    const extras = fixed + box + stone2;
-    const taxable = Math.round(subtotalRaw);
-    const total = Math.round(subtotalRaw + gstRaw + extras);
-    const gstRounded = total - taxable - Math.round(extras);
+    const baseSubtotal = metalCost + totalMcBase + fixed + box + stone2;
+    const metalDisc = manualSilverRateDiscountInr(line, billedWt, rate, silverPerG);
+    const mcDisc = Math.max(0, Math.round(totalMcBase - totalMc));
+    const netSubtotal = Math.max(0, baseSubtotal - metalDisc - mcDisc);
+    const taxable = Math.round(netSubtotal);
+    const total = Math.round(taxable * (1 + GST_PCT / 100));
+    const gstRounded = total - taxable;
     const mcBefore = baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : void 0;
     return {
       metal: Math.round(metalCost),
@@ -1027,13 +1033,32 @@ var KcExhibitionBillingModule = (() => {
   }
   function appendTaxableExtraToBreakdown(bd, extra, gstPct = ERP_LINE_GST_PCT) {
     if (extra <= 0) return bd;
-    const taxable = bd.taxable + extra;
+    const taxable = Math.round(bd.taxable + extra);
     const total = Math.round(taxable * (1 + gstPct / 100));
     const gstAmt = total - taxable;
     return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 };
   }
   function finalizeWeightBasedBreakdown(line, bd) {
     return appendTaxableExtraToBreakdown(bd, erpAdditiveFixedChargeInr(line));
+  }
+  function finalizeSilverBillLineBreakdown(line, bd, silverPerG) {
+    let next = finalizeWeightBasedBreakdown(line, bd);
+    if (isManualArticlesOrJewelleryLine(line) || isPiecePricedBillLine(line)) return next;
+    if (isSilverGiftStockLine(line) || isSilverGiftMcGmLine(line)) return next;
+    const metal = String(line.metal_type || "").toLowerCase();
+    if (!metal.startsWith("silver")) return next;
+    const wt = Number(line.originalWeightGm ?? line.weightGm) || 0;
+    const rate = Number(line.ratePerGram);
+    if (wt <= 0 || !Number.isFinite(rate) || rate <= 0 || silverPerG <= rate) {
+      const total2 = Math.round(next.taxable * (1 + ERP_LINE_GST_PCT / 100));
+      const gst2 = total2 - next.taxable;
+      return { ...next, total: total2, cgst: gst2 / 2, sgst: gst2 / 2 };
+    }
+    const metalDisc = Math.round((silverPerG - rate) * wt);
+    const net = Math.max(0, next.taxable - metalDisc);
+    const total = Math.round(net * (1 + ERP_LINE_GST_PCT / 100));
+    const gst = total - net;
+    return { ...next, taxable: net, total, cgst: gst / 2, sgst: gst / 2 };
   }
   function applyPiecePricedLineCalc(line) {
     const parsed = Number(line.qty);
@@ -1102,7 +1127,7 @@ var KcExhibitionBillingModule = (() => {
         silverOffset,
         mcDisc
       );
-      bd2 = finalizeWeightBasedBreakdown(line, bd2);
+      bd2 = finalizeSilverBillLineBreakdown(line, bd2, silverPerG);
       const box2 = Number(line.box_charges || 0) || 0;
       if (box2 <= 0) return bd2;
       const gstPct2 = 3;
@@ -1122,7 +1147,7 @@ var KcExhibitionBillingModule = (() => {
     );
     const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG);
     let bd = calculateBreakdownWithSlab(item, rates, 3, ctx);
-    bd = finalizeWeightBasedBreakdown(line, bd);
+    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG);
     const box = Number(line.box_charges || 0) || 0;
     if (box <= 0) return bd;
     const gstPct = 3;

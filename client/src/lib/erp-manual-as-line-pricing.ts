@@ -79,9 +79,20 @@ function resolveManualRowRatePerG(
   return 0
 }
 
+function manualSilverRateDiscountInr(
+  line: ErpBillLine,
+  billedWt: number,
+  lineRate: number,
+  silverPerG: number,
+): number {
+  if (billedWt <= 0 || silverPerG <= 0 || lineRate <= 0) return 0
+  if (silverPerG <= lineRate) return 0
+  return Math.round((silverPerG - lineRate) * billedWt)
+}
+
 /**
- * Strict manual A/S row math (order of operations from billing spec).
- * Fixed ₹ is GST-inclusive and added after Subtotal + GST.
+ * Strict manual A/S row math:
+ * Base = metal + base MC + fixed (+ box/stone) → subtract rate & MC discounts → GST on net.
  */
 export function computeManualAsLineBreakdown(
   line: ErpBillLine,
@@ -113,15 +124,16 @@ export function computeManualAsLineBreakdown(
   const totalMcBase = perGm ? billedWt * baseMcRate : pcs * baseMcRate
   const totalMc = perGm ? billedWt * effMcRate : pcs * effMcRate
 
-  const subtotalRaw = metalCost + totalMc
-  const gstRaw = subtotalRaw * (GST_PCT / 100)
   const fixed = Number(line.fixed_price ?? 0) || 0
   const box = Number(line.box_charges ?? 0) || 0
   const stone = Number(line.stone_charges ?? 0) || 0
-  const extras = fixed + box + stone
-  const taxable = Math.round(subtotalRaw)
-  const total = Math.round(subtotalRaw + gstRaw + extras)
-  const gstRounded = total - taxable - Math.round(extras)
+  const baseSubtotal = metalCost + totalMcBase + fixed + box + stone
+  const metalDisc = manualSilverRateDiscountInr(line, billedWt, rate, silverPerG)
+  const mcDisc = Math.max(0, Math.round(totalMcBase - totalMc))
+  const netSubtotal = Math.max(0, baseSubtotal - metalDisc - mcDisc)
+  const taxable = Math.round(netSubtotal)
+  const total = Math.round(taxable * (1 + GST_PCT / 100))
+  const gstRounded = total - taxable
 
   const mcBefore =
     baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : undefined

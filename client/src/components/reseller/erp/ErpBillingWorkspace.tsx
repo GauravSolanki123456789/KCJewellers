@@ -76,6 +76,7 @@ import {
 } from '@/lib/erp-billing-shortcuts'
 import {
   catalogProductUsesMrpPricing,
+  enrichCatalogWithSkuSizeVariants,
   findCatalogProduct,
   mergeCatalogProductsForStyleSku,
   nextFieldAfterCatalogProduct,
@@ -85,6 +86,7 @@ import {
   patchLineFromCatalogSize,
   type DesignCatalogProduct,
 } from '@/lib/erp-catalog-product'
+import { normalizeErpBillLinesFromStorage } from '@/lib/erp-bill-line-hydration'
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import {
@@ -402,6 +404,7 @@ export function ErpBillingWorkspace() {
   const loadedEditBillRef = useRef<number | null>(null)
   const loadedCombineRef = useRef<string | null>(null)
   const loadBillForEditRef = useRef<(id: number) => Promise<void>>(async () => {})
+  const skipRatesRecalcRef = useRef(false)
   const [combinedSourceEstimateIds, setCombinedSourceEstimateIds] = useState<number[]>([])
   const [combinedEstimateNumbers, setCombinedEstimateNumbers] = useState<string>('')
   const [workstation] = useErpWorkstationSelection()
@@ -772,12 +775,31 @@ export function ErpBillingWorkspace() {
       setCashAmountInr(session.cashAmountInr != null ? String(session.cashAmountInr) : '')
       setOnlineAmountInr(session.onlineAmountInr != null ? String(session.onlineAmountInr) : '')
       if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
-      const loadedLines = applyRatesUnfixed(bill.lines || [], session.ratesUnfixed)
-      const mcMode = session.goldSlabRShowMc === false ? false : goldSlabRShowMc
-      const recalcedLines = loadedLines.map((l) =>
-        recalcLine(l, { slab: restoredSlab, goldSlabRShowMc: mcMode }),
+      const loadedLines = normalizeErpBillLinesFromStorage(
+        applyRatesUnfixed(bill.lines || [], session.ratesUnfixed),
       )
+      const mcMode = session.goldSlabRShowMc === false ? false : goldSlabRShowMc
+      const sessionGold = session.goldPerG ?? goldPerG
+      const sessionSilver = session.silverPerG ?? silverPerG
+      const sessionRates =
+        session.displayRates ??
+        (sessionGold > 0 ? perGramToDisplayRates(sessionGold, sessionSilver) : displayRates)
+      const recalcedLines = loadedLines.map((l) =>
+        recalcLine(l, {
+          slab: restoredSlab,
+          goldSlabRShowMc: mcMode,
+          rates: sessionRates,
+          goldPerG: sessionGold,
+          silverPerG: sessionSilver,
+          wholesaleGold: session.wholesaleGold ?? wholesaleGold,
+          wholesaleSilver: session.wholesaleSilver ?? wholesaleSilver,
+        }),
+      )
+      skipRatesRecalcRef.current = true
       setLines(recalcedLines)
+      queueMicrotask(() => {
+        skipRatesRecalcRef.current = false
+      })
       const billedId =
         session.billedSaleBillId != null ? Number(session.billedSaleBillId) : null
       const billedNo =
@@ -942,6 +964,7 @@ export function ErpBillingWorkspace() {
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
+    if (skipRatesRecalcRef.current) return
     setLines((prev) => recalcAll(prev))
   }, [displayRates, rateSlab, wholesaleGold, wholesaleSilver, slabSettings, hydrated, recalcAll])
 
@@ -1382,7 +1405,15 @@ export function ErpBillingWorkspace() {
         const storedNames = Array.isArray((d as { product_names?: unknown }).product_names)
           ? ((d as { product_names: DesignCatalogProduct[] }).product_names)
           : []
-        const mergedCatalog = mergeCatalogProductsForStyleSku(storedNames, catalogProducts)
+        const skuSizeVariants = Array.isArray(
+          (d as { size_variants?: { size_label: string; fixed_price_mrp?: number | null }[] })
+            .size_variants,
+        )
+          ? (d as { size_variants: { size_label: string; fixed_price_mrp?: number | null }[] })
+              .size_variants
+          : []
+        let mergedCatalog = mergeCatalogProductsForStyleSku(storedNames, catalogProducts)
+        mergedCatalog = enrichCatalogWithSkuSizeVariants(mergedCatalog, skuSizeVariants)
         const mergedProducts = mergedCatalog.map((p) => ({
           name: p.name,
           image_url: p.image_url ?? null,

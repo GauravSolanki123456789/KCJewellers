@@ -1613,7 +1613,13 @@ function roughLessWeight(line) {
 
 function roughOtherCharges(line, opts = {}) {
     const excludeDiamond = opts.excludeDiamond === true;
+    let fixed = 0;
+    const wt = Number(line?.weightGm ?? line?.originalWeightGm ?? line?.net_weight) || 0;
+    if (wt > 0 && !isGiftEstimateLine(line)) {
+        fixed = Number(line?.fixed_price) || 0;
+    }
     return (
+        fixed +
         (Number(line?.box_charges) || 0) +
         (Number(line?.stone_charges) || 0) +
         (excludeDiamond ? 0 : Number(line?.diamond_charges) || 0)
@@ -1751,11 +1757,21 @@ function roughMetalValueForLine(line, rates, rateSlab, printFormats) {
 }
 
 function roughPreDiscountSubtotal(line, rates, rateSlab, printFormats) {
-    return (
+    return Math.round(
         roughMetalValueForLine(line, rates, rateSlab, printFormats) +
-        roughMcAmountInr(line, rateSlab, printFormats) +
-        roughOtherCharges(line)
+            roughMcAmountInr(line, rateSlab, printFormats) +
+            roughOtherCharges(line, { excludeDiamond: true }),
     );
+}
+
+function roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats) {
+    const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
+    const silverDisc = roughSilverRateDiscountInfo(line, rates);
+    const mcDisc = roughMcDiscountAmount(line, rateSlab, rates, printFormats);
+    const totalDisc =
+        (roughDiscountVisible(silverDisc.amount) ? silverDisc.amount : 0) +
+        (roughDiscountVisible(mcDisc) ? mcDisc : 0);
+    return Math.max(0, Math.round(preDisc - totalDisc));
 }
 
 function roughGiftDiscountInfo(line) {
@@ -1803,7 +1819,7 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
         pushIf(out, roughDiscountRow('Disc on MC Value', mcDisc));
     }
 
-    const taxable = lineTaxableFromTotal(line?.lineTotalInr);
+    const taxable = roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats);
     out.push(roughSandwichAmount(taxable));
     const gst = splitRoughGst(taxable);
     const itemTotal = Math.round(gst.gross);

@@ -313,8 +313,8 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         }
     } else {
         entrySql += ` AND customer_id = $2`;
-        if (!includeShadow) {
-            entrySql += ` AND ledger_scope = 'official'`;
+    if (!includeShadow) {
+        entrySql += ` AND ledger_scope = 'official'`;
         }
     }
     if (from) {

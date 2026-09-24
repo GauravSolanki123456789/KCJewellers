@@ -283,7 +283,7 @@ function appendTaxableExtraToBreakdown(
   gstPct = ERP_LINE_GST_PCT,
 ): PriceBreakdown {
   if (extra <= 0) return bd
-  const taxable = bd.taxable + extra
+  const taxable = Math.round(bd.taxable + extra)
   const total = Math.round(taxable * (1 + gstPct / 100))
   const gstAmt = total - taxable
   return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 }
@@ -291,6 +291,31 @@ function appendTaxableExtraToBreakdown(
 
 function finalizeWeightBasedBreakdown(line: ErpBillLine, bd: PriceBreakdown): PriceBreakdown {
   return appendTaxableExtraToBreakdown(bd, erpAdditiveFixedChargeInr(line))
+}
+
+/** Weight-based silver: fixed in taxable, then subtract live-vs-line silver rate discount before GST. */
+function finalizeSilverBillLineBreakdown(
+  line: ErpBillLine,
+  bd: PriceBreakdown,
+  silverPerG: number,
+): PriceBreakdown {
+  let next = finalizeWeightBasedBreakdown(line, bd)
+  if (isManualArticlesOrJewelleryLine(line) || isPiecePricedBillLine(line)) return next
+  if (isSilverGiftStockLine(line) || isSilverGiftMcGmLine(line)) return next
+  const metal = String(line.metal_type || '').toLowerCase()
+  if (!metal.startsWith('silver')) return next
+  const wt = Number(line.originalWeightGm ?? line.weightGm) || 0
+  const rate = Number(line.ratePerGram)
+  if (wt <= 0 || !Number.isFinite(rate) || rate <= 0 || silverPerG <= rate) {
+    const total = Math.round(next.taxable * (1 + ERP_LINE_GST_PCT / 100))
+    const gst = total - next.taxable
+    return { ...next, total, cgst: gst / 2, sgst: gst / 2 }
+  }
+  const metalDisc = Math.round((silverPerG - rate) * wt)
+  const net = Math.max(0, next.taxable - metalDisc)
+  const total = Math.round(net * (1 + ERP_LINE_GST_PCT / 100))
+  const gst = total - net
+  return { ...next, taxable: net, total, cgst: gst / 2, sgst: gst / 2 }
 }
 
 export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
@@ -391,7 +416,7 @@ export function computeLineBreakdown(
       silverOffset,
       mcDisc,
     )
-    bd = finalizeWeightBasedBreakdown(line, bd)
+    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG)
     const box = Number(line.box_charges || 0) || 0
     if (box <= 0) return bd
     const gstPct = 3
@@ -412,7 +437,7 @@ export function computeLineBreakdown(
   )
   const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
   let bd = calculateBreakdownWithSlab(item, rates, 3, ctx)
-  bd = finalizeWeightBasedBreakdown(line, bd)
+  bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG)
   const box = Number(line.box_charges || 0) || 0
   if (box <= 0) return bd
   const gstPct = 3
