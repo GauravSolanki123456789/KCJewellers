@@ -12,6 +12,11 @@ const {
     createShadowCollectedCashLedgerEntry,
     deleteLedgerEntriesForShadowBills,
 } = require('./resellerErpLedger');
+const {
+    linesNetFromPayload,
+    resolveErpBillTotalFromPayload,
+    ensureSessionNetTotalInr,
+} = require('./erpBillTotalResolve');
 
 async function ensureShadowSchema(pool) {
     await pool.query(`
@@ -112,39 +117,6 @@ function inferPaymentMethodFromSession(session, fallback) {
     return 'cash';
 }
 
-function linesNetFromPayload(body, linesRaw) {
-    const sessionObj = body.session && typeof body.session === 'object' ? body.session : {};
-    const fromSession = Number(sessionObj.netTotalInr);
-    if (Number.isFinite(fromSession) && fromSession > 0) return Math.round(fromSession);
-    let fromBody = Number(body.total_inr);
-    if (!Number.isFinite(fromBody)) {
-        fromBody = linesRaw.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
-    }
-    return Math.round(fromBody);
-}
-
-/** Match client resolveErpBillTotalInr — settlement discount drives saved total_inr. */
-function resolveErpBillTotalFromPayload(body, linesRaw, billType) {
-    const sessionObj = body.session && typeof body.session === 'object' ? body.session : {};
-    const net = linesNetFromPayload(body, linesRaw);
-    const discRaw = sessionObj.cashDiscountInr;
-    const explicitDisc =
-        discRaw != null && String(discRaw).trim() !== '' && Number.isFinite(Number(discRaw))
-            ? Number(discRaw)
-            : null;
-    if (explicitDisc != null) {
-        return Math.max(0, net - Math.round(explicitDisc));
-    }
-    const collectedRaw = sessionObj.collectedAmountInr ?? sessionObj.collected_amount_inr;
-    const collectedN =
-        collectedRaw != null && String(collectedRaw).trim() !== '' ? Number(collectedRaw) : NaN;
-    const type = String(billType || body.bill_type || 'sale').toLowerCase();
-    if (type === 'sale' && Number.isFinite(collectedN) && collectedN > 0) {
-        return Math.round(collectedN);
-    }
-    return net;
-}
-
 function classifyLane({ paymentMethod, laneOverride, session }) {
     const lane = String(laneOverride || '').trim().toLowerCase();
     if (lane === 'jainav') return 'jainav';
@@ -160,16 +132,15 @@ function classifyLane({ paymentMethod, laneOverride, session }) {
 
 async function createShadowBillFromBillingPayload(query, resellerUserId, body, operatorId) {
     const linesRaw = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
-    const sessionObj = body.session && typeof body.session === 'object' ? { ...body.session } : {};
+    const sessionObj =
+        body.session && typeof body.session === 'object'
+            ? ensureSessionNetTotalInr(body, linesRaw)
+            : ensureSessionNetTotalInr({ ...body, session: {} }, linesRaw);
+    body.session = sessionObj;
     const billTypeEarly = trimStr(body.bill_type, 32) || 'sale';
-    if (
-        sessionObj.netTotalInr == null ||
-        !Number.isFinite(Number(sessionObj.netTotalInr)) ||
-        Number(sessionObj.netTotalInr) <= 0
-    ) {
-        sessionObj.netTotalInr = linesNetFromPayload(body, linesRaw);
-    }
-    let total = resolveErpBillTotalFromPayload(body, linesRaw, billTypeEarly);
+    let total = resolveErpBillTotalFromPayload(body, linesRaw, billTypeEarly, {
+        shadowSaleUsesCollected: true,
+    });
     const offlineOpId = trimStr(sessionObj.offlineOpId || body.offline_op_id, 80);
     if (offlineOpId) {
         const existing = await query(
@@ -1096,12 +1067,13 @@ function registerShadowRoutes(app, deps) {
     app.post('/api/reseller/erp/shadow/bills', checkAuth, erpGate, shadowGate, requireJson, async (req, res) => {
         try {
             const linesRaw = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
-            let total = Number(req.body.total_inr);
-            if (!Number.isFinite(total)) {
-                total = linesRaw.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
-            }
-            const sessionObj =
-                req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
+            if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
+            req.body.session = ensureSessionNetTotalInr(req.body, linesRaw);
+            const billTypeEarly = trimStr(req.body.bill_type, 32) || 'sale';
+            const total = resolveErpBillTotalFromPayload(req.body, linesRaw, billTypeEarly, {
+                shadowSaleUsesCollected: true,
+            });
+            const sessionObj = req.body.session;
             const customerGstin = trimStr(req.body.customer_gstin || req.body.customerGstin || sessionObj.customerGst, 20);
             const paymentMethod = inferPaymentMethodFromSession(
                 sessionObj,

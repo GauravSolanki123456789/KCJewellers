@@ -50,6 +50,10 @@ const {
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
 const erpPrint = require('../scripts/erp-print-templates');
+const {
+    resolveErpBillTotalFromPayload,
+    ensureSessionNetTotalInr,
+} = require('./erpBillTotalResolve');
 const path = require('path');
 
 async function ensureResellerErpSchema(pool) {
@@ -1324,14 +1328,14 @@ function registerResellerErpRoutes(app, deps) {
             }
             const linesRaw = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
             const lines = billType === 'order' ? normalizeOrderLines(linesRaw) : linesRaw;
-            let total = Number(req.body.total_inr);
-            if (!Number.isFinite(total)) {
-                total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
-            }
+            if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
+            req.body.session = ensureSessionNetTotalInr(req.body, lines);
+            const total = resolveErpBillTotalFromPayload(req.body, lines, billType, {
+                shadowSaleUsesCollected: false,
+            });
             const statusRaw = trimStr(req.body.status, 32) || 'draft';
             const status = statusRaw.toLowerCase();
-            const sessionObj =
-                req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
+            const sessionObj = req.body.session;
             const offlineOpId = trimStr(sessionObj.offlineOpId || req.body.offline_op_id, 80);
             if (offlineOpId) {
                 const officialHit = await query(
@@ -1623,16 +1627,16 @@ function registerResellerErpRoutes(app, deps) {
                 return res.status(400).json({ error: 'This estimation is already billed and cannot be edited.' });
             }
             const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
-            let total = Number(req.body.total_inr);
-            if (!Number.isFinite(total)) {
-                total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
-            }
-            const sessionJson =
-                req.body.session && typeof req.body.session === 'object'
-                    ? JSON.stringify(req.body.session)
-                    : null;
-            const sessionObj =
-                req.body.session && typeof req.body.session === 'object' ? req.body.session : {};
+            if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
+            req.body.session = ensureSessionNetTotalInr(req.body, lines);
+            const billTypeForTotal = String(
+                req.body.bill_type || existingRows[0]?.bill_type || 'sale',
+            ).toLowerCase();
+            const total = resolveErpBillTotalFromPayload(req.body, lines, billTypeForTotal, {
+                shadowSaleUsesCollected: false,
+            });
+            const sessionJson = JSON.stringify(req.body.session);
+            const sessionObj = req.body.session;
             const status = trimStr(req.body.status, 32);
             const stLower = String(status || '').toLowerCase();
             if (

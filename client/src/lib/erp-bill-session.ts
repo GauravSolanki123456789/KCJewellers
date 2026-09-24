@@ -33,6 +33,8 @@ export type ErpBillSession = {
   cashDiscountInr?: number
   /** Total discount shown (MC + cash). */
   totalDiscountInr?: number
+  /** Line-sum net (incl. GST) before settlement discount in Discount (₹). */
+  netTotalInr?: number
   /** @deprecated use totalDiscountInr */
   billingDiscountInr?: number
   /** Slab R gold: MC pricing mode when saved (see printFormats.goldSlabRShowMc). */
@@ -122,6 +124,10 @@ export function buildErpBillSession(input: {
     cashDiscountInr: cashDiscount !== 0 ? cashDiscount : undefined,
     totalDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
     billingDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
+    netTotalInr:
+      input.netTotalInr != null && Number.isFinite(Number(input.netTotalInr))
+        ? Math.round(Number(input.netTotalInr))
+        : undefined,
     goldSlabRShowMc: input.goldSlabRShowMc === false ? false : undefined,
     paymentMethod: input.paymentMethod || undefined,
     cashAmountInr:

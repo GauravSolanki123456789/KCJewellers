@@ -10,7 +10,11 @@ import {
   perGramToDisplayRates,
   resolveLineDisplayRates,
 } from '@/lib/erp-billing-pricing'
-import { isGoldSlabRLine, computeBillingDiscountSummary } from '@/lib/erp-billing-display'
+import {
+  isGoldSlabRLine,
+  computeBillingDiscountSummary,
+  erpSettledTotalInr,
+} from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 export type ErpQuoteTotals = {
@@ -171,8 +175,29 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
     session.cashDiscountInr != null && Number.isFinite(Number(session.cashDiscountInr))
       ? Number(session.cashDiscountInr)
       : null
+  const linesNetBeforeSettlement =
+    session.netTotalInr != null && Number.isFinite(Number(session.netTotalInr))
+      ? Math.round(Number(session.netTotalInr))
+      : net
+  const settledNet =
+    explicitCash != null
+      ? erpSettledTotalInr(linesNetBeforeSettlement, explicitCash)
+      : Number(bill.total_inr) > 0
+        ? Math.round(Number(bill.total_inr))
+        : linesNetBeforeSettlement
+  if (settledNet !== linesNetBeforeSettlement && linesNetBeforeSettlement > 0) {
+    const ratio = settledNet / linesNetBeforeSettlement
+    subtotal = Math.round(subtotal * ratio)
+    gst = settledNet - subtotal
+    net = settledNet
+  } else if (settledNet > 0 && net !== settledNet) {
+    net = settledNet
+    subtotal = Math.round(net / 1.03)
+    gst = net - subtotal
+  }
+
   const discountSummary = computeBillingDiscountSummary({
-    netTotal: net,
+    netTotal: linesNetBeforeSettlement,
     collectedAmount: collectedAmount ?? null,
     explicitCashDiscountInr: explicitCash,
     lines: enriched,

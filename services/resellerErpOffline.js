@@ -521,10 +521,15 @@ function registerResellerErpOfflineRoutes(app, deps) {
                         payload.session.offlineOpId = offlineOpId;
                     }
                     const lines = Array.isArray(payload.lines) ? payload.lines : [];
-                    let total = Number(payload.total_inr);
-                    if (!Number.isFinite(total)) {
-                        total = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
-                    }
+                    const {
+                        resolveErpBillTotalFromPayload,
+                        ensureSessionNetTotalInr,
+                    } = require('./erpBillTotalResolve');
+                    if (!payload.session || typeof payload.session !== 'object') payload.session = {};
+                    payload.session = ensureSessionNetTotalInr(payload, lines);
+                    const total = resolveErpBillTotalFromPayload(payload, lines, billType, {
+                        shadowSaleUsesCollected: false,
+                    });
 
                     if (billType === 'estimate') {
                         let billNumber = trimStr(payload.bill_number, 64);
