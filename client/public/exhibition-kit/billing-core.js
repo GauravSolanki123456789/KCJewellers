@@ -972,6 +972,11 @@ var KcExhibitionBillingModule = (() => {
     };
   }
   function isPiecePricedBillLine(line) {
+    if (line.mrpMode) {
+      const list = Number(line.mrpListPrice ?? 0);
+      const fixed = Number(line.fixed_price ?? line.unitInr ?? 0);
+      if (list > 0 || fixed > 0) return true;
+    }
     if (isWeightBasedSilverGiftLine(line)) return false;
     const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     const mcType = String(line.mc_type || "").toUpperCase();
@@ -1265,6 +1270,7 @@ var KcExhibitionBillingModule = (() => {
     "wastage_pct",
     "ratePerGram",
     "mc_rate",
+    "mc_rate_slab_r",
     "mc_type",
     "qty",
     "box_charges",
@@ -1443,6 +1449,9 @@ var KcExhibitionBillingModule = (() => {
         patch.mrpListPrice = s.fixed_price;
         patch.mrpMode = true;
       }
+      if (s.mc_rate_slab_r != null) patch.mc_rate_slab_r = s.mc_rate_slab_r;
+      if (s.mc_rate_slab_w != null) patch.mc_rate_slab_w = s.mc_rate_slab_w;
+      if (s.mc_rate_slab_f != null) patch.mc_rate_slab_f = s.mc_rate_slab_f;
     }
     if (product.finish_options?.length === 1) {
       const f = product.finish_options[0];
@@ -1497,7 +1506,15 @@ var KcExhibitionBillingModule = (() => {
       purity: hit.purity ?? line.purity,
       fixed_price: hit.fixed_price ?? line.fixed_price,
       box_charges: hit.box_charges ?? line.box_charges,
-      ...mrp && hit.fixed_price != null ? { mrpListPrice: hit.fixed_price, mrpMode: true } : {}
+      mc_rate_slab_r: hit.mc_rate_slab_r ?? line.mc_rate_slab_r,
+      mc_rate_slab_w: hit.mc_rate_slab_w ?? line.mc_rate_slab_w,
+      mc_rate_slab_f: hit.mc_rate_slab_f ?? line.mc_rate_slab_f,
+      ...mrp && hit.fixed_price != null ? {
+        mrpListPrice: Number(hit.fixed_price),
+        mrpMode: true,
+        fixed_price: hit.fixed_price,
+        unitInr: line.unitInr ?? hit.fixed_price
+      } : {}
     };
   }
 

@@ -21,6 +21,7 @@ import {
   perGramToDisplayRates,
   resolveErpSilverMetalRatePerG,
   type ErpRateSlab,
+  mcSlabFieldForBillingSlab,
 } from '@/lib/erp-billing-pricing'
 import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, computeBillingDiscountSummary, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { cachedGet } from '@/lib/api-get-cache'
@@ -195,6 +196,7 @@ const TABLE_COLS: BillTableCol[] = [
   { key: 'wastage_pct', label: 'Wast%', w: 'w-[3.5%]', edit: true },
   { key: 'ratePerGram', label: 'Rate', w: 'w-[4.5%]', edit: true },
   { key: 'mc_rate', label: 'MC', w: 'w-[4%]', edit: true },
+  { key: 'mc_rate_slab_r', label: 'MC R', w: 'w-[4%]', edit: true },
   { key: 'mc_type', label: 'MCType', w: 'w-[4.5%]', edit: true },
   { key: 'qty', label: 'PCS', w: 'w-[3.5%]', edit: true },
   { key: 'box_charges', label: 'Box', w: 'w-[3.5%]', edit: true },
@@ -217,6 +219,7 @@ const NUMERIC_EDIT_KEYS: (keyof ErpBillLine | 'metal_slab_pct')[] = [
   'wastage_pct',
   'ratePerGram',
   'mc_rate',
+  'mc_rate_slab_r',
   'qty',
   'box_charges',
   'stone_charges',
@@ -1903,6 +1906,11 @@ export function ErpBillingWorkspace() {
         return line.ratePerGram ?? ''
       case 'mc_rate':
         return billingMcDisplay(line, rateSlab, goldSlabRShowMc)
+      case 'mc_rate_slab_r': {
+        const k = mcSlabFieldForBillingSlab(rateSlab)
+        const v = line[k]
+        return v != null && Number.isFinite(Number(v)) ? v : ''
+      }
       case 'mc_type':
         return line.mc_type ?? ''
       case 'qty':
@@ -1948,8 +1956,10 @@ export function ErpBillingWorkspace() {
       else updateLine(idx, patch)
       return
     }
+    const storageKey =
+      k === 'mc_rate_slab_r' ? mcSlabFieldForBillingSlab(rateSlab) : k
     const patch: Partial<ErpBillLine> = {
-      [k]: parsed,
+      [storageKey]: parsed,
     } as Partial<ErpBillLine>
     if (k === 'weightGm') {
       patch.originalWeightGm = parsed

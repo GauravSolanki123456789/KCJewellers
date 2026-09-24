@@ -28,8 +28,9 @@ const WEIGHT_BAND: { key: keyof ErpBillLine | 'metal_slab_pct'; label: string }[
   { key: 'ratePerGram', label: 'RATE' },
 ]
 
-const CHARGE_BAND: { key: keyof ErpBillLine; label: string }[] = [
+const CHARGE_BAND: { key: keyof ErpBillLine | 'metal_slab_pct'; label: string }[] = [
   { key: 'mc_rate', label: 'MC' },
+  { key: 'mc_rate_slab_r', label: 'MC R' },
   { key: 'mc_type', label: 'MCTYPE' },
   { key: 'qty', label: 'PCS' },
   { key: 'box_charges', label: 'BOX' },
@@ -48,6 +49,9 @@ const NUMERIC_KEYS = new Set<keyof ErpBillLine | 'metal_slab_pct'>([
   'wastage_pct',
   'ratePerGram',
   'mc_rate',
+  'mc_rate_slab_r',
+  'mc_rate_slab_w',
+  'mc_rate_slab_f',
   'qty',
   'box_charges',
   'stone_charges',
@@ -257,8 +261,7 @@ export function ErpBillingStackedRow({
             </div>
           </div>
 
-          {!gift ? (
-            <>
+          <>
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {WEIGHT_BAND.map((f) => (
                   <label
@@ -376,116 +379,6 @@ export function ErpBillingStackedRow({
                 ))}
               </div>
             </>
-          ) : (
-            <div className="space-y-2">
-              {(line.designFinishOptions?.length ?? 0) >= 2 ||
-              (line.designBoxOptions?.length ?? 0) >= 2 ? (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {(line.designFinishOptions?.length ?? 0) >= 2 ? (
-                    <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                      Finish
-                      <ErpBillingSuggestField
-                        value={line.finish_label || ''}
-                        placeholder="GP / Standard…"
-                        options={line.designFinishOptions!.map((o) => o.label)}
-                        preserveCase
-                        autoFocus={focused('stone_charges')}
-                        inputRef={(el) => inputRef('stone_charges', el)}
-                        onChange={(v) => {
-                          if (!v.trim()) {
-                            onPatch({
-                              finish_label: null,
-                              stone_charges: 0,
-                              fixed_price: null,
-                              unitInr: null,
-                              mrpListPrice: null,
-                            })
-                            return
-                          }
-                          onPatch({ finish_label: v })
-                        }}
-                        onCommit={(label) => {
-                          if (!label.trim()) {
-                            onPatch({
-                              finish_label: null,
-                              stone_charges: 0,
-                              fixed_price: null,
-                              unitInr: null,
-                              mrpListPrice: null,
-                            })
-                            return
-                          }
-                          const hit = findDesignOptionLabel(line.designFinishOptions, label)
-                          const list = Number(hit?.fixed_price ?? 0)
-                          const slabPrice =
-                            list > 0 ? giftMrpSlabPrice(list, rateSlab, slabSettings) : null
-                          onPatch({
-                            finish_label: hit?.label ?? label,
-                            stone_charges: hit?.stone_charges ?? 0,
-                            fixed_price: slabPrice,
-                            unitInr: slabPrice,
-                            mrpMode: list > 0 ? true : line.mrpMode,
-                            mrpListPrice: list > 0 ? list : null,
-                          })
-                          onAdvance('stone_charges')
-                        }}
-                      />
-                    </label>
-                  ) : null}
-                  {(line.designBoxOptions?.length ?? 0) >= 2 ? (
-                    <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                      Box
-                      <ErpBillingSuggestField
-                        value={line.packaging_label || ''}
-                        placeholder="With / without box…"
-                        options={line.designBoxOptions!.map((o) => o.label)}
-                        preserveCase
-                        autoFocus={focused('box_charges')}
-                        inputRef={(el) => inputRef('box_charges', el)}
-                        onChange={(v) => {
-                          if (!v.trim()) {
-                            onPatch({ packaging_label: null, box_charges: 0 })
-                            return
-                          }
-                          onPatch({ packaging_label: v })
-                        }}
-                        onCommit={(label) => {
-                          if (!label.trim()) {
-                            onPatch({ packaging_label: null, box_charges: 0 })
-                            return
-                          }
-                          const hit = findDesignOptionLabel(line.designBoxOptions, label)
-                          const patch: Partial<ErpBillLine> = {
-                            packaging_label: hit?.label ?? label,
-                            box_charges: hit?.box_charges ?? 0,
-                          }
-                          if (hit?.fixed_price != null) {
-                            const list = hit.fixed_price
-                            const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
-                            patch.fixed_price = slabPrice
-                            patch.unitInr = slabPrice
-                            patch.mrpListPrice = list
-                          }
-                          onPatch(patch)
-                          onAdvance('box_charges')
-                        }}
-                      />
-                    </label>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="grid max-w-xs grid-cols-2 gap-2">
-                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                  PCS
-                  {bandInput('qty')}
-                </label>
-                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                  FIXED
-                  {bandInput('fixed_price')}
-                </label>
-              </div>
-            </div>
-          )}
         </div>
       </td>
     </tr>

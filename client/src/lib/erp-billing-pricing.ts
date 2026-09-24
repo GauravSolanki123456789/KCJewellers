@@ -30,6 +30,14 @@ import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
 export type ErpRateSlab = 'R' | 'W' | 'F'
 
+export function mcSlabFieldForBillingSlab(
+  slab: ErpRateSlab,
+): 'mc_rate_slab_r' | 'mc_rate_slab_w' | 'mc_rate_slab_f' {
+  if (slab === 'W') return 'mc_rate_slab_w'
+  if (slab === 'F') return 'mc_rate_slab_f'
+  return 'mc_rate_slab_r'
+}
+
 export function erpSlabToKind(slab: ErpRateSlab): CatalogSlabKind {
   if (slab === 'W') return 'slab_w'
   if (slab === 'F') return 'slab_f'
@@ -232,6 +240,11 @@ function computeSilverGiftMcGmBreakdown(
 
 /** Gift / MRP / fixed piece-rate rows (qty × fixed price, no weight-based metal math). */
 export function isPiecePricedBillLine(line: ErpBillLine): boolean {
+  if (line.mrpMode) {
+    const list = Number(line.mrpListPrice ?? 0)
+    const fixed = Number(line.fixed_price ?? line.unitInr ?? 0)
+    if (list > 0 || fixed > 0) return true
+  }
   if (isWeightBasedSilverGiftLine(line)) return false
   const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
   const mcType = String(line.mc_type || '').toUpperCase()

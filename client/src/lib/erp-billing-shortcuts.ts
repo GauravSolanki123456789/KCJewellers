@@ -116,6 +116,7 @@ export const MANUAL_ENTRY_FIELD_ORDER: ManualBillGridField[] = [
   'wastage_pct',
   'ratePerGram',
   'mc_rate',
+  'mc_rate_slab_r',
   'mc_type',
   'qty',
   'box_charges',
@@ -294,6 +295,7 @@ export const STACKED_MANUAL_TAIL_ORDER: ManualBillGridField[] = [
   'wastage_pct',
   'ratePerGram',
   'mc_rate',
+  'mc_rate_slab_r',
   'mc_type',
   'qty',
   'box_charges',
@@ -315,24 +317,8 @@ export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[
 export function isStackedManualFieldVisible(field: ManualBillGridField, line: ErpBillLine): boolean {
   if (!isManualGridFieldVisible(field, line)) return false
   if (field === 'size') return (line.designSizeOptions?.length ?? 0) > 0
-  if (isGiftManualLine(line)) {
-    if (field === 'stone_charges') return (line.designFinishOptions?.length ?? 0) >= 2
-    if (field === 'box_charges') return false
-    if (
-      field === 'weightGm' ||
-      field === 'gross_weight' ||
-      field === 'bags' ||
-      field === 'bag_wt' ||
-      field === 'metal_slab_pct' ||
-      field === 'purity' ||
-      field === 'wastage_pct' ||
-      field === 'ratePerGram' ||
-      field === 'mc_rate' ||
-      field === 'mc_type' ||
-      field === 'metal_type'
-    ) {
-      return false
-    }
+  if (isGiftManualLine(line) && field === 'box_charges') {
+    return (line.designBoxOptions?.length ?? 0) >= 2
   }
   return true
 }
