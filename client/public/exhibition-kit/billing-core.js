@@ -1248,7 +1248,8 @@ var KcExhibitionBillingModule = (() => {
     "name",
     "size",
     "stone_charges",
-    "qty"
+    "qty",
+    "fixed_price"
   ];
   var MANUAL_ENTRY_FIELD_ORDER = [
     "sku",

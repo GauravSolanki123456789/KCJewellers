@@ -98,6 +98,7 @@ export const GIFT_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'size',
   'stone_charges',
   'qty',
+  'fixed_price',
 ]
 
 /** A/S/B flow: SKU → Style → Product → Size → weights / rates → PCS */
@@ -302,15 +303,37 @@ export const STACKED_MANUAL_TAIL_ORDER: ManualBillGridField[] = [
 ]
 
 export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[] {
-  const head = isGiftManualLine(line)
-    ? (GIFT_ENTRY_FIELD_ORDER as ManualBillGridField[])
-    : (MANUAL_ENTRY_FIELD_ORDER.filter((k) => !STACKED_MANUAL_TAIL_ORDER.includes(k)) as ManualBillGridField[])
+  if (isGiftManualLine(line)) {
+    return GIFT_ENTRY_FIELD_ORDER as ManualBillGridField[]
+  }
+  const head = MANUAL_ENTRY_FIELD_ORDER.filter(
+    (k) => !STACKED_MANUAL_TAIL_ORDER.includes(k),
+  ) as ManualBillGridField[]
   return [...head, ...STACKED_MANUAL_TAIL_ORDER]
 }
 
 export function isStackedManualFieldVisible(field: ManualBillGridField, line: ErpBillLine): boolean {
   if (!isManualGridFieldVisible(field, line)) return false
   if (field === 'size') return (line.designSizeOptions?.length ?? 0) > 0
+  if (isGiftManualLine(line)) {
+    if (field === 'stone_charges') return (line.designFinishOptions?.length ?? 0) >= 2
+    if (field === 'box_charges') return false
+    if (
+      field === 'weightGm' ||
+      field === 'gross_weight' ||
+      field === 'bags' ||
+      field === 'bag_wt' ||
+      field === 'metal_slab_pct' ||
+      field === 'purity' ||
+      field === 'wastage_pct' ||
+      field === 'ratePerGram' ||
+      field === 'mc_rate' ||
+      field === 'mc_type' ||
+      field === 'metal_type'
+    ) {
+      return false
+    }
+  }
   return true
 }
 

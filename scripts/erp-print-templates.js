@@ -1023,7 +1023,7 @@ function renderBillEscPos(template, bill, printFormats, rates) {
 const ROUGH_ESTIMATE_WIDTH = 42;
 const ESC_BOLD_ON = '\x1B\x45\x01';
 const ESC_BOLD_OFF = '\x1B\x45\x00';
-/** Double width + height (Epson ESC ! n) — used for Grand Total emphasis. */
+/** Reserved — double-width ESC/POS breaks 80mm lines; Grand Total uses bold only. */
 const ESC_EMPHASIS_ON = '\x1B\x21\x30';
 const ESC_EMPHASIS_OFF = '\x1B\x21\x00';
 
@@ -1041,8 +1041,7 @@ function roughBold(text) {
 }
 
 function roughGrandTotalRow(left, right, width = ROUGH_ESTIMATE_WIDTH) {
-    const row = roughPadRow(roughBold(String(left ?? '')), roughBold(String(right ?? '')), width);
-    return `${ESC_EMPHASIS_ON}${row}${ESC_EMPHASIS_OFF}`;
+    return roughPadRow(roughBold(String(left ?? '')), roughBold(String(right ?? '')), width);
 }
 
 function roughCenter(text, width = ROUGH_ESTIMATE_WIDTH) {
@@ -1355,7 +1354,7 @@ function roughDiscountVisible(amount) {
 
 function formatRoughRowValue(value) {
     if (typeof value === 'number') {
-        if (value < 0) return `- ${roughMoney(Math.abs(value))}`;
+        if (value < 0) return `-${roughMoney(Math.abs(value))}`;
         return roughMoney(value);
     }
     return String(value ?? '').trim();
@@ -1365,9 +1364,17 @@ function roughPadRow(left, right, width = ROUGH_ESTIMATE_WIDTH) {
     const l = String(left || '');
     const r = String(right || '').trim();
     if (!r) return l;
-    const gap = width - roughVisibleLen(l) - roughVisibleLen(r);
-    if (gap >= 1) return `${l}${' '.repeat(gap)}${r}`;
-    return `${l}\n${' '.repeat(Math.max(0, width - roughVisibleLen(r)))}${r}`;
+    const rVis = roughVisibleLen(r);
+    let lOut = l;
+    let lVis = roughVisibleLen(lOut);
+    if (lVis + rVis + 1 > width) {
+        while (lVis + rVis + 1 > width && lOut.length > 0) {
+            lOut = lOut.slice(0, -1);
+            lVis = roughVisibleLen(lOut);
+        }
+    }
+    const gap = Math.max(1, width - lVis - rVis);
+    return `${lOut}${' '.repeat(gap)}${r}`;
 }
 
 function roughKvRow(label, value, width = ROUGH_ESTIMATE_WIDTH, opts = {}) {
@@ -1407,8 +1414,9 @@ function roughHeaderTwoCol(left, right, width = ROUGH_ESTIMATE_WIDTH) {
 function roughDiscountRow(label, amount, width = ROUGH_ESTIMATE_WIDTH) {
     const plainLabel = String(label || '').trim();
     const val = formatRoughRowValue(-Math.abs(Number(amount) || 0));
-    const gap = Math.max(1, width - plainLabel.length - roughVisibleLen(roughBold(val)));
-    return `${plainLabel}${' '.repeat(gap)}${roughBold(val)}`;
+    const boldVal = roughBold(val);
+    const gap = Math.max(1, width - plainLabel.length - roughVisibleLen(boldVal));
+    return `${plainLabel}${' '.repeat(gap)}${boldVal}`;
 }
 
 function roughSandwichAmount(amount, width = ROUGH_ESTIMATE_WIDTH) {
@@ -1777,10 +1785,7 @@ function buildMarlechaGiftItemSection(line, idx) {
     pushIf(out, roughKvRow('Qty', Number(line?.qty) || 1));
     pushIf(out, roughKvRow('MRP', gift.mrpTotal));
     if (gift.disc > 0) {
-        pushIf(
-            out,
-            roughKvRow(`Discount (${gift.pct}% off)`, -gift.disc, ROUGH_ESTIMATE_WIDTH, { boldLabel: true }),
-        );
+        pushIf(out, roughDiscountRow(`Disc (${gift.pct}% off)`, gift.disc));
     }
     out.push(roughSandwichAmount(gift.taxable));
     const gst = splitRoughGst(gift.taxable);
