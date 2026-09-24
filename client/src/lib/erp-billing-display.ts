@@ -84,30 +84,37 @@ export function computeMcDiscountTotal(lines: ErpBillLine[]): number {
 
 export type BillingDiscountSummary = {
   mcDiscountInr: number
+  /** User-entered settlement discount (₹) — not auto-derived from collected. */
   cashDiscountInr: number
+  /** Net − collected (informational until user confirms Discount field). */
+  balanceInr: number | null
   totalDiscountInr: number
   collectedAmount: number | null
 }
 
-/** MC slab savings + cash/rounding discount from collected amount. */
+/** MC slab savings + optional explicit cash discount (balance is display-only). */
 export function computeBillingDiscountSummary(params: {
   netTotal: number
   collectedAmount: number | null
+  explicitCashDiscountInr: number | null
   lines: ErpBillLine[]
 }): BillingDiscountSummary {
   const mcDiscountInr = computeMcDiscountTotal(params.lines)
   const collectedAmount = params.collectedAmount
-  const cashDiscountInr =
+  const balanceInr =
     collectedAmount != null && params.netTotal > 0
       ? Math.round(params.netTotal - collectedAmount)
+      : null
+  const cashDiscountInr =
+    params.explicitCashDiscountInr != null && Number.isFinite(params.explicitCashDiscountInr)
+      ? Math.round(params.explicitCashDiscountInr)
       : 0
   const totalDiscountInr =
-    collectedAmount != null
-      ? mcDiscountInr + cashDiscountInr
-      : mcDiscountInr
+    mcDiscountInr + (params.explicitCashDiscountInr != null ? cashDiscountInr : 0)
   return {
     mcDiscountInr,
     cashDiscountInr,
+    balanceInr,
     totalDiscountInr,
     collectedAmount,
   }

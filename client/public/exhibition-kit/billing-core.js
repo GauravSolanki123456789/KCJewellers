@@ -759,12 +759,37 @@ var KcExhibitionBillingModule = (() => {
     if (slab === "F") return "metal_slab_f_pct";
     return "metal_slab_r_pct";
   }
+  function metalSlabPctUiFromStorage(raw) {
+    if (raw == null || raw === "") return null;
+    const n = typeof raw === "number" ? raw : Number(String(raw).replace(/,/g, "").trim());
+    if (!Number.isFinite(n)) return null;
+    if (n > 0 && n <= 1) return Math.round(n * 1e4) / 100;
+    return n;
+  }
   function readMetalSlabPct(line, slab) {
+    const key = metalSlabPctStorageKey(slab);
+    const ui = metalSlabPctUiFromStorage(line[key]);
+    return ui != null ? ui : "";
+  }
+  function metalSlabPctMultiplier(line, slab) {
+    const ui = readMetalSlabPct(line, slab);
+    if (ui === "" || ui <= 0) return null;
+    return ui / 100;
+  }
+  function formatMetalSlabPctForDisplay(line, slab) {
     const key = metalSlabPctStorageKey(slab);
     const raw = line[key];
     if (raw == null || raw === "") return "";
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : "";
+    const s = String(raw).trim();
+    if (!s) return "";
+    if (s.includes("%")) return s;
+    const n = Number(s);
+    if (!Number.isFinite(n)) return s;
+    if (n > 0 && n <= 1) return `${Math.round(n * 1e3) / 10}%`;
+    return `${n}%`;
+  }
+  function lineHasMetalSlabPctInput(line, slab) {
+    return formatMetalSlabPctForDisplay(line, slab) !== "";
   }
   function isManualGridFieldVisible(field, line) {
     if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
@@ -824,11 +849,11 @@ var KcExhibitionBillingModule = (() => {
     if (netWt <= 0) {
       return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 };
     }
-    const metalPct = readMetalSlabPct(line, slab);
     const wastPct = Number(line.wastage_pct ?? 0) || 0;
+    const metalMult = metalSlabPctMultiplier(line, slab);
     let billedWt = netWt;
-    if (metalPct !== "" && Number(metalPct) > 0) {
-      billedWt = netWt * (Number(metalPct) / 100);
+    if (metalMult != null && metalMult > 0) {
+      billedWt = netWt * metalMult;
     } else if (wastPct > 0) {
       billedWt = netWt * (1 + wastPct / 100);
     }
@@ -863,7 +888,7 @@ var KcExhibitionBillingModule = (() => {
       rate_per_gram: rate > 0 ? rate : void 0,
       net_weight: netWt,
       billable_weight_gm: Math.round(billedWt * 1e3) / 1e3,
-      wastage_pct: wastPct > 0 && metalPct === "" ? wastPct : void 0
+      wastage_pct: wastPct > 0 && !lineHasMetalSlabPctInput(line, slab) ? wastPct : void 0
     };
   }
 

@@ -25,11 +25,11 @@ export type ErpBillSession = {
   billedSaleBillId?: number
   billedSaleBillNumber?: string
   billedAt?: string
-  /** Amount collected from customer (₹) — discount = net − collected. */
+  /** Amount collected from customer (₹). */
   collectedAmountInr?: number
   /** Catalog MC discount total (₹) across lines. */
   mcDiscountInr?: number
-  /** Cash / rounding discount (₹) = net − collected. */
+  /** Cash discount (₹) — only when cashier typed Discount field (not auto from balance). */
   cashDiscountInr?: number
   /** Total discount shown (MC + cash). */
   totalDiscountInr?: number
@@ -51,6 +51,15 @@ export type ErpBillSession = {
   invoicePrintOverrides?: ErpInvoicePrintOverrides
   /** ERP operator display name when estimate/bill was saved */
   operatorDisplayName?: string
+}
+
+/** Rate unfix = locked empty rate column; manual ₹/g entered clears unfix for that line. */
+export function isLineRateUnfixed(line: ErpBillLine): boolean {
+  return Boolean(line.rateLocked) && !(Number(line.ratePerGram) > 0)
+}
+
+export function billLinesRatesUnfixed(lines: ErpBillLine[]): boolean {
+  return lines.length > 0 && lines.every(isLineRateUnfixed)
 }
 
 export function buildErpBillSession(input: {
@@ -78,8 +87,7 @@ export function buildErpBillSession(input: {
   onlineAmountInr?: number | null
   operatorDisplayName?: string | null
 }): ErpBillSession {
-  const ratesUnfixed =
-    input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
+  const ratesUnfixed = billLinesRatesUnfixed(input.lines)
   const advance = Math.max(0, Number(input.advancePaidInr) || 0)
   const collectedRaw = input.collectedAmountInr
   const collected =
@@ -90,15 +98,11 @@ export function buildErpBillSession(input: {
   const cashDiscount =
     input.cashDiscountInr != null && Number.isFinite(Number(input.cashDiscountInr))
       ? Number(input.cashDiscountInr)
-      : collected != null
-        ? Math.round((Number(input.netTotalInr) || 0) - collected)
-        : 0
+      : 0
   const totalDiscount =
     input.totalDiscountInr != null && Number.isFinite(Number(input.totalDiscountInr))
       ? Number(input.totalDiscountInr)
-      : collected != null
-        ? mcDiscount + cashDiscount
-        : mcDiscount
+      : mcDiscount + cashDiscount
   return {
     rateSlab: input.rateSlab,
     wholesaleGold: input.wholesaleGold,
@@ -115,8 +119,7 @@ export function buildErpBillSession(input: {
     placeOfSupply: input.placeOfSupply?.trim() || undefined,
     collectedAmountInr: collected != null ? collected : undefined,
     mcDiscountInr: mcDiscount > 0 ? mcDiscount : undefined,
-    cashDiscountInr:
-      collected != null && cashDiscount !== 0 ? cashDiscount : undefined,
+    cashDiscountInr: cashDiscount !== 0 ? cashDiscount : undefined,
     totalDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
     billingDiscountInr: totalDiscount !== 0 ? totalDiscount : undefined,
     goldSlabRShowMc: input.goldSlabRShowMc === false ? false : undefined,
@@ -135,5 +138,8 @@ export function buildErpBillSession(input: {
 
 export function applyRatesUnfixed(lines: ErpBillLine[], ratesUnfixed?: boolean): ErpBillLine[] {
   if (!ratesUnfixed) return lines
-  return lines.map((l) => ({ ...l, ratePerGram: null, rateLocked: true }))
+  return lines.map((l) => {
+    if (Number(l.ratePerGram) > 0) return l
+    return { ...l, ratePerGram: null, rateLocked: true }
+  })
 }

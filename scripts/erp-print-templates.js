@@ -909,14 +909,12 @@ function buildBillTemplateVars(bill, printFormats, rates) {
     const collected = Number(session.collectedAmountInr);
     const mcDiscount = Number(session.mcDiscountInr) || 0;
     const cashDiscount =
-        session.cashDiscountInr != null
+        session.cashDiscountInr != null && Number.isFinite(Number(session.cashDiscountInr))
             ? Number(session.cashDiscountInr)
-            : Number.isFinite(collected)
-              ? Math.round(total - collected)
-              : 0;
+            : 0;
     const totalDiscount =
         Number(session.totalDiscountInr ?? session.billingDiscountInr) ||
-        (Number.isFinite(collected) ? mcDiscount + cashDiscount : mcDiscount);
+        mcDiscount + cashDiscount;
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
     return {
         shop_name: pf.shopName || bill.shop_name || 'B N MARLECHA SILVER',
@@ -938,7 +936,7 @@ function buildBillTemplateVars(bill, printFormats, rates) {
         balance: String(Math.round(Math.max(0, total - advance))),
         collected_amount: Number.isFinite(collected) ? String(Math.round(collected)) : '',
         mc_discount: mcDiscount > 0 ? String(Math.round(mcDiscount)) : '',
-        cash_discount: Number.isFinite(collected) && cashDiscount !== 0 ? String(Math.round(cashDiscount)) : '',
+        cash_discount: cashDiscount !== 0 ? String(Math.round(cashDiscount)) : '',
         total_discount: totalDiscount !== 0 ? String(Math.round(totalDiscount)) : '',
         gold_rate: rates?.gold != null ? String(Math.round(rates.gold)) : '',
         silver_rate: rates?.silver != null ? String(Math.round(rates.silver)) : '',

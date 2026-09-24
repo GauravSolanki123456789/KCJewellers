@@ -1,5 +1,5 @@
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
-import type { ErpBillSession } from '@/lib/erp-bill-session'
+import { billLinesRatesUnfixed, type ErpBillSession } from '@/lib/erp-bill-session'
 import { billRatesUnfixed } from '@/lib/erp-quote-pdf'
 
 export const ESTIMATE_STATUSES = ['draft', 'rate_unfix', 'advance_paid', 'cancelled'] as const
@@ -55,7 +55,7 @@ export function deriveEstimateStatus(input: {
   if (input.keepCancelled && current === 'cancelled') return 'cancelled'
   const advance = Math.max(0, Number(input.advancePaidInr) || 0)
   if (advance > 0) return 'advance_paid'
-  const ratesUnfixed = input.lines.length > 0 && input.lines.every((l) => l.rateLocked)
+  const ratesUnfixed = billLinesRatesUnfixed(input.lines)
   if (ratesUnfixed) return 'rate_unfix'
   return 'draft'
 }

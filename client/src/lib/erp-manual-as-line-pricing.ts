@@ -1,6 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { mcSlabFieldForBillingSlab, type ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { readMetalSlabPct } from '@/lib/erp-metal-slab-field'
+import { lineHasMetalSlabPctInput, metalSlabPctMultiplier } from '@/lib/erp-metal-slab-field'
 import type { PriceBreakdown } from '@/lib/pricing'
 
 const GST_PCT = 3
@@ -105,11 +105,11 @@ export function computeManualAsLineBreakdown(
     return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 }
   }
 
-  const metalPct = readMetalSlabPct(line, slab)
   const wastPct = Number(line.wastage_pct ?? 0) || 0
+  const metalMult = metalSlabPctMultiplier(line, slab)
   let billedWt = netWt
-  if (metalPct !== '' && Number(metalPct) > 0) {
-    billedWt = netWt * (Number(metalPct) / 100)
+  if (metalMult != null && metalMult > 0) {
+    billedWt = netWt * metalMult
   } else if (wastPct > 0) {
     billedWt = netWt * (1 + wastPct / 100)
   }
@@ -150,6 +150,7 @@ export function computeManualAsLineBreakdown(
     rate_per_gram: rate > 0 ? rate : undefined,
     net_weight: netWt,
     billable_weight_gm: Math.round(billedWt * 1000) / 1000,
-    wastage_pct: wastPct > 0 && metalPct === '' ? wastPct : undefined,
+    wastage_pct:
+      wastPct > 0 && !lineHasMetalSlabPctInput(line, slab) ? wastPct : undefined,
   }
 }

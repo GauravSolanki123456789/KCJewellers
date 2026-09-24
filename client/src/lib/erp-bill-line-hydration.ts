@@ -1,4 +1,5 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
+import { normalizeMetalSlabPctForUiStorage } from '@/lib/erp-metal-slab-field'
 
 const NUMERIC_LINE_KEYS: (keyof ErpBillLine)[] = [
   'weightGm',
@@ -49,6 +50,10 @@ export function normalizeErpBillLineFromStorage(line: ErpBillLine): ErpBillLine 
   }
   if (line.manualEntry != null) next.manualEntry = !!line.manualEntry
   if (line.mrpMode != null) next.mrpMode = !!line.mrpMode
+  for (const key of ['metal_slab_r_pct', 'metal_slab_w_pct', 'metal_slab_f_pct'] as const) {
+    const ui = normalizeMetalSlabPctForUiStorage(line[key])
+    if (ui != null) next[key] = ui
+  }
   return next
 }
 

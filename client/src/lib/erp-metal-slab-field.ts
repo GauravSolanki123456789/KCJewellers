@@ -9,12 +9,31 @@ export function metalSlabPctStorageKey(slab: ErpRateSlab): keyof ErpBillLine {
   return 'metal_slab_r_pct'
 }
 
+/** DB/catalog may store 1 = 100% or 0.88 = 88%; UI always uses whole numbers (100, 88). */
+export function metalSlabPctUiFromStorage(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/,/g, '').trim())
+  if (!Number.isFinite(n)) return null
+  if (n > 0 && n <= 1) return Math.round(n * 10000) / 100
+  return n
+}
+
+export function normalizeMetalSlabPctForUiStorage(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(Number(value))) return null
+  return metalSlabPctUiFromStorage(value)
+}
+
 export function readMetalSlabPct(line: ErpBillLine, slab: ErpRateSlab): number | '' {
   const key = metalSlabPctStorageKey(slab)
-  const raw = line[key]
-  if (raw == null || raw === '') return ''
-  const n = Number(raw)
-  return Number.isFinite(n) ? n : ''
+  const ui = metalSlabPctUiFromStorage(line[key])
+  return ui != null ? ui : ''
+}
+
+/** Multiplier for billed weight (88 → 0.88). Empty metal % → 1.0 unless wastage applies elsewhere. */
+export function metalSlabPctMultiplier(line: ErpBillLine, slab: ErpRateSlab): number | null {
+  const ui = readMetalSlabPct(line, slab)
+  if (ui === '' || ui <= 0) return null
+  return ui / 100
 }
 
 /** PDF / display — show the value the cashier entered (e.g. 89 → 89%). */

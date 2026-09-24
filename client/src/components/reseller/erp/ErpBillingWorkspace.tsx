@@ -25,7 +25,12 @@ import {
 } from '@/lib/erp-billing-pricing'
 import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, computeBillingDiscountSummary, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { cachedGet } from '@/lib/api-get-cache'
-import { applyRatesUnfixed, buildErpBillSession, type ErpBillSession } from '@/lib/erp-bill-session'
+import {
+  applyRatesUnfixed,
+  billLinesRatesUnfixed,
+  buildErpBillSession,
+  type ErpBillSession,
+} from '@/lib/erp-bill-session'
 import {
   combinedEstimateLabel,
   mergeEstimateLines,
@@ -91,6 +96,7 @@ import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import {
   patchMetalSlabPct,
+  normalizeMetalSlabPctForUiStorage,
   readMetalSlabPct,
   type ManualBillGridField,
 } from '@/lib/erp-metal-slab-field'
@@ -171,6 +177,7 @@ type BillingDraft = {
   displayRates?: unknown
   advancePaidInr: string
   collectedAmountInr: string
+  cashDiscountInr: string
   paymentMethod: ErpPaymentMethod
   cashAmountInr: string
   onlineAmountInr: string
@@ -264,9 +271,9 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     mc_rate_slab_r: p.mc_rate_slab_r ?? null,
     mc_rate_slab_w: p.mc_rate_slab_w ?? null,
     mc_rate_slab_f: p.mc_rate_slab_f ?? null,
-    metal_slab_r_pct: p.metal_slab_r_pct ?? null,
-    metal_slab_w_pct: p.metal_slab_w_pct ?? null,
-    metal_slab_f_pct: p.metal_slab_f_pct ?? null,
+    metal_slab_r_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_r_pct) ?? null,
+    metal_slab_w_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_w_pct) ?? null,
+    metal_slab_f_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_f_pct) ?? null,
     box_charges: p.box_charges ?? 0,
     stone_charges: p.stone_charges ?? 0,
     stone_wt: p.stone_wt ?? null,
@@ -374,6 +381,7 @@ export function ErpBillingWorkspace() {
   const [billedSaleBillNumber, setBilledSaleBillNumber] = useState<string | null>(null)
   const [advancePaidInr, setAdvancePaidInr] = useState('')
   const [collectedAmountInr, setCollectedAmountInr] = useState('')
+  const [cashDiscountInr, setCashDiscountInr] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<ErpPaymentMethod>('bank')
   const [cashAmountInr, setCashAmountInr] = useState('')
   const [onlineAmountInr, setOnlineAmountInr] = useState('')
@@ -721,6 +729,7 @@ export function ErpBillingWorkspace() {
       if (d.displayRates) setDisplayRates(d.displayRates)
       if (d.advancePaidInr != null) setAdvancePaidInr(d.advancePaidInr)
       if (d.collectedAmountInr != null) setCollectedAmountInr(d.collectedAmountInr)
+      if (d.cashDiscountInr != null) setCashDiscountInr(d.cashDiscountInr)
       if (d.paymentMethod) setPaymentMethod(d.paymentMethod)
       if (d.cashAmountInr != null) setCashAmountInr(d.cashAmountInr)
       if (d.onlineAmountInr != null) setOnlineAmountInr(d.onlineAmountInr)
@@ -774,6 +783,11 @@ export function ErpBillingWorkspace() {
       setPaymentMethod(session.paymentMethod || 'bank')
       setCashAmountInr(session.cashAmountInr != null ? String(session.cashAmountInr) : '')
       setOnlineAmountInr(session.onlineAmountInr != null ? String(session.onlineAmountInr) : '')
+      if (session.cashDiscountInr != null && Number.isFinite(Number(session.cashDiscountInr))) {
+        setCashDiscountInr(String(session.cashDiscountInr))
+      } else {
+        setCashDiscountInr('')
+      }
       if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
       const loadedLines = normalizeErpBillLinesFromStorage(
         applyRatesUnfixed(bill.lines || [], session.ratesUnfixed),
@@ -825,6 +839,10 @@ export function ErpBillingWorkspace() {
         advancePaidInr: session.advancePaidInr != null ? String(session.advancePaidInr) : '',
         collectedAmountInr:
           session.collectedAmountInr != null ? String(session.collectedAmountInr) : '',
+        cashDiscountInr:
+          session.cashDiscountInr != null && Number.isFinite(Number(session.cashDiscountInr))
+            ? String(session.cashDiscountInr)
+            : '',
         paymentMethod: session.paymentMethod || 'bank',
         cashAmountInr: session.cashAmountInr != null ? String(session.cashAmountInr) : '',
         onlineAmountInr: session.onlineAmountInr != null ? String(session.onlineAmountInr) : '',
@@ -952,6 +970,7 @@ export function ErpBillingWorkspace() {
       displayRates,
       advancePaidInr,
       collectedAmountInr,
+      cashDiscountInr,
       paymentMethod,
       cashAmountInr,
       onlineAmountInr,
@@ -960,7 +979,7 @@ export function ErpBillingWorkspace() {
       editingBillType,
       editingBillStatus,
     })
-  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, paymentMethod, cashAmountInr, onlineAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus])
+  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, cashDiscountInr, paymentMethod, cashAmountInr, onlineAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
@@ -1441,9 +1460,12 @@ export function ErpBillingWorkspace() {
               mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
               mc_rate_slab_w: num('mc_rate_slab_w') ?? l.mc_rate_slab_w,
               mc_rate_slab_f: num('mc_rate_slab_f') ?? l.mc_rate_slab_f,
-              metal_slab_r_pct: num('metal_slab_r_pct') ?? l.metal_slab_r_pct,
-              metal_slab_w_pct: num('metal_slab_w_pct') ?? l.metal_slab_w_pct,
-              metal_slab_f_pct: num('metal_slab_f_pct') ?? l.metal_slab_f_pct,
+              metal_slab_r_pct:
+                normalizeMetalSlabPctForUiStorage(num('metal_slab_r_pct')) ?? l.metal_slab_r_pct,
+              metal_slab_w_pct:
+                normalizeMetalSlabPctForUiStorage(num('metal_slab_w_pct')) ?? l.metal_slab_w_pct,
+              metal_slab_f_pct:
+                normalizeMetalSlabPctForUiStorage(num('metal_slab_f_pct')) ?? l.metal_slab_f_pct,
               invoice_item_name: (d.invoice_item_name as string) || l.invoice_item_name,
               hsn_code: (d.hsn_code as string) || l.hsn_code,
               designSizeOptions: undefined,
@@ -1579,10 +1601,7 @@ export function ErpBillingWorkspace() {
     setLines((prev) => prev.map((l) => ({ ...l, ratePerGram: null, rateLocked: true })))
   }
 
-  const ratesUnfixed = useMemo(
-    () => lines.length > 0 && lines.every((l) => l.rateLocked),
-    [lines],
-  )
+  const ratesUnfixed = useMemo(() => billLinesRatesUnfixed(lines), [lines])
 
   const totals = useMemo(() => {
     let taxable = 0
@@ -1626,6 +1645,7 @@ export function ErpBillingWorkspace() {
     setCombinedEstimateNumbers('')
     setAdvancePaidInr('')
     setCollectedAmountInr('')
+    setCashDiscountInr('')
     setPaymentMethod('bank')
     setCashAmountInr('')
     setOnlineAmountInr('')
@@ -1639,14 +1659,19 @@ export function ErpBillingWorkspace() {
     collectedAmountInr.trim() !== '' && Number.isFinite(parseFloat(collectedAmountInr))
       ? parseFloat(collectedAmountInr)
       : null
+  const parsedExplicitCashDiscount =
+    cashDiscountInr.trim() !== '' && Number.isFinite(parseFloat(cashDiscountInr))
+      ? parseFloat(cashDiscountInr)
+      : null
   const discountSummary = useMemo(
     () =>
       computeBillingDiscountSummary({
         netTotal: totals.net,
         collectedAmount: parsedCollected,
+        explicitCashDiscountInr: parsedExplicitCashDiscount,
         lines,
       }),
-    [totals.net, parsedCollected, lines],
+    [totals.net, parsedCollected, parsedExplicitCashDiscount, lines],
   )
   const balanceDue = Math.max(0, totals.net - parsedAdvance)
   const isOfficialGstBill = !shouldRouteSaleToShadow({
@@ -1694,7 +1719,7 @@ export function ErpBillingWorkspace() {
         onlineAmountInr:
           paymentMethod === 'mixed' && onlineAmountInr.trim() !== '' ? Number(onlineAmountInr) : null,
         mcDiscountInr: discountSummary.mcDiscountInr,
-        cashDiscountInr: discountSummary.cashDiscountInr,
+        cashDiscountInr: parsedExplicitCashDiscount,
         totalDiscountInr: discountSummary.totalDiscountInr,
         netTotalInr: billType === 'sale' ? billTotalInr : totals.net,
         goldSlabRShowMc,
@@ -2005,7 +2030,8 @@ export function ErpBillingWorkspace() {
       patch.weightGm = parsed
     }
     if (k === 'ratePerGram') {
-      patch.rateLocked = raw !== ''
+      patch.rateLocked = true
+      if (raw.trim() === '') patch.ratePerGram = null
     }
     if (k === 'fixed_price' && isPiecePricedBillLine({ ...line, ...patch })) {
       if (parsed != null) patch.unitInr = parsed
@@ -2369,24 +2395,37 @@ export function ErpBillingWorkspace() {
         </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-              Discount (₹)
+              Balance (₹)
             </label>
             <div
               className={`${erpInputCls} flex min-h-[44px] items-center py-2 text-sm tabular-nums font-semibold ${
-                parsedCollected != null && discountSummary.cashDiscountInr < 0
+                discountSummary.balanceInr != null && discountSummary.balanceInr < 0
                   ? 'border-amber-400 bg-amber-50/80 text-amber-950'
-                  : parsedCollected != null && discountSummary.cashDiscountInr > 0
+                  : discountSummary.balanceInr != null && discountSummary.balanceInr > 0
                     ? 'border-emerald-300 bg-emerald-50/60 text-emerald-950'
                     : 'bg-white text-[#1a1814]'
               }`}
               style={{ color: '#1a1814', WebkitTextFillColor: '#1a1814' }}
               aria-live="polite"
-              title="Net total minus collected amount"
+              title="Net total minus collected — enter this in Discount to book the settlement"
             >
-              {parsedCollected != null
-                ? discountSummary.cashDiscountInr.toLocaleString('en-IN')
-                : 'Auto'}
+              {discountSummary.balanceInr != null
+                ? discountSummary.balanceInr.toLocaleString('en-IN')
+                : '—'}
             </div>
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Discount (₹)
+            </label>
+            <input
+              className={`${erpInputCls} py-2 text-sm tabular-nums`}
+              inputMode="decimal"
+              value={cashDiscountInr}
+              onChange={(e) => setCashDiscountInr(e.target.value.replace(/[^\d.-]/g, ''))}
+              placeholder="Confirm settlement"
+              title="Type the balance amount here to apply cash discount in books"
+            />
           </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
@@ -3334,17 +3373,27 @@ export function ErpBillingWorkspace() {
                   ) : null}
                 </>
               ) : null}
+              {discountSummary.balanceInr != null && discountSummary.balanceInr !== 0 ? (
+                <div>
+                  <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Balance</p>
+                  <p className="font-semibold tabular-nums text-amber-800">
+                    {formatErpInr(discountSummary.balanceInr)}
+                  </p>
+                </div>
+              ) : null}
               {discountSummary.totalDiscountInr !== 0 ? (
                 <div>
                   <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Discount</p>
                   <p className="font-semibold tabular-nums text-emerald-700">
                     {formatErpInr(discountSummary.totalDiscountInr)}
                   </p>
-                  {discountSummary.mcDiscountInr > 0 ? (
+                  {discountSummary.mcDiscountInr > 0 || parsedExplicitCashDiscount != null ? (
                     <p className="text-[9px] text-[var(--color-jewelry-black,#1a1814)]/50">
-                      MC ₹{discountSummary.mcDiscountInr.toLocaleString('en-IN')}
-                      {parsedCollected != null && discountSummary.cashDiscountInr !== 0
-                        ? ` + cash ₹${discountSummary.cashDiscountInr.toLocaleString('en-IN')}`
+                      {discountSummary.mcDiscountInr > 0
+                        ? `MC ₹${discountSummary.mcDiscountInr.toLocaleString('en-IN')}`
+                        : ''}
+                      {parsedExplicitCashDiscount != null && discountSummary.cashDiscountInr !== 0
+                        ? `${discountSummary.mcDiscountInr > 0 ? ' + ' : ''}cash ₹${discountSummary.cashDiscountInr.toLocaleString('en-IN')}`
                         : ''}
                     </p>
                   ) : null}

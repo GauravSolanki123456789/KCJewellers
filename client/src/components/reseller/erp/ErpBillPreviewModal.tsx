@@ -9,14 +9,14 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
-import type { ErpBillSession } from '@/lib/erp-bill-session'
+import { billLinesRatesUnfixed, type ErpBillSession } from '@/lib/erp-bill-session'
 import {
   formatEstimateStatusLabel,
   resolveBillEstimateStatus,
 } from '@/lib/erp-estimate-status'
 
 function lineRate(line: ErpBillLine): string {
-  if (line.rateLocked) return '—'
+  if (line.rateLocked && !(Number(line.ratePerGram) > 0)) return '—'
   return line.ratePerGram != null ? String(line.ratePerGram) : '—'
 }
 
@@ -31,8 +31,7 @@ export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
 
   const lines = bill.lines ?? []
   const session = bill.session as ErpBillSession | undefined
-  const ratesUnfixed =
-    session?.ratesUnfixed || (lines.length > 0 && lines.every((l) => l.rateLocked))
+  const ratesUnfixed = lines.length ? billLinesRatesUnfixed(lines) : !!session?.ratesUnfixed
   const advancePaid = Math.max(0, Number(session?.advancePaidInr) || 0)
   const netTotal = Number(bill.total_inr) || 0
   const balanceDue = advancePaid > 0 ? Math.max(0, netTotal - advancePaid) : 0

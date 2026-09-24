@@ -3,7 +3,7 @@ import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
-import type { ErpBillSession } from '@/lib/erp-bill-session'
+import { billLinesRatesUnfixed, isLineRateUnfixed, type ErpBillSession } from '@/lib/erp-bill-session'
 import {
   computeLineBreakdown,
   parseSlabSettingsFromUser,
@@ -167,9 +167,14 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   const balanceDue = advance > 0 ? Math.max(0, net - advance) : undefined
   const collectedStored = Number(session.collectedAmountInr)
   const collectedAmount = Number.isFinite(collectedStored) ? collectedStored : undefined
+  const explicitCash =
+    session.cashDiscountInr != null && Number.isFinite(Number(session.cashDiscountInr))
+      ? Number(session.cashDiscountInr)
+      : null
   const discountSummary = computeBillingDiscountSummary({
     netTotal: net,
     collectedAmount: collectedAmount ?? null,
+    explicitCashDiscountInr: explicitCash,
     lines: enriched,
   })
 
@@ -184,7 +189,7 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
     collectedAmount,
     mcDiscount: discountSummary.mcDiscountInr > 0 ? discountSummary.mcDiscountInr : undefined,
     cashDiscount:
-      collectedAmount != null && discountSummary.cashDiscountInr !== 0
+      explicitCash != null && discountSummary.cashDiscountInr !== 0
         ? discountSummary.cashDiscountInr
         : undefined,
     billingDiscount:
@@ -257,8 +262,9 @@ export function erpLinesToPdfItems(lines: ErpBillLine[]): ItemWithPdfImage[] {
       shareCatalogLineTotalInr: line.lineTotalInr ?? null,
       shareCatalogMcRate: line.mc_rate ?? null,
       shareCatalogMcType: line.mc_type ?? null,
-      erpRateLocked: line.rateLocked ?? false,
-      erpRatePerGram: line.rateLocked ? null : (line.ratePerGram ?? null),
+      erpRateLocked: isLineRateUnfixed(line),
+      erpRatePerGram:
+        Number(line.ratePerGram) > 0 ? (line.ratePerGram ?? null) : null,
     } as ItemWithPdfImage
   })
 }
@@ -279,10 +285,8 @@ export function erpCustomerWhatsAppHref(mobile: string | null | undefined, text:
 
 /** True when quotation PDF should show RATE UNFIX badge. */
 export function billRatesUnfixed(bill: ErpBill): boolean {
-  const session = bill.session as { ratesUnfixed?: boolean } | null | undefined
-  if (session?.ratesUnfixed === false) return false
-  if (session?.ratesUnfixed) return true
   const lines = bill.lines ?? []
-  if (!lines.length) return false
-  return lines.every((l) => l.rateLocked)
+  if (lines.length) return billLinesRatesUnfixed(lines)
+  const session = bill.session as { ratesUnfixed?: boolean } | null | undefined
+  return !!session?.ratesUnfixed
 }
