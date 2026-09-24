@@ -23,7 +23,14 @@ import {
   type ErpRateSlab,
   mcSlabFieldForBillingSlab,
 } from '@/lib/erp-billing-pricing'
-import { billingMcDisplay, billingMcDiscountHint, billingWastageDisplay, computeBillingDiscountSummary, isGoldSlabRLine } from '@/lib/erp-billing-display'
+import {
+  billingMcDisplay,
+  billingMcDiscountHint,
+  billingWastageDisplay,
+  computeBillingDiscountSummary,
+  isGoldSlabRLine,
+  resolveErpBillTotalInr,
+} from '@/lib/erp-billing-display'
 import { cachedGet } from '@/lib/api-get-cache'
 import {
   applyRatesUnfixed,
@@ -1681,18 +1688,30 @@ export function ErpBillingWorkspace() {
     jainavModeUnlocked: shadowUnlocked,
   })
   const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr, shadowUnlocked)
-  const billTotalInr =
-    !isOfficialGstBill && parsedCollected != null && parsedCollected > 0 ? parsedCollected : totals.net
+  const resolveBillTotal = (billType: 'sale' | 'estimate') =>
+    resolveErpBillTotalInr({
+      linesNetTotal: totals.net,
+      billType,
+      explicitCashDiscountInr: parsedExplicitCashDiscount,
+      collectedAmountInr: parsedCollected,
+      shadowSaleUsesCollected: billType === 'sale' && !isOfficialGstBill,
+    })
+  const displayNetTotalInr =
+    parsedExplicitCashDiscount != null
+      ? resolveBillTotal('estimate')
+      : totals.net
 
   const buildPayload = (
     billType: 'sale' | 'estimate',
     status: string,
     extra?: { bill_number?: string; placeOfSupply?: string },
-  ) => ({
+  ) => {
+    const billTotalInr = resolveBillTotal(billType)
+    return {
     bill_type: billType,
     customer_id: customerId,
     customer_name: customerName,
-    total_inr: billType === 'sale' ? billTotalInr : totals.net,
+    total_inr: billTotalInr,
     status,
     ...(extra?.bill_number ? { bill_number: extra.bill_number } : {}),
     notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
@@ -1721,7 +1740,7 @@ export function ErpBillingWorkspace() {
         mcDiscountInr: discountSummary.mcDiscountInr,
         cashDiscountInr: parsedExplicitCashDiscount,
         totalDiscountInr: discountSummary.totalDiscountInr,
-        netTotalInr: billType === 'sale' ? billTotalInr : totals.net,
+        netTotalInr: totals.net,
         goldSlabRShowMc,
         operatorDisplayName: operator?.displayName || operator?.username || '',
       }),
@@ -1737,7 +1756,8 @@ export function ErpBillingWorkspace() {
       : editingBillId &&
           editingBillType === 'estimate' &&
           billType === 'sale' && { source_estimate_id: editingBillId }),
-  })
+    }
+  }
 
   const persistBill = async (
     billType: 'sale' | 'estimate',
@@ -2129,7 +2149,7 @@ export function ErpBillingWorkspace() {
         open={saveConfirmOpen}
         onOpenChange={setSaveConfirmOpen}
         customerName={customerName}
-        netTotal={totals.net}
+        netTotal={resolveBillTotal('sale')}
         itemCount={lines.length}
         busy={saveBusy}
         isOfficialGst={isOfficialGstBill}
@@ -2142,7 +2162,7 @@ export function ErpBillingWorkspace() {
         onOpenChange={setLedgerSavedOpen}
         billNumber={ledgerSavedMeta?.billNumber || ''}
         customerName={customerName}
-        netTotal={totals.net}
+        netTotal={resolveBillTotal('sale')}
         lane={ledgerSavedMeta?.lane || previewLane}
         onDone={onLedgerSavedDone}
       />
@@ -3408,7 +3428,7 @@ export function ErpBillingWorkspace() {
               <div className="col-span-2 sm:col-span-1">
                 <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Net total</p>
                 <p className="rounded-xl bg-emerald-600 px-3 py-1.5 text-center text-sm font-bold tabular-nums text-white">
-                  {formatErpInr(totals.net)}
+                  {formatErpInr(displayNetTotalInr)}
                 </p>
               </div>
             </div>

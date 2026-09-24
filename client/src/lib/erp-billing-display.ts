@@ -68,6 +68,49 @@ export function billingMcPdfText(
   return String(mc)
 }
 
+/** Line-sum net (incl. GST) before settlement discount typed in Discount (₹). */
+export function erpLinesNetBeforeSettlementDiscount(linesNetTotal: number): number {
+  return Math.round(linesNetTotal)
+}
+
+/** Final bill/estimate total after explicit settlement discount (46 → net−46; −54 → net+54). */
+export function erpSettledTotalInr(
+  linesNetTotal: number,
+  explicitCashDiscountInr: number | null | undefined,
+): number {
+  const net = erpLinesNetBeforeSettlementDiscount(linesNetTotal)
+  if (explicitCashDiscountInr == null || !Number.isFinite(Number(explicitCashDiscountInr))) {
+    return net
+  }
+  return Math.max(0, net - Math.round(Number(explicitCashDiscountInr)))
+}
+
+/** Saved total_inr for estimates & sales (unchanged when Discount field empty). */
+export function resolveErpBillTotalInr(params: {
+  linesNetTotal: number
+  billType: 'sale' | 'estimate'
+  explicitCashDiscountInr: number | null
+  collectedAmountInr: number | null
+  /** Jainav/lane sales: use collected when no explicit settlement discount. */
+  shadowSaleUsesCollected: boolean
+}): number {
+  if (
+    params.explicitCashDiscountInr != null &&
+    Number.isFinite(params.explicitCashDiscountInr)
+  ) {
+    return erpSettledTotalInr(params.linesNetTotal, params.explicitCashDiscountInr)
+  }
+  if (
+    params.billType === 'sale' &&
+    params.shadowSaleUsesCollected &&
+    params.collectedAmountInr != null &&
+    params.collectedAmountInr > 0
+  ) {
+    return Math.round(params.collectedAmountInr)
+  }
+  return erpLinesNetBeforeSettlementDiscount(params.linesNetTotal)
+}
+
 /** Sum of catalog MC discounts across lines (before − after). */
 export function computeMcDiscountTotal(lines: ErpBillLine[]): number {
   return lines.reduce((sum, line) => {
@@ -101,9 +144,10 @@ export function computeBillingDiscountSummary(params: {
 }): BillingDiscountSummary {
   const mcDiscountInr = computeMcDiscountTotal(params.lines)
   const collectedAmount = params.collectedAmount
+  const settledTotal = erpSettledTotalInr(params.netTotal, params.explicitCashDiscountInr)
   const balanceInr =
     collectedAmount != null && params.netTotal > 0
-      ? Math.round(params.netTotal - collectedAmount)
+      ? Math.round(settledTotal - collectedAmount)
       : null
   const cashDiscountInr =
     params.explicitCashDiscountInr != null && Number.isFinite(params.explicitCashDiscountInr)
