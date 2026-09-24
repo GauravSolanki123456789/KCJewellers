@@ -367,6 +367,7 @@ export function computeLineBreakdown(
     originalWeightGm: line.originalWeightGm ?? line.weightGm,
   }
   const useStockPieceSlab =
+    !slabLine.manualEntry &&
     lineHasPieceSlabFields(slabLine) &&
     metal.startsWith('silver') &&
     !isSilverGiftStockLine(slabLine)

@@ -23,7 +23,7 @@ import {
   webSerialSupported,
 } from '@/lib/erp-serial-device'
 import { checkLocalPrintAgent, printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
-import { printErpTestReceipt } from '@/lib/erp-billing-print'
+import { printErpTestReceipt, printErpTestReceiptBillsBanao } from '@/lib/erp-billing-print'
 import { kcPoshRfidHealthUrl, kcPoshRfidInventoryUrl } from '@/lib/api-base'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import Image from 'next/image'
@@ -143,6 +143,7 @@ export function ErpHardwareWorkspace() {
       .finally(() => setRfidLookupBusy(false))
   }, [])
   const [epsonTestBusy, setEpsonTestBusy] = useState(false)
+  const [billsBanaoTestBusy, setBillsBanaoTestBusy] = useState(false)
 
   useEffect(() => {
     void axios
@@ -853,6 +854,58 @@ export function ErpHardwareWorkspace() {
         >
           {epsonTestBusy ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
           Test Epson receipt
+        </button>
+      </div>
+
+      <div className={erpCardCls}>
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+          <Printer className="size-4 text-[var(--kc-accent,#c41e3a)]" />
+          Bills Banao printer (Slab R)
+        </div>
+        <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/45">
+          Portable Bluetooth thermal for estimates on tablet/PC. Pair as{' '}
+          <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
+            Bills Banao Printer
+          </strong>{' '}
+          (PIN 0000), then use the Windows printer name shown in Settings → Printers.
+        </p>
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+          Windows printer name
+          <input
+            className={`${erpInputCls} mt-1 font-mono`}
+            placeholder="Bills Banao Printer"
+            value={hw.billsBanaoPrinter?.windowsPrinterName || ''}
+            onChange={(e) =>
+              setHw((h) => ({
+                ...h,
+                billsBanaoPrinter: {
+                  ...h.billsBanaoPrinter,
+                  windowsPrinterName: e.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+        <button
+          type="button"
+          className={`${erpBtnPrimary} mt-3`}
+          disabled={billsBanaoTestBusy}
+          onClick={() => {
+            setBillsBanaoTestBusy(true)
+            void printErpTestReceiptBillsBanao()
+              .then((msg) => setTestMsg(msg))
+              .catch((e) =>
+                setTestMsg(e instanceof Error ? e.message : 'Bills Banao test print failed'),
+              )
+              .finally(() => setBillsBanaoTestBusy(false))
+          }}
+        >
+          {billsBanaoTestBusy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Printer className="size-4" />
+          )}
+          Test Bills Banao receipt
         </button>
       </div>
 

@@ -1093,6 +1093,10 @@ function printPieceSlabMcRatePerUnit(line, rateSlab) {
 
 /** Catalog / list MC before slab overlay (stock mc_rate column). */
 function roughCatalogMcRatePerUnit(line) {
+    if (line?.manualEntry) {
+        const billMc = Number(line?.mc_rate);
+        if (Number.isFinite(billMc) && billMc > 0) return billMc;
+    }
     const raw =
         line?.mc_rate_catalog ??
         line?.mc_rate_standard ??
@@ -1119,12 +1123,44 @@ function roughCatalogMcRatePerUnit(line) {
     return null;
 }
 
+function manualMcDiscountPerUnitForPrint(line, rateSlab) {
+    if (!line?.manualEntry) return 0;
+    const slab = String(rateSlab || 'R').toUpperCase();
+    const field =
+        slab === 'W' ? 'mc_rate_slab_w' : slab === 'F' ? 'mc_rate_slab_f' : 'mc_rate_slab_r';
+    const v = Number(line[field]);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 function enrichLineMcDisplayFieldsForPrint(line, rateSlab) {
     if (!line || typeof line !== 'object') return line;
     const before = Number(line.displayMcBeforeDiscount);
     const after = Number(line.displayMcInr);
     if (Number.isFinite(before) && Number.isFinite(after) && before > after) {
         return line;
+    }
+    if (line.manualEntry) {
+        const baseRate = Number(line.mc_rate);
+        const disc = manualMcDiscountPerUnitForPrint(line, rateSlab);
+        if (Number.isFinite(baseRate) && baseRate > 0 && disc > 0) {
+            const appliedRate = Math.max(0, baseRate - disc);
+            if (baseRate > appliedRate) {
+                const { wt, qty } = roughMcWeightOrQty(line);
+                const std = isMcPerPieceType(line?.mc_type)
+                    ? baseRate * qty
+                    : baseRate * (wt > 0 ? wt : qty);
+                const app = isMcPerPieceType(line?.mc_type)
+                    ? appliedRate * qty
+                    : appliedRate * (wt > 0 ? wt : qty);
+                if (std > app) {
+                    return {
+                        ...line,
+                        displayMcBeforeDiscount: Math.round(std),
+                        displayMcInr: Math.round(app),
+                    };
+                }
+            }
+        }
     }
     const base = roughCatalogMcRatePerUnit(line);
     const applied = roughAppliedMcRatePerUnit(line, rateSlab);
@@ -1153,6 +1189,12 @@ function enrichBillLinesForEstimatePrint(bill, rateSlab) {
 }
 
 function roughAppliedMcRatePerUnit(line, rateSlab) {
+    if (line?.manualEntry) {
+        const base = Number(line?.mc_rate);
+        if (!Number.isFinite(base) || base <= 0) return 0;
+        const disc = manualMcDiscountPerUnitForPrint(line, rateSlab);
+        return disc > 0 ? Math.max(0, base - disc) : base;
+    }
     if (lineHasPieceSlabFields(line)) {
         const slab = printPieceSlabMcRatePerUnit(line, rateSlab);
         if (slab != null && Number.isFinite(Number(slab))) return Number(slab);
@@ -2011,6 +2053,12 @@ function resolveBillingWindowsPrinterName(hw) {
     return String(name).trim() || 'EPSON TM-m30III Receipt';
 }
 
+function resolveBillsBanaoWindowsPrinterName(hw) {
+    const bb = hw?.billsBanaoPrinter || {};
+    const name = bb.windowsPrinterName || 'Bills Banao Printer';
+    return String(name).trim() || 'Bills Banao Printer';
+}
+
 function resolveBillingPrinterConfig(hw) {
     const bp = hw?.billingPrinter || {};
     if (bp.type === 'windows') {
@@ -2079,6 +2127,7 @@ module.exports = {
     preserveBillTemplate,
     resolveBillingPrinterConfig,
     resolveBillingWindowsPrinterName,
+    resolveBillsBanaoWindowsPrinterName,
     escPosToBase64,
     buildSampleReceiptEscPos,
     shouldUsePrnTemplate,

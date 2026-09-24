@@ -703,13 +703,11 @@ var KcExhibitionBillingModule = (() => {
   function applyPieceSlabToLine(line, slab) {
     if (!lineHasPieceSlabFields(line)) return line;
     const net = line.originalWeightGm ?? line.weightGm ?? null;
-    const next = {
+    return {
       ...line,
       originalWeightGm: net,
-      weightGm: pieceSlabBillableWeight(line, slab),
-      mc_rate: pieceSlabMcRate(line, slab)
+      weightGm: pieceSlabBillableWeight(line, slab)
     };
-    return next;
   }
   function computeErpPieceSlabBreakdown(line, slab, silverPerG, wholesaleSilver, gstPct = 3, silverRateOffsetPerG = 0, mcDiscountPct = 0) {
     const netWt = line.originalWeightGm ?? line.weightGm ?? 0;
@@ -787,7 +785,19 @@ var KcExhibitionBillingModule = (() => {
   var GST_PCT = 3;
   function isManualArticlesOrJewelleryLine(line) {
     if (!line.manualEntry) return false;
-    return line.manualCategory === "articles" || line.manualCategory === "jewellery";
+    return line.manualCategory === "articles" || line.manualCategory === "jewellery" || line.manualCategory === "bullion";
+  }
+  function manualMcDiscountPerUnit(line, slab) {
+    if (!line.manualEntry) return 0;
+    const field = mcSlabFieldForBillingSlab(slab);
+    const v = Number(line[field] ?? 0);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }
+  function manualEffectiveMcRatePerUnit(line, slab) {
+    const base = Number(line.mc_rate ?? 0) || 0;
+    if (base <= 0) return 0;
+    const disc = manualMcDiscountPerUnit(line, slab);
+    return disc > 0 ? Math.max(0, base - disc) : base;
   }
   function isMcPerGmMcType(mcType) {
     const t = String(mcType || "").toLowerCase().replace(/\s+/g, "");
@@ -819,9 +829,12 @@ var KcExhibitionBillingModule = (() => {
     }
     const rate = resolveManualRowRatePerG(line, silverPerG, goldPerG);
     const metalCost = rate > 0 ? billedWt * rate : 0;
-    const mcRate = Number(line.mc_rate ?? 0) || 0;
+    const baseMcRate = Number(line.mc_rate ?? 0) || 0;
+    const effMcRate = manualEffectiveMcRatePerUnit(line, slab);
     const pcs = Math.max(1, Number(line.qty) || 1);
-    const totalMc = isMcPerGmMcType(line.mc_type) ? billedWt * mcRate : pcs * mcRate;
+    const perGm = isMcPerGmMcType(line.mc_type);
+    const totalMcBase = perGm ? billedWt * baseMcRate : pcs * baseMcRate;
+    const totalMc = perGm ? billedWt * effMcRate : pcs * effMcRate;
     const subtotalRaw = metalCost + totalMc;
     const gstRaw = subtotalRaw * (GST_PCT / 100);
     const fixed = Number(line.fixed_price ?? 0) || 0;
@@ -831,9 +844,11 @@ var KcExhibitionBillingModule = (() => {
     const taxable = Math.round(subtotalRaw);
     const total = Math.round(subtotalRaw + gstRaw + extras);
     const gstRounded = total - taxable - Math.round(extras);
+    const mcBefore = baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : void 0;
     return {
       metal: Math.round(metalCost),
       mc: Math.round(totalMc),
+      mc_before_discount: mcBefore,
       stone: stone2 + box,
       cgst: gstRounded / 2,
       sgst: gstRounded / 2,
@@ -847,6 +862,11 @@ var KcExhibitionBillingModule = (() => {
   }
 
   // src/lib/erp-billing-pricing.ts
+  function mcSlabFieldForBillingSlab(slab) {
+    if (slab === "W") return "mc_rate_slab_w";
+    if (slab === "F") return "mc_rate_slab_f";
+    return "mc_rate_slab_r";
+  }
   function erpSlabToKind(slab) {
     if (slab === "W") return "slab_w";
     if (slab === "F") return "slab_f";
@@ -1067,7 +1087,7 @@ var KcExhibitionBillingModule = (() => {
       ...line,
       originalWeightGm: line.originalWeightGm ?? line.weightGm
     };
-    const useStockPieceSlab = lineHasPieceSlabFields(slabLine) && metal.startsWith("silver") && !isSilverGiftStockLine(slabLine);
+    const useStockPieceSlab = !slabLine.manualEntry && lineHasPieceSlabFields(slabLine) && metal.startsWith("silver") && !isSilverGiftStockLine(slabLine);
     if (useStockPieceSlab) {
       const adjusted = applyPieceSlabToLine(slabLine, slab);
       const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type);

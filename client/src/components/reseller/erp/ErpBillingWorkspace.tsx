@@ -53,6 +53,7 @@ import { migratePrintFormats } from '@/lib/erp-print-templates'
 import {
   normalizeQuoteOutputMode,
   printErpEstimateThermal,
+  printErpEstimateThermalBillsBanao,
   resolveQuoteOutputMode,
   resolveQuoteOutputModeForSlab,
   type ErpQuoteOutputMode,
@@ -432,6 +433,7 @@ export function ErpBillingWorkspace() {
   const generateQuoteButtonLabel = useMemo(() => {
     const prefix = editingBillId ? 'Update & ' : 'Generate '
     if (quoteOutputMode === 'epson') return `${prefix}Epson estimate`
+    if (quoteOutputMode === 'bills_banao') return `${prefix}Bills Banao estimate`
     if (quoteOutputMode === 'both') return `${prefix}quote (PDF + Epson)`
     return `${prefix}PDF estimate`
   }, [editingBillId, quoteOutputMode])
@@ -529,6 +531,10 @@ export function ErpBillingWorkspace() {
       )
       const next: ErpBillLine = {
         ...slabLine,
+        mc_rate: withOriginal.mc_rate,
+        mc_rate_slab_r: withOriginal.mc_rate_slab_r,
+        mc_rate_slab_w: withOriginal.mc_rate_slab_w,
+        mc_rate_slab_f: withOriginal.mc_rate_slab_f,
         lineTotalInr: bd.total,
         originalWeightGm: withOriginal.originalWeightGm,
       }
@@ -560,19 +566,6 @@ export function ErpBillingWorkspace() {
           next.displayMcBeforeDiscount = Math.round(bd.mc_before_discount)
           next.displayMcInr = Math.round(bd.mc)
           next.displayMcDiscountPct = bd.mc_discount_pct ?? null
-          const baseUnit = perPiece
-            ? Number(line.mc_rate) || bd.mc_before_discount / qty
-            : wt > 0
-              ? bd.mc_before_discount / wt
-              : null
-          const slabUnit = perPiece
-            ? bd.mc / qty
-            : wt > 0
-              ? bd.mc / wt
-              : null
-          if (baseUnit != null && slabUnit != null && baseUnit > slabUnit) {
-            next.mc_rate_slab_r = Math.round(slabUnit * 100) / 100
-          }
         } else {
           const catalogRate = Number(line.mc_rate_catalog)
           const billWt = Number(line.originalWeightGm ?? line.weightGm ?? wt) || 0
@@ -1831,6 +1824,7 @@ export function ErpBillingWorkspace() {
 
     const wantsPdf = mode === 'pdf' || mode === 'both'
     const wantsEpson = mode === 'epson' || mode === 'both'
+    const wantsBillsBanao = mode === 'bills_banao'
 
     try {
       if (wantsEpson) {
@@ -1847,6 +1841,20 @@ export function ErpBillingWorkspace() {
             return
           }
           alert(`${errMsg}\n\nPDF quote will still open.`)
+        }
+      }
+
+      if (wantsBillsBanao) {
+        try {
+          const msg = await printErpEstimateThermalBillsBanao(bill.id)
+          alert(msg)
+        } catch (e) {
+          const errMsg =
+            (e as Error)?.message ||
+            (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            'Could not print on Bills Banao — pair the printer, start START-KC-Label-Print.bat, and check Hardware → Bills Banao printer name.'
+          alert(errMsg)
+          return
         }
       }
 
@@ -2493,19 +2501,35 @@ export function ErpBillingWorkspace() {
               </button>
             </div>
             {quoteMenuOpen ? (
-              <ul className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
-                <li>
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2.5 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--kc-accent,#c41e3a)]/[0.06]"
-                    onClick={() => {
-                      setQuoteMenuOpen(false)
-                      void generateQuote('epson')
-                    }}
-                  >
-                    Epson estimate
-                  </button>
-                </li>
+              <ul className="absolute right-0 z-30 mt-1 min-w-[14rem] overflow-hidden rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
+                {rateSlab === 'R' ? (
+                  <>
+                    <li>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2.5 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--kc-accent,#c41e3a)]/[0.06]"
+                        onClick={() => {
+                          setQuoteMenuOpen(false)
+                          void generateQuote('epson')
+                        }}
+                      >
+                        Epson estimate
+                      </button>
+                    </li>
+                    <li>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2.5 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--kc-accent,#c41e3a)]/[0.06]"
+                        onClick={() => {
+                          setQuoteMenuOpen(false)
+                          void generateQuote('bills_banao')
+                        }}
+                      >
+                        Bills Banao estimate
+                      </button>
+                    </li>
+                  </>
+                ) : null}
                 <li>
                   <button
                     type="button"
@@ -2518,6 +2542,20 @@ export function ErpBillingWorkspace() {
                     PDF estimate
                   </button>
                 </li>
+                {rateSlab === 'R' ? (
+                  <li>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2.5 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--kc-accent,#c41e3a)]/[0.06]"
+                      onClick={() => {
+                        setQuoteMenuOpen(false)
+                        void generateQuote('both')
+                      }}
+                    >
+                      PDF + Epson
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             ) : null}
           </div>

@@ -1,5 +1,5 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
-import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { mcSlabFieldForBillingSlab, type ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { readMetalSlabPct } from '@/lib/erp-metal-slab-field'
 import type { PriceBreakdown } from '@/lib/pricing'
 
@@ -8,7 +8,26 @@ const GST_PCT = 3
 /** Manual scanner lines typed as A (articles) or S (jewellery). */
 export function isManualArticlesOrJewelleryLine(line: ErpBillLine): boolean {
   if (!line.manualEntry) return false
-  return line.manualCategory === 'articles' || line.manualCategory === 'jewellery'
+  return (
+    line.manualCategory === 'articles' ||
+    line.manualCategory === 'jewellery' ||
+    line.manualCategory === 'bullion'
+  )
+}
+
+/** MC R column on manual rows = discount per unit off base MC (not net slab rate). */
+export function manualMcDiscountPerUnit(line: ErpBillLine, slab: ErpRateSlab): number {
+  if (!line.manualEntry) return 0
+  const field = mcSlabFieldForBillingSlab(slab)
+  const v = Number(line[field] ?? 0)
+  return Number.isFinite(v) && v > 0 ? v : 0
+}
+
+export function manualEffectiveMcRatePerUnit(line: ErpBillLine, slab: ErpRateSlab): number {
+  const base = Number(line.mc_rate ?? 0) || 0
+  if (base <= 0) return 0
+  const disc = manualMcDiscountPerUnit(line, slab)
+  return disc > 0 ? Math.max(0, base - disc) : base
 }
 
 /** NetWt = Gross − (Bags × BagWt) — used for manual A/S rows. */
@@ -87,9 +106,12 @@ export function computeManualAsLineBreakdown(
   const rate = resolveManualRowRatePerG(line, silverPerG, goldPerG)
   const metalCost = rate > 0 ? billedWt * rate : 0
 
-  const mcRate = Number(line.mc_rate ?? 0) || 0
+  const baseMcRate = Number(line.mc_rate ?? 0) || 0
+  const effMcRate = manualEffectiveMcRatePerUnit(line, slab)
   const pcs = Math.max(1, Number(line.qty) || 1)
-  const totalMc = isMcPerGmMcType(line.mc_type) ? billedWt * mcRate : pcs * mcRate
+  const perGm = isMcPerGmMcType(line.mc_type)
+  const totalMcBase = perGm ? billedWt * baseMcRate : pcs * baseMcRate
+  const totalMc = perGm ? billedWt * effMcRate : pcs * effMcRate
 
   const subtotalRaw = metalCost + totalMc
   const gstRaw = subtotalRaw * (GST_PCT / 100)
@@ -101,9 +123,13 @@ export function computeManualAsLineBreakdown(
   const total = Math.round(subtotalRaw + gstRaw + extras)
   const gstRounded = total - taxable - Math.round(extras)
 
+  const mcBefore =
+    baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : undefined
+
   return {
     metal: Math.round(metalCost),
     mc: Math.round(totalMc),
+    mc_before_discount: mcBefore,
     stone: stone + box,
     cgst: gstRounded / 2,
     sgst: gstRounded / 2,

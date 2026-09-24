@@ -69,13 +69,11 @@ export function resolveErpSilverMetalRatePerG(
 export function applyPieceSlabToLine(line: ErpBillLine, slab: ErpRateSlab): ErpBillLine {
   if (!lineHasPieceSlabFields(line)) return line
   const net = line.originalWeightGm ?? line.weightGm ?? null
-  const next: ErpBillLine = {
+  return {
     ...line,
     originalWeightGm: net,
     weightGm: pieceSlabBillableWeight(line, slab),
-    mc_rate: pieceSlabMcRate(line, slab),
   }
-  return next
 }
 
 export function computeErpPieceSlabBreakdown(

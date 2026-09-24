@@ -44,6 +44,10 @@ export type ErpHardwareSettings = {
     /** Windows spooler name for Epson on this PC (e.g. EPSON TM-m30III Receipt). */
     windowsPrinterName?: string
   }
+  /** Portable Bluetooth thermal (Bills Banao) — Windows spooler name on tablet/PC. */
+  billsBanaoPrinter?: {
+    windowsPrinterName?: string
+  }
   scanner?: { mode?: string; suffix?: string }
   /** Posh RFID cloud API — used when admin enables RFID for this reseller. */
   poshRfid?: {
@@ -143,6 +147,12 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
     }
   } else if (!hw.billingPrinter?.address && hw.billingPrinter?.type !== 'windows') {
     hw.billingPrinter = { type: 'network', address: '192.168.0.198', port: 9100 }
+  }
+
+  if (!hw.billsBanaoPrinter?.windowsPrinterName) {
+    hw.billsBanaoPrinter = {
+      windowsPrinterName: hw.billsBanaoPrinter?.windowsPrinterName || 'Bills Banao Printer',
+    }
   }
 
   if (!hw.scaleProfiles?.length) {

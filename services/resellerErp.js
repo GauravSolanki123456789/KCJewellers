@@ -2546,7 +2546,11 @@ function registerResellerErpRoutes(app, deps) {
                 }
             }
             const hw = settings.hardware || {};
-            const windowsPrinterName = erpPrint.resolveBillingWindowsPrinterName(hw);
+            const printerKind = String(req.body?.printer || req.query?.printer || 'epson').toLowerCase();
+            const windowsPrinterName =
+                printerKind === 'bills_banao' || printerKind === 'billsbanao'
+                    ? erpPrint.resolveBillsBanaoWindowsPrinterName(hw)
+                    : erpPrint.resolveBillingWindowsPrinterName(hw);
             const escPos = erpPrint.buildSampleReceiptEscPos();
             return res.json({
                 escPosBase64: erpPrint.escPosToBase64(escPos),
@@ -2710,7 +2714,11 @@ function registerResellerErpRoutes(app, deps) {
             };
             const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates);
             const mode = String(req.body.mode || req.body.delivery || 'client').toLowerCase();
-            const windowsPrinterName = erpPrint.resolveBillingWindowsPrinterName(hw);
+            const printerKind = String(req.body.printer || 'epson').toLowerCase();
+            const windowsPrinterName =
+                printerKind === 'bills_banao' || printerKind === 'billsbanao'
+                    ? erpPrint.resolveBillsBanaoWindowsPrinterName(hw)
+                    : erpPrint.resolveBillingWindowsPrinterName(hw);
             const clientPayload = {
                 escPosBase64: erpPrint.escPosToBase64(escPos),
                 windowsPrinterName,

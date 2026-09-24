@@ -309,7 +309,7 @@ export type ErpPrintFormatsSettings = {
   estimateTemplateGold?: string
   estimateTemplateSilver?: string
   /** Shop-wide default when staff clicks Generate quote (workstation can override). */
-  defaultQuoteOutputMode?: 'pdf' | 'epson' | 'both'
+  defaultQuoteOutputMode?: 'pdf' | 'epson' | 'bills_banao' | 'both'
   /** Slab R gold: show MC ₹ on bills/estimates (default). When false, show wastage % like Slab W/F. */
   goldSlabRShowMc?: boolean
   /** Epson estimate: rough (legacy layout) or custom (gold/silver template textareas). */
