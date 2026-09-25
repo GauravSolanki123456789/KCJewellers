@@ -1,11 +1,11 @@
 'use client'
 
+import { useMemo } from 'react'
 import { X } from 'lucide-react'
 import {
   erpBtnGhost,
   erpCardCls,
   type ErpBill,
-  type ErpBillLine,
 } from '@/components/reseller/erp/erp-ui'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
@@ -14,11 +14,12 @@ import {
   formatEstimateStatusLabel,
   resolveBillEstimateStatus,
 } from '@/lib/erp-estimate-status'
-
-function lineRate(line: ErpBillLine): string {
-  if (line.rateLocked && !(Number(line.ratePerGram) > 0)) return '—'
-  return line.ratePerGram != null ? String(line.ratePerGram) : '—'
-}
+import {
+  buildBillPreviewDisplayLines,
+  previewDisplayLabel,
+  previewLineRateDisplay,
+  rawPhysicalNetGm,
+} from '@/lib/erp-invoice-settlement-display'
 
 type Props = {
   bill: ErpBill | null
@@ -27,17 +28,23 @@ type Props = {
 }
 
 export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
+  const displayLines = useMemo(
+    () => (bill ? buildBillPreviewDisplayLines(bill) : []),
+    [bill],
+  )
+
   if (!bill) return null
 
-  const lines = bill.lines ?? []
   const session = bill.session as ErpBillSession | undefined
-  const ratesUnfixed = lines.length ? billLinesRatesUnfixed(lines) : !!session?.ratesUnfixed
+  const ratesUnfixed = displayLines.length
+    ? billLinesRatesUnfixed(bill.lines ?? [])
+    : !!session?.ratesUnfixed
   const advancePaid = Math.max(0, Number(session?.advancePaidInr) || 0)
   const netTotal = Number(bill.total_inr) || 0
   const balanceDue = advancePaid > 0 ? Math.max(0, netTotal - advancePaid) : 0
   const effectiveStatus = resolveBillEstimateStatus(bill)
   let weight = 0
-  for (const l of lines) weight += Number(l.weightGm) || 0
+  for (const l of displayLines) weight += rawPhysicalNetGm(l)
 
   const title = kind === 'estimate' ? 'Estimation preview' : 'Sales bill preview'
 
@@ -99,25 +106,33 @@ export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
               </tr>
             </thead>
             <tbody>
-              {lines.length === 0 ? (
+              {displayLines.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                     No line items.
                   </td>
                 </tr>
               ) : (
-                lines.map((line, i) => (
-                  <tr key={`${line.barcode || line.code}-${i}`} className="border-t border-[var(--color-slate-700,#e8e4df)]/50">
-                    <td className="px-2 py-2 tabular-nums">{i + 1}</td>
-                    <td className="max-w-[100px] truncate px-2 py-2">{line.barcode || line.code || '—'}</td>
-                    <td className="max-w-[140px] truncate px-2 py-2 font-medium">{line.name}</td>
-                    <td className="px-2 py-2 tabular-nums">{line.weightGm ?? '—'}</td>
-                    <td className="px-2 py-2 tabular-nums">{lineRate(line)}</td>
-                    <td className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
-                      {formatErpInr(line.lineTotalInr ?? 0)}
-                    </td>
-                  </tr>
-                ))
+                displayLines.map((line, i) => {
+                  const rawWt = rawPhysicalNetGm(line)
+                  return (
+                    <tr
+                      key={`${line.barcode || line.code}-${i}`}
+                      className="border-t border-[var(--color-slate-700,#e8e4df)]/50"
+                    >
+                      <td className="px-2 py-2 tabular-nums">{i + 1}</td>
+                      <td className="max-w-[100px] truncate px-2 py-2">{line.barcode || line.code || '—'}</td>
+                      <td className="max-w-[140px] truncate px-2 py-2 font-medium">
+                        {previewDisplayLabel(line) || line.name}
+                      </td>
+                      <td className="px-2 py-2 tabular-nums">{rawWt > 0 ? rawWt : '—'}</td>
+                      <td className="px-2 py-2 tabular-nums">{previewLineRateDisplay(line)}</td>
+                      <td className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
+                        {formatErpInr(line.lineTotalInr ?? 0)}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -125,7 +140,7 @@ export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
 
         <div className="mt-3 flex flex-wrap justify-end gap-2 text-xs">
           <span className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2">
-            Items <strong className="ml-1 tabular-nums">{lines.length}</strong>
+            Items <strong className="ml-1 tabular-nums">{displayLines.length}</strong>
           </span>
           <span className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2">
             Weight <strong className="ml-1 tabular-nums">{weight.toFixed(2)}g</strong>

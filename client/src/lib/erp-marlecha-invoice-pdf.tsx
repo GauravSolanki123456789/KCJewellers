@@ -3,7 +3,8 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
-import { groupMarlechaInvoiceLines, isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
+import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
+import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
 import {
@@ -626,8 +627,8 @@ function InvoicePage({
 export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoiceProps) {
   const mrpNames = props.mrpItemNames || new Set<string>()
   const lines = useMemo(
-    () => groupMarlechaInvoiceLines(props.bill.lines ?? [], mrpNames),
-    [props.bill.lines, mrpNames],
+    () => buildSettlementAdjustedInvoiceLines(props.bill, mrpNames),
+    [props.bill, mrpNames],
   )
   const session = (props.bill.session && typeof props.bill.session === 'object'
     ? props.bill.session

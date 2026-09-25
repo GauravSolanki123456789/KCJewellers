@@ -343,11 +343,13 @@ export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
     qty = 1
   }
   const box = Number(line.box_charges || 0) || 0
+  const taxable = Math.round((qty * pieceRate + box) * 100) / 100
+  const total = Math.round(taxable * (1 + ERP_LINE_GST_PCT / 100))
   return {
     ...line,
     qty,
     unitInr: pieceRate > 0 ? pieceRate : line.unitInr,
-    lineTotalInr: Math.round((qty * pieceRate + box) * 100) / 100,
+    lineTotalInr: total,
   }
 }
 

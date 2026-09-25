@@ -1774,12 +1774,13 @@ function roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats) {
 
 function roughGiftDiscountInfo(line) {
     const qty = Number(line?.qty) || 1;
-    const unitMrp = Number(line?.mrpListPrice ?? line?.unitInr ?? line?.fixed_price) || 0;
-    const mrpTotal = unitMrp * qty;
-    const taxable = lineTaxableFromTotal(line?.lineTotalInr);
-    const disc = Math.max(0, Math.round((mrpTotal - taxable) * 100) / 100);
+    const listUnit = Number(line?.mrpListPrice) || 0;
+    const mrpTotal = listUnit > 0 ? Math.round(listUnit * qty * 100) / 100 : 0;
+    const itemTotal = Math.round(Number(line?.lineTotalInr) || 0);
+    const taxable = lineTaxableFromTotal(itemTotal);
+    const disc = mrpTotal > 0 ? Math.max(0, Math.round((mrpTotal - taxable) * 100) / 100) : 0;
     const pct = mrpTotal > 0 ? Math.round((disc / mrpTotal) * 100) : 0;
-    return { mrpTotal, disc, pct, taxable };
+    return { mrpTotal, disc, pct, taxable, itemTotal };
 }
 
 function pushIf(out, row) {
@@ -1847,7 +1848,7 @@ function buildMarlechaGiftItemSection(line, idx) {
     const gst = splitRoughGst(gift.taxable);
     pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
     pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
-    const itemTotal = Math.round(gst.gross);
+    const itemTotal = gift.itemTotal > 0 ? gift.itemTotal : Math.round(gst.gross);
     out.push(roughPadRow(roughBold('Total :'), roughBold(roughMoneyRoundedTotal(itemTotal))));
     out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     return { lines: out, taxable: gift.taxable, savings: gift.disc, total: itemTotal };
