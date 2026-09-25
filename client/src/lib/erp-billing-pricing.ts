@@ -11,9 +11,12 @@ import {
   computeErpPieceSlabBreakdown,
   lineHasPieceSlabFields,
   pieceSlabBillableWeight,
-  resolveErpSilverMetalRatePerG,
   pieceSlabMcRate,
+  pieceSlabMetalFraction,
+  resolveErpLineSilverMetalRatePerG,
+  resolveErpSilverMetalRatePerG,
 } from '@/lib/erp-piece-slab-pricing'
+import { lineHasMetalSlabPctInput } from '@/lib/erp-metal-slab-field'
 import { applyGiftMrpPieceRate } from '@/lib/erp-gift-mrp-pricing'
 import {
   computeManualAsLineBreakdown,
@@ -293,19 +296,31 @@ function finalizeWeightBasedBreakdown(line: ErpBillLine, bd: PriceBreakdown): Pr
   return appendTaxableExtraToBreakdown(bd, erpAdditiveFixedChargeInr(line))
 }
 
+/** Slab R retail markdown — not when W/F, metal %, or a locked row rate already set the price. */
+function shouldSkipRetailSilverRateMarkdown(line: ErpBillLine, slab: ErpRateSlab): boolean {
+  if (slab !== 'R') return true
+  if (line.rateLocked && Number(line.ratePerGram) > 0) return true
+  if (lineHasMetalSlabPctInput(line, slab)) return true
+  if (lineHasPieceSlabFields(line) && pieceSlabMetalFraction(line, slab) < 0.999) return true
+  return false
+}
+
 /** Weight-based silver: fixed in taxable, then subtract live-vs-line silver rate discount before GST. */
 function finalizeSilverBillLineBreakdown(
   line: ErpBillLine,
   bd: PriceBreakdown,
   silverPerG: number,
+  slab: ErpRateSlab = 'R',
 ): PriceBreakdown {
   let next = finalizeWeightBasedBreakdown(line, bd)
   if (isManualArticlesOrJewelleryLine(line) || isPiecePricedBillLine(line)) return next
   if (isSilverGiftStockLine(line) || isSilverGiftMcGmLine(line)) return next
+  if (shouldSkipRetailSilverRateMarkdown(line, slab)) return next
   const metal = String(line.metal_type || '').toLowerCase()
   if (!metal.startsWith('silver')) return next
-  const wt = Number(line.originalWeightGm ?? line.weightGm) || 0
-  const rate = Number(line.ratePerGram)
+  const wt =
+    Number(bd.billable_weight_gm ?? line.originalWeightGm ?? line.weightGm) || 0
+  const rate = Number(line.ratePerGram ?? bd.rate_per_gram)
   if (wt <= 0 || !Number.isFinite(rate) || rate <= 0 || silverPerG <= rate) {
     const total = Math.round(next.taxable * (1 + ERP_LINE_GST_PCT / 100))
     const gst = total - next.taxable
@@ -366,7 +381,14 @@ export function computeLineBreakdown(
   }
 
   if (isManualArticlesOrJewelleryLine(line)) {
-    return computeManualAsLineBreakdown(line, slab, silverPerG, goldPerG)
+    return computeManualAsLineBreakdown(
+      line,
+      slab,
+      silverPerG,
+      goldPerG,
+      wholesaleSilver,
+      wholesaleGold,
+    )
   }
 
   if (isPiecePricedBillLine(line)) {
@@ -416,7 +438,7 @@ export function computeLineBreakdown(
       silverOffset,
       mcDisc,
     )
-    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG)
+    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab)
     const box = Number(line.box_charges || 0) || 0
     if (box <= 0) return bd
     const gstPct = 3
@@ -437,7 +459,7 @@ export function computeLineBreakdown(
   )
   const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
   let bd = calculateBreakdownWithSlab(item, rates, 3, ctx)
-  bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG)
+  bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab)
   const box = Number(line.box_charges || 0) || 0
   if (box <= 0) return bd
   const gstPct = 3
@@ -451,6 +473,52 @@ export function computeLineBreakdown(
     cgst: gstAmt / 2,
     sgst: gstAmt / 2,
   }
+}
+
+/** Rows that follow live gold/silver ₹/g when slab or wholesale rates change (unless rateLocked). */
+export function shouldAutoSyncLineMetalRate(line: ErpBillLine): boolean {
+  if (line.rateLocked) return false
+  if (isPiecePricedBillLine(line)) return false
+  const metal = String(line.metal_type || '').toLowerCase()
+  if (line.manualEntry) {
+    return (
+      metal.startsWith('gold') ||
+      metal.startsWith('silver') ||
+      line.manualCategory === 'articles' ||
+      line.manualCategory === 'jewellery' ||
+      line.manualCategory === 'bullion'
+    )
+  }
+  return metal.startsWith('gold') || metal.startsWith('silver')
+}
+
+export function erpLiveMetalRatePerGram(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+  goldPerG: number,
+  silverPerG: number,
+  wholesaleGold?: number | null,
+  wholesaleSilver?: number | null,
+  silverRateOffsetPerG = 0,
+): number | null {
+  const metal = String(line.metal_type || 'silver').toLowerCase()
+  if (metal.startsWith('gold')) {
+    if (slab === 'W' || slab === 'F') {
+      const wh = wholesaleGold ?? goldPerG
+      return wh > 0 ? wh : null
+    }
+    return goldPerG > 0 ? goldPerG : null
+  }
+  if (metal.startsWith('silver')) {
+    return resolveErpLineSilverMetalRatePerG(
+      line,
+      slab,
+      silverPerG,
+      wholesaleSilver,
+      silverRateOffsetPerG,
+    )
+  }
+  return null
 }
 
 export function parseSlabSettingsFromUser(raw: unknown): ResellerSlabSettings {

@@ -65,6 +65,24 @@ export function resolveErpSilverMetalRatePerG(
   return Math.max(0, wh)
 }
 
+/** Slab/wholesale rate unless the cashier locked a custom ₹/g on the row. */
+export function resolveErpLineSilverMetalRatePerG(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+  silverPerG: number,
+  wholesaleSilver?: number | null,
+  silverRateOffsetPerG = 0,
+): number {
+  const locked = Number(line.ratePerGram)
+  if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
+  return resolveErpSilverMetalRatePerG(
+    slab,
+    silverPerG,
+    wholesaleSilver,
+    silverRateOffsetPerG,
+  )
+}
+
 /** Apply slab-adjusted weight + per-slab MC to a bill line (before totals). */
 export function applyPieceSlabToLine(line: ErpBillLine, slab: ErpRateSlab): ErpBillLine {
   if (!lineHasPieceSlabFields(line)) return line
@@ -87,13 +105,14 @@ export function computeErpPieceSlabBreakdown(
 ): PriceBreakdown {
   const netWt = line.originalWeightGm ?? line.weightGm ?? 0
   const billWt = pieceSlabBillableWeight(line, slab)
-  const metalRate = resolveErpSilverMetalRatePerG(
+  const metalRate = resolveErpLineSilverMetalRatePerG(
+    line,
     slab,
     silverPerG,
     wholesaleSilver,
     silverRateOffsetPerG,
   )
-  const mcRate = pieceSlabMcRate(line, slab) ?? 0
+  const mcRate = Number(pieceSlabMcRate(line, slab) ?? 0) || 0
   const qty = line.qty ?? 1
   const stone = Number(line.stone_charges || 0) || 0
   const box = Number(line.box_charges || 0) || 0

@@ -67,24 +67,39 @@ function isMcPerGmMcType(mcType: string | null | undefined): boolean {
 
 function resolveManualRowRatePerG(
   line: ErpBillLine,
+  slab: ErpRateSlab,
   silverPerG: number,
   goldPerG: number,
+  wholesaleSilver?: number | null,
+  wholesaleGold?: number | null,
 ): number {
   const locked = Number(line.ratePerGram)
   if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
-  if (Number.isFinite(locked) && locked > 0) return locked
   const metal = String(line.metal_type || 'silver').toLowerCase()
-  if (metal.startsWith('gold') && goldPerG > 0) return goldPerG
-  if (silverPerG > 0) return silverPerG
-  return 0
+  if (metal.startsWith('gold')) {
+    if (slab === 'W' || slab === 'F') {
+      const wh = Number(wholesaleGold ?? goldPerG) || 0
+      return wh > 0 ? wh : goldPerG > 0 ? goldPerG : 0
+    }
+    return goldPerG > 0 ? goldPerG : 0
+  }
+  if (slab === 'W' || slab === 'F') {
+    const wh = Number(wholesaleSilver ?? silverPerG) || 0
+    return wh > 0 ? wh : silverPerG > 0 ? silverPerG : 0
+  }
+  return silverPerG > 0 ? silverPerG : 0
 }
 
 function manualSilverRateDiscountInr(
   line: ErpBillLine,
+  slab: ErpRateSlab,
   billedWt: number,
   lineRate: number,
   silverPerG: number,
 ): number {
+  if (slab !== 'R') return 0
+  if (line.rateLocked && Number(line.ratePerGram) > 0) return 0
+  if (lineHasMetalSlabPctInput(line, slab)) return 0
   if (billedWt <= 0 || silverPerG <= 0 || lineRate <= 0) return 0
   if (silverPerG <= lineRate) return 0
   return Math.round((silverPerG - lineRate) * billedWt)
@@ -99,6 +114,8 @@ export function computeManualAsLineBreakdown(
   slab: ErpRateSlab,
   silverPerG = 0,
   goldPerG = 0,
+  wholesaleSilver?: number | null,
+  wholesaleGold?: number | null,
 ): PriceBreakdown {
   const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
   if (netWt <= 0) {
@@ -114,7 +131,14 @@ export function computeManualAsLineBreakdown(
     billedWt = netWt * (1 + wastPct / 100)
   }
 
-  const rate = resolveManualRowRatePerG(line, silverPerG, goldPerG)
+  const rate = resolveManualRowRatePerG(
+    line,
+    slab,
+    silverPerG,
+    goldPerG,
+    wholesaleSilver,
+    wholesaleGold,
+  )
   const metalCost = rate > 0 ? billedWt * rate : 0
 
   const baseMcRate = Number(line.mc_rate ?? 0) || 0
@@ -128,7 +152,7 @@ export function computeManualAsLineBreakdown(
   const box = Number(line.box_charges ?? 0) || 0
   const stone = Number(line.stone_charges ?? 0) || 0
   const baseSubtotal = metalCost + totalMcBase + fixed + box + stone
-  const metalDisc = manualSilverRateDiscountInr(line, billedWt, rate, silverPerG)
+  const metalDisc = manualSilverRateDiscountInr(line, slab, billedWt, rate, silverPerG)
   const mcDisc = Math.max(0, Math.round(totalMcBase - totalMc))
   const netSubtotal = Math.max(0, baseSubtotal - metalDisc - mcDisc)
   const taxable = Math.round(netSubtotal)

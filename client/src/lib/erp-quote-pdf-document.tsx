@@ -66,6 +66,12 @@ function buildPdfColumns(
   const showSlabPct = lines.some((l) => lineHasMetalSlabPctInput(l, rateSlab))
 
   const rateUnfixAlways = new Set(['rate', 'mcValue', 'amt'])
+  const hasMetalRate = lines.some(
+    (l) =>
+      Number(l.ratePerGram) > 0 ||
+      (String(l.metal_type || '').toLowerCase().startsWith('silver') &&
+        (Number(l.originalWeightGm ?? l.weightGm) || 0) > 0),
+  )
 
   const candidates: PdfCol[] = [
     { key: 'barcode', label: 'Barcode', w: '9%' },
@@ -95,6 +101,7 @@ function buildPdfColumns(
 
   return candidates.filter((col) => {
     if (ratesUnfixed && rateUnfixAlways.has(col.key)) return true
+    if (col.key === 'rate' && hasMetalRate) return true
     return lines.some((line) => {
       const val = cell(line, col.key, rateSlab, ratesUnfixed)
       return !isEmptyPdfCell(val, col.key)
@@ -269,9 +276,12 @@ function cell(
       return line.purity != null ? String(line.purity) : '—'
     case 'wast':
       return String(billingWastageDisplay(line, rateSlab) || '—')
-    case 'rate':
+    case 'rate': {
+      const r = Number(line.ratePerGram)
+      if (Number.isFinite(r) && r > 0) return String(line.ratePerGram)
       if (line.rateLocked) return ''
-      return line.ratePerGram != null ? String(line.ratePerGram) : '—'
+      return '—'
+    }
     case 'mc':
       return billingMcPdfText(line, rateSlab)
     case 'mct':

@@ -640,15 +640,17 @@ export function ErpBillingWorkspace() {
     ): ErpBillLine[] =>
       list.map((line) => {
         const withGift = applyGiftMrpForSlabChange(line, nextSlab, slabSettings)
-        const cleared: ErpBillLine = {
-          ...withGift,
-          rateLocked: false,
-          ratePerGram: null,
-          displayMcInr: null,
-          displayWastagePct: null,
-          displayMcBeforeDiscount: null,
-          displayMcDiscountPct: null,
-        }
+        const cleared: ErpBillLine = line.rateLocked
+          ? withGift
+          : {
+              ...withGift,
+              rateLocked: false,
+              ratePerGram: null,
+              displayMcInr: null,
+              displayWastagePct: null,
+              displayMcBeforeDiscount: null,
+              displayMcDiscountPct: null,
+            }
         return recalcLine(cleared, {
           slab: nextSlab,
           rates: ratesOverride,
@@ -1572,18 +1574,22 @@ export function ErpBillingWorkspace() {
     setLines((prev) =>
       prev.map((line) => {
         const withGift = applyGiftMrpForSlabChange(line, nextSlab, slabSettings)
-        return recalcLine(
-          {
-            ...withGift,
-            rateLocked: false,
-            ratePerGram: null,
-            displayMcInr: null,
-            displayWastagePct: null,
-            displayMcBeforeDiscount: null,
-            displayMcDiscountPct: null,
-          },
-          { slab: nextSlab, wholesaleGold: gVal, wholesaleSilver: sVal },
-        )
+        const base: ErpBillLine = line.rateLocked
+          ? withGift
+          : {
+              ...withGift,
+              rateLocked: false,
+              ratePerGram: null,
+              displayMcInr: null,
+              displayWastagePct: null,
+              displayMcBeforeDiscount: null,
+              displayMcDiscountPct: null,
+            }
+        return recalcLine(base, {
+          slab: nextSlab,
+          wholesaleGold: gVal,
+          wholesaleSilver: sVal,
+        })
       }),
     )
     setShowWholesaleModal(false)
